@@ -1,0 +1,1141 @@
+{
+  "profileModals": {
+    "PERSONAL_DETAILS": {
+      "BasicInformation": {
+        "modalName": "BasicInfoModal",
+        "dataInterface": "BasicInfoData",
+        "fields": [
+          {
+            "fieldName": "firstName",
+            "type": "string",
+            "required": true,
+            "description": "First name of the candidate"
+          },
+          {
+            "fieldName": "middleName",
+            "type": "string",
+            "required": false,
+            "description": "Middle name of the candidate"
+          },
+          {
+            "fieldName": "lastName",
+            "type": "string",
+            "required": true,
+            "description": "Last name of the candidate"
+          },
+          {
+            "fieldName": "email",
+            "type": "string",
+            "required": true,
+            "description": "Email address"
+          },
+          {
+            "fieldName": "phone",
+            "type": "string",
+            "required": true,
+            "description": "Phone number"
+          },
+          {
+            "fieldName": "phoneCode",
+            "type": "string",
+            "required": true,
+            "description": "Country code for phone number (e.g., '+1 (USA)')"
+          },
+          {
+            "fieldName": "gender",
+            "type": "string",
+            "required": false,
+            "description": "Gender (Male, Female, Other)"
+          },
+          {
+            "fieldName": "dob",
+            "type": "string",
+            "required": false,
+            "description": "Date of birth (formatted string)"
+          },
+          {
+            "fieldName": "country",
+            "type": "string",
+            "required": false,
+            "description": "Country of residence"
+          },
+          {
+            "fieldName": "city",
+            "type": "string",
+            "required": false,
+            "description": "City of residence"
+          },
+          {
+            "fieldName": "employment",
+            "type": "string",
+            "required": false,
+            "description": "Employment status (Employed, Unemployed, etc.)"
+          }
+        ]
+      },
+      "ProfileSummary": {
+        "modalName": "SummaryModal",
+        "dataInterface": "string",
+        "fields": [
+          {
+            "fieldName": "summaryText",
+            "type": "string",
+            "required": false,
+            "description": "Professional summary/description text"
+          }
+        ]
+      },
+      "GapExplanation": {
+        "modalName": "GapExplanationModal",
+        "dataInterface": "GapExplanationData",
+        "fields": [
+          {
+            "fieldName": "gapCategory",
+            "type": "string",
+            "required": true,
+            "description": "Category of the employment gap"
+          },
+          {
+            "fieldName": "reasonForGap",
+            "type": "string",
+            "required": true,
+            "description": "Reason for the employment gap"
+          },
+          {
+            "fieldName": "gapDuration",
+            "type": "string",
+            "required": true,
+            "description": "Duration of the gap"
+          },
+          {
+            "fieldName": "selectedSkills",
+            "type": "string[]",
+            "required": false,
+            "description": "Skills maintained during the gap"
+          },
+          {
+            "fieldName": "coursesText",
+            "type": "string",
+            "required": false,
+            "description": "Courses or training taken during gap"
+          },
+          {
+            "fieldName": "preferredSupport",
+            "type": "object",
+            "required": false,
+            "description": "Preferred support options",
+            "subFields": [
+              {
+                "fieldName": "flexibleRole",
+                "type": "boolean",
+                "description": "Open to flexible role"
+              },
+              {
+                "fieldName": "hybridRemote",
+                "type": "boolean",
+                "description": "Open to hybrid/remote work"
+              },
+              {
+                "fieldName": "midLevelReEntry",
+                "type": "boolean",
+                "description": "Open to mid-level re-entry"
+              },
+              {
+                "fieldName": "skillRefresher",
+                "type": "boolean",
+                "description": "Interested in skill refresher programs"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "WORK_HISTORY": {
+      "WorkExperience": {
+        "modalName": "WorkExperienceModal",
+        "dataInterface": "WorkExperienceData",
+        "fields": [
+          {
+            "fieldName": "workExperiences",
+            "type": "array",
+            "required": true,
+            "description": "Array of work experience entries",
+            "itemFields": [
+              {
+                "fieldName": "id",
+                "type": "string",
+                "required": true,
+                "description": "Unique identifier for the work experience entry"
+              },
+              {
+                "fieldName": "jobTitle",
+                "type": "string",
+                "required": true,
+                "description": "Job title/position"
+              },
+              {
+                "fieldName": "companyName",
+                "type": "string",
+                "required": true,
+                "description": "Company name"
+              },
+              {
+                "fieldName": "employmentType",
+                "type": "string",
+                "required": false,
+                "description": "Type of employment (Full-time, Part-time, Contract, etc.)"
+              },
+              {
+                "fieldName": "industryDomain",
+                "type": "string",
+                "required": false,
+                "description": "Industry or domain"
+              },
+              {
+                "fieldName": "numberOfReportees",
+                "type": "string",
+                "required": false,
+                "description": "Number of people reporting to this position"
+              },
+              {
+                "fieldName": "startDate",
+                "type": "string",
+                "required": true,
+                "description": "Start date (YYYY-MM-DD format)"
+              },
+              {
+                "fieldName": "endDate",
+                "type": "string",
+                "required": false,
+                "description": "End date (YYYY-MM-DD format), empty if currently working"
+              },
+              {
+                "fieldName": "currentlyWorkHere",
+                "type": "boolean",
+                "required": false,
+                "description": "Whether currently working at this position"
+              },
+              {
+                "fieldName": "workLocation",
+                "type": "string",
+                "required": false,
+                "description": "Work location/city"
+              },
+              {
+                "fieldName": "workMode",
+                "type": "string",
+                "required": false,
+                "description": "Work mode (Remote, On-site, Hybrid)"
+              },
+              {
+                "fieldName": "companyProfile",
+                "type": "string",
+                "required": false,
+                "description": "Company profile/description"
+              },
+              {
+                "fieldName": "companyTurnover",
+                "type": "string",
+                "required": false,
+                "description": "Company turnover/revenue"
+              },
+              {
+                "fieldName": "keyResponsibilities",
+                "type": "string",
+                "required": false,
+                "description": "Key responsibilities and duties"
+              },
+              {
+                "fieldName": "achievements",
+                "type": "string",
+                "required": false,
+                "description": "Achievements and accomplishments"
+              },
+              {
+                "fieldName": "workSkills",
+                "type": "string[]",
+                "required": false,
+                "description": "Skills used in this role"
+              }
+            ]
+          }
+        ]
+      },
+      "Internship": {
+        "modalName": "InternshipModal",
+        "dataInterface": "InternshipData",
+        "fields": [
+          {
+            "fieldName": "internshipTitle",
+            "type": "string",
+            "required": true,
+            "description": "Title of the internship"
+          },
+          {
+            "fieldName": "companyName",
+            "type": "string",
+            "required": true,
+            "description": "Company name"
+          },
+          {
+            "fieldName": "internshipType",
+            "type": "string",
+            "required": false,
+            "description": "Type of internship"
+          },
+          {
+            "fieldName": "domainDepartment",
+            "type": "string",
+            "required": false,
+            "description": "Domain or department"
+          },
+          {
+            "fieldName": "startDate",
+            "type": "string",
+            "required": true,
+            "description": "Start date (YYYY-MM-DD format)"
+          },
+          {
+            "fieldName": "endDate",
+            "type": "string",
+            "required": false,
+            "description": "End date (YYYY-MM-DD format)"
+          },
+          {
+            "fieldName": "currentlyWorking",
+            "type": "boolean",
+            "required": false,
+            "description": "Whether currently working as intern"
+          },
+          {
+            "fieldName": "location",
+            "type": "string",
+            "required": false,
+            "description": "Internship location"
+          },
+          {
+            "fieldName": "workMode",
+            "type": "string",
+            "required": false,
+            "description": "Work mode (Remote, On-site, Hybrid)"
+          },
+          {
+            "fieldName": "responsibilities",
+            "type": "string",
+            "required": false,
+            "description": "Responsibilities during internship"
+          },
+          {
+            "fieldName": "learnings",
+            "type": "string",
+            "required": false,
+            "description": "Key learnings from internship"
+          },
+          {
+            "fieldName": "skills",
+            "type": "string[]",
+            "required": false,
+            "description": "Skills gained during internship"
+          }
+        ]
+      }
+    },
+    "EDUCATION": {
+      "Education": {
+        "modalName": "EducationModal",
+        "dataInterface": "EducationData",
+        "fields": [
+          {
+            "fieldName": "educationLevel",
+            "type": "string",
+            "required": true,
+            "description": "Level of education (e.g., Bachelor's, Master's, PhD)"
+          },
+          {
+            "fieldName": "degreeProgram",
+            "type": "string",
+            "required": true,
+            "description": "Degree program name"
+          },
+          {
+            "fieldName": "institutionName",
+            "type": "string",
+            "required": true,
+            "description": "Name of the educational institution"
+          },
+          {
+            "fieldName": "fieldOfStudy",
+            "type": "string",
+            "required": false,
+            "description": "Field of study/major"
+          },
+          {
+            "fieldName": "startYear",
+            "type": "string",
+            "required": true,
+            "description": "Start year"
+          },
+          {
+            "fieldName": "endYear",
+            "type": "string",
+            "required": false,
+            "description": "End year or graduation year"
+          },
+          {
+            "fieldName": "currentlyStudying",
+            "type": "boolean",
+            "required": false,
+            "description": "Whether currently studying"
+          },
+          {
+            "fieldName": "grade",
+            "type": "string",
+            "required": false,
+            "description": "Grade/GPA achieved"
+          },
+          {
+            "fieldName": "modeOfStudy",
+            "type": "string",
+            "required": false,
+            "description": "Mode of study (Full-time, Part-time, Online, etc.)"
+          },
+          {
+            "fieldName": "courseDuration",
+            "type": "string",
+            "required": false,
+            "description": "Duration of the course"
+          }
+        ]
+      },
+      "AcademicAchievement": {
+        "modalName": "AcademicAchievementModal",
+        "dataInterface": "AcademicAchievementData",
+        "fields": [
+          {
+            "fieldName": "achievementTitle",
+            "type": "string",
+            "required": true,
+            "description": "Title of the academic achievement"
+          },
+          {
+            "fieldName": "awardedBy",
+            "type": "string",
+            "required": true,
+            "description": "Organization or institution that awarded this"
+          },
+          {
+            "fieldName": "yearReceived",
+            "type": "string",
+            "required": true,
+            "description": "Year when achievement was received"
+          },
+          {
+            "fieldName": "categoryType",
+            "type": "string",
+            "required": false,
+            "description": "Category or type of achievement"
+          },
+          {
+            "fieldName": "description",
+            "type": "string",
+            "required": false,
+            "description": "Description of the achievement"
+          }
+        ]
+      },
+      "CompetitiveExams": {
+        "modalName": "CompetitiveExamsModal",
+        "dataInterface": "CompetitiveExamsData",
+        "fields": [
+          {
+            "fieldName": "examName",
+            "type": "string",
+            "required": true,
+            "description": "Name of the competitive exam"
+          },
+          {
+            "fieldName": "yearTaken",
+            "type": "string",
+            "required": true,
+            "description": "Year when exam was taken"
+          },
+          {
+            "fieldName": "resultStatus",
+            "type": "string",
+            "required": true,
+            "description": "Result status (Passed, Failed, Pending, etc.)"
+          },
+          {
+            "fieldName": "scoreMarks",
+            "type": "string",
+            "required": false,
+            "description": "Score or marks obtained"
+          },
+          {
+            "fieldName": "scoreType",
+            "type": "string",
+            "required": false,
+            "description": "Type of score (Percentage, Percentile, Rank, etc.)"
+          },
+          {
+            "fieldName": "validUntil",
+            "type": "string",
+            "required": false,
+            "description": "Validity period of the exam result"
+          },
+          {
+            "fieldName": "additionalNotes",
+            "type": "string",
+            "required": false,
+            "description": "Additional notes or remarks"
+          }
+        ]
+      }
+    },
+    "SKILLS": {
+      "Skills": {
+        "modalName": "SkillsModal",
+        "dataInterface": "SkillsData",
+        "fields": [
+          {
+            "fieldName": "skills",
+            "type": "array",
+            "required": true,
+            "description": "Array of skills",
+            "itemFields": [
+              {
+                "fieldName": "name",
+                "type": "string",
+                "required": true,
+                "description": "Name of the skill"
+              },
+              {
+                "fieldName": "proficiency",
+                "type": "string",
+                "required": true,
+                "description": "Proficiency level (Beginner, Intermediate, Advanced)",
+                "allowedValues": ["Beginner", "Intermediate", "Advanced"]
+              },
+              {
+                "fieldName": "category",
+                "type": "string",
+                "required": true,
+                "description": "Skill category",
+                "allowedValues": ["Hard Skills", "Soft Skills", "Tools / Technologies"]
+              }
+            ]
+          },
+          {
+            "fieldName": "additionalNotes",
+            "type": "string",
+            "required": false,
+            "description": "Additional notes about skills"
+          }
+        ]
+      },
+      "Languages": {
+        "modalName": "LanguagesModal",
+        "dataInterface": "LanguagesData",
+        "fields": [
+          {
+            "fieldName": "languages",
+            "type": "array",
+            "required": true,
+            "description": "Array of languages",
+            "itemFields": [
+              {
+                "fieldName": "name",
+                "type": "string",
+                "required": true,
+                "description": "Language name"
+              },
+              {
+                "fieldName": "proficiency",
+                "type": "string",
+                "required": true,
+                "description": "Proficiency level",
+                "allowedValues": ["Beginner", "Elementary", "Intermediate", "Advanced", "Fluent / Native"]
+              },
+              {
+                "fieldName": "speak",
+                "type": "boolean",
+                "required": false,
+                "description": "Can speak the language"
+              },
+              {
+                "fieldName": "read",
+                "type": "boolean",
+                "required": false,
+                "description": "Can read the language"
+              },
+              {
+                "fieldName": "write",
+                "type": "boolean",
+                "required": false,
+                "description": "Can write the language"
+              },
+              {
+                "fieldName": "certification",
+                "type": "string",
+                "required": false,
+                "description": "Language certification if any"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "PROJECTS": {
+      "Project": {
+        "modalName": "ProjectModal",
+        "dataInterface": "ProjectData",
+        "fields": [
+          {
+            "fieldName": "projectTitle",
+            "type": "string",
+            "required": true,
+            "description": "Title of the project"
+          },
+          {
+            "fieldName": "projectType",
+            "type": "string",
+            "required": true,
+            "description": "Type of project",
+            "allowedValues": ["Academic Project", "Personal Project", "Freelance Project", "Open Source", "Company Project", "Research Project", "Other"]
+          },
+          {
+            "fieldName": "organizationClient",
+            "type": "string",
+            "required": false,
+            "description": "Organization or client name"
+          },
+          {
+            "fieldName": "currentlyWorking",
+            "type": "boolean",
+            "required": false,
+            "description": "Whether currently working on this project"
+          },
+          {
+            "fieldName": "startDate",
+            "type": "string",
+            "required": true,
+            "description": "Project start date (YYYY-MM-DD format)"
+          },
+          {
+            "fieldName": "endDate",
+            "type": "string",
+            "required": false,
+            "description": "Project end date (YYYY-MM-DD format)"
+          },
+          {
+            "fieldName": "projectDescription",
+            "type": "string",
+            "required": false,
+            "description": "Description of the project"
+          },
+          {
+            "fieldName": "responsibilities",
+            "type": "string",
+            "required": false,
+            "description": "Responsibilities in the project"
+          },
+          {
+            "fieldName": "technologies",
+            "type": "string[]",
+            "required": false,
+            "description": "Technologies used in the project"
+          },
+          {
+            "fieldName": "projectOutcome",
+            "type": "string",
+            "required": false,
+            "description": "Outcome or results of the project"
+          },
+          {
+            "fieldName": "projectLink",
+            "type": "string",
+            "required": false,
+            "description": "Link to the project (URL)"
+          }
+        ]
+      },
+      "PortfolioLinks": {
+        "modalName": "PortfolioLinksModal",
+        "dataInterface": "PortfolioLinksData",
+        "fields": [
+          {
+            "fieldName": "links",
+            "type": "array",
+            "required": true,
+            "description": "Array of portfolio links",
+            "itemFields": [
+              {
+                "fieldName": "id",
+                "type": "string",
+                "required": true,
+                "description": "Unique identifier for the link"
+              },
+              {
+                "fieldName": "linkType",
+                "type": "string",
+                "required": true,
+                "description": "Type of portfolio link",
+                "allowedValues": ["Portfolio Website", "GitHub", "LinkedIn", "Behance", "Dribbble", "Medium", "Personal Blog", "YouTube", "Other"]
+              },
+              {
+                "fieldName": "url",
+                "type": "string",
+                "required": true,
+                "description": "URL of the portfolio link"
+              },
+              {
+                "fieldName": "title",
+                "type": "string",
+                "required": false,
+                "description": "Title or name of the link"
+              },
+              {
+                "fieldName": "description",
+                "type": "string",
+                "required": false,
+                "description": "Description of the portfolio link"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "CERTIFICATIONS": {
+      "Certification": {
+        "modalName": "CertificationModal",
+        "dataInterface": "CertificationsData",
+        "fields": [
+          {
+            "fieldName": "certifications",
+            "type": "array",
+            "required": true,
+            "description": "Array of certifications",
+            "itemFields": [
+              {
+                "fieldName": "id",
+                "type": "string",
+                "required": true,
+                "description": "Unique identifier for the certification"
+              },
+              {
+                "fieldName": "certificationName",
+                "type": "string",
+                "required": true,
+                "description": "Name of the certification"
+              },
+              {
+                "fieldName": "issuingOrganization",
+                "type": "string",
+                "required": true,
+                "description": "Organization that issued the certification"
+              },
+              {
+                "fieldName": "issueDate",
+                "type": "string",
+                "required": true,
+                "description": "Date when certification was issued (YYYY-MM-DD format)"
+              },
+              {
+                "fieldName": "expiryDate",
+                "type": "string",
+                "required": false,
+                "description": "Expiry date of certification (YYYY-MM-DD format)"
+              },
+              {
+                "fieldName": "doesNotExpire",
+                "type": "boolean",
+                "required": false,
+                "description": "Whether the certification does not expire"
+              },
+              {
+                "fieldName": "credentialId",
+                "type": "string",
+                "required": false,
+                "description": "Credential ID or certificate number"
+              },
+              {
+                "fieldName": "credentialUrl",
+                "type": "string",
+                "required": false,
+                "description": "URL to verify the credential"
+              },
+              {
+                "fieldName": "certificateFile",
+                "type": "File | string",
+                "required": false,
+                "description": "Certificate file (File object or file path string)"
+              },
+              {
+                "fieldName": "description",
+                "type": "string",
+                "required": false,
+                "description": "Description of the certification"
+              }
+            ]
+          }
+        ]
+      },
+      "Accomplishment": {
+        "modalName": "AccomplishmentModal",
+        "dataInterface": "AccomplishmentsData",
+        "fields": [
+          {
+            "fieldName": "accomplishments",
+            "type": "array",
+            "required": true,
+            "description": "Array of accomplishments",
+            "itemFields": [
+              {
+                "fieldName": "id",
+                "type": "string",
+                "required": true,
+                "description": "Unique identifier for the accomplishment"
+              },
+              {
+                "fieldName": "title",
+                "type": "string",
+                "required": true,
+                "description": "Title of the accomplishment"
+              },
+              {
+                "fieldName": "category",
+                "type": "string",
+                "required": true,
+                "description": "Category of accomplishment",
+                "allowedValues": ["Award", "Publication", "Research", "Competition", "Conference", "Patent", "Recognition", "Achievement", "Other"]
+              },
+              {
+                "fieldName": "organization",
+                "type": "string",
+                "required": false,
+                "description": "Organization associated with the accomplishment"
+              },
+              {
+                "fieldName": "achievementDate",
+                "type": "string",
+                "required": true,
+                "description": "Date of achievement (YYYY-MM-DD format)"
+              },
+              {
+                "fieldName": "description",
+                "type": "string",
+                "required": false,
+                "description": "Description of the accomplishment"
+              },
+              {
+                "fieldName": "supportingDocument",
+                "type": "File | string",
+                "required": false,
+                "description": "Supporting document file (File object or file path string)"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "PREFERENCES": {
+      "CareerPreferences": {
+        "modalName": "CareerPreferencesModal",
+        "dataInterface": "CareerPreferencesData",
+        "fields": [
+          {
+            "fieldName": "preferredJobTitles",
+            "type": "string[]",
+            "required": false,
+            "description": "Array of preferred job titles"
+          },
+          {
+            "fieldName": "preferredIndustry",
+            "type": "string",
+            "required": false,
+            "description": "Preferred industry",
+            "allowedValues": ["IT", "Finance", "Healthcare", "Education", "Manufacturing", "Retail", "Real Estate", "Consulting", "Media & Entertainment", "Telecommunications", "Energy", "Transportation", "Other"]
+          },
+          {
+            "fieldName": "functionalArea",
+            "type": "string",
+            "required": false,
+            "description": "Functional area of work",
+            "allowedValues": ["Engineering", "Sales", "Marketing", "Human Resources", "Finance", "Operations", "Product Management", "Design", "Other"]
+          },
+          {
+            "fieldName": "jobTypes",
+            "type": "string[]",
+            "required": false,
+            "description": "Preferred job types (Full-time, Part-time, Contract, etc.)"
+          },
+          {
+            "fieldName": "workModes",
+            "type": "string[]",
+            "required": false,
+            "description": "Preferred work modes (Remote, On-site, Hybrid)"
+          },
+          {
+            "fieldName": "preferredLocations",
+            "type": "string[]",
+            "required": false,
+            "description": "Array of preferred work locations"
+          },
+          {
+            "fieldName": "relocationPreference",
+            "type": "string",
+            "required": false,
+            "description": "Relocation preference (Willing to relocate, Not willing, etc.)"
+          },
+          {
+            "fieldName": "salaryCurrency",
+            "type": "string",
+            "required": false,
+            "description": "Preferred salary currency (USD, EUR, INR, etc.)"
+          },
+          {
+            "fieldName": "salaryAmount",
+            "type": "string",
+            "required": false,
+            "description": "Preferred salary amount"
+          },
+          {
+            "fieldName": "salaryFrequency",
+            "type": "string",
+            "required": false,
+            "description": "Salary frequency (Annual, Monthly, Hourly, Daily)"
+          },
+          {
+            "fieldName": "availabilityToStart",
+            "type": "string",
+            "required": false,
+            "description": "Availability to start work"
+          },
+          {
+            "fieldName": "noticePeriod",
+            "type": "string",
+            "required": false,
+            "description": "Notice period (if currently employed)"
+          }
+        ]
+      }
+    },
+    "GLOBAL_ELIGIBILITY": {
+      "VisaWorkAuthorization": {
+        "modalName": "VisaWorkAuthorizationModal",
+        "dataInterface": "VisaWorkAuthorizationData",
+        "fields": [
+          {
+            "fieldName": "selectedDestination",
+            "type": "string",
+            "required": false,
+            "description": "Selected destination country"
+          },
+          {
+            "fieldName": "visaDetailsInitial",
+            "type": "object",
+            "required": false,
+            "description": "Initial visa details",
+            "subFields": [
+              {
+                "fieldName": "id",
+                "type": "string",
+                "description": "Unique identifier"
+              },
+              {
+                "fieldName": "visaType",
+                "type": "string",
+                "description": "Type of visa"
+              },
+              {
+                "fieldName": "visaStatus",
+                "type": "string",
+                "description": "Status of the visa"
+              },
+              {
+                "fieldName": "itemFamilyNumber",
+                "type": "string",
+                "description": "Item family number (if applicable)"
+              },
+              {
+                "fieldName": "visaExpiryDate",
+                "type": "string",
+                "description": "Visa expiry date (YYYY-MM-DD format)"
+              },
+              {
+                "fieldName": "documents",
+                "type": "array",
+                "description": "Array of visa documents",
+                "itemFields": [
+                  {
+                    "fieldName": "id",
+                    "type": "string",
+                    "description": "Document identifier"
+                  },
+                  {
+                    "fieldName": "file",
+                    "type": "File | string",
+                    "description": "Document file"
+                  },
+                  {
+                    "fieldName": "name",
+                    "type": "string",
+                    "description": "Document name"
+                  },
+                  {
+                    "fieldName": "size",
+                    "type": "number",
+                    "description": "File size in bytes"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "fieldName": "visaDetailsExpected",
+            "type": "object",
+            "required": false,
+            "description": "Expected visa details (same structure as visaDetailsInitial)"
+          },
+          {
+            "fieldName": "visaWorkpermitRequired",
+            "type": "string",
+            "required": false,
+            "description": "Whether visa/work permit is required"
+          },
+          {
+            "fieldName": "openForAll",
+            "type": "boolean",
+            "required": false,
+            "description": "Open to all destinations"
+          },
+          {
+            "fieldName": "additionalRemarks",
+            "type": "string",
+            "required": false,
+            "description": "Additional remarks or notes"
+          },
+          {
+            "fieldName": "visaEntries",
+            "type": "array",
+            "required": false,
+            "description": "Array of visa entries for different countries",
+            "itemFields": [
+              {
+                "fieldName": "id",
+                "type": "string",
+                "description": "Unique identifier for visa entry"
+              },
+              {
+                "fieldName": "country",
+                "type": "string",
+                "description": "Country code"
+              },
+              {
+                "fieldName": "countryName",
+                "type": "string",
+                "description": "Country name"
+              },
+              {
+                "fieldName": "visaDetails",
+                "type": "object",
+                "description": "Visa details (same structure as visaDetailsInitial)"
+              }
+            ]
+          }
+        ]
+      },
+      "Vaccination": {
+        "modalName": "VaccinationModal",
+        "dataInterface": "VaccinationData",
+        "fields": [
+          {
+            "fieldName": "vaccinationStatus",
+            "type": "string",
+            "required": true,
+            "description": "Vaccination status",
+            "allowedValues": ["Yes", "No", ""]
+          },
+          {
+            "fieldName": "vaccineType",
+            "type": "string",
+            "required": false,
+            "description": "Type of vaccine (if vaccinated)"
+          },
+          {
+            "fieldName": "lastVaccinationDate",
+            "type": "string",
+            "required": false,
+            "description": "Last vaccination date (YYYY-MM-DD format)"
+          },
+          {
+            "fieldName": "certificate",
+            "type": "File | string",
+            "required": false,
+            "description": "Vaccination certificate file (File object or file path string)"
+          }
+        ]
+      }
+    },
+    "RESUME": {
+      "Resume": {
+        "modalName": "ResumeModal",
+        "dataInterface": "ResumeData",
+        "fields": [
+          {
+            "fieldName": "file",
+            "type": "File | string",
+            "required": false,
+            "description": "Resume file (File object or file path string)"
+          },
+          {
+            "fieldName": "fileName",
+            "type": "string",
+            "required": false,
+            "description": "Name of the resume file"
+          },
+          {
+            "fieldName": "uploadedDate",
+            "type": "string",
+            "required": false,
+            "description": "Date when resume was uploaded (ISO date string)"
+          }
+        ]
+      }
+    }
+  },
+  "summary": {
+    "totalModals": 16,
+    "sections": [
+      "PERSONAL_DETAILS",
+      "WORK_HISTORY",
+      "EDUCATION",
+      "SKILLS",
+      "PROJECTS",
+      "CERTIFICATIONS",
+      "PREFERENCES",
+      "GLOBAL_ELIGIBILITY",
+      "RESUME"
+    ],
+    "modalNames": [
+      "BasicInfoModal",
+      "SummaryModal",
+      "GapExplanationModal",
+      "WorkExperienceModal",
+      "InternshipModal",
+      "EducationModal",
+      "AcademicAchievementModal",
+      "CompetitiveExamsModal",
+      "SkillsModal",
+      "LanguagesModal",
+      "ProjectModal",
+      "PortfolioLinksModal",
+      "CertificationModal",
+      "AccomplishmentModal",
+      "CareerPreferencesModal",
+      "VisaWorkAuthorizationModal",
+      "VaccinationModal",
+      "ResumeModal"
+    ]
+  }
+}

@@ -1,0 +1,312 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: radial-gradient(circle at 10% 20%, #e8f0ff, #f5f7fb 35%, #ffffff),
+    radial-gradient(circle at 80% 0%, #dff7ff, #f8f9ff 45%, #ffffff);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+a {
+  color: inherit;
+}
+
+/* Hide default date picker icon */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  right: 0;
+}
+
+input[type="date"]::-moz-calendar-picker-indicator {
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  right: 0;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes gradientShift {
+  0% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
+
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+/* Range slider styling */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #3b82f6;
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #3b82f6;
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Custom scrollbar for profile sidebar */
+.profile-sidebar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 #f1f5f9;
+}
+
+.profile-sidebar-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.profile-sidebar-scroll::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 4px;
+}
+
+.profile-sidebar-scroll::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+.profile-sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Shimmer animation for progress bar */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 2s infinite;
+}
+
+/* Notification animations */
+@keyframes notification-fade-in {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes notification-slide-in-top {
+  from {
+    opacity: 0;
+    transform: translateY(-50px) scale(0.9);
+    max-height: 0;
+    min-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    overflow: hidden;
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    max-height: 100px;
+    min-height: 56px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+}
+
+@keyframes notification-slide-out-bottom {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    max-height: 100px;
+    min-height: 56px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    overflow: hidden;
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(50px) scale(0.9);
+    max-height: 0;
+    min-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+}
+
+.animate-notification-in {
+  animation: notification-slide-in-top 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.animate-notification-out {
+  animation: notification-slide-out-bottom 0.5s ease-in forwards;
+}
+
+@layer base {
+  ::placeholder {
+    color: #9095A1 !important;
+    opacity: 1;
+    /* Firefox */
+  }
+
+  :-ms-input-placeholder {
+    color: #9095A1 !important;
+  }
+
+  ::-ms-input-placeholder {
+    color: #9095A1 !important;
+  }
+
+  select {
+    color: #9095A1 !important;
+  }
+
+  select option {
+    color: #111827;
+    /* Standard dark color for options */
+  }
+}
+
+/* Modal text and placeholder black for clear visibility (utilities layer overrides base) */
+@layer utilities {
+  /* All form inputs, textareas, and selects in modals */
+  .modal-placeholder-black input,
+  .modal-placeholder-black textarea,
+  .modal-placeholder-black select,
+  .modal-placeholder-black input[type="text"],
+  .modal-placeholder-black input[type="email"],
+  .modal-placeholder-black input[type="tel"],
+  .modal-placeholder-black input[type="date"],
+  .modal-placeholder-black input[type="number"],
+  .modal-placeholder-black input[type="url"],
+  .modal-placeholder-black input[type="password"] {
+    color: #000000 !important;
+  }
+
+  /* All placeholders in modals */
+  .modal-placeholder-black input::placeholder,
+  .modal-placeholder-black textarea::placeholder,
+  .modal-placeholder-black ::placeholder {
+    color: #000000 !important;
+    opacity: 1 !important;
+  }
+
+  /* IE and Edge placeholders */
+  .modal-placeholder-black :-ms-input-placeholder,
+  .modal-placeholder-black ::-ms-input-placeholder {
+    color: #000000 !important;
+    opacity: 1 !important;
+  }
+
+  /* Select dropdown text - must be very specific */
+  .modal-placeholder-black select,
+  .modal-placeholder-black select:focus,
+  .modal-placeholder-black select:active,
+  .modal-placeholder-black select:hover {
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+  }
+
+  /* Select dropdown options */
+  .modal-placeholder-black select option {
+    color: #000000 !important;
+    background-color: #ffffff !important;
+  }
+
+  /* Select dropdown when empty (placeholder state) */
+  .modal-placeholder-black select:invalid,
+  .modal-placeholder-black select option[value=""] {
+    color: #000000 !important;
+  }
+
+  /* Ensure selected option text is black */
+  .modal-placeholder-black select option:checked {
+    color: #000000 !important;
+    background-color: #ffffff !important;
+  }
+
+  /* Selected option using attribute selector */
+  .modal-placeholder-black select option[selected] {
+    color: #000000 !important;
+    background-color: #ffffff !important;
+  }
+
+  /* Override gray text classes in modals - make all text black */
+  .modal-placeholder-black .text-gray-400,
+  .modal-placeholder-black .text-gray-500,
+  .modal-placeholder-black .text-gray-600,
+  .modal-placeholder-black .text-gray-700,
+  .modal-placeholder-black .text-gray-800,
+  .modal-placeholder-black .text-gray-900 {
+    color: #000000 !important;
+  }
+
+  /* Ensure displayed values in inputs are black */
+  .modal-placeholder-black input[value],
+  .modal-placeholder-black select[value] {
+    color: #000000 !important;
+  }
+}
