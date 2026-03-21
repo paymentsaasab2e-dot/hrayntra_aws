@@ -27,7 +27,7 @@ export const jobController = {
 
   async create(req, res) {
     try {
-      const job = await jobService.create(req.body);
+      const job = await jobService.create(req.body, req.user?.id);
       sendResponse(res, 201, 'Job created successfully', job);
     } catch (error) {
       sendError(res, 400, error.message, error);
@@ -57,7 +57,7 @@ export const jobController = {
 
   async getMetrics(req, res) {
     try {
-      const metrics = await jobService.getMetrics();
+      const metrics = await jobService.getMetrics(req);
       sendResponse(res, 200, 'Job metrics retrieved successfully', metrics);
     } catch (error) {
       sendError(res, 500, error.message, error);

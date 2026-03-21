@@ -10,7 +10,7 @@ interface SummaryModalProps {
   onSave: () => void;
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+import { API_BASE_URL } from '@/lib/api-base';
 
 export default function SummaryModal({
   isOpen,

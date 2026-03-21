@@ -1,4 +1,6 @@
-export const API_BASE_URL = "http://localhost:5000/api";
+import { API_BASE_URL as DerivedAPI_BASE_URL } from './api-base';
+
+export const API_BASE_URL = DerivedAPI_BASE_URL;
 
 async function fetchWithRetry(
   input: RequestInfo | URL,

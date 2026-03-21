@@ -6,7 +6,9 @@ import Header from '@/components/common/Header';
 import Footer from '@/components/common/Footer';
 import CVEditor from '@/components/cveditor/CVEditor';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+import { API_BASE_URL } from '@/lib/api-base';
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
 
 export default function CVEditorPage() {
   const router = useRouter();
@@ -56,8 +58,9 @@ export default function CVEditorPage() {
       } catch (error) {
         console.error('Error loading CV:', error);
         // Only show alert for non-404 errors
-        if (error.message && !error.message.includes('404')) {
-          console.warn('Failed to load CV data:', error.message);
+        const errorMessage = getErrorMessage(error);
+        if (errorMessage && !errorMessage.includes('404')) {
+          console.warn('Failed to load CV data:', errorMessage);
         }
         // Set default content on error
         setResumeHtml('<h1>Your Name</h1><p>Professional Title</p><h2>Summary</h2><p>Your professional summary...</p>');

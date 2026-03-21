@@ -108,7 +108,8 @@ export const linkedinController = {
         access_token,
         expires_in,
         name,
-        picture
+        picture,
+        email || null
       );
 
       // Log successful connection to terminal

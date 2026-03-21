@@ -53,6 +53,28 @@ export const env = {
   // Encryption
   ENCRYPTION_KEY: process.env.ENCRYPTION_KEY,
 
+  // OAuth state JWT (fallback: JWT_ACCESS_SECRET)
+  OAUTH_STATE_SECRET: process.env.OAUTH_STATE_SECRET || process.env.NEXTAUTH_SECRET,
+
+  // Google OAuth (Gmail + Calendar)
+  GOOGLE_REDIRECT_URI:
+    process.env.GOOGLE_REDIRECT_URI ||
+    `http://localhost:${parseInt(process.env.PORT || '5001', 10)}/api/v1/oauth/google/callback`,
+
+  // Microsoft OAuth (Outlook + Teams)
+  MICROSOFT_CLIENT_ID: process.env.MICROSOFT_CLIENT_ID || process.env.MS_CLIENT_ID,
+  MICROSOFT_CLIENT_SECRET: process.env.MICROSOFT_CLIENT_SECRET || process.env.MS_CLIENT_SECRET,
+  MICROSOFT_TENANT_ID: process.env.MICROSOFT_TENANT_ID || process.env.MS_TENANT_ID || 'common',
+  MICROSOFT_REDIRECT_URI:
+    process.env.MICROSOFT_REDIRECT_URI ||
+    `http://localhost:${parseInt(process.env.PORT || '5001', 10)}/api/v1/oauth/microsoft/callback`,
+
+  // LinkedIn OAuth (register this callback URL in LinkedIn app)
+  LINKEDIN_OAUTH_REDIRECT_URI:
+    process.env.LINKEDIN_OAUTH_REDIRECT_URI ||
+    process.env.LINKEDIN_REDIRECT_URI ||
+    `http://localhost:${parseInt(process.env.PORT || '5001', 10)}/api/v1/oauth/linkedin/callback`,
+
   // Interview meeting providers
   GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
@@ -64,12 +86,18 @@ export const env = {
   MS_CLIENT_ID: process.env.MS_CLIENT_ID,
   MS_CLIENT_SECRET: process.env.MS_CLIENT_SECRET,
 
+  TWILIO_PHONE_NUMBER: process.env.TWILIO_PHONE_NUMBER,
+
   // SMTP / notifications
   SMTP_HOST: process.env.SMTP_HOST,
   SMTP_PORT: parseInt(process.env.SMTP_PORT || '587', 10),
   SMTP_USER: process.env.SMTP_USER,
   SMTP_PASS: process.env.SMTP_PASS,
 
-  // AI summary
+  // AI summary + in-app assistant chat
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  /** Optional; default gpt-4o-mini in assistantChat.service */
+  OPENAI_ASSISTANT_MODEL: process.env.OPENAI_ASSISTANT_MODEL,
+  /** If "true", assistant DB tools ignore role scoping (single-tenant / demo only). */
+  ASSISTANT_FULL_DB_ACCESS: process.env.ASSISTANT_FULL_DB_ACCESS,
 };

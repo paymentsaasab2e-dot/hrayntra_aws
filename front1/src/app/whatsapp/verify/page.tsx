@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+import { API_BASE_URL } from '@/lib/api-base';
 
 export default function VerifyOTP() {
   const router = useRouter();
@@ -16,16 +16,21 @@ export default function VerifyOTP() {
   const [error, setError] = useState("");
   const [whatsappNumber, setWhatsappNumber] = useState("");
   const [countryCode, setCountryCode] = useState("");
+  const [otpEmail, setOtpEmail] = useState("");
+  const [otpPreview, setOtpPreview] = useState("");
 
   useEffect(() => {
     // Get WhatsApp number from sessionStorage
     const storedNumber = sessionStorage.getItem("whatsappNumber");
     const storedCountryCode = sessionStorage.getItem("countryCode");
-    const storedFullNumber = sessionStorage.getItem("fullWhatsAppNumber");
+    const storedEmail = sessionStorage.getItem("otpEmail");
+    const storedOtpPreview = sessionStorage.getItem("otpPreview");
 
-    if (storedNumber && storedCountryCode) {
+    if (storedNumber && storedCountryCode && storedEmail) {
       setWhatsappNumber(storedNumber);
       setCountryCode(storedCountryCode);
+      setOtpEmail(storedEmail);
+      setOtpPreview(storedOtpPreview || "");
     } else {
       // If no stored data, redirect back to WhatsApp page
       router.push("/whatsapp");
@@ -54,7 +59,7 @@ export default function VerifyOTP() {
     setTimer(29);
     setIsResendDisabled(true);
 
-    if (!whatsappNumber || !countryCode) {
+    if (!whatsappNumber || !countryCode || !otpEmail) {
       setError("Missing WhatsApp number. Please go back and enter your number again.");
       return;
     }
@@ -68,6 +73,7 @@ export default function VerifyOTP() {
         body: JSON.stringify({
           whatsappNumber: whatsappNumber,
           countryCode: countryCode,
+          email: otpEmail,
         }),
       });
 
@@ -77,9 +83,10 @@ export default function VerifyOTP() {
         throw new Error(data.message || "Failed to resend OTP");
       }
 
-      // In development, show OTP on screen
+      // Show OTP on screen when backend sends fallback/testing OTP
       if (data.data.otp) {
-        alert(`Development Mode - New OTP: ${data.data.otp}`);
+        setOtpPreview(data.data.otp);
+        sessionStorage.setItem("otpPreview", data.data.otp);
       }
     } catch (err: any) {
       setError(err.message || "Failed to resend OTP. Please try again.");
@@ -130,6 +137,8 @@ export default function VerifyOTP() {
       sessionStorage.removeItem("whatsappNumber");
       sessionStorage.removeItem("countryCode");
       sessionStorage.removeItem("fullWhatsAppNumber");
+      sessionStorage.removeItem("otpEmail");
+      sessionStorage.removeItem("otpPreview");
 
       // Returning users (number already in DB / onboarded before): go straight to dashboard — no CV step
       const skipCv = data.data.skipCvUpload === true;
@@ -209,7 +218,7 @@ export default function VerifyOTP() {
               >
                 We have sent a 6-digit verification code to your email address
                 <br />
-                <span style={{ fontSize: "10px", color: "#239CD2" }}>ghodehimanshu453@gmail.com</span>
+                <span style={{ fontSize: "10px", color: "#239CD2" }}>{otpEmail || "your Gmail"}</span>
               </p>
             </div>
 
@@ -234,6 +243,16 @@ export default function VerifyOTP() {
             {error && (
               <div className="mb-4 rounded-md bg-red-50 border border-red-200 p-3">
                 <p className="text-sm text-red-600">{error}</p>
+              </div>
+            )}
+
+            {otpPreview && (
+              <div className="mb-4 rounded-md bg-amber-50 border border-amber-200 p-3">
+                <p className="text-xs text-amber-700 font-semibold mb-1">Fallback OTP</p>
+                <p className="text-lg text-amber-900 font-mono font-bold">{otpPreview}</p>
+                <p className="text-xs text-amber-700 mt-1">
+                  Email delivery failed; use this OTP to continue verification.
+                </p>
               </div>
             )}
 
@@ -342,7 +361,7 @@ export default function VerifyOTP() {
                 marginTop: "33px",
               }}
             >
-              Check your email (ghodehimanshu453@gmail.com) for the verification code.
+              Check your email ({otpEmail || "your Gmail"}) for the verification code.
               <br />
               This verification helps us protect your account and enable job alerts.
             </p>

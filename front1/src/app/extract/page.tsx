@@ -4,7 +4,7 @@ import Image from "next/image";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-const API_BASE_URL = "http://localhost:5000/api";
+import { API_BASE_URL } from '@/lib/api-base';
 
 export default function ExtractPage() {
   const router = useRouter();

@@ -74,7 +74,9 @@ model User {
   targets          TeamTarget[]
   commissions      Commission[]
   assignedCandidates Candidate[]
+  createdCandidates  Candidate[]         @relation("CandidateCreator")
   assignedJobsRel    Job[]               @relation("JobAssignee")
+  createdJobs        Job[]               @relation("JobCreator")
   assignedLeads      Lead[]
   assignedClientsRel Client[]            @relation("ClientAssignee")
   assignedTasks      Task[]              @relation("TaskAssignee")
@@ -112,6 +114,10 @@ model User {
   ownedContacts      Contact[]  @relation("ContactOwner")
   contactNotes       ContactNote[] @relation("ContactNoteAuthor")
   contactActivities  ContactActivity[] @relation("ContactActivityUser")
+
+  userOAuthTokens               UserOAuthTokens?
+  userCommunicationPreferences  UserCommunicationPreferences?
+  jobBoardIntegrations          JobBoardIntegration[]
 
   @@index([role])
   @@map("users")
@@ -401,9 +407,12 @@ enum CandidateStatus {
 
 model Candidate {
   id             String          @id @default(auto()) @map("_id") @db.ObjectId
-  firstName      String
-  lastName       String
-  email          String          @unique
+  // Legacy Mongo rows may contain nulls; make nullable to prevent Prisma conversion crashes.
+  firstName      String?
+  lastName       String?
+  // Not @unique: MongoDB unique indexes treat many `null` emails as duplicates (E11000).
+  // Enforce unique non-null emails in application code (e.g. candidate create/import).
+  email          String?
   phone          String?
   linkedIn       String?
   resume         String?
@@ -415,6 +424,8 @@ model Candidate {
   status         CandidateStatus @default(NEW)
   source         String?
   assignedToId   String?         @db.ObjectId
+  // Recruiter who created this profile (used for "my candidates" on /candidate)
+  createdById    String?         @db.ObjectId
   rating         Int?
   noticePeriod   String?
   hotlist        Boolean         @default(false)
@@ -424,14 +435,15 @@ model Candidate {
   assignedJobs   String[] // Array of job IDs
   stage          String? // Applied, Shortlist, Screening, Interviewing, Offered, Hired, Rejected
   lastActivity   DateTime?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  createdAt      DateTime?
+  updatedAt      DateTime?
 
   // Embedded salary
   salary Json?
 
   // Relations
   assignedTo      User?           @relation(fields: [assignedToId], references: [id])
+  createdBy       User?           @relation("CandidateCreator", fields: [createdById], references: [id])
   interviews      Interview[]
   placements      Placement[]
   matches         Match[]
@@ -440,6 +452,7 @@ model Candidate {
 
   @@index([status])
   @@index([assignedToId])
+  @@index([createdById])
   @@map("candidates")
 }
 
@@ -490,8 +503,12 @@ model Job {
   location            String?
   type                JobType   @default(FULL_TIME)
   status              JobStatus @default(DRAFT)
-  clientId            String    @db.ObjectId
+  // Some legacy rows may exist with `clientId: null` (after schema evolution).
+  // Make it optional so listing jobs doesn't crash.
+  clientId            String?   @db.ObjectId
   assignedToId        String?   @db.ObjectId
+  // User who created this job (used for "my jobs" on /job)
+  createdById         String?   @db.ObjectId
   openings            Int       @default(1)
   // Extended fields from frontend (ClientDetailsDrawer Jobs tab)
   overview            String?
@@ -522,15 +539,17 @@ model Job {
   applicationFormLogo String? // Logo option: account, company, none
   applicationFormQuestions String[] @default([]) // Array of custom application form questions
   applicationFormNote String? // Note for candidates
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  // Legacy documents may contain null timestamps; make optional to avoid Prisma conversion crashes.
+  createdAt           DateTime? @default(now())
+  updatedAt           DateTime? @updatedAt
 
   // Embedded salary
   salary Json?
 
   // Relations
-  client         Client          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  client         Client?         @relation(fields: [clientId], references: [id], onDelete: SetNull)
   assignedTo     User?           @relation("JobAssignee", fields: [assignedToId], references: [id])
+  createdBy      User?           @relation("JobCreator", fields: [createdById], references: [id])
   pipelineStages PipelineStage[]
   matches        Match[]
   interviews     Interview[]
@@ -541,6 +560,7 @@ model Job {
   @@index([status])
   @@index([clientId])
   @@index([assignedToId])
+  @@index([createdById])
   @@map("jobs")
 }
 
@@ -639,6 +659,11 @@ model Lead {
   city                   String?
   // Lead management fields
   campaignName           String?
+  campaignLink           String?
+  referralName           String?
+  sourceWebsiteUrl       String?
+  sourceLinkedInUrl      String?
+  sourceEmail            String?
   lastFollowUp           DateTime?
   nextFollowUp           DateTime?
   lostReason             String? // Reason when marked as lost
@@ -1410,6 +1435,74 @@ model Setting {
   @@map("settings")
 }
 
+// Per-user OAuth token store (Google / Microsoft; LinkedIn member OAuth uses LinkedInToken)
+model UserOAuthTokens {
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @unique @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  googleAccessToken  String?
+  googleRefreshToken String?
+  googleEmail        String?
+  googleScope        String[] @default([])
+  gmailConnected     Boolean  @default(false)
+  googleCalConnected Boolean  @default(false)
+
+  microsoftAccessToken  String?
+  microsoftRefreshToken String?
+  microsoftEmail        String?
+  microsoftScope        String[] @default([])
+  outlookConnected      Boolean  @default(false)
+  teamsConnected        Boolean  @default(false)
+
+  linkedinAppClientId     String?
+  linkedinAppClientSecret String?
+
+  updatedAt DateTime @updatedAt
+
+  @@map("user_oauth_tokens")
+}
+
+// Per-user communication / integration preferences (Twilio, calendars flags, default emails)
+model UserCommunicationPreferences {
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @unique @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  defaultEmails           String[]
+  defaultSendingEmail     String
+  twilioAccountSid        String?
+  twilioAuthToken         String?
+  smsAutoNotifications    Boolean  @default(false)
+  googleCalendarSync      Boolean  @default(true)
+  teamsCalendarSync       Boolean  @default(false)
+  teamsTenantId           String?
+  teamsClientId           String?
+  teamsClientSecret       String?
+  interviewAutoScheduling Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("user_communication_preferences")
+}
+
+model JobBoardIntegration {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String   @db.ObjectId
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform    String
+  apiKey      String?
+  clientId    String?
+  publisherId String?
+  connected   Boolean  @default(false)
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, platform])
+  @@index([userId])
+  @@map("job_board_integrations")
+}
+
 // ── LINKEDIN INTEGRATION ──
 
 model LinkedInToken {
@@ -1419,6 +1512,7 @@ model LinkedInToken {
   accessToken String   // Encrypted access token
   expiresAt   DateTime // Token expiration (60 days from LinkedIn)
   name        String?  // LinkedIn display name
+  email       String?  // From userinfo when available
   picture     String?  // LinkedIn profile picture URL
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

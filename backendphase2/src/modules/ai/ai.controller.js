@@ -1,7 +1,28 @@
 import { sendResponse, sendError } from '../../utils/response.js';
 import { env } from '../../config/env.js';
+import { runAssistantChat } from './assistantChat.service.js';
 
 export const aiController = {
+  async assistantChat(req, res) {
+    try {
+      const { messages } = req.body || {};
+      const reply = await runAssistantChat(messages, req.user);
+      return sendResponse(res, 200, 'OK', { message: reply });
+    } catch (error) {
+      if (error.code === 'AI_NOT_CONFIGURED') {
+        return sendError(res, 503, error.message);
+      }
+      if (error.code === 'VALIDATION') {
+        return sendError(res, 400, error.message);
+      }
+      if (error.code === 'TOOL_LIMIT') {
+        return sendError(res, 429, error.message);
+      }
+      console.error('[assistantChat]', error);
+      return sendError(res, 500, error.message || 'Assistant request failed', error);
+    }
+  },
+
   async generateJobDescription(req, res) {
     try {
       const { jobTitle, company, jobType, jobCategory } = req.body;

@@ -1,48 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
-import crypto from 'crypto';
 
 const prisma = new PrismaClient();
-
-// Helper function to generate login ID
-async function generateLoginId(firstName, lastName) {
-  const first = (firstName || '').toLowerCase().trim();
-  const last = (lastName || '').toLowerCase().trim();
-  
-  if (!first && !last) {
-    throw new Error('First name or last name is required');
-  }
-  
-  const baseLoginId = last ? `${first}.${last}@saasa` : `${first}@saasa`;
-  let loginId = baseLoginId;
-  let counter = 1;
-  
-  while (true) {
-    const existing = await prisma.userCredential.findUnique({
-      where: { loginId },
-    });
-    
-    if (!existing) {
-      return loginId;
-    }
-    
-    counter++;
-    loginId = last 
-      ? `${first}.${last}${counter}@saasa` 
-      : `${first}${counter}@saasa`;
-  }
-}
-
-// Helper function to generate temporary password
-function generateTempPassword() {
-  const length = 12;
-  const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
-  let password = '';
-  for (let i = 0; i < length; i++) {
-    password += charset.charAt(Math.floor(Math.random() * charset.length));
-  }
-  return password;
-}
 
 // Helper function to hash password
 async function hashPassword(plainText) {
@@ -61,6 +20,9 @@ async function main() {
       roleName: 'Super Admin',
       designation: 'System Administrator',
       departmentName: 'Administration',
+      loginId: 'super.admin@saasa',
+      password: 'UjvnE3WctAVa',
+      userId: '69b6751604a6ae73b0b8f36e',
     },
     {
       firstName: 'Admin',
@@ -69,6 +31,9 @@ async function main() {
       roleName: 'Admin',
       designation: 'Administrator',
       departmentName: 'Administration',
+      loginId: 'admin.user@saasa',
+      password: 'qH2TMY4aQ8FA',
+      userId: '69afeeb298aa3e5649a30e45',
     },
     {
       firstName: 'John',
@@ -77,6 +42,9 @@ async function main() {
       roleName: 'Senior Recruiter',
       designation: 'Senior Recruiter',
       departmentName: 'Recruitment',
+      loginId: 'john.recruiter@saasa',
+      password: 'XwMHRSEkC4Fi',
+      userId: '69b6751604a6ae73b0b8f371',
     },
     {
       firstName: 'Jane',
@@ -85,6 +53,9 @@ async function main() {
       roleName: 'Recruiter',
       designation: 'Recruiter',
       departmentName: 'Recruitment',
+      loginId: 'jane.smith@saasa',
+      password: 'HwteUggfKSyN',
+      userId: '69afeeb298aa3e5649a30e46',
     },
     {
       firstName: 'Mike',
@@ -93,6 +64,9 @@ async function main() {
       roleName: 'Account Manager',
       designation: 'Account Manager',
       departmentName: 'Sales',
+      loginId: 'mike.manager@saasa',
+      password: 'XzxisXKafQ6s',
+      userId: '69b6751704a6ae73b0b8f374',
     },
     {
       firstName: 'Sarah',
@@ -101,6 +75,9 @@ async function main() {
       roleName: 'Finance',
       designation: 'Finance Manager',
       departmentName: 'Finance',
+      loginId: 'sarah.finance@saasa',
+      password: '2HLqg9xRGXi9',
+      userId: '69b6751704a6ae73b0b8f376',
     },
     {
       firstName: 'Viewer',
@@ -109,6 +86,9 @@ async function main() {
       roleName: 'Viewer',
       designation: 'Viewer',
       departmentName: 'Operations',
+      loginId: 'viewer.user@saasa',
+      password: 'eTiENJmRHg2j',
+      userId: '69b6751704a6ae73b0b8f378',
     },
   ];
 
@@ -146,10 +126,25 @@ async function main() {
         where: { email: userData.email },
       });
 
+      const loginId = userData.loginId;
+      const tempPassword = userData.password;
+      const hashedPassword = await hashPassword(tempPassword);
+
       if (user) {
-        console.log(`  ⚠ User ${userData.email} already exists. Updating...`);
-        
-        // Update user
+        // If the existing user ID doesn't match USER_CREDENTIALS.md, recreate.
+        if (user.id !== userData.userId) {
+          console.log(
+            `  ⚠ User ${userData.email} exists but userId differs (have=${user.id}, want=${userData.userId}). Recreating...`
+          );
+          await prisma.user.delete({ where: { id: user.id } });
+          user = null;
+        } else {
+          console.log(`  ⚠ User ${userData.email} already exists. Updating...`);
+        }
+      }
+
+      if (user) {
+        // Update user (keeping the same ID)
         user = await prisma.user.update({
           where: { id: user.id },
           data: {
@@ -161,12 +156,14 @@ async function main() {
             roleId: role.id,
             status: 'ACTIVE',
             isActive: true,
+            passwordHash: hashedPassword, // for legacy email/password login
           },
         });
       } else {
-        // Create user
+        // Create user with the exact ID from USER_CREDENTIALS.md
         user = await prisma.user.create({
           data: {
+            id: userData.userId,
             firstName: userData.firstName,
             lastName: userData.lastName,
             name: `${userData.firstName} ${userData.lastName}`,
@@ -176,17 +173,10 @@ async function main() {
             roleId: role.id,
             status: 'ACTIVE',
             isActive: true,
-            passwordHash: 'PLACEHOLDER',
+            passwordHash: hashedPassword, // for legacy email/password login
           },
         });
       }
-
-      // Generate login ID
-      const loginId = await generateLoginId(userData.firstName, userData.lastName);
-      
-      // Generate password
-      const tempPassword = generateTempPassword();
-      const hashedPassword = await hashPassword(tempPassword);
 
       // Create or update credentials
       const existingCredential = await prisma.userCredential.findUnique({
@@ -199,7 +189,8 @@ async function main() {
           data: {
             loginId,
             hashedPassword,
-            tempPasswordFlag: false, // Set to false so users can log in without forced reset
+            // Prompt password change on first login (matches USER_CREDENTIALS.md)
+            tempPasswordFlag: true,
             isLocked: false,
             failedAttempts: 0,
           },
@@ -210,7 +201,7 @@ async function main() {
             userId: user.id,
             loginId,
             hashedPassword,
-            tempPasswordFlag: false, // Set to false so users can log in without forced reset
+            tempPasswordFlag: true,
             isLocked: false,
             failedAttempts: 0,
             createdBy: null,

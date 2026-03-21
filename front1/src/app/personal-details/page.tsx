@@ -4,7 +4,7 @@ import Image from "next/image";
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-const API_BASE_URL = "http://localhost:5000/api";
+import { API_BASE_URL } from '@/lib/api-base';
 
 // Form types
 interface LanguageEntry {

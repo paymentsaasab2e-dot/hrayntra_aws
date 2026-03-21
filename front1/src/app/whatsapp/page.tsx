@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+import { API_BASE_URL } from '@/lib/api-base';
 
 const countries = [
   { code: "IN", dialCode: "+91", name: "India", flag: "🇮🇳" },
@@ -25,6 +25,8 @@ export default function WhatsAppLogin() {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [whatsappNumberFocused, setWhatsappNumberFocused] = useState(false);
   const [whatsappNumberValue, setWhatsappNumberValue] = useState("");
+  const [emailFocused, setEmailFocused] = useState(false);
+  const [emailValue, setEmailValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [otpDisplay, setOtpDisplay] = useState("");
@@ -66,6 +68,18 @@ export default function WhatsAppLogin() {
       return;
     }
 
+    if (!emailValue.trim()) {
+      setError("Please enter your Gmail address");
+      return;
+    }
+
+    const normalizedEmail = emailValue.trim().toLowerCase();
+    const gmailRegex = /^[a-zA-Z0-9._%+-]+@gmail\.com$/;
+    if (!gmailRegex.test(normalizedEmail)) {
+      setError("Please enter a valid Gmail address");
+      return;
+    }
+
     const cleanNumber = whatsappNumberValue.replace(/\D/g, "");
     if (cleanNumber.length < 10) {
       setError("Please enter a valid WhatsApp number");
@@ -83,6 +97,7 @@ export default function WhatsAppLogin() {
         body: JSON.stringify({
           whatsappNumber: cleanNumber,
           countryCode: selectedCountry.dialCode,
+          email: normalizedEmail,
         }),
       });
 
@@ -96,10 +111,14 @@ export default function WhatsAppLogin() {
       sessionStorage.setItem("whatsappNumber", cleanNumber);
       sessionStorage.setItem("countryCode", selectedCountry.dialCode);
       sessionStorage.setItem("fullWhatsAppNumber", `${selectedCountry.dialCode}${cleanNumber}`);
+      sessionStorage.setItem("otpEmail", normalizedEmail);
 
       // In development, show OTP on screen
       if (data.data.otp) {
         setOtpDisplay(data.data.otp);
+        sessionStorage.setItem("otpPreview", data.data.otp);
+      } else {
+        sessionStorage.removeItem("otpPreview");
       }
 
       // Navigate to verify page
@@ -260,6 +279,44 @@ export default function WhatsAppLogin() {
               <p className="text-xs text-slate-500" style={{ marginTop: "5px" }}>
                 Use the WhatsApp number you actively use.
               </p>
+
+              {/* Gmail input */}
+              <div className="relative">
+                <div className="relative">
+                  <input
+                    type="email"
+                    value={emailValue}
+                    onChange={(e) => setEmailValue(e.target.value)}
+                    onFocus={() => setEmailFocused(true)}
+                    onBlur={() => setEmailFocused(false)}
+                    className={`w-full px-4 pb-2 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-100 ${
+                      emailFocused || emailValue.length > 0 ? "pt-5" : "pt-3"
+                    }`}
+                    style={{
+                      height: "44px",
+                      borderRadius: "4.4px",
+                      border: "1px solid #99A1AF",
+                      backgroundColor: "#FFFFFF",
+                    }}
+                  />
+                  <label
+                    className={`pointer-events-none absolute text-slate-500 transition-all duration-200 ${
+                      emailFocused || emailValue.length > 0
+                        ? "left-3 -top-2.5 text-xs font-medium bg-white px-1"
+                        : "left-3 top-1/2 -translate-y-1/2 text-sm"
+                    }`}
+                    style={
+                      emailFocused || emailValue.length > 0
+                        ? {
+                            color: "#239CD2",
+                          }
+                        : undefined
+                    }
+                  >
+                    Gmail Address
+                  </label>
+                </div>
+              </div>
 
               {error && (
                 <div className="mt-2 rounded-md bg-red-50 border border-red-200 p-3">

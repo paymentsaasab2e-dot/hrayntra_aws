@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { API_ORIGIN } from '@/lib/api-base';
 
 interface CertificationModalProps {
   isOpen: boolean;
@@ -474,7 +475,7 @@ export default function CertificationModal({
                               <span className="text-sm text-gray-700 truncate">{doc.name}</span>
                               {doc.url && (
                                 <a
-                                  href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}${doc.url}`}
+                                  href={`${API_ORIGIN}${doc.url}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="text-blue-600 hover:text-blue-800 text-xs"

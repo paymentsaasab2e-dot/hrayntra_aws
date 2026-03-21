@@ -35,7 +35,7 @@ export const linkedinService = {
     }
   },
 
-  async saveToken(userId, linkedinSub, accessToken, expiresIn, name, picture) {
+  async saveToken(userId, linkedinSub, accessToken, expiresIn, name, picture, email = null) {
     // Check if linkedInToken model exists (Prisma uses camelCase: LinkedInToken -> linkedInToken)
     if (!prisma.linkedInToken) {
       throw new Error('LinkedInToken model not found. Please restart the server after running prisma generate.');
@@ -55,6 +55,7 @@ export const linkedinService = {
         expiresAt,
         name,
         picture,
+        ...(email !== undefined ? { email } : {}),
         updatedAt: new Date(),
       },
       create: {
@@ -64,6 +65,7 @@ export const linkedinService = {
         expiresAt,
         name,
         picture,
+        email: email ?? null,
       },
     });
   },

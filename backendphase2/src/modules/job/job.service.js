@@ -22,12 +22,26 @@ function getStageColor(stageName) {
 export const jobService = {
   async getAll(req) {
     const { page, limit, skip } = getPaginationParams(req);
-    const { status, clientId, assignedToId, search } = req.query;
+    const { status, clientId, assignedToId, search, mine } = req.query;
 
     const where = {};
     if (status) where.status = status;
-    if (clientId) where.clientId = clientId;
-    if (assignedToId) where.assignedToId = assignedToId;
+
+    // Some legacy rows may exist with `clientId: null`.
+    // `Job.clientId` is optional in Prisma now, so we should avoid filtering logic.
+    // Also sanitize query values like the string "null".
+    const safeClientId = clientId && clientId !== 'null' ? clientId : undefined;
+    const safeAssignedToId = assignedToId && assignedToId !== 'null' ? assignedToId : undefined;
+
+    if (safeClientId) where.clientId = safeClientId;
+
+    if (safeAssignedToId) where.assignedToId = safeAssignedToId;
+
+    // Jobs page: only jobs created by the authenticated user (no seeded/dummy rows unless they match)
+    const mineFilter = mine === 'true' || mine === '1';
+    if (mineFilter && req.user?.id) {
+      where.createdById = req.user.id;
+    }
     if (search) {
       where.title = { contains: search, mode: 'insensitive' };
     }
@@ -108,7 +122,7 @@ export const jobService = {
     });
   },
 
-  async create(data) {
+  async create(data, createdByUserId) {
     // Utility function to remove undefined values
     const removeUndefined = (obj) => {
       return Object.fromEntries(
@@ -129,6 +143,7 @@ export const jobService = {
       status: data.status || 'OPEN', // Default to OPEN when creating from client drawer
       clientId: data.clientId,
       assignedToId: data.assignedToId,
+      createdById: createdByUserId || undefined,
       openings: data.openings || 1,
       salary: data.salary,
       experienceRequired: data.experienceRequired,
@@ -314,21 +329,28 @@ export const jobService = {
     return { message: 'Job deleted successfully' };
   },
 
-  async getMetrics() {
+  async getMetrics(req) {
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfWeek = new Date(now);
     startOfWeek.setDate(now.getDate() - 7);
     startOfWeek.setHours(0, 0, 0, 0);
 
+    const mineFilter = req?.query?.mine === 'true' || req?.query?.mine === '1';
+    const scope =
+      mineFilter && req?.user?.id
+        ? { createdById: req.user.id }
+        : {};
+
     // Active Jobs (status = OPEN)
     const activeJobs = await prisma.job.count({
-      where: { status: 'OPEN' },
+      where: { ...scope, status: 'OPEN' },
     });
 
     // New Jobs (This Week) - jobs created in the last 7 days
     const newJobsThisWeek = await prisma.job.count({
       where: {
+        ...scope,
         createdAt: { gte: startOfWeek },
       },
     });
@@ -336,6 +358,7 @@ export const jobService = {
     // No Candidates - jobs with no matches
     const jobsWithNoCandidates = await prisma.job.findMany({
       where: {
+        ...scope,
         status: { in: ['OPEN', 'DRAFT'] },
       },
       include: {
@@ -349,6 +372,7 @@ export const jobService = {
     // Near SLA - jobs with slaRisk = true
     const nearSlaCount = await prisma.job.count({
       where: {
+        ...scope,
         slaRisk: true,
         status: { in: ['OPEN', 'DRAFT'] },
       },
@@ -357,6 +381,7 @@ export const jobService = {
     // Closed This Month - jobs closed this month
     const closedThisMonth = await prisma.job.count({
       where: {
+        ...scope,
         status: { in: ['CLOSED', 'FILLED'] },
         updatedAt: { gte: startOfMonth },
       },

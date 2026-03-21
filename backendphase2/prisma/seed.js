@@ -6,19 +6,27 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('🌱 Seeding database...');
 
-  // Create Users
-  const superAdmin = await prisma.user.upsert({
-    where: { email: 'admin@saasa.com' },
-    update: {},
-    create: {
-      name: 'Super Admin',
-      email: 'admin@saasa.com',
-      passwordHash: await bcrypt.hash('admin123', 10),
-      role: 'SUPER_ADMIN',
-      department: 'IT',
-      isActive: true,
-    },
-  });
+  // NOTE:
+  // This seed script historically seeded sample data (users/clients/candidates/jobs/etc.)
+  // before seeding system roles + permissions.
+  //
+  // If sample-data seeding fails due to schema drift, we still want to create roles
+  // and permissions so the new DB is usable.
+  let sampleDataError = null;
+  try {
+    // Create Users
+    const superAdmin = await prisma.user.upsert({
+      where: { email: 'admin@saasa.com' },
+      update: {},
+      create: {
+        name: 'Super Admin',
+        email: 'admin@saasa.com',
+        passwordHash: await bcrypt.hash('admin123', 10),
+        role: 'SUPER_ADMIN',
+        department: 'IT',
+        isActive: true,
+      },
+    });
 
   const recruiter = await prisma.user.upsert({
     where: { email: 'recruiter@saasa.com' },
@@ -539,6 +547,10 @@ async function main() {
   });
 
   console.log('✅ Matches created');
+  } catch (error) {
+    sampleDataError = error;
+    console.error('❌ Sample data seeding failed (continuing with roles/permissions):', error);
+  }
 
   // ── SEED ROLES AND PERMISSIONS ──
   console.log('🌱 Seeding roles and permissions...');
@@ -609,13 +621,13 @@ async function main() {
 
   // Create roles
   const roles = [
-    { roleName: 'Super Admin', description: 'Full system access' },
-    { roleName: 'Admin', description: 'Administrative access' },
-    { roleName: 'Senior Recruiter', description: 'Senior recruitment role' },
-    { roleName: 'Recruiter', description: 'Standard recruitment role' },
-    { roleName: 'Account Manager', description: 'Client account management' },
-    { roleName: 'Finance', description: 'Finance and billing access' },
-    { roleName: 'Viewer', description: 'Read-only access' },
+    { roleName: 'Super Admin', description: 'Full system access', color: 'purple' },
+    { roleName: 'Admin', description: 'Administrative access', color: 'blue' },
+    { roleName: 'Senior Recruiter', description: 'Senior recruitment role', color: 'indigo' },
+    { roleName: 'Recruiter', description: 'Standard recruitment role', color: 'green' },
+    { roleName: 'Account Manager', description: 'Client account management', color: 'orange' },
+    { roleName: 'Finance', description: 'Finance and billing access', color: 'emerald' },
+    { roleName: 'Viewer', description: 'Read-only access', color: 'slate' },
   ];
 
   const createdRoles = {};

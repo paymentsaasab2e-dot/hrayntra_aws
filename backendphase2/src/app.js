@@ -4,6 +4,7 @@ import morgan from 'morgan';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { errorMiddleware } from './middleware/error.middleware.js';
+import { env } from './config/env.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -39,11 +40,31 @@ import settingRoutes from './modules/setting/setting.routes.js';
 import aiRoutes from './modules/ai/ai.routes.js';
 import socialRoutes from './modules/social/social.routes.js';
 import linkedinRoutes from './modules/linkedin/linkedin.routes.js';
+import oauthRoutes from './modules/oauth/oauth.routes.js';
+import userCommunicationRoutes from './modules/user-communication/user-communication.routes.js';
+import twilioTestRoutes from './modules/twilio-test/twilio-test.routes.js';
+import pdfProxyRoutes from './routes/pdfProxy.routes.js';
 
 const app = express();
 
 // Middleware
-app.use(cors());
+const allowedOrigins = (
+  process.env.FRONTEND_URLS ||
+  `${env.FRONTEND_URL},http://localhost:3000,http://localhost:3001,https://frontendphase2.vercel.app,https://phase2.saasab2e.com`
+)
+  .split(',')
+  .map((v) => v.trim())
+  .filter(Boolean);
+
+app.use(cors({
+  origin(origin, callback) {
+    // Allow server-to-server / curl requests without Origin header
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
+  credentials: true,
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
@@ -120,6 +141,7 @@ app.use('/api/v1/clients', clientRoutes);
 app.use('/api/v1/contacts', contactRoutes);
 app.use('/api/v1/jobs', jobRoutes);
 app.use('/api/v1/files', filesRoutes);
+app.use('/api/v1/pdf-proxy', pdfProxyRoutes);
 app.use('/api/v1/leads', leadRoutes);
 app.use('/api/v1/pipeline', pipelineRoutes);
 app.use('/api/v1/matches', matchRoutes);
@@ -139,7 +161,10 @@ app.use('/api/permissions', permissionsRoutesNew); // Permissions route
 app.use('/api/v1/departments', departmentRoutes);
 app.use('/api/departments', departmentsRoutesNew); // New TypeScript departments routes
 app.use('/api/v1', scheduledMeetingsRoutes); // Scheduled meetings routes
+app.use('/api/v1/settings/communication', userCommunicationRoutes);
+app.use('/api/v1/settings/twilio', twilioTestRoutes);
 app.use('/api/v1/settings', settingRoutes);
+app.use('/api/v1/oauth', oauthRoutes);
 app.use('/api/v1/ai', aiRoutes);
 app.use('/api/v1/social', socialRoutes);
 app.use('/api/v1/linkedin', linkedinRoutes);

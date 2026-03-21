@@ -7,5 +7,6 @@ const router = express.Router();
 router.use(authMiddleware);
 
 router.post('/job-description', aiController.generateJobDescription);
+router.post('/assistant-chat', aiController.assistantChat);
 
 export default router;

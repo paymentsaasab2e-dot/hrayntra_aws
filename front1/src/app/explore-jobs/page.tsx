@@ -7,7 +7,8 @@ import Image from 'next/image';
 import ApplicationSuccessModal from '../../components/modals/ApplicationSuccessModal';
 import DashboardContainer from '../../components/layout/DashboardContainer';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+// Use backend1 directly (it shares the same MongoDB as backendphase2).
+import { API_BASE_URL } from '@/lib/api-base';
 const PAGE_BG =
   'linear-gradient(135deg, #e0f2fe 0%, #ecf7fd 12%, #fafbfb 30%, #fdf6f0 55%, #fef5ed 85%, #fef5ed 100%)';
 
@@ -215,9 +216,15 @@ const DashboardPage = () => {
 
       const result: any = await response.json();
       
-      if (result.success && result.data?.jobs) {
+      const rawJobs =
+        (result?.data?.jobs as Array<any> | undefined) ||
+        (result?.data?.data as Array<any> | undefined) ||
+        (result?.data?.items as Array<any> | undefined) ||
+        [];
+
+      if (result.success && Array.isArray(rawJobs)) {
         // Transform API response to JobListing format
-        const transformedJobs: JobListing[] = (result.data.jobs as Array<any>).map((job: any, index: number) => {
+        const transformedJobs: JobListing[] = rawJobs.map((job: any, index: number) => {
           const matchScore = job.matchScore || Math.floor(Math.random() * 21) + 75;
           
           // Use MongoDB ObjectId as string, or generate a numeric ID
@@ -226,36 +233,47 @@ const DashboardPage = () => {
           return {
             id: jobId,
             title: job.title || 'Job Title',
-            company: job.company || 'Company Name',
-            logo: job.companyLogo || '/perosn_icon.png',
+            company: job.client?.companyName || job.company || 'Company Name',
+            logo: job.client?.logo || job.companyLogo || '/perosn_icon.png',
             location: job.location || 'Location not specified',
-            salary: formatSalary(job.salaryMin, job.salaryMax, job.salaryCurrency, job.salaryType),
-            type: job.employmentType === 'FULL_TIME' ? 'Full-time' : 
-                  job.employmentType === 'PART_TIME' ? 'Part-time' :
-                  job.employmentType === 'CONTRACT' ? 'Contract' :
-                  job.employmentType === 'INTERNSHIP' ? 'Internship' : 'Full-time',
-            skills: job.skills || [],
+            salary: formatSalary(job.salary?.min ?? job.salaryMin, job.salary?.max ?? job.salaryMax, job.salary?.currency ?? job.salaryCurrency, job.salary?.type ?? job.salaryType),
+            type:
+              job.type === 'FULL_TIME' ? 'Full-time' :
+              job.type === 'PART_TIME' ? 'Part-time' :
+              job.type === 'CONTRACT' ? 'Contract' :
+              job.type === 'INTERNSHIP' ? 'Internship' :
+              job.type === 'FREELANCE' ? 'Contract' :
+              job.employmentType === 'FULL_TIME' ? 'Full-time' :
+              job.employmentType === 'PART_TIME' ? 'Part-time' :
+              job.employmentType === 'CONTRACT' ? 'Contract' :
+              job.employmentType === 'INTERNSHIP' ? 'Internship' : 'Full-time',
+            skills: Array.isArray(job.skills) ? job.skills : [],
             match: `${matchScore}% Match`,
-            timeAgo: formatTimeAgo(job.postedAt || new Date()),
+            timeAgo: formatTimeAgo(job.postedDate || job.postedAt || job.createdAt || new Date()),
             isHighlighted: matchScore >= 85,
-            description: job.aboutRole || 'No description available.',
-            responsibilities: job.responsibilities ? 
-              (typeof job.responsibilities === 'string' ? 
-                job.responsibilities.split(/[.;]/).filter((r: string) => r.trim()).map((r: string) => r.trim() + (r.trim().endsWith('.') ? '' : '.')) : 
-                Array.isArray(job.responsibilities) ? job.responsibilities : []) : 
-              [],
-            requiredSkills: job.skills || [],
+            description: job.overview || job.aboutRole || job.description || 'No description available.',
+            responsibilities:
+              Array.isArray(job.keyResponsibilities)
+                ? job.keyResponsibilities
+                : typeof job.responsibilities === 'string'
+                ? job.responsibilities.split(/[.;]/).filter((r: string) => r.trim()).map((r: string) => r.trim() + (r.trim().endsWith('.') ? '' : '.'))
+                : Array.isArray(job.responsibilities)
+                ? job.responsibilities
+                : [],
+            requiredSkills: Array.isArray(job.skills) ? job.skills : [],
             niceToHaveSkills: [],
-            companyOverview: `We are a leading company in the ${job.industry || 'technology'} industry.`,
-            experienceLevel: job.experienceLevel || 'Not specified',
-            department: job.industry || undefined,
-            workMode: job.workMode === 'REMOTE' ? 'Remote' :
-                     job.workMode === 'HYBRID' ? 'Hybrid' :
-                     job.workMode === 'ON_SITE' ? 'On-site' : 'On-site',
-            industry: job.industry || 'Technology',
-            visaAvailability: job.visaSponsorship ? 'Available' : 'Not Available',
+            companyOverview: `We are a leading company in the ${job.industry || job.department || 'technology'} industry.`,
+            experienceLevel: job.experienceRequired || job.experienceLevel || 'Not specified',
+            department: job.industry || job.department || undefined,
+            workMode:
+              job.workMode === 'REMOTE' ? 'Remote' :
+              job.workMode === 'HYBRID' ? 'Hybrid' :
+              job.workMode === 'ON_SITE' ? 'On-site' :
+              job.workMode ? job.workMode : 'On-site',
+            industry: job.industry || job.department || 'Technology',
+            visaAvailability: job.visaSponsorship || job.visaSponsorship === true ? 'Available' : 'Not Available',
             applicantCount: `${Math.floor(Math.random() * 200) + 20}+`,
-            postedDate: formatDate(job.postedAt || new Date()),
+            postedDate: formatDate(job.postedDate || job.postedAt || job.createdAt || new Date()),
             strengths: [],
             gaps: [],
           };

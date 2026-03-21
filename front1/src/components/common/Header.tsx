@@ -5,7 +5,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 
-const API_BASE_URL = "http://localhost:5000/api";
+import { API_BASE_URL } from '@/lib/api-base';
 const PRIMARY = '#28A8DF';
 const JOBS_PATH = '/explore-jobs';
 

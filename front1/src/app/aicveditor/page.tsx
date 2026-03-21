@@ -6,7 +6,7 @@ import Header from '@/components/common/Header';
 import Footer from '@/components/common/Footer';
 import ResumeTemplate, { ResumeJSON } from '@/components/resume/ResumeTemplate';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+import { API_BASE_URL } from '@/lib/api-base';
 
 export default function AICVEditorPage() {
   const router = useRouter();
@@ -53,6 +53,13 @@ export default function AICVEditorPage() {
         console.log('📥 Resume data received:', result);
         
         if (result.success && result.data?.resumeJson) {
+          const normalizedSkills = Array.isArray(result.data.resumeJson.skills)
+            ? result.data.resumeJson.skills.map((skill: any) => {
+                if (typeof skill === 'string') return skill;
+                return skill?.name || skill?.languageName || skill?.skill || skill?.title || String(skill);
+              })
+            : [];
+
           // Ensure all array fields are initialized
           const resumeData = {
             name: result.data.resumeJson.name || '',
@@ -64,9 +71,7 @@ export default function AICVEditorPage() {
             education: Array.isArray(result.data.resumeJson.education) 
               ? result.data.resumeJson.education 
               : [],
-            skills: Array.isArray(result.data.resumeJson.skills) 
-              ? result.data.resumeJson.skills 
-              : [],
+            skills: normalizedSkills,
             projects: Array.isArray(result.data.resumeJson.projects) 
               ? result.data.resumeJson.projects 
               : [],
@@ -570,17 +575,12 @@ export default function AICVEditorPage() {
                 <div className="space-y-4">
                   <div className="flex flex-wrap gap-2 mb-4">
                     {(resume.skills || []).map((skill, index) => {
-                      // Handle both string and object formats
-                      const skillName = typeof skill === 'string' 
-                        ? skill 
-                        : skill?.name || skill?.languageName || skill?.skill || skill?.title || String(skill);
-                      
                       return (
                         <span
                           key={index}
                           className="px-3 py-1 bg-gray-100 text-gray-700 text-sm rounded flex items-center gap-2"
                         >
-                          {skillName}
+                          {skill}
                           <button
                             onClick={() => deleteItem('skills', index)}
                             className="text-gray-500 hover:text-gray-700"

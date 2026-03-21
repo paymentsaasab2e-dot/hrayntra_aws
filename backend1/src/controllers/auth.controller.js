@@ -10,13 +10,22 @@ const { OtpStatus } = require('@prisma/client');
  */
 async function sendOTP(req, res) {
   try {
-    const { whatsappNumber, countryCode } = req.body;
+    const { whatsappNumber, countryCode, email } = req.body;
 
     // Validation
-    if (!whatsappNumber || !countryCode) {
+    if (!whatsappNumber || !countryCode || !email) {
       return res.status(400).json({
         success: false,
-        message: 'WhatsApp number and country code are required',
+        message: 'WhatsApp number, country code, and Gmail are required',
+      });
+    }
+
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const gmailRegex = /^[a-zA-Z0-9._%+-]+@gmail\.com$/;
+    if (!gmailRegex.test(normalizedEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid Gmail address',
       });
     }
 
@@ -134,22 +143,26 @@ async function sendOTP(req, res) {
     });
 
     // Send OTP via email using Resend
-    const emailResult = await sendOTPEmail(otp, fullWhatsAppNumber);
+    const emailResult = await sendOTPEmail(otp, normalizedEmail, fullWhatsAppNumber);
     
     if (!emailResult.success) {
       console.error('Failed to send OTP email:', emailResult.error);
       // Continue anyway - OTP is saved in database, user can still verify
     }
 
-    // In development, show OTP in response for testing
-    const showOTP = process.env.NODE_ENV === 'development';
+    // Show OTP for local/testing or when email delivery fails and fallback is enabled.
+    const allowOtpFallback = process.env.ALLOW_OTP_FALLBACK !== 'false';
+    const showOTP = process.env.NODE_ENV === 'development' || (!emailResult.success && allowOtpFallback);
 
     res.json({
       success: true,
-      message: 'OTP sent successfully to your email',
+      message: emailResult.success
+        ? 'OTP sent successfully to your email'
+        : 'OTP generated, but email delivery failed. Use fallback OTP for verification.',
       data: {
         candidateId: candidate.id,
         whatsappNumber: fullWhatsAppNumber,
+        email: normalizedEmail,
         emailSent: emailResult.success,
         emailMessageId: emailResult.messageId,
         // Only show OTP in development
@@ -543,13 +556,22 @@ async function verifyOTP(req, res) {
  */
 async function resendOTP(req, res) {
   try {
-    const { whatsappNumber, countryCode } = req.body;
+    const { whatsappNumber, countryCode, email } = req.body;
 
     // Validation
-    if (!whatsappNumber || !countryCode) {
+    if (!whatsappNumber || !countryCode || !email) {
       return res.status(400).json({
         success: false,
-        message: 'WhatsApp number and country code are required',
+        message: 'WhatsApp number, country code, and Gmail are required',
+      });
+    }
+
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const gmailRegex = /^[a-zA-Z0-9._%+-]+@gmail\.com$/;
+    if (!gmailRegex.test(normalizedEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid Gmail address',
       });
     }
 
@@ -598,22 +620,26 @@ async function resendOTP(req, res) {
     });
 
     // Send OTP via email using Resend
-    const emailResult = await sendOTPEmail(otp, fullWhatsAppNumber);
+    const emailResult = await sendOTPEmail(otp, normalizedEmail, fullWhatsAppNumber);
     
     if (!emailResult.success) {
       console.error('Failed to resend OTP email:', emailResult.error);
       // Continue anyway - OTP is saved in database
     }
 
-    // In development, show OTP in response for testing
-    const showOTP = process.env.NODE_ENV === 'development';
+    // Show OTP for local/testing or when email delivery fails and fallback is enabled.
+    const allowOtpFallback = process.env.ALLOW_OTP_FALLBACK !== 'false';
+    const showOTP = process.env.NODE_ENV === 'development' || (!emailResult.success && allowOtpFallback);
 
     res.json({
       success: true,
-      message: 'OTP resent successfully to your email',
+      message: emailResult.success
+        ? 'OTP resent successfully to your email'
+        : 'OTP regenerated, but email delivery failed. Use fallback OTP for verification.',
       data: {
         candidateId: candidate.id,
         whatsappNumber: fullWhatsAppNumber,
+        email: normalizedEmail,
         emailSent: emailResult.success,
         emailMessageId: emailResult.messageId,
         // Only show OTP in development

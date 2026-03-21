@@ -51,13 +51,11 @@ async function getAllJobs(req, res) {
               logoUrl: true,
             },
           },
-          skills: {
-            include: {
-              skill: {
-                select: {
-                  name: true,
-                },
-              },
+          client: {
+            select: {
+              id: true,
+              companyName: true,
+              logo: true,
             },
           },
         },
@@ -75,27 +73,43 @@ async function getAllJobs(req, res) {
       // Calculate a mock match score (75-95) for demo purposes
       // In production, this would be calculated based on candidate profile and job requirements
       const matchScore = Math.floor(Math.random() * 21) + 75;
+
+      const salaryJson = job.salary || undefined;
+      const salaryMin = job.salaryMin ?? salaryJson?.min ?? null;
+      const salaryMax = job.salaryMax ?? salaryJson?.max ?? null;
+      const salaryCurrency = job.salaryCurrency ?? salaryJson?.currency ?? null;
+      const salaryType = job.salaryType ?? salaryJson?.type ?? null;
+
+      const responsibilitiesArray = Array.isArray(job.keyResponsibilities)
+        ? job.keyResponsibilities.filter(Boolean)
+        : [];
+      const responsibilitiesText =
+        job.responsibilities ||
+        (responsibilitiesArray.length ? responsibilitiesArray.join(' ') : undefined);
       
       return {
         id: job.id,
         title: job.title,
-        company: job.company.name,
-        companyId: job.company.id,
-        companyLogo: job.company.logoUrl,
+        company: job.company?.name || job.client?.companyName || null,
+        companyId: job.company?.id || job.client?.id || null,
+        companyLogo: job.company?.logoUrl || job.client?.logo || null,
         location: job.location,
-        salaryMin: job.salaryMin,
-        salaryMax: job.salaryMax,
-        salaryCurrency: job.salaryCurrency,
-        salaryType: job.salaryType,
+        salaryMin,
+        salaryMax,
+        salaryCurrency,
+        salaryType,
         experienceLevel: job.experienceLevel,
-        employmentType: job.employmentType,
+        employmentType: job.type || job.employmentType,
+        type: job.type ?? undefined,
         workMode: job.workMode,
-        industry: job.industry,
-        aboutRole: job.aboutRole,
-        responsibilities: job.responsibilities,
-        visaSponsorship: job.visaSponsorship,
+        industry: job.industry ?? job.department ?? job.jobCategory ?? null,
+        aboutRole: job.aboutRole ?? job.overview ?? job.description ?? null,
+        responsibilities: responsibilitiesText,
+        keyResponsibilities: responsibilitiesArray,
+        visaSponsorship: job.visaSponsorship ?? false,
         postedAt: job.postedAt,
-        skills: job.skills.map((js) => js.skill.name),
+        skills: Array.isArray(job.skills) ? job.skills : [],
+        salary: job.salary ?? undefined,
         matchScore: matchScore,
       };
     });
@@ -147,11 +161,7 @@ async function getJobById(req, res) {
       where: { id: jobId },
       include: {
         company: true,
-        skills: {
-          include: {
-            skill: true,
-          },
-        },
+        client: true,
       },
     });
 
@@ -167,26 +177,42 @@ async function getJobById(req, res) {
     );
 
     // Format job for frontend
+    const salaryJson = job.salary || undefined;
+    const salaryMin = job.salaryMin ?? salaryJson?.min ?? null;
+    const salaryMax = job.salaryMax ?? salaryJson?.max ?? null;
+    const salaryCurrency = job.salaryCurrency ?? salaryJson?.currency ?? null;
+    const salaryType = job.salaryType ?? salaryJson?.type ?? null;
+
+    const responsibilitiesArray = Array.isArray(job.keyResponsibilities)
+      ? job.keyResponsibilities.filter(Boolean)
+      : [];
+    const responsibilitiesText =
+      job.responsibilities ||
+      (responsibilitiesArray.length ? responsibilitiesArray.join(' ') : undefined);
+
     const formattedJob = {
       id: job.id,
       title: job.title,
-      company: job.company.name,
-      companyId: job.company.id,
-      companyLogo: job.company.logoUrl,
+      company: job.company?.name || job.client?.companyName || null,
+      companyId: job.company?.id || job.client?.id || null,
+      companyLogo: job.company?.logoUrl || job.client?.logo || null,
       location: job.location,
-      salaryMin: job.salaryMin,
-      salaryMax: job.salaryMax,
-      salaryCurrency: job.salaryCurrency,
-      salaryType: job.salaryType,
+      salaryMin,
+      salaryMax,
+      salaryCurrency,
+      salaryType,
       experienceLevel: job.experienceLevel,
-      employmentType: job.employmentType,
+      employmentType: job.type || job.employmentType,
+      type: job.type ?? undefined,
       workMode: job.workMode,
-      industry: job.industry,
-      aboutRole: job.aboutRole,
-      responsibilities: job.responsibilities,
-      visaSponsorship: job.visaSponsorship,
+      industry: job.industry ?? job.department ?? job.jobCategory ?? null,
+      aboutRole: job.aboutRole ?? job.overview ?? job.description ?? null,
+      responsibilities: responsibilitiesText,
+      keyResponsibilities: responsibilitiesArray,
+      visaSponsorship: job.visaSponsorship ?? false,
       postedAt: job.postedAt,
-      skills: job.skills.map((js) => js.skill.name),
+      skills: Array.isArray(job.skills) ? job.skills : [],
+      salary: job.salary ?? undefined,
     };
 
     res.json({

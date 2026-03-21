@@ -610,11 +610,49 @@ model Company {
   @@map("companies")
 }
 
+// ── CLIENT (shared with backendphase2) ──
+// backendphase2 stores clients in the `clients` collection.
+// We add a compatible model so backend1 can read jobs created from backendphase2.
+model Client {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  companyName   String
+  industry      String?
+  website       String?
+  logo          String?
+  location      String?
+  status        String?
+  assignedToId  String?   @db.ObjectId
+
+  jobs Job[]
+
+  @@map("clients")
+}
+
 model Job {
   id               String         @id @default(auto()) @map("_id") @db.ObjectId
-  companyId        String         @db.ObjectId
+  // backend1's original schema uses `companyId` (companies collection).
+  // When jobs are created from backendphase2, they usually include `clientId` (clients collection).
+  companyId        String?        @db.ObjectId
   title            String
   location         String?
+
+  // Compatible with backendphase2 job documents
+  clientId              String?        @db.ObjectId
+  description           String?
+  overview              String?
+  keyResponsibilities    String[]       @default([])
+  preferredSkills       String[]       @default([])
+  experienceRequired    String?
+  education              String?
+  benefits               String[]       @default([])
+  salary                 Json?
+  type                   String?
+  priority               String?
+  department             String?
+  jobCategory            String?
+  jobLocationType        String?
+
+  // backend1 legacy salary fields (still used by some existing data)
   salaryMin        Float?
   salaryMax        Float?
   salaryCurrency   String?        @default("USD")
@@ -630,8 +668,16 @@ model Job {
   postedAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 
-  company          Company        @relation(fields: [companyId], references: [id])
-  skills           JobSkill[]
+  company          Company?       @relation(fields: [companyId], references: [id])
+  client           Client?        @relation(fields: [clientId], references: [id])
+
+  // Legacy join-table relation (not used by the job-listing endpoint we updated).
+  jobSkills       JobSkill[]
+
+  // backendphase2 stores skills as a string array on the job document.
+  // backend1 originally used a JobSkill join table; we add a compatible scalar field.
+  skills           String[]      @default([])
+
   applications     Application[]
   savedJobs        SavedJob[]
   aiJobMatches     AiJobMatch[]

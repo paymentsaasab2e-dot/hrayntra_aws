@@ -282,22 +282,57 @@ async function buildCandidateResponse(candidate) {
   };
 }
 
+/** Candidates the user may see when mine=true: created by them, or applied / in pipeline on jobs they created. */
+async function buildMineCandidatesScope(userId) {
+  if (!userId) {
+    return { id: { in: [] } };
+  }
+  const myJobs = await prisma.job.findMany({
+    where: { createdById: userId },
+    select: { id: true },
+  });
+  const myJobIds = myJobs.map((j) => j.id);
+  const orClause = [{ createdById: userId }];
+  if (myJobIds.length > 0) {
+    orClause.push({ matches: { some: { jobId: { in: myJobIds } } } });
+    orClause.push({ pipelineEntries: { some: { jobId: { in: myJobIds } } } });
+    orClause.push({ interviews: { some: { jobId: { in: myJobIds } } } });
+  }
+  return { OR: orClause };
+}
+
 export const candidateService = {
   async getAll(req) {
     const { page, limit, skip } = getPaginationParams(req);
     const { status, stage, assignedToId, search } = req.query;
+    const mine =
+      req.query?.mine === 'true' || req.query?.mine === '1' || req.query?.mine === true;
+
+    if (mine && !req.user?.id) {
+      return formatPaginationResponse([], page, limit, 0);
+    }
 
     const where = {};
     if (status) where.status = status;
     if (stage) where.stage = stage; // Filter by stage field
     if (assignedToId) where.assignedToId = assignedToId;
+
+    const andParts = [];
+    if (mine && req.user?.id) {
+      andParts.push(await buildMineCandidatesScope(req.user.id));
+    }
     if (search) {
       // MongoDB doesn't support mode: 'insensitive' - use contains for case-sensitive search
-      where.OR = [
-        { firstName: { contains: search } },
-        { lastName: { contains: search } },
-        { email: { contains: search } },
-      ];
+      andParts.push({
+        OR: [
+          { firstName: { contains: search } },
+          { lastName: { contains: search } },
+          { email: { contains: search } },
+        ],
+      });
+    }
+    if (andParts.length) {
+      where.AND = andParts;
     }
 
     const [candidates, total] = await Promise.all([
@@ -374,7 +409,7 @@ export const candidateService = {
     return buildCandidateResponse(candidate);
   },
 
-  async create(data) {
+  async create(data, createdByUserId) {
     const candidateData = {
       firstName: data.firstName,
       lastName: data.lastName,
@@ -416,6 +451,7 @@ export const candidateService = {
       preferredLocation: data.preferredLocation,
       willingToRelocate: data.willingToRelocate || false,
       remoteWorkPreference: data.remoteWorkPreference,
+      createdById: createdByUserId || undefined,
     };
 
     // Log data being stored
@@ -488,7 +524,25 @@ export const candidateService = {
   },
 
   async delete(id) {
-    await prisma.candidate.delete({ where: { id } });
+    await prisma.$transaction(async (tx) => {
+      // Orphaned activity rows (no FK cascade) — remove so DB stays clean
+      await tx.activity.deleteMany({
+        where: {
+          OR: [
+            { entityType: 'CANDIDATE', entityId: id },
+            { relatedType: 'candidate', relatedId: id },
+          ],
+        },
+      });
+
+      // Leads store converted candidate id without a Prisma FK — clear reference
+      await tx.lead.updateMany({
+        where: { convertedToCandidateId: id },
+        data: { convertedToCandidateId: null },
+      });
+
+      await tx.candidate.delete({ where: { id } });
+    });
     return { message: 'Candidate deleted successfully' };
   },
 
@@ -1110,7 +1164,30 @@ export const candidateService = {
     return updated;
   },
 
-  async getStats() {
+  async getStats(req = {}) {
+    const mine =
+      req.query?.mine === 'true' || req.query?.mine === '1' || req.query?.mine === true;
+    const userId = req.user?.id;
+
+    const emptyStats = {
+      all: 0,
+      applied: 0,
+      longlist: 0,
+      shortlist: 0,
+      screening: 0,
+      submitted: 0,
+      interviewing: 0,
+      offered: 0,
+      hired: 0,
+      rejected: 0,
+    };
+
+    if (mine && !userId) {
+      return emptyStats;
+    }
+
+    const scopeWhere = mine ? await buildMineCandidatesScope(userId) : null;
+
     // Get counts by stage
     const stages = [
       'Applied',
@@ -1127,14 +1204,16 @@ export const candidateService = {
     const stageCounts = await Promise.all(
       stages.map(async (stage) => {
         const count = await prisma.candidate.count({
-          where: { stage },
+          where: scopeWhere ? { AND: [{ stage }, scopeWhere] } : { stage },
         });
         return { stage, count };
       })
     );
 
     // Get total count
-    const totalCount = await prisma.candidate.count();
+    const totalCount = await prisma.candidate.count({
+      where: scopeWhere || {},
+    });
 
     // Build result object
     const result = {

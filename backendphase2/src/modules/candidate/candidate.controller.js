@@ -25,7 +25,7 @@ export const candidateController = {
 
   async create(req, res) {
     try {
-      const candidate = await candidateService.create(req.body);
+      const candidate = await candidateService.create(req.body, req.user?.id);
       sendResponse(res, 201, 'Candidate created successfully', candidate);
     } catch (error) {
       sendError(res, 400, error.message, error);
@@ -147,7 +147,7 @@ export const candidateController = {
 
   async getStats(req, res) {
     try {
-      const stats = await candidateService.getStats();
+      const stats = await candidateService.getStats(req);
       sendResponse(res, 200, 'Candidate stats retrieved successfully', stats);
     } catch (error) {
       sendError(res, 500, error.message, error);

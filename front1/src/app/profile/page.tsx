@@ -28,6 +28,7 @@ import CareerPreferencesModal, { CareerPreferencesData } from '../../components/
 import VisaWorkAuthorizationModal, { VisaWorkAuthorizationData } from '../../components/modals/VisaWorkAuthorizationModal';
 import VaccinationModal, { VaccinationData } from '../../components/modals/VaccinationModal';
 import ResumeModal, { ResumeData as BaseResumeData } from '../../components/modals/ResumeModal';
+import { API_BASE_URL } from '@/lib/api-base';
 
 // Extended ResumeData interface for profile page
 interface ResumeData extends BaseResumeData {
@@ -151,7 +152,6 @@ export default function ProfilePage() {
   const [isPortfolioLinksCardExpanded, setIsPortfolioLinksCardExpanded] = useState<boolean>(false);
 
   // API base URL
-  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
   const isPersistedId = (value?: string) => Boolean(value && /^[a-f\d]{24}$/i.test(value));
 
@@ -162,6 +162,21 @@ export default function ProfilePage() {
       .split('_')
       .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
       .join(' ');
+  };
+
+  const getDocumentUrl = (doc: any): string =>
+    typeof doc === 'string' ? doc : doc?.url || '';
+
+  const getDocumentName = (doc: any): string => {
+    if (typeof doc === 'string') {
+      return doc.split('/').pop() || 'Document';
+    }
+    return doc?.name || doc?.url?.split('/').pop() || 'Document';
+  };
+
+  const getApiDocumentHref = (doc: any): string => {
+    const url = getDocumentUrl(doc);
+    return url.startsWith('http') ? url : `${API_BASE_URL}${url}`;
   };
 
   const serializeMaybeFile = (value?: File | string) => {
@@ -326,9 +341,25 @@ export default function ProfilePage() {
           'Content-Type': 'application/json',
         },
       })
-        .then((response) => {
-          if (response.ok) {
-            return response.json();
+        .then(async (response) => {
+          if (response.ok) return response.json();
+
+          if (response.status === 404) {
+            await fetch(`${API_BASE_URL}/cv-analysis/analyze`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ candidateId }),
+            });
+
+            const retry = await fetch(`${API_BASE_URL}/cv-analysis/${candidateId}`, {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+            });
+            if (retry.ok) return retry.json();
           }
           return null;
         })
@@ -425,12 +456,29 @@ export default function ProfilePage() {
       if (!candidateId) return;
 
       try {
-        const response = await fetch(`${API_BASE_URL}/cv-analysis/${candidateId}`, {
+        let response = await fetch(`${API_BASE_URL}/cv-analysis/${candidateId}`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
           },
         });
+
+        if (response.status === 404) {
+          await fetch(`${API_BASE_URL}/cv-analysis/analyze`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ candidateId }),
+          });
+
+          response = await fetch(`${API_BASE_URL}/cv-analysis/${candidateId}`, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          });
+        }
 
         if (response.ok) {
           const result = await response.json();
@@ -509,7 +557,7 @@ export default function ProfilePage() {
       { key: 'education', name: 'Education', check: () => educationData && educationData.educations && educationData.educations.length > 0 },
       { key: 'skills', name: 'Skills', check: () => skillsData && skillsData.skills && skillsData.skills.length > 0 },
       { key: 'languages', name: 'Languages', check: () => languagesData && languagesData.languages && languagesData.languages.length > 0 },
-      { key: 'projects', name: 'Projects', check: () => projectData && projectData.projects && projectData.projects.length > 0 },
+      { key: 'projects', name: 'Projects', check: () => Boolean(projectData?.projectTitle?.trim()) },
       { key: 'portfolioLinks', name: 'Portfolio Links', check: () => portfolioLinksData && portfolioLinksData.links && portfolioLinksData.links.length > 0 },
       { key: 'careerPreferences', name: 'Career Preferences', check: () => careerPreferencesData !== undefined && careerPreferencesData !== null },
       { key: 'visaAuthorization', name: 'Visa & Work Authorization', check: () => visaWorkAuthorizationData !== undefined && visaWorkAuthorizationData !== null },
@@ -573,7 +621,7 @@ export default function ProfilePage() {
       return !(languagesData && languagesData.languages && languagesData.languages.length > 0);
     }
     if (itemName === 'Projects') {
-      return !(projectData && projectData.projects && projectData.projects.length > 0);
+      return !projectData?.projectTitle?.trim();
     }
     if (itemName === 'Portfolio Links') {
       return !(portfolioLinksData && portfolioLinksData.links && portfolioLinksData.links.length > 0);
@@ -1336,16 +1384,17 @@ export default function ProfilePage() {
                     {workExperienceData?.workExperiences?.length ? (
                       <div className="space-y-4">
                         {workExperienceData.workExperiences.map((entry, index) => {
-                          const isExpanded = expandedWorkExperienceCards[entry.id] === true; // Default to collapsed
+                          const cardKey = entry.id ?? `work-${index}`;
+                          const isExpanded = expandedWorkExperienceCards[cardKey] === true; // Default to collapsed
                           const toggleCard = () => {
                             setExpandedWorkExperienceCards(prev => ({
                               ...prev,
-                              [entry.id]: !isExpanded
+                              [cardKey]: !isExpanded
                             }));
                           };
 
                           return (
-                            <div key={entry.id} className="relative bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
+                            <div key={cardKey} className="relative bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
                               {/* Blue vertical accent bar */}
                               <div className="absolute top-0 left-0 w-1 h-full bg-blue-600"></div>
                               
@@ -1360,7 +1409,7 @@ export default function ProfilePage() {
                                     {/* Edit Button */}
                                     <button
                                       onClick={() => {
-                                        setEditingWorkExperienceId(entry.id);
+                                        setEditingWorkExperienceId(entry.id ?? null);
                                         setIsWorkExperienceModalOpen(true);
                                       }}
                                       className="shrink-0 px-3 py-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg border border-blue-200 transition-all"
@@ -1545,8 +1594,8 @@ export default function ProfilePage() {
                                       {entry.documents && entry.documents.length > 0 ? (
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                           {entry.documents.map((doc, docIndex) => {
-                                            const docUrl = typeof doc === 'string' ? doc : (doc as any).url || '';
-                                            const docName = typeof doc === 'string' ? doc.split('/').pop() || 'Document' : (doc as any).name || 'Document';
+                                            const docUrl = getDocumentUrl(doc);
+                                            const docName = getDocumentName(doc);
                                             const fullUrl = docUrl.startsWith('http') ? docUrl : `${API_BASE_URL.replace('/api', '')}${docUrl}`;
                                             return (
                                               <a
@@ -1769,8 +1818,8 @@ export default function ProfilePage() {
                               {internshipData.documents && internshipData.documents.length > 0 ? (
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                   {internshipData.documents.map((doc, docIndex) => {
-                                    const docUrl = typeof doc === 'string' ? doc : (doc as any).url || '';
-                                    const docName = typeof doc === 'string' ? doc.split('/').pop() || 'Document' : (doc as any).name || 'Document';
+                                    const docUrl = getDocumentUrl(doc);
+                                    const docName = getDocumentName(doc);
                                     const fullUrl = docUrl.startsWith('http') ? docUrl : `${API_BASE_URL.replace('/api', '')}${docUrl}`;
                                     return (
                                       <a
@@ -1815,17 +1864,18 @@ export default function ProfilePage() {
                   <div>
                     {educationData?.educations?.length ? (
                       <div className="space-y-4">
-                        {educationData.educations.map((entry) => {
-                          const isCardExpanded = expandedEducationCards[entry.id] === true; // Default to collapsed
+                        {educationData.educations.map((entry, index) => {
+                          const cardKey = entry.id ?? `education-${index}`;
+                          const isCardExpanded = expandedEducationCards[cardKey] === true; // Default to collapsed
                           const toggleCard = () => {
                             setExpandedEducationCards(prev => ({
                               ...prev,
-                              [entry.id]: !isCardExpanded
+                              [cardKey]: !isCardExpanded
                             }));
                           };
 
                           return (
-                            <div key={entry.id} className="relative bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
+                            <div key={cardKey} className="relative bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
                               {/* Blue vertical accent bar */}
                               <div className="absolute top-0 left-0 w-1 h-full bg-blue-600"></div>
 
@@ -1840,7 +1890,7 @@ export default function ProfilePage() {
                                     {/* Edit Button */}
                                     <button
                                       onClick={() => {
-                                        setEditingEducationId(entry.id);
+                                        setEditingEducationId(entry.id ?? null);
                                         setIsEducationModalOpen(true);
                                       }}
                                       className="shrink-0 px-3 py-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg border border-blue-200 transition-all"
@@ -1975,8 +2025,8 @@ export default function ProfilePage() {
                                       {entry.documents && entry.documents.length > 0 ? (
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                           {entry.documents.map((doc, docIndex) => {
-                                            const docUrl = typeof doc === 'string' ? doc : (doc as any).url || '';
-                                            const docName = typeof doc === 'string' ? doc.split('/').pop() || 'Document' : (doc as any).name || 'Document';
+                                            const docUrl = getDocumentUrl(doc);
+                                            const docName = getDocumentName(doc);
                                             const fullUrl = docUrl.startsWith('http') ? docUrl : `${API_BASE_URL.replace('/api', '')}${docUrl}`;
                                             return (
                                               <a
@@ -2126,8 +2176,8 @@ export default function ProfilePage() {
                                 {academicAchievementData.documents && academicAchievementData.documents.length > 0 ? (
                                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                     {academicAchievementData.documents.map((doc, docIndex) => {
-                                      const docUrl = typeof doc === 'string' ? doc : (doc as any).url || '';
-                                      const docName = typeof doc === 'string' ? doc.split('/').pop() || 'Document' : (doc as any).name || 'Document';
+                                      const docUrl = getDocumentUrl(doc);
+                                      const docName = getDocumentName(doc);
                                       const fullUrl = docUrl.startsWith('http') ? docUrl : `${API_BASE_URL.replace('/api', '')}${docUrl}`;
                                       return (
                                         <a
@@ -2237,7 +2287,7 @@ export default function ProfilePage() {
                                     {projectData.documents.map((doc, docIndex) => (
                                       <a
                                         key={docIndex}
-                                        href={typeof doc === 'string' ? `${API_BASE_URL}${doc}` : `${API_BASE_URL}${doc.url}`}
+                                        href={getApiDocumentHref(doc)}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="inline-flex items-center gap-1 px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-xs text-gray-700 hover:bg-gray-50 transition-colors"
@@ -2245,7 +2295,7 @@ export default function ProfilePage() {
                                         <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                         </svg>
-                                        <span>{typeof doc === 'string' ? doc.split('/').pop() : doc.name || doc.url?.split('/').pop()}</span>
+                                        <span>{getDocumentName(doc)}</span>
                                       </a>
                                     ))}
                                   </div>
@@ -2367,8 +2417,8 @@ export default function ProfilePage() {
                                 {competitiveExamsData.documents && competitiveExamsData.documents.length > 0 ? (
                                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                     {competitiveExamsData.documents.map((doc, docIndex) => {
-                                      const docUrl = typeof doc === 'string' ? doc : (doc as any).url || '';
-                                      const docName = typeof doc === 'string' ? doc.split('/').pop() || 'Document' : (doc as any).name || 'Document';
+                                      const docUrl = getDocumentUrl(doc);
+                                      const docName = getDocumentName(doc);
                                       const fullUrl = docUrl.startsWith('http') ? docUrl : `${API_BASE_URL.replace('/api', '')}${docUrl}`;
                                       return (
                                         <a
@@ -2422,7 +2472,7 @@ export default function ProfilePage() {
                                   <div className="flex items-center gap-2">
                                     <button
                                       onClick={() => {
-                                        setEditingCertificationId(cert.id);
+                                        setEditingCertificationId(cert.id ?? null);
                                         setIsCertificationModalOpen(true);
                                       }}
                                       className="shrink-0 px-3 py-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg border border-blue-200 transition-all"
@@ -2566,8 +2616,8 @@ export default function ProfilePage() {
                                     {cert.documents && cert.documents.length > 0 ? (
                                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                         {cert.documents.map((doc, docIndex) => {
-                                          const docUrl = typeof doc === 'string' ? doc : (doc as any).url || '';
-                                          const docName = typeof doc === 'string' ? doc.split('/').pop() || 'Document' : (doc as any).name || 'Document';
+                                          const docUrl = getDocumentUrl(doc);
+                                          const docName = getDocumentName(doc);
                                           const fullUrl = docUrl.startsWith('http') ? docUrl : `${API_BASE_URL.replace('/api', '')}${docUrl}`;
                                           return (
                                             <a
@@ -2629,7 +2679,7 @@ export default function ProfilePage() {
                                   <div className="flex items-center gap-2">
                                     <button
                                       onClick={() => {
-                                        setEditingAccomplishmentId(acc.id);
+                                        setEditingAccomplishmentId(acc.id ?? null);
                                         setIsAccomplishmentModalOpen(true);
                                       }}
                                       className="shrink-0 px-3 py-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg border border-blue-200 transition-all"
@@ -2727,8 +2777,8 @@ export default function ProfilePage() {
                                     {acc.documents && acc.documents.length > 0 ? (
                                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                         {acc.documents.map((doc, docIndex) => {
-                                          const docUrl = typeof doc === 'string' ? doc : (doc as any).url || '';
-                                          const docName = typeof doc === 'string' ? doc.split('/').pop() || 'Document' : (doc as any).name || 'Document';
+                                          const docUrl = getDocumentUrl(doc);
+                                          const docName = getDocumentName(doc);
                                           const fullUrl = docUrl.startsWith('http') ? docUrl : `${API_BASE_URL.replace('/api', '')}${docUrl}`;
                                           return (
                                             <a
@@ -2849,7 +2899,7 @@ export default function ProfilePage() {
                                     <div className="flex flex-wrap gap-2 pl-6">
                                 {categorySkills.map((skill, index) => (
                                   <div
-                                          key={skill.id || index}
+                                          key={`${category}-${skill.name}-${index}`}
                                     className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5"
                                   >
                                     <span className="text-sm font-medium text-gray-900">{skill.name}</span>
@@ -2986,7 +3036,7 @@ export default function ProfilePage() {
                                         {language.documents.map((doc, docIndex) => (
                                           <a
                                             key={docIndex}
-                                            href={typeof doc === 'string' ? `${API_BASE_URL}${doc}` : `${API_BASE_URL}${doc.url}`}
+                                            href={getApiDocumentHref(doc)}
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             className="inline-flex items-center gap-1 px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-xs text-gray-700 hover:bg-gray-50 transition-colors"
@@ -2994,7 +3044,7 @@ export default function ProfilePage() {
                                             <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                             </svg>
-                                            <span>{typeof doc === 'string' ? doc.split('/').pop() : doc.name || doc.url?.split('/').pop()}</span>
+                                            <span>{getDocumentName(doc)}</span>
                                           </a>
                                         ))}
                                       </div>
@@ -3606,7 +3656,7 @@ export default function ProfilePage() {
                                           {visaWorkAuthorizationData.visaDetailsExpected.documents.map((doc, index) => (
                                             <a
                                               key={index}
-                                              href={typeof doc === 'string' ? `${API_BASE_URL}${doc}` : `${API_BASE_URL}${doc.url || doc}`}
+                                              href={getApiDocumentHref(doc)}
                                               target="_blank"
                                               rel="noopener noreferrer"
                                               className="inline-flex items-center gap-1 px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-xs text-gray-700 hover:bg-gray-50 transition-colors"
@@ -3614,7 +3664,7 @@ export default function ProfilePage() {
                                               <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                                               </svg>
-                                              <span>{typeof doc === 'string' ? doc.split('/').pop() : doc.name || doc.url?.split('/').pop() || 'Document'}</span>
+                                              <span>{getDocumentName(doc)}</span>
                                             </a>
                                           ))}
                                         </div>
@@ -3670,7 +3720,7 @@ export default function ProfilePage() {
                                                     {entry.visaDetails.documents.map((doc: any, docIndex: number) => (
                                                       <a
                                                         key={docIndex}
-                                                        href={typeof doc === 'string' ? `${API_BASE_URL}${doc}` : `${API_BASE_URL}${doc.url || doc}`}
+                                                        href={getApiDocumentHref(doc)}
                                                         target="_blank"
                                                         rel="noopener noreferrer"
                                                         className="inline-flex items-center gap-1 px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-xs text-gray-700 hover:bg-gray-50 transition-colors"
@@ -3678,7 +3728,7 @@ export default function ProfilePage() {
                                                         <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                                                         </svg>
-                                                        <span>{typeof doc === 'string' ? doc.split('/').pop() : doc.name || doc.url?.split('/').pop() || 'Document'}</span>
+                                                        <span>{getDocumentName(doc)}</span>
                                                       </a>
                                                     ))}
                                                   </div>
@@ -3831,8 +3881,8 @@ export default function ProfilePage() {
                                   VACCINATION STATUS
                                 </h4>
                                 <div className="pl-6">
-                                  <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${vaccinationData.vaccinationStatus === 'Yes' ? 'bg-green-100 text-green-800' : vaccinationData.vaccinationStatus === 'No' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}>
-                                    {vaccinationData.vaccinationStatus || '—'}
+                                  <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${vaccinationData.vaccineType || vaccinationData.lastVaccinationDate || vaccinationData.certificate ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                                    {vaccinationData.vaccineType || vaccinationData.lastVaccinationDate || vaccinationData.certificate ? 'Provided' : '—'}
                                   </span>
                                 </div>
                               </div>
@@ -5105,13 +5155,19 @@ export default function ProfilePage() {
 
             // Process visaDetailsExpected documents
             if (processedData.visaDetailsExpected?.documents) {
-              const documentsToUpload = processedData.visaDetailsExpected.documents.filter((doc: any) => doc instanceof File);
-              const existingDocuments = processedData.visaDetailsExpected.documents.filter((doc: any) => !(doc instanceof File));
+              const documentsToUpload = processedData.visaDetailsExpected.documents.filter((doc: any) => {
+                // `documents` may contain either `File` or objects like `{ file: File|string, ... }`
+                return doc instanceof File || doc?.file instanceof File;
+              });
+              const existingDocuments = processedData.visaDetailsExpected.documents.filter((doc: any) => {
+                return !(doc instanceof File || doc?.file instanceof File);
+              });
 
               if (documentsToUpload.length > 0) {
                 const formData = new FormData();
-                documentsToUpload.forEach((file: File) => {
-                  formData.append('documents', file);
+                documentsToUpload.forEach((doc: any) => {
+                  const file: File | undefined = doc instanceof File ? doc : doc?.file;
+                  if (file) formData.append('documents', file);
                 });
 
                 const uploadResponse = await fetch(`${API_BASE_URL}/profile/visa-work-authorization/documents/${candidateId}`, {
@@ -5137,13 +5193,18 @@ export default function ProfilePage() {
             if (Array.isArray(processedData.visaEntries)) {
               for (const entry of processedData.visaEntries) {
                 if (entry.visaDetails?.documents) {
-                  const documentsToUpload = entry.visaDetails.documents.filter((doc: any) => doc instanceof File);
-                  const existingDocuments = entry.visaDetails.documents.filter((doc: any) => !(doc instanceof File));
+                  const documentsToUpload = entry.visaDetails.documents.filter((doc: any) => {
+                    return doc instanceof File || doc?.file instanceof File;
+                  });
+                  const existingDocuments = entry.visaDetails.documents.filter((doc: any) => {
+                    return !(doc instanceof File || doc?.file instanceof File);
+                  });
 
                   if (documentsToUpload.length > 0) {
                     const formData = new FormData();
-                    documentsToUpload.forEach((file: File) => {
-                      formData.append('documents', file);
+                    documentsToUpload.forEach((doc: any) => {
+                      const file: File | undefined = doc instanceof File ? doc : doc?.file;
+                      if (file) formData.append('documents', file);
                     });
 
                     const uploadResponse = await fetch(`${API_BASE_URL}/profile/visa-work-authorization/documents/${candidateId}`, {

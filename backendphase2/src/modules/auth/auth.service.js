@@ -76,42 +76,28 @@ export const authService = {
         throw new Error('Account is deactivated');
       }
 
-      // Check if account is locked
+      // Reset lock state so accounts don't get stuck from past failed attempts.
+      // (Locking after N failed attempts is intentionally disabled.)
       if (credential.isLocked) {
-        const error = new Error('Account is locked. Contact your administrator.');
-        error.statusCode = 423;
-        throw error;
+        await prisma.userCredential.update({
+          where: { id: credential.id },
+          data: { failedAttempts: 0, isLocked: false },
+        });
       }
 
       // Compare password
       const isValid = await bcrypt.compare(password, credential.hashedPassword);
 
       if (!isValid) {
-        // Increment failed attempts
-        const newFailedAttempts = credential.failedAttempts + 1;
-        const shouldLock = newFailedAttempts >= 5;
-
-        await prisma.userCredential.update({
-          where: { id: credential.id },
-          data: {
-            failedAttempts: newFailedAttempts,
-            isLocked: shouldLock,
-          },
-        });
-
-        // Create login history entry
+        // Create login history entry (without locking logic)
         await prisma.loginHistory.create({
           data: {
             credentialId: credential.id,
             ipAddress,
             device: userAgent,
-            outcome: shouldLock ? 'LOCKED' : 'FAILED',
+            outcome: 'FAILED',
           },
         });
-
-        if (shouldLock) {
-          throw new Error('Invalid credentials. Account has been locked after 5 failed attempts.');
-        }
 
         throw new Error('Invalid credentials');
       }
@@ -216,42 +202,28 @@ export const authService = {
 
     // If using credential-based login (email login with credential)
     if (credential) {
-      // Check if account is locked
+      // Reset lock state so accounts don't get stuck from past failed attempts.
+      // (Locking after N failed attempts is intentionally disabled.)
       if (credential.isLocked) {
-        const error = new Error('Account is locked. Contact your administrator.');
-        error.statusCode = 423;
-        throw error;
+        await prisma.userCredential.update({
+          where: { id: credential.id },
+          data: { failedAttempts: 0, isLocked: false },
+        });
       }
 
       // Compare password
       const isValid = await bcrypt.compare(password, credential.hashedPassword);
       
       if (!isValid) {
-        // Increment failed attempts
-        const newFailedAttempts = credential.failedAttempts + 1;
-        const shouldLock = newFailedAttempts >= 5;
-
-        await prisma.userCredential.update({
-          where: { id: credential.id },
-          data: {
-            failedAttempts: newFailedAttempts,
-            isLocked: shouldLock,
-          },
-        });
-
-        // Log failed attempt
+        // Log failed attempt (without locking logic)
         await prisma.loginHistory.create({
           data: {
             credentialId: credential.id,
             ipAddress,
             device: userAgent,
-            outcome: shouldLock ? 'LOCKED' : 'FAILED',
+            outcome: 'FAILED',
           },
         });
-
-        if (shouldLock) {
-          throw new Error('Account locked due to too many failed attempts');
-        }
 
         throw new Error('Invalid credentials');
       }

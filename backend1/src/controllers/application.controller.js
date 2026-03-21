@@ -118,11 +118,7 @@ async function getApplications(req, res) {
         job: {
           include: {
             company: true,
-            skills: {
-              include: {
-                skill: true,
-              },
-            },
+            client: true,
           },
         },
       },
@@ -160,7 +156,7 @@ async function getApplications(req, res) {
         id: app.id,
         jobId: job.id,
         jobTitle: job.title,
-        company: company.name,
+        company: company?.name || job.client?.companyName || 'Unknown Company',
         status: statusMap[app.status] || app.status,
         appliedDate: app.appliedAt.toISOString().split('T')[0],
         matchScore: app.matchScore || 0,

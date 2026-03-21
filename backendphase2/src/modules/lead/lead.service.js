@@ -90,6 +90,11 @@ export const leadService = {
       city: data.city || null,
       // Lead management fields
       campaignName: data.campaignName || null,
+      campaignLink: data.campaignLink || null,
+      referralName: data.referralName || null,
+      sourceWebsiteUrl: data.sourceWebsiteUrl || null,
+      sourceLinkedInUrl: data.sourceLinkedInUrl || null,
+      sourceEmail: data.sourceEmail || null,
       lastFollowUp: data.lastFollowUp ? new Date(data.lastFollowUp) : null,
       nextFollowUp: data.nextFollowUp ? new Date(data.nextFollowUp) : null,
       // Relations
@@ -168,6 +173,11 @@ export const leadService = {
     if (data.city !== undefined) updateData.city = data.city || null;
     // Lead management fields
     if (data.campaignName !== undefined) updateData.campaignName = data.campaignName || null;
+    if (data.campaignLink !== undefined) updateData.campaignLink = data.campaignLink || null;
+    if (data.referralName !== undefined) updateData.referralName = data.referralName || null;
+    if (data.sourceWebsiteUrl !== undefined) updateData.sourceWebsiteUrl = data.sourceWebsiteUrl || null;
+    if (data.sourceLinkedInUrl !== undefined) updateData.sourceLinkedInUrl = data.sourceLinkedInUrl || null;
+    if (data.sourceEmail !== undefined) updateData.sourceEmail = data.sourceEmail || null;
     if (data.lastFollowUp !== undefined) updateData.lastFollowUp = data.lastFollowUp ? new Date(data.lastFollowUp) : null;
     if (data.nextFollowUp !== undefined) updateData.nextFollowUp = data.nextFollowUp ? new Date(data.nextFollowUp) : null;
     if (data.lostReason !== undefined) updateData.lostReason = data.lostReason || null;

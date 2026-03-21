@@ -1,6 +1,6 @@
 import { filesService } from './files.service.js';
 import { sendResponse, sendError } from '../../utils/response.js';
-import { uploadBufferToCloudinary } from '../../utils/cloudinary.js';
+import { uploadBufferToCloudinary, cloudinaryResourceTypeForFile } from '../../utils/cloudinary.js';
 
 export const filesController = {
   /**
@@ -47,9 +47,10 @@ export const filesController = {
               : entityType === 'interview'
                 ? 'interviews'
                 : 'jobs';
+      const resourceType = cloudinaryResourceTypeForFile(req.file.mimetype, req.file.originalname);
       const upload = await uploadBufferToCloudinary(req.file.buffer, {
         folder: `jobportal/${subDir}/${entityId}`,
-        resourceType: 'auto',
+        resourceType,
         originalFilename: req.file.originalname,
       });
 

@@ -192,12 +192,30 @@ export default function CandidateDashboardPage() {
       if (!candidateId) return;
 
       try {
-        const response = await fetch(`${API_BASE_URL}/cv-analysis/${candidateId}`, {
+        let response = await fetch(`${API_BASE_URL}/cv-analysis/${candidateId}`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
           },
         });
+
+        // If analysis doesn't exist yet, generate it once and retry.
+        if (response.status === 404) {
+          await fetch(`${API_BASE_URL}/cv-analysis/analyze`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ candidateId }),
+          });
+
+          response = await fetch(`${API_BASE_URL}/cv-analysis/${candidateId}`, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          });
+        }
 
         if (response.ok) {
           const result = await response.json();

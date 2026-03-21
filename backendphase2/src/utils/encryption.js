@@ -88,4 +88,35 @@ export const encryption = {
       throw new Error(`Failed to decrypt token: ${error.message}`);
     }
   },
+
+  /**
+   * AES-256-GCM as single string: ivHex:authTagHex:cipherHex (for API keys / secrets fields).
+   */
+  encryptColonString(plain) {
+    if (plain == null || plain === '') return '';
+    const text = String(plain);
+    const iv = crypto.randomBytes(16);
+    const cipher = crypto.createCipheriv(ALGORITHM, ENCRYPTION_KEY, iv);
+    let encrypted = cipher.update(text, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    const authTag = cipher.getAuthTag();
+    return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
+  },
+
+  decryptColonString(stored) {
+    if (stored == null || stored === '') return '';
+    const s = String(stored);
+    const parts = s.split(':');
+    if (parts.length !== 3) return '';
+    const [ivHex, authTagHex, encHex] = parts;
+    try {
+      const decipher = crypto.createDecipheriv(ALGORITHM, ENCRYPTION_KEY, Buffer.from(ivHex, 'hex'));
+      decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
+      let out = decipher.update(encHex, 'hex', 'utf8');
+      out += decipher.final('utf8');
+      return out;
+    } catch {
+      return '';
+    }
+  },
 };

@@ -295,7 +295,8 @@ export const addCandidateController = {
       }
 
       const email = normalizeEmail(req.body.email);
-      const existing = await prisma.candidate.findUnique({
+      // email is not @unique on Candidate (Mongo null-email uniqueness); use findFirst
+      const existing = await prisma.candidate.findFirst({
         where: { email },
         select: {
           id: true,
@@ -662,7 +663,7 @@ export const addCandidateController = {
 
       const upload = await uploadBufferToCloudinary(file.buffer, {
         folder: `jobportal/candidates/${candidateId}/resumes`,
-        resourceType: 'auto',
+        resourceType: 'raw',
         originalFilename: file.originalname,
       });
       const resumeUrl = upload?.secure_url || upload?.url;
@@ -751,7 +752,7 @@ export const addCandidateController = {
           continue;
         }
 
-        const duplicate = await prisma.candidate.findUnique({
+        const duplicate = await prisma.candidate.findFirst({
           where: { email },
           select: { id: true },
         });
