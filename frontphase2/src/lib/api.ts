@@ -3103,6 +3103,40 @@ export const apiDisconnectLinkedIn = async () => {
   });
 };
 
+// ── GENERAL SOCIAL PUBLISHING ──
+
+export interface SocialPublishData {
+  jobId: string;
+  title: string;
+  companyName: string;
+  description?: string;
+  applyUrl: string;
+  location?: string;
+  platforms: {
+    linkedin?: boolean;
+    twitter?: boolean;
+    facebook?: boolean;
+  };
+  linkedinPostText?: string;
+  twitterPostText?: string;
+  facebookPostText?: string;
+}
+
+export const apiPublishSocialJob = async (data: SocialPublishData) => {
+  return apiFetch<any>('/social/publish', {
+    method: 'POST',
+    body: data,
+    auth: true,
+  });
+};
+
+export const apiGetSocialStatus = async () => {
+  return apiFetch<{
+    twitter: { connected: boolean };
+    facebook: { connected: boolean };
+  }>('/social/status', { auth: true });
+};
+
 // ── User communication & OAuth (all secrets live on backend .env + encrypted DB) ──
 
 export type CommunicationJobBoardKey = 'LinkedIn' | 'Indeed' | 'Naukri';

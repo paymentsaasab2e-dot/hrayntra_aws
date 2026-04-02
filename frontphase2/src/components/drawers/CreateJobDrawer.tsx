@@ -27,6 +27,8 @@ import {
   apiGetUsers,
   apiUploadJobFile,
   filesApiUpload,
+  apiPublishSocialJob,
+  apiGetSocialStatus,
   type CreateJobData,
   type BackendClient,
   type BackendUser,
@@ -261,7 +263,7 @@ export function CreateJobDrawer({
   useEffect(() => {
     if (isOpen) {
       const loadData = async () => {
-        await Promise.all([loadClients(), loadUsers()]);
+        await Promise.all([loadClients(), loadUsers(), loadSocialStatus()]);
         if (isEditMode && jobId) {
           await loadJobData();
         }
@@ -269,6 +271,19 @@ export function CreateJobDrawer({
       loadData();
     }
   }, [isOpen, jobId, isEditMode]);
+
+  const loadSocialStatus = async () => {
+    try {
+      const response = await apiGetSocialStatus();
+      setFormData(prev => ({
+        ...prev,
+        twitterConnected: response.data.twitter.connected,
+        facebookConnected: response.data.facebook.connected,
+      }));
+    } catch (err) {
+      console.error('Failed to load social status:', err);
+    }
+  };
 
   // Auto-populate social fields when Job Title/Company changes
   useEffect(() => {
@@ -739,49 +754,41 @@ export function CreateJobDrawer({
 
       // Post to social media if enabled
       const socialPosts: string[] = [];
-      
-      if (formData.linkedInEnabled && linkedIn.isConnected && createdJobId) {
+      const platformsToPublish = {
+        linkedin: formData.linkedInEnabled && linkedIn.isConnected,
+        twitter: formData.twitterEnabled && formData.twitterConnected,
+        facebook: formData.facebookEnabled && formData.facebookConnected,
+      };
+
+      if (Object.values(platformsToPublish).some(Boolean) && createdJobId) {
         try {
           const company = clients.find(c => c.id === formData.companyId);
           const companyName = company?.companyName || '';
           const applyUrl = formData.linkedInExternalUrl || `${window.location.origin}/jobs/${createdJobId}/apply`;
           
-          const result = await linkedIn.postJob({
-            jobTitle: formData.jobTitle,
-            company: companyName,
+          const result = await apiPublishSocialJob({
+            jobId: createdJobId,
+            title: formData.jobTitle,
+            companyName,
             description: formData.jobDescriptionHtml ? formData.jobDescriptionHtml.replace(/<[^>]*>/g, '') : undefined,
             applyUrl,
             location: formData.city || formData.fullAddress || undefined,
-            postText: linkedInPostText, // Use the edited post text
+            platforms: platformsToPublish,
+            linkedinPostText: linkedInPostText,
+            twitterPostText: formData.twitterTweetText,
+            facebookPostText: formData.facebookCaption,
           });
-          
-          socialPosts.push('LinkedIn');
-          setLinkedInPostUrl(result.linkedinPostUrl);
-          setShowLinkedInSuccess(true);
-          
-          // Hide success message after 5 seconds
-          setTimeout(() => setShowLinkedInSuccess(false), 5000);
+
+          if (platformsToPublish.linkedin && (result as any).data?.linkedin?.success) {
+            socialPosts.push('LinkedIn');
+            setLinkedInPostUrl((result as any).data.linkedin.linkedinPostUrl);
+            setShowLinkedInSuccess(true);
+            setTimeout(() => setShowLinkedInSuccess(false), 5000);
+          }
+          if (platformsToPublish.twitter) socialPosts.push('Twitter');
+          if (platformsToPublish.facebook) socialPosts.push('Facebook');
         } catch (error: any) {
-          console.error('LinkedIn post failed:', error);
-          // Don't block job save - LinkedIn post is independent
-        }
-      }
-      
-      if (formData.twitterEnabled && formData.twitterConnected) {
-        try {
-          await postToTwitter();
-          socialPosts.push('Twitter');
-        } catch (error) {
-          console.error('Twitter post failed:', error);
-        }
-      }
-      
-      if (formData.facebookEnabled && formData.facebookConnected) {
-        try {
-          await postToFacebook();
-          socialPosts.push('Facebook');
-        } catch (error) {
-          console.error('Facebook post failed:', error);
+          console.error('Social publishing failed:', error);
         }
       }
 
@@ -816,40 +823,6 @@ export function CreateJobDrawer({
     } finally {
       setLoading(false);
     }
-  };
-
-
-  const postToTwitter = async () => {
-    const response = await fetch('/api/v1/social/twitter/post', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
-      },
-      body: JSON.stringify({
-        text: formData.twitterTweetText,
-        includeLogo: formData.twitterIncludeLogo,
-        scheduleDate: formData.twitterScheduleDate,
-      }),
-    });
-    
-    if (!response.ok) throw new Error('Twitter post failed');
-  };
-
-  const postToFacebook = async () => {
-    const response = await fetch('/api/v1/social/facebook/post', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
-      },
-      body: JSON.stringify({
-        pageId: formData.facebookPageId,
-        caption: formData.facebookCaption,
-      }),
-    });
-    
-    if (!response.ok) throw new Error('Facebook post failed');
   };
 
   const addSkill = () => {
