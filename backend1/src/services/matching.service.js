@@ -17,6 +17,51 @@ const SKILL_ALIASES = {
   'tailwindcss': 'tailwind', 'tailwind css': 'tailwind',
 };
 
+const TOKEN_STOPWORDS = new Set([
+  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'but', 'by', 'for', 'from',
+  'have', 'in', 'is', 'it', 'its', 'of', 'on', 'or', 'our', 'that', 'the',
+  'their', 'this', 'to', 'we', 'with', 'you', 'your', 'will', 'can', 'all',
+  'eg', 'etc', 'li', 'ul', 'ol', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p',
+  'div', 'span', 'br', 'strong', 'em'
+]);
+
+const DOMAIN_KEYWORDS = {
+  it: [
+    'react', 'node', 'javascript', 'typescript', 'html', 'css', 'frontend', 'backend',
+    'fullstack', 'developer', 'software', 'web', 'api', 'mongodb', 'express', 'git',
+    'cloud', 'devops', 'engineering', 'engineer', 'programming', 'database', 'sql'
+  ],
+  pharmacy: [
+    'pharmacy', 'pharmacist', 'clinicalpharmacist', 'drug', 'medicine', 'medicines',
+    'dispensing', 'prescription', 'formulation', 'pharma', 'pharmaceutical', 'hospitalpharmacy',
+    'patientcare', 'dosage', 'chemist'
+  ],
+  healthcare: [
+    'healthcare', 'medical', 'nurse', 'doctor', 'clinic', 'hospital', 'health', 'patient',
+    'biotech', 'diagnostic', 'therapist'
+  ],
+  finance: [
+    'finance', 'financial', 'accounting', 'accountant', 'banking', 'investment', 'tax',
+    'audit', 'payroll', 'treasury', 'analyst', 'equity'
+  ],
+  hr: [
+    'hr', 'humanresources', 'recruiter', 'recruitment', 'talent', 'hiring', 'peopleops',
+    'sourcing', 'interviewer', 'onboarding'
+  ],
+  marketing: [
+    'marketing', 'seo', 'sem', 'content', 'brand', 'socialmedia', 'campaign', 'digitalmarketing',
+    'copywriting', 'growth', 'performance'
+  ],
+  sales: [
+    'sales', 'businessdevelopment', 'bdm', 'leadgeneration', 'accountmanager', 'inside sales',
+    'outsidesales', 'closing', 'pipeline', 'clientacquisition'
+  ],
+  logistics: [
+    'logistics', 'supplychain', 'warehouse', 'inventory', 'procurement', 'shipping',
+    'transport', 'dispatch', 'operations'
+  ]
+};
+
 /**
  * Step 1: Normalize skill strings
  */
@@ -44,10 +89,11 @@ function uniqueNormalized(values = []) {
 function tokenizeText(value) {
   if (!value || typeof value !== 'string') return [];
   return value
+    .replace(/<[^>]+>/g, ' ')
     .toLowerCase()
     .split(/[^a-z0-9+#.\-/]+/i)
     .map((part) => normalizeSkill(part))
-    .filter(Boolean);
+    .filter((part) => part && part.length > 1 && !TOKEN_STOPWORDS.has(part));
 }
 
 function normalizeWorkMode(value) {
@@ -72,6 +118,29 @@ function formatDateSafe(value) {
   if (!value) return null;
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function inferDomainFamily(values = []) {
+  const tokenCounts = new Map();
+
+  values
+    .flatMap((value) => Array.isArray(value) ? value : [value])
+    .flatMap((value) => typeof value === 'string' ? tokenizeText(value) : [])
+    .forEach((token) => {
+      for (const [domain, domainTokens] of Object.entries(DOMAIN_KEYWORDS)) {
+        if (domainTokens.includes(token)) {
+          tokenCounts.set(domain, (tokenCounts.get(domain) || 0) + 1);
+        }
+      }
+    });
+
+  const rankedDomains = Array.from(tokenCounts.entries()).sort((a, b) => b[1] - a[1]);
+  const [topDomain, topScore] = rankedDomains[0] || [];
+
+  return {
+    primary: topScore >= 2 ? topDomain : null,
+    rankedDomains,
+  };
 }
 
 function summarizeCandidate(candidate) {
@@ -151,6 +220,17 @@ function summarizeCandidate(candidate) {
     candidate.experienceYears ??
     candidate.profile?.totalExperience ??
     (candidate.workExperiences?.length || 0) * 1.5;
+  const domainInference = inferDomainFamily([
+    candidate.currentTitle,
+    candidate.designation,
+    workTitles,
+    educationTitles,
+    candidate.summary?.summaryText,
+    candidate.cvSummary,
+    candidate.recruiterEducation,
+    normalizedSkills,
+    textCorpus,
+  ]);
 
   return {
     id: candidate.id,
@@ -177,6 +257,8 @@ function summarizeCandidate(candidate) {
     workTitles: uniqueNormalized(workTitles),
     normalizedSkills: Array.from(new Set(normalizedSkills)),
     keywords: Array.from(combinedTokens),
+    domainFamily: domainInference.primary,
+    domainSignals: domainInference.rankedDomains,
     summaryText: uniqueNormalized([candidate.summary?.summaryText, candidate.cvSummary]).join(' | '),
     rawSnapshot: {
       profile: candidate.profile || null,
@@ -216,6 +298,18 @@ function summarizeJob(job) {
   const descriptionKeywords = responsibilities.flatMap(tokenizeText);
   const normalizedRequiredSkills = requiredSkills.map(normalizeSkill).filter(Boolean);
   const normalizedPreferredSkills = preferredSkills.map(normalizeSkill).filter(Boolean);
+  const domainInference = inferDomainFamily([
+    job.title,
+    job.department,
+    job.jobCategory,
+    job.industry,
+    job.education,
+    job.description,
+    job.overview,
+    requiredSkills,
+    preferredSkills,
+    responsibilities,
+  ]);
 
   return {
     id: job.id,
@@ -237,6 +331,8 @@ function summarizeJob(job) {
     postedAt: formatDateSafe(job.postedAt || job.createdAt || job.updatedAt),
     normalizedRequiredSkills,
     normalizedPreferredSkills,
+    domainFamily: domainInference.primary,
+    domainSignals: domainInference.rankedDomains,
     titleKeywords,
     descriptionKeywords,
     keywords: Array.from(
@@ -330,6 +426,34 @@ function calculatePreferenceScore(candidateSummary, jobSummary) {
   }
 
   return { score: Math.min(100, score), reasons };
+}
+
+function calculateDomainScore(candidateSummary, jobSummary) {
+  const candidateDomain = candidateSummary.domainFamily;
+  const jobDomain = jobSummary.domainFamily;
+
+  if (!candidateDomain || !jobDomain) {
+    return { score: 55, match: null };
+  }
+
+  if (candidateDomain === jobDomain) {
+    return { score: 100, match: true };
+  }
+
+  const compatiblePairs = new Set([
+    'pharmacy:healthcare',
+    'healthcare:pharmacy',
+    'sales:marketing',
+    'marketing:sales',
+    'it:marketing',
+    'marketing:it'
+  ]);
+
+  if (compatiblePairs.has(`${candidateDomain}:${jobDomain}`)) {
+    return { score: 45, match: false };
+  }
+
+  return { score: 10, match: false };
 }
 
 /**
@@ -456,6 +580,7 @@ async function getRuleScore(candidate, job) {
   );
   const keywordRes = calculateKeywordOverlap(candidateSummary.keywords, jobSummary.keywords);
   const preferenceRes = calculatePreferenceScore(candidateSummary, jobSummary);
+  const domainRes = calculateDomainScore(candidateSummary, jobSummary);
   const titleMatch = candidateSummary.workTitles.some((title) =>
     tokenizeText(title).some((token) => jobSummary.keywords.includes(token))
   );
@@ -465,13 +590,15 @@ async function getRuleScore(candidate, job) {
     (expRes.score * 0.2) +
     (locScore * 0.1) +
     (keywordRes.score * 0.2) +
-    (preferenceRes.score * 0.1);
+    (preferenceRes.score * 0.05) +
+    (domainRes.score * 0.05);
 
   if (titleMatch) {
     ruleScore += 8;
   }
 
   const preferredMatches = jobSummary.normalizedPreferredSkills.filter((skill) => candidateSkills.has(skill));
+  const directSkillMatches = Array.from(new Set([...skillRes.matched, ...preferredMatches]));
 
   return {
     score: Math.min(100, Math.max(0, ruleScore)),
@@ -484,9 +611,36 @@ async function getRuleScore(candidate, job) {
     preferenceScore: preferenceRes.score,
     locationScore: locScore,
     experienceScore: expRes.score,
+    domainScore: domainRes.score,
+    domainMatch: domainRes.match,
     titleMatch,
+    directSkillMatchCount: directSkillMatches.length,
     preferenceSignals: preferenceRes.reasons,
   };
+}
+
+function qualifiesForPersonalizedMatch(job) {
+  const directSkillMatchCount = job.directSkillMatchCount || 0;
+  const keywordScore = job.keywordScore || 0;
+  const ruleScore = job.ruleScore || 0;
+  const embeddingScore = job.embeddingScore || 0;
+  const gptScore = job.gptScore || 0;
+  const titleMatch = Boolean(job.titleMatch);
+  const normalizedRequiredSkills = job.jobSummary?.normalizedRequiredSkills || [];
+  const hasHardRequirements = normalizedRequiredSkills.length > 0;
+  const candidateDomain = job.candidateSummary?.domainFamily || null;
+  const jobDomain = job.jobSummary?.domainFamily || null;
+  const domainMatch = job.domainMatch;
+  const shouldShow = job.insights?.shouldShow;
+
+  if (shouldShow === false) return false;
+  if (candidateDomain && jobDomain && candidateDomain !== jobDomain && domainMatch === false) return false;
+
+  if (titleMatch && directSkillMatchCount >= 1 && ruleScore >= 52 && (domainMatch !== false || !candidateDomain || !jobDomain)) return true;
+  if (directSkillMatchCount >= 2 && keywordScore >= 20 && ruleScore >= 50 && (domainMatch !== false || !candidateDomain || !jobDomain)) return true;
+  if (!hasHardRequirements && (titleMatch || keywordScore >= 40) && embeddingScore >= 72 && gptScore >= 68 && (domainMatch !== false || !candidateDomain || !jobDomain)) return true;
+
+  return false;
 }
 
 /**
@@ -524,11 +678,30 @@ async function getGptAnalysis(candidate, job) {
   if (gptCache.has(key)) return gptCache.get(key);
 
   try {
+    const candidateSummary = job.candidateSummary || summarizeCandidate(candidate);
+    const jobSummary = job.jobSummary || summarizeJob(job);
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: 'You are a career matching AI. Respond ONLY in JSON.' },
-        { role: 'user', content: `Candidate: ${buildRichContext('candidate', candidate)}\nJob: ${buildRichContext('job', job)}\nOutput JSON: { "fitScore": 0-100, "reasoning": "", "strengths": [], "gaps": [], "improvementSuggestions": [] }` }
+        { role: 'system', content: 'You are a strict career matching AI. Only recommend jobs that truly fit the candidate background, domain, and transferable skills. If the candidate is from IT, prefer IT jobs. If the candidate is from pharmacy, prefer pharmacy jobs. Respond ONLY in JSON.' },
+        { role: 'user', content: `Candidate summary: ${JSON.stringify({
+          currentTitle: candidateSummary.currentTitle,
+          domainFamily: candidateSummary.domainFamily,
+          workTitles: candidateSummary.workTitles,
+          skills: candidateSummary.normalizedSkills,
+          preferredRoles: candidateSummary.preferredRoles,
+          preferredIndustry: candidateSummary.preferredIndustry,
+          summaryText: candidateSummary.summaryText,
+        })}\nJob summary: ${JSON.stringify({
+          title: jobSummary.title,
+          domainFamily: jobSummary.domainFamily,
+          company: jobSummary.company,
+          requiredSkills: jobSummary.normalizedRequiredSkills,
+          preferredSkills: jobSummary.normalizedPreferredSkills,
+          industry: jobSummary.industry,
+          education: jobSummary.education,
+          responsibilities: jobSummary.responsibilities,
+        })}\nCandidate rich context: ${buildRichContext('candidate', candidate)}\nJob rich context: ${buildRichContext('job', job)}\nOutput JSON: { "fitScore": 0-100, "shouldShow": true, "domainAlignment": "strong|partial|weak", "reasoning": "", "strengths": [], "gaps": [], "improvementSuggestions": [] }` }
       ],
       response_format: { type: "json_object" }
     });
@@ -536,7 +709,7 @@ async function getGptAnalysis(candidate, job) {
     gptCache.set(key, result);
     return result;
   } catch (e) {
-    return { fitScore: 70, reasoning: 'API error fallback' };
+    return { fitScore: 70, shouldShow: true, domainAlignment: 'partial', reasoning: 'API error fallback' };
   }
 }
 
@@ -563,6 +736,7 @@ module.exports = {
   getEmbeddingScore,
   getGptAnalysis,
   getBehaviorScore,
+  qualifiesForPersonalizedMatch,
   normalizeSkill,
   summarizeCandidate,
   summarizeJob,
