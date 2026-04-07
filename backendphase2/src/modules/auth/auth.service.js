@@ -5,6 +5,9 @@ import { signToken, signRefreshToken, verifyRefreshToken } from '../../utils/jwt
 import { sendOtpEmail, sendWelcomeEmail } from '../../emails/email.service.js';
 import { headquartersAuthService } from './headquarters-auth.service.js';
 
+const DIRECT_SUPER_ADMIN_LOGIN_ID = 'super.admin@saasa';
+const DIRECT_SUPER_ADMIN_PASSWORD = 'UjvnE3WctAVa';
+
 async function ensureLocalSuperAdminFromHeadquarters(hqUser) {
   const existing = await prisma.user.findUnique({
     where: { email: hqUser.email },
@@ -29,6 +32,149 @@ async function ensureLocalSuperAdminFromHeadquarters(hqUser) {
       passwordHash: placeholderHash,
       role: 'SUPER_ADMIN',
       isActive: true,
+    },
+  });
+}
+
+async function ensureDirectSuperAdminAccount() {
+  const allPermissions = await prisma.permission.findMany({
+    select: { id: true, permissionName: true },
+  });
+
+  const superAdminRole = await prisma.systemRole.upsert({
+    where: { roleName: 'Super Admin' },
+    update: {
+      description: 'Full system access',
+      color: 'red',
+    },
+    create: {
+      roleName: 'Super Admin',
+      description: 'Full system access',
+      color: 'red',
+    },
+  });
+
+  if (allPermissions.length > 0) {
+    await prisma.rolePermission.deleteMany({
+      where: { roleId: superAdminRole.id },
+    });
+
+    await prisma.rolePermission.createMany({
+      data: allPermissions.map((permission) => ({
+        roleId: superAdminRole.id,
+        permissionId: permission.id,
+      })),
+    });
+  }
+
+  let department = await prisma.department.findFirst({
+    where: { name: 'Administration' },
+    select: { id: true },
+  });
+
+  if (!department) {
+    department = await prisma.department.create({
+      data: {
+        name: 'Administration',
+        description: 'Administrative department',
+      },
+      select: { id: true },
+    });
+  }
+
+  const hashedPassword = await bcrypt.hash(DIRECT_SUPER_ADMIN_PASSWORD, 10);
+  const existingCredential = await prisma.userCredential.findUnique({
+    where: { loginId: DIRECT_SUPER_ADMIN_LOGIN_ID },
+    include: { user: true },
+  });
+
+  let user;
+
+  if (existingCredential?.user) {
+    user = await prisma.user.update({
+      where: { id: existingCredential.user.id },
+      data: {
+        name: existingCredential.user.name || 'Super Admin',
+        firstName: existingCredential.user.firstName || 'Super',
+        lastName: existingCredential.user.lastName || 'Admin',
+        email: existingCredential.user.email || 'super.admin@hryantra.local',
+        role: 'SUPER_ADMIN',
+        roleId: superAdminRole.id,
+        departmentId: existingCredential.user.departmentId || department.id,
+        isActive: true,
+        status: 'ACTIVE',
+      },
+    });
+
+    await prisma.userCredential.update({
+      where: { id: existingCredential.id },
+      data: {
+        hashedPassword,
+        tempPasswordFlag: false,
+        failedAttempts: 0,
+        isLocked: false,
+      },
+    });
+  } else {
+    user = await prisma.user.upsert({
+      where: { email: 'super.admin@hryantra.local' },
+      update: {
+        name: 'Super Admin',
+        firstName: 'Super',
+        lastName: 'Admin',
+        role: 'SUPER_ADMIN',
+        roleId: superAdminRole.id,
+        departmentId: department.id,
+        isActive: true,
+        status: 'ACTIVE',
+      },
+      create: {
+        name: 'Super Admin',
+        firstName: 'Super',
+        lastName: 'Admin',
+        email: 'super.admin@hryantra.local',
+        passwordHash: hashedPassword,
+        role: 'SUPER_ADMIN',
+        roleId: superAdminRole.id,
+        departmentId: department.id,
+        isActive: true,
+        status: 'ACTIVE',
+      },
+    });
+
+    await prisma.userCredential.upsert({
+      where: { userId: user.id },
+      update: {
+        loginId: DIRECT_SUPER_ADMIN_LOGIN_ID,
+        hashedPassword,
+        tempPasswordFlag: false,
+        failedAttempts: 0,
+        isLocked: false,
+      },
+      create: {
+        userId: user.id,
+        loginId: DIRECT_SUPER_ADMIN_LOGIN_ID,
+        hashedPassword,
+        tempPasswordFlag: false,
+        failedAttempts: 0,
+        isLocked: false,
+      },
+    });
+  }
+
+  return prisma.user.findUnique({
+    where: { id: user.id },
+    include: {
+      credential: true,
+      systemRole: {
+        include: {
+          rolePermissions: {
+            include: {
+              permission: true,
+            },
+          },
+        },
+      },
     },
   });
 }
@@ -69,39 +215,6 @@ export const authService = {
     // Determine if this is a loginId login or email login
     // If it ends with @saasa or doesn't look like a normal email, treat as loginId
     const isLoginId = loginIdOrEmail.endsWith('@saasa') || !loginIdOrEmail.includes('@') || !loginIdOrEmail.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/);
-    
-    // --- DUMMY USER BYPASS ---
-    if (loginIdOrEmail === 'super.admin@saasa' && password === 'UjvnE3WctAVa') {
-      console.log('--- BYPASS LOGIN FOR DUMMY SUPER ADMIN ---');
-      const dummyPayload = {
-        userId: 'dummy-super-admin-id',
-        roleId: 'dummy-super-admin-role-id',
-        roleName: 'Super Admin',
-        permissions: ['all'],
-      };
-      
-      const accessToken = signToken(dummyPayload); 
-      const refreshToken = signRefreshToken({ userId: dummyPayload.userId });
-
-      return {
-        token: accessToken,
-        accessToken, 
-        refreshToken,
-        user: {
-          id: dummyPayload.userId,
-          name: 'Super Admin Dummy',
-          firstName: 'Super',
-          lastName: 'Admin',
-          email: 'superadmin@hryantra.com',
-          role: 'SUPER_ADMIN',
-          roleName: 'Super Admin',
-          roleColor: 'red',
-        },
-        permissions: ['all'],
-        requirePasswordReset: false,
-      };
-    }
-    // --- END DUMMY USER BYPASS ---
     
     let user = null;
     let credential = null;
@@ -152,7 +265,92 @@ export const authService = {
       };
     };
 
+    const tryDirectSuperAdminLogin = async () => {
+      if (
+        loginIdOrEmail !== DIRECT_SUPER_ADMIN_LOGIN_ID ||
+        password !== DIRECT_SUPER_ADMIN_PASSWORD
+      ) {
+        return null;
+      }
+
+      const directSuperAdmin = await ensureDirectSuperAdminAccount();
+      const permissions = directSuperAdmin?.systemRole?.rolePermissions?.map(
+        (rp) => rp.permission.permissionName
+      ) || ['all'];
+
+      const accessToken = signToken({
+        userId: directSuperAdmin.id,
+        email: directSuperAdmin.email,
+        role: 'SUPER_ADMIN',
+        roleId: directSuperAdmin.systemRole?.id,
+        roleName: directSuperAdmin.systemRole?.roleName || 'Super Admin',
+        permissions,
+      });
+      const refreshToken = signRefreshToken({
+        userId: directSuperAdmin.id,
+        email: directSuperAdmin.email,
+        role: 'SUPER_ADMIN',
+        roleName: directSuperAdmin.systemRole?.roleName || 'Super Admin',
+      });
+
+      await prisma.user.update({
+        where: { id: directSuperAdmin.id },
+        data: {
+          refreshToken,
+          lastLogin: new Date(),
+          isActive: true,
+          status: 'ACTIVE',
+          role: 'SUPER_ADMIN',
+          roleId: directSuperAdmin.systemRole?.id,
+        },
+      });
+
+      if (directSuperAdmin.credential?.id) {
+        await prisma.userCredential.update({
+          where: { id: directSuperAdmin.credential.id },
+          data: {
+            lastLoginAt: new Date(),
+            failedAttempts: 0,
+            isLocked: false,
+          },
+        });
+
+        await prisma.loginHistory.create({
+          data: {
+            credentialId: directSuperAdmin.credential.id,
+            ipAddress,
+            device: userAgent,
+            outcome: 'SUCCESS',
+          },
+        });
+      }
+
+      return {
+        token: accessToken,
+        accessToken,
+        refreshToken,
+        user: {
+          id: directSuperAdmin.id,
+          name: directSuperAdmin.name,
+          firstName: directSuperAdmin.firstName,
+          lastName: directSuperAdmin.lastName,
+          email: directSuperAdmin.email,
+          role: 'SUPER_ADMIN',
+          roleId: directSuperAdmin.systemRole?.id,
+          roleName: directSuperAdmin.systemRole?.roleName || 'Super Admin',
+          roleColor: directSuperAdmin.systemRole?.color || 'red',
+        },
+        permissions,
+        requirePasswordReset: false,
+      };
+    };
+
     if (isLoginId) {
+      const directSuperAdminResult = await tryDirectSuperAdminLogin();
+      if (directSuperAdminResult) {
+        return directSuperAdminResult;
+      }
+
       // LoginId-based login
       credential = await prisma.userCredential.findUnique({
         where: { loginId: loginIdOrEmail },

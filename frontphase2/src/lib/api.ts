@@ -11,7 +11,8 @@ import type {
   RequestReplacementPayload,
 } from '../types/placement';
 
-const LOCAL_API_BASE = 'https://api2.hryantra.com/api/v1';
+const LOCAL_API_BASE = 'http://127.0.0.1:5001/api/v1';
+const PRODUCTION_API_BASE = 'https://api2.hryantra.com/api/v1';
 const PROD_PROXY_BASE = '/api/proxy';
 
 const isLocalBrowser =
@@ -20,10 +21,8 @@ const isLocalBrowser =
     window.location.hostname === '127.0.0.1' ||
     window.location.hostname.endsWith('.local'));
 
-// In production/non-local browsers, always use same-origin proxy to avoid mixed-content errors.
-const API_BASE = isLocalBrowser
-  ? process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || LOCAL_API_BASE
-  : PROD_PROXY_BASE;
+// Determination of API base based on environment
+const API_BASE = isLocalBrowser ? LOCAL_API_BASE : PROD_PROXY_BASE;
 
 export function buildApiUrl(path: string): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
@@ -52,6 +51,17 @@ function getAccessToken() {
     console.error('Error accessing localStorage:', error);
     return null;
   }
+}
+
+function syncAuthCookie(name: string, value: string | null) {
+  if (typeof document === 'undefined') return;
+
+  if (!value) {
+    document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=Lax`;
+    return;
+  }
+
+  document.cookie = `${name}=${encodeURIComponent(value)}; Path=/; SameSite=Lax`;
 }
 
 const debugApiLogs =
@@ -196,6 +206,8 @@ export async function apiFetch<T>(
               if (refreshResponse.data.refreshToken) {
                 localStorage.setItem('refreshToken', refreshResponse.data.refreshToken);
               }
+              syncAuthCookie('accessToken', refreshResponse.data.accessToken);
+              syncAuthCookie('refreshToken', refreshResponse.data.refreshToken || refreshToken);
             }
 
             // Retry the original request with new token
@@ -232,6 +244,8 @@ export async function apiFetch<T>(
         localStorage.removeItem('accessToken');
         localStorage.removeItem('refreshToken');
         localStorage.removeItem('currentUser');
+        syncAuthCookie('accessToken', null);
+        syncAuthCookie('refreshToken', null);
         
         // Redirect to login page if not already there
         if (window.location.pathname !== '/login') {
@@ -369,6 +383,8 @@ export async function apiLogin(email: string, password: string) {
 
     if (accessToken) localStorage.setItem('accessToken', accessToken);
     if (refreshToken) localStorage.setItem('refreshToken', refreshToken);
+    syncAuthCookie('accessToken', accessToken || null);
+    syncAuthCookie('refreshToken', refreshToken || null);
     
     // Store user data with permissions
     const userData = {
@@ -403,6 +419,8 @@ export async function apiRegister(name: string, email: string, password: string)
     if (res.data.refreshToken) {
       localStorage.setItem('refreshToken', res.data.refreshToken);
     }
+    syncAuthCookie('accessToken', res.data.accessToken);
+    syncAuthCookie('refreshToken', res.data.refreshToken || null);
     localStorage.setItem('currentUser', JSON.stringify(res.data.user));
   }
 
@@ -426,6 +444,8 @@ export async function apiRefreshToken() {
     if (res.data.refreshToken) {
       localStorage.setItem('refreshToken', res.data.refreshToken);
     }
+    syncAuthCookie('accessToken', res.data.accessToken);
+    syncAuthCookie('refreshToken', res.data.refreshToken || null);
   }
 
   return res;
@@ -436,6 +456,8 @@ export function apiLogout() {
   localStorage.removeItem('accessToken');
   localStorage.removeItem('refreshToken');
   localStorage.removeItem('currentUser');
+  syncAuthCookie('accessToken', null);
+  syncAuthCookie('refreshToken', null);
 }
 
 // ────────────────────────────────────────────────────────────

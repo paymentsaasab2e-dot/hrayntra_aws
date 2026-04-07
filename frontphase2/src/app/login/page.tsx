@@ -70,7 +70,7 @@ export default function LoginPage() {
             }
           }
           const redirectTo = new URLSearchParams(window.location.search).get('redirect') || '/leads';
-          router.push(redirectTo);
+          window.location.href = redirectTo;
         }
       }, 800);
     } catch (err: any) {
@@ -108,10 +108,10 @@ export default function LoginPage() {
       }
       
       setMessage('Account created successfully! Redirecting...');
-      // Redirect to leads page after successful signup
+      // Redirect to leads after successful signup
       setTimeout(() => {
         const redirectTo = new URLSearchParams(window.location.search).get('redirect') || '/leads';
-        router.push(redirectTo);
+        window.location.href = redirectTo;
       }, 800);
     } catch (err: any) {
       setError(err?.message || 'Failed to create account. Please try again.');
