@@ -879,7 +879,18 @@ async function getPersonalizedJobs(req, res) {
         penaltiesApplied: job.penalties > 0,
         reasoning: job.insights?.reasoning || 'Experience and Skills analyzed',
         totalJobsScanned: activeJobs.length,
+        ruleScore: job.ruleScore,
+        embeddingScore: job.embeddingScore,
+        gptScore: job.gptScore,
+        keywordScore: job.keywordScore,
+        titleMatch: job.titleMatch,
+        directSkillMatchCount: job.directSkillMatchCount || 0,
+        domainMatch: job.domainMatch,
+        candidateSummary: job.candidateSummary,
+        jobSummary: job.jobSummary,
         insights: {
+          shouldShow: job.insights?.shouldShow ?? true,
+          domainAlignment: job.insights?.domainAlignment || null,
           reasoning: job.insights?.reasoning || 'Experience and Skills analyzed',
           strengths: job.insights?.strengths || job.matchedSkills,
           gaps: job.insights?.gaps || job.missingSkills,
@@ -906,19 +917,20 @@ async function getPersonalizedJobs(req, res) {
       if (b.matchScore !== a.matchScore) return b.matchScore - a.matchScore;
       return (b.normalizedScore || 0) - (a.normalizedScore || 0);
     });
+    const filteredMatches = sortedNormalized.filter((job) => matchingService.qualifiesForPersonalizedMatch(job));
     const totalJobsScanned = activeJobs.length;
-    const totalQualifiedMatches = sortedNormalized.filter((job) => job.matchScore >= 50).length;
+    const totalQualifiedMatches = filteredMatches.length;
     console.log(`TOTAL JOBS FOUND IN DATABASE: ${totalJobsScanned}`);
     console.log(`TOTAL MATCH JOBS FOUND FOR CANDIDATE: ${totalQualifiedMatches}`);
-    console.log(`TOTAL SCORED JOBS RETURNED: ${sortedNormalized.length}`);
+    console.log(`TOTAL SCORED JOBS RETURNED: ${filteredMatches.length}`);
 
-    sortedNormalized.slice(0, 20).forEach((job, i) => {
+    filteredMatches.slice(0, 20).forEach((job, i) => {
       console.log(
         `${i + 1}. ${job.jobTitle} | company=${job.company} | aiFitScore=${job.matchScore}% | normalized=${job.normalizedScore}% | confidence=${job.confidenceTag} | matchedSkills=${(job.matchedSkills || []).join(', ') || '-'} | missingSkills=${(job.missingSkills || []).join(', ') || '-'}`
       );
     });
-    if (sortedNormalized.length > 0) {
-      console.log('Top matched job extracted data:', JSON.stringify(sortedNormalized[0].extractedJobSnapshot, null, 2));
+    if (filteredMatches.length > 0) {
+      console.log('Top matched job extracted data:', JSON.stringify(filteredMatches[0].extractedJobSnapshot, null, 2));
     } else {
       console.log('No scored jobs returned by the matching pipeline.');
     }
@@ -943,7 +955,7 @@ async function getPersonalizedJobs(req, res) {
         skills: candidateSnapshot.normalizedSkills,
         summaryText: candidateSnapshot.summaryText,
       },
-      data: sortedNormalized
+      data: filteredMatches
     });
 
   } catch (error) {
