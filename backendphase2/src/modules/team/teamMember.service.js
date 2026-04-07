@@ -111,10 +111,14 @@ export const teamMemberService = {
     ]);
 
     // Format response
-    const formatted = members.map((member) => ({
+    const formatted = members.map((member) => {
+      const fallbackName = typeof member.name === 'string' ? member.name.trim() : '';
+      const fallbackParts = fallbackName ? fallbackName.split(/\s+/) : [];
+
+      return {
       id: member.id,
-      firstName: member.firstName || member.name.split(' ')[0] || '',
-      lastName: member.lastName || member.name.split(' ').slice(1).join(' ') || '',
+      firstName: member.firstName || fallbackParts[0] || '',
+      lastName: member.lastName || fallbackParts.slice(1).join(' ') || '',
       email: member.email,
       phone: member.phone,
       designation: member.designation,
@@ -124,6 +128,7 @@ export const teamMemberService = {
         ? {
             id: member.systemRole.id,
             roleName: member.systemRole.roleName,
+            color: member.systemRole.color || 'gray',
           }
         : null,
       department: member.departmentRelation
@@ -146,11 +151,18 @@ export const teamMemberService = {
             tempPasswordFlag: member.credential.tempPasswordFlag,
           }
         : null,
-      taskCount: member._count.tasks,
+      _count: {
+        tasks: member._count?.tasks || 0,
+        assignedLeads: member.assignedJobs || 0,
+      },
+      taskCount: member._count?.tasks || 0,
       assignedJobs: member.assignedJobs || 0,
       placements: member.placements || 0,
       revenueGenerated: member.revenueGenerated || 0,
-    }));
+      createdAt: member.createdAt,
+      updatedAt: member.updatedAt,
+    };
+    });
 
     return formatPaginationResponse(formatted, page, limit, total);
   },

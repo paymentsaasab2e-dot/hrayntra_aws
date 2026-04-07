@@ -280,7 +280,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
           style={{ width: SIDEBAR_W - 20 }}
         >
           <ImageWithFallback 
-            src="/SAASA_Logo-removebg-preview 1.png" 
+            src="/saasa-logo.png" 
             alt="SAASA Logo" 
             className="h-8 w-auto object-contain"
           />

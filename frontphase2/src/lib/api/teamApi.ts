@@ -41,6 +41,23 @@ const { base: API_BASE_NEW, routePrefix: API_ROUTE_PREFIX } = getApiConfig();
 
 const buildPath = (path: string) => `${API_ROUTE_PREFIX}${path}`;
 
+const normalizeArrayPayload = <T>(payload: unknown): T[] => {
+  if (Array.isArray(payload)) return payload as T[];
+
+  if (payload && typeof payload === 'object') {
+    const obj = payload as Record<string, unknown>;
+
+    if (Array.isArray(obj.data)) return obj.data as T[];
+    if (Array.isArray(obj.items)) return obj.items as T[];
+    if (Array.isArray(obj.results)) return obj.results as T[];
+    if (Array.isArray(obj.members)) return obj.members as T[];
+    if (Array.isArray(obj.roles)) return obj.roles as T[];
+    if (Array.isArray(obj.departments)) return obj.departments as T[];
+  }
+
+  return [];
+};
+
 /**
  * Get all team members with filters
  */
@@ -73,7 +90,7 @@ export async function getTeamMembers(filters: TeamMemberFilters = {}) {
     throw new Error(json?.message || `Request failed with status ${res.status}`);
   }
   
-  return { data: json.data, success: json.success };
+  return { data: normalizeArrayPayload<TeamMember>(json.data), success: json.success };
 }
 
 /**
@@ -444,7 +461,7 @@ export async function getRoles() {
     throw new Error(json?.message || `Request failed with status ${res.status}`);
   }
   
-  return { data: json.data || [], success: json.success };
+  return { data: normalizeArrayPayload<Role>(json.data), success: json.success };
 }
 
 /**
@@ -470,7 +487,7 @@ export async function getDepartments() {
     throw new Error(json?.message || `Request failed with status ${res.status}`);
   }
   
-  return { data: json.data || [], success: json.success };
+  return { data: normalizeArrayPayload<Department>(json.data), success: json.success };
 }
 
 /**

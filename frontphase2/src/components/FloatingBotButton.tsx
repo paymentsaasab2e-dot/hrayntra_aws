@@ -27,8 +27,8 @@ const BUBBLE_GAP = 10;
 /** Pixels moved before we treat the gesture as a drag (not a tap to open). */
 const TAP_MAX_MOVE_PX = 10;
 
-/** Public file: `public/image-removebg-preview (18).png` */
-const BOT_IMAGE_SRC = `/${encodeURIComponent('image-removebg-preview (18).png')}`;
+/** Public file alias without spaces to avoid Next image parsing issues in dev/prod. */
+const BOT_IMAGE_SRC = '/floating-bot.png';
 
 type AssistantPageConfig = {
   key: string;
