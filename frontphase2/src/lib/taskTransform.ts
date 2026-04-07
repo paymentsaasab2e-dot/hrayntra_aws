@@ -12,6 +12,7 @@ export function transformBackendTaskToFrontend(backendTask: BackendTask): Task {
   };
 
   const statusMap: Record<string, TaskStatus> = {
+    'PENDING': 'Pending',
     'TODO': 'Pending',
     'IN_PROGRESS': 'Pending', // Frontend doesn't have In Progress, map to Pending
     'DONE': 'Completed',
@@ -70,6 +71,7 @@ export function transformBackendTaskToDrawer(backendTask: BackendTask): TaskForD
   };
 
   const statusMap: Record<string, TaskStatus> = {
+    'PENDING': 'Pending',
     'TODO': 'Pending',
     'IN_PROGRESS': 'Pending',
     'DONE': 'Completed',

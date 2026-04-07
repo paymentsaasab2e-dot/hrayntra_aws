@@ -71,7 +71,7 @@ export interface TaskForDrawer {
   status: TaskStatus;
   owner: { name: string; avatar: string };
   assignedToId?: string; // Added to store assignee ID from backend
-  backendStatus?: 'TODO' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED'; // Store original backend status for edit form
+  backendStatus?: 'PENDING' | 'TODO' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED'; // Store original backend status for edit form
   description?: string;
   reminder?: string;
   lastUpdated?: { by: string; at: string };
@@ -157,9 +157,10 @@ function taskToFormValues(t: TaskForDrawer): TaskFormValues {
   const assigneeId = t.assignedToId || MOCK_ASSIGNEES.find((u) => u.name === t.owner.name)?.id || '';
   
   // Map backend status to edit form status
-  // Backend: 'TODO' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED'
+  // Backend: 'PENDING' | 'TODO' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED'
   // Edit form: 'Pending' | 'In Progress' | 'Completed' | 'Cancelled'
   const backendStatusMap: Record<string, TaskEditStatus> = {
+    'PENDING': 'Pending',
     'TODO': 'Pending',
     'IN_PROGRESS': 'In Progress',
     'DONE': 'Completed',

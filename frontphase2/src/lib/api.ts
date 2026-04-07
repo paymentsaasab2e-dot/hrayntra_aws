@@ -2998,7 +2998,7 @@ export interface BackendTask {
   dueDate: string;
   dueTime?: string | null;
   priority: 'LOW' | 'MEDIUM' | 'HIGH';
-  status: 'TODO' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED';
+  status: 'PENDING' | 'TODO' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED';
   taskType?: string | null;
   assignedToId: string;
   createdById: string;
@@ -3043,7 +3043,7 @@ export interface CreateTaskData {
   notes?: string[];
   taskType?: string;
   type?: string;
-  status?: 'Pending' | 'In Progress' | 'Completed' | 'Cancelled';
+  status?: 'Pending' | 'In Progress' | 'Completed' | 'Cancelled' | 'PENDING' | 'TODO' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED';
 }
 
 export interface UpdateTaskData extends Partial<CreateTaskData> {
