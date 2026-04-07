@@ -48,6 +48,70 @@ function normalizeSalaryData(salary) {
 }
 
 export const jobService = {
+  async getPublicFeed(req) {
+    const rawLimit = Number.parseInt(String(req.query?.limit || '200'), 10);
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 500) : 200;
+
+    const jobs = await prisma.job.findMany({
+      where: {
+        status: 'OPEN',
+      },
+      take: limit,
+      include: {
+        client: {
+          select: {
+            id: true,
+            companyName: true,
+            logo: true,
+            industry: true,
+            location: true,
+          },
+        },
+      },
+      orderBy: [
+        { postedDate: 'desc' },
+        { createdAt: 'desc' },
+      ],
+    });
+
+    return jobs.map((job) => ({
+      id: job.id,
+      source: 'phase2',
+      clientId: job.clientId || null,
+      title: job.title,
+      description: job.description || null,
+      overview: job.overview || null,
+      requirements: Array.isArray(job.requirements) ? job.requirements : [],
+      skills: Array.isArray(job.skills) ? job.skills : [],
+      preferredSkills: Array.isArray(job.preferredSkills) ? job.preferredSkills : [],
+      keyResponsibilities: Array.isArray(job.keyResponsibilities) ? job.keyResponsibilities : [],
+      location: job.location || null,
+      type: job.type || null,
+      status: job.status,
+      openings: job.openings ?? 1,
+      experienceRequired: job.experienceRequired || null,
+      education: job.education || null,
+      benefits: Array.isArray(job.benefits) ? job.benefits : [],
+      postedDate: job.postedDate || job.createdAt || null,
+      hiringManager: job.hiringManager || null,
+      department: job.department || null,
+      jobCategory: job.jobCategory || null,
+      jobLocationType: job.jobLocationType || null,
+      workMode: job.workMode || null,
+      priority: job.priority || null,
+      salary: job.salary || null,
+      company: job.client
+        ? {
+            id: job.client.id,
+            companyName: job.client.companyName,
+            logo: job.client.logo || null,
+            industry: job.client.industry || null,
+            location: job.client.location || null,
+          }
+        : null,
+    }));
+  },
+
   async notifyAssignment(job, performedById) {
     if (!job?.assignedTo?.email) return;
 

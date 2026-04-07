@@ -5,6 +5,8 @@ import { uploadSingleJobFile } from '../../utils/upload.middleware.js';
 
 const router = express.Router();
 
+router.get('/public-feed', jobController.getPublicFeed);
+
 router.use(authMiddleware);
 
 router.get('/', jobController.getAll);
