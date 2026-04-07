@@ -1,6 +1,13 @@
 const { prisma } = require('../lib/prisma');
 const matchingService = require('../services/matching.service');
 
+// simple in-memory cache
+const cache = {
+  jobs: null,
+  lastFetched: 0,
+  TTL: 300000, // 5 minutes
+};
+
 /**
  * Get all active jobs
  * GET /api/jobs
@@ -8,6 +15,14 @@ const matchingService = require('../services/matching.service');
 async function getAllJobs(req, res) {
   try {
     const { page = 1, limit = 10, location, industry, workMode, employmentType, includeInactive } = req.query;
+    
+    // Check cache for default query (page 1, limit 10, no filters)
+    const isDefaultQuery = page == 1 && limit == 10 && !location && !industry && !workMode && !employmentType;
+    if (isDefaultQuery && cache.jobs && (Date.now() - cache.lastFetched < cache.TTL)) {
+      console.log('⚡ Serving jobs list from cache');
+      return res.json(cache.jobs);
+    }
+
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const startedAt = Date.now();
 
@@ -130,7 +145,7 @@ async function getAllJobs(req, res) {
       `📦 DB fetch result: jobs-list | page=${page} | limit=${limit} | returned=${jobs.length} | total=${total} | elapsedMs=${Date.now() - startedAt}`
     );
 
-    res.json({
+    const responsePayload = {
       success: true,
       data: {
         jobs: formattedJobs,
@@ -141,7 +156,14 @@ async function getAllJobs(req, res) {
           totalPages: Math.ceil(total / parseInt(limit)),
         },
       },
-    });
+    };
+
+    if (isDefaultQuery) {
+      cache.jobs = responsePayload;
+      cache.lastFetched = Date.now();
+    }
+
+    res.json(responsePayload);
   } catch (error) {
     console.error('Error fetching jobs:', error);
     res.status(500).json({

@@ -186,6 +186,9 @@ model Candidate {
 
   cvAnalysis        CvAnalysis?
 
+  @@index([email])
+  @@index([whatsappNumber])
+  @@index([firstName, lastName])
   @@map("candidates")
 }
 
@@ -740,6 +743,12 @@ model Job {
   recruiterPipelineStages PipelineStage[]
   recruiterMatches Match[]
 
+  @@index([title])
+  @@index([location])
+  @@index([industry])
+  @@index([type])
+  @@index([postedAt])
+  @@index([isActive])
   @@map("jobs")
 }
 
@@ -868,6 +877,9 @@ model Application {
   communications   ApplicationCommunication[]
 
   @@unique([candidateId, jobId])
+  @@index([candidateId])
+  @@index([status])
+  @@index([appliedAt])
   @@map("applications")
 }
 
@@ -913,6 +925,9 @@ model Notification {
 
   candidate   Candidate        @relation(fields: [candidateId], references: [id], onDelete: Cascade)
 
+  @@index([candidateId])
+  @@index([isRead])
+  @@index([createdAt])
   @@map("notifications")
 }
 
@@ -949,6 +964,8 @@ model CourseEnrollment {
   course      Course       @relation(fields: [courseId], references: [id])
 
   @@unique([candidateId, courseId])
+  @@index([candidateId])
+  @@index([status])
   @@map("course_enrollments")
 }
 
