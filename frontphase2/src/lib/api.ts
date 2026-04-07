@@ -11,7 +11,7 @@ import type {
   RequestReplacementPayload,
 } from '../types/placement';
 
-const LOCAL_API_BASE = 'http://localhost:5001/api/v1';
+const LOCAL_API_BASE = 'https://api2.hryantra.com/api/v1';
 const PROD_PROXY_BASE = '/api/proxy';
 
 const isLocalBrowser =
