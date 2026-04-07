@@ -20,7 +20,7 @@ const mockInterviewRoutes = require('./routes/mock-interview.routes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const DEFAULT_ALLOWED_ORIGINS = 'http://localhost:3000,https://frontend1-nu-ten.vercel.app';
+const DEFAULT_ALLOWED_ORIGINS = 'http://localhost:3000,http://localhost:3001,https://jobportal-himanshu.vercel.app,https://frontend1-nu-ten.vercel.app';
 const allowedOrigins = (process.env.FRONTEND_URLS || process.env.FRONTEND_URL || DEFAULT_ALLOWED_ORIGINS)
   .split(',')
   .map(v => v.trim())
