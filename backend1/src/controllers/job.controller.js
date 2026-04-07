@@ -538,69 +538,62 @@ async function recommendJobs(req, res) {
     }
 
     const startedAt = Date.now();
-    console.log(`📥 DB fetch requested: jobs-recommend | q=${q}`);
-
-    // Search for jobs matching title or skills
-    const jobs = await prisma.job.findMany({
+    const { generateGoalRecommendations } = require('../lms/services/ai.lms.service');
+    
+    // Fetch DB jobs and AI recommendations in parallel
+    const [jobs, aiSuggestions] = await Promise.all([
+      prisma.job.findMany({
         where: {
           OR: [
             { title: { contains: q, mode: 'insensitive' } },
-            { skills: { hasSome: [q] } }, // Simple match for arrays
-            // Also try to match inside industry/category
+            { skills: { hasSome: [q] } },
             { industry: { contains: q, mode: 'insensitive' } },
           ],
         },
-      include: {
-        company: {
-          select: { id: true, name: true, logoUrl: true },
+        include: {
+          company: { select: { id: true, name: true, logoUrl: true } },
+          client: { select: { companyName: true, logo: true } },
         },
-        client: {
-          select: { id: true, companyName: true, logo: true },
-        },
-      },
-      take: 5, // Only top 5 for autocomplete
-      orderBy: { postedAt: 'desc' },
-    });
+        take: 4,
+        orderBy: { postedAt: 'desc' },
+      }),
+      generateGoalRecommendations(q)
+    ]);
 
     console.log(
-      `📦 DB fetch result: jobs-recommend | q=${q} | returned=${jobs.length} | elapsedMs=${Date.now() - startedAt}`
+      `📦 Hybrid Search result: jobs=${jobs.length} | ai=${aiSuggestions.length} | elapsedMs=${Date.now() - startedAt}`
     );
 
-    if (jobs.length === 0) {
-      // Fallback: Use AI service to suggest job titles if no exact jobs match
-      const { generateGoalRecommendations } = require('../lms/services/ai.lms.service');
-      const suggestions = await generateGoalRecommendations(q);
-      
-      const aiFormatted = suggestions.slice(0, 3).map((title, i) => ({
-        id: `ai-suggest-${i}`,
-        title: title,
-        company: 'AI Predicted Match',
-        location: 'Global / Remote',
-        type: 'Suggested Role',
-        logo: '',
-        matchScore: 98,
-        isAiSuggestion: true
-      }));
-
-      return res.json({
-        success: true,
-        data: aiFormatted
-      });
-    }
-
-    const formatted = jobs.map(job => ({
+    // Format DB results
+    const dbFormatted = jobs.map(job => ({
       id: job.id,
       title: job.title,
-      company: job.company?.name || job.client?.companyName || 'Multiple Hiring partners',
+      company: job.company?.name || job.client?.companyName || 'Hiring Partner',
       location: job.location,
       type: job.type || job.employmentType || 'Full-time',
       logo: job.company?.logoUrl || job.client?.logo || '',
-      matchScore: Math.floor(Math.random() * 15) + 84, // Mock score for wow effect
+      matchScore: Math.floor(Math.random() * 10) + 88,
     }));
+
+    // Format AI results (avoiding duplicates)
+    const dbTitles = new Set(dbFormatted.map(j => j.title.toLowerCase()));
+    const aiFormatted = aiSuggestions
+      .filter(title => !dbTitles.has(title.toLowerCase()))
+      .slice(0, 3)
+      .map((title, i) => ({
+        id: `ai-suggest-${i}`,
+        title: title,
+        company: 'AI Predicted Role',
+        location: 'Global / Remote',
+        type: 'Suggested',
+        logo: '',
+        matchScore: 99,
+        isAiSuggestion: true
+      }));
 
     res.json({
       success: true,
-      data: formatted
+      data: [...dbFormatted, ...aiFormatted]
     });
   } catch (error) {
     console.error('Error recommending jobs:', error);

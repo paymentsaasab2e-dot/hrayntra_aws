@@ -28,33 +28,35 @@ export function usePermissions() {
 
   const permissions = userData.permissions || [];
   const roleName = userData.roleName || '';
+  const hasFullAccess = roleName === 'Super Admin' || permissions.includes('all');
 
   const hasPermission = (permissionName: string): boolean => {
-    // Super Admin has all permissions
-    if (roleName === 'Super Admin') {
+    if (hasFullAccess) {
       return true;
     }
     return permissions.includes(permissionName);
   };
 
   const hasAnyPermission = (permissionNames: string[]): boolean => {
-    // Super Admin has all permissions
-    if (roleName === 'Super Admin') {
+    if (hasFullAccess) {
       return true;
     }
     return permissionNames.some((perm) => permissions.includes(perm));
   };
 
   const hasAllPermissions = (permissionNames: string[]): boolean => {
+    if (hasFullAccess) {
+      return true;
+    }
     return permissionNames.every((perm) => permissions.includes(perm));
   };
 
   const isSuperAdmin = (): boolean => {
-    return roleName === 'Super Admin';
+    return hasFullAccess;
   };
 
   const isAdmin = (): boolean => {
-    return roleName === 'Admin' || roleName === 'Super Admin';
+    return roleName === 'Admin' || hasFullAccess;
   };
 
   const canAccess = (module: string): boolean => {

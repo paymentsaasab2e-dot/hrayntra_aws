@@ -717,10 +717,46 @@ module.exports = {
 };
 
 async function generateGoalRecommendations(query) {
+  const prompt = `Suggest 5 professional job roles or company industries matching the partial search query: "${query}".
+  Return ONLY a JSON array of strings. Example: ["Software Engineer", "Frontend Developer"]`;
+
+  try {
+    const openai = getOpenAIClient();
+    if (openai) {
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 100,
+        temperature: 0.3,
+      });
+      const result = extractJson(completion.choices[0].message.content);
+      if (Array.isArray(result) && result.length > 0) return result;
+    }
+  } catch (error) {
+    console.warn('AI Goal Recs failed, falling back to static list.', error.message);
+  }
   return getStaticRecommendations(query, STATIC_GOAL_RECOMMENDATIONS, 5);
 }
 
 async function generateLocationRecommendations(query) {
+  const prompt = `Suggest 5 global cities or regions matching the partial search query: "${query}".
+  Return ONLY a JSON array of strings. Example: ["New York, USA", "London, UK"]`;
+
+  try {
+    const openai = getOpenAIClient();
+    if (openai) {
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 100,
+        temperature: 0.3,
+      });
+      const result = extractJson(completion.choices[0].message.content);
+      if (Array.isArray(result) && result.length > 0) return result;
+    }
+  } catch (error) {
+    console.warn('AI Location Recs failed, falling back to static list.', error.message);
+  }
   return getStaticRecommendations(query, STATIC_LOCATION_RECOMMENDATIONS, 12);
 }
 async function generateOrchestrationPlan(targetRole) {
