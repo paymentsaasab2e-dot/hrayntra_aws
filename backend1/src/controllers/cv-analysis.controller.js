@@ -3,6 +3,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const pdfParse = require('pdf-parse');
 const fs = require('fs');
 const path = require('path');
+const matchingService = require('../services/matching.service');
 
 // Initialize AI
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -207,38 +208,34 @@ async function analyzeCV(req, res) {
         take: 50
       });
 
-      const candidateSkills = candidate.skills.map(ks => ks.skill.name.toLowerCase());
-      const candidateTitles = candidate.workExperiences.map(we => we.jobTitle.toLowerCase());
-      
-      const matched = activeJobs.map(job => {
-        const jobSkills = (job.skills || []).map(s => typeof s === 'string' ? s.toLowerCase() : '');
-        const overlap = candidateSkills.filter(s => jobSkills.includes(s));
-        
-        const skillArrayLength = Math.max(jobSkills.filter(Boolean).length, 1);
-        let score = (overlap.length / skillArrayLength) * 100;
-        const titleMatch = candidateTitles.some(t => job.title.toLowerCase().includes(t));
-        if (titleMatch) score += 30;
-        
-        return {
-          title: job.title,
-          company: job.company?.name || job.client?.companyName || 'Unknown',
-          score: Math.min(Math.round(score), 99),
-          criteria: titleMatch ? `Title Match + ${overlap.length} Skills` : `${overlap.length} Skills Match`
-        };
-      })
-      .filter(m => m.score > 30)
-      .sort((a, b) => b.score - a.score);
+      const matched = await Promise.all(
+        activeJobs.map(async (job) => {
+          const ruleData = await matchingService.getRuleScore(candidate, job);
+          return {
+            title: job.title,
+            company: job.company?.name || job.client?.companyName || 'Unknown',
+            score: Math.round(ruleData.score),
+            criteria: `matchedSkills=${ruleData.matchedSkills.length} | missingSkills=${ruleData.missingSkills.length} | keywordScore=${Math.round(ruleData.keywordScore || 0)} | preferenceScore=${Math.round(ruleData.preferenceScore || 0)}`,
+          };
+        })
+      );
+      const sortedMatches = matched
+        .sort((a, b) => b.score - a.score)
+        .filter((item) => item.score >= 40);
+
+      console.log(`TOTAL JOBS FOUND IN DATABASE: ${activeJobs.length}`);
+      console.log(`TOTAL MATCH JOBS FOUND FOR CANDIDATE: ${sortedMatches.length}`);
 
       console.log('\n' + '-'.repeat(40));
-      console.log(`🎯 PERSONALIZED JOB MATCHES FOUND: ${matched.length}`);
+      console.log(`🎯 PERSONALIZED JOB MATCHES FOUND: ${sortedMatches.length}`);
       console.log('-'.repeat(40));
       
-      if (matched.length > 0) {
-        matched.slice(0, 10).forEach((m, i) => {
+      if (sortedMatches.length > 0) {
+        sortedMatches.slice(0, 10).forEach((m, i) => {
           console.log(`${i+1}. found job: ${m.title} (${m.company}) - matches score: ${m.score}% - according to extracted data: ${m.criteria}`);
         });
       } else {
-        console.log('No relevant job matches found for this CV profile.');
+        console.log('No strong job matches crossed the preview threshold, but all jobs were scanned and scored.');
       }
       console.log('-'.repeat(40) + '\n');
     } catch (matchError) {
