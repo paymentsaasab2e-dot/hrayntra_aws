@@ -197,9 +197,6 @@ export const jobService = {
       location: data.location,
       type: data.type || 'FULL_TIME',
       status: data.status || 'OPEN', // Default to OPEN when creating from client drawer
-      clientId: data.clientId,
-      assignedToId: data.assignedToId,
-      createdById: createdByUserId || undefined,
       openings: data.openings || 1,
       salary: normalizeSalaryData(data.salary),
       experienceRequired: data.experienceRequired,
@@ -223,6 +220,18 @@ export const jobService = {
       applicationFormNote: data.applicationFormNote,
       distributionPlatforms: data.distributionPlatforms,
     });
+
+    if (data.clientId) {
+      jobData.client = { connect: { id: data.clientId } };
+    }
+
+    if (data.assignedToId) {
+      jobData.assignedTo = { connect: { id: data.assignedToId } };
+    }
+
+    if (createdByUserId) {
+      jobData.createdBy = { connect: { id: createdByUserId } };
+    }
 
     // Log data being stored
     dbLogger.logCreate('JOB', jobData);

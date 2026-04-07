@@ -3,6 +3,14 @@ import { env } from '../../config/env.js';
 
 let cachedClient = null;
 
+function normalizeLookupValue(value) {
+  return String(value || '').trim();
+}
+
+function normalizeEmail(value) {
+  return normalizeLookupValue(value).toLowerCase();
+}
+
 async function getHeadquartersClient() {
   if (!env.HEADQUARTERS_DATABASE_URL) {
     return null;
@@ -40,9 +48,16 @@ export const headquartersAuthService = {
     const collection = await getCollection();
     if (!collection) return null;
 
+    const normalizedIdentifier = normalizeLookupValue(loginIdOrEmail);
+    const normalizedEmail = normalizeEmail(loginIdOrEmail);
+    const normalizedPassword = normalizeLookupValue(password);
+
     const document = await collection.findOne({
-      email: String(loginIdOrEmail || ''),
-      password: String(password || ''),
+      $or: [
+        { email: normalizedIdentifier },
+        { email: normalizedEmail },
+      ],
+      password: normalizedPassword,
       role: 'SUPER_ADMIN',
       status: 'ACTIVE',
     });

@@ -1,0 +1,28 @@
+// ============================================================
+// GLOBAL AI MOCK INTERVIEW (Added as per requirement)
+// ============================================================
+
+model GlobalAiInterview {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  candidateId String? @db.ObjectId
+  topic     String
+  createdAt DateTime @default(now())
+  messages  GlobalAiInterviewMessage[]
+  report    Json?
+
+  candidate Candidate? @relation(fields: [candidateId], references: [id])
+  @@map("global_ai_interviews")
+}
+
+model GlobalAiInterviewMessage {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  interviewId    String   @db.ObjectId
+  role           String   // 'ai' or 'candidate'
+  text           String
+  score          Float?
+  timestamp      DateTime @default(now())
+
+  interview      GlobalAiInterview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+
+  @@map("global_ai_interview_messages")
+}

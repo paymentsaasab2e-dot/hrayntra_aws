@@ -311,9 +311,36 @@ async function buildCandidateResponse(candidate) {
   const customTags = extractCustomTags(activities);
   const internalNotes = activities.map(mapActivityToNote).filter(Boolean);
   const activityFeed = activities.map(mapActivityToDrawerItem).filter(Boolean);
+  const normalizedCandidate = {
+    ...candidate,
+    resume: candidate.resume || candidate.resumeUrl || null,
+    skills:
+      Array.isArray(candidate.skills) && candidate.skills.length
+        ? candidate.skills
+        : Array.isArray(candidate.recruiterSkills)
+          ? candidate.recruiterSkills
+          : [],
+    experience: candidate.experience ?? candidate.experienceYears ?? null,
+    address: candidate.address || candidate.addressLine || null,
+    status: candidate.status || candidate.recruiterStatus || 'NEW',
+    education: candidate.education || candidate.recruiterEducation || null,
+    certifications:
+      Array.isArray(candidate.certifications) && candidate.certifications.length
+        ? candidate.certifications
+        : Array.isArray(candidate.certificationsList)
+          ? candidate.certificationsList
+          : [],
+    languages:
+      Array.isArray(candidate.languages) && candidate.languages.length
+        ? candidate.languages
+        : Array.isArray(candidate.recruiterLanguages)
+          ? candidate.recruiterLanguages
+          : [],
+    notes: candidate.notes || candidate.recruiterNotes || null,
+  };
 
   return {
-    ...candidate,
+    ...normalizedCandidate,
     tags: customTags.map((tag) => tag.label),
     tagObjects: customTags,
     internalNotes,
@@ -428,6 +455,23 @@ export const candidateService = {
         .filter(Boolean);
       return {
         ...candidate,
+        resume: candidate.resume || candidate.resumeUrl || null,
+        skills:
+          Array.isArray(candidate.skills) && candidate.skills.length
+            ? candidate.skills
+            : Array.isArray(candidate.recruiterSkills)
+              ? candidate.recruiterSkills
+              : [],
+        experience: candidate.experience ?? candidate.experienceYears ?? null,
+        status: candidate.status || candidate.recruiterStatus || 'NEW',
+        education: candidate.education || candidate.recruiterEducation || null,
+        languages:
+          Array.isArray(candidate.languages) && candidate.languages.length
+            ? candidate.languages
+            : Array.isArray(candidate.recruiterLanguages)
+              ? candidate.recruiterLanguages
+              : [],
+        notes: candidate.notes || candidate.recruiterNotes || null,
         assignedJobTitles: titles,
       };
     });

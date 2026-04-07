@@ -1,0 +1,59 @@
+{
+  "title": "Senior AI Solutions Architect",
+  "location": "Mumbai, India (Hybrid)",
+  "department": "AI & Engineering",
+  "industry": "IT Services / AI Consultancy",
+  "isActive": true,
+  "overview": "Lead the design and implementation of production-grade Generative AI solutions and RAG pipelines for Enterprise clients.",
+  "aboutRole": "As a Senior AI Solutions Architect, you will sit at the intersection of product, engineering, and data science, orchestrating complex LLM-based systems.",
+  "description": "We are seeking a visionary technical leader to architect scalable AI systems. You must have deep experience with LLM orchestration (LangChain/LlamaIndex), Vector Databases, and productionizing RAG systems using AWS and Kubernetes.",
+  "keyResponsibilities": [
+    "Architect and build multi-agent LLM systems with LangChain",
+    "Design and optimize high-performance RAG pipelines using Pinecone",
+    "Lead a team of 4 senior engineers on Model Orchestration",
+    "Implement robust security protocols for private-data AI processing",
+    "Conduct deep architectural reviews of model latency and cost pipelines"
+  ],
+  "responsibilities": "Lead technical execution of enterprise AI projects from discovery to production scaling.",
+  "skills": [
+    "Python",
+    "PyTorch",
+    "LangChain",
+    "OpenAI API",
+    "Vector Databases",
+    "AWS",
+    "FastAPI"
+  ],
+  "preferredSkills": [
+    "Next.js",
+    "Docker",
+    "Kubernetes",
+    "Redis",
+    "Terraform"
+  ],
+  "experienceRequired": "5-8 Years",
+  "experienceLevel": "Senior",
+  "education": "Masters in Computer Science or Equivalent Engineering Degree",
+  "type": "FULL_TIME",
+  "employmentType": "FULL_TIME",
+  "workMode": "HYBRID",
+  "priority": "Urgent",
+  "salary": {
+    "min": 2500000,
+    "max": 4500000,
+    "currentCurrency": "INR"
+  },
+  "salaryMin": 2500000,
+  "salaryMax": 4500000,
+  "salaryCurrency": "INR",
+  "salaryType": "ANNUAL",
+  "benefits": [
+    "Comprehensive Health Insurance",
+    "Equity / ESOPs",
+    "Annual AI Conference Budget",
+    "Remote-First Work Options"
+  ],
+  "visaSponsorship": true,
+  "postedAt": "2026-04-03T10:00:00Z",
+  "updatedAt": "2026-04-03T10:00:00Z"
+}

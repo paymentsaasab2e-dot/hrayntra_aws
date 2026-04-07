@@ -421,15 +421,20 @@ model Candidate {
   phone          String?
   linkedIn       String?
   resume         String?
+  resumeUrl      String?
   skills         String[]
+  recruiterSkills String[]       @default([])
   experience     Int?
+  experienceYears Int?
   currentTitle   String?
   currentCompany String?
   location       String?
   address        String?
+  addressLine    String?
   city           String?
   country        String?
   status         CandidateStatus @default(NEW)
+  recruiterStatus String?
   source         String?
   assignedToId   String?         @db.ObjectId
   // Recruiter who created this profile (used for "my candidates" on /candidate)
@@ -444,11 +449,15 @@ model Candidate {
   expectedSalary Int?
   currentSalary  Int?
   education      String?
+  recruiterEducation String?
   certifications String[]
+  certificationsList String[]    @default([])
   languages      String[]
+  recruiterLanguages String[]    @default([])
   portfolio      String?
   website        String?
   notes          String?
+  recruiterNotes String?
   cvSummary      String?
   cvEducationEntries Json?
   cvWorkExperienceEntries Json?
@@ -809,7 +818,7 @@ enum MatchStatus {
 model Match {
   id          String      @id @default(auto()) @map("_id") @db.ObjectId
   candidateId String      @db.ObjectId
-  jobId       String      @db.ObjectId
+  jobId       String?     @db.ObjectId
   score       Float
   status      MatchStatus @default(SUGGESTED)
   notes       String?
@@ -818,7 +827,7 @@ model Match {
   updatedAt   DateTime    @updatedAt
 
   candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
-  job       Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  job       Job?      @relation(fields: [jobId], references: [id], onDelete: Cascade)
   createdBy User?     @relation(fields: [createdById], references: [id])
 
   @@index([candidateId])
