@@ -187,7 +187,6 @@ model Candidate {
   cvAnalysis        CvAnalysis?
 
   @@index([email])
-  @@index([whatsappNumber])
   @@index([firstName, lastName])
   @@map("candidates")
 }
