@@ -46,6 +46,7 @@ import integrationRoutes from './modules/integration/integration.routes.js';
 import userCommunicationRoutes from './modules/user-communication/user-communication.routes.js';
 import twilioTestRoutes from './modules/twilio-test/twilio-test.routes.js';
 import pdfProxyRoutes from './routes/pdfProxy.routes.js';
+import hqRoutes from './modules/hq/hq.routes.js';
 
 const app = express();
 
@@ -174,6 +175,7 @@ app.use('/api/v1/settings/communication', userCommunicationRoutes);
 app.use('/api/v1/settings/twilio', twilioTestRoutes);
 app.use('/api/v1/settings', settingRoutes);
 app.use('/api/v1/ai', aiRoutes);
+app.use('/api/v1/hq', hqRoutes);
 // Removing re-mounts from here as they are now at the top
 
 // 404 handler
