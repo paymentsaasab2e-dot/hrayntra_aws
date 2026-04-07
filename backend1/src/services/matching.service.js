@@ -29,6 +29,309 @@ function normalizeSkill(skill) {
   return SKILL_ALIASES[cleaned] || cleaned;
 }
 
+function uniqueNormalized(values = []) {
+  return Array.from(
+    new Set(
+      values
+        .flatMap((value) => Array.isArray(value) ? value : [value])
+        .filter((value) => typeof value === 'string')
+        .map((value) => value.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function tokenizeText(value) {
+  if (!value || typeof value !== 'string') return [];
+  return value
+    .toLowerCase()
+    .split(/[^a-z0-9+#.\-/]+/i)
+    .map((part) => normalizeSkill(part))
+    .filter(Boolean);
+}
+
+function normalizeWorkMode(value) {
+  if (!value || typeof value !== 'string') return null;
+  const normalized = value.toUpperCase().replace(/[\s-]+/g, '_');
+  if (normalized.includes('REMOTE')) return 'REMOTE';
+  if (normalized.includes('HYBRID')) return 'HYBRID';
+  if (normalized.includes('ON_SITE') || normalized.includes('ONSITE') || normalized.includes('OFFICE')) {
+    return 'ON_SITE';
+  }
+  return normalized;
+}
+
+function parseRequiredExperience(requiredExp) {
+  if (!requiredExp || typeof requiredExp !== 'string') return 0;
+  const matches = requiredExp.match(/(\d+(?:\.\d+)?)/g);
+  if (!matches || matches.length === 0) return 0;
+  return Number.parseFloat(matches[0]) || 0;
+}
+
+function formatDateSafe(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function summarizeCandidate(candidate) {
+  const resumeJson = candidate.resume?.resumeJson || {};
+  const resumeSkills = Array.isArray(resumeJson.skills)
+    ? resumeJson.skills
+    : [
+        ...(Array.isArray(resumeJson.skills?.technical) ? resumeJson.skills.technical : []),
+        ...(Array.isArray(resumeJson.skills?.soft) ? resumeJson.skills.soft : []),
+      ];
+  const projectTechnologies = Array.isArray(candidate.project?.technologies)
+    ? candidate.project.technologies
+    : [];
+  const certificationNames = (candidate.certifications || []).map(
+    (certification) => certification.certificationName || certification.issuingOrganization
+  );
+  const workTitles = (candidate.workExperiences || []).map((item) => item.jobTitle);
+  const educationTitles = (candidate.educations || []).map(
+    (item) => [item.degree, item.fieldOfStudy, item.institution].filter(Boolean).join(' - ')
+  );
+  const preferredRoles = candidate.careerPreferences?.preferredRoles || [];
+  const preferredLocations = candidate.careerPreferences?.preferredLocations || [];
+
+  const normalizedSkills = uniqueNormalized([
+    candidate.recruiterSkills || [],
+    candidate.certificationsList || [],
+    candidate.recruiterLanguages || [],
+    (candidate.skills || []).map((skillItem) => skillItem.skill?.name || skillItem.name),
+    resumeSkills,
+    projectTechnologies,
+    certificationNames,
+  ]).map(normalizeSkill).filter(Boolean);
+
+  const textCorpus = uniqueNormalized([
+    candidate.currentTitle,
+    candidate.currentCompany,
+    candidate.location,
+    candidate.preferredLocation,
+    candidate.designation,
+    candidate.cvSummary,
+    candidate.summary?.summaryText,
+    candidate.recruiterEducation,
+    candidate.recruiterNotes,
+    candidate.profile?.skillsAdditionalNotes,
+    candidate.profile?.city,
+    candidate.profile?.country,
+    candidate.internship?.internshipTitle,
+    candidate.internship?.domainDepartment,
+    candidate.internship?.responsibilities,
+    candidate.internship?.learnings,
+    candidate.project?.projectTitle,
+    candidate.project?.projectType,
+    candidate.project?.projectDescription,
+    candidate.project?.responsibilities,
+    candidate.project?.projectOutcome,
+    candidate.gapExplanation?.reasonForGap,
+    candidate.gapExplanation?.selectedSkills || [],
+    candidate.visaWorkAuthorization?.selectedDestination,
+    candidate.visaWorkAuthorization?.additionalRemarks,
+    workTitles,
+    educationTitles,
+    preferredRoles,
+    preferredLocations,
+    candidate.assignedJobs || [],
+  ]);
+
+  const combinedTokens = new Set([
+    ...normalizedSkills,
+    ...textCorpus.flatMap(tokenizeText),
+  ]);
+
+  const currentSalary = candidate.currentSalary ?? candidate.careerPreferences?.currentSalary ?? null;
+  const expectedSalary = candidate.expectedSalary ?? candidate.careerPreferences?.preferredSalary ?? null;
+  const currentLocation = candidate.profile?.city || candidate.city || candidate.location || null;
+  const preferredWorkMode = normalizeWorkMode(candidate.careerPreferences?.preferredWorkMode || candidate.availability);
+  const candidateExperience =
+    candidate.experienceYears ??
+    candidate.profile?.totalExperience ??
+    (candidate.workExperiences?.length || 0) * 1.5;
+
+  return {
+    id: candidate.id,
+    name:
+      candidate.profile?.fullName ||
+      [candidate.firstName, candidate.lastName].filter(Boolean).join(' ') ||
+      'Candidate',
+    email: candidate.profile?.email || candidate.email || null,
+    currentTitle: candidate.currentTitle || candidate.designation || workTitles[0] || null,
+    currentLocation,
+    candidateExperience,
+    preferredRoles: uniqueNormalized(preferredRoles),
+    preferredLocations: uniqueNormalized([preferredLocations, candidate.preferredLocation]),
+    preferredIndustry: candidate.careerPreferences?.preferredIndustry || null,
+    preferredWorkMode,
+    currentSalary,
+    expectedSalary,
+    availabilityToStart:
+      candidate.careerPreferences?.availabilityToStart ||
+      candidate.noticePeriod ||
+      candidate.availability ||
+      null,
+    openToRelocation: Boolean(candidate.careerPreferences?.openToRelocation),
+    workTitles: uniqueNormalized(workTitles),
+    normalizedSkills: Array.from(new Set(normalizedSkills)),
+    keywords: Array.from(combinedTokens),
+    summaryText: uniqueNormalized([candidate.summary?.summaryText, candidate.cvSummary]).join(' | '),
+    rawSnapshot: {
+      profile: candidate.profile || null,
+      careerPreferences: candidate.careerPreferences || null,
+      summary: candidate.summary || null,
+      workExperiences: candidate.workExperiences || [],
+      educations: candidate.educations || [],
+      project: candidate.project || null,
+      internship: candidate.internship || null,
+      certifications: candidate.certifications || [],
+      resume: candidate.resume || null,
+    },
+  };
+}
+
+function summarizeJob(job) {
+  const requiredSkills = uniqueNormalized([
+    job.skills || [],
+    job.requirements || [],
+    job.keyResponsibilities || [],
+  ]);
+  const preferredSkills = uniqueNormalized(job.preferredSkills || []);
+  const responsibilities = uniqueNormalized([
+    job.responsibilities,
+    job.description,
+    job.overview,
+    job.aboutRole,
+    job.keyResponsibilities || [],
+  ]);
+  const titleKeywords = tokenizeText([
+    job.title,
+    job.department,
+    job.jobCategory,
+    job.industry,
+    job.hiringManager,
+  ].filter(Boolean).join(' '));
+  const descriptionKeywords = responsibilities.flatMap(tokenizeText);
+  const normalizedRequiredSkills = requiredSkills.map(normalizeSkill).filter(Boolean);
+  const normalizedPreferredSkills = preferredSkills.map(normalizeSkill).filter(Boolean);
+
+  return {
+    id: job.id,
+    title: job.title,
+    company: job.company?.name || job.client?.companyName || 'Unknown Company',
+    location: job.location || null,
+    workMode: normalizeWorkMode(job.workMode || job.jobLocationType),
+    employmentType: job.type || job.employmentType || null,
+    industry: job.industry || job.department || job.jobCategory || null,
+    department: job.department || null,
+    experienceRequired: job.experienceRequired || job.experienceLevel || null,
+    requiredExperienceYears: parseRequiredExperience(job.experienceRequired || job.experienceLevel || ''),
+    education: job.education || null,
+    salaryMin: job.salaryMin ?? job.salary?.min ?? null,
+    salaryMax: job.salaryMax ?? job.salary?.max ?? null,
+    salaryCurrency: job.salaryCurrency ?? job.salary?.currency ?? null,
+    salaryType: job.salaryType ?? job.salary?.type ?? null,
+    visaSponsorship: Boolean(job.visaSponsorship),
+    postedAt: formatDateSafe(job.postedAt || job.createdAt || job.updatedAt),
+    normalizedRequiredSkills,
+    normalizedPreferredSkills,
+    titleKeywords,
+    descriptionKeywords,
+    keywords: Array.from(
+      new Set([
+        ...normalizedRequiredSkills,
+        ...normalizedPreferredSkills,
+        ...titleKeywords,
+        ...descriptionKeywords,
+      ])
+    ),
+    responsibilities,
+    rawSnapshot: {
+      title: job.title,
+      description: job.description || null,
+      overview: job.overview || job.aboutRole || null,
+      responsibilities: job.responsibilities || null,
+      keyResponsibilities: job.keyResponsibilities || [],
+      skills: job.skills || [],
+      preferredSkills: job.preferredSkills || [],
+      requirements: job.requirements || [],
+      benefits: job.benefits || [],
+      education: job.education || null,
+      experienceRequired: job.experienceRequired || job.experienceLevel || null,
+      workMode: job.workMode || job.jobLocationType || null,
+      location: job.location || null,
+      industry: job.industry || job.department || job.jobCategory || null,
+      salary: job.salary || null,
+    },
+  };
+}
+
+function calculateKeywordOverlap(candidateKeywords, jobKeywords) {
+  if (!jobKeywords.length) return { score: 60, matches: [] };
+  const candidateSet = new Set(candidateKeywords.map(normalizeSkill).filter(Boolean));
+  const matched = jobKeywords.filter((item) => candidateSet.has(normalizeSkill(item)));
+  return {
+    score: Math.round((matched.length / Math.max(jobKeywords.length, 1)) * 100),
+    matches: Array.from(new Set(matched)).slice(0, 20),
+  };
+}
+
+function calculatePreferenceScore(candidateSummary, jobSummary) {
+  let score = 50;
+  const reasons = [];
+
+  if (
+    candidateSummary.preferredRoles.length > 0 &&
+    candidateSummary.preferredRoles.some((role) =>
+      tokenizeText(role).some((token) => jobSummary.keywords.includes(token))
+    )
+  ) {
+    score += 20;
+    reasons.push('preferred-role');
+  }
+
+  if (
+    candidateSummary.preferredIndustry &&
+    tokenizeText(candidateSummary.preferredIndustry).some((token) => jobSummary.keywords.includes(token))
+  ) {
+    score += 10;
+    reasons.push('preferred-industry');
+  }
+
+  if (
+    candidateSummary.preferredLocations.length > 0 &&
+    jobSummary.location &&
+    candidateSummary.preferredLocations.some((location) =>
+      jobSummary.location.toLowerCase().includes(location.toLowerCase())
+    )
+  ) {
+    score += 10;
+    reasons.push('preferred-location');
+  }
+
+  if (
+    candidateSummary.expectedSalary &&
+    jobSummary.salaryMax &&
+    jobSummary.salaryMax >= candidateSummary.expectedSalary
+  ) {
+    score += 10;
+    reasons.push('salary-fit');
+  }
+
+  if (
+    candidateSummary.preferredWorkMode &&
+    jobSummary.workMode &&
+    candidateSummary.preferredWorkMode === jobSummary.workMode
+  ) {
+    score += 10;
+    reasons.push('work-mode-fit');
+  }
+
+  return { score: Math.min(100, score), reasons };
+}
+
 /**
  * Weighted Skill Scoring
  */
@@ -123,35 +426,66 @@ const gptCache = new Map();
  * Step 1: Rule-Based Match (Fast)
  */
 async function getRuleScore(candidate, job) {
-  const candidateSkills = new Set((candidate.skills || []).map(s => normalizeSkill(s.skill?.name || s)));
-  // Add resume skills
-  const resumeJson = candidate.resume?.resumeJson || {};
-  const rSkills = Array.isArray(resumeJson.skills) ? resumeJson.skills : (resumeJson.skills?.technical || []);
-  rSkills.forEach(s => candidateSkills.add(normalizeSkill(s)));
+  const candidateSummary = summarizeCandidate(candidate);
+  const jobSummary = summarizeJob(job);
+  const candidateSkills = new Set(candidateSummary.normalizedSkills);
+  const skillRes = calculateWeightedSkillScore(
+    candidateSkills,
+    jobSummary.normalizedRequiredSkills,
+    jobSummary.normalizedPreferredSkills
+  );
+  const expRes = calculateExperienceScore(
+    candidateSummary.candidateExperience || 0,
+    jobSummary.requiredExperienceYears,
+    job.experienceLevel
+  );
+  const locScore = calculateLocationScore(
+    {
+      ...candidate,
+      profile: { ...candidate.profile, city: candidateSummary.currentLocation },
+      careerPreferences: {
+        ...candidate.careerPreferences,
+        preferredWorkMode: candidateSummary.preferredWorkMode,
+      },
+    },
+    {
+      ...job,
+      workMode: jobSummary.workMode,
+      location: jobSummary.location,
+    }
+  );
+  const keywordRes = calculateKeywordOverlap(candidateSummary.keywords, jobSummary.keywords);
+  const preferenceRes = calculatePreferenceScore(candidateSummary, jobSummary);
+  const titleMatch = candidateSummary.workTitles.some((title) =>
+    tokenizeText(title).some((token) => jobSummary.keywords.includes(token))
+  );
 
-  const reqSkills = (job.skills || []).map(normalizeSkill);
-  const prefSkills = (job.preferredSkills || []).map(normalizeSkill);
-  
-  const skillRes = calculateWeightedSkillScore(candidateSkills, reqSkills, prefSkills);
-  
-  // Experience
-  let requiredExp = 0;
-  if (job.experienceRequired) {
-    const matches = job.experienceRequired.match(/(\d+)/g);
-    if (matches) requiredExp = parseInt(matches[0]);
+  let ruleScore =
+    (skillRes.score * 0.4) +
+    (expRes.score * 0.2) +
+    (locScore * 0.1) +
+    (keywordRes.score * 0.2) +
+    (preferenceRes.score * 0.1);
+
+  if (titleMatch) {
+    ruleScore += 8;
   }
-  const candidateExp = candidate.profile?.totalExperience || (candidate.workExperiences?.length || 0) * 0.5;
-  const expRes = calculateExperienceScore(candidateExp, requiredExp, job.experienceLevel);
 
-  const locScore = calculateLocationScore(candidate, job);
-
-  const ruleScore = (skillRes.score * 0.5) + (expRes.score * 0.35) + (locScore * 0.15);
+  const preferredMatches = jobSummary.normalizedPreferredSkills.filter((skill) => candidateSkills.has(skill));
 
   return {
-    score: ruleScore,
-    matchedSkills: skillRes.matched,
-    missingSkills: skillRes.missing,
-    penalties: skillRes.penalty + expRes.penalty
+    score: Math.min(100, Math.max(0, ruleScore)),
+    matchedSkills: Array.from(new Set([...skillRes.matched, ...keywordRes.matches, ...preferredMatches])).slice(0, 20),
+    missingSkills: skillRes.missing.slice(0, 20),
+    penalties: skillRes.penalty + expRes.penalty,
+    candidateSummary,
+    jobSummary,
+    keywordScore: keywordRes.score,
+    preferenceScore: preferenceRes.score,
+    locationScore: locScore,
+    experienceScore: expRes.score,
+    titleMatch,
+    preferenceSignals: preferenceRes.reasons,
   };
 }
 
@@ -229,5 +563,7 @@ module.exports = {
   getEmbeddingScore,
   getGptAnalysis,
   getBehaviorScore,
-  normalizeSkill
+  normalizeSkill,
+  summarizeCandidate,
+  summarizeJob,
 };

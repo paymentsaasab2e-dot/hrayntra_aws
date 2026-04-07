@@ -4,6 +4,15 @@ import { jobFileService } from './job-file.service.js';
 import { sendResponse, sendError } from '../../utils/response.js';
 
 export const jobController = {
+  async getPublicFeed(req, res) {
+    try {
+      const result = await jobService.getPublicFeed(req);
+      sendResponse(res, 200, 'Public jobs feed retrieved successfully', result);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
   async getAll(req, res) {
     try {
       const result = await jobService.getAll(req);

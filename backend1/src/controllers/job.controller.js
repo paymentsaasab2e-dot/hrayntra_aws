@@ -699,11 +699,18 @@ async function getPersonalizedJobs(req, res) {
         profile: true,
         skills: { include: { skill: true } },
         workExperiences: true,
-        careerPreferences: true
+        careerPreferences: true,
+        educations: true,
+        project: true,
+        internship: true,
+        certifications: true,
+        gapExplanation: true,
+        visaWorkAuthorization: true
       }
     });
 
     if (!candidate) return res.status(404).json({ success: false, message: 'Candidate not found' });
+    const candidateSnapshot = matchingService.summarizeCandidate(candidate);
 
     // 2. Fetch Active Jobs
     const activeJobs = await prisma.job.findMany({
@@ -712,10 +719,38 @@ async function getPersonalizedJobs(req, res) {
         company: { select: { name: true, logoUrl: true } },
         client: { select: { companyName: true, logo: true } }
       },
-      take: 300 // Fetch a deeper pool of jobs for matching
+      take: 500 // Fetch a deeper pool of jobs for matching
     });
 
     console.log(`🤖 AI Pipeline: Initial Rule Scan for ${activeJobs.length} roles...`);
+
+    console.log('\n' + '='.repeat(90));
+    console.log('PERSONALIZED JOB MATCHING STARTED');
+    console.log('='.repeat(90));
+    console.log(`Candidate ID: ${candidateId}`);
+    console.log(`Total jobs fetched from database for scan: ${activeJobs.length}`);
+    console.log('Extracted Candidate Data:', JSON.stringify({
+      id: candidateSnapshot.id,
+      name: candidateSnapshot.name,
+      email: candidateSnapshot.email,
+      currentTitle: candidateSnapshot.currentTitle,
+      currentLocation: candidateSnapshot.currentLocation,
+      candidateExperience: candidateSnapshot.candidateExperience,
+      preferredRoles: candidateSnapshot.preferredRoles,
+      preferredLocations: candidateSnapshot.preferredLocations,
+      preferredIndustry: candidateSnapshot.preferredIndustry,
+      preferredWorkMode: candidateSnapshot.preferredWorkMode,
+      currentSalary: candidateSnapshot.currentSalary,
+      expectedSalary: candidateSnapshot.expectedSalary,
+      availabilityToStart: candidateSnapshot.availabilityToStart,
+      openToRelocation: candidateSnapshot.openToRelocation,
+      workTitles: candidateSnapshot.workTitles,
+      skillsCount: candidateSnapshot.normalizedSkills.length,
+      skills: candidateSnapshot.normalizedSkills,
+      keywordsCount: candidateSnapshot.keywords.length,
+      summaryText: candidateSnapshot.summaryText,
+    }, null, 2));
+    console.log('AI Pipeline: Initial Rule Scan started...');
 
     // --- STEP 1: RULE-BASED FAST SCAN (TOP 40) ---
     const ruleMatches = await Promise.all(
@@ -728,7 +763,15 @@ async function getPersonalizedJobs(req, res) {
           behaviorBoost,
           matchedSkills: ruleData.matchedSkills,
           missingSkills: ruleData.missingSkills,
-          penalties: ruleData.penalties
+          penalties: ruleData.penalties,
+          candidateSummary: ruleData.candidateSummary,
+          jobSummary: ruleData.jobSummary,
+          keywordScore: ruleData.keywordScore,
+          preferenceScore: ruleData.preferenceScore,
+          locationScore: ruleData.locationScore,
+          experienceScore: ruleData.experienceScore,
+          titleMatch: ruleData.titleMatch,
+          preferenceSignals: ruleData.preferenceSignals
         };
       })
     );
@@ -798,8 +841,11 @@ async function getPersonalizedJobs(req, res) {
 
       return {
         jobId: job.id,
+        id: job.id,
         jobTitle: job.title,
+        title: job.title,
         company: job.company?.name || job.client?.companyName || 'Multiple Hiring partners',
+        companyLogo: job.company?.logoUrl || job.client?.logo || '',
         location: job.location,
         type: job.type || job.employmentType || 'Full-time',
         workMode: job.workMode ?? job.jobLocationType ?? null,
@@ -831,6 +877,8 @@ async function getPersonalizedJobs(req, res) {
         matchedSkills: job.matchedSkills,
         missingSkills: job.missingSkills,
         penaltiesApplied: job.penalties > 0,
+        reasoning: job.insights?.reasoning || 'Experience and Skills analyzed',
+        totalJobsScanned: activeJobs.length,
         insights: {
           reasoning: job.insights?.reasoning || 'Experience and Skills analyzed',
           strengths: job.insights?.strengths || job.matchedSkills,
@@ -840,23 +888,62 @@ async function getPersonalizedJobs(req, res) {
         breakdown: {
           ruleScore: Math.round(job.ruleScore),
           embeddingScore: Math.round(job.embeddingScore),
-          llmScore: Math.round(job.gptScore)
-        }
+          llmScore: Math.round(job.gptScore),
+          keywordScore: Math.round(job.keywordScore || 0),
+          preferenceScore: Math.round(job.preferenceScore || 0),
+          locationScore: Math.round(job.locationScore || 0),
+          experienceScore: Math.round(job.experienceScore || 0),
+          behaviorBoost: Math.round(job.behaviorBoost || 0)
+        },
+        extractedJobSnapshot: job.jobSummary
       };
     });
 
     console.log(`\n----------------------------------------`);
     console.log(`🎯 PERSONALIZED AI MATCHES IDENTIFIED: ${normalized.length}`);
     console.log(`----------------------------------------`);
-    normalized.slice(0, 20).forEach((job, i) => {
-      console.log(`${i + 1}. ${job.jobTitle} - [MATCH SCORE: ${job.matchScore}%] - (${job.confidenceTag})`);
+    const sortedNormalized = normalized.sort((a, b) => {
+      if (b.matchScore !== a.matchScore) return b.matchScore - a.matchScore;
+      return (b.normalizedScore || 0) - (a.normalizedScore || 0);
     });
+    const totalJobsScanned = activeJobs.length;
+    const totalQualifiedMatches = sortedNormalized.filter((job) => job.matchScore >= 50).length;
+    console.log(`TOTAL JOBS FOUND IN DATABASE: ${totalJobsScanned}`);
+    console.log(`TOTAL MATCH JOBS FOUND FOR CANDIDATE: ${totalQualifiedMatches}`);
+    console.log(`TOTAL SCORED JOBS RETURNED: ${sortedNormalized.length}`);
+
+    sortedNormalized.slice(0, 20).forEach((job, i) => {
+      console.log(
+        `${i + 1}. ${job.jobTitle} | company=${job.company} | aiFitScore=${job.matchScore}% | normalized=${job.normalizedScore}% | confidence=${job.confidenceTag} | matchedSkills=${(job.matchedSkills || []).join(', ') || '-'} | missingSkills=${(job.missingSkills || []).join(', ') || '-'}`
+      );
+    });
+    if (sortedNormalized.length > 0) {
+      console.log('Top matched job extracted data:', JSON.stringify(sortedNormalized[0].extractedJobSnapshot, null, 2));
+    } else {
+      console.log('No scored jobs returned by the matching pipeline.');
+    }
     console.log(`----------------------------------------\n`);
+    console.log('='.repeat(90) + '\n');
 
     res.json({
       success: true,
-      totalMatches: normalized.length,
-      data: normalized
+      totalMatches: totalQualifiedMatches,
+      totalJobsScanned,
+      candidateProfile: {
+        id: candidateSnapshot.id,
+        name: candidateSnapshot.name,
+        email: candidateSnapshot.email,
+        currentTitle: candidateSnapshot.currentTitle,
+        currentLocation: candidateSnapshot.currentLocation,
+        candidateExperience: candidateSnapshot.candidateExperience,
+        preferredRoles: candidateSnapshot.preferredRoles,
+        preferredLocations: candidateSnapshot.preferredLocations,
+        preferredIndustry: candidateSnapshot.preferredIndustry,
+        preferredWorkMode: candidateSnapshot.preferredWorkMode,
+        skills: candidateSnapshot.normalizedSkills,
+        summaryText: candidateSnapshot.summaryText,
+      },
+      data: sortedNormalized
     });
 
   } catch (error) {
