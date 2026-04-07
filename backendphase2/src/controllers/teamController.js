@@ -324,6 +324,7 @@ export async function createTeamMember(req, res) {
           tempPassword,
           roleName: role?.roleName || 'Team Member',
           inviteToken,
+          senderUserId: req.user?.id || null,
         });
       }
     }
@@ -357,7 +358,10 @@ export async function createTeamMember(req, res) {
 
     return res.status(201).json({
       success: true,
-      data: createdMember,
+      data: {
+        ...createdMember,
+        credentialData,
+      },
       message: 'Team member created successfully',
     });
   } catch (error) {

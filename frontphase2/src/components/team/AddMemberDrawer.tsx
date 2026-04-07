@@ -5,7 +5,7 @@ import { X, Check, Minus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { createTeamMember, getRoles, getDepartments, getTeamMembers } from '../../lib/api/teamApi';
-import type { Role, Department, CreateMemberPayload } from '../../types/team';
+import type { Role, Department, CreateMemberPayload, TeamMember } from '../../types/team';
 
 interface AddMemberDrawerProps {
   isOpen: boolean;
@@ -35,6 +35,7 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loadingOptions, setLoadingOptions] = useState(true);
+  const [createdMember, setCreatedMember] = useState<TeamMember | null>(null);
 
   // Load options
   useEffect(() => {
@@ -128,10 +129,15 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
         location: formData.location || undefined,
       };
 
-      await createTeamMember(payload);
-      toast.success('Team member created successfully');
+      const response = await createTeamMember(payload);
+      const member = response.data as TeamMember;
+      setCreatedMember(member);
+      toast.success(
+        member?.credentialData?.loginId
+          ? 'Team member created and credentials generated successfully'
+          : 'Team member created successfully'
+      );
       onSuccess();
-      handleClose();
     } catch (error: any) {
       const errorMessage = error?.message || 'Failed to create team member';
       if (errorMessage.toLowerCase().includes('email')) {
@@ -160,6 +166,7 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
       sendInvite: true,
     });
     setErrors({});
+    setCreatedMember(null);
     onClose();
   };
 
@@ -421,6 +428,55 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
                   )}
                 </div>
               </section>
+
+              {createdMember?.credentialData ? (
+                <section>
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="w-1 h-4 bg-green-600 rounded-full" />
+                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Generated Credentials</h3>
+                  </div>
+                  <div className="rounded-2xl border border-green-200 bg-green-50 p-4 space-y-4">
+                    <p className="text-sm font-medium text-green-900">
+                      Credentials created for {createdMember.firstName} {createdMember.lastName}
+                    </p>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-xs font-semibold text-green-900/80">Login ID</label>
+                        <div className="mt-1 rounded-lg border border-green-200 bg-white px-3 py-2 text-sm font-mono text-slate-800">
+                          {createdMember.credentialData.loginId}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold text-green-900/80">Temporary Password</label>
+                        <div className="mt-1 rounded-lg border border-green-200 bg-white px-3 py-2 text-sm font-mono text-slate-800">
+                          {createdMember.credentialData.tempPassword}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void navigator.clipboard.writeText(
+                            `Login ID: ${createdMember.credentialData?.loginId}\nTemporary Password: ${createdMember.credentialData?.tempPassword}`
+                          );
+                          toast.success('Credentials copied');
+                        }}
+                        className="px-4 py-2 text-sm font-medium text-green-900 bg-white border border-green-200 rounded-lg hover:bg-green-100 transition-colors"
+                      >
+                        Copy Credentials
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleClose}
+                        className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
+                      >
+                        Done
+                      </button>
+                    </div>
+                  </div>
+                </section>
+              ) : null}
             </form>
 
             {/* Footer */}
@@ -430,23 +486,33 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
                 onClick={handleClose}
                 className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
               >
-                Cancel
+                {createdMember?.credentialData ? 'Close' : 'Cancel'}
               </button>
-              <button
-                type="submit"
-                onClick={handleSubmit}
-                disabled={isSubmitting}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {isSubmitting ? (
-                  <>
-                    <div className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    Creating...
-                  </>
-                ) : (
-                  'Create Member'
-                )}
-              </button>
+              {createdMember?.credentialData ? (
+                <button
+                  type="button"
+                  onClick={handleClose}
+                  className="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
+                >
+                  Done
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  onClick={handleSubmit}
+                  disabled={isSubmitting}
+                  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <div className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    'Create Member'
+                  )}
+                </button>
+              )}
             </div>
           </motion.div>
         </>

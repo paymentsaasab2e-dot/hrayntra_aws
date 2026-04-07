@@ -20,7 +20,6 @@ import {
   apiGetCandidateTagSuggestions,
   apiGetJobs,
   apiGetUsers,
-  apiImportCandidateFromLinkedIn,
   apiParseCandidateResume,
   apiUploadCandidateResumeFile,
 } from '@/lib/api';
@@ -29,8 +28,8 @@ import { MY_JOBS_LIST_PARAMS } from '@/lib/myJobsListParams';
 const METHOD_TABS = [
   { key: 'manual', label: 'Manual Entry' },
   { key: 'resume', label: 'Upload Resume' },
-  { key: 'linkedin', label: 'LinkedIn URL' },
   { key: 'csv', label: 'Bulk CSV' },
+  { key: 'bulkResume', label: 'Bulk CV Upload' },
 ];
 
 const PIPELINE_STAGES = ['Applied', 'Screening', 'Shortlist', 'Interview', 'Offer', 'Hired'];
@@ -455,14 +454,15 @@ function StepProgress({ currentStep }) {
   );
 }
 
-export default function AddCandidateDrawer({ isOpen, onClose, onSuccess, currentUser }) {
-  const [activeTab, setActiveTab] = useState('manual');
+export default function AddCandidateDrawer({ isOpen, onClose, onSuccess, currentUser, initialTab = 'manual' }) {
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState(DEFAULT_FORM_DATA);
   const [errors, setErrors] = useState({});
   const [parsedResumeFile, setParsedResumeFile] = useState(null);
   const [manualResumeFile, setManualResumeFile] = useState(null);
   const [parsedData, setParsedData] = useState(null);
+  const [resumeAnalysis, setResumeAnalysis] = useState(null);
   const [autoFilledFields, setAutoFilledFields] = useState({});
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -477,10 +477,14 @@ export default function AddCandidateDrawer({ isOpen, onClose, onSuccess, current
   const [tagSuggestions, setTagSuggestions] = useState([]);
   const [dataLoaded, setDataLoaded] = useState(false);
   const [saveBanner, setSaveBanner] = useState(null);
+  const [duplicateDecision, setDuplicateDecision] = useState(null);
   const [inlineSuccess, setInlineSuccess] = useState('');
-  const [linkedInInput, setLinkedInInput] = useState('');
   const [entryError, setEntryError] = useState('');
   const [csvExpanded, setCsvExpanded] = useState(false);
+  const [bulkResumeFiles, setBulkResumeFiles] = useState([]);
+  const [bulkResumePhase, setBulkResumePhase] = useState('upload');
+  const [bulkResumeProgress, setBulkResumeProgress] = useState({ current: 0, total: 0 });
+  const [bulkResumeResults, setBulkResumeResults] = useState([]);
   const fieldRefs = useRef({});
   const importProgressRef = useRef(null);
 
@@ -496,12 +500,13 @@ export default function AddCandidateDrawer({ isOpen, onClose, onSuccess, current
         parsedResumeFile,
         manualResumeFile,
         parsedData,
-        linkedInInput,
         csvFile,
         csvRows: csvRows.length > 0,
         csvResult,
+        bulkResumeFiles: bulkResumeFiles.length > 0,
+        bulkResumeResults: bulkResumeResults.length > 0,
       }),
-    [csvFile, csvResult, csvRows.length, formData, linkedInInput, manualResumeFile, parsedData, parsedResumeFile]
+    [bulkResumeFiles.length, bulkResumeResults.length, csvFile, csvResult, csvRows.length, formData, manualResumeFile, parsedData, parsedResumeFile]
   );
 
   // Same scope as /job table: only jobs created by the logged-in user (not all OPEN jobs in the tenant).
@@ -510,6 +515,11 @@ export default function AddCandidateDrawer({ isOpen, onClose, onSuccess, current
       setDataLoaded(false);
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setActiveTab(initialTab || 'manual');
+  }, [initialTab, isOpen]);
 
   useEffect(() => {
     if (!isOpen || dataLoaded) return;
@@ -570,11 +580,12 @@ export default function AddCandidateDrawer({ isOpen, onClose, onSuccess, current
     setParsedResumeFile(null);
     setManualResumeFile(null);
     setParsedData(null);
+    setResumeAnalysis(null);
     setAutoFilledFields({});
     setDuplicateWarning(null);
     setSaveBanner(null);
+    setDuplicateDecision(null);
     setInlineSuccess('');
-    setLinkedInInput('');
     setEntryError('');
     setCsvPhase('upload');
     setCsvRows([]);
@@ -582,6 +593,10 @@ export default function AddCandidateDrawer({ isOpen, onClose, onSuccess, current
     setCsvFile(null);
     setCsvExpanded(false);
     setCsvImportProgress({ current: 0, total: 0 });
+    setBulkResumeFiles([]);
+    setBulkResumePhase('upload');
+    setBulkResumeProgress({ current: 0, total: 0 });
+    setBulkResumeResults([]);
     if (nextTab) setActiveTab(nextTab);
   };
 
@@ -701,6 +716,18 @@ export default function AddCandidateDrawer({ isOpen, onClose, onSuccess, current
       const payload = response.data;
       if (payload?.isDuplicate) {
         setDuplicateWarning({ field, ...payload });
+        setDuplicateDecision({
+          field,
+          source: 'field',
+          mode: 'save',
+          candidate: payload.candidate || null,
+          message:
+            field === 'email'
+              ? 'A duplicate candidate was found for this email.'
+              : 'A duplicate candidate was found for this phone number.',
+          canUpdate: field === 'email',
+          canCreateAnyway: field !== 'email',
+        });
       } else if (duplicateWarning?.field === field) {
         setDuplicateWarning(null);
       }
@@ -710,28 +737,43 @@ export default function AddCandidateDrawer({ isOpen, onClose, onSuccess, current
   };
 
   const applyImportedData = (data, sourceType, file = null) => {
+    const derivedLocation =
+      data.location ||
+      [data.city, data.country]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+        .join(', ');
+    const importedSummary = String(data.summary || '').trim();
+
     const nextData = {
       firstName: data.firstName || '',
       lastName: data.lastName || '',
       email: data.email || '',
       phone: String(data.phone || '').replace(/[^\d]/g, ''),
       currentCompany: data.currentCompany || '',
-      currentDesignation: data.designation || '',
+      currentDesignation: data.currentDesignation || data.designation || '',
       experience: data.experience || '',
-      location: data.location || '',
+      location: derivedLocation,
       linkedinUrl: data.linkedinUrl || '',
+      source: data.source || 'Other',
+      priority: data.priority || 'Medium',
       expectedSalary: data.expectedSalary || '',
       currency: data.currency || 'INR',
       portfolioUrl: data.portfolioUrl || '',
+      noticePeriod: data.noticePeriod || 'Immediate',
       skills: Array.isArray(data.skills) ? data.skills.slice(0, 10) : [],
+      tags: Array.isArray(data.tags) ? data.tags.slice(0, 10) : [],
+      initialNote: importedSummary,
     };
 
     setFormData((prev) => ({
       ...prev,
       ...nextData,
-      source: prev.source || (sourceType === 'linkedin' ? 'LinkedIn' : prev.source),
+      source: prev.source || nextData.source,
+      initialNote: prev.initialNote || nextData.initialNote,
     }));
     setParsedData(data);
+    setResumeAnalysis(data.score || null);
     setAutoFilledFields(normalizeAutoFilledFields(nextData));
     if (file) setParsedResumeFile(file);
   };
@@ -750,26 +792,6 @@ export default function AddCandidateDrawer({ isOpen, onClose, onSuccess, current
       applyImportedData(response.data, 'resume', file);
     } catch (error) {
       setEntryError(error.message || 'Could not parse resume. Try again.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleLinkedInImport = async () => {
-    const value = linkedInInput.trim();
-    if (!value || !value.includes('linkedin.com/in/')) {
-      setEntryError('Invalid LinkedIn URL');
-      return;
-    }
-
-    setIsLoading(true);
-    setEntryError('');
-    try {
-      const response = await apiImportCandidateFromLinkedIn(value);
-      applyImportedData(response.data, 'linkedin');
-      updateFormData('linkedinUrl', value);
-    } catch (error) {
-      setEntryError(error.message || 'Could not fetch profile. Check the URL and try again.');
     } finally {
       setIsLoading(false);
     }
@@ -832,27 +854,220 @@ export default function AddCandidateDrawer({ isOpen, onClose, onSuccess, current
     }
   };
 
-  const handleSave = async (mode) => {
+  const buildBulkResumePayload = (parsedCandidate) => {
+    const preferredLocation =
+      parsedCandidate.location ||
+      [parsedCandidate.city, parsedCandidate.country].filter(Boolean).join(', ') ||
+      undefined;
+
+    return {
+      firstName: parsedCandidate.firstName || '',
+      lastName: parsedCandidate.lastName || '',
+      email: parsedCandidate.email || '',
+      phone: String(parsedCandidate.phone || '').replace(/[^\d]/g, '') || undefined,
+      currentCompany: parsedCandidate.currentCompany || undefined,
+      currentDesignation: parsedCandidate.currentDesignation || parsedCandidate.designation || undefined,
+      designation: parsedCandidate.currentDesignation || parsedCandidate.designation || undefined,
+      experience:
+        parsedCandidate.experience === '' || parsedCandidate.experience == null
+          ? 0
+          : Number(parsedCandidate.experience) || 0,
+      location: preferredLocation || undefined,
+      linkedinUrl: parsedCandidate.linkedinUrl || undefined,
+      source: parsedCandidate.source || 'Other',
+      priority: parsedCandidate.priority || 'Medium',
+      recruiterId: currentUser?._id || undefined,
+      assignedToId: currentUser?._id || undefined,
+      stage: 'Applied',
+      expectedSalary:
+        parsedCandidate.expectedSalary == null || parsedCandidate.expectedSalary === ''
+          ? undefined
+          : Number(parsedCandidate.expectedSalary),
+      currentSalary:
+        parsedCandidate.currentSalary == null || parsedCandidate.currentSalary === ''
+          ? undefined
+          : Number(parsedCandidate.currentSalary),
+      currency: parsedCandidate.currency || 'INR',
+      portfolioUrl: parsedCandidate.portfolioUrl || undefined,
+      education: parsedCandidate.education || undefined,
+      certifications: Array.isArray(parsedCandidate.certifications) ? parsedCandidate.certifications : undefined,
+      languages: Array.isArray(parsedCandidate.languages) ? parsedCandidate.languages : undefined,
+      notes: parsedCandidate.summary || undefined,
+      cvSummary: parsedCandidate.summary || undefined,
+      cvEducationEntries: Array.isArray(parsedCandidate.educationEntries) ? parsedCandidate.educationEntries : undefined,
+      cvWorkExperienceEntries: Array.isArray(parsedCandidate.workExperienceEntries)
+        ? parsedCandidate.workExperienceEntries
+        : undefined,
+      cvPortfolioLinks: Array.isArray(parsedCandidate.portfolioLinks) ? parsedCandidate.portfolioLinks : undefined,
+      city: parsedCandidate.city || undefined,
+      country: parsedCandidate.country || undefined,
+      preferredLocation,
+      noticePeriod: parsedCandidate.noticePeriod || undefined,
+      skills: Array.isArray(parsedCandidate.skills) ? parsedCandidate.skills.slice(0, 10) : undefined,
+      tags: Array.isArray(parsedCandidate.tags) ? parsedCandidate.tags.slice(0, 10) : undefined,
+      resume: parsedCandidate.resumeUrl || undefined,
+      duplicateAction: 'create',
+    };
+  };
+
+  const handleBulkResumeSelected = (fileList) => {
+    const files = Array.from(fileList || []).filter(Boolean);
+    if (!files.length) return;
+    setEntryError('');
+    setBulkResumeFiles(files);
+    setBulkResumePhase('preview');
+    setBulkResumeResults([]);
+    setBulkResumeProgress({ current: 0, total: files.length });
+  };
+
+  const handleBulkResumeImport = async () => {
+    if (!bulkResumeFiles.length) return;
+
+    setBulkResumePhase('importing');
+    setBulkResumeProgress({ current: 0, total: bulkResumeFiles.length });
+    setBulkResumeResults([]);
+
+    const results = [];
+    let createdCount = 0;
+
+    for (let index = 0; index < bulkResumeFiles.length; index += 1) {
+      const file = bulkResumeFiles[index];
+
+      try {
+        const parsedResponse = await apiParseCandidateResume(file);
+        const parsedCandidate = parsedResponse.data || {};
+        const missingRequired = [];
+        if (!String(parsedCandidate.firstName || '').trim()) missingRequired.push('first name');
+        if (!String(parsedCandidate.lastName || '').trim()) missingRequired.push('last name');
+        if (!String(parsedCandidate.email || '').trim()) missingRequired.push('email');
+
+        if (missingRequired.length) {
+          results.push({
+            fileName: file.name,
+            status: 'failed',
+            message: `Missing ${missingRequired.join(', ')}`,
+          });
+          setBulkResumeProgress({ current: index + 1, total: bulkResumeFiles.length });
+          continue;
+        }
+
+        const createResponse = await apiCreateCandidateFromDrawer(buildBulkResumePayload(parsedCandidate));
+        const candidate = createResponse.data;
+
+        if (file && !parsedCandidate?.resumeUrl) {
+          await apiUploadCandidateResumeFile(candidate.id, file);
+        }
+
+        createdCount += 1;
+        results.push({
+          fileName: file.name,
+          status: 'created',
+          candidateName:
+            `${parsedCandidate.firstName || ''} ${parsedCandidate.lastName || ''}`.trim() || candidate.email || 'Candidate',
+          message: 'Candidate created successfully',
+        });
+      } catch (error) {
+        results.push({
+          fileName: file.name,
+          status: 'failed',
+          message: error.message || 'Failed to create candidate',
+        });
+      }
+
+      setBulkResumeResults([...results]);
+      setBulkResumeProgress({ current: index + 1, total: bulkResumeFiles.length });
+    }
+
+    setBulkResumeResults(results);
+    setBulkResumePhase('complete');
+    if (createdCount > 0) {
+      toast.success(`${createdCount} candidate${createdCount === 1 ? '' : 's'} created from CV upload`);
+      onSuccess?.(null);
+    }
+  };
+
+  const buildCandidatePayload = (duplicateAction = 'create') => ({
+    ...formData,
+    designation: formData.currentDesignation,
+    experience: Number(formData.experience),
+    expectedSalary: formData.expectedSalary ? Number(formData.expectedSalary) : undefined,
+    currentSalary: parsedData?.currentSalary ? Number(parsedData.currentSalary) : undefined,
+    education: parsedData?.education || undefined,
+    certifications: Array.isArray(parsedData?.certifications) ? parsedData.certifications : undefined,
+    languages: Array.isArray(parsedData?.languages) ? parsedData.languages : undefined,
+    notes: [formData.initialNote, parsedData?.summary].filter(Boolean).join('\n\n') || undefined,
+    cvSummary: parsedData?.summary || undefined,
+    cvEducationEntries: Array.isArray(parsedData?.educationEntries) ? parsedData.educationEntries : undefined,
+    cvWorkExperienceEntries: Array.isArray(parsedData?.workExperienceEntries)
+      ? parsedData.workExperienceEntries
+      : undefined,
+    cvPortfolioLinks: Array.isArray(parsedData?.portfolioLinks) ? parsedData.portfolioLinks : undefined,
+    city: parsedData?.city || undefined,
+    country: parsedData?.country || undefined,
+    preferredLocation: parsedData?.location || formData.location || undefined,
+    resume: parsedData?.resumeUrl || undefined,
+    duplicateAction,
+  });
+
+  const openDuplicateDecision = ({
+    field = 'email',
+    mode = 'save',
+    source = 'save',
+    candidate = null,
+    message,
+    canUpdate,
+    canCreateAnyway,
+  }) => {
+    setDuplicateDecision({
+      field,
+      mode,
+      source,
+      candidate,
+      message:
+        message ||
+        (field === 'email'
+          ? 'A duplicate candidate was found for this email.'
+          : 'A duplicate candidate was found for this phone number.'),
+      canUpdate: canUpdate ?? field === 'email',
+      canCreateAnyway: canCreateAnyway ?? field !== 'email',
+    });
+  };
+
+  const closeDuplicateDecision = () => {
+    setDuplicateDecision(null);
+  };
+
+  const handleSave = async (mode, duplicateAction = 'create') => {
     if (!validateStep(3)) return;
+    if (duplicateAction === 'create' && duplicateWarning) {
+      openDuplicateDecision({
+        field: duplicateWarning.field,
+        source: 'save',
+        mode,
+        candidate: duplicateWarning.candidate || null,
+        canUpdate: duplicateWarning.field === 'email',
+        canCreateAnyway: duplicateWarning.field !== 'email',
+      });
+      return;
+    }
 
     setIsSaving(true);
     setSaveBanner(null);
     try {
-      const payload = {
-        ...formData,
-        designation: formData.currentDesignation,
-        experience: Number(formData.experience),
-        expectedSalary: formData.expectedSalary ? Number(formData.expectedSalary) : undefined,
-      };
+      const payload = buildCandidatePayload(duplicateAction);
 
       const response = await apiCreateCandidateFromDrawer(payload);
       const candidate = response.data;
       const uploadFile = parsedResumeFile || manualResumeFile;
-      if (uploadFile) {
+      if (uploadFile && !parsedData?.resumeUrl) {
         await apiUploadCandidateResumeFile(candidate.id, uploadFile);
       }
 
-      toast.success(`${formData.firstName} ${formData.lastName} added successfully`);
+      toast.success(
+        duplicateAction === 'updateExisting'
+          ? `${formData.firstName} ${formData.lastName} updated successfully`
+          : `${formData.firstName} ${formData.lastName} added successfully`
+      );
 
       if (mode === 'saveAndAddAnother') {
         resetForNext(activeTab);
@@ -864,7 +1079,23 @@ export default function AddCandidateDrawer({ isOpen, onClose, onSuccess, current
       }
     } catch (error) {
       if (String(error.message || '').toLowerCase().includes('already exists')) {
-        setSaveBanner({ type: 'duplicate', message: 'This candidate already exists.' });
+        const duplicateData = error?.data || error?.raw?.data || {};
+        openDuplicateDecision({
+          field: 'email',
+          source: 'save',
+          mode,
+          candidate: duplicateData.existingCandidate || null,
+          message: 'A candidate with this email already exists.',
+          canUpdate: duplicateData.canUpdate !== false,
+          canCreateAnyway: duplicateData.canCreateAnyway === true,
+        });
+        setSaveBanner({
+          type: 'duplicate',
+          message: 'A candidate with this email already exists.',
+          existingCandidate: duplicateData.existingCandidate || null,
+          canUpdate: duplicateData.canUpdate !== false,
+          canCreateAnyway: duplicateData.canCreateAnyway === true,
+        });
       } else {
         setSaveBanner({ type: 'error', message: error.message || 'Something went wrong. Try again.' });
       }
@@ -907,9 +1138,62 @@ export default function AddCandidateDrawer({ isOpen, onClose, onSuccess, current
     );
   };
 
+  const renderCandidateConflict = (field) => {
+    if (!duplicateWarning || duplicateWarning.field !== field) return null;
+    const existing = duplicateWarning.candidate;
+    const isEmailDuplicate = field === 'email';
+
+    return (
+      <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+        <div className="flex items-start gap-2">
+          <AlertCircle size={16} className="mt-0.5 shrink-0" />
+          <div className="space-y-2">
+            <p className="font-medium">
+              {isEmailDuplicate
+                ? 'This email already belongs to an existing candidate.'
+                : 'This phone number matches an existing candidate.'}
+            </p>
+            <p className="text-xs text-amber-800">
+              {existing?.name} - {existing?.designation || 'Candidate'} at {existing?.currentCompany || 'Unknown Company'} ({existing?.stage || 'Applied'})
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => window.open(`/candidate?candidateId=${existing?._id}`, '_blank', 'noopener,noreferrer')}
+                className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900"
+              >
+                View Existing Candidate
+              </button>
+              {isEmailDuplicate ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDuplicateWarning(null);
+                    handleSave('save', 'updateExisting');
+                  }}
+                  className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+                >
+                  Update Existing
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setDuplicateWarning(null)}
+                  className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white"
+                >
+                  Create Anyway
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const entryBanner = parsedData ? (
     <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-      Fields below were auto-filled from {activeTab === 'linkedin' ? 'LinkedIn' : 'resume'}. Review and edit before saving.
+      Fields below were auto-filled from resume parsing. Review and edit before saving.
     </div>
   ) : null;
 
@@ -962,13 +1246,51 @@ export default function AddCandidateDrawer({ isOpen, onClose, onSuccess, current
                   : 'border-red-200 bg-red-50 text-red-700'
               }`}
             >
-              <div className="flex items-center justify-between gap-3">
-                <span>{saveBanner.message}</span>
-              </div>
+              {saveBanner.type === 'duplicate' ? (
+                <div className="space-y-3">
+                  <p className="font-medium">{saveBanner.message}</p>
+                  {saveBanner.existingCandidate ? (
+                    <p className="text-xs text-amber-800">
+                      {saveBanner.existingCandidate.name} - {saveBanner.existingCandidate.currentTitle || 'Candidate'} at{' '}
+                      {saveBanner.existingCandidate.currentCompany || 'Unknown Company'} ({saveBanner.existingCandidate.stage || 'Applied'})
+                    </p>
+                  ) : null}
+                  <div className="flex flex-wrap gap-2">
+                    {saveBanner.existingCandidate ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          window.open(
+                            `/candidate?candidateId=${saveBanner.existingCandidate?._id}`,
+                            '_blank',
+                            'noopener,noreferrer'
+                          )
+                        }
+                        className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900"
+                      >
+                        View Existing Candidate
+                      </button>
+                    ) : null}
+                    {saveBanner.canUpdate ? (
+                      <button
+                        type="button"
+                        onClick={() => handleSave('save', 'updateExisting')}
+                        className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+                      >
+                        Update Existing
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-3">
+                  <span>{saveBanner.message}</span>
+                </div>
+              )}
             </div>
           ) : null}
 
-          {activeTab !== 'csv' ? <StepProgress currentStep={currentStep} /> : null}
+          {activeTab !== 'csv' && activeTab !== 'bulkResume' ? <StepProgress currentStep={currentStep} /> : null}
 
           {activeTab === 'resume' ? (
             <div className="mb-5">
@@ -996,6 +1318,7 @@ export default function AddCandidateDrawer({ isOpen, onClose, onSuccess, current
                       onClick={() => {
                         setParsedResumeFile(null);
                         setParsedData(null);
+                        setResumeAnalysis(null);
                         setAutoFilledFields({});
                       }}
                       className="text-xs font-semibold text-emerald-700"
@@ -1021,53 +1344,396 @@ export default function AddCandidateDrawer({ isOpen, onClose, onSuccess, current
                   </div>
                 </div>
               ) : null}
+              {resumeAnalysis ? (
+                <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50/60 p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">AI Resume Score</p>
+                      <p className="mt-1 text-3xl font-bold text-slate-900">{resumeAnalysis.overall || 0}%</p>
+                    </div>
+                    <div className="grid flex-1 grid-cols-2 gap-3 text-xs text-slate-600">
+                      <div className="rounded-xl bg-white px-3 py-2">
+                        <p className="font-semibold text-slate-700">Skills</p>
+                        <p className="mt-1">{resumeAnalysis.breakdown?.skillsMatch || 0}%</p>
+                      </div>
+                      <div className="rounded-xl bg-white px-3 py-2">
+                        <p className="font-semibold text-slate-700">Experience</p>
+                        <p className="mt-1">{resumeAnalysis.breakdown?.experienceFit || 0}%</p>
+                      </div>
+                      <div className="rounded-xl bg-white px-3 py-2">
+                        <p className="font-semibold text-slate-700">Education</p>
+                        <p className="mt-1">{resumeAnalysis.breakdown?.educationFit || 0}%</p>
+                      </div>
+                      <div className="rounded-xl bg-white px-3 py-2">
+                        <p className="font-semibold text-slate-700">Keywords</p>
+                        <p className="mt-1">{resumeAnalysis.breakdown?.keywordMatch || 0}%</p>
+                      </div>
+                    </div>
+                  </div>
+                  {Array.isArray(resumeAnalysis.insights) && resumeAnalysis.insights.length ? (
+                    <div className="mt-3 rounded-xl bg-white p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Insights</p>
+                      <ul className="mt-2 space-y-1 text-sm text-slate-700">
+                        {resumeAnalysis.insights.slice(0, 4).map((insight) => (
+                          <li key={insight}>• {insight}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              {parsedData ? (
+                <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Extracted Resume Data
+                      </p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        Review all parsed CV details section by section before saving.
+                      </p>
+                    </div>
+                    {parsedData.resumeUrl ? (
+                      <a
+                        href={parsedData.resumeUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700"
+                      >
+                        View CV
+                      </a>
+                    ) : null}
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Personal Information</p>
+                      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div className="rounded-xl bg-white p-3">
+                          <p className="text-xs text-slate-500">Name</p>
+                          <p className="mt-1 text-sm font-medium text-slate-900">
+                            {[parsedData.firstName, parsedData.lastName].filter(Boolean).join(' ') || 'Not found'}
+                          </p>
+                        </div>
+                        <div className="rounded-xl bg-white p-3">
+                          <p className="text-xs text-slate-500">Email</p>
+                          <p className="mt-1 text-sm font-medium text-slate-900">{parsedData.email || 'Not found'}</p>
+                        </div>
+                        <div className="rounded-xl bg-white p-3">
+                          <p className="text-xs text-slate-500">Phone</p>
+                          <p className="mt-1 text-sm font-medium text-slate-900">{parsedData.phone || 'Not found'}</p>
+                        </div>
+                        <div className="rounded-xl bg-white p-3">
+                          <p className="text-xs text-slate-500">Location</p>
+                          <p className="mt-1 text-sm font-medium text-slate-900">
+                            {parsedData.location || [parsedData.city, parsedData.country].filter(Boolean).join(', ') || 'Not found'}
+                          </p>
+                        </div>
+                        <div className="rounded-xl bg-white p-3">
+                          <p className="text-xs text-slate-500">Current Company</p>
+                          <p className="mt-1 text-sm font-medium text-slate-900">{parsedData.currentCompany || 'Not found'}</p>
+                        </div>
+                        <div className="rounded-xl bg-white p-3">
+                          <p className="text-xs text-slate-500">Current Designation</p>
+                          <p className="mt-1 text-sm font-medium text-slate-900">
+                            {parsedData.currentDesignation || parsedData.designation || 'Not found'}
+                          </p>
+                        </div>
+                      </div>
+                      {parsedData.summary ? (
+                        <div className="mt-3 rounded-xl bg-white p-3">
+                          <p className="text-xs text-slate-500">Summary</p>
+                          <p className="mt-1 text-sm leading-6 text-slate-700">{parsedData.summary}</p>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {(parsedData.linkedinUrl || parsedData.portfolioUrl || parsedData.portfolioLinks?.length) ? (
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Links</p>
+                        <div className="mt-3 space-y-2">
+                          {parsedData.linkedinUrl ? (
+                            <a
+                              href={parsedData.linkedinUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="block rounded-xl bg-white p-3 text-sm font-medium text-blue-600"
+                            >
+                              LinkedIn: {parsedData.linkedinUrl}
+                            </a>
+                          ) : null}
+                          {parsedData.portfolioUrl ? (
+                            <a
+                              href={parsedData.portfolioUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="block rounded-xl bg-white p-3 text-sm font-medium text-blue-600"
+                            >
+                              Portfolio: {parsedData.portfolioUrl}
+                            </a>
+                          ) : null}
+                          {Array.isArray(parsedData.portfolioLinks)
+                            ? parsedData.portfolioLinks
+                                .filter((item) => item?.url && item.url !== parsedData.linkedinUrl && item.url !== parsedData.portfolioUrl)
+                                .map((item) => (
+                                  <a
+                                    key={`${item.type}-${item.url}`}
+                                    href={item.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="block rounded-xl bg-white p-3 text-sm font-medium text-blue-600"
+                                  >
+                                    {item.type || 'Link'}: {item.url}
+                                  </a>
+                                ))
+                            : null}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {Array.isArray(parsedData.educationEntries) && parsedData.educationEntries.length ? (
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Education</p>
+                        <div className="mt-3 space-y-3">
+                          {parsedData.educationEntries.map((item, index) => (
+                            <div key={`${item.degree || 'education'}-${index}`} className="rounded-xl bg-white p-3">
+                              <p className="text-sm font-semibold text-slate-900">{item.degree || 'Education entry'}</p>
+                              <p className="mt-1 text-sm text-slate-600">{item.institution || 'Institution not found'}</p>
+                              <p className="mt-2 text-xs text-slate-500">
+                                {[item.startYear, item.endYear].filter(Boolean).join(' - ') || 'Dates not found'}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : parsedData.education ? (
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Education</p>
+                        <div className="mt-3 rounded-xl bg-white p-3 text-sm leading-6 text-slate-700">
+                          {parsedData.education}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {Array.isArray(parsedData.workExperienceEntries) && parsedData.workExperienceEntries.length ? (
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Work Experience</p>
+                        <div className="mt-3 space-y-3">
+                          {parsedData.workExperienceEntries.map((item, index) => (
+                            <div key={`${item.title || 'experience'}-${index}`} className="rounded-xl bg-white p-3">
+                              <p className="text-sm font-semibold text-slate-900">
+                                {item.title || 'Role not found'}
+                                {item.company ? ` at ${item.company}` : ''}
+                              </p>
+                              <p className="mt-1 text-xs text-slate-500">
+                                {[item.location, [item.startDate, item.endDate].filter(Boolean).join(' - ')].filter(Boolean).join(' • ') || 'Details not found'}
+                              </p>
+                              {Array.isArray(item.responsibilities) && item.responsibilities.length ? (
+                                <ul className="mt-3 space-y-1 text-sm text-slate-700">
+                                  {item.responsibilities.slice(0, 4).map((responsibility, responsibilityIndex) => (
+                                    <li key={`${item.title || 'experience'}-${responsibilityIndex}`}>• {responsibility}</li>
+                                  ))}
+                                </ul>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {(parsedData.skills?.length || parsedData.tags?.length || parsedData.certifications?.length || parsedData.languages?.length) ? (
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Skills & Qualifications</p>
+                        <div className="mt-3 space-y-3">
+                          {Array.isArray(parsedData.skills) && parsedData.skills.length ? (
+                            <div className="rounded-xl bg-white p-3">
+                              <p className="text-xs text-slate-500">Skills</p>
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                {parsedData.skills.map((skill) => (
+                                  <span key={skill} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                                    {skill}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+                          {Array.isArray(parsedData.tags) && parsedData.tags.length ? (
+                            <div className="rounded-xl bg-white p-3">
+                              <p className="text-xs text-slate-500">Tags</p>
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                {parsedData.tags.map((tag) => (
+                                  <span key={tag} className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
+                                    {tag}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+                          {Array.isArray(parsedData.languages) && parsedData.languages.length ? (
+                            <div className="rounded-xl bg-white p-3">
+                              <p className="text-xs text-slate-500">Languages</p>
+                              <p className="mt-1 text-sm text-slate-700">{parsedData.languages.join(', ')}</p>
+                            </div>
+                          ) : null}
+                          {Array.isArray(parsedData.certifications) && parsedData.certifications.length ? (
+                            <div className="rounded-xl bg-white p-3">
+                              <p className="text-xs text-slate-500">Certifications</p>
+                              <ul className="mt-2 space-y-1 text-sm text-slate-700">
+                                {parsedData.certifications.map((certification) => (
+                                  <li key={certification}>• {certification}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
               {entryBanner}
             </div>
           ) : null}
 
-          {activeTab === 'linkedin' ? (
-            <div className="mb-5">
-              {!parsedData ? (
-                <div className="rounded-2xl border border-slate-200 bg-white p-3">
-                  <div className="flex items-center gap-2">
-                    <input
-                      value={linkedInInput}
-                      onChange={(event) => setLinkedInInput(event.target.value)}
-                      placeholder="linkedin.com/in/username"
-                      className="flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleLinkedInImport}
-                      className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white"
-                    >
-                      {isLoading ? <Loader2 size={16} className="animate-spin" /> : 'Import'}
-                    </button>
+          {activeTab === 'bulkResume' ? (
+            <div className="space-y-4">
+              {bulkResumePhase === 'upload' ? (
+                <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center">
+                  <Upload size={26} className="mb-3 text-slate-400" />
+                  <p className="text-sm font-medium text-slate-700">Upload multiple CV files at once</p>
+                  <p className="mt-1 text-xs text-slate-500">PDF, DOC, DOCX · max 5MB each · candidates will be created automatically</p>
+                  <input
+                    type="file"
+                    accept=".pdf,.doc,.docx"
+                    multiple
+                    className="hidden"
+                    onChange={(event) => handleBulkResumeSelected(event.target.files)}
+                  />
+                </label>
+              ) : null}
+
+              {bulkResumePhase === 'preview' ? (
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Ready To Process</p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {bulkResumeFiles.length} CV file{bulkResumeFiles.length === 1 ? '' : 's'} selected. Each file will be parsed and turned into a candidate automatically.
+                    </p>
+                    <div className="mt-4 max-h-72 space-y-2 overflow-y-auto">
+                      {bulkResumeFiles.map((file) => (
+                        <div key={`${file.name}-${file.size}`} className="flex items-center justify-between rounded-xl bg-white px-4 py-3 text-sm text-slate-700">
+                          <span className="flex items-center gap-2">
+                            <FileText size={16} />
+                            {file.name}
+                          </span>
+                          <span className="text-xs text-slate-500">{Math.max(1, Math.round(file.size / 1024))} KB</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              ) : (
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="flex items-center gap-2">
-                      <Check size={16} />
-                      Profile imported from LinkedIn
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setParsedData(null);
-                        setAutoFilledFields({});
-                        setLinkedInInput('');
+              ) : null}
+
+              {bulkResumePhase === 'importing' ? (
+                <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-5">
+                  <div className="flex items-center gap-3 text-blue-700">
+                    <Loader2 size={18} className="animate-spin" />
+                    <div>
+                      <p className="text-sm font-semibold">Creating candidates from uploaded CVs...</p>
+                      <p className="text-xs text-blue-600">
+                        Processed {bulkResumeProgress.current} of {bulkResumeProgress.total}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-4 h-2 overflow-hidden rounded-full bg-blue-100">
+                    <div
+                      className="h-full rounded-full bg-blue-600 transition-all"
+                      style={{
+                        width: `${bulkResumeProgress.total ? (bulkResumeProgress.current / bulkResumeProgress.total) * 100 : 0}%`,
                       }}
-                      className="text-xs font-semibold text-emerald-700"
-                    >
-                      Clear
-                    </button>
+                    />
+                  </div>
+                  {bulkResumeResults.length ? (
+                    <div className="mt-4 max-h-72 space-y-2 overflow-y-auto">
+                      {bulkResumeResults.map((result, index) => (
+                        <div
+                          key={`${result.fileName}-${index}`}
+                          className={`rounded-xl px-4 py-3 text-sm ${
+                            result.status === 'created'
+                              ? 'border border-emerald-200 bg-white text-emerald-700'
+                              : 'border border-red-200 bg-white text-red-700'
+                          }`}
+                        >
+                          <p className="font-medium">{result.fileName}</p>
+                          <p className="mt-1 text-xs">{result.message}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {bulkResumePhase === 'complete' ? (
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Bulk CV Upload Result</p>
+                    <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      <div className="rounded-xl bg-white p-3">
+                        <p className="text-xs text-slate-500">Total Files</p>
+                        <p className="mt-1 text-lg font-semibold text-slate-900">{bulkResumeResults.length}</p>
+                      </div>
+                      <div className="rounded-xl bg-white p-3">
+                        <p className="text-xs text-slate-500">Created</p>
+                        <p className="mt-1 text-lg font-semibold text-emerald-600">
+                          {bulkResumeResults.filter((item) => item.status === 'created').length}
+                        </p>
+                      </div>
+                      <div className="rounded-xl bg-white p-3">
+                        <p className="text-xs text-slate-500">Failed</p>
+                        <p className="mt-1 text-lg font-semibold text-red-600">
+                          {bulkResumeResults.filter((item) => item.status === 'failed').length}
+                        </p>
+                      </div>
+                      <div className="rounded-xl bg-white p-3">
+                        <p className="text-xs text-slate-500">Recruiter</p>
+                        <p className="mt-1 text-sm font-semibold text-slate-900">{currentUser?.name || 'You'}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="max-h-80 space-y-2 overflow-y-auto">
+                    {bulkResumeResults.map((result, index) => (
+                      <div
+                        key={`${result.fileName}-${index}`}
+                        className={`rounded-xl border px-4 py-3 ${
+                          result.status === 'created'
+                            ? 'border-emerald-200 bg-emerald-50'
+                            : 'border-red-200 bg-red-50'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-900">{result.fileName}</p>
+                            {result.candidateName ? (
+                              <p className="mt-1 text-xs text-slate-600">{result.candidateName}</p>
+                            ) : null}
+                          </div>
+                          <span
+                            className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${
+                              result.status === 'created'
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : 'bg-red-100 text-red-700'
+                            }`}
+                          >
+                            {result.status}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-xs text-slate-600">{result.message}</p>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              )}
-              {entryError ? <p className="mt-2 text-sm text-red-600">{entryError}</p> : null}
-              {entryBanner}
+              ) : null}
             </div>
           ) : null}
 
@@ -1193,7 +1859,7 @@ export default function AddCandidateDrawer({ isOpen, onClose, onSuccess, current
                 </div>
               ) : null}
             </div>
-          ) : (
+          ) : activeTab === 'bulkResume' ? null : (
             <div className="space-y-8">
               {currentStep === 1 ? (
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -1233,7 +1899,7 @@ export default function AddCandidateDrawer({ isOpen, onClose, onSuccess, current
                       error={errors.email}
                       autoFilled={autoFilledFields.email}
                     />
-                    {renderDuplicateWarning('email')}
+                    {renderCandidateConflict('email')}
                   </div>
 
                   <div ref={(node) => (fieldRefs.current.phone = node?.querySelector?.('input') || node)}>
@@ -1246,7 +1912,7 @@ export default function AddCandidateDrawer({ isOpen, onClose, onSuccess, current
                       error={errors.phone}
                       autoFilled={autoFilledFields.phone}
                     />
-                    {renderDuplicateWarning('phone')}
+                    {renderCandidateConflict('phone')}
                   </div>
 
                   <DrawerInput
@@ -1604,6 +2270,37 @@ export default function AddCandidateDrawer({ isOpen, onClose, onSuccess, current
                 </button>
               ) : null}
             </div>
+          ) : activeTab === 'bulkResume' ? (
+            <div className="flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={handleDrawerClose}
+                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700"
+              >
+                {bulkResumePhase === 'complete' ? 'Done' : 'Cancel'}
+              </button>
+              {bulkResumePhase === 'preview' ? (
+                <button
+                  type="button"
+                  onClick={handleBulkResumeImport}
+                  className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white"
+                >
+                  Create {bulkResumeFiles.length} Candidates →
+                </button>
+              ) : null}
+              {bulkResumePhase === 'complete' ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetForNext(activeTab);
+                    onClose();
+                  }}
+                  className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white"
+                >
+                  Close
+                </button>
+              ) : null}
+            </div>
           ) : (
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -1662,6 +2359,81 @@ export default function AddCandidateDrawer({ isOpen, onClose, onSuccess, current
             </div>
           )}
         </div>
+
+        {duplicateDecision ? (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-900/40 px-4">
+            <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+              <div className="flex items-start gap-3">
+                <div className="rounded-full bg-amber-100 p-2 text-amber-700">
+                  <AlertCircle size={18} />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-base font-semibold text-slate-900">Duplicate Candidate Found</h3>
+                  <p className="mt-1 text-sm text-slate-600">{duplicateDecision.message}</p>
+                  {duplicateDecision.candidate ? (
+                    <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                      <p className="font-medium text-slate-900">{duplicateDecision.candidate.name}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {duplicateDecision.candidate.currentTitle || 'Candidate'} at{' '}
+                        {duplicateDecision.candidate.currentCompany || 'Unknown Company'} ({duplicateDecision.candidate.stage || 'Applied'})
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="mt-5 grid grid-cols-1 gap-2">
+                <button
+                  type="button"
+                  disabled={!duplicateDecision.canCreateAnyway}
+                  onClick={() => {
+                    const nextMode = duplicateDecision.mode || 'save';
+                    closeDuplicateDecision();
+                    if (duplicateDecision.canCreateAnyway) {
+                      handleSave(nextMode, 'createAnyway');
+                    }
+                  }}
+                  className={`rounded-xl px-4 py-2.5 text-sm font-semibold ${
+                    duplicateDecision.canCreateAnyway
+                      ? 'bg-amber-500 text-white'
+                      : 'cursor-not-allowed bg-slate-100 text-slate-400'
+                  }`}
+                >
+                  Create Anyway
+                </button>
+                <button
+                  type="button"
+                  onClick={() => closeDuplicateDecision()}
+                  className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700"
+                >
+                  Duplicate Found Still Continue
+                </button>
+                <button
+                  type="button"
+                  disabled={!duplicateDecision.canUpdate}
+                  onClick={() => {
+                    const nextMode = duplicateDecision.mode || 'save';
+                    closeDuplicateDecision();
+                    if (duplicateDecision.canUpdate) {
+                      handleSave(nextMode, 'updateExisting');
+                    }
+                  }}
+                  className={`rounded-xl px-4 py-2.5 text-sm font-semibold ${
+                    duplicateDecision.canUpdate
+                      ? 'bg-slate-900 text-white'
+                      : 'cursor-not-allowed bg-slate-100 text-slate-400'
+                  }`}
+                >
+                  Update Existing
+                </button>
+              </div>
+
+              <p className="mt-3 text-xs text-slate-500">
+                `Create Anyway` is available only when the duplicate is from phone or when email is different/missing.
+              </p>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

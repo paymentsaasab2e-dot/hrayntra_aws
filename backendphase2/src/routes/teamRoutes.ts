@@ -7,6 +7,7 @@ import {
   createTeamMember,
   updateTeamMember,
   deactivateTeamMember,
+  deleteTeamMember,
   activateTeamMember,
   generateMemberCredentials,
   resetMemberPassword,
@@ -27,7 +28,7 @@ router.get('/', requirePermission('view_jobs'), getAllTeamMembers);
 router.post('/', requirePermission('add_team_member'), createTeamMember);
 router.get('/:id', requirePermission('view_jobs'), getTeamMemberById);
 router.patch('/:id', requirePermission('edit_team_member'), updateTeamMember);
-router.delete('/:id', requirePermission('deactivate_team_member'), deactivateTeamMember);
+router.delete('/:id', requirePermission('edit_team_member'), deleteTeamMember);
 router.post('/:id/activate', requirePermission('edit_team_member'), activateTeamMember);
 router.post('/:id/credentials', requirePermission('generate_credentials'), generateMemberCredentials);
 router.post('/:id/reset-password', requirePermission('generate_credentials'), resetMemberPassword);

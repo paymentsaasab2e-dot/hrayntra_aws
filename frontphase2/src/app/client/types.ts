@@ -122,6 +122,7 @@ export interface Client {
   activeCandidates: number;
   placements: number;
   stage: ClientStage;
+  leadStatus?: string;
   owner: { name: string; avatar: string };
   lastActivity: string;
   logo: string;
@@ -129,6 +130,8 @@ export interface Client {
   // Overview — Company Snapshot
   companySize?: string;
   hiringLocations?: string;
+  servicesNeeded?: string;
+  expectedBusinessValue?: string;
   website?: string;
   linkedin?: string;
   timezone?: string;

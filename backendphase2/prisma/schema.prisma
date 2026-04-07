@@ -114,10 +114,12 @@ model User {
   ownedContacts      Contact[]  @relation("ContactOwner")
   contactNotes       ContactNote[] @relation("ContactNoteAuthor")
   contactActivities  ContactActivity[] @relation("ContactActivityUser")
+  assistantPageHistories AssistantPageHistory[]
 
   userOAuthTokens               UserOAuthTokens?
   userCommunicationPreferences  UserCommunicationPreferences?
   jobBoardIntegrations          JobBoardIntegration[]
+  integrationConnections        IntegrationConnection[]
 
   @@index([role])
   @@map("users")
@@ -180,6 +182,9 @@ model Client {
   linkedin        String? // LinkedIn company page URL
   timezone        String? // Timezone (e.g., "PST (UTC-8)")
   clientSince     DateTime? // Date when client relationship started (displayed as "Client since")
+  servicesNeeded  String? // Services requested by the client
+  expectedBusinessValue String? // Expected business value from lead conversion or manual entry
+  leadStatus      String? // Source lead/import status for overview display
 
   // Relationship & Ownership section
   priority        String? // Priority level (High, Medium, Low)
@@ -421,17 +426,34 @@ model Candidate {
   currentTitle   String?
   currentCompany String?
   location       String?
+  address        String?
+  city           String?
+  country        String?
   status         CandidateStatus @default(NEW)
   source         String?
   assignedToId   String?         @db.ObjectId
   // Recruiter who created this profile (used for "my candidates" on /candidate)
   createdById    String?         @db.ObjectId
   rating         Int?
+  availability   String?
   noticePeriod   String?
   hotlist        Boolean         @default(false)
   avatar         String?
   // Extended fields from frontend
   designation    String? // Current designation
+  expectedSalary Int?
+  currentSalary  Int?
+  education      String?
+  certifications String[]
+  languages      String[]
+  portfolio      String?
+  website        String?
+  notes          String?
+  cvSummary      String?
+  cvEducationEntries Json?
+  cvWorkExperienceEntries Json?
+  cvPortfolioLinks Json?
+  preferredLocation String?
   assignedJobs   String[] // Array of job IDs
   stage          String? // Applied, Shortlist, Screening, Interviewing, Offered, Hired, Rejected
   lastActivity   DateTime?
@@ -637,20 +659,26 @@ enum Priority {
 model Lead {
   id                     String     @id @default(auto()) @map("_id") @db.ObjectId
   // Primary fields matching frontend
-  companyName            String
-  contactPerson          String
-  email                  String
+  companyName            String?
+  contactPerson          String?
+  directorName           String?
+  email                  String?
   phone                  String?
   type                   LeadType   @default(Company)
   source                 LeadSource @default(Website)
   status                 LeadStatus @default(New)
   priority               Priority   @default(Medium)
   interestedNeeds        String?
+  servicesNeeded         String?
   notes                  String?
+  expectedBusinessValue  String?
   // Extended company fields
   industry               String?
+  sector                 String?
   companySize            String?
+  teamName               String?
   website                String?
+  companyLinks           String[]   @default([])
   linkedIn               String?
   location               String?
   // Extended contact fields
@@ -664,6 +692,7 @@ model Lead {
   sourceWebsiteUrl       String?
   sourceLinkedInUrl      String?
   sourceEmail            String?
+  otherDetails           Json?
   lastFollowUp           DateTime?
   nextFollowUp           DateTime?
   lostReason             String? // Reason when marked as lost
@@ -1435,6 +1464,22 @@ model Setting {
   @@map("settings")
 }
 
+model AssistantPageHistory {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  pageKey   String
+  pathname  String?
+  messages  Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, pageKey])
+  @@index([userId])
+  @@map("assistant_page_histories")
+}
+
 // Per-user OAuth token store (Google / Microsoft; LinkedIn member OAuth uses LinkedInToken)
 model UserOAuthTokens {
   id     String @id @default(auto()) @map("_id") @db.ObjectId
@@ -1461,6 +1506,27 @@ model UserOAuthTokens {
   updatedAt DateTime @updatedAt
 
   @@map("user_oauth_tokens")
+}
+
+model IntegrationConnection {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String   @db.ObjectId
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider     String
+  accessToken  String?
+  refreshToken String?
+  expiryDate   DateTime?
+  scope        String[] @default([])
+  accountEmail String?
+  accountName  String?
+  accountId    String?
+  metadata     Json?
+  connectedAt  DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([userId, provider])
+  @@index([userId])
+  @@map("integration_connections")
 }
 
 // Per-user communication / integration preferences (Twilio, calendars flags, default emails)

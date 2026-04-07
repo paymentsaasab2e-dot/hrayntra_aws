@@ -2,6 +2,7 @@ import { env } from '../../config/env.js';
 import { sendResponse } from '../../utils/response.js';
 import { createOAuthState, verifyOAuthState } from '../../utils/oauth-state.js';
 import { oauthTokenService } from './oauth-token.service.js';
+import { integrationService } from '../integration/integration.service.js';
 
 const OUTLOOK_SCOPES =
   'openid email profile offline_access User.Read Mail.Send Mail.Read';
@@ -45,7 +46,16 @@ export const microsoftOAuthController = {
     try {
       const { code, state } = req.query;
       if (!code) return fail();
-      const { userId, extraScopes } = verifyOAuthState(state);
+      const parsedState = verifyOAuthState(state);
+      const { userId, extraScopes, service } = parsedState;
+
+      if (service === 'outlook' || service === 'microsoft-teams') {
+        const result = await integrationService.handleCallback(service, String(code), String(state || ''));
+        return res.redirect(
+          `${frontend}/setting?section=communication&integration_connected=${encodeURIComponent(result.provider)}&email=${encodeURIComponent(result.accountEmail || '')}`
+        );
+      }
+
       const mode = extraScopes[0] || 'both';
       const tenant = env.MICROSOFT_TENANT_ID || 'common';
 

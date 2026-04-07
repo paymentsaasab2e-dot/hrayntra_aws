@@ -3,6 +3,35 @@ import { prisma } from '../../config/prisma.js';
 import { generateOtp, hashOtp, compareOtp } from '../../utils/otp.js';
 import { signToken, signRefreshToken, verifyRefreshToken } from '../../utils/jwt.js';
 import { sendOtpEmail, sendWelcomeEmail } from '../../emails/email.service.js';
+import { headquartersAuthService } from './headquarters-auth.service.js';
+
+async function ensureLocalSuperAdminFromHeadquarters(hqUser) {
+  const existing = await prisma.user.findUnique({
+    where: { email: hqUser.email },
+  });
+
+  if (existing) {
+    return prisma.user.update({
+      where: { id: existing.id },
+      data: {
+        name: hqUser.name || existing.name || hqUser.email,
+        role: 'SUPER_ADMIN',
+        isActive: true,
+      },
+    });
+  }
+
+  const placeholderHash = await bcrypt.hash(`headquarters:${hqUser.id}:${Date.now()}`, 10);
+  return prisma.user.create({
+    data: {
+      name: hqUser.name || hqUser.email,
+      email: hqUser.email,
+      passwordHash: placeholderHash,
+      role: 'SUPER_ADMIN',
+      isActive: true,
+    },
+  });
+}
 
 export const authService = {
   async register(data) {
@@ -44,6 +73,52 @@ export const authService = {
     let user = null;
     let credential = null;
 
+    const tryHeadquartersSuperAdminLogin = async () => {
+      const headquartersUser = await headquartersAuthService.findActiveSuperAdminByCredentials(loginIdOrEmail, password);
+      if (!headquartersUser) return null;
+
+      const localUser = await ensureLocalSuperAdminFromHeadquarters(headquartersUser);
+      const accessToken = signToken({
+        userId: localUser.id,
+        email: localUser.email,
+        role: 'SUPER_ADMIN',
+        roleName: 'Super Admin',
+        headquartersCompanyId: headquartersUser.companyId || undefined,
+      });
+      const refreshToken = signRefreshToken({
+        userId: localUser.id,
+        email: localUser.email,
+        role: 'SUPER_ADMIN',
+        roleName: 'Super Admin',
+        headquartersCompanyId: headquartersUser.companyId || undefined,
+      });
+
+      await prisma.user.update({
+        where: { id: localUser.id },
+        data: {
+          refreshToken,
+          lastLogin: new Date(),
+          isActive: true,
+          role: 'SUPER_ADMIN',
+        },
+      });
+
+      return {
+        user: {
+          id: localUser.id,
+          name: localUser.name,
+          email: localUser.email,
+          role: 'SUPER_ADMIN',
+          roleName: 'Super Admin',
+          roleColor: 'red',
+        },
+        accessToken,
+        refreshToken,
+        permissions: ['all'],
+        requirePasswordReset: false,
+      };
+    };
+
     if (isLoginId) {
       // LoginId-based login
       credential = await prisma.userCredential.findUnique({
@@ -66,6 +141,10 @@ export const authService = {
       });
 
       if (!credential) {
+        const headquartersResult = await tryHeadquartersSuperAdminLogin();
+        if (headquartersResult) {
+          return headquartersResult;
+        }
         throw new Error('Invalid credentials');
       }
 
@@ -197,6 +276,10 @@ export const authService = {
 
     // Check if user is active (for email-based login)
     if (!user || !user.isActive || (user.status && user.status !== 'ACTIVE')) {
+      const headquartersResult = await tryHeadquartersSuperAdminLogin();
+      if (headquartersResult) {
+        return headquartersResult;
+      }
       throw new Error('Invalid credentials');
     }
 
@@ -224,7 +307,10 @@ export const authService = {
             outcome: 'FAILED',
           },
         });
-
+        const headquartersResult = await tryHeadquartersSuperAdminLogin();
+        if (headquartersResult) {
+          return headquartersResult;
+        }
         throw new Error('Invalid credentials');
       }
 
@@ -296,6 +382,10 @@ export const authService = {
       // Legacy email/password login (backward compatibility)
       const isValid = await bcrypt.compare(password, user.passwordHash);
       if (!isValid) {
+        const headquartersResult = await tryHeadquartersSuperAdminLogin();
+        if (headquartersResult) {
+          return headquartersResult;
+        }
         throw new Error('Invalid credentials');
       }
 

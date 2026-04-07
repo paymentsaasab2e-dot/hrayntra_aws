@@ -5,10 +5,11 @@ import { rateLimitMiddleware } from '../../middleware/rateLimit.middleware.js';
 
 const router = express.Router();
 
-// Public OAuth routes
-// Note: /auth/linkedin needs auth, but callback doesn't (LinkedIn redirects there)
-router.get('/auth/linkedin', authMiddleware, linkedinController.initiateAuth);
+// Public OAuth routes - Callback MUST be before any authMiddleware
 router.get('/auth/linkedin/callback', linkedinController.handleCallback);
+
+// Protected Auth initiation
+router.get('/auth/linkedin', authMiddleware, linkedinController.initiateAuth);
 
 // Protected API routes
 router.get('/status', authMiddleware, linkedinController.getStatus);

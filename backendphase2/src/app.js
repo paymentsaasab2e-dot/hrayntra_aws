@@ -36,11 +36,13 @@ import permissionsRoutesNew from './routes/permissionsRoutes.js';
 import departmentRoutes from './modules/department/department.routes.js';
 import departmentsRoutesNew from './routes/departmentsRoutes.js';
 import scheduledMeetingsRoutes from './routes/scheduledMeetingsRoutes.js';
+import calendarRoutes from './routes/calendar.routes.js';
 import settingRoutes from './modules/setting/setting.routes.js';
 import aiRoutes from './modules/ai/ai.routes.js';
 import socialRoutes from './modules/social/social.routes.js';
 import linkedinRoutes from './modules/linkedin/linkedin.routes.js';
 import oauthRoutes from './modules/oauth/oauth.routes.js';
+import integrationRoutes from './modules/integration/integration.routes.js';
 import userCommunicationRoutes from './modules/user-communication/user-communication.routes.js';
 import twilioTestRoutes from './modules/twilio-test/twilio-test.routes.js';
 import pdfProxyRoutes from './routes/pdfProxy.routes.js';
@@ -100,6 +102,7 @@ app.get('/', (req, res) => {
       users: '/api/v1/users',
       tasks: '/api/v1/tasks',
       inbox: '/api/v1/inbox',
+      calendar: '/api/v1/calendar',
     },
   });
 });
@@ -118,6 +121,7 @@ app.get('/api/v1', (req, res) => {
       tasks: '/api/v1/tasks',
       inbox: '/api/v1/inbox',
       interviews: '/api/v1/interviews',
+      calendar: '/api/v1/calendar',
     },
   });
 });
@@ -135,6 +139,10 @@ app.get('/api/v1/auth/test', (req, res) => {
 // API Routes
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/users', userRoutes);
+app.use('/api/v1/linkedin', linkedinRoutes);
+app.use('/api/v1/oauth', oauthRoutes);
+app.use('/api/v1', integrationRoutes);
+app.use('/api/v1/social', socialRoutes);
 app.use('/api/v1', addCandidateRouter);
 app.use('/api/v1/candidates', candidateRoutes);
 app.use('/api/v1/clients', clientRoutes);
@@ -149,6 +157,7 @@ app.use('/api/v1/interviews', interviewRoutes);
 app.use('/api/v1/placements', placementRoutes);
 app.use('/api/v1/billing', billingRoutes);
 app.use('/api/v1/tasks', taskRoutes);
+app.use('/api/v1/calendar', calendarRoutes);
 app.use('/api/v1/activities', activityRoutes);
 app.use('/api/v1/inbox', inboxRoutes);
 app.use('/api/v1/reports', reportRoutes);
@@ -164,10 +173,8 @@ app.use('/api/v1', scheduledMeetingsRoutes); // Scheduled meetings routes
 app.use('/api/v1/settings/communication', userCommunicationRoutes);
 app.use('/api/v1/settings/twilio', twilioTestRoutes);
 app.use('/api/v1/settings', settingRoutes);
-app.use('/api/v1/oauth', oauthRoutes);
 app.use('/api/v1/ai', aiRoutes);
-app.use('/api/v1/social', socialRoutes);
-app.use('/api/v1/linkedin', linkedinRoutes);
+// Removing re-mounts from here as they are now at the top
 
 // 404 handler
 app.use((req, res) => {

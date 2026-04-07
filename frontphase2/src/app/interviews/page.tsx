@@ -2,13 +2,11 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Bell, Calendar, CheckSquare, List, Plus, RefreshCw, Search, Settings } from 'lucide-react';
-import { CreateTaskModal } from '../../components/CreateTaskModal';
+import { Calendar, List, Plus, RefreshCw } from 'lucide-react';
 import { CancelInterviewModal } from '../../components/interviews/CancelInterviewModal';
 import { FeedbackModal } from '../../components/interviews/FeedbackModal';
 import { InterviewCalendarView } from '../../components/interviews/InterviewCalendarView';
 import { InterviewDrawer } from '../../components/interviews/InterviewDrawer';
-import { InterviewFilters } from '../../components/interviews/InterviewFilters';
 import { InterviewKPICards } from '../../components/interviews/InterviewKPICards';
 import { InterviewTable } from '../../components/interviews/InterviewTable';
 import { NoShowModal } from '../../components/interviews/NoShowModal';
@@ -24,7 +22,6 @@ import type { InterviewAction } from '../../components/interviews/ActionsDropdow
 
 export default function InterviewsPage() {
   const [view, setView] = useState<'list' | 'calendar'>('list');
-  const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [panelModalOpen, setPanelModalOpen] = useState(false);
   const drawer = useInterviewDrawer();
   const modals = useInterviewModals();
@@ -168,47 +165,12 @@ export default function InterviewsPage() {
   return (
     <div className="min-h-screen w-full overflow-hidden bg-[#F8F9FB] text-[#111827]">
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex h-16 shrink-0 items-center justify-between border-b border-[#E5E7EB] bg-white px-8">
-          <div className="flex flex-1 items-center gap-4">
-            <div className="relative w-full max-w-md">
-              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#9CA3AF]" />
-              <input
-                type="text"
-                placeholder="Search candidates, jobs, or clients..."
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                className="w-full rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] py-2.5 pl-10 pr-4 text-sm outline-none focus:border-[#2563EB]"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <button className="relative rounded-full p-2 text-[#6B7280] hover:bg-[#F3F4F6]">
-              <Bell className="size-5" />
-              <span className="absolute right-2 top-2 size-2 rounded-full border-2 border-white bg-[#DC2626]" />
-            </button>
-            <button className="rounded-full p-2 text-[#6B7280] hover:bg-[#F3F4F6]">
-              <Settings className="size-5" />
-            </button>
-            <div className="mx-2 h-8 w-px bg-[#E5E7EB]" />
-            <div className="flex items-center gap-3">
-              <div className="text-right">
-                <p className="text-sm font-semibold leading-tight text-[#111827]">Alex Morgan</p>
-                <p className="text-xs text-[#6B7280]">Recruitment Manager</p>
-              </div>
-              <div className="flex size-9 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-[#2563EB]">
-                AM
-              </div>
-            </div>
-          </div>
-        </header>
-
         <div className="flex-1 overflow-y-auto p-8">
           <div className="space-y-8">
             <div className="flex flex-col justify-between gap-6 xl:flex-row xl:items-center">
               <div>
-                <h1 className="text-[24px] font-bold leading-[32px] text-[#111827]">Interviews</h1>
-                <p className="text-[14px] text-[#6B7280]">Schedule, manage, and track candidate interviews</p>
+                <h1 className="text-[20px] font-bold leading-[28px] text-[#111827]">Interviews</h1>
+                <p className="text-[13px] text-[#6B7280]">Schedule, manage, and track candidate interviews</p>
               </div>
 
               <div className="flex flex-wrap items-center gap-3">
@@ -245,14 +207,6 @@ export default function InterviewsPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setCreateTaskOpen(true)}
-                  className="flex items-center gap-2 rounded-xl border border-[#E5E7EB] bg-white px-4 py-2 text-sm font-medium text-[#374151] shadow-sm"
-                >
-                  <CheckSquare className="size-4" />
-                  Add Task
-                </button>
-                <button
-                  type="button"
                   onClick={() => modals.open('schedule')}
                   className="flex items-center gap-2 rounded-xl bg-[#2563EB] px-5 py-2.5 text-sm font-bold text-white shadow-sm"
                 >
@@ -266,19 +220,6 @@ export default function InterviewsPage() {
 
             {view === 'list' ? (
               <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-                <InterviewFilters
-                  filters={filters}
-                  interviewerOptions={interviewerOptions.map((item) => item.name)}
-                  clientJobOptions={jobOptions.map((job) => `${job.client} • ${job.title}`)}
-                  onChange={(field, value) => {
-                    setFilters((current) => ({ ...current, [field]: value }));
-                    setPagination((current) => ({ ...current, page: 1 }));
-                  }}
-                  onClear={() => {
-                    clearFilters();
-                    setPagination((current) => ({ ...current, page: 1 }));
-                  }}
-                />
                 {renderListState()}
               </motion.div>
             ) : (
@@ -395,13 +336,6 @@ export default function InterviewsPage() {
             setPanelModalOpen(false);
           } catch {}
         }}
-      />
-
-      <CreateTaskModal
-        isOpen={createTaskOpen}
-        onClose={() => setCreateTaskOpen(false)}
-        onSuccess={() => setCreateTaskOpen(false)}
-        initialRelatedTo="Interview"
       />
 
       <AnimatePresence>

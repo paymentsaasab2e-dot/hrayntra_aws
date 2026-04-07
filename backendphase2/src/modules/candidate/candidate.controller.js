@@ -131,6 +131,15 @@ export const candidateController = {
     }
   },
 
+  async generateInterviewMeetingLink(req, res) {
+    try {
+      const result = await candidateService.generateInterviewMeetingLink(req.params.id, req.body, req.user.id);
+      sendResponse(res, 200, 'Meeting link generated successfully', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async updateInterview(req, res) {
     try {
       const interview = await candidateService.updateInterview(

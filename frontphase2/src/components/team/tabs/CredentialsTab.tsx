@@ -32,6 +32,15 @@ const getInitials = (firstName: string, lastName: string) => {
   return `${firstName?.[0] || ''}${lastName?.[0] || ''}`.toUpperCase();
 };
 
+const getRoleChipClass = (member: TeamMember) => {
+  const colorKey = String((member as any)?.role?.color || 'gray').toLowerCase();
+  return roleColorMap[colorKey] || 'bg-gray-100 text-gray-600';
+};
+
+const getRoleLabel = (member: TeamMember) => {
+  return (member as any)?.role?.roleName || 'Unassigned';
+};
+
 const formatRelativeTime = (dateString: string | null | undefined) => {
   if (!dateString) return 'Never';
   const date = new Date(dateString);
@@ -329,7 +338,7 @@ export const CredentialsTab: React.FC = () => {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <div className={`size-10 rounded-full flex items-center justify-center font-semibold text-sm ${roleColorMap[member.role.color.toLowerCase()] || 'bg-gray-100 text-gray-600'}`}>
+                        <div className={`size-10 rounded-full flex items-center justify-center font-semibold text-sm ${getRoleChipClass(member)}`}>
                           {getInitials(member.firstName, member.lastName)}
                         </div>
                         <div>
@@ -343,8 +352,8 @@ export const CredentialsTab: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${roleColorMap[member.role.color.toLowerCase()] || 'bg-gray-100 text-gray-600'}`}>
-                        {member.role.roleName}
+                      <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${getRoleChipClass(member)}`}>
+                        {getRoleLabel(member)}
                       </span>
                     </td>
                     <td className="px-6 py-4">

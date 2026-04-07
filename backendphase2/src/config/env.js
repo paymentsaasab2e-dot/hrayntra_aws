@@ -1,11 +1,18 @@
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const projectRoot = path.resolve(__dirname, '../..');
+
+dotenv.config({ path: path.join(projectRoot, '.env') });
 
 export const env = {
   NODE_ENV: process.env.NODE_ENV || 'development',
   PORT: parseInt(process.env.PORT || '5001', 10),
   DATABASE_URL: process.env.DATABASE_URL,
+  HEADQUARTERS_DATABASE_URL: process.env.HEADQUARTERS_DATABASE_URL,
   
   // JWT
   JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET,
@@ -29,6 +36,9 @@ export const env = {
   // Frontend
   FRONTEND_URL: process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:3001',
   CLIENT_URL: process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:3001',
+  BACKEND_PUBLIC_URL:
+    process.env.BACKEND_PUBLIC_URL ||
+    `http://localhost:${parseInt(process.env.PORT || '5001', 10)}`,
   
   // Cloudinary
   CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME,
@@ -44,11 +54,17 @@ export const env = {
   // Social Media APIs
   LINKEDIN_CLIENT_ID: process.env.LINKEDIN_CLIENT_ID,
   LINKEDIN_CLIENT_SECRET: process.env.LINKEDIN_CLIENT_SECRET,
-  LINKEDIN_REDIRECT_URI: process.env.LINKEDIN_REDIRECT_URI || 'http://localhost:3001/auth/linkedin/callback',
+  LINKEDIN_REDIRECT_URI:
+    process.env.LINKEDIN_REDIRECT_URI ||
+    `http://localhost:${parseInt(process.env.PORT || '5001', 10)}/api/v1/linkedin/auth/linkedin/callback`,
   TWITTER_API_KEY: process.env.TWITTER_API_KEY,
   TWITTER_API_SECRET: process.env.TWITTER_API_SECRET,
   FACEBOOK_APP_ID: process.env.FACEBOOK_APP_ID,
   FACEBOOK_APP_SECRET: process.env.FACEBOOK_APP_SECRET,
+  FACEBOOK_CLIENT_ID: process.env.FACEBOOK_CLIENT_ID || process.env.FACEBOOK_APP_ID,
+  FACEBOOK_CLIENT_SECRET: process.env.FACEBOOK_CLIENT_SECRET || process.env.FACEBOOK_APP_SECRET,
+  TWITTER_CLIENT_ID: process.env.TWITTER_CLIENT_ID || process.env.TWITTER_API_KEY,
+  TWITTER_CLIENT_SECRET: process.env.TWITTER_CLIENT_SECRET || process.env.TWITTER_API_SECRET,
   
   // Encryption
   ENCRYPTION_KEY: process.env.ENCRYPTION_KEY,
@@ -72,7 +88,6 @@ export const env = {
   // LinkedIn OAuth (register this callback URL in LinkedIn app)
   LINKEDIN_OAUTH_REDIRECT_URI:
     process.env.LINKEDIN_OAUTH_REDIRECT_URI ||
-    process.env.LINKEDIN_REDIRECT_URI ||
     `http://localhost:${parseInt(process.env.PORT || '5001', 10)}/api/v1/oauth/linkedin/callback`,
 
   // Interview meeting providers
@@ -82,9 +97,18 @@ export const env = {
   ZOOM_ACCOUNT_ID: process.env.ZOOM_ACCOUNT_ID,
   ZOOM_CLIENT_ID: process.env.ZOOM_CLIENT_ID,
   ZOOM_CLIENT_SECRET: process.env.ZOOM_CLIENT_SECRET,
+  ZOOM_REDIRECT_URI:
+    process.env.ZOOM_REDIRECT_URI ||
+    `http://localhost:${parseInt(process.env.PORT || '5001', 10)}/api/v1/auth/zoom/callback`,
   MS_TENANT_ID: process.env.MS_TENANT_ID,
   MS_CLIENT_ID: process.env.MS_CLIENT_ID,
   MS_CLIENT_SECRET: process.env.MS_CLIENT_SECRET,
+  TWITTER_REDIRECT_URI:
+    process.env.TWITTER_REDIRECT_URI ||
+    `http://localhost:${parseInt(process.env.PORT || '5001', 10)}/api/v1/auth/twitter/callback`,
+  FACEBOOK_REDIRECT_URI:
+    process.env.FACEBOOK_REDIRECT_URI ||
+    `http://localhost:${parseInt(process.env.PORT || '5001', 10)}/api/v1/auth/facebook/callback`,
 
   TWILIO_PHONE_NUMBER: process.env.TWILIO_PHONE_NUMBER,
 

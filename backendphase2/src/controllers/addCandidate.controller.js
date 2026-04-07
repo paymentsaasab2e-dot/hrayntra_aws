@@ -1,8 +1,11 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import OpenAI from 'openai';
 import { prisma } from '../config/prisma.js';
+import { env } from '../config/env.js';
 import { uploadBufferToCloudinary } from '../utils/cloudinary.js';
+import { processCandidateCv } from '../services/cvParsing.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,6 +27,7 @@ const DEFAULT_TAGS = [
   'Design',
 ];
 const STAGE_ORDER = ['Applied', 'Screening', 'Shortlist', 'Interview', 'Offer', 'Hired'];
+const openai = env.OPENAI_API_KEY ? new OpenAI({ apiKey: env.OPENAI_API_KEY }) : null;
 
 function normalizeEmail(email = '') {
   return String(email).trim().toLowerCase();
@@ -69,8 +73,38 @@ function getStageLabel(stage = '') {
 
 function parsePositiveNumber(value) {
   if (value === undefined || value === null || value === '') return null;
-  const parsed = Number(value);
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  const normalizedValue = String(value)
+    .replace(/,/g, '')
+    .replace(/[^\d.]+/g, ' ')
+    .trim();
+
+  const numericMatch = normalizedValue.match(/\d+(?:\.\d+)?/);
+  const parsed = numericMatch ? Number(numericMatch[0]) : Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeUrl(value = '') {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return '';
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (/^(www\.|linkedin\.com\/|github\.com\/|[a-z0-9-]+\.[a-z]{2,})/i.test(trimmed)) {
+    return `https://${trimmed.replace(/^\/+/, '')}`;
+  }
+  return trimmed;
+}
+
+function buildLocation(location = '', city = '', country = '') {
+  const trimmedLocation = String(location || '').trim();
+  if (trimmedLocation) return trimmedLocation;
+
+  return [city, country]
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .join(', ');
 }
 
 function mapAvailabilityStatus(value) {
@@ -82,6 +116,17 @@ function mapAvailabilityStatus(value) {
 
 function createCandidateName(firstName, lastName) {
   return `${String(firstName || '').trim()} ${String(lastName || '').trim()}`.trim();
+}
+
+function buildExistingCandidateSummary(candidate) {
+  return {
+    _id: candidate.id,
+    name: createCandidateName(candidate.firstName, candidate.lastName),
+    email: candidate.email,
+    stage: candidate.stage || 'Applied',
+    currentTitle: candidate.currentTitle || null,
+    currentCompany: candidate.currentCompany || null,
+  };
 }
 
 function validateCreateCandidatePayload(body) {
@@ -191,6 +236,251 @@ function buildMockResumeData(filePath) {
     portfolioUrl: 'sarahjenkins.design',
     parsedAt: new Date().toISOString(),
     isMockData: true,
+    tempFilePath: filePath,
+  };
+}
+
+function cleanResumeText(rawText = '') {
+  return String(rawText || '')
+    .replace(/\u0000/g, ' ')
+    .replace(/\r/g, '\n')
+    .replace(/\t/g, ' ')
+    .replace(/[ ]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+async function extractResumeTextFromFile(file) {
+  if (!file?.path) {
+    return '';
+  }
+
+  const extension = path.extname(file.originalname || file.filename || '').toLowerCase();
+
+  if (file.mimetype === 'application/pdf' || extension === '.pdf') {
+    const pdfParseModule = await import('pdf-parse');
+    const pdfParse = pdfParseModule.default || pdfParseModule;
+    const dataBuffer = fs.readFileSync(file.path);
+    const pdfData = await pdfParse(dataBuffer);
+    return cleanResumeText(pdfData?.text || '');
+  }
+
+  if (
+    file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    extension === '.docx'
+  ) {
+    const mammothModule = await import('mammoth');
+    const mammoth = mammothModule.default || mammothModule;
+    const result = await mammoth.extractRawText({ path: file.path });
+    return cleanResumeText(result?.value || '');
+  }
+
+  if (file.mimetype === 'text/plain' || extension === '.txt') {
+    return cleanResumeText(fs.readFileSync(file.path, 'utf8'));
+  }
+
+  const buffer = fs.readFileSync(file.path);
+  return cleanResumeText(buffer.toString('utf8'));
+}
+
+function extractFallbackResumeData(text = '', filePath = '') {
+  const lines = String(text)
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+  const phoneMatch = text.match(/(\+?\d[\d\s\-().]{7,}\d)/);
+  const linkedInMatch = text.match(/(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/[\w-]+/i);
+  const portfolioMatch = text.match(/(?:https?:\/\/)?(?:www\.)?[a-z0-9-]+\.(?:vercel\.app|netlify\.app|net|com)(?:\/[^\s]*)?/i);
+  const extractedName = extractResumeName(text);
+  const topLocation = lines.find((line, index) => index > 0 && index < 5 && /,/.test(line) && !/@/.test(line)) || '';
+  const summaryIndex = lines.findIndex((line) => /^summary$/i.test(line));
+  const summary =
+    summaryIndex >= 0
+      ? lines
+          .slice(summaryIndex + 1, summaryIndex + 4)
+          .filter((line) => !/^(experience|skills|projects|education|certifications)$/i.test(line))
+          .join(' ')
+      : '';
+  const experienceIndex = lines.findIndex((line) => /^experience$/i.test(line));
+  const currentDesignation = experienceIndex >= 0 ? lines[experienceIndex + 1] || '' : '';
+  const currentCompany = experienceIndex >= 0 ? lines[experienceIndex + 2] || '' : '';
+  const location = experienceIndex >= 0 ? lines[experienceIndex + 4] || topLocation : topLocation;
+  const skills = Array.from(
+    new Set(
+      (
+        text.match(
+          /\b(?:React|Node\.js|Node|JavaScript|TypeScript|Figma|Python|Java|AWS|SQL|Next\.js|MongoDB|PostgreSQL)\b/gi
+        ) || []
+      )
+        .map((item) => item.trim())
+        .filter(Boolean)
+    )
+  ).slice(0, 12);
+
+  return {
+    firstName: extractedName.firstName,
+    lastName: extractedName.lastName,
+    email: emailMatch?.[0] || '',
+    phone: phoneMatch?.[0] || '',
+    linkedinUrl: normalizeUrl(linkedInMatch?.[0] || ''),
+    currentCompany,
+    designation: currentDesignation,
+    currentDesignation,
+    experience: '',
+    location,
+    skills,
+    education: '',
+    languages: [],
+    certifications: [],
+    summary,
+    city: '',
+    country: '',
+    portfolioUrl: normalizeUrl(portfolioMatch?.[0] || ''),
+    parsedAt: new Date().toISOString(),
+    isMockData: false,
+    tempFilePath: filePath,
+  };
+}
+
+async function extractStructuredResumeDataWithOpenAI(cleanedText, file) {
+  if (!openai || !cleanedText) {
+    return null;
+  }
+
+  const prompt = `
+Extract candidate data from this resume text and return strict JSON.
+Use empty strings, empty arrays, or nulls when data is missing.
+Do not invent facts.
+
+JSON shape:
+{
+  "firstName": string,
+  "lastName": string,
+  "email": string,
+  "phone": string,
+  "currentCompany": string,
+  "designation": string,
+  "currentDesignation": string,
+  "experience": number | null,
+  "location": string,
+  "linkedinUrl": string,
+  "source": "LinkedIn" | "Naukri" | "Indeed" | "Referral" | "Company Career Page" | "Agency" | "Other",
+  "priority": "High" | "Medium" | "Low" | "",
+  "tags": string[],
+  "skills": string[],
+  "expectedSalary": number | null,
+  "currency": string,
+  "portfolioUrl": string,
+  "education": string,
+  "languages": string[],
+  "certifications": string[],
+  "summary": string,
+  "city": string,
+  "country": string,
+  "currentSalary": number | null,
+  "noticePeriod": string,
+  "score": {
+    "overall": number,
+    "breakdown": {
+      "skillsMatch": number,
+      "experienceFit": number,
+      "educationFit": number,
+      "keywordMatch": number
+    },
+    "insights": string[]
+  }
+}
+
+Resume file name: ${file?.originalname || 'resume'}
+
+For source, use only the listed allowed values. If the CV does not clearly state the source, return "Other".
+For priority, infer candidate priority from seniority, relevance, and strength of profile.
+For tags, return short recruiter-friendly tags based on skills, seniority, domain, and work mode.
+
+Resume text:
+${cleanedText.slice(0, 18000)}
+`;
+
+  const completion = await openai.chat.completions.create({
+    model: env.OPENAI_ASSISTANT_MODEL || 'gpt-4o-mini',
+    temperature: 0.1,
+    response_format: { type: 'json_object' },
+    messages: [
+      {
+        role: 'system',
+        content:
+          'You are a resume parsing engine. Extract only data present in the resume. Return valid JSON only.',
+      },
+      {
+        role: 'user',
+        content: prompt,
+      },
+    ],
+  });
+
+  const content = completion.choices?.[0]?.message?.content || '{}';
+  return JSON.parse(content);
+}
+
+function normalizeResumeExtraction(parsed = {}, fallback = {}, filePath = '') {
+  const merged = {
+    ...fallback,
+    ...(parsed && typeof parsed === 'object' ? parsed : {}),
+  };
+
+  const score = merged.score && typeof merged.score === 'object' ? merged.score : {};
+  const breakdown = score.breakdown && typeof score.breakdown === 'object' ? score.breakdown : {};
+  const safeSkills = Array.isArray(merged.skills) ? merged.skills.filter(Boolean).slice(0, 12) : [];
+  const safeLanguages = Array.isArray(merged.languages) ? merged.languages.filter(Boolean).slice(0, 10) : [];
+  const safeCertifications = Array.isArray(merged.certifications)
+    ? merged.certifications.filter(Boolean).slice(0, 10)
+    : [];
+
+  return {
+    firstName: String(merged.firstName || fallback.firstName || '').trim(),
+    lastName: String(merged.lastName || fallback.lastName || '').trim(),
+    email: normalizeEmail(merged.email || fallback.email || ''),
+    phone: String(merged.phone || fallback.phone || '').trim(),
+    currentCompany: String(merged.currentCompany || '').trim(),
+    designation: String(merged.designation || '').trim(),
+    currentDesignation: String(merged.currentDesignation || merged.designation || '').trim(),
+    experience: parsePositiveNumber(merged.experience),
+    location: buildLocation(merged.location, merged.city, merged.country),
+    linkedinUrl: normalizeUrl(merged.linkedinUrl || fallback.linkedinUrl || ''),
+    source: ['LinkedIn', 'Naukri', 'Indeed', 'Referral', 'Company Career Page', 'Agency', 'Other'].includes(
+      String(merged.source || '').trim()
+    )
+      ? String(merged.source).trim()
+      : 'Other',
+    priority: ['High', 'Medium', 'Low'].includes(String(merged.priority || '').trim())
+      ? String(merged.priority).trim()
+      : 'Medium',
+    tags: Array.isArray(merged.tags) ? merged.tags.filter(Boolean).slice(0, 10) : safeSkills.slice(0, 6),
+    skills: safeSkills,
+    expectedSalary: parsePositiveNumber(merged.expectedSalary),
+    currentSalary: parsePositiveNumber(merged.currentSalary),
+    currency: String(merged.currency || 'INR').trim() || 'INR',
+    portfolioUrl: normalizeUrl(merged.portfolioUrl || ''),
+    education: String(merged.education || '').trim(),
+    languages: safeLanguages,
+    certifications: safeCertifications,
+    summary: String(merged.summary || '').trim(),
+    city: String(merged.city || '').trim(),
+    country: String(merged.country || '').trim(),
+    noticePeriod: String(merged.noticePeriod || '').trim(),
+    score: {
+      overall: Math.max(0, Math.min(100, Number(score.overall || 0) || 0)),
+      breakdown: {
+        skillsMatch: Math.max(0, Math.min(100, Number(breakdown.skillsMatch || 0) || 0)),
+        experienceFit: Math.max(0, Math.min(100, Number(breakdown.experienceFit || 0) || 0)),
+        educationFit: Math.max(0, Math.min(100, Number(breakdown.educationFit || 0) || 0)),
+        keywordMatch: Math.max(0, Math.min(100, Number(breakdown.keywordMatch || 0) || 0)),
+      },
+      insights: Array.isArray(score.insights) ? score.insights.filter(Boolean).slice(0, 6) : [],
+    },
+    parsedAt: new Date().toISOString(),
+    isMockData: false,
     tempFilePath: filePath,
   };
 }
@@ -309,25 +599,12 @@ export const addCandidateController = {
         },
       });
 
-      if (existing) {
-        return res.status(409).json({
-          success: false,
-          message: 'Candidate already exists',
-          isDuplicate: true,
-          existingCandidate: {
-            _id: existing.id,
-            name: createCandidateName(existing.firstName, existing.lastName),
-            email: existing.email,
-            stage: existing.stage || 'Applied',
-            currentTitle: existing.currentTitle || null,
-            currentCompany: existing.currentCompany || null,
-          },
-        });
-      }
-
       const recruiterId = req.body.recruiterId || req.user.id;
+      const creatorId = req.user.id;
       const stageLabel = getStageLabel(req.body.stage || 'Applied');
       const expectedSalary = parsePositiveNumber(req.body.expectedSalary);
+      const currentSalary = parsePositiveNumber(req.body.currentSalary);
+      const duplicateAction = String(req.body.duplicateAction || 'create');
       const candidateData = {
         firstName: String(req.body.firstName).trim(),
         lastName: String(req.body.lastName).trim(),
@@ -342,11 +619,14 @@ export const addCandidateController = {
         location: req.body.location || null,
         status: req.body.jobId ? 'ACTIVE' : 'NEW',
         source: req.body.source || null,
-        assignedToId: recruiterId,
+        availability: mapAvailabilityStatus(req.body.availabilityStatus),
         noticePeriod: req.body.noticePeriod || null,
         stage: stageLabel,
         assignedJobs: req.body.jobId ? [req.body.jobId] : [],
         lastActivity: new Date(),
+        city: req.body.city || null,
+        country: req.body.country || null,
+        address: req.body.address || null,
         salary:
           expectedSalary !== null
             ? {
@@ -361,7 +641,62 @@ export const addCandidateController = {
                   currency: req.body.currency,
                 }
               : undefined,
+        expectedSalary,
+        currentSalary,
+        education: req.body.education || null,
+        certifications: Array.isArray(req.body.certifications) ? req.body.certifications.filter(Boolean) : [],
+        languages: Array.isArray(req.body.languages) ? req.body.languages.filter(Boolean) : [],
+        portfolio: req.body.portfolioUrl || req.body.portfolio || null,
+        website: req.body.website || null,
+        notes: req.body.notes || null,
+        cvSummary: req.body.cvSummary || null,
+        cvEducationEntries: Array.isArray(req.body.cvEducationEntries) ? req.body.cvEducationEntries : undefined,
+        cvWorkExperienceEntries: Array.isArray(req.body.cvWorkExperienceEntries)
+          ? req.body.cvWorkExperienceEntries
+          : undefined,
+        cvPortfolioLinks: Array.isArray(req.body.cvPortfolioLinks) ? req.body.cvPortfolioLinks : undefined,
+        preferredLocation: req.body.preferredLocation || null,
+        resume: req.body.resume || null,
+        assignedTo: recruiterId
+          ? {
+              connect: { id: recruiterId },
+            }
+          : undefined,
+        createdBy: creatorId
+          ? {
+              connect: { id: creatorId },
+            }
+          : undefined,
       };
+
+      if (existing && duplicateAction === 'updateExisting') {
+        const updatedCandidate = await prisma.candidate.update({
+          where: { id: existing.id },
+          data: {
+            ...candidateData,
+            createdBy: undefined,
+          },
+        });
+
+        return res.status(200).json({
+          success: true,
+          message: 'Existing candidate updated successfully',
+          data: updatedCandidate,
+        });
+      }
+
+      if (existing) {
+        return res.status(409).json({
+          success: false,
+          message: 'Candidate already exists',
+          isDuplicate: true,
+          data: {
+            existingCandidate: buildExistingCandidateSummary(existing),
+            canUpdate: true,
+            canCreateAnyway: false,
+          },
+        });
+      }
 
       const candidate = await prisma.candidate.create({
         data: candidateData,
@@ -476,6 +811,7 @@ export const addCandidateController = {
         'application/pdf',
         'application/msword',
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'text/plain',
       ];
 
       if (!allowedMimeTypes.includes(file.mimetype)) {
@@ -486,55 +822,68 @@ export const addCandidateController = {
       }
 
       const filePath = file.path;
-      if (file.mimetype !== 'application/pdf') {
+      try {
+        const normalizedData = await processCandidateCv(file, {
+          candidateId: req.body?.candidateId || req.user?.id || null,
+        });
+
         return res.status(200).json({
           success: true,
-          data: buildMockResumeData(filePath),
+          data: normalizedData,
         });
-      }
-
-      try {
-        const pdfParseModule = await import('pdf-parse');
-        const pdfParse = pdfParseModule.default || pdfParseModule;
-        const dataBuffer = fs.readFileSync(filePath);
-        const pdfData = await pdfParse(dataBuffer);
-        const text = pdfData?.text || '';
-
-        const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-        const phoneMatch = text.match(/(\+?\d[\d\s\-().]{7,}\d)/);
-        const linkedInMatch = text.match(/linkedin\.com\/in\/[\w-]+/i);
-        const extractedName = extractResumeName(text);
-        const skills = Array.from(
-          new Set(
-            (text.match(/\b(?:React|Node\.js|Node|JavaScript|TypeScript|Figma|Python|Java|AWS|SQL)\b/gi) || [])
-              .map((item) => item.trim())
-              .filter(Boolean)
-          )
-        ).slice(0, 10);
+      } catch (parseError) {
+        console.error('Resume parsing failed, using non-AI fallback:', parseError.message);
+        const fileNameFallback = path.parse(file.originalname || 'resume').name;
+        const extractedName = extractResumeName(fileNameFallback);
 
         return res.status(200).json({
           success: true,
           data: {
             firstName: extractedName.firstName,
             lastName: extractedName.lastName,
-            email: emailMatch?.[0] || '',
-            phone: phoneMatch?.[0] || '',
-            linkedinUrl: linkedInMatch?.[0] || '',
+            email: '',
+            phone: '',
             currentCompany: '',
             designation: '',
-            experience: '',
+            currentDesignation: '',
+            experience: null,
             location: '',
-            skills,
+            linkedinUrl: '',
+            source: 'Other',
+            priority: 'Medium',
+            tags: [],
+            skills: [],
+            expectedSalary: null,
+            currentSalary: null,
+            currency: 'INR',
+            portfolioUrl: '',
+            education: '',
+            languages: [],
+            certifications: [],
+            summary: '',
+            city: '',
+            country: '',
+            noticePeriod: '',
+            score: {
+              overall: 0,
+              breakdown: {
+                skillsMatch: 0,
+                experienceFit: 0,
+                educationFit: 0,
+                keywordMatch: 0,
+              },
+              insights: [],
+            },
             parsedAt: new Date().toISOString(),
             isMockData: false,
+            parseError: parseError.message,
             tempFilePath: filePath,
           },
         });
-      } catch (parseError) {
-        return res.status(200).json({
-          success: true,
-          data: buildMockResumeData(filePath),
-        });
+      } finally {
+        if (filePath && fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
       }
     } catch (error) {
       return res.status(500).json({

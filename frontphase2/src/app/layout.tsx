@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { FloatingBotButton } from "../components/FloatingBotButton";
+import { FloatingBotMount } from "../components/FloatingBotMount";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -16,7 +16,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body suppressHydrationWarning>
         {children}
-        <FloatingBotButton />
+        <FloatingBotMount />
       </body>
     </html>
   );

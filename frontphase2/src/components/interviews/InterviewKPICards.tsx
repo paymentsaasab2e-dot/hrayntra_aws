@@ -31,14 +31,14 @@ export function InterviewKPICards({ items }: InterviewKPICardsProps) {
           <div key={item.title} className="rounded-2xl border border-[#E5E7EB] bg-white p-5 shadow-sm">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-sm font-medium text-[#6B7280]">{item.title}</p>
-                <p className="mt-2 text-3xl font-bold text-[#111827]">{item.value}</p>
+                <p className="text-[13px] font-medium text-[#6B7280]">{item.title}</p>
+                <p className="mt-2 text-[18px] font-bold leading-7 text-[#111827]">{item.value}</p>
               </div>
               <div className={`rounded-xl p-2.5 ${accentClass}`}>
                 <Icon className="size-5" />
               </div>
             </div>
-            <div className="mt-4 flex items-center gap-2 text-xs">
+            <div className="mt-4 flex items-center gap-2 text-[11px]">
               <span className="rounded-md bg-green-50 px-2 py-1 font-semibold text-[#16A34A]">+12%</span>
               <span className="text-[#6B7280]">vs last month</span>
             </div>

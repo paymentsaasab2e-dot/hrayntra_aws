@@ -16,6 +16,7 @@ router.post('/:id/tags', candidateController.addTag);
 router.delete('/:id/tags/:tagId', candidateController.removeTag);
 router.post('/:id/pipeline', candidateController.addToPipeline);
 router.post('/:id/reject', candidateController.reject);
+router.post('/:id/interviews/meeting-link', candidateController.generateInterviewMeetingLink);
 router.post('/:id/interviews', candidateController.scheduleInterview);
 router.patch('/:id/interviews/:interviewId', candidateController.updateInterview);
 router.post('/bulk-action', candidateController.bulkAction);

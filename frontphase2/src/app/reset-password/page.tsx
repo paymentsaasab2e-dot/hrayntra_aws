@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Lock, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
+import { buildApiUrl } from '../../lib/api';
 
 export default function ResetPasswordPage() {
   const router = useRouter();
@@ -68,7 +69,7 @@ export default function ResetPasswordPage() {
 
       // Call change password API
       const token = localStorage.getItem('accessToken');
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:5001'}/api/auth/change-password`, {
+      const res = await fetch(buildApiUrl('/auth/change-password'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

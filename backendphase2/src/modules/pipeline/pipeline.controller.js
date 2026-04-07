@@ -13,12 +13,13 @@ export const pipelineController = {
 
   async moveCandidate(req, res) {
     try {
-      const { candidateId, stageId } = req.body;
+      const { candidateId, stageId, notes } = req.body;
       const entry = await pipelineService.moveCandidate(
         candidateId,
         req.params.jobId,
         stageId,
-        req.user.id
+        req.user.id,
+        notes
       );
       sendResponse(res, 200, 'Candidate moved successfully', entry);
     } catch (error) {

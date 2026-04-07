@@ -48,7 +48,7 @@ export const jobController = {
 
   async delete(req, res) {
     try {
-      const result = await jobService.delete(req.params.id);
+      const result = await jobService.delete(req.params.id, req.user?.id);
       sendResponse(res, 200, result.message);
     } catch (error) {
       sendError(res, 500, error.message, error);

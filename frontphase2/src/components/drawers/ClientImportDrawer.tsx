@@ -6,10 +6,10 @@ import {
   X,
   Upload,
   ChevronRight,
-  ChevronDown,
   CheckCircle,
   AlertCircle,
 } from 'lucide-react';
+import { apiImportClients, apiPreviewClientImport } from '../../lib/api';
 
 export interface ClientImportDrawerProps {
   isOpen: boolean;
@@ -21,8 +21,18 @@ const CRM_FIELDS = [
   { id: 'name', label: 'Company Name', required: true },
   { id: 'industry', label: 'Industry', required: false },
   { id: 'location', label: 'Location', required: false },
+  { id: 'city', label: 'City', required: false },
+  { id: 'country', label: 'Country', required: false },
   { id: 'contactPerson', label: 'Contact Person', required: false },
   { id: 'email', label: 'Email', required: false },
+  { id: 'phone', label: 'Phone', required: false },
+  { id: 'companySize', label: 'Team Name', required: false },
+  { id: 'servicesNeeded', label: 'Services Needed', required: false },
+  { id: 'leadStatus', label: 'Status', required: false },
+  { id: 'priority', label: 'Interest Level', required: false },
+  { id: 'expectedBusinessValue', label: 'Expected Business Value', required: false },
+  { id: 'nextFollowUpDue', label: 'Next Follow-up Date', required: false },
+  { id: 'notes', label: 'Notes', required: false },
 ];
 
 const DUPLICATE_OPTIONS = [
@@ -41,24 +51,30 @@ export function ClientImportDrawer({
   const [columnMapping, setColumnMapping] = useState<Record<string, string>>(
     CRM_FIELDS.reduce((acc, f) => ({ ...acc, [f.id]: '' }), {})
   );
-  const [mappingDropdownOpen, setMappingDropdownOpen] = useState<string | null>(null);
   const [duplicateRule, setDuplicateRule] = useState('skip');
-  const [validationErrors] = useState<string[]>([
-    'Row 3: Email format invalid',
-    'Row 7: Company name missing',
-  ]);
-  const [previewRows] = useState([
-    { name: 'TechFlow Systems', industry: 'Software', location: 'San Francisco' },
-    { name: 'GreenEnergy Co.', industry: 'Renewables', location: 'Austin' },
-    { name: '—', industry: 'Fintech', location: 'Dublin' },
-  ]);
-  const fileColumns = ['Column A', 'Column B', 'Column C', 'Column D', 'Column E'];
+  const [validationErrors] = useState<string[]>([]);
+  const [previewRows, setPreviewRows] = useState<Record<string, string | number | boolean | null>[]>([]);
+  const [fileColumns, setFileColumns] = useState<string[]>([]);
+  const [columnStats, setColumnStats] = useState<Record<string, number>>({});
+  const [sheetName, setSheetName] = useState('');
+  const [totalRows, setTotalRows] = useState(0);
+  const [isParsing, setIsParsing] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [parseError, setParseError] = useState('');
 
   const reset = () => {
     setStep(1);
     setFileName('');
     setColumnMapping(CRM_FIELDS.reduce((acc, f) => ({ ...acc, [f.id]: '' }), {}));
     setDuplicateRule('skip');
+    setPreviewRows([]);
+    setFileColumns([]);
+    setColumnStats({});
+    setSheetName('');
+    setTotalRows(0);
+    setIsParsing(false);
+    setIsImporting(false);
+    setParseError('');
   };
 
   const handleClose = () => {
@@ -66,9 +82,53 @@ export function ClientImportDrawer({
     onClose();
   };
 
-  const handleImport = () => {
-    onImportComplete?.();
-    handleClose();
+  const handleImport = async () => {
+    try {
+      setIsImporting(true);
+      await apiImportClients({
+        rows: previewRows,
+        mapping: columnMapping,
+        duplicateRule,
+      });
+      onImportComplete?.();
+      handleClose();
+    } catch (error: any) {
+      setParseError(error.message || 'Failed to import clients');
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const handleFileChange = async (file?: File) => {
+    if (!file) return;
+
+    setFileName(file.name);
+    setParseError('');
+    setIsParsing(true);
+
+    try {
+      const response = await apiPreviewClientImport(file);
+      const preview = response.data;
+      setSheetName(preview.sheetName);
+      setFileColumns(preview.columns || []);
+      setColumnStats(preview.columnStats || {});
+      setPreviewRows(preview.previewRows || []);
+      setTotalRows(preview.totalRows || 0);
+      setColumnMapping(
+        CRM_FIELDS.reduce(
+          (acc, field) => ({ ...acc, [field.id]: preview.suggestedMapping?.[field.id] || '' }),
+          {}
+        )
+      );
+    } catch (error: any) {
+      setParseError(error.message || 'Failed to read the import file');
+      setFileColumns([]);
+      setColumnStats({});
+      setPreviewRows([]);
+      setTotalRows(0);
+    } finally {
+      setIsParsing(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -135,7 +195,7 @@ export function ClientImportDrawer({
                     type="file"
                     accept=".csv,.xlsx,.xls"
                     className="sr-only"
-                    onChange={(e) => setFileName(e.target.files?.[0]?.name ?? '')}
+                    onChange={(e) => handleFileChange(e.target.files?.[0])}
                   />
                   <div className="flex flex-col items-center justify-center gap-2 w-full">
                     <Upload size={32} className="text-slate-400" />
@@ -145,6 +205,13 @@ export function ClientImportDrawer({
                     <span className="text-xs text-slate-400">CSV, XLSX up to 10MB</span>
                   </div>
                 </label>
+                {parseError ? <p className="mt-3 text-sm text-red-600">{parseError}</p> : null}
+                {sheetName ? (
+                  <p className="mt-3 text-sm text-slate-500">
+                    Parsed sheet: <span className="font-medium text-slate-700">{sheetName}</span> with{' '}
+                    <span className="font-medium text-slate-700">{totalRows}</span> rows
+                  </p>
+                ) : null}
               </div>
             </div>
           )}
@@ -153,51 +220,45 @@ export function ClientImportDrawer({
             <div className="space-y-4">
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
                 <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Map columns</h4>
-                <p className="text-sm text-slate-600 mb-4">Match your spreadsheet columns to CRM fields.</p>
-                <div className="space-y-3">
-                  {CRM_FIELDS.map((field) => (
-                    <div key={field.id} className="flex items-center gap-3">
-                      <label className="w-36 text-sm font-medium text-slate-700 shrink-0">
-                        {field.label}
-                        {field.required && <span className="text-red-500 ml-0.5">*</span>}
-                      </label>
-                      <div className="relative flex-1">
-                        <button
-                          type="button"
-                          onClick={() => setMappingDropdownOpen(mappingDropdownOpen === field.id ? null : field.id)}
-                          className="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-left text-slate-700 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                        >
-                          <span className={columnMapping[field.id] ? 'text-slate-900' : 'text-slate-400'}>
-                            {columnMapping[field.id] || 'Select column'}
-                          </span>
-                          <ChevronDown size={16} className="text-slate-400 shrink-0" />
-                        </button>
-                        {mappingDropdownOpen === field.id && (
-                          <>
-                            <div className="fixed inset-0 z-10" onClick={() => setMappingDropdownOpen(null)} aria-hidden />
-                            <ul className="absolute z-20 mt-1 w-full rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
-                              {fileColumns.map((col) => (
-                                <li key={col}>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setColumnMapping((prev) => ({ ...prev, [field.id]: col }));
-                                      setMappingDropdownOpen(null);
-                                    }}
-                                    className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${
-                                      columnMapping[field.id] === col ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'
-                                    }`}
-                                  >
-                                    {col}
-                                  </button>
-                                </li>
-                              ))}
-                            </ul>
-                          </>
-                        )}
-                      </div>
+                <p className="text-sm text-slate-600 mb-4">AI extracted the uploaded sheet columns below and suggested the CRM field match for each one.</p>
+                <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Detected columns</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {fileColumns.length > 0 ? (
+                      fileColumns.map((column) => (
+                        <span key={column} className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
+                          {column}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-sm text-slate-400">{isParsing ? 'Reading file columns…' : 'Upload a file in step 1 to see columns here.'}</span>
+                    )}
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {fileColumns.length > 0 ? (
+                    fileColumns.map((column) => {
+                      const matchedField = CRM_FIELDS.find((field) => columnMapping[field.id] === column);
+                      return (
+                        <div key={column} className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+                          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Excel Column</p>
+                          <p className="mt-2 text-sm font-semibold text-slate-900">{column}</p>
+                          <p className="mt-3 text-xs font-bold uppercase tracking-wider text-slate-400">Total Data</p>
+                          <p className="mt-2 text-sm text-slate-700">{columnStats[column] ?? 0} values</p>
+                          {matchedField ? (
+                            <>
+                              <p className="mt-3 text-xs font-bold uppercase tracking-wider text-slate-400">Mapped To</p>
+                              <p className="mt-2 text-sm text-slate-700">{matchedField.label}</p>
+                            </>
+                          ) : null}
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="rounded-xl border border-slate-200 bg-white px-4 py-6 text-sm text-slate-400">
+                      Upload a file in step 1 to see the extracted Excel columns here.
                     </div>
-                  ))}
+                  )}
                 </div>
               </div>
             </div>
@@ -208,23 +269,25 @@ export function ClientImportDrawer({
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                 <div className="p-4 border-b border-slate-100">
                   <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Preview</h4>
-                  <p className="text-xs text-slate-500 mt-0.5">First rows from your file</p>
+                  <p className="text-xs text-slate-500 mt-0.5">First rows from your uploaded file</p>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse text-sm">
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-200">
-                        <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase">Company</th>
-                        <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase">Industry</th>
-                        <th className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase">Location</th>
+                        {fileColumns.map((column) => (
+                          <th key={column} className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase">{column}</th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {previewRows.map((row, i) => (
                         <tr key={i} className="hover:bg-slate-50/80">
-                          <td className="px-4 py-3 font-medium text-slate-900">{row.name}</td>
-                          <td className="px-4 py-3 text-slate-600">{row.industry}</td>
-                          <td className="px-4 py-3 text-slate-600">{row.location}</td>
+                          {fileColumns.map((column) => (
+                            <td key={`${i}-${column}`} className="px-4 py-3 text-slate-600">
+                              {String(row[column] ?? '—')}
+                            </td>
+                          ))}
                         </tr>
                       ))}
                     </tbody>
@@ -285,7 +348,7 @@ export function ClientImportDrawer({
               <button
                 type="button"
                 onClick={() => setStep((s) => s + 1)}
-                disabled={step === 1 && !fileName}
+                disabled={(step === 1 && (!fileName || isParsing || !!parseError)) || (step === 2 && fileColumns.length === 0)}
                 className="px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Continue
@@ -294,9 +357,10 @@ export function ClientImportDrawer({
               <button
                 type="button"
                 onClick={handleImport}
-                className="px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors"
+                disabled={isImporting || previewRows.length === 0}
+                className="px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Import
+                {isImporting ? 'Importing…' : 'Import'}
               </button>
             )}
           </div>

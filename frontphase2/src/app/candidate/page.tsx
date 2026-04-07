@@ -22,6 +22,7 @@ import {
   List, 
   Plus,
   CheckSquare,
+  Upload,
 } from 'lucide-react';
 import { CreateTaskModal } from '../../components/CreateTaskModal';
 import { Toaster } from 'sonner';
@@ -36,11 +37,14 @@ import {
   apiGetCandidate,
   apiGetCandidates,
   apiGetJobs,
+  apiGetPipelineStages,
   apiGetUsers,
+  apiMoveCandidateStage,
   apiPinCandidateNote,
   apiRejectCandidate,
   apiRemoveCandidateTag,
   apiScheduleCandidateInterview,
+  apiUpdateCandidate,
   apiUpdateCandidateInterview,
   apiUpdateCandidateNote,
   type BackendCandidate,
@@ -68,8 +72,8 @@ const TAG_COLOR_PALETTE = [
   '#4f46e5',
 ];
 
-/** List + stats scoped to the logged-in user (backend: mine=true). */
-const MY_CANDIDATES_LIST_PARAMS = { mine: true as const, page: 1, limit: 200 };
+/** List all candidates for the candidate page. */
+const ALL_CANDIDATES_LIST_PARAMS = { page: 1, limit: 200 };
 
 function getTagColor(label: string) {
   const seed = label.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
@@ -336,6 +340,8 @@ function mapCandidateProfile(c: BackendCandidate): CandidateProfileDrawerData {
   return {
     id: c.id,
     name: fullName,
+    firstName: c.firstName || null,
+    lastName: c.lastName || null,
     currentTitle: c.currentTitle || c.status,
     currentCompany: c.currentCompany || c.source || '—',
     stage,
@@ -343,16 +349,43 @@ function mapCandidateProfile(c: BackendCandidate): CandidateProfileDrawerData {
     location: c.location || '—',
     email: c.email,
     phone: c.phone || '—',
+    linkedIn: c.linkedIn || null,
     designation: c.currentTitle || c.status,
     expectedSalary: salary.expected || '—',
+    expectedSalaryValue: c.expectedSalary ?? null,
+    currentSalaryValue: c.currentSalary ?? null,
+    salaryCurrency: c.salary?.currency || 'INR',
     noticePeriod: c.noticePeriod || '—',
     assignedJob: latestMatch?.job?.title || '—',
     assignedJobId: latestMatch?.job?.id || c.assignedJobs?.[0] || null,
     recruiter: c.assignedTo?.name || 'Unassigned',
+    recruiterId: c.assignedTo?.id || null,
     source: c.source || '—',
-    availability: c.status === 'ACTIVE' ? 'available' : c.status === 'PLACED' ? 'unavailable' : 'limited',
+    status: c.status || 'NEW',
+    availability: c.availability || (c.status === 'ACTIVE' ? 'available' : c.status === 'PLACED' ? 'unavailable' : 'limited'),
     resumeUrl: c.resume || null,
-    summary: c.skills?.length ? `Skills: ${c.skills.join(', ')}` : null,
+    summary: c.notes?.trim() || (c.skills?.length ? `Skills: ${c.skills.join(', ')}` : null),
+    cvAddress: c.address || null,
+    cvCity: c.city || null,
+    cvCountry: c.country || null,
+    cvAvailability: c.availability || null,
+    cvExpectedSalary:
+      c.expectedSalary != null
+        ? `${c.salary?.currency || 'INR'} ${c.expectedSalary}`
+        : salary.expected || null,
+    cvCurrentSalary: c.currentSalary != null ? `${c.salary?.currency || 'INR'} ${c.currentSalary}` : null,
+    cvEducation: c.education || null,
+    cvEducationEntries: c.cvEducationEntries || [],
+    cvWorkExperienceEntries: c.cvWorkExperienceEntries || [],
+    cvPortfolioLinks: c.cvPortfolioLinks || [],
+    cvCertifications: c.certifications || [],
+    cvLanguages: c.languages || [],
+    cvPortfolio: c.portfolio || null,
+    cvWebsite: c.website || null,
+    cvNotes: c.notes || null,
+    cvPreferredLocation: c.preferredLocation || null,
+    cvSkills: c.skills || [],
+    cvSummary: c.cvSummary || null,
     tags: c.tagObjects?.length ? c.tagObjects : fallbackTags,
     notes: c.internalNotes?.length ? c.internalNotes : fallbackNotes,
     files: c.resume ? [{ name: 'Resume', url: c.resume }] : [],
@@ -382,6 +415,12 @@ function mapCandidateProfile(c: BackendCandidate): CandidateProfileDrawerData {
             : interview.mode === 'phone'
               ? 'phone'
               : 'video',
+        platform:
+          (interview as BackendCandidateInterview).platform === 'GOOGLE_MEET'
+            ? 'Google Meet'
+            : (interview as BackendCandidateInterview).platform === 'ZOOM'
+              ? 'Zoom'
+              : null,
         meetingLink: (interview as BackendCandidateInterview).meetingLink || null,
         location: (interview as BackendCandidateInterview).location || null,
         phoneNumber: c.phone || null,
@@ -422,6 +461,7 @@ function CandidatesPageContent() {
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [isAddCandidateOpen, setIsAddCandidateOpen] = useState(false);
+  const [candidateDrawerInitialTab, setCandidateDrawerInitialTab] = useState('manual');
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -437,6 +477,16 @@ function CandidatesPageContent() {
   const [pipelineJobs, setPipelineJobs] = useState<CandidatePipelineJobOption[]>([]);
   const [pipelineRecruiters, setPipelineRecruiters] = useState<CandidatePipelineRecruiterOption[]>([]);
   const [interviewPanelMembers, setInterviewPanelMembers] = useState<CandidateInterviewerOption[]>([]);
+  const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
+  const [bulkAssignSaving, setBulkAssignSaving] = useState(false);
+  const [bulkAssignRecruiterIds, setBulkAssignRecruiterIds] = useState<string[]>([]);
+  const [bulkMoveStageOpen, setBulkMoveStageOpen] = useState(false);
+  const [bulkMoveStageJobId, setBulkMoveStageJobId] = useState('');
+  const [bulkMoveStageStageId, setBulkMoveStageStageId] = useState('');
+  const [bulkMoveStageNote, setBulkMoveStageNote] = useState('');
+  const [bulkMoveStageOptions, setBulkMoveStageOptions] = useState<Array<{ id: string; name: string }>>([]);
+  const [bulkMoveStageLoading, setBulkMoveStageLoading] = useState(false);
+  const [bulkMoveStageSaving, setBulkMoveStageSaving] = useState(false);
   const [deletingCandidateId, setDeletingCandidateId] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<{
     _id: string;
@@ -476,6 +526,7 @@ function CandidatesPageContent() {
         candidate.id === profile.id
           ? {
               ...candidate,
+              name: profile.name || candidate.name,
               stage: profile.stage || candidate.stage,
               owner: profile.recruiter || candidate.owner,
               assignedJobs:
@@ -483,8 +534,12 @@ function CandidatesPageContent() {
                   ? [profile.assignedJob]
                   : candidate.assignedJobs,
               designation: profile.designation || candidate.designation,
+              company: profile.currentCompany || profile.source || candidate.company,
+              experience: profile.experience ?? candidate.experience,
               location: profile.location || candidate.location,
               phone: profile.phone || candidate.phone,
+              email: profile.email || candidate.email,
+              source: profile.source || candidate.source,
               lastActivity: new Date().toISOString().slice(0, 10),
             }
           : candidate
@@ -516,7 +571,7 @@ function CandidatesPageContent() {
       }
 
       const queryParams: Record<string, string | number | boolean> = {
-        ...MY_CANDIDATES_LIST_PARAMS,
+        ...ALL_CANDIDATES_LIST_PARAMS,
       };
 
       if (filters.search) queryParams.search = filters.search;
@@ -689,6 +744,145 @@ function CandidatesPageContent() {
     }
   };
 
+  const loadBulkMoveStageOptions = useCallback(async (jobId: string) => {
+    if (!jobId) {
+      setBulkMoveStageOptions([]);
+      setBulkMoveStageStageId('');
+      return;
+    }
+
+    try {
+      setBulkMoveStageLoading(true);
+      const response = await apiGetPipelineStages(jobId);
+      const payload = response.data;
+      const stages = Array.isArray(payload)
+        ? payload
+        : Array.isArray((payload as any)?.data)
+          ? (payload as any).data
+          : [];
+
+      const mappedStages = stages.map((stage: any) => ({
+        id: String(stage.id),
+        name: String(stage.name),
+      }));
+
+      setBulkMoveStageOptions(mappedStages);
+      setBulkMoveStageStageId(mappedStages[0]?.id || '');
+    } catch (stageError: any) {
+      console.error('Failed to load pipeline stages for bulk move:', stageError);
+      setBulkMoveStageOptions([]);
+      setBulkMoveStageStageId('');
+      toast.error(stageError?.message || 'Failed to load stages');
+    } finally {
+      setBulkMoveStageLoading(false);
+    }
+  }, []);
+
+  const openBulkMoveStageModal = useCallback(async () => {
+    const firstJobId = pipelineJobs[0]?.id || '';
+    setBulkMoveStageJobId(firstJobId);
+    setBulkMoveStageStageId('');
+    setBulkMoveStageNote('');
+    setBulkMoveStageOpen(true);
+
+    if (firstJobId) {
+      await loadBulkMoveStageOptions(firstJobId);
+    } else {
+      setBulkMoveStageOptions([]);
+    }
+  }, [loadBulkMoveStageOptions, pipelineJobs]);
+
+  const closeBulkMoveStageModal = useCallback(() => {
+    if (bulkMoveStageSaving) return;
+    setBulkMoveStageOpen(false);
+    setBulkMoveStageJobId('');
+    setBulkMoveStageStageId('');
+    setBulkMoveStageNote('');
+    setBulkMoveStageOptions([]);
+  }, [bulkMoveStageSaving]);
+
+  const openBulkAssignModal = useCallback(() => {
+    setBulkAssignRecruiterIds([]);
+    setBulkAssignOpen(true);
+  }, []);
+
+  const closeBulkAssignModal = useCallback(() => {
+    if (bulkAssignSaving) return;
+    setBulkAssignOpen(false);
+    setBulkAssignRecruiterIds([]);
+  }, [bulkAssignSaving]);
+
+  const toggleBulkAssignRecruiter = useCallback((recruiterId: string) => {
+    setBulkAssignRecruiterIds((prev) =>
+      prev.includes(recruiterId)
+        ? prev.filter((id) => id !== recruiterId)
+        : [...prev, recruiterId]
+    );
+  }, []);
+
+  const submitBulkAssignRecruiter = useCallback(async () => {
+    if (!bulkAssignRecruiterIds.length || !selectedIds.length) return;
+
+    try {
+      setBulkAssignSaving(true);
+      await apiBulkActionCandidates('assign_recruiter', selectedIds, {
+        recruiterId: bulkAssignRecruiterIds[0],
+        recruiterIds: bulkAssignRecruiterIds,
+      });
+      toast.success(`Assigned ${selectedIds.length} candidate(s) to ${bulkAssignRecruiterIds.length} recruiter(s)`);
+      setSelectedIds([]);
+      setBulkAssignOpen(false);
+      setBulkAssignRecruiterIds([]);
+      await loadCandidates();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to assign recruiter');
+    } finally {
+      setBulkAssignSaving(false);
+    }
+  }, [bulkAssignRecruiterIds, loadCandidates, selectedIds]);
+
+  const submitBulkMoveStage = useCallback(async () => {
+    if (!bulkMoveStageJobId || !bulkMoveStageStageId || selectedIds.length === 0) return;
+
+    try {
+      setBulkMoveStageSaving(true);
+      await Promise.all(
+        selectedIds.map((candidateId) =>
+          apiMoveCandidateStage(bulkMoveStageJobId, {
+            candidateId,
+            stageId: bulkMoveStageStageId,
+            notes: bulkMoveStageNote.trim() || undefined,
+          })
+        )
+      );
+
+      const selectedStageName =
+        bulkMoveStageOptions.find((stage) => stage.id === bulkMoveStageStageId)?.name || 'selected stage';
+      toast.success(`Moved ${selectedIds.length} candidate(s) to ${selectedStageName}`);
+      setBulkMoveStageOpen(false);
+      setBulkMoveStageJobId('');
+      setBulkMoveStageStageId('');
+      setBulkMoveStageNote('');
+      setBulkMoveStageOptions([]);
+      setSelectedIds([]);
+      await loadCandidates({ silent: true });
+      refreshStats();
+    } catch (moveError: any) {
+      console.error('Failed to move candidates to stage:', moveError);
+      toast.error(moveError?.message || 'Failed to move candidates');
+    } finally {
+      setBulkMoveStageSaving(false);
+    }
+  }, [
+    bulkMoveStageJobId,
+    bulkMoveStageNote,
+    bulkMoveStageOptions,
+    bulkMoveStageStageId,
+    loadCandidates,
+    refreshStats,
+    selectedIds,
+  ]);
+
   const handleDeleteCandidate = useCallback(
     async (candidate: Candidate) => {
       if (!isValidObjectId(candidate.id)) {
@@ -784,13 +978,13 @@ function CandidatesPageContent() {
             <div className="flex items-center gap-4">
               <div>
                 <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                  My candidates
+                  All candidates
                   <span className="text-sm font-normal text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full">
                     {filteredCandidates.length} shown
                   </span>
                 </h1>
                 <p className="text-xs text-slate-500 max-w-xl mt-0.5">
-                  People you added plus applicants on jobs you created (from the API).
+                  View and manage every candidate available in the system.
                 </p>
               </div>
 
@@ -821,7 +1015,20 @@ function CandidatesPageContent() {
                 Add Task
               </button>
               <button
-                onClick={() => setIsAddCandidateOpen(true)}
+                onClick={() => {
+                  setCandidateDrawerInitialTab('bulkResume');
+                  setIsAddCandidateOpen(true);
+                }}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors shadow-sm"
+              >
+                <Upload size={16} />
+                Bulk CV Upload
+              </button>
+              <button
+                onClick={() => {
+                  setCandidateDrawerInitialTab('manual');
+                  setIsAddCandidateOpen(true);
+                }}
                 className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-sm shadow-blue-100"
               >
                 <Plus size={16} />
@@ -854,24 +1061,19 @@ function CandidatesPageContent() {
               <>
                 <BulkActions
                   selectedIds={selectedIds}
-                  onAddToPipeline={async (ids) => {
-                    // This would open a drawer/modal to select job and stage
-                    toast.info(`Add ${ids.length} candidate(s) to pipeline - Feature coming soon`);
-                  }}
-                  onAssignRecruiter={async (ids) => {
-                    // Open a drawer to select recruiter
-                    const recruiterId = prompt('Enter recruiter ID (or use the drawer in future):');
-                    if (recruiterId) {
-                      try {
-                        await apiBulkActionCandidates('assign_recruiter', ids, { recruiterId });
-                        toast.success(`Assigned recruiter to ${ids.length} candidate(s)`);
-                        setSelectedIds([]);
-                        loadCandidates();
-                      } catch (err: any) {
-                        toast.error(err?.message || 'Failed to assign recruiter');
-                      }
+                  onMoveStage={openBulkMoveStageModal}
+                  onDelete={async (ids) => {
+                    if (!confirm(`Are you sure you want to permanently delete ${ids.length} candidate(s)?`)) return;
+                    try {
+                      await Promise.all(ids.map((candidateId) => apiDeleteCandidate(candidateId)));
+                      toast.success(`Deleted ${ids.length} candidate(s)`);
+                      setSelectedIds([]);
+                      await loadCandidates();
+                    } catch (err: any) {
+                      toast.error(err?.message || 'Failed to delete candidates');
                     }
                   }}
+                  onAssignRecruiter={openBulkAssignModal}
                   onSendEmail={async (ids) => {
                     toast.info(`Send email to ${ids.length} candidate(s) - Feature coming soon`);
                   }}
@@ -986,7 +1188,210 @@ function CandidatesPageContent() {
           loadCandidates();
         }}
         currentUser={currentUser || { _id: '', name: 'You', email: '', role: 'RECRUITER' }}
+        initialTab={candidateDrawerInitialTab}
       />
+
+      {bulkMoveStageOpen ? (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-slate-900/40" onClick={closeBulkMoveStageModal} />
+          <div className="relative w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="border-b border-slate-100 p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-lg font-bold text-slate-900">Move stage</div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    Move {selectedIds.length} selected candidate{selectedIds.length === 1 ? '' : 's'} to another pipeline stage.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                  onClick={closeBulkMoveStageModal}
+                  disabled={bulkMoveStageSaving}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-4 p-5">
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase text-slate-500">Job</label>
+                <select
+                  value={bulkMoveStageJobId}
+                  onChange={async (e) => {
+                    const nextJobId = e.target.value;
+                    setBulkMoveStageJobId(nextJobId);
+                    await loadBulkMoveStageOptions(nextJobId);
+                  }}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  disabled={bulkMoveStageSaving || pipelineJobs.length === 0}
+                >
+                  {pipelineJobs.length === 0 ? (
+                    <option value="">No jobs available</option>
+                  ) : (
+                    pipelineJobs.map((job) => (
+                      <option key={job.id} value={job.id}>
+                        {job.title}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase text-slate-500">Stage</label>
+                <select
+                  value={bulkMoveStageStageId}
+                  onChange={(e) => setBulkMoveStageStageId(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  disabled={bulkMoveStageSaving || bulkMoveStageLoading || bulkMoveStageOptions.length === 0}
+                >
+                  {bulkMoveStageLoading ? (
+                    <option value="">Loading stages...</option>
+                  ) : bulkMoveStageOptions.length === 0 ? (
+                    <option value="">No pipeline configured for this job</option>
+                  ) : (
+                    bulkMoveStageOptions.map((stage) => (
+                      <option key={stage.id} value={stage.id}>
+                        {stage.name}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase text-slate-500">Note (optional)</label>
+                <textarea
+                  value={bulkMoveStageNote}
+                  onChange={(e) => setBulkMoveStageNote(e.target.value)}
+                  rows={3}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  placeholder="Add a short note for this move"
+                  disabled={bulkMoveStageSaving}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-slate-100 p-5">
+              <button
+                type="button"
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                onClick={closeBulkMoveStageModal}
+                disabled={bulkMoveStageSaving}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-60"
+                onClick={submitBulkMoveStage}
+                disabled={
+                  bulkMoveStageSaving ||
+                  bulkMoveStageLoading ||
+                  !bulkMoveStageJobId ||
+                  !bulkMoveStageStageId ||
+                  selectedIds.length === 0
+                }
+              >
+                {bulkMoveStageSaving ? 'Moving...' : 'Move stage'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {bulkAssignOpen ? (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-slate-900/40" onClick={closeBulkAssignModal} />
+          <div className="relative w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="border-b border-slate-100 p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-lg font-bold text-slate-900">Assign recruiters</div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    Select one or more recruiters. The first selected recruiter becomes the primary assignee, and all selected recruiters receive the candidate details by email.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                  onClick={closeBulkAssignModal}
+                  disabled={bulkAssignSaving}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div className="p-5">
+              <div className="mb-3 text-xs font-bold uppercase text-slate-500">
+                Recruiters
+              </div>
+              <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+                {pipelineRecruiters.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
+                    No recruiters available.
+                  </div>
+                ) : (
+                  pipelineRecruiters.map((recruiter) => {
+                    const checked = bulkAssignRecruiterIds.includes(recruiter.id);
+                    return (
+                      <label
+                        key={recruiter.id}
+                        className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-3 transition-colors ${
+                          checked
+                            ? 'border-blue-200 bg-blue-50'
+                            : 'border-slate-200 bg-white hover:bg-slate-50'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleBulkAssignRecruiter(recruiter.id)}
+                          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                          disabled={bulkAssignSaving}
+                        />
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-slate-900">{recruiter.name}</div>
+                          <div className="text-xs text-slate-500">
+                            {checked && bulkAssignRecruiterIds[0] === recruiter.id ? 'Primary assignee' : 'Will receive assignment email'}
+                          </div>
+                        </div>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 border-t border-slate-100 p-5">
+              <div className="text-xs text-slate-500">
+                {bulkAssignRecruiterIds.length} recruiter{bulkAssignRecruiterIds.length === 1 ? '' : 's'} selected for {selectedIds.length} candidate{selectedIds.length === 1 ? '' : 's'}.
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                  onClick={closeBulkAssignModal}
+                  disabled={bulkAssignSaving}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-60"
+                  onClick={submitBulkAssignRecruiter}
+                  disabled={bulkAssignSaving || bulkAssignRecruiterIds.length === 0 || selectedIds.length === 0}
+                >
+                  {bulkAssignSaving ? 'Assigning...' : 'Assign recruiters'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <CandidateProfileDrawer
         isOpen={candidateDrawerOpen}
@@ -1025,6 +1430,12 @@ function CandidatesPageContent() {
             time: interviewData.time,
             duration: interviewData.duration,
             mode: interviewData.mode,
+            platform:
+              interviewData.platform === 'Google Meet'
+                ? 'GOOGLE_MEET'
+                : interviewData.platform === 'Zoom'
+                  ? 'ZOOM'
+                  : null,
             meetingLink: interviewData.meetingLink,
             location: interviewData.location,
             phoneNumber: interviewData.phoneNumber,
@@ -1087,6 +1498,10 @@ function CandidatesPageContent() {
             priority,
             notes,
           });
+          await loadCandidateProfile(candidateId);
+        }}
+        onUpdateCandidate={async (candidateId, payload) => {
+          await apiUpdateCandidate(candidateId, payload);
           await loadCandidateProfile(candidateId);
         }}
       />

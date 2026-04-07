@@ -34,6 +34,7 @@ export interface Lead {
   type: LeadType;
   source: LeadSource;
   contactPerson: string;
+  directorName?: string;
   email: string;
   phone: string;
   status: LeadStatus;
@@ -45,13 +46,18 @@ export interface Lead {
   nextFollowUp?: string;
   priority: Priority;
   interestedNeeds: string;
+  servicesNeeded?: string;
   notes: string;
+  expectedBusinessValue?: string;
   activities: Activity[];
   notesList?: LeadNote[];
   // Optional extended fields for drawer
   industry?: string;
+  sector?: string;
   companySize?: string;
+  teamName?: string;
   website?: string;
+  companyLinks?: string[];
   linkedIn?: string;
   location?: string;
   designation?: string;
@@ -63,5 +69,6 @@ export interface Lead {
   sourceWebsiteUrl?: string;
   sourceLinkedInUrl?: string;
   sourceEmail?: string;
+  otherDetails?: Array<{ label: string; value: string }>;
   createdDate?: string;
 }

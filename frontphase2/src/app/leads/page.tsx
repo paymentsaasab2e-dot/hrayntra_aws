@@ -2,11 +2,8 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import {
-  Users,
-  Briefcase,
-  FileText,
-  Mail,
   Plus,
+  Upload,
   Search,
   Filter,
   Eye,
@@ -18,11 +15,15 @@ import {
   ExternalLink,
   Target,
   Trash2,
+  Check,
+  BadgeCheck,
+  X,
 } from 'lucide-react';
 import { ImageWithFallback } from '../../components/ImageWithFallback';
 import { LeadDetailsDrawer } from '../../components/drawers/LeadDetailsDrawer';
+import { LeadImportDrawer } from '../../components/drawers/LeadImportDrawer';
 import type { Lead, LeadStatus, Priority } from './types';
-import { apiGetLeads, apiUpdateLead, apiDeleteLead, apiConvertLeadToClient, type BackendLead } from '../../lib/api';
+import { apiGetLeads, apiUpdateLead, apiDeleteLead, apiConvertLeadToClient, apiGetUsers, type BackendLead, type BackendUser } from '../../lib/api';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { splitDateTimeForDisplay } from '../../utils/formatLeadDateTime';
@@ -220,15 +221,34 @@ const PriorityTag = ({ priority }: { priority: Priority }) => {
   );
 };
 
+const SelectionCheckbox = ({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: () => void;
+}) => (
+  <div
+    onClick={onChange}
+    role="checkbox"
+    aria-checked={checked}
+    className={`flex h-4 w-4 cursor-pointer items-center justify-center rounded border transition-colors ${
+      checked ? 'border-blue-600 bg-blue-600' : 'border-slate-300 bg-white'
+    }`}
+  >
+    {checked ? <Check className="h-3 w-3 text-white" strokeWidth={4} /> : null}
+  </div>
+);
+
 // Helper function to map backend lead to frontend format
 function mapBackendLeadToFrontend(backendLead: BackendLead): Lead {
   return {
     id: backendLead.id,
-    companyName: backendLead.companyName,
+    companyName: backendLead.companyName || '',
     type: backendLead.type,
     source: backendLead.source,
-    contactPerson: backendLead.contactPerson,
-    email: backendLead.email,
+    contactPerson: backendLead.contactPerson || '',
+    email: backendLead.email || '',
     phone: backendLead.phone || '',
     status: backendLead.status,
     assignedTo: backendLead.assignedTo ? {
@@ -256,20 +276,38 @@ function mapBackendLeadToFrontend(backendLead: BackendLead): Lead {
     sourceWebsiteUrl: backendLead.sourceWebsiteUrl || undefined,
     sourceLinkedInUrl: backendLead.sourceLinkedInUrl || undefined,
     sourceEmail: backendLead.sourceEmail || undefined,
+    otherDetails: Array.isArray(backendLead.otherDetails) ? backendLead.otherDetails : undefined,
     createdDate: backendLead.createdAt ? new Date(backendLead.createdAt).toLocaleDateString() : undefined,
   };
+}
+
+function extractBackendLeads(
+  responseData: { data: BackendLead[]; pagination?: any } | BackendLead[] | unknown
+): BackendLead[] {
+  if (Array.isArray(responseData)) return responseData as BackendLead[];
+  if (responseData && typeof responseData === 'object') {
+    const payload = responseData as { data?: unknown };
+    if (Array.isArray(payload.data)) return payload.data as BackendLead[];
+  }
+  return [];
 }
 
 export default function RecruitmentAgencyDashboard() {
   const router = useRouter();
   const [leads, setLeads] = useState<Lead[]>([]);
+  const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [addLeadDrawerOpen, setAddLeadDrawerOpen] = useState(false);
+  const [importDrawerOpen, setImportDrawerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<LeadStatus | 'All'>('All');
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null); // null = not checked yet
+  const [teamMembers, setTeamMembers] = useState<BackendUser[]>([]);
+  const [bulkStatus, setBulkStatus] = useState('');
+  const [bulkAssignedTo, setBulkAssignedTo] = useState('');
+  const [bulkActionLoading, setBulkActionLoading] = useState(false);
   
   const selectedLead = leads.find(l => l.id === selectedLeadId);
 
@@ -277,6 +315,27 @@ export default function RecruitmentAgencyDashboard() {
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
     setIsAuthenticated(!!token);
+  }, []);
+
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+        if (!token) return;
+        const response = await apiGetUsers({ isActive: true, limit: 200 });
+        const payload = response.data;
+        const users = Array.isArray(payload)
+          ? payload
+          : Array.isArray(payload?.data)
+            ? payload.data
+            : [];
+        setTeamMembers(users);
+      } catch (err) {
+        console.error('Failed to fetch users for bulk lead assignment:', err);
+      }
+    };
+
+    fetchUsers();
   }, []);
 
   // Fetch leads from API
@@ -312,26 +371,12 @@ export default function RecruitmentAgencyDashboard() {
         
         // Backend returns: { success: true, message: "...", data: { data: [...], pagination: {...} } }
         // So response.data is { data: [...], pagination: {...} }
-        let backendLeads = [];
-        if (response.data) {
-          if (Array.isArray(response.data)) {
-            // Direct array (unlikely but handle it)
-            backendLeads = response.data;
-          } else if (Array.isArray(response.data.data)) {
-            // Paginated response: { data: [...], pagination: {...} }
-            backendLeads = response.data.data;
-          } else if (Array.isArray(response.data.items)) {
-            // Alternative structure with items
-            backendLeads = response.data.items;
-          } else {
-            console.warn('Unexpected response structure:', response.data);
-            backendLeads = [];
-          }
-        }
+        const backendLeads = response.data ? extractBackendLeads(response.data) : [];
         
         if (!Array.isArray(backendLeads)) {
           console.error('backendLeads is not an array:', backendLeads);
-          backendLeads = [];
+          setLeads(INITIAL_LEADS);
+          return;
         }
         
         const mappedLeads = backendLeads.map(mapBackendLeadToFrontend);
@@ -371,6 +416,22 @@ export default function RecruitmentAgencyDashboard() {
     }
     return leads;
   }, [leads, searchQuery]);
+
+  const allVisibleSelected = filteredLeads.length > 0 && filteredLeads.every((lead) => selectedLeadIds.includes(lead.id));
+
+  const toggleSelectAll = () => {
+    if (allVisibleSelected) {
+      setSelectedLeadIds((prev) => prev.filter((id) => !filteredLeads.some((lead) => lead.id === id)));
+      return;
+    }
+    setSelectedLeadIds((prev) => Array.from(new Set([...prev, ...filteredLeads.map((lead) => lead.id)])));
+  };
+
+  const toggleLeadSelection = (leadId: string) => {
+    setSelectedLeadIds((prev) => (
+      prev.includes(leadId) ? prev.filter((id) => id !== leadId) : [...prev, leadId]
+    ));
+  };
 
   const stats = {
     New: leads.filter(l => l.status === 'New').length,
@@ -510,6 +571,7 @@ export default function RecruitmentAgencyDashboard() {
     try {
       await apiDeleteLead(id);
       setLeads(prev => prev.filter(l => l.id !== id));
+      setSelectedLeadIds(prev => prev.filter(leadId => leadId !== id));
       if (selectedLeadId === id) {
         setSelectedLeadId(null);
       }
@@ -529,26 +591,11 @@ export default function RecruitmentAgencyDashboard() {
       
       // Backend returns: { success: true, message: "...", data: { data: [...], pagination: {...} } }
       // So response.data is { data: [...], pagination: {...} }
-      let backendLeads = [];
-      if (response.data) {
-        if (Array.isArray(response.data)) {
-          // Direct array (unlikely but handle it)
-          backendLeads = response.data;
-        } else if (Array.isArray(response.data.data)) {
-          // Paginated response: { data: [...], pagination: {...} }
-          backendLeads = response.data.data;
-        } else if (Array.isArray(response.data.items)) {
-          // Alternative structure with items
-          backendLeads = response.data.items;
-        } else {
-          console.warn('Unexpected response structure:', response.data);
-          backendLeads = [];
-        }
-      }
+      const backendLeads = response.data ? extractBackendLeads(response.data) : [];
       
       if (!Array.isArray(backendLeads)) {
         console.error('backendLeads is not an array:', backendLeads);
-        backendLeads = [];
+        return;
       }
       
       const mappedLeads = backendLeads.map(mapBackendLeadToFrontend);
@@ -558,6 +605,59 @@ export default function RecruitmentAgencyDashboard() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const clearBulkSelection = () => {
+    setSelectedLeadIds([]);
+    setBulkStatus('');
+    setBulkAssignedTo('');
+  };
+
+  const handleBulkLeadDelete = async () => {
+    if (selectedLeadIds.length === 0) return;
+    if (!confirm(`Delete ${selectedLeadIds.length} selected lead${selectedLeadIds.length > 1 ? 's' : ''}? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setBulkActionLoading(true);
+      await Promise.all(selectedLeadIds.map((id) => apiDeleteLead(id)));
+      clearBulkSelection();
+      await handleRefresh();
+    } catch (err: any) {
+      console.error('Failed to bulk delete leads:', err);
+      alert(err.message || 'Failed to delete selected leads');
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
+  const handleBulkLeadUpdate = async (updates: { status?: LeadStatus; assignedToId?: string }) => {
+    if (selectedLeadIds.length === 0) return;
+
+    try {
+      setBulkActionLoading(true);
+      await Promise.all(selectedLeadIds.map((id) => apiUpdateLead(id, updates)));
+      clearBulkSelection();
+      await handleRefresh();
+    } catch (err: any) {
+      console.error('Failed to bulk update leads:', err);
+      alert(err.message || 'Failed to update selected leads');
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
+  const handleBulkLeadStatusChange = async (status: string) => {
+    setBulkStatus(status);
+    if (!status) return;
+    await handleBulkLeadUpdate({ status: status as LeadStatus });
+  };
+
+  const handleBulkLeadAssignChange = async (assignedToId: string) => {
+    setBulkAssignedTo(assignedToId);
+    if (!assignedToId) return;
+    await handleBulkLeadUpdate({ assignedToId });
   };
 
   return (
@@ -579,6 +679,14 @@ export default function RecruitmentAgencyDashboard() {
                 Log in
               </a>
             )}
+            <button
+              type="button"
+              onClick={() => setImportDrawerOpen(true)}
+              className="bg-white hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-all shadow-sm border border-slate-200 active:scale-95"
+            >
+              <Upload size={18} />
+              <span>Import</span>
+            </button>
             <button
               type="button"
               onClick={() => setAddLeadDrawerOpen(true)}
@@ -675,6 +783,12 @@ export default function RecruitmentAgencyDashboard() {
                 <table className="w-full text-left">
                   <thead>
                     <tr className="bg-slate-50 border-y border-slate-200 text-slate-500 uppercase text-[11px] font-bold tracking-wider">
+                      <th className="px-6 py-4 w-12">
+                        <SelectionCheckbox
+                          checked={allVisibleSelected}
+                          onChange={toggleSelectAll}
+                        />
+                      </th>
                       <th className="px-6 py-4">Lead / Company</th>
                       <th className="px-6 py-4">Source</th>
                       <th className="px-6 py-4">Contact</th>
@@ -687,7 +801,7 @@ export default function RecruitmentAgencyDashboard() {
                   <tbody className="divide-y divide-slate-100">
                     {filteredLeads.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="px-6 py-8 text-center text-slate-500">
+                        <td colSpan={8} className="px-6 py-8 text-center text-slate-500">
                           No leads found
                         </td>
                       </tr>
@@ -695,9 +809,21 @@ export default function RecruitmentAgencyDashboard() {
                       filteredLeads.map(lead => (
                     <tr 
                       key={lead.id} 
-                      className={`group hover:bg-slate-50 transition-colors cursor-pointer ${selectedLeadId === lead.id ? 'bg-blue-50/50' : ''}`}
+                      className={`group cursor-pointer transition-colors ${
+                        selectedLeadIds.includes(lead.id)
+                          ? 'bg-blue-50/80 hover:bg-blue-50/80'
+                          : selectedLeadId === lead.id
+                            ? 'bg-blue-50/50 hover:bg-blue-50/60'
+                            : 'hover:bg-blue-50/50'
+                      }`}
                       onClick={() => setSelectedLeadId(lead.id)}
                     >
+                      <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                        <SelectionCheckbox
+                          checked={selectedLeadIds.includes(lead.id)}
+                          onChange={() => toggleLeadSelection(lead.id)}
+                        />
+                      </td>
                       <td className="px-6 py-4">
                         <div className="flex flex-col">
                           <span className="text-sm font-semibold text-slate-900">{lead.companyName}</span>
@@ -850,6 +976,87 @@ export default function RecruitmentAgencyDashboard() {
               }
             }}
           />
+        )}
+        <LeadImportDrawer
+          isOpen={importDrawerOpen}
+          onClose={() => setImportDrawerOpen(false)}
+          onImportComplete={async () => {
+            setImportDrawerOpen(false);
+            await handleRefresh();
+          }}
+        />
+        {selectedLeadIds.length > 0 && (
+          <div className="fixed bottom-6 left-1/2 z-40 w-[min(94vw,980px)] -translate-x-1/2 rounded-2xl border border-slate-800 bg-slate-950/95 px-4 py-3 text-white shadow-2xl shadow-slate-950/40 backdrop-blur">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-blue-500/15 text-blue-300">
+                  <BadgeCheck className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-white">
+                    {selectedLeadIds.length} lead{selectedLeadIds.length > 1 ? 's' : ''} selected
+                  </p>
+                  <p className="truncate text-xs text-slate-400">Use bulk actions to update or remove the selected leads.</p>
+                </div>
+              </div>
+
+              <div className="flex flex-shrink-0 items-center gap-2">
+                <div className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2">
+                  <UserPlus className="w-4 h-4 text-slate-400" />
+                  <select
+                    value={bulkAssignedTo}
+                    onChange={(e) => handleBulkLeadAssignChange(e.target.value)}
+                    disabled={bulkActionLoading}
+                    className="bg-transparent text-sm text-slate-100 outline-none"
+                  >
+                    <option value="">Assign To</option>
+                    {teamMembers.map((user) => (
+                      <option key={user.id} value={user.id}>
+                        {user.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2">
+                  <BadgeCheck className="w-4 h-4 text-slate-400" />
+                  <select
+                    value={bulkStatus}
+                    onChange={(e) => handleBulkLeadStatusChange(e.target.value)}
+                    disabled={bulkActionLoading}
+                    className="bg-transparent text-sm text-slate-100 outline-none"
+                  >
+                    <option value="">Change Status</option>
+                    <option value="New">New</option>
+                    <option value="Contacted">Contacted</option>
+                    <option value="Qualified">Qualified</option>
+                    <option value="Converted">Converted</option>
+                    <option value="Lost">Lost</option>
+                  </select>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleBulkLeadDelete}
+                  disabled={bulkActionLoading}
+                  className="flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Delete
+                </button>
+
+                <button
+                  type="button"
+                  onClick={clearBulkSelection}
+                  disabled={bulkActionLoading}
+                  className="flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <X className="w-4 h-4" />
+                  Clear
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </main>
     </div>

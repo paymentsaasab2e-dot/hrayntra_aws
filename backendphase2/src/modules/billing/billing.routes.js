@@ -6,6 +6,10 @@ const router = express.Router();
 
 router.use(authMiddleware);
 
+router.get('/summary', billingController.getSummary);
+router.get('/export/:tab/:format', billingController.exportTab);
+router.get('/settings', billingController.getSettings);
+router.put('/settings', billingController.updateSettings);
 router.get('/', billingController.getAll);
 router.get('/:id', billingController.getById);
 router.post('/', billingController.create);

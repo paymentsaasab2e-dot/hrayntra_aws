@@ -4,6 +4,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { usePermissions } from '../hooks/usePermissions';
+import { apiGetUnifiedCalendar } from '../lib/api';
+import { NotificationDrawer } from './NotificationDrawer';
 import { 
   Search, 
   Calendar, 
@@ -28,10 +30,6 @@ import {
   ShieldCheck,
   ChevronLeft,
   Menu,
-  FileUp,
-  Building2,
-  CalendarPlus,
-  Plus,
   User,
   LogOut,
   Repeat,
@@ -61,69 +59,6 @@ const ImageWithFallback = ({
 };
 
 // ─── Quick Action Popover ─────────────────────────────────────────────────────
-const actions = [
-  { icon: FileUp,      label: 'Import Resume',      color: 'bg-blue-50 text-blue-600' },
-  { icon: UserPlus,    label: 'Add Candidate',       color: 'bg-green-50 text-green-600' },
-  { icon: Briefcase,   label: 'Add Job',             color: 'bg-purple-50 text-purple-600' },
-  { icon: Building2,   label: 'Add Client',          color: 'bg-orange-50 text-orange-600' },
-  { icon: CalendarPlus,label: 'Schedule Interview',  color: 'bg-pink-50 text-pink-600' },
-  { icon: CheckSquare, label: 'Add Task / Activity', color: 'bg-indigo-50 text-indigo-600' },
-  { icon: Zap,         label: 'Add Lead',            color: 'bg-yellow-50 text-yellow-600' },
-];
-
-const QuickActionPopover = () => {
-  const [isOpen, setIsOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handle = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setIsOpen(false);
-    };
-    document.addEventListener('mousedown', handle);
-    return () => document.removeEventListener('mousedown', handle);
-  }, []);
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className={`w-9 h-9 rounded-full flex items-center justify-center transition-all duration-200 shadow-lg ${
-          isOpen ? 'bg-teal-400 rotate-45' : 'bg-teal-500 hover:bg-teal-400'
-        }`}
-        title="Quick Create"
-      >
-        <Plus className="w-5 h-5 text-white" />
-      </button>
-
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: 8, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 8, scale: 0.95 }}
-            transition={{ duration: 0.15 }}
-            className="absolute top-full left-1/2 -translate-x-1/2 mt-3 w-72 bg-white rounded-xl shadow-2xl border border-slate-100 p-3 z-50"
-          >
-            <div className="grid grid-cols-3 gap-1.5">
-              {actions.map((action, i) => (
-                <button
-                  key={i}
-                  className="flex flex-col items-center justify-center p-2.5 rounded-lg hover:bg-slate-50 transition-colors group"
-                >
-                  <div className={`w-9 h-9 ${action.color} rounded-lg flex items-center justify-center mb-1.5 group-hover:scale-110 transition-transform`}>
-                    <action.icon className="w-4 h-4" />
-                  </div>
-                  <span className="text-[10px] font-medium text-slate-600 leading-tight text-center">{action.label}</span>
-                </button>
-              ))}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-};
-
 // ─── User Dropdown ────────────────────────────────────────────────────────────
 const UserDropdown = ({ avatarUrl }: { avatarUrl: string }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -277,12 +212,49 @@ interface SidenavProps {
 export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [notificationDrawerOpen, setNotificationDrawerOpen] = useState(false);
+  const [notificationCount, setNotificationCount] = useState(0);
   const { hasPermission, hasAnyPermission, isAdmin, isSuperAdmin } = usePermissions();
   
   // Ensure client-side only rendering to prevent hydration errors
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadNotificationCount() {
+      try {
+        const start = new Date();
+        start.setHours(0, 0, 0, 0);
+        const end = new Date();
+        end.setHours(23, 59, 59, 999);
+
+        const response = await apiGetUnifiedCalendar({
+          start: start.toISOString(),
+          end: end.toISOString(),
+          mineOnly: true,
+        });
+
+        if (!ignore) {
+          setNotificationCount(response.data.events.length);
+        }
+      } catch {
+        if (!ignore) {
+          setNotificationCount(0);
+        }
+      }
+    }
+
+    if (mounted) {
+      loadNotificationCount();
+    }
+
+    return () => {
+      ignore = true;
+    };
+  }, [mounted]);
   
   // Super Admin sees everything - bypass permission checks
   const showAll = mounted && isSuperAdmin();
@@ -332,29 +304,26 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
           </div>
         </div>
 
-        {/* Centre: Quick Create */}
-        <div className="ml-[400px]">
-          <QuickActionPopover />
-        </div>
-
         {/* Right icons */}
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-4 pr-4 border-r border-white/10">
             <Tooltip content="Calendar">
-              <button className="text-white/60 hover:text-white transition-colors">
+              <Link href="/calendar" className="text-white/60 hover:text-white transition-colors">
                 <Calendar className="w-5 h-5" />
-              </button>
-            </Tooltip>
-            <Tooltip content="Inbox">
-              <button className="relative text-white/60 hover:text-white transition-colors">
-                <Mail className="w-5 h-5" />
-                <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] font-bold w-3.5 h-3.5 rounded-full flex items-center justify-center">3</span>
-              </button>
+              </Link>
             </Tooltip>
             <Tooltip content="Notifications">
-              <button className="relative text-white/60 hover:text-white transition-colors">
+              <button
+                type="button"
+                onClick={() => setNotificationDrawerOpen(true)}
+                className="relative text-white/60 hover:text-white transition-colors"
+              >
                 <Bell className="w-5 h-5" />
-                <span className="absolute top-0 right-0 w-1.5 h-1.5 bg-red-500 rounded-full" />
+                {notificationCount > 0 ? (
+                  <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 rounded-full bg-red-500 px-1 text-[9px] font-bold text-white flex items-center justify-center">
+                    {notificationCount > 9 ? '9+' : notificationCount}
+                  </span>
+                ) : null}
               </button>
             </Tooltip>
             <Tooltip content="What's New">
@@ -405,6 +374,16 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
           {(mounted && (showAll || hasAnyPermission(['view_assigned_candidates', 'view_all_candidates']))) && (
             <NavItem icon={UserRound} label="Candidates" href="/candidate" collapsed={isCollapsed} />
           )}
+
+          {/* Interviews - show if Super Admin or has schedule_interview */}
+          {(mounted && (showAll || hasPermission('schedule_interview'))) && (
+            <NavItem icon={Calendar} label="Interviews" href="/interviews" collapsed={isCollapsed} />
+          )}
+
+          {/* Placements - show if Super Admin or has mark_placement or view_placement_revenue */}
+          {(mounted && (showAll || hasAnyPermission(['mark_placement', 'view_placement_revenue']))) && (
+            <NavItem icon={Award} label="Placements" href="/placement" collapsed={isCollapsed} />
+          )}
           
           {/* Pipeline - show if Super Admin or has move_pipeline */}
           {(mounted && (showAll || hasPermission('move_pipeline'))) && (
@@ -416,16 +395,6 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
           
           {/* Matches - always show */}
           <NavItem icon={Zap} label="Matches" href="/matches" collapsed={isCollapsed} />
-          
-          {/* Interviews - show if Super Admin or has schedule_interview */}
-          {(mounted && (showAll || hasPermission('schedule_interview'))) && (
-            <NavItem icon={Calendar} label="Interviews" href="/interviews" collapsed={isCollapsed} />
-          )}
-          
-          {/* Placements - show if Super Admin or has mark_placement or view_placement_revenue */}
-          {(mounted && (showAll || hasAnyPermission(['mark_placement', 'view_placement_revenue']))) && (
-            <NavItem icon={Award} label="Placements" href="/placement" collapsed={isCollapsed} />
-          )}
 
           <Divider />
 
@@ -523,6 +492,11 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
           </div>
         )}
       </motion.main>
+
+      <NotificationDrawer
+        isOpen={notificationDrawerOpen}
+        onClose={() => setNotificationDrawerOpen(false)}
+      />
     </>
   );
 }

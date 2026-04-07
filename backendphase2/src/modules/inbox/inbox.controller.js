@@ -55,4 +55,58 @@ export const inboxController = {
       sendError(res, 500, error.message, error);
     }
   },
+
+  async getGmailMessages(req, res) {
+    try {
+      const result = await inboxService.getGmailMessages(req.user.id, req.query || {});
+      sendResponse(res, 200, 'Gmail messages retrieved successfully', result);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
+  async getGmailMessage(req, res) {
+    try {
+      const result = await inboxService.getGmailMessage(req.user.id, req.params.messageId);
+      sendResponse(res, 200, 'Gmail message retrieved successfully', result);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
+  async archiveGmailMessage(req, res) {
+    try {
+      const result = await inboxService.archiveGmailMessage(req.user.id, req.params.messageId);
+      sendResponse(res, 200, 'Gmail message archived successfully', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async trashGmailMessage(req, res) {
+    try {
+      const result = await inboxService.trashGmailMessage(req.user.id, req.params.messageId);
+      sendResponse(res, 200, 'Gmail message deleted successfully', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async updateGmailMessageFlags(req, res) {
+    try {
+      const result = await inboxService.updateGmailMessageFlags(req.user.id, req.params.messageId, req.body || {});
+      sendResponse(res, 200, 'Gmail message updated successfully', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async createCalendarEventFromMessage(req, res) {
+    try {
+      const result = await inboxService.createCalendarEventFromMessage(req.user.id, req.params.messageId);
+      sendResponse(res, 200, 'Calendar event created successfully', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
 };

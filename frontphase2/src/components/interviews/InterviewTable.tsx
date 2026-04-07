@@ -52,9 +52,9 @@ export function InterviewTable({
   return (
     <div className="rounded-2xl border border-[#E5E7EB] bg-white shadow-sm">
       <div className="overflow-x-auto">
-        <table className="min-w-full text-left">
+        <table className="min-w-full text-left text-sm">
           <thead className="border-b border-[#E5E7EB] bg-[#F9FAFB]">
-            <tr className="text-xs uppercase tracking-[0.14em] text-[#6B7280]">
+            <tr className="text-[11px] uppercase tracking-[0.12em] text-[#6B7280]">
               <th className="px-5 py-4">
                 <input
                   type="checkbox"
@@ -91,7 +91,7 @@ export function InterviewTable({
                 </td>
                 <td className="px-5 py-4">
                   <div className="flex items-center gap-3">
-                    <div className="flex size-10 items-center justify-center rounded-full bg-blue-100 text-sm font-semibold text-[#2563EB]">
+                    <div className="flex size-10 items-center justify-center rounded-full bg-blue-100 text-[12px] font-semibold text-[#2563EB]">
                       {interview.candidate.name
                         .split(' ')
                         .map((part) => part[0])
@@ -99,28 +99,28 @@ export function InterviewTable({
                         .join('')}
                     </div>
                     <div>
-                      <div className="font-semibold text-[#111827]">{interview.candidate.name}</div>
-                      <div className="text-sm text-[#6B7280]">{interview.candidate.email}</div>
+                      <div className="text-[13px] font-semibold text-[#111827]">{interview.candidate.name}</div>
+                      <div className="text-[12px] text-[#6B7280]">{interview.candidate.email}</div>
                     </div>
                   </div>
                 </td>
                 <td className="px-5 py-4">
-                  <div className="font-semibold text-[#111827]">{interview.job.title}</div>
-                  <div className="text-sm text-[#6B7280]">{interview.job.client}</div>
+                  <div className="text-[13px] font-semibold text-[#111827]">{interview.job.title}</div>
+                  <div className="text-[12px] text-[#6B7280]">{interview.job.client}</div>
                 </td>
                 <td className="px-5 py-4">
-                  <div className="font-semibold text-[#111827]">{interview.round}</div>
-                  <div className="mt-1 flex items-center gap-1.5 text-sm text-[#6B7280]">
+                  <div className="text-[13px] font-semibold text-[#111827]">{interview.round}</div>
+                  <div className="mt-1 flex items-center gap-1.5 text-[12px] text-[#6B7280]">
                     {modeIcon(interview.type)}
                     {interview.type}
                   </div>
                 </td>
                 <td className="px-5 py-4">
-                  <div className="flex items-center gap-2 font-semibold text-[#111827]">
+                  <div className="flex items-center gap-2 text-[13px] font-semibold text-[#111827]">
                     <CalendarDays className="size-4 text-[#6B7280]" />
                     {interview.date}
                   </div>
-                  <div className="pl-6 text-sm text-[#6B7280]">{interview.time}</div>
+                  <div className="pl-6 text-[12px] text-[#6B7280]">{interview.time}</div>
                 </td>
                 <td className="px-5 py-4">
                   <div className="flex items-center">
@@ -128,27 +128,27 @@ export function InterviewTable({
                       <div
                         key={member.id}
                         title={member.name}
-                        className="-ml-2 flex size-8 items-center justify-center rounded-full border-2 border-white bg-[#DBEAFE] text-xs font-semibold text-[#2563EB]"
+                        className="-ml-2 flex size-8 items-center justify-center rounded-full border-2 border-white bg-[#DBEAFE] text-[11px] font-semibold text-[#2563EB]"
                         style={{ marginLeft: index === 0 ? 0 : -8 }}
                       >
                         {member.avatar}
                       </div>
                     ))}
                     {interview.panel.length > 3 ? (
-                      <div className="-ml-2 flex size-8 items-center justify-center rounded-full border-2 border-white bg-[#F3F4F6] text-xs font-semibold text-[#374151]">
+                      <div className="-ml-2 flex size-8 items-center justify-center rounded-full border-2 border-white bg-[#F3F4F6] text-[11px] font-semibold text-[#374151]">
                         +{interview.panel.length - 3}
                       </div>
                     ) : null}
                   </div>
                 </td>
                 <td className="px-5 py-4">
-                  <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusClasses[interview.status]}`}>
+                  <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${statusClasses[interview.status]}`}>
                     {interview.status}
                   </span>
                   {interview.candidate.stage ? (
                     <div className="mt-2">
                       <span
-                        className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${getCandidateStageBadgeClasses(
+                        className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold ${getCandidateStageBadgeClasses(
                           interview.candidate.stage
                         )}`}
                       >
@@ -157,7 +157,7 @@ export function InterviewTable({
                     </div>
                   ) : null}
                 </td>
-                <td className={`px-5 py-4 text-sm font-semibold ${feedbackClasses[interview.feedbackStatus]}`}>
+                <td className={`px-5 py-4 text-[12px] font-semibold ${feedbackClasses[interview.feedbackStatus]}`}>
                   {interview.feedbackStatus}
                 </td>
                 <td className="px-5 py-4">
@@ -186,7 +186,7 @@ export function InterviewTable({
       </div>
 
       <div className="flex items-center justify-between border-t border-[#E5E7EB] px-5 py-4">
-        <div className="flex items-center gap-2 text-sm text-[#6B7280]">
+        <div className="flex items-center gap-2 text-[12px] text-[#6B7280]">
           <CheckSquare className="size-4" />
           {selectedIds.length} selected
         </div>
@@ -196,7 +196,7 @@ export function InterviewTable({
             type="button"
             disabled={page === 1}
             onClick={() => onPageChange(page - 1)}
-            className="rounded-lg border border-[#E5E7EB] px-3 py-1.5 text-sm font-medium text-[#374151] disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-lg border border-[#E5E7EB] px-3 py-1.5 text-[12px] font-medium text-[#374151] disabled:cursor-not-allowed disabled:opacity-50"
           >
             Prev
           </button>
@@ -205,7 +205,7 @@ export function InterviewTable({
               key={index}
               type="button"
               onClick={() => onPageChange(index + 1)}
-              className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+              className={`rounded-lg px-3 py-1.5 text-[12px] font-medium ${
                 page === index + 1 ? 'bg-[#2563EB] text-white' : 'border border-[#E5E7EB] text-[#374151]'
               }`}
             >
@@ -216,7 +216,7 @@ export function InterviewTable({
             type="button"
             disabled={page === totalPages}
             onClick={() => onPageChange(page + 1)}
-            className="rounded-lg border border-[#E5E7EB] px-3 py-1.5 text-sm font-medium text-[#374151] disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-lg border border-[#E5E7EB] px-3 py-1.5 text-[12px] font-medium text-[#374151] disabled:cursor-not-allowed disabled:opacity-50"
           >
             Next
           </button>

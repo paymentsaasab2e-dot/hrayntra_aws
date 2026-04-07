@@ -2,6 +2,7 @@ import { env } from '../../config/env.js';
 import { sendResponse } from '../../utils/response.js';
 import { createOAuthState, verifyOAuthState } from '../../utils/oauth-state.js';
 import { linkedinService } from '../linkedin/linkedin.service.js';
+import { integrationService } from '../integration/integration.service.js';
 
 /**
  * Settings-page LinkedIn OAuth (JWT state). Uses LINKEDIN_OAUTH_REDIRECT_URI on backend.
@@ -30,7 +31,15 @@ export const linkedinOAuthSettingsController = {
     try {
       const { code, state } = req.query;
       if (!code) return fail();
-      const { userId } = verifyOAuthState(state);
+      const parsedState = verifyOAuthState(state);
+      const { userId, service } = parsedState;
+
+      if (service === 'linkedin') {
+        const result = await integrationService.handleCallback('linkedin', String(code), String(state || ''));
+        return res.redirect(
+          `${frontend}/setting?section=communication&integration_connected=${encodeURIComponent(result.provider)}&email=${encodeURIComponent(result.accountEmail || '')}`
+        );
+      }
 
       const tokenRes = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
         method: 'POST',

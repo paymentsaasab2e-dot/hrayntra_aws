@@ -1,12 +1,16 @@
 import express from 'express';
+import multer from 'multer';
 import { leadController } from './lead.controller.js';
 import { authMiddleware } from '../../middleware/auth.middleware.js';
 
 const router = express.Router();
+const importUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 router.use(authMiddleware);
 
 router.get('/', leadController.getAll);
+router.post('/import/preview', importUpload.single('file'), leadController.previewImport);
+router.post('/import', leadController.importLeads);
 router.get('/:id', leadController.getById);
 router.get('/:id/activities', leadController.getActivities);
 router.post('/', leadController.create);

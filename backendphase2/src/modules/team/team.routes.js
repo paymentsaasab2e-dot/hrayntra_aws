@@ -9,8 +9,10 @@ const router = express.Router();
 router.use(authMiddleware);
 
 // Team Member routes (individual users as team members)
-router.get('/', requirePermission('view_jobs'), teamMemberController.getAll);
-router.get('/:id', requirePermission('view_jobs'), teamMemberController.getById);
+// Viewing team members - allow all authenticated users (or require view_team_members if it exists)
+// For now, we'll allow authenticated users to view, but require permissions for modifications
+router.get('/', teamMemberController.getAll);
+router.get('/:id', teamMemberController.getById);
 router.post('/', requirePermission('add_team_member'), teamMemberController.create);
 router.patch('/:id', requirePermission('edit_team_member'), teamMemberController.update);
 router.delete('/:id', requirePermission('edit_team_member'), teamMemberController.delete);
@@ -20,7 +22,7 @@ router.post('/:id/resend-invite', requirePermission('generate_credentials'), tea
 router.post('/:id/lock', requirePermission('add_team_member'), teamMemberController.lockAccount);
 router.post('/:id/unlock', requirePermission('add_team_member'), teamMemberController.unlockAccount);
 router.get('/:id/login-history', requirePermission('add_team_member'), teamMemberController.getLoginHistory);
-router.get('/:id/activity', requirePermission('view_jobs'), teamMemberController.getActivity);
+router.get('/:id/activity', teamMemberController.getActivity);
 
 // Legacy Team routes (for team groups - keeping for backward compatibility)
 router.get('/groups', teamController.getAll);

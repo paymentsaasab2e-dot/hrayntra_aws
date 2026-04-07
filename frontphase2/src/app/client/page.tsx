@@ -8,23 +8,39 @@ import {
   MoreVertical,
   Search,
   Filter,
-  Grid2X2,
+  Grid2x2,
   List,
-  ChevronDown,
   Building2,
   AlertCircle,
-  CheckSquare,
+  X,
+  Trash2,
+  UserPlus,
+  BadgeCheck,
 } from 'lucide-react';
 import { ClientSummaryMetrics } from '../../components/ClientSummaryMetrics';
 import { ClientTable } from '../../components/ClientTable';
 import { ClientFilterDrawer } from '../../components/drawers/ClientFilterDrawer';
-import { ClientBulkActionsBar } from '../../components/ClientBulkActionsBar';
 import { ClientDetailsDrawer } from '../../components/drawers/ClientDetailsDrawer';
 import { ClientImportDrawer } from '../../components/drawers/ClientImportDrawer';
-import { CreateTaskModal } from '../../components/CreateTaskModal';
 import { INITIAL_CLIENTS } from './types';
 import type { Client } from './types';
-import { apiGetClients, apiDeleteClient, type BackendClient } from '../../lib/api';
+import { apiGetClients, apiDeleteClient, apiGetUsers, apiUpdateClient, type BackendClient, type BackendUser, type UpdateClientData } from '../../lib/api';
+
+function filterClientsByTab(clients: Client[], activeTab: string): Client[] {
+  switch (activeTab) {
+    case 'active':
+      return clients.filter((client) => client.stage === 'Active');
+    case 'on-hold':
+      return clients.filter((client) => client.stage === 'On Hold');
+    case 'inactive':
+      return clients.filter((client) => client.stage === 'Inactive');
+    case 'hot':
+      return clients.filter((client) => client.priority === 'High');
+    case 'all':
+    default:
+      return clients;
+  }
+}
 
 // Tab Component
 const StatusTabs = ({ activeTab, onTabChange, clients }: { activeTab: string, onTabChange: (tab: string) => void, clients: Client[] }) => {
@@ -159,17 +175,42 @@ export default function App() {
   const [showAddClientDrawer, setShowAddClientDrawer] = useState(false);
   const [isEmpty, setIsEmpty] = useState(false);
   const [showImportDrawer, setShowImportDrawer] = useState(false);
-  const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [teamMembers, setTeamMembers] = useState<BackendUser[]>([]);
+  const [bulkStatus, setBulkStatus] = useState('');
+  const [bulkAssignedTo, setBulkAssignedTo] = useState('');
+  const [bulkActionLoading, setBulkActionLoading] = useState(false);
+  const filteredClients = filterClientsByTab(clients, activeTab);
 
   // Check authentication status on client side only
   useEffect(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
     setIsAuthenticated(!!token);
+  }, []);
+
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+        if (!token) return;
+        const response = await apiGetUsers({ isActive: true, limit: 200 });
+        const payload = response.data;
+        const users = Array.isArray(payload)
+          ? payload
+          : Array.isArray(payload?.data)
+            ? payload.data
+            : [];
+        setTeamMembers(users);
+      } catch (err) {
+        console.error('Failed to fetch users for bulk assignment:', err);
+      }
+    };
+
+    fetchUsers();
   }, []);
 
   // Fetch clients from API
@@ -189,16 +230,7 @@ export default function App() {
           return;
         }
 
-        // Map activeTab to status filter
-        const statusMap: Record<string, string | undefined> = {
-          'all': undefined,
-          'active': 'ACTIVE',
-          'on-hold': 'ON_HOLD',
-          'inactive': 'INACTIVE',
-        };
-
         const response = await apiGetClients({
-          status: statusMap[activeTab],
           search: searchQuery || undefined,
         });
 
@@ -251,20 +283,12 @@ export default function App() {
     };
 
     fetchClients();
-  }, [activeTab, searchQuery]);
+  }, [searchQuery]);
 
   const handleRefresh = async () => {
     try {
       setLoading(true);
-      const statusMap: Record<string, string | undefined> = {
-        'all': undefined,
-        'active': 'ACTIVE',
-        'on-hold': 'ON_HOLD',
-        'inactive': 'INACTIVE',
-      };
-
       const response = await apiGetClients({
-        status: statusMap[activeTab],
         search: searchQuery || undefined,
       });
 
@@ -307,6 +331,59 @@ export default function App() {
     }
   };
 
+  const clearBulkSelection = () => {
+    setSelectedClients([]);
+    setBulkStatus('');
+    setBulkAssignedTo('');
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedClients.length === 0) return;
+    if (!window.confirm(`Delete ${selectedClients.length} selected client${selectedClients.length > 1 ? 's' : ''}? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setBulkActionLoading(true);
+      await Promise.all(selectedClients.map((id) => apiDeleteClient(id)));
+      clearBulkSelection();
+      await handleRefresh();
+    } catch (err: any) {
+      console.error('Failed to bulk delete clients:', err);
+      alert(err?.message || 'Failed to delete selected clients');
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
+  const handleBulkUpdate = async (updates: UpdateClientData) => {
+    if (selectedClients.length === 0) return;
+
+    try {
+      setBulkActionLoading(true);
+      await Promise.all(selectedClients.map((id) => apiUpdateClient(id, updates)));
+      clearBulkSelection();
+      await handleRefresh();
+    } catch (err: any) {
+      console.error('Failed to bulk update clients:', err);
+      alert(err?.message || 'Failed to update selected clients');
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
+  const handleBulkStatusChange = async (status: string) => {
+    setBulkStatus(status);
+    if (!status) return;
+    await handleBulkUpdate({ status: status as UpdateClientData['status'] });
+  };
+
+  const handleBulkAssignChange = async (assignedToId: string) => {
+    setBulkAssignedTo(assignedToId);
+    if (!assignedToId) return;
+    await handleBulkUpdate({ assignedToId });
+  };
+
   return (
     <div className="w-full min-h-screen bg-slate-50">
       <div className="p-8 max-w-7xl mx-auto w-full">
@@ -332,12 +409,6 @@ export default function App() {
                 className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-lg text-slate-600 font-semibold hover:bg-slate-50 transition-all shadow-sm"
               >
                 <Upload className="w-4 h-4" /> Import Clients
-              </button>
-              <button
-                onClick={() => setCreateTaskOpen(true)}
-                className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-lg text-slate-600 font-semibold hover:bg-slate-50 transition-all shadow-sm"
-              >
-                <CheckSquare className="w-4 h-4" /> Create Task
               </button>
               <button
                 onClick={() => {
@@ -378,7 +449,7 @@ export default function App() {
                   <List className="w-5 h-5" />
                 </button>
                 <button className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-all">
-                  <Grid2X2 className="w-5 h-5" />
+                  <Grid2x2 className="w-5 h-5" />
                 </button>
               </div>
             </div>
@@ -400,25 +471,20 @@ export default function App() {
             <EmptyState onImportClick={() => setShowImportDrawer(true)} />
           ) : (
             <>
-              <div className="mb-4 flex items-center justify-between">
+              <div className="mb-4 flex items-center">
                 <div className="flex items-center gap-2 text-sm text-slate-500">
                   <AlertCircle className="w-4 h-4 text-amber-500" />
-                  <span>Showing <strong>{clients.length} {activeTab === 'all' ? 'Clients' : activeTab === 'active' ? 'Active Clients' : 'Clients'}</strong></span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-tight">Sort by:</span>
-                  <button className="flex items-center gap-1 text-sm font-semibold text-slate-700 hover:text-blue-600">
-                    Last Activity <ChevronDown className="w-4 h-4" />
-                  </button>
+                  <span>Showing <strong>{filteredClients.length} {activeTab === 'all' ? 'Clients' : activeTab === 'active' ? 'Active Clients' : activeTab === 'on-hold' ? 'On Hold Clients' : activeTab === 'inactive' ? 'Inactive Clients' : activeTab === 'hot' ? 'Hot Clients' : 'Clients'}</strong></span>
                 </div>
               </div>
               
               <ClientTable
-                clients={clients}
+                clients={filteredClients}
                 selectedIds={selectedClients}
                 onSelectionChange={setSelectedClients}
                 onSelectClient={setSelectedClient}
                 onDeleteClient={handleDeleteClient}
+                onLogoUpdated={handleRefresh}
               />
             </>
           )}
@@ -444,18 +510,80 @@ export default function App() {
       <ClientImportDrawer
         isOpen={showImportDrawer}
         onClose={() => setShowImportDrawer(false)}
-        onImportComplete={() => { /* TODO: refresh client list */ }}
+        onImportComplete={() => { handleRefresh(); }}
       />
-      <CreateTaskModal
-        isOpen={createTaskOpen}
-        onClose={() => setCreateTaskOpen(false)}
-        onSuccess={() => setCreateTaskOpen(false)}
-        initialRelatedTo="Client"
-      />
-      <ClientBulkActionsBar 
-        selectedCount={selectedClients.length} 
-        onClear={() => setSelectedClients([])} 
-      />
+      {selectedClients.length > 0 && (
+        <div className="fixed bottom-6 left-1/2 z-40 w-[min(94vw,980px)] -translate-x-1/2 rounded-2xl border border-slate-800 bg-slate-950/95 px-4 py-3 text-white shadow-2xl shadow-slate-950/40 backdrop-blur">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-blue-500/15 text-blue-300">
+                <BadgeCheck className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-white">
+                  {selectedClients.length} client{selectedClients.length > 1 ? 's' : ''} selected
+                </p>
+                <p className="truncate text-xs text-slate-400">Use bulk actions to update or remove the selected clients.</p>
+              </div>
+            </div>
+
+            <div className="flex flex-shrink-0 items-center gap-2">
+              <div className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2">
+                <UserPlus className="w-4 h-4 text-slate-400" />
+                <select
+                  value={bulkAssignedTo}
+                  onChange={(e) => handleBulkAssignChange(e.target.value)}
+                  disabled={bulkActionLoading}
+                  className="bg-transparent text-sm text-slate-100 outline-none"
+                >
+                  <option value="">Assign To</option>
+                  {teamMembers.map((user) => (
+                    <option key={user.id} value={user.id}>
+                      {user.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2">
+                <BadgeCheck className="w-4 h-4 text-slate-400" />
+                <select
+                  value={bulkStatus}
+                  onChange={(e) => handleBulkStatusChange(e.target.value)}
+                  disabled={bulkActionLoading}
+                  className="bg-transparent text-sm text-slate-100 outline-none"
+                >
+                  <option value="">Change Status</option>
+                  <option value="ACTIVE">Active</option>
+                  <option value="ON_HOLD">On Hold</option>
+                  <option value="INACTIVE">Inactive</option>
+                  <option value="PROSPECT">Prospect</option>
+                </select>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleBulkDelete}
+                disabled={bulkActionLoading}
+                className="flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete
+              </button>
+
+              <button
+                type="button"
+                onClick={clearBulkSelection}
+                disabled={bulkActionLoading}
+                className="flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <X className="w-4 h-4" />
+                Clear
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

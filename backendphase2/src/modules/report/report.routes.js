@@ -6,6 +6,10 @@ const router = express.Router();
 
 router.use(authMiddleware);
 
+router.get('/summary/export/:tab/:format', reportController.exportSummaryTab);
+router.get('/summary', reportController.getSummary);
+router.get('/dataset/:entity', reportController.getDataset);
+router.get('/export/:entity/:format', reportController.exportEntity);
 router.get('/', reportController.getAll);
 router.get('/:id', reportController.getById);
 router.post('/', reportController.create);

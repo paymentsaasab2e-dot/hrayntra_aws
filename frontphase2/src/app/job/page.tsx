@@ -40,7 +40,7 @@ import {
   type BackendCandidate,
   type JobMetrics,
 } from '../../lib/api';
-import { MY_JOBS_LIST_PARAMS } from '../../lib/myJobsListParams';
+const ALL_JOBS_LIST_PARAMS = { limit: 500 } as const;
 
 // Types
 type JobStatus = 'Active' | 'On Hold' | 'Closed';
@@ -329,10 +329,10 @@ const JobsListView = ({ jobs, onJobClick, onDeleteJob, deletingJobId, statusEdit
     </table>
     <div className="p-4 border-t border-gray-100 text-sm text-gray-500">
       {jobs.length === 0 ? (
-        <span>No jobs yet — use <span className="font-semibold text-gray-700">New job</span> to create one. Only jobs you create appear here.</span>
+        <span>No jobs found in the database yet.</span>
       ) : (
         <span>
-          Showing <span className="font-semibold text-gray-800">{jobs.length}</span> job{jobs.length === 1 ? '' : 's'} you created (loaded from API).
+          Showing <span className="font-semibold text-gray-800">{jobs.length}</span> job{jobs.length === 1 ? '' : 's'} from the database.
         </span>
       )}
     </div>
@@ -434,6 +434,43 @@ function mapFrontendStatusToBackend(status: JobStatus): string {
     default:
       return 'OPEN';
   }
+}
+
+function formatEmploymentType(type?: string | null): string | undefined {
+  switch (type) {
+    case 'FULL_TIME':
+      return 'Full-time';
+    case 'PART_TIME':
+      return 'Part-time';
+    case 'CONTRACT':
+      return 'Contract';
+    case 'FREELANCE':
+      return 'Freelance';
+    case 'INTERNSHIP':
+      return 'Internship';
+    default:
+      return undefined;
+  }
+}
+
+function formatSalaryRange(salary?: BackendJob['salary']): string | undefined {
+  if (!salary) return undefined;
+
+  const currency = String(salary.currency || '').trim();
+  const amount = salary.amount !== undefined && salary.amount !== null ? String(salary.amount).trim() : '';
+
+  if (amount) {
+    return currency ? `${currency} ${amount}` : amount;
+  }
+
+  if (salary.min !== undefined || salary.max !== undefined) {
+    const minText = salary.min !== undefined ? `${salary.min}` : '';
+    const maxText = salary.max !== undefined ? `${salary.max}` : '';
+    const range = [minText, maxText].filter(Boolean).join(' - ');
+    return currency ? `${currency} ${range}`.trim() : range || undefined;
+  }
+
+  return undefined;
 }
 
 function mapBackendJob(job: BackendJob): Job {
@@ -564,7 +601,7 @@ export default function JobsPage() {
       try {
         setLoading(true);
         setError(null);
-        const res = await apiGetJobs(MY_JOBS_LIST_PARAMS);
+        const res = await apiGetJobs(ALL_JOBS_LIST_PARAMS);
         if (cancelled) return;
         
         // Backend returns: { success: true, message: "...", data: { data: [...], pagination: {...} } }
@@ -607,7 +644,7 @@ export default function JobsPage() {
     async function loadMetrics() {
       try {
         setLoadingMetrics(true);
-        const response = await apiGetJobMetrics({ mine: true });
+        const response = await apiGetJobMetrics({});
         if (cancelled) return;
         const metrics = (response as any).data?.data || (response as any).data || response;
         setJobMetrics(metrics);
@@ -655,7 +692,7 @@ export default function JobsPage() {
     try {
       setLoading(true);
       setError(null);
-      const res = await apiGetJobs(MY_JOBS_LIST_PARAMS);
+      const res = await apiGetJobs(ALL_JOBS_LIST_PARAMS);
       let backendJobs: BackendJob[] = [];
       if (res.data) {
         if (Array.isArray(res.data)) {
@@ -680,7 +717,7 @@ export default function JobsPage() {
     }
     try {
       setLoadingMetrics(true);
-      const response = await apiGetJobMetrics({ mine: true });
+      const response = await apiGetJobMetrics({});
       const metrics = (response as any).data?.data || (response as any).data || response;
       setJobMetrics(metrics);
     } catch {
@@ -701,7 +738,7 @@ export default function JobsPage() {
     const JOBS_CHANGED = 'jobportal:jobs-changed';
     const refreshJobsList = async () => {
       try {
-        const res = await apiGetJobs(MY_JOBS_LIST_PARAMS);
+        const res = await apiGetJobs(ALL_JOBS_LIST_PARAMS);
         let backendJobs: BackendJob[] = [];
         if (res.data) {
           if (Array.isArray(res.data)) {
@@ -719,7 +756,7 @@ export default function JobsPage() {
         console.error('Failed to refresh jobs after change event:', e);
       }
       try {
-        const response = await apiGetJobMetrics({ mine: true });
+        const response = await apiGetJobMetrics({});
         const metrics = (response as any).data?.data || (response as any).data || response;
         setJobMetrics(metrics);
       } catch {
@@ -752,7 +789,7 @@ export default function JobsPage() {
       
       // Reload metrics
       try {
-        const response = await apiGetJobMetrics({ mine: true });
+        const response = await apiGetJobMetrics({});
         const metrics = (response as any).data?.data || (response as any).data || response;
         setJobMetrics(metrics);
       } catch (err) {
@@ -762,7 +799,7 @@ export default function JobsPage() {
       // Reload jobs list
       try {
         setLoading(true);
-        const res = await apiGetJobs(MY_JOBS_LIST_PARAMS);
+        const res = await apiGetJobs(ALL_JOBS_LIST_PARAMS);
         let backendJobs: BackendJob[] = [];
         if (res.data) {
           if (Array.isArray(res.data)) {
@@ -835,12 +872,11 @@ export default function JobsPage() {
         client: backendJob.client?.companyName || job.client,
         location: backendJob.location || job.location,
         status: mapBackendStatus(backendJob.status) as JobForDrawer['status'],
-        employmentType: backendJob.type === 'FULL_TIME' ? 'Full-time' : 
-                       backendJob.type === 'PART_TIME' ? 'Part-time' :
-                       backendJob.type === 'CONTRACT' ? 'Contract' : 'Internship',
+        employmentType: formatEmploymentType(backendJob.type) || undefined,
         salaryRange: backendJob.salary ? 
           `$${backendJob.salary.min || '0'}k – $${backendJob.salary.max || '0'}k` : 
           undefined,
+        salaryRange: formatSalaryRange(backendJob.salary),
         postedDate: backendJob.postedDate ? new Date(backendJob.postedDate).toISOString().split('T')[0] : 
                    backendJob.createdAt ? backendJob.createdAt.split('T')[0] : job.createdDate,
         recruiter: backendJob.assignedTo?.name || job.owner,
@@ -1019,7 +1055,7 @@ export default function JobsPage() {
         statusRemark: statusEdit.remark || undefined,
       } as any);
       // Refresh jobs to get latest data
-      const res = await apiGetJobs(MY_JOBS_LIST_PARAMS);
+      const res = await apiGetJobs(ALL_JOBS_LIST_PARAMS);
       let backendJobs: BackendJob[] = [];
       if (res.data) {
         if (Array.isArray(res.data)) {
@@ -1037,7 +1073,7 @@ export default function JobsPage() {
       alert(err.message || 'Failed to update job status');
       // Revert by refreshing from backend
       try {
-        const res = await apiGetJobs(MY_JOBS_LIST_PARAMS);
+        const res = await apiGetJobs(ALL_JOBS_LIST_PARAMS);
         let backendJobs: BackendJob[] = [];
         if (res.data) {
           if (Array.isArray(res.data)) {
@@ -1062,7 +1098,7 @@ export default function JobsPage() {
     setStatusEdit({ jobId: null, newStatus: null, remark: '' });
     // Reload to ensure UI matches backend
     try {
-      const res = await apiGetJobs(MY_JOBS_LIST_PARAMS);
+      const res = await apiGetJobs(ALL_JOBS_LIST_PARAMS);
       let backendJobs: BackendJob[] = [];
       if (res.data) {
         if (Array.isArray(res.data)) {
@@ -1089,9 +1125,9 @@ export default function JobsPage() {
             {/* Page Header */}
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="space-y-1 min-w-0">
-                <h1 className="text-3xl font-bold tracking-tight text-gray-900">My jobs</h1>
+                <h1 className="text-3xl font-bold tracking-tight text-gray-900">Jobs</h1>
                 <p className="text-gray-500">
-                  Jobs you create are loaded from the API. Seeded or other users&apos; jobs are not listed here.
+                  All jobs from the database are loaded here.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -1117,7 +1153,7 @@ export default function JobsPage() {
                   type="button"
                   onClick={() => void reloadMyJobsAndMetrics()}
                   className="inline-flex items-center justify-center p-1.5 bg-white border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors shadow-sm"
-                  title="Reload my jobs"
+                  title="Reload jobs"
                 >
                   <RefreshCcw size={15} className="shrink-0" />
                 </button>
@@ -1318,7 +1354,7 @@ export default function JobsPage() {
             try {
               setLoading(true);
               setError(null);
-              const res = await apiGetJobs(MY_JOBS_LIST_PARAMS);
+              const res = await apiGetJobs(ALL_JOBS_LIST_PARAMS);
               
               let backendJobs: BackendJob[] = [];
               if (res.data) {
@@ -1475,7 +1511,7 @@ export default function JobsPage() {
             try {
               setLoading(true);
               setError(null);
-              const res = await apiGetJobs(MY_JOBS_LIST_PARAMS);
+              const res = await apiGetJobs(ALL_JOBS_LIST_PARAMS);
               
               let backendJobs: BackendJob[] = [];
               if (res.data) {
@@ -1520,6 +1556,8 @@ export default function JobsPage() {
                       salaryRange: backendJob.salary ? 
                         `$${backendJob.salary.min || '0'}k – $${backendJob.salary.max || '0'}k` : 
                         undefined,
+                      employmentType: formatEmploymentType(backendJob.type) || undefined,
+                      salaryRange: formatSalaryRange(backendJob.salary),
                       postedDate: backendJob.postedDate ? new Date(backendJob.postedDate).toISOString().split('T')[0] : 
                                  backendJob.createdAt ? backendJob.createdAt.split('T')[0] : updatedJob.createdDate,
                       recruiter: backendJob.assignedTo?.name || updatedJob.owner,

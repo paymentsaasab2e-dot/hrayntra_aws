@@ -3,6 +3,50 @@ import { getPaginationParams, formatPaginationResponse } from '../../utils/pagin
 import { dbLogger } from '../../utils/db-logger.js';
 import { sendLeadFollowUpEmail } from '../../emails/email.service.js';
 import { activityService } from '../activity/activity.service.js';
+import { sendLeadAssignmentEmail } from '../../services/emailService.js';
+
+function isValidObjectId(value) {
+  return typeof value === 'string' && /^[a-fA-F0-9]{24}$/.test(value.trim());
+}
+
+function normalizeOtherDetails(value) {
+  if (!Array.isArray(value)) return null;
+
+  const normalized = value
+    .map((item) => ({
+      label: String(item?.label || '').trim(),
+      value: String(item?.value || '').trim(),
+    }))
+    .filter((item) => item.label && item.value);
+
+  return normalized.length ? normalized : null;
+}
+
+async function resolveAssignedToId(value) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  if (!normalized) return null;
+
+  if (isValidObjectId(normalized)) {
+    const userById = await prisma.user.findUnique({
+      where: { id: normalized },
+      select: { id: true },
+    });
+    return userById?.id || null;
+  }
+
+  const lowered = normalized.toLowerCase();
+  const userByIdentity = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { email: lowered },
+        { name: normalized },
+      ],
+    },
+    select: { id: true },
+  });
+
+  return userByIdentity?.id || null;
+}
 
 export const leadService = {
   async getAll(req) {
@@ -66,39 +110,68 @@ export const leadService = {
   },
 
   async create(data) {
+    const normalizeNullableString = (value) => {
+      if (value === undefined || value === null) return null;
+      const normalized = String(value).trim();
+      return normalized || null;
+    };
+    const normalizeRequiredLeadField = (value) => normalizeNullableString(value) || '';
+
+    const normalizedCompanyLinks = Array.isArray(data.companyLinks)
+      ? data.companyLinks.map((item) => String(item).trim()).filter(Boolean)
+      : String(data.website || '')
+          .split('\n')
+          .map((item) => item.trim())
+          .filter(Boolean);
+
+    const normalizedContactPerson = normalizeNullableString(data.contactPerson) || normalizeNullableString(data.directorName);
+    const normalizedIndustry = normalizeNullableString(data.industry) || normalizeNullableString(data.sector);
+    const normalizedCompanySize = normalizeNullableString(data.companySize) || normalizeNullableString(data.teamName);
+    const normalizedInterestedNeeds = normalizeNullableString(data.interestedNeeds) || normalizeNullableString(data.servicesNeeded);
+    const normalizedNotes = normalizeNullableString(data.notes) || normalizeNullableString(data.expectedBusinessValue);
+    const resolvedAssignedToId = await resolveAssignedToId(data.assignedToId || data.assignedToName);
+    const normalizedOtherDetails = normalizeOtherDetails(data.otherDetails);
+
     // Map frontend fields to backend model
     const leadData = {
-      companyName: data.companyName,
-      contactPerson: data.contactPerson,
-      email: data.email,
-      phone: data.phone || null,
+      companyName: normalizeRequiredLeadField(data.companyName),
+      contactPerson: normalizeRequiredLeadField(normalizedContactPerson),
+      directorName: normalizeNullableString(data.directorName) || normalizedContactPerson || null,
+      email: normalizeRequiredLeadField(normalizeNullableString(data.email)?.toLowerCase()),
+      phone: normalizeNullableString(data.phone),
       type: data.type || 'Company',
       source: data.source || 'Website',
       status: data.status || 'New',
       priority: data.priority || 'Medium',
-      interestedNeeds: data.interestedNeeds || null,
-      notes: data.notes || null,
+      interestedNeeds: normalizedInterestedNeeds || null,
+      servicesNeeded: data.servicesNeeded || normalizedInterestedNeeds || null,
+      notes: normalizedNotes || null,
+      expectedBusinessValue: data.expectedBusinessValue || normalizedNotes || null,
       // Extended company fields
-      industry: data.industry || null,
-      companySize: data.companySize || null,
-      website: data.website || null,
-      linkedIn: data.linkedIn || null,
-      location: data.location || null,
+      industry: normalizedIndustry || null,
+      sector: data.sector || normalizedIndustry || null,
+      companySize: normalizedCompanySize || null,
+      teamName: data.teamName || normalizedCompanySize || null,
+      website: normalizeNullableString(data.website) || normalizedCompanyLinks.join('\n') || null,
+      companyLinks: normalizedCompanyLinks,
+      linkedIn: normalizeNullableString(data.linkedIn),
+      location: normalizeNullableString(data.location),
       // Extended contact fields
-      designation: data.designation || null,
-      country: data.country || null,
-      city: data.city || null,
+      designation: normalizeNullableString(data.designation),
+      country: normalizeNullableString(data.country),
+      city: normalizeNullableString(data.city),
       // Lead management fields
-      campaignName: data.campaignName || null,
-      campaignLink: data.campaignLink || null,
-      referralName: data.referralName || null,
-      sourceWebsiteUrl: data.sourceWebsiteUrl || null,
-      sourceLinkedInUrl: data.sourceLinkedInUrl || null,
-      sourceEmail: data.sourceEmail || null,
+      campaignName: normalizeNullableString(data.campaignName),
+      campaignLink: normalizeNullableString(data.campaignLink),
+      referralName: normalizeNullableString(data.referralName),
+      sourceWebsiteUrl: normalizeNullableString(data.sourceWebsiteUrl),
+      sourceLinkedInUrl: normalizeNullableString(data.sourceLinkedInUrl),
+      sourceEmail: normalizeNullableString(data.sourceEmail),
+      otherDetails: normalizedOtherDetails,
       lastFollowUp: data.lastFollowUp ? new Date(data.lastFollowUp) : null,
       nextFollowUp: data.nextFollowUp ? new Date(data.nextFollowUp) : null,
       // Relations
-      assignedToId: data.assignedToId || null,
+      assignedToId: resolvedAssignedToId,
     };
 
     // Log the received data in JSON format
@@ -143,28 +216,57 @@ export const leadService = {
 
   async update(id, data) {
     // Get the current lead to track changes
-    const currentLead = await prisma.lead.findUnique({ where: { id } });
+    const currentLead = await prisma.lead.findUnique({
+      where: { id },
+      include: {
+        assignedTo: {
+          select: { id: true, name: true, email: true },
+        },
+      },
+    });
     if (!currentLead) {
       throw new Error('Lead not found');
     }
 
     // Map frontend fields to backend model
     const updateData = {};
+    const normalizedCompanyLinks = Array.isArray(data.companyLinks)
+      ? data.companyLinks.map((item) => String(item).trim()).filter(Boolean)
+      : undefined;
+    const normalizedOtherDetails = data.otherDetails !== undefined ? normalizeOtherDetails(data.otherDetails) : undefined;
+    const resolvedAssignedToId =
+      data.assignedToId !== undefined || data.assignedToName !== undefined
+        ? await resolveAssignedToId(data.assignedToId || data.assignedToName)
+        : undefined;
     
-    if (data.companyName !== undefined) updateData.companyName = data.companyName;
-    if (data.contactPerson !== undefined) updateData.contactPerson = data.contactPerson;
-    if (data.email !== undefined) updateData.email = data.email;
+    if (data.companyName !== undefined) updateData.companyName = data.companyName || '';
+    if (data.contactPerson !== undefined) updateData.contactPerson = data.contactPerson || '';
+    if (data.directorName !== undefined) updateData.directorName = data.directorName || null;
+    if (data.contactPerson === undefined && data.directorName !== undefined) updateData.contactPerson = data.directorName || '';
+    if (data.email !== undefined) updateData.email = data.email || '';
     if (data.phone !== undefined) updateData.phone = data.phone || null;
     if (data.type !== undefined) updateData.type = data.type;
     if (data.source !== undefined) updateData.source = data.source;
     if (data.status !== undefined) updateData.status = data.status;
     if (data.priority !== undefined) updateData.priority = data.priority;
     if (data.interestedNeeds !== undefined) updateData.interestedNeeds = data.interestedNeeds || null;
+    if (data.servicesNeeded !== undefined) updateData.servicesNeeded = data.servicesNeeded || null;
+    if (data.interestedNeeds === undefined && data.servicesNeeded !== undefined) updateData.interestedNeeds = data.servicesNeeded || null;
     if (data.notes !== undefined) updateData.notes = data.notes || null;
+    if (data.expectedBusinessValue !== undefined) updateData.expectedBusinessValue = data.expectedBusinessValue || null;
+    if (data.notes === undefined && data.expectedBusinessValue !== undefined) updateData.notes = data.expectedBusinessValue || null;
     // Extended company fields
     if (data.industry !== undefined) updateData.industry = data.industry || null;
+    if (data.sector !== undefined) updateData.sector = data.sector || null;
+    if (data.industry === undefined && data.sector !== undefined) updateData.industry = data.sector || null;
     if (data.companySize !== undefined) updateData.companySize = data.companySize || null;
+    if (data.teamName !== undefined) updateData.teamName = data.teamName || null;
+    if (data.companySize === undefined && data.teamName !== undefined) updateData.companySize = data.teamName || null;
     if (data.website !== undefined) updateData.website = data.website || null;
+    if (normalizedCompanyLinks !== undefined) {
+      updateData.companyLinks = normalizedCompanyLinks;
+      if (data.website === undefined) updateData.website = normalizedCompanyLinks.join('\n') || null;
+    }
     if (data.linkedIn !== undefined) updateData.linkedIn = data.linkedIn || null;
     if (data.location !== undefined) updateData.location = data.location || null;
     // Extended contact fields
@@ -178,11 +280,14 @@ export const leadService = {
     if (data.sourceWebsiteUrl !== undefined) updateData.sourceWebsiteUrl = data.sourceWebsiteUrl || null;
     if (data.sourceLinkedInUrl !== undefined) updateData.sourceLinkedInUrl = data.sourceLinkedInUrl || null;
     if (data.sourceEmail !== undefined) updateData.sourceEmail = data.sourceEmail || null;
+    if (data.otherDetails !== undefined) updateData.otherDetails = normalizedOtherDetails;
     if (data.lastFollowUp !== undefined) updateData.lastFollowUp = data.lastFollowUp ? new Date(data.lastFollowUp) : null;
     if (data.nextFollowUp !== undefined) updateData.nextFollowUp = data.nextFollowUp ? new Date(data.nextFollowUp) : null;
     if (data.lostReason !== undefined) updateData.lostReason = data.lostReason || null;
     // Relations
-    if (data.assignedToId !== undefined) updateData.assignedToId = data.assignedToId || null;
+    if (data.assignedToId !== undefined || data.assignedToName !== undefined) {
+      updateData.assignedToId = resolvedAssignedToId ?? null;
+    }
     if (data.convertedToClientId !== undefined) updateData.convertedToClientId = data.convertedToClientId || null;
     if (data.convertedToCandidateId !== undefined) updateData.convertedToCandidateId = data.convertedToCandidateId || null;
     if (data.convertedAt !== undefined) updateData.convertedAt = data.convertedAt ? new Date(data.convertedAt) : null;
@@ -202,6 +307,37 @@ export const leadService = {
 
     // Log the updated lead
     dbLogger.logUpdate('Lead', id, updated);
+
+    if (
+      data.assignedToId !== undefined &&
+      data.assignedToId &&
+      data.assignedToId !== currentLead.assignedToId &&
+      updated.assignedTo?.email
+    ) {
+      try {
+        const assignedBy = data.performedById
+          ? await prisma.user.findUnique({
+              where: { id: data.performedById },
+              select: { name: true },
+            })
+          : null;
+
+        await sendLeadAssignmentEmail({
+          toEmail: updated.assignedTo.email,
+          assigneeName: updated.assignedTo.name,
+          leadCompanyName: updated.companyName,
+          contactPerson: updated.contactPerson,
+          leadEmail: updated.email,
+          leadPhone: updated.phone,
+          leadStatus: updated.status,
+          leadPriority: updated.priority,
+          assignedByName: assignedBy?.name || null,
+          senderUserId: data.performedById,
+        });
+      } catch (emailError) {
+        console.error('Failed to send lead assignment email:', emailError);
+      }
+    }
 
     // Create activity log for significant changes
     if (data.performedById) {
@@ -327,6 +463,7 @@ export const leadService = {
       companyName: lead.companyName,
       industry: lead.industry,
       companySize: lead.companySize,
+      teamName: lead.teamName,
       website: lead.website,
       linkedIn: lead.linkedIn,
       location: lead.location,
@@ -337,6 +474,10 @@ export const leadService = {
       email: lead.email,
       phone: lead.phone,
       priority: lead.priority,
+      servicesNeeded: lead.servicesNeeded,
+      interestedNeeds: lead.interestedNeeds,
+      expectedBusinessValue: lead.expectedBusinessValue,
+      notes: lead.notes,
       nextFollowUp: lead.nextFollowUp,
     }, null, 2));
 
@@ -349,12 +490,14 @@ export const leadService = {
       assignedToId: lead.assignedToId,
       location: clientData.location || lead.location || lead.city || lead.country || null,
       address: clientData.address || lead.location || (lead.city && lead.country ? `${lead.city}, ${lead.country}` : lead.city || lead.country || null),
-      companySize: clientData.companySize || lead.companySize,
+      companySize: clientData.companySize || lead.teamName || lead.companySize || null,
       linkedin: clientData.linkedin || lead.linkedIn || null, // Map linkedIn to linkedin
       hiringLocations: clientData.hiringLocations || (lead.city && lead.country ? `${lead.city}, ${lead.country}` : lead.city || lead.country || null),
       timezone: clientData.timezone || null,
       clientSince: new Date(), // Set to conversion date
       priority: clientData.priority || (lead.priority ? lead.priority.charAt(0) + lead.priority.slice(1).toLowerCase() : null), // Convert enum to string
+      servicesNeeded: clientData.servicesNeeded || lead.servicesNeeded || lead.interestedNeeds || null,
+      expectedBusinessValue: clientData.expectedBusinessValue || lead.expectedBusinessValue || lead.notes || null,
       sla: clientData.sla || null,
       nextFollowUpDue: lead.nextFollowUp || null,
     };
@@ -374,6 +517,8 @@ export const leadService = {
       companyName: client.companyName,
       industry: client.industry,
       companySize: client.companySize,
+      servicesNeeded: client.servicesNeeded,
+      expectedBusinessValue: client.expectedBusinessValue,
       website: client.website,
       linkedin: client.linkedin,
       location: client.location,
@@ -472,6 +617,170 @@ export const leadService = {
     }
 
     return { message: 'Lead deleted successfully' };
+  },
+
+  async importLeads({ rows = [], mapping = {}, duplicateRule = 'skip', performedById }) {
+    const results = {
+      total: rows.length,
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      failed: 0,
+      errors: [],
+    };
+
+    for (let index = 0; index < rows.length; index += 1) {
+      const row = rows[index] || {};
+
+      const normalizeNullableString = (value) => {
+        if (value === undefined || value === null) return null;
+        const normalized = String(value).trim();
+        return normalized || null;
+      };
+
+      const getValue = (key) => {
+        const column = mapping[key];
+        if (!column) return null;
+        return normalizeNullableString(row[column]);
+      };
+
+      const extractLinksFromRow = () =>
+        Object.values(row)
+          .flatMap((value) => String(value ?? '').match(/https?:\/\/[^\s,|]+/gi) || [])
+          .map((value) => value.trim())
+          .filter(Boolean);
+
+      const normalizePriority = (value) => {
+        const normalized = String(value || '').trim().toLowerCase();
+        if (!normalized) return undefined;
+        if (['high', 'hot', 'warm'].includes(normalized)) return 'High';
+        if (['medium', 'med', 'moderate'].includes(normalized)) return 'Medium';
+        if (['low', 'cold'].includes(normalized)) return 'Low';
+        return undefined;
+      };
+
+      const normalizeStatus = (value) => {
+        const normalized = String(value || '').trim().toLowerCase();
+        if (!normalized) return undefined;
+        if (normalized === 'new') return 'New';
+        if (normalized === 'contacted') return 'Contacted';
+        if (normalized === 'qualified') return 'Qualified';
+        if (normalized === 'converted') return 'Converted';
+        if (normalized === 'lost') return 'Lost';
+        return undefined;
+      };
+
+      const normalizeType = (value) => {
+        const normalized = String(value || '').trim().toLowerCase();
+        if (!normalized) return undefined;
+        if (normalized === 'company') return 'Company';
+        if (normalized === 'individual') return 'Individual';
+        if (normalized === 'referral') return 'Referral';
+        return undefined;
+      };
+
+      const normalizeSource = (value) => {
+        const normalized = String(value || '').trim().toLowerCase();
+        if (!normalized) return undefined;
+        if (normalized === 'website') return 'Website';
+        if (normalized === 'linkedin') return 'LinkedIn';
+        if (normalized === 'email') return 'Email';
+        if (normalized === 'referral') return 'Referral';
+        if (normalized === 'campaign') return 'Campaign';
+        return undefined;
+      };
+
+      const parseDateValue = (value) => {
+        if (!value) return undefined;
+        const parsed = new Date(value);
+        return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
+      };
+
+      const companyName = getValue('companyName');
+      const contactPerson = getValue('contactPerson');
+      const email = getValue('email')?.toLowerCase() || null;
+
+      const detectedLinks = extractLinksFromRow();
+      const websiteValue = getValue('website');
+      const linkedInValue = getValue('linkedIn') || detectedLinks.find((link) => link.toLowerCase().includes('linkedin.com')) || '';
+      const genericWebsiteValue =
+        websiteValue ||
+        detectedLinks.find((link) => !link.toLowerCase().includes('linkedin.com')) ||
+        '';
+      const companyLinks = [genericWebsiteValue, linkedInValue].filter(Boolean);
+
+      const payload = {
+        companyName,
+        contactPerson,
+        directorName: contactPerson,
+        email,
+        phone: getValue('phone') || null,
+        type: normalizeType(getValue('type')) || 'Company',
+        source: normalizeSource(getValue('source')) || 'Website',
+        status: normalizeStatus(getValue('status')) || 'New',
+        priority: normalizePriority(getValue('priority')) || 'Medium',
+        interestedNeeds: getValue('interestedNeeds') || null,
+        servicesNeeded: getValue('interestedNeeds') || null,
+        notes: getValue('notes') || null,
+        expectedBusinessValue: getValue('notes') || null,
+        industry: getValue('industry') || null,
+        sector: getValue('industry') || null,
+        companySize: getValue('companySize') || null,
+        teamName: getValue('companySize') || null,
+        website: genericWebsiteValue || null,
+        linkedIn: linkedInValue || null,
+        companyLinks: companyLinks.length ? companyLinks : [],
+        location: getValue('location') || null,
+        designation: getValue('designation') || null,
+        city: getValue('city') || null,
+        country: getValue('country') || null,
+        campaignName: getValue('campaignName') || null,
+        nextFollowUp: parseDateValue(getValue('nextFollowUpDue')) || null,
+        performedById,
+      };
+
+      try {
+        const duplicateChecks = [];
+
+        if (email) {
+          duplicateChecks.push({ email: { equals: email, mode: 'insensitive' } });
+        }
+
+        if (companyName && contactPerson) {
+          duplicateChecks.push({
+            companyName: { equals: companyName, mode: 'insensitive' },
+            contactPerson: { equals: contactPerson, mode: 'insensitive' },
+          });
+        }
+
+        const existing = duplicateChecks.length > 0
+          ? await prisma.lead.findFirst({
+              where: {
+                OR: duplicateChecks,
+              },
+            })
+          : null;
+
+        if (existing && duplicateRule === 'skip') {
+          results.skipped += 1;
+          continue;
+        }
+
+        if (existing && duplicateRule === 'update') {
+          await this.update(existing.id, payload);
+          results.updated += 1;
+          continue;
+        }
+
+        await this.create(payload);
+        results.created += 1;
+      } catch (error) {
+        results.failed += 1;
+        results.errors.push(`Row ${index + 1}: ${error.message}`);
+      }
+    }
+
+    return results;
   },
 
   async getActivities(leadId) {

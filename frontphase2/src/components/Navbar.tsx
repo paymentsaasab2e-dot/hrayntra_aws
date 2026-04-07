@@ -1,8 +1,8 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
 import { Search, Calendar, Mail, Bell, Gift, HelpCircle, Box } from 'lucide-react';
-import { QuickActionPopover } from './QuickActionPopover';
 import { UserDropdown } from './UserDropdown';
 
 interface TooltipProps {
@@ -50,20 +50,13 @@ export function Navbar({ avatarUrl }: NavbarProps) {
         </div>
       </div>
 
-      {/* Center Section */}
-      <div className="absolute left-1/2 -translate-x-1/2">
-        <Tooltip content="Quick Create">
-          <QuickActionPopover />
-        </Tooltip>
-      </div>
-
       {/* Right Section */}
       <div className="flex items-center gap-6">
         <div className="flex items-center gap-5 border-r border-white/10 pr-6">
           <Tooltip content="Calendar">
-            <button className="text-white/80 hover:text-white transition-colors">
+            <Link href="/calendar" className="text-white/80 hover:text-white transition-colors">
               <Calendar className="w-5 h-5" />
-            </button>
+            </Link>
           </Tooltip>
 
           <Tooltip content="Inbox">

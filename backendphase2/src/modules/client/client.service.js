@@ -2,6 +2,7 @@ import { prisma } from '../../config/prisma.js';
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
 import { dbLogger } from '../../utils/db-logger.js';
 import activityService from '../../services/activityService.js';
+import { sendClientAssignmentEmail } from '../../services/emailService.js';
 
 export const clientService = {
   async getAll(req) {
@@ -93,27 +94,99 @@ export const clientService = {
       },
     });
 
+    if (!client) {
+      return client;
+    }
+
+    const convertedLead = await prisma.lead.findFirst({
+      where: { convertedToClientId: id },
+      select: {
+        status: true,
+        teamName: true,
+        companyLinks: true,
+        city: true,
+        country: true,
+        servicesNeeded: true,
+        interestedNeeds: true,
+        expectedBusinessValue: true,
+        notes: true,
+        nextFollowUp: true,
+        priority: true,
+      },
+    });
+
+    const mergedClient = {
+      ...client,
+      companySize: client.companySize || convertedLead?.teamName || null,
+      website:
+        client.website ||
+        (convertedLead?.companyLinks?.length ? convertedLead.companyLinks.join('\n') : null),
+      hiringLocations:
+        client.hiringLocations ||
+        (convertedLead?.city && convertedLead?.country
+          ? `${convertedLead.city}, ${convertedLead.country}`
+          : convertedLead?.city || convertedLead?.country || null),
+      priority: client.priority || convertedLead?.priority || null,
+      nextFollowUpDue: client.nextFollowUpDue || convertedLead?.nextFollowUp || null,
+      servicesNeeded: client.servicesNeeded || convertedLead?.servicesNeeded || convertedLead?.interestedNeeds || null,
+      expectedBusinessValue:
+        client.expectedBusinessValue || convertedLead?.expectedBusinessValue || convertedLead?.notes || null,
+      leadStatus: convertedLead?.status || null,
+    };
+
     // Log the fetched client data
-    if (client) {
+    if (mergedClient) {
       console.log('\n=== FETCHED CLIENT DATA (getById) ===');
       console.log(JSON.stringify({
-        id: client.id,
-        companyName: client.companyName,
-        industry: client.industry,
-        companySize: client.companySize,
-        website: client.website,
-        linkedin: client.linkedin,
-        location: client.location,
-        hiringLocations: client.hiringLocations,
-        timezone: client.timezone,
-        priority: client.priority,
-        sla: client.sla,
-        clientSince: client.clientSince,
-        nextFollowUpDue: client.nextFollowUpDue,
+        id: mergedClient.id,
+        companyName: mergedClient.companyName,
+        industry: mergedClient.industry,
+        companySize: mergedClient.companySize,
+        servicesNeeded: mergedClient.servicesNeeded,
+        expectedBusinessValue: mergedClient.expectedBusinessValue,
+        leadStatus: mergedClient.leadStatus,
+        website: mergedClient.website,
+        linkedin: mergedClient.linkedin,
+        location: mergedClient.location,
+        hiringLocations: mergedClient.hiringLocations,
+        timezone: mergedClient.timezone,
+        priority: mergedClient.priority,
+        sla: mergedClient.sla,
+        clientSince: mergedClient.clientSince,
+        nextFollowUpDue: mergedClient.nextFollowUpDue,
+        leadStatus: mergedClient.leadStatus,
       }, null, 2));
     }
 
-    return client;
+    return mergedClient;
+  },
+
+  async notifyAssignment(client, performedById) {
+    if (!client?.assignedTo?.email) return;
+
+    try {
+      const assignedBy = performedById
+        ? await prisma.user.findUnique({
+            where: { id: performedById },
+            select: { name: true },
+          })
+        : null;
+
+      await sendClientAssignmentEmail({
+        toEmail: client.assignedTo.email,
+        assigneeName: client.assignedTo.name,
+        clientCompanyName: client.companyName,
+        clientIndustry: client.industry,
+        clientWebsite: client.website,
+        clientLocation: client.location,
+        clientStatus: client.status,
+        clientPriority: client.priority,
+        assignedByName: assignedBy?.name || null,
+        senderUserId: performedById,
+      });
+    } catch (emailError) {
+      console.error('Failed to send client assignment email:', emailError);
+    }
   },
 
   async create(data) {
@@ -141,6 +214,9 @@ export const clientService = {
       linkedin: data.linkedin,
       timezone: data.timezone,
       priority: data.priority,
+      servicesNeeded: data.servicesNeeded,
+      expectedBusinessValue: data.expectedBusinessValue,
+      leadStatus: data.leadStatus,
       sla: data.sla,
       // Only include fields that exist in the Prisma schema
       // Removed: annualRevenue, taxId, paymentTerms, contractStartDate, contractEndDate,
@@ -159,6 +235,11 @@ export const clientService = {
 
     const client = await prisma.client.create({
       data: clientData,
+      include: {
+        assignedTo: {
+          select: { id: true, name: true, email: true },
+        },
+      },
     });
 
     console.log(`✅ Client created successfully with ID: ${client.id}\n`);
@@ -177,6 +258,10 @@ export const clientService = {
       });
     }
 
+    if (client.assignedToId) {
+      await this.notifyAssignment(client, data.performedById);
+    }
+
     return client;
   },
 
@@ -185,9 +270,13 @@ export const clientService = {
     const currentClient = await prisma.client.findUnique({
       where: { id },
       select: {
+        id: true,
         companyName: true,
         industry: true,
         companySize: true,
+        servicesNeeded: true,
+        expectedBusinessValue: true,
+        leadStatus: true,
         website: true,
         linkedin: true,
         location: true,
@@ -231,6 +320,9 @@ export const clientService = {
       linkedin: data.linkedin,
       timezone: data.timezone,
       priority: data.priority,
+      servicesNeeded: data.servicesNeeded,
+      expectedBusinessValue: data.expectedBusinessValue,
+      leadStatus: data.leadStatus,
       sla: data.sla,
       // Only include fields that exist in the Prisma schema
       // Removed: annualRevenue, taxId, paymentTerms, contractStartDate, contractEndDate,
@@ -250,6 +342,11 @@ export const clientService = {
     const updated = await prisma.client.update({
       where: { id },
       data: updateData,
+      include: {
+        assignedTo: {
+          select: { id: true, name: true, email: true },
+        },
+      },
     });
 
     console.log(`✅ Client updated successfully (ID: ${id})\n`);
@@ -263,6 +360,14 @@ export const clientService = {
         newData: updateData,
         clientId: id,
       });
+    }
+
+    if (
+      data.assignedToId !== undefined &&
+      data.assignedToId &&
+      data.assignedToId !== currentClient.assignedToId
+    ) {
+      await this.notifyAssignment(updated, data.performedById);
     }
 
     return updated;
@@ -420,5 +525,179 @@ export const clientService = {
         trendUp: revenueTrend >= 0,
       },
     };
+  },
+
+  async importClients({ rows = [], mapping = {}, duplicateRule = 'skip', performedById }) {
+    const results = {
+      total: rows.length,
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      failed: 0,
+      errors: [],
+    };
+
+    for (let index = 0; index < rows.length; index += 1) {
+      const row = rows[index] || {};
+
+      const getValue = (key) => {
+        const column = mapping[key];
+        if (!column) return '';
+        return String(row[column] ?? '').trim();
+      };
+
+      const extractLinksFromRow = () =>
+        Object.values(row)
+          .flatMap((value) => String(value ?? '').match(/https?:\/\/[^\s,|]+/gi) || [])
+          .map((value) => value.trim())
+          .filter(Boolean);
+
+      const normalizePriority = (value) => {
+        const normalized = String(value || '').trim().toLowerCase();
+        if (!normalized) return undefined;
+        if (['hot', 'high', 'warm'].includes(normalized)) return 'High';
+        if (['medium', 'med', 'moderate'].includes(normalized)) return 'Medium';
+        if (['low', 'cold'].includes(normalized)) return 'Low';
+        return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+      };
+
+      const parseDateValue = (value) => {
+        if (!value) return undefined;
+        const parsed = new Date(value);
+        return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
+      };
+
+      const companyName = getValue('name');
+      if (!companyName) {
+        results.failed += 1;
+        results.errors.push(`Row ${index + 1}: Company name missing`);
+        continue;
+      }
+
+      const contactPerson = getValue('contactPerson');
+      const email = getValue('email').toLowerCase();
+      const phone = getValue('phone');
+      const teamName = getValue('companySize');
+      const city = getValue('city');
+      const country = getValue('country');
+      const location = getValue('location');
+      const servicesNeeded = getValue('servicesNeeded');
+      const expectedBusinessValue = getValue('expectedBusinessValue');
+      const notes = getValue('notes');
+      const priority = normalizePriority(getValue('priority'));
+      const leadStatus = getValue('leadStatus');
+      const nextFollowUpDue = parseDateValue(getValue('nextFollowUpDue'));
+      const hiringLocations = [city, country].filter(Boolean).join(', ');
+      const detectedLinks = extractLinksFromRow();
+      const websiteValue = getValue('website');
+      const linkedinValue = detectedLinks.find((link) => link.toLowerCase().includes('linkedin.com')) || '';
+      const genericWebsiteValue =
+        websiteValue ||
+        detectedLinks.find((link) => !link.toLowerCase().includes('linkedin.com')) ||
+        '';
+
+      const payload = {
+        companyName,
+        industry: getValue('industry') || undefined,
+        location: location || undefined,
+        website: genericWebsiteValue || undefined,
+        linkedin: linkedinValue || undefined,
+        assignedToId: getValue('assignedToId') || undefined,
+        companySize: teamName || undefined,
+        hiringLocations: hiringLocations || undefined,
+        priority,
+        servicesNeeded: servicesNeeded || undefined,
+        expectedBusinessValue: expectedBusinessValue || undefined,
+        leadStatus: leadStatus || undefined,
+        nextFollowUpDue: nextFollowUpDue || undefined,
+        address: notes || undefined,
+        status: 'PROSPECT',
+      };
+
+      const upsertPrimaryContact = async (companyId) => {
+        if (!contactPerson && !email && !phone) return;
+
+        const firstName = contactPerson.split(' ')[0] || 'Unknown';
+        const lastName = contactPerson.split(' ').slice(1).join(' ') || '';
+
+        if (email) {
+          await prisma.contact.upsert({
+            where: { email },
+            update: {
+              firstName,
+              lastName,
+              phone: phone || null,
+              designation: 'Director',
+              department: teamName || null,
+              location: location || null,
+              companyId,
+              ownerId: payload.assignedToId || null,
+            },
+            create: {
+              firstName,
+              lastName,
+              email,
+              phone: phone || null,
+              designation: 'Director',
+              department: teamName || null,
+              location: location || null,
+              companyId,
+              ownerId: payload.assignedToId || null,
+              tags: [],
+              associatedJobIds: [],
+            },
+          });
+          return;
+        }
+
+        await prisma.contact.create({
+          data: {
+            firstName,
+            lastName,
+            email: null,
+            phone: phone || null,
+            designation: 'Director',
+            department: teamName || null,
+            location: location || null,
+            companyId,
+            ownerId: payload.assignedToId || null,
+            tags: [],
+            associatedJobIds: [],
+          },
+        });
+      };
+
+      try {
+        const existing = await prisma.client.findFirst({
+          where: {
+            companyName: {
+              equals: companyName,
+              mode: 'insensitive',
+            },
+          },
+        });
+
+        if (existing && duplicateRule === 'skip') {
+          results.skipped += 1;
+          continue;
+        }
+
+        if (existing && duplicateRule === 'update') {
+          await this.update(existing.id, { ...payload, performedById });
+          await upsertPrimaryContact(existing.id);
+          results.updated += 1;
+          continue;
+        }
+
+        const createdClient = await this.create({ ...payload, performedById });
+        await upsertPrimaryContact(createdClient.id);
+        results.created += 1;
+      } catch (error) {
+        results.failed += 1;
+        results.errors.push(`Row ${index + 1}: ${error.message}`);
+      }
+    }
+
+    return results;
   },
 };

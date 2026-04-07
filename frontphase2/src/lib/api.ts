@@ -25,6 +25,11 @@ const API_BASE = isLocalBrowser
   ? process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || LOCAL_API_BASE
   : PROD_PROXY_BASE;
 
+export function buildApiUrl(path: string): string {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return `${API_BASE}${normalizedPath}`;
+}
+
 type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 
 export interface ApiResponse<T> {
@@ -237,7 +242,11 @@ export async function apiFetch<T>(
       throw new Error('Authentication required. Please log in.');
     }
     const msg = json?.message || `Request failed with status ${res.status}`;
-    throw new Error(msg);
+    const error: any = new Error(msg);
+    error.status = res.status;
+    error.data = json?.data;
+    error.raw = json;
+    throw error;
   }
 
   if (debugApiLogs) {
@@ -467,6 +476,8 @@ export interface BackendJob {
   salary?: {
     min?: number;
     max?: number;
+    amount?: string | number;
+    type?: string;
     currency?: string;
   } | null;
   experienceRequired?: string | null;
@@ -624,9 +635,41 @@ export interface BackendCandidate {
   currentCompany?: string | null;
   resume?: string | null;
   skills?: string[];
+  address?: string | null;
+  city?: string | null;
+  country?: string | null;
+  availability?: string | null;
   noticePeriod?: string | null;
   stage?: string | null;
   tags?: string[];
+  expectedSalary?: number | null;
+  currentSalary?: number | null;
+  education?: string | null;
+  certifications?: string[];
+  languages?: string[];
+  portfolio?: string | null;
+  website?: string | null;
+  notes?: string | null;
+  cvSummary?: string | null;
+  cvEducationEntries?: Array<{
+    degree?: string;
+    institution?: string;
+    startYear?: string;
+    endYear?: string;
+  }> | null;
+  cvWorkExperienceEntries?: Array<{
+    title?: string;
+    company?: string;
+    location?: string;
+    startDate?: string;
+    endDate?: string;
+    responsibilities?: string[];
+  }> | null;
+  cvPortfolioLinks?: Array<{
+    type?: string;
+    url?: string;
+  }> | null;
+  preferredLocation?: string | null;
   salary?: {
     min?: number;
     max?: number;
@@ -749,6 +792,72 @@ export const apiGetCandidate = async (id: string) => {
   return apiFetch<BackendCandidate>(`/candidates/${id}`, { auth: true });
 };
 
+export interface UpdateCandidatePayload {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+  linkedIn?: string;
+  resume?: string | null;
+  skills?: string[];
+  experience?: number | null;
+  currentTitle?: string;
+  currentCompany?: string;
+  designation?: string;
+  location?: string;
+  status?: string;
+  source?: string;
+  assignedToId?: string | null;
+  noticePeriod?: string;
+  availability?: string;
+  expectedSalary?: number | null;
+  currentSalary?: number | null;
+  education?: string;
+  certifications?: string[];
+  languages?: string[];
+  portfolio?: string;
+  website?: string;
+  notes?: string;
+  cvSummary?: string;
+  cvEducationEntries?: Array<{
+    degree?: string;
+    institution?: string;
+    startYear?: string;
+    endYear?: string;
+  }>;
+  cvWorkExperienceEntries?: Array<{
+    title?: string;
+    company?: string;
+    location?: string;
+    startDate?: string;
+    endDate?: string;
+    responsibilities?: string[];
+  }>;
+  cvPortfolioLinks?: Array<{
+    type?: string;
+    url?: string;
+  }>;
+  preferredLocation?: string;
+  address?: string;
+  city?: string;
+  country?: string;
+  stage?: string;
+  assignedJobs?: string[];
+  salary?: {
+    min?: number | null;
+    max?: number | null;
+    currency?: string;
+  } | null;
+}
+
+export const apiUpdateCandidate = async (id: string, data: UpdateCandidatePayload) => {
+  return apiFetch<BackendCandidate>(`/candidates/${id}`, {
+    method: 'PATCH',
+    body: data,
+    auth: true,
+  });
+};
+
 export const apiDeleteCandidate = async (id: string) => {
   return apiFetch<{ message: string }>(`/candidates/${id}`, {
     method: 'DELETE',
@@ -783,6 +892,37 @@ export interface AddCandidatePayload {
   portfolioUrl?: string;
   skills?: string[];
   initialNote?: string;
+  currentSalary?: number | string;
+  education?: string;
+  certifications?: string[];
+  languages?: string[];
+  notes?: string;
+  cvSummary?: string;
+  cvEducationEntries?: Array<{
+    degree?: string;
+    institution?: string;
+    startYear?: string;
+    endYear?: string;
+  }>;
+  cvWorkExperienceEntries?: Array<{
+    title?: string;
+    company?: string;
+    location?: string;
+    startDate?: string;
+    endDate?: string;
+    responsibilities?: string[];
+  }>;
+  cvPortfolioLinks?: Array<{
+    type?: string;
+    url?: string;
+  }>;
+  city?: string;
+  country?: string;
+  preferredLocation?: string;
+  address?: string;
+  website?: string;
+  resume?: string;
+  duplicateAction?: 'create' | 'updateExisting' | 'createAnyway';
 }
 
 export interface DuplicateCheckCandidate {
@@ -808,13 +948,55 @@ export interface ImportedProfileData {
   phone?: string;
   currentCompany?: string;
   designation?: string;
+  currentDesignation?: string;
   experience?: number | string;
   location?: string;
   linkedinUrl?: string;
+  source?: string;
+  priority?: string;
+  tags?: string[];
   skills?: string[];
   expectedSalary?: number;
+  currentSalary?: number;
   currency?: string;
   portfolioUrl?: string;
+  education?: string;
+  certifications?: string[];
+  languages?: string[];
+  summary?: string;
+  city?: string;
+  country?: string;
+  noticePeriod?: string;
+  score?: {
+    overall?: number;
+    breakdown?: {
+      skillsMatch?: number;
+      experienceFit?: number;
+      educationFit?: number;
+      keywordMatch?: number;
+    };
+    insights?: string[];
+  };
+  resumeUrl?: string | null;
+  resumeFileName?: string | null;
+  educationEntries?: Array<{
+    degree?: string;
+    institution?: string;
+    startYear?: string;
+    endYear?: string;
+  }>;
+  workExperienceEntries?: Array<{
+    title?: string;
+    company?: string;
+    location?: string;
+    startDate?: string;
+    endDate?: string;
+    responsibilities?: string[];
+  }>;
+  portfolioLinks?: Array<{
+    type?: string;
+    url?: string;
+  }>;
   tempFilePath?: string;
   parsedAt?: string;
   importedAt?: string;
@@ -840,6 +1022,28 @@ export interface BulkImportResult {
     reason: string;
   }>;
 }
+
+export interface ClientImportPreviewResult {
+  fileName: string;
+  sheetName: string;
+  columns: string[];
+  previewRows: Record<string, string | number | boolean | null>[];
+  totalRows: number;
+  columnStats: Record<string, number>;
+  suggestedMapping: Record<string, string>;
+}
+
+export interface ClientImportExecuteResult {
+  total: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  failed: number;
+  errors: string[];
+}
+
+export type LeadImportPreviewResult = ClientImportPreviewResult;
+export type LeadImportExecuteResult = ClientImportExecuteResult;
 
 export const apiCreateCandidateFromDrawer = async (payload: AddCandidatePayload) => {
   return apiFetch<BackendCandidate>('/candidates/create', {
@@ -889,6 +1093,48 @@ export const apiBulkImportCandidates = async (file: File) => {
   formData.append('csvFile', file);
   return apiFetchFormData<BulkImportResult>('/candidates/bulk-import', formData, {
     method: 'POST',
+    auth: true,
+  });
+};
+
+export const apiPreviewClientImport = async (file: File) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  return apiFetchFormData<ClientImportPreviewResult>('/clients/import/preview', formData, {
+    method: 'POST',
+    auth: true,
+  });
+};
+
+export const apiImportClients = async (payload: {
+  rows: Record<string, string | number | boolean | null>[];
+  mapping: Record<string, string>;
+  duplicateRule: string;
+}) => {
+  return apiFetch<ClientImportExecuteResult>('/clients/import', {
+    method: 'POST',
+    body: payload,
+    auth: true,
+  });
+};
+
+export const apiPreviewLeadImport = async (file: File) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  return apiFetchFormData<LeadImportPreviewResult>('/leads/import/preview', formData, {
+    method: 'POST',
+    auth: true,
+  });
+};
+
+export const apiImportLeads = async (payload: {
+  rows: Record<string, string | number | boolean | null>[];
+  mapping: Record<string, string>;
+  duplicateRule: string;
+}) => {
+  return apiFetch<LeadImportExecuteResult>('/leads/import', {
+    method: 'POST',
+    body: payload,
     auth: true,
   });
 };
@@ -974,6 +1220,27 @@ export const apiAddCandidateToPipeline = async (
   });
 };
 
+export const apiGetPipelineStages = async (jobId: string) => {
+  return apiFetch<Array<{ id: string; name: string; order?: number }>>(`/pipeline/job/${jobId}`, {
+    auth: true,
+  });
+};
+
+export const apiMoveCandidateStage = async (
+  jobId: string,
+  payload: {
+    candidateId: string;
+    stageId: string;
+    notes?: string;
+  }
+) => {
+  return apiFetch(`/pipeline/job/${jobId}/move`, {
+    method: 'POST',
+    body: payload,
+    auth: true,
+  });
+};
+
 export const apiRejectCandidate = async (
   candidateId: string,
   payload: { reason: string; feedback: string; sendEmail: boolean }
@@ -1023,6 +1290,7 @@ export const apiScheduleCandidateInterview = async (
     time: string;
     duration: string;
     mode: 'video' | 'in-person' | 'phone';
+    platform?: 'GOOGLE_MEET' | 'ZOOM' | null;
     meetingLink?: string | null;
     location?: string | null;
     phoneNumber?: string | null;
@@ -1054,6 +1322,7 @@ export const apiUpdateCandidateInterview = async (
     time?: string;
     duration?: string;
     mode?: 'video' | 'in-person' | 'phone';
+    platform?: 'GOOGLE_MEET' | 'ZOOM' | null;
     meetingLink?: string | null;
     location?: string | null;
     phoneNumber?: string | null;
@@ -1073,6 +1342,31 @@ export const apiUpdateCandidateInterview = async (
     body: payload,
     auth: true,
   });
+};
+
+export const apiGenerateCandidateInterviewMeetingLink = async (
+  candidateId: string,
+  payload: {
+    jobId?: string | null;
+    date: string;
+    time: string;
+    duration: string;
+    mode: 'video';
+    platform: 'GOOGLE_MEET' | 'ZOOM';
+    interviewers?: Array<{
+      id: string;
+      name: string;
+      role: 'Lead Interviewer' | 'Interviewer' | 'Observer';
+    }>;
+    notes?: string;
+  }
+) => {
+  const res = await apiFetch<{ meetingLink: string; platform: 'GOOGLE_MEET' | 'ZOOM' }>(`/candidates/${candidateId}/interviews/meeting-link`, {
+    method: 'POST',
+    body: payload,
+    auth: true,
+  });
+  return res.data;
 };
 
 // ────────────────────────────────────────────────────────────
@@ -1648,9 +1942,9 @@ export const apiBulkEmailMatches = async (payload: {
 
 export interface BackendLead {
   id: string;
-  companyName: string;
-  contactPerson: string;
-  email: string;
+  companyName: string | null;
+  contactPerson: string | null;
+  email: string | null;
   phone?: string | null;
   type: 'Company' | 'Individual' | 'Referral';
   source: 'Website' | 'LinkedIn' | 'Email' | 'Referral' | 'Campaign';
@@ -1672,6 +1966,7 @@ export interface BackendLead {
   sourceWebsiteUrl?: string | null;
   sourceLinkedInUrl?: string | null;
   sourceEmail?: string | null;
+  otherDetails?: Array<{ label: string; value: string }> | null;
   lastFollowUp?: string | null;
   nextFollowUp?: string | null;
   lostReason?: string | null;
@@ -1686,19 +1981,25 @@ export interface BackendLead {
 }
 
 export interface CreateLeadData {
-  companyName: string;
-  contactPerson: string;
-  email: string;
+  companyName?: string | null;
+  contactPerson?: string | null;
+  directorName?: string;
+  email?: string | null;
   phone?: string;
   type?: 'Company' | 'Individual' | 'Referral';
   source?: 'Website' | 'LinkedIn' | 'Email' | 'Referral' | 'Campaign';
   status?: 'New' | 'Contacted' | 'Qualified' | 'Converted' | 'Lost';
   priority?: 'High' | 'Medium' | 'Low';
   interestedNeeds?: string;
+  servicesNeeded?: string;
   notes?: string;
+  expectedBusinessValue?: string;
   industry?: string;
+  sector?: string;
   companySize?: string;
+  teamName?: string;
   website?: string;
+  companyLinks?: string[];
   linkedIn?: string;
   location?: string;
   designation?: string;
@@ -1710,8 +2011,10 @@ export interface CreateLeadData {
   sourceWebsiteUrl?: string;
   sourceLinkedInUrl?: string;
   sourceEmail?: string;
+  otherDetails?: Array<{ label: string; value: string }>;
   lastFollowUp?: string;
   nextFollowUp?: string;
+  lostReason?: string;
   assignedToId?: string;
   /**
    * Optional remark when changing status from the leads table.
@@ -1798,6 +2101,8 @@ export const apiConvertLeadToClient = async (id: string, clientData: {
   linkedin?: string;
   location?: string;
   hiringLocations?: string;
+  servicesNeeded?: string;
+  expectedBusinessValue?: string;
   priority?: string;
 }) => {
   return apiFetch<any>(`/leads/${id}/convert`, {
@@ -1827,6 +2132,9 @@ export interface BackendClient {
   } | null;
   companySize?: string | null;
   hiringLocations?: string | null;
+  servicesNeeded?: string | null;
+  expectedBusinessValue?: string | null;
+  leadStatus?: string | null;
   linkedin?: string | null;
   timezone?: string | null;
   clientSince?: string | null;
@@ -1934,6 +2242,47 @@ export interface ScheduledMeeting {
   } | null;
 }
 
+export type UnifiedCalendarEventType =
+  | 'JOB_CREATED'
+  | 'TASK'
+  | 'INTERVIEW'
+  | 'CLIENT_MEETING'
+  | 'CLIENT_FOLLOW_UP';
+
+export interface UnifiedCalendarEvent {
+  id: string;
+  type: UnifiedCalendarEventType;
+  entityType: string;
+  entityId: string;
+  title: string;
+  subtitle?: string | null;
+  start: string;
+  end?: string | null;
+  allDay: boolean;
+  status?: string | null;
+  priority?: string | null;
+  color: string;
+  route: string;
+  description?: string | null;
+  metadata: Record<string, string | number | boolean | null>;
+}
+
+export interface UnifiedCalendarResponse {
+  range: {
+    start: string;
+    end: string;
+  };
+  summary: {
+    total: number;
+    jobs: number;
+    tasks: number;
+    interviews: number;
+    meetings: number;
+    followUps: number;
+  };
+  events: UnifiedCalendarEvent[];
+}
+
 export interface CreateScheduledMeetingData {
   meetingType: string;
   scheduledAt: string; // ISO datetime string
@@ -1994,6 +2343,23 @@ export const apiDeleteScheduledMeeting = async (
 ) => {
   return apiFetch<{ message: string }>(`/clients/${clientId}/meetings/${meetingId}`, {
     method: 'DELETE',
+    auth: true,
+  });
+};
+
+export const apiGetUnifiedCalendar = async (params?: {
+  start?: string;
+  end?: string;
+  mineOnly?: boolean;
+}) => {
+  const queryParams = new URLSearchParams();
+  if (params?.start) queryParams.set('start', params.start);
+  if (params?.end) queryParams.set('end', params.end);
+  if (params?.mineOnly !== undefined) queryParams.set('mineOnly', String(params.mineOnly));
+
+  const queryString = queryParams.toString();
+
+  return apiFetch<UnifiedCalendarResponse>(`/calendar${queryString ? `?${queryString}` : ''}`, {
     auth: true,
   });
 };
@@ -2487,6 +2853,8 @@ export interface CreateClientData {
   assignedToId?: string;
   companySize?: string;
   hiringLocations?: string;
+  servicesNeeded?: string;
+  expectedBusinessValue?: string;
   linkedin?: string;
   timezone?: string;
   priority?: string;
@@ -2503,6 +2871,8 @@ export interface UpdateClientData {
   assignedToId?: string;
   companySize?: string;
   hiringLocations?: string;
+  servicesNeeded?: string;
+  expectedBusinessValue?: string;
   linkedin?: string;
   timezone?: string;
   priority?: string;
@@ -2995,6 +3365,108 @@ export interface InboxThread {
   messages: InboxMessage[];
 }
 
+export interface GmailInboxMessage {
+  id: string;
+  threadId: string;
+  sender: string;
+  email: string;
+  subject: string;
+  preview: string;
+  timestamp: string | null;
+  unread: boolean;
+  starred: boolean;
+  hasAttachment: boolean;
+  candidate?: string;
+  job?: string;
+  client?: string;
+  type?: string;
+  to?: string;
+  cc?: string;
+  body?: string;
+  htmlBody?: string;
+  attachments?: any[];
+}
+
+export interface GmailInboxResponse {
+  connected: boolean;
+  email?: string;
+  messages: GmailInboxMessage[];
+  nextPageToken?: string | null;
+  requiresReconnect?: boolean;
+}
+
+export interface GmailMessageActionResult {
+  success: boolean;
+  messageId: string;
+  unread?: boolean;
+  starred?: boolean;
+  eventId?: string;
+  eventLink?: string;
+}
+
+export const apiGetGmailInbox = async (params?: {
+  q?: string;
+  maxResults?: number;
+  pageToken?: string;
+  labelId?: 'INBOX' | 'STARRED' | 'SNOOZED' | 'SENT' | 'DRAFT';
+}) => {
+  const query = new URLSearchParams();
+  if (params?.q) query.set('q', params.q);
+  if (params?.maxResults) query.set('maxResults', String(params.maxResults));
+  if (params?.pageToken) query.set('pageToken', params.pageToken);
+  if (params?.labelId) query.set('labelId', params.labelId);
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  const res = await apiFetch<GmailInboxResponse>(`/inbox/gmail/messages${suffix}`, {
+    method: 'GET',
+    auth: true,
+  });
+  return res.data;
+};
+
+export const apiGetGmailMessage = async (messageId: string) => {
+  const res = await apiFetch<GmailInboxMessage>(`/inbox/gmail/messages/${messageId}`, {
+    method: 'GET',
+    auth: true,
+  });
+  return res.data;
+};
+
+export const apiArchiveGmailMessage = async (messageId: string) => {
+  const res = await apiFetch<GmailMessageActionResult>(`/inbox/gmail/messages/${messageId}/archive`, {
+    method: 'POST',
+    auth: true,
+  });
+  return res.data;
+};
+
+export const apiTrashGmailMessage = async (messageId: string) => {
+  const res = await apiFetch<GmailMessageActionResult>(`/inbox/gmail/messages/${messageId}/trash`, {
+    method: 'POST',
+    auth: true,
+  });
+  return res.data;
+};
+
+export const apiUpdateGmailMessageFlags = async (
+  messageId: string,
+  body: { unread?: boolean; starred?: boolean }
+) => {
+  const res = await apiFetch<GmailMessageActionResult>(`/inbox/gmail/messages/${messageId}/flags`, {
+    method: 'PATCH',
+    body,
+    auth: true,
+  });
+  return res.data;
+};
+
+export const apiCreateCalendarEventFromGmailMessage = async (messageId: string) => {
+  const res = await apiFetch<GmailMessageActionResult>(`/inbox/gmail/messages/${messageId}/calendar-event`, {
+    method: 'POST',
+    auth: true,
+  });
+  return res.data;
+};
+
 // Get (at most one) chat thread for a task, if it exists
 export const apiGetTaskChatThread = async (taskId: string) => {
   const res = await apiFetch<any>(`/inbox/threads?relatedEntityType=TASK&relatedEntityId=${taskId}`, {
@@ -3296,11 +3768,237 @@ export async function apiOAuthDisconnectLinkedInSettings() {
   });
 }
 
+export type IntegrationProvider =
+  | 'gmail'
+  | 'outlook'
+  | 'google-calendar'
+  | 'zoom'
+  | 'google-meet'
+  | 'microsoft-teams'
+  | 'linkedin'
+  | 'twitter'
+  | 'facebook';
+
+export type IntegrationStatusItem = {
+  connected: boolean;
+  provider: IntegrationProvider | string;
+  label: string;
+  accountEmail?: string;
+  accountName?: string;
+  scope?: string[];
+  expiresAt?: string | null;
+};
+
+export type IntegrationStatusResponse = Record<string, IntegrationStatusItem>;
+
+export async function apiGetIntegrationStatuses() {
+  return apiFetch<IntegrationStatusResponse>('/integrations/status', { auth: true });
+}
+
+export async function apiConnectIntegration(provider: IntegrationProvider) {
+  const res = await apiFetch<{ url: string }>(`/auth/${provider}`, { auth: true });
+  if (res.data?.url) {
+    window.location.href = res.data.url;
+  }
+}
+
+export async function apiDisconnectIntegration(provider: IntegrationProvider) {
+  return apiFetch<{ provider: string; connected: boolean }>(`/disconnect/${provider}`, {
+    method: 'POST',
+    auth: true,
+  });
+}
+
 export type AssistantChatMessage = { role: 'user' | 'assistant'; content: string };
+export type AssistantHistoryMessage = AssistantChatMessage & { id: string };
+
+export type AssistantTaskChain = {
+  task_id: string;
+  goal: string;
+  steps: string[];
+  completed_steps: string[];
+  pending_steps: string[];
+  status: 'in_progress' | 'completed' | 'pending';
+};
+
+export type AssistantConversationMemory = {
+  userIntent: string;
+  lastActions: string[];
+  currentPageContext: string;
+  userPreferences: string[];
+  frequentlyUsedActions: string[];
+  updatedAt?: string | null;
+};
+
+export type AssistantActionLogItem = {
+  action_id: string;
+  entity: string;
+  operation: string;
+  previous_state?: unknown;
+  new_state?: unknown;
+  summary: string;
+  createdAt?: string;
+};
+
+export type AssistantStructuredResponse = {
+  plan: string[];
+  memory_used: {
+    conversation: string;
+    task: string;
+    long_term: string;
+    page_context: string;
+  };
+  actions: Array<{
+    type: string;
+    status: string;
+    entity: string;
+    details: string;
+  }>;
+  task_update: AssistantTaskChain;
+  output: string;
+  files: Array<{
+    type: string;
+    fileName: string;
+    reason: string;
+  }>;
+  memory_update: {
+    userIntent: string;
+    lastActions: string[];
+    currentPageContext: string;
+    userPreferences: string[];
+    frequentlyUsedActions: string[];
+    taskMemory: {
+      tasks: AssistantTaskChain[];
+    };
+    actionLog: AssistantActionLogItem[];
+  };
+};
+
+export type AssistantHistoryRecord = {
+  pageKey: string;
+  pathname?: string | null;
+  messages: AssistantHistoryMessage[];
+  conversationMemory?: AssistantConversationMemory;
+  taskMemory?: {
+    tasks: AssistantTaskChain[];
+  };
+  actionLog?: AssistantActionLogItem[];
+  updatedAt?: string | null;
+};
 
 /** In-app AI assistant (floating bot). Requires backend OPENAI_API_KEY. */
-export async function apiAssistantChat(body: { messages: AssistantChatMessage[] }) {
-  return apiFetch<{ message: string }>('/ai/assistant-chat', {
+export async function apiAssistantChat(body: {
+  messages: AssistantChatMessage[];
+  pageKey?: string;
+  pathname?: string;
+}) {
+  return apiFetch<{
+    message: string;
+    structured?: AssistantStructuredResponse;
+    history?: AssistantHistoryRecord;
+  }>('/ai/assistant-chat', {
+    method: 'POST',
+    body,
+    auth: true,
+  });
+}
+
+export async function apiGetAssistantHistory(pageKey: string) {
+  return apiFetch<AssistantHistoryRecord>(`/ai/assistant-history/${encodeURIComponent(pageKey)}`, {
+    auth: true,
+  });
+}
+
+export async function apiSaveAssistantHistory(
+    pageKey: string,
+    body: {
+      pathname?: string;
+      messages: AssistantHistoryMessage[];
+      conversationMemory?: AssistantConversationMemory;
+      taskMemory?: { tasks: AssistantTaskChain[] };
+      actionLog?: AssistantActionLogItem[];
+    }
+  ) {
+  return apiFetch<AssistantHistoryRecord>(`/ai/assistant-history/${encodeURIComponent(pageKey)}`, {
+    method: 'PUT',
+    body,
+    auth: true,
+  });
+}
+
+export async function apiDeleteAssistantHistory(pageKey: string) {
+  return apiFetch<{ pageKey: string; deleted: boolean }>(`/ai/assistant-history/${encodeURIComponent(pageKey)}`, {
+    method: 'DELETE',
+    auth: true,
+  });
+}
+
+export async function apiGenerateJobDescription(body: {
+  jobTitle: string;
+  company?: string;
+  jobType?: string;
+  jobCategory?: string;
+  locationType?: string;
+  experience?: string;
+  skills?: string[];
+  customPrompt?: string;
+}) {
+  const token = getAccessToken();
+  if (!token) {
+    throw new Error('Authentication required. Please log in.');
+  }
+
+  return apiFetch<{
+    title: string;
+    jobType: string;
+    minExperience: number;
+    maxExperience: number;
+    educationalQualification: string;
+    educationalSpecialization: string;
+    skills: string[];
+    screeningQuestions: string[];
+    html: string;
+  }>('/ai/job-description', {
+    method: 'POST',
+    body,
+    auth: true,
+  });
+}
+
+export async function apiGenerateLeadDetails(body: {
+  prompt: string;
+  currentForm?: Record<string, unknown>;
+}) {
+  return apiFetch<{
+    companyName: string;
+    contactPerson: string;
+    designation: string;
+    email: string;
+    phone: string;
+    type: 'Company' | 'Individual' | 'Referral';
+    source: 'Website' | 'LinkedIn' | 'Email' | 'Referral' | 'Campaign';
+    status: 'New' | 'Contacted' | 'Qualified' | 'Converted' | 'Lost';
+    priority: 'High' | 'Medium' | 'Low';
+    interestedNeeds: string;
+    notes: string;
+    industry: string;
+    companySize: string;
+    website: string;
+    linkedIn: string;
+    location: string;
+    country: string;
+    city: string;
+    campaignName: string;
+    campaignLink: string;
+    referralName: string;
+    sourceWebsiteUrl: string;
+    sourceLinkedInUrl: string;
+    sourceEmail: string;
+    otherDetails: Array<{ label: string; value: string }>;
+    lastFollowUp: string;
+    nextFollowUp: string;
+    assignedToId: string;
+  }>('/ai/lead-details', {
     method: 'POST',
     body,
     auth: true,

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
@@ -18,6 +18,7 @@ import {
   ExternalLink,
   AlertCircle,
   User,
+  SendHorizontal,
 } from 'lucide-react';
 import {
   apiCreateJob,
@@ -25,6 +26,7 @@ import {
   apiGetJob,
   apiGetClients,
   apiGetUsers,
+  apiGenerateJobDescription,
   apiUploadJobFile,
   filesApiUpload,
   apiPublishSocialJob,
@@ -50,9 +52,32 @@ export interface CreateJobDrawerProps {
 }
 
 interface AccordionSection {
-  id: 'details' | 'description' | 'application' | 'publish';
+  id: 'details' | 'publish';
   label: string;
   isOpen: boolean;
+}
+
+interface AiDescriptionSection {
+  heading: string;
+  paragraphs: string[];
+  items: string[];
+}
+
+interface AiChatMessage {
+  id: string;
+  role: 'ai' | 'user';
+  content: string;
+}
+
+interface AiDraftData {
+  originalPrompt: string;
+  jobTitle: string;
+  openings: string;
+  companyId: string;
+  location: string;
+  salary: string;
+  qualification: string;
+  workMode: string;
 }
 
 export function CreateJobDrawer({
@@ -71,6 +96,26 @@ export function CreateJobDrawer({
   const [users, setUsers] = useState<BackendUser[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
+  const [showAiPromptBox, setShowAiPromptBox] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiDrawerError, setAiDrawerError] = useState('');
+  const [aiDetectedRole, setAiDetectedRole] = useState('');
+  const [aiGeneratedDescription, setAiGeneratedDescription] = useState('');
+  const [aiGeneratedQualification, setAiGeneratedQualification] = useState('');
+  const [aiGeneratedSpecialization, setAiGeneratedSpecialization] = useState('');
+  const [aiGeneratedQuestions, setAiGeneratedQuestions] = useState<string[]>([]);
+  const [aiQuestionStep, setAiQuestionStep] = useState<'initial' | 'openings' | 'company' | 'location' | 'salary' | 'qualification' | 'done'>('initial');
+  const [aiMessages, setAiMessages] = useState<AiChatMessage[]>([]);
+  const [aiDraftData, setAiDraftData] = useState<AiDraftData>({
+    originalPrompt: '',
+    jobTitle: '',
+    openings: '',
+    companyId: '',
+    location: '',
+    salary: '',
+    qualification: '',
+    workMode: '',
+  });
   const [linkedInPostText, setLinkedInPostText] = useState('');
   const [showLinkedInSuccess, setShowLinkedInSuccess] = useState(false);
   const [linkedInPostUrl, setLinkedInPostUrl] = useState<string | null>(null);
@@ -81,8 +126,6 @@ export function CreateJobDrawer({
   // Accordion state
   const [accordions, setAccordions] = useState<AccordionSection[]>([
     { id: 'details', label: 'Job Details', isOpen: true },
-    { id: 'description', label: 'Job Description', isOpen: false },
-    { id: 'application', label: 'Job Application Form', isOpen: false },
     { id: 'publish', label: 'Publish & Share', isOpen: false },
   ]);
 
@@ -97,8 +140,14 @@ export function CreateJobDrawer({
     
     // Job Description
     jobDescriptionHtml: '',
+    jobLocation: '',
     jobType: 'Part Time',
     jobLocationType: '',
+    salaryInput: '',
+    jobSummary: '',
+    keyResponsibilitiesText: '',
+    qualificationsExperienceText: '',
+    compensationBenefitsText: '',
     minExperience: '0 Year',
     maxExperience: '',
     salaryType: 'Annual Salary',
@@ -193,8 +242,14 @@ export function CreateJobDrawer({
         companyId: '',
         assignedToId: '',
         jobDescriptionHtml: '',
+        jobLocation: '',
         jobType: 'Part Time',
         jobLocationType: '',
+        salaryInput: '',
+        jobSummary: '',
+        keyResponsibilitiesText: '',
+        qualificationsExperienceText: '',
+        compensationBenefitsText: '',
         minExperience: '0 Year',
         maxExperience: '',
         salaryType: 'Annual Salary',
@@ -248,6 +303,26 @@ export function CreateJobDrawer({
       setEditingQuestionIndex(null);
       setUploadedFile(null);
       setExistingJdFileName('');
+      setShowAiPromptBox(false);
+      setAiPrompt('');
+      setAiDrawerError('');
+      setAiDetectedRole('');
+      setAiGeneratedDescription('');
+      setAiGeneratedQualification('');
+      setAiGeneratedSpecialization('');
+      setAiGeneratedQuestions([]);
+      setAiQuestionStep('initial');
+      setAiMessages([]);
+      setAiDraftData({
+        originalPrompt: '',
+        jobTitle: '',
+        openings: '',
+        companyId: '',
+        location: '',
+        salary: '',
+        qualification: '',
+        workMode: '',
+      });
     }
   }, [isOpen]);
 
@@ -334,6 +409,40 @@ export function CreateJobDrawer({
     setAccordions(prev => prev.map(acc => 
       acc.id === id ? { ...acc, isOpen: !acc.isOpen } : acc
     ));
+  };
+
+  const stripHtml = (value: string) =>
+    value
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>/gi, '\n')
+      .replace(/<li>/gi, '- ')
+      .replace(/<\/li>/gi, '\n')
+      .replace(/<[^>]*>/g, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+
+  const getSectionTextFromHtml = (html: string, sectionTitle: string) => {
+    if (!html || typeof window === 'undefined') return '';
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+      const headings = Array.from(doc.querySelectorAll('h3, h4'));
+      const heading = headings.find((node) =>
+        (node.textContent || '').trim().toLowerCase().includes(sectionTitle.toLowerCase())
+      );
+      if (!heading) return '';
+
+      const chunks: string[] = [];
+      let cursor = heading.nextElementSibling;
+      while (cursor && !['H3', 'H4'].includes(cursor.tagName)) {
+        const text = (cursor.textContent || '').trim();
+        if (text) chunks.push(text);
+        cursor = cursor.nextElementSibling;
+      }
+      return chunks.join('\n');
+    } catch {
+      return '';
+    }
   };
 
   const loadJobData = async () => {
@@ -478,6 +587,28 @@ export function CreateJobDrawer({
       const jdFileName = job.jdFileName || '';
       setExistingJdFileName(jdFileName);
 
+      const plainDescription = stripHtml(job.description || '');
+      const responsibilitiesText =
+        Array.isArray(job.keyResponsibilities) && job.keyResponsibilities.length
+          ? job.keyResponsibilities.join('\n')
+          : getSectionTextFromHtml(job.description || '', 'key responsibilities');
+      const qualificationsText =
+        Array.isArray(job.requirements) && job.requirements.length
+          ? job.requirements.join('\n')
+          : getSectionTextFromHtml(job.description || '', 'requirements') ||
+            getSectionTextFromHtml(job.description || '', 'qualifications');
+      const benefitsText =
+        Array.isArray(job.benefits) && job.benefits.length
+          ? job.benefits.join('\n')
+          : getSectionTextFromHtml(job.description || '', 'benefits') ||
+            getSectionTextFromHtml(job.description || '', 'compensation');
+      const salarySummary =
+        salary?.amount
+          ? String(salary.amount)
+          : salary?.min || salary?.max
+            ? `${salary.min ? `${salary.min}` : ''}${salary.max ? ` - ${salary.max}` : ''}`.trim()
+            : '';
+
       // Application form logo: stored value is either preset (account|company|none) or a Cloudinary URL
       const rawAppLogo = String((job as { applicationFormLogo?: string }).applicationFormLogo || '').trim();
       let parsedLogoOption: ApplicationLogoOption = 'account';
@@ -495,8 +626,14 @@ export function CreateJobDrawer({
         companyId: job.clientId || '',
         numberOfOpenings: String(job.openings || 1),
         jobDescriptionHtml: job.description || '',
+        jobLocation: location,
         jobType: mapJobTypeFromBackend(job.type),
         jobLocationType: job.jobLocationType || '',
+        salaryInput: salarySummary,
+        jobSummary: job.overview || plainDescription,
+        keyResponsibilitiesText: responsibilitiesText,
+        qualificationsExperienceText: qualificationsText,
+        compensationBenefitsText: benefitsText,
         minExperience,
         maxExperience,
         salaryType,
@@ -572,9 +709,224 @@ export function CreateJobDrawer({
     }
   };
 
-  const handleAiAssist = async () => {
-    if (!formData.jobTitle || !formData.companyId) {
-      alert('Please fill in Job Title and Company first');
+  const inferRoleFromPrompt = (prompt: string) => {
+    const cleanPrompt = prompt.trim().replace(/\s+/g, ' ');
+    if (!cleanPrompt) return '';
+
+    const patterns = [
+      /(?:create|generate|write|make)\s+(?:a\s+)?job(?:\s+description|\s+jd)?\s+(?:for|of)\s+(?:an?\s+|the\s+)?(.+)/i,
+      /(?:for|of)\s+(?:an?\s+|the\s+)?([a-z][a-z\s/&-]{2,})$/i,
+      /^(?:an?\s+|the\s+)?([a-z][a-z\s/&-]{2,})$/i,
+    ];
+
+    for (const pattern of patterns) {
+      const match = cleanPrompt.match(pattern);
+      if (match?.[1]) {
+        return match[1].trim().replace(/[.!,]$/, '');
+      }
+    }
+
+    return '';
+  };
+
+  const normalizeJobType = (value?: string) => {
+    const normalized = String(value || '').toLowerCase();
+    if (normalized.includes('part')) return 'Part Time';
+    if (normalized.includes('contract')) return 'Contract';
+    if (normalized.includes('intern')) return 'Internship';
+    return 'Full Time';
+  };
+
+  const normalizeMinExperience = (value?: number) => {
+    const num = Number(value);
+    if (!Number.isFinite(num) || num <= 0) return '0 Year';
+    if (num === 1) return '1 Year';
+    if (num >= 2 && num <= 4) return `${num} Years`;
+    return '5+ Years';
+  };
+
+  const normalizeMaxExperience = (value?: number) => {
+    const num = Number(value);
+    if (!Number.isFinite(num) || num <= 0) return '';
+    if (num === 1) return '1 Year';
+    if (num >= 2 && num <= 4) return `${num} Years`;
+    if (num <= 5) return '5 Years';
+    if (num <= 8) return '8 Years';
+    return '10+ Years';
+  };
+
+  const normalizeQualification = (value?: string) => {
+    const normalized = String(value || '').toLowerCase();
+    if (normalized.includes('master') && normalized.includes('engineering')) return 'Master of Engineering';
+    if (normalized.includes('bachelor') && normalized.includes('engineering')) return 'Bachelor of Engineering';
+    if (normalized.includes('master') && normalized.includes('science')) return 'Master of Science';
+    if (normalized.includes('bachelor') && normalized.includes('science')) return 'Bachelor of Science';
+    if (normalized.includes('mba')) return 'MBA';
+    if (normalized.includes('diploma')) return 'Diploma';
+    return '';
+  };
+
+  const inferWorkModeFromPrompt = (prompt: string) => {
+    const normalized = prompt.toLowerCase();
+    if (normalized.includes('remote')) return 'Remote';
+    if (normalized.includes('hybrid')) return 'Hybrid';
+    if (normalized.includes('on-site') || normalized.includes('onsite')) return 'On-site';
+    return '';
+  };
+
+  const pushAiMessage = (content: string) => {
+    setAiMessages((prev) => [
+      ...prev,
+      {
+        id: `ai-${Date.now()}-${prev.length}`,
+        role: 'ai',
+        content,
+      },
+    ]);
+  };
+
+  const pushUserMessage = (content: string) => {
+    setAiMessages((prev) => [
+      ...prev,
+      {
+        id: `user-${Date.now()}-${prev.length}`,
+        role: 'user',
+        content,
+      },
+    ]);
+  };
+
+  const resetAiConversation = () => {
+    setAiPrompt('');
+    setAiDrawerError('');
+    setAiDetectedRole('');
+    setAiGeneratedDescription('');
+    setAiGeneratedQualification('');
+    setAiGeneratedSpecialization('');
+    setAiGeneratedQuestions([]);
+    setAiQuestionStep('initial');
+    setAiDraftData({
+      originalPrompt: '',
+      jobTitle: '',
+      openings: '',
+      companyId: '',
+      location: '',
+      salary: '',
+      qualification: '',
+      workMode: '',
+    });
+    setAiMessages([
+      {
+        id: 'ai-welcome',
+        role: 'ai',
+        content:
+          'Tell me which job you want to create. Example: "create job for Finance Analyst". I will then ask for openings, company, location, salary, and qualification.',
+      },
+    ]);
+  };
+
+  const parseAiDescriptionSections = (html: string) => {
+    const fallback = {
+      title: aiDetectedRole || formData.jobTitle || '',
+      intro: [] as string[],
+      sections: [] as AiDescriptionSection[],
+    };
+
+    if (!html || typeof window === 'undefined') {
+      return fallback;
+    }
+
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+      const bodyChildren = Array.from(doc.body.children);
+      let title = '';
+      const intro: string[] = [];
+      const sections: AiDescriptionSection[] = [];
+      let currentSection: AiDescriptionSection | null = null;
+
+      for (const node of bodyChildren) {
+        const tag = node.tagName.toLowerCase();
+        const text = node.textContent?.trim() || '';
+        if (!text) continue;
+
+        if (!title && ['h1', 'h2'].includes(tag)) {
+          title = text;
+          continue;
+        }
+
+        if (tag === 'p') {
+          if (!currentSection) {
+            intro.push(text);
+          } else {
+            currentSection.paragraphs.push(text);
+          }
+          continue;
+        }
+
+        if (['h3', 'h4'].includes(tag)) {
+          currentSection = { heading: text, paragraphs: [], items: [] };
+          sections.push(currentSection);
+          continue;
+        }
+
+        if (tag === 'ul' || tag === 'ol') {
+          const items = Array.from(node.querySelectorAll('li'))
+            .map((item) => item.textContent?.trim() || '')
+            .filter(Boolean);
+          if (!currentSection) {
+            currentSection = { heading: 'Highlights', paragraphs: [], items: [] };
+            sections.push(currentSection);
+          }
+          currentSection.items.push(...items);
+        }
+      }
+
+      return {
+        title: title || aiDetectedRole || formData.jobTitle || '',
+        intro,
+        sections,
+      };
+    } catch {
+      return fallback;
+    }
+  };
+
+  const aiDescriptionView = useMemo(
+    () => parseAiDescriptionSections(aiGeneratedDescription),
+    [aiGeneratedDescription, aiDetectedRole, formData.jobTitle]
+  );
+
+  const getJobSummaryFromAiDescription = (parsedDescription: {
+    intro: string[];
+    sections: AiDescriptionSection[];
+  }) => {
+    const introSummary = parsedDescription.intro.join('\n\n').trim();
+    if (introSummary) return introSummary;
+
+    const overviewSection = parsedDescription.sections.find((section) =>
+      section.heading.toLowerCase().includes('overview')
+    );
+    if (!overviewSection) return '';
+
+    return [...overviewSection.paragraphs, ...overviewSection.items].join('\n\n').trim();
+  };
+
+  const handleAiAssist = async (customPrompt?: string, draftOverrides?: Partial<AiDraftData>) => {
+    const inferredRole = inferRoleFromPrompt(customPrompt || '');
+    const effectiveRole = draftOverrides?.jobTitle || formData.jobTitle.trim() || inferredRole;
+    const effectiveWorkMode =
+      draftOverrides?.workMode || inferWorkModeFromPrompt(customPrompt || '') || formData.jobLocationType;
+
+    setAiDrawerError('');
+    setAiDetectedRole(effectiveRole);
+    setAiGeneratedDescription('');
+    setAiGeneratedQualification('');
+    setAiGeneratedSpecialization('');
+    setAiGeneratedQuestions([]);
+
+    if (!effectiveRole) {
+      setAiDrawerError('Enter a job title or describe the role in the prompt, like "create job for Finance Analyst".');
       return;
     }
 
@@ -582,43 +934,217 @@ export function CreateJobDrawer({
     try {
       const company = clients.find(c => c.id === formData.companyId);
       const companyName = company?.companyName || '';
-      
-      const response = await fetch('/api/v1/ai/job-description', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
-        },
-        body: JSON.stringify({
-          jobTitle: formData.jobTitle,
-          company: companyName,
-          jobType: formData.jobType,
-        }),
+
+      const experience =
+        formData.maxExperience && formData.maxExperience.trim()
+          ? `${formData.minExperience} to ${formData.maxExperience}`
+          : formData.minExperience;
+
+      const response = await apiGenerateJobDescription({
+        jobTitle: effectiveRole,
+        company:
+          (draftOverrides?.companyId
+            ? clients.find((client) => client.id === draftOverrides.companyId)?.companyName
+            : companyName) || undefined,
+        jobType: formData.jobType || undefined,
+        locationType: effectiveWorkMode || undefined,
+        experience: experience || undefined,
+        skills: formData.skills,
+        customPrompt: customPrompt?.trim() || undefined,
       });
+      const generated = response.data;
+      const resolvedTitle = generated?.title?.trim() || effectiveRole;
+      const generatedHtml = generated?.html?.trim() || '';
+      const generatedSkills = Array.isArray(generated?.skills)
+        ? Array.from(new Set(generated.skills.map((skill) => String(skill).trim()).filter(Boolean)))
+        : [];
+      const generatedQuestions = Array.isArray(generated?.screeningQuestions)
+        ? Array.from(new Set(generated.screeningQuestions.map((question) => String(question).trim()).filter(Boolean)))
+        : [];
+      const qualification = normalizeQualification(generated?.educationalQualification);
+      const specialization = String(generated?.educationalSpecialization || '').trim();
+      const parsedDescription = parseAiDescriptionSections(generatedHtml);
+      const summaryText = getJobSummaryFromAiDescription(parsedDescription);
+      const findSection = (needle: string) =>
+        parsedDescription.sections.find((section) =>
+          section.heading.toLowerCase().includes(needle.toLowerCase())
+        );
+      const responsibilitiesText = findSection('key responsibilities')?.items.join('\n') || '';
+      const qualificationsText = [
+        ...((findSection('requirements')?.items || [])),
+        ...((findSection('qualifications')?.items || [])),
+      ].join('\n');
+      const benefitsText = [
+        ...((findSection('benefits')?.items || [])),
+        ...((findSection('compensation')?.items || [])),
+      ].join('\n');
 
-      if (!response.ok) throw new Error('Failed to generate job description');
-
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error('No response stream');
-
-      let htmlContent = '';
-      const decoder = new TextDecoder();
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        
-        const chunk = decoder.decode(value);
-        htmlContent += chunk;
-        
-        // Update editor content as we stream
-        setFormData(prev => ({ ...prev, jobDescriptionHtml: htmlContent }));
-      }
+      setAiDetectedRole(resolvedTitle);
+      setAiGeneratedDescription(generatedHtml);
+      setAiGeneratedQualification(qualification);
+      setAiGeneratedSpecialization(specialization);
+      setAiGeneratedQuestions(generatedQuestions);
+      setFormData((prev) => ({
+        ...prev,
+        jobTitle: resolvedTitle || prev.jobTitle,
+        jobDescriptionHtml: generatedHtml || prev.jobDescriptionHtml,
+        numberOfOpenings: draftOverrides?.openings || prev.numberOfOpenings,
+        companyId: draftOverrides?.companyId || prev.companyId,
+        jobLocation: draftOverrides?.location || prev.jobLocation,
+        salaryInput: draftOverrides?.salary || prev.salaryInput,
+        jobSummary: summaryText || prev.jobSummary,
+        keyResponsibilitiesText: responsibilitiesText || prev.keyResponsibilitiesText,
+        qualificationsExperienceText: qualificationsText || prev.qualificationsExperienceText,
+        compensationBenefitsText: benefitsText || prev.compensationBenefitsText,
+        jobType: normalizeJobType(generated?.jobType || prev.jobType),
+        jobLocationType: effectiveWorkMode || prev.jobLocationType,
+        minExperience: normalizeMinExperience(generated?.minExperience),
+        maxExperience: normalizeMaxExperience(generated?.maxExperience),
+        educationalQualification:
+          qualification || normalizeQualification(draftOverrides?.qualification) || prev.educationalQualification,
+        educationalSpecialization: specialization || prev.educationalSpecialization,
+        skills: generatedSkills.length ? generatedSkills : prev.skills,
+        enableApplicationForm: generatedQuestions.length ? true : prev.enableApplicationForm,
+        applicationQuestions: generatedQuestions.length ? generatedQuestions : prev.applicationQuestions,
+      }));
     } catch (error: any) {
       console.error('AI Assist failed:', error);
-      alert(error.message || 'Failed to generate job description');
+      setAiDrawerError(error.message || 'Failed to generate job description');
     } finally {
       setAiGenerating(false);
+    }
+  };
+
+  const openAiPromptBox = () => {
+    setShowAiPromptBox(true);
+    resetAiConversation();
+  };
+
+  const handleFinalizeAiJob = () => {
+    setAccordions((prev) =>
+      prev.map((section) => ({
+        ...section,
+        isOpen: section.id === 'details',
+      }))
+    );
+    setShowAiPromptBox(false);
+  };
+
+  const handleAiCompanySelect = (companyId: string) => {
+    if (!companyId) return;
+    const companyName = clients.find((client) => client.id === companyId)?.companyName || 'Selected company';
+
+    setAiDraftData((prev) => ({
+      ...prev,
+      companyId,
+    }));
+    pushUserMessage(companyName);
+    pushAiMessage('What is the job location?');
+    setAiQuestionStep('location');
+  };
+
+  const handleGenerateFromPromptBox = async () => {
+    const input = aiPrompt.trim();
+    if (!input) return;
+
+    setAiPrompt('');
+    setAiDrawerError('');
+
+    if (aiQuestionStep === 'company') {
+      pushUserMessage(input);
+      pushAiMessage('Please choose the company from the selector below.');
+      return;
+    }
+
+    pushUserMessage(input);
+
+    if (aiQuestionStep === 'initial') {
+      const inferredRole = inferRoleFromPrompt(input) || input;
+      const inferredWorkMode = inferWorkModeFromPrompt(input);
+
+      setAiDetectedRole(inferredRole);
+      setAiDraftData((prev) => ({
+        ...prev,
+        originalPrompt: input,
+        jobTitle: inferredRole,
+        workMode: inferredWorkMode,
+      }));
+      pushAiMessage(`How many positions do you want to open for ${inferredRole}?`);
+      setAiQuestionStep('openings');
+      return;
+    }
+
+    if (aiQuestionStep === 'openings') {
+      const openingsMatch = input.match(/\d+/);
+      if (!openingsMatch) {
+        pushAiMessage('Please tell me the number of openings, for example 2 or 5.');
+        return;
+      }
+
+      setAiDraftData((prev) => ({
+        ...prev,
+        openings: openingsMatch[0],
+      }));
+      pushAiMessage('Select which company this job is for.');
+      setAiQuestionStep('company');
+      return;
+    }
+
+    if (aiQuestionStep === 'location') {
+      setAiDraftData((prev) => ({
+        ...prev,
+        location: input,
+      }));
+      pushAiMessage('What is the expected salary for the candidate?');
+      setAiQuestionStep('salary');
+      return;
+    }
+
+    if (aiQuestionStep === 'salary') {
+      setAiDraftData((prev) => ({
+        ...prev,
+        salary: input,
+      }));
+      pushAiMessage('Which qualification is required for this role?');
+      setAiQuestionStep('qualification');
+      return;
+    }
+
+    if (aiQuestionStep === 'qualification') {
+      const finalDraft = {
+        ...aiDraftData,
+        qualification: input,
+      };
+
+      setAiDraftData(finalDraft);
+      pushAiMessage('Thanks. I have what I need. I am creating the job details and JD now.');
+
+      const companyName =
+        clients.find((client) => client.id === finalDraft.companyId)?.companyName || '';
+
+      const finalPrompt = [
+        finalDraft.originalPrompt,
+        `Role: ${finalDraft.jobTitle}.`,
+        `Openings: ${finalDraft.openings}.`,
+        companyName ? `Company: ${companyName}.` : '',
+        finalDraft.location ? `Location: ${finalDraft.location}.` : '',
+        finalDraft.salary ? `Expected salary: ${finalDraft.salary}.` : '',
+        finalDraft.qualification ? `Qualification required: ${finalDraft.qualification}.` : '',
+        finalDraft.workMode ? `Work mode: ${finalDraft.workMode}.` : '',
+        'Generate Job Title, Number Of Openings, Company, Location, Work mode, Salary, Job Summary, Key Responsibilities, Qualifications and Experience, and Compensation & Benefits.',
+      ]
+        .filter(Boolean)
+        .join(' ');
+
+      await handleAiAssist(finalPrompt, finalDraft);
+      pushAiMessage('Done. I filled the job fields and created the JD for this role.');
+      setAiQuestionStep('done');
+      return;
+    }
+
+    if (aiQuestionStep === 'done') {
+      resetAiConversation();
+      setAiPrompt(input);
     }
   };
 
@@ -662,26 +1188,44 @@ export function CreateJobDrawer({
         return 'FULL_TIME';
       };
 
+      const toList = (value: string) =>
+        value
+          .split('\n')
+          .map((item) => item.replace(/^[\-\u2022]\s*/, '').trim())
+          .filter(Boolean);
+
+      const keyResponsibilities = toList(formData.keyResponsibilitiesText);
+      const qualifications = toList(formData.qualificationsExperienceText);
+      const benefits = toList(formData.compensationBenefitsText);
+      const composedDescription = [
+        `<h2>${formData.jobTitle.trim()}</h2>`,
+        formData.jobSummary.trim() ? `<p>${formData.jobSummary.trim()}</p>` : '',
+        keyResponsibilities.length
+          ? `<h3>Key Responsibilities</h3><ul>${keyResponsibilities.map((item) => `<li>${item}</li>`).join('')}</ul>`
+          : '',
+        qualifications.length
+          ? `<h3>Qualifications and Experience</h3><ul>${qualifications.map((item) => `<li>${item}</li>`).join('')}</ul>`
+          : '',
+        benefits.length
+          ? `<h3>Compensation & Benefits</h3><ul>${benefits.map((item) => `<li>${item}</li>`).join('')}</ul>`
+          : '',
+      ]
+        .filter(Boolean)
+        .join('');
+
       const jobData: CreateJobData = {
         title: formData.jobTitle,
-        description: formData.jobDescriptionHtml,
+        description: composedDescription || formData.jobDescriptionHtml,
+        overview: formData.jobSummary || undefined,
         clientId: formData.companyId,
         openings: parseInt(formData.numberOfOpenings) || 1,
         // Core job fields
         type: mapJobType(formData.jobType),
         status: 'OPEN',
-        // Build location string from all location parts
-        location: (() => {
-          const parts = [];
-          if (formData.locality) parts.push(formData.locality);
-          if (formData.city) parts.push(formData.city);
-          if (formData.state) parts.push(formData.state);
-          if (formData.country) parts.push(formData.country);
-          if (formData.postalCode) parts.push(formData.postalCode);
-          return parts.length > 0 ? parts.join(', ') : (formData.fullAddress || undefined);
-        })(),
-        requirements: [], // can be enhanced later
-        skills: formData.skills,
+        location: formData.jobLocation || undefined,
+        requirements: qualifications,
+        skills: [],
+        keyResponsibilities,
         experienceRequired:
           parsedMinExp !== undefined || parsedMaxExp !== undefined
             ? `${parsedMinExp ?? ''}${parsedMaxExp !== undefined ? `-${parsedMaxExp}` : ''}`.trim()
@@ -693,39 +1237,16 @@ export function CreateJobDrawer({
               : formData.educationalQualification)
           : undefined,
         // Salary as JSON
-        salary:
-          formData.minSalary || formData.maxSalary
-            ? {
-                type: formData.salaryType,
-                currency: formData.currency,
-                min: formData.minSalary ? Number(formData.minSalary) : undefined,
-                max: formData.maxSalary ? Number(formData.maxSalary) : undefined,
-              }
-            : undefined,
-        // Application form
-        applicationFormEnabled: formData.enableApplicationForm,
-        applicationFormLogo:
-          formData.logoOption === 'custom' && formData.applicationLogoUrl
-            ? formData.applicationLogoUrl
-            : formData.logoOption === 'custom'
-              ? 'none'
-              : formData.logoOption,
-        applicationFormQuestions: formData.applicationQuestions,
-        applicationFormNote: formData.noteForCandidates || undefined,
-        // UI-specific metadata stored on job
+        salary: formData.salaryInput
+          ? {
+              amount: formData.salaryInput,
+              currency: formData.currency,
+            }
+          : undefined,
+        benefits,
         jobLocationType: formData.jobLocationType || undefined,
-        // Store additional fields in distributionPlatforms JSON
-        distributionPlatforms: (() => {
-          const distPlatforms: any = {};
-          if (formData.locality) distPlatforms.locality = formData.locality;
-          if (formData.postalCode) distPlatforms.postalCode = formData.postalCode;
-          if (formData.educationalSpecialization) distPlatforms.educationalSpecialization = formData.educationalSpecialization;
-          if (formData.city) distPlatforms.city = formData.city;
-          if (formData.state) distPlatforms.state = formData.state;
-          if (formData.country) distPlatforms.country = formData.country;
-          if (formData.fullAddress) distPlatforms.fullAddress = formData.fullAddress;
-          return Object.keys(distPlatforms).length > 0 ? distPlatforms : undefined;
-        })(),
+        applicationFormEnabled: formData.applicationQuestions.length > 0,
+        applicationFormQuestions: formData.applicationQuestions,
         // Store JD file name if file was uploaded
         jdFileName: uploadedFile?.name || undefined,
         assignedToId: isEditMode
@@ -902,16 +1423,30 @@ export function CreateJobDrawer({
             className="fixed right-0 top-0 h-full w-[680px] bg-white shadow-2xl z-50 pointer-events-auto border-l border-slate-200 flex flex-col"
           >
             {/* Sticky Header */}
-            <div className="shrink-0 border-b border-slate-200 bg-white px-6 py-4 flex items-center justify-between">
-              <h2 className="text-lg font-bold text-slate-900">{isEditMode ? 'Edit Job' : 'Add Job'}</h2>
-              <button
-                type="button"
-                onClick={onClose}
-                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                aria-label="Close"
-              >
-                <X size={20} />
-              </button>
+            <div className="shrink-0 border-b border-slate-200 bg-white px-6 py-4 flex items-center justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">{isEditMode ? 'Edit Job' : 'Add Job'}</h2>
+                <p className="text-sm text-slate-500">Fill the title, then generate the job description with AI.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={openAiPromptBox}
+                  disabled={aiGenerating}
+                  className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Sparkles size={16} />
+                  {aiGenerating ? 'Generating...' : 'Generate With AI'}
+                </button>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                  aria-label="Close"
+                >
+                  <X size={20} />
+                </button>
+              </div>
             </div>
 
             {/* Scrollable Content */}
@@ -963,58 +1498,50 @@ export function CreateJobDrawer({
                     {/* Company */}
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-2">
-                        Company <span className="text-red-500">*</span>
+                        For Which Company <span className="text-red-500">*</span>
                       </label>
-                      <div className="flex gap-2">
-                        <div className="relative flex-1">
-                          <button
-                            type="button"
-                            onClick={() => setDropdownsOpen(prev => ({ ...prev, company: !prev.company }))}
-                            className="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-left text-slate-700 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                          >
-                            {selectedCompany ? (
-                              <span>{selectedCompany.companyName}</span>
-                            ) : (
-                              <span className="text-slate-400">Search Companies</span>
-                            )}
-                            <ChevronDown size={16} className="text-slate-400" />
-                          </button>
-                          {dropdownsOpen.company && (
-                            <>
-                              <div className="fixed inset-0 z-10" onClick={() => setDropdownsOpen(prev => ({ ...prev, company: false }))} />
-                              <ul className="absolute z-20 mt-1 w-full rounded-xl border border-slate-200 bg-white py-1 shadow-lg max-h-48 overflow-y-auto">
-                                {loadingClients ? (
-                                  <li className="px-4 py-2 text-sm text-slate-500">Loading...</li>
-                                ) : clients.length === 0 ? (
-                                  <li className="px-4 py-2 text-sm text-slate-500">No companies found</li>
-                                ) : (
-                                  clients.map((client) => (
-                                    <li key={client.id}>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setFormData(prev => ({ ...prev, companyId: client.id }));
-                                          setDropdownsOpen(prev => ({ ...prev, company: false }));
-                                        }}
-                                        className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${
-                                          formData.companyId === client.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'
-                                        }`}
-                                      >
-                                        {client.companyName}
-                                      </button>
-                                    </li>
-                                  ))
-                                )}
-                              </ul>
-                            </>
-                          )}
-                        </div>
+                      <div className="relative">
                         <button
                           type="button"
-                          className="px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors"
+                          onClick={() => setDropdownsOpen(prev => ({ ...prev, company: !prev.company }))}
+                          className="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-left text-slate-700 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                         >
-                          <Plus size={18} />
+                          {selectedCompany ? (
+                            <span>{selectedCompany.companyName}</span>
+                          ) : (
+                            <span className="text-slate-400">Search Companies</span>
+                          )}
+                          <ChevronDown size={16} className="text-slate-400" />
                         </button>
+                        {dropdownsOpen.company && (
+                          <>
+                            <div className="fixed inset-0 z-10" onClick={() => setDropdownsOpen(prev => ({ ...prev, company: false }))} />
+                            <ul className="absolute z-20 mt-1 w-full rounded-xl border border-slate-200 bg-white py-1 shadow-lg max-h-48 overflow-y-auto">
+                              {loadingClients ? (
+                                <li className="px-4 py-2 text-sm text-slate-500">Loading...</li>
+                              ) : clients.length === 0 ? (
+                                <li className="px-4 py-2 text-sm text-slate-500">No companies found</li>
+                              ) : (
+                                clients.map((client) => (
+                                  <li key={client.id}>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setFormData(prev => ({ ...prev, companyId: client.id }));
+                                        setDropdownsOpen(prev => ({ ...prev, company: false }));
+                                      }}
+                                      className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${
+                                        formData.companyId === client.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'
+                                      }`}
+                                    >
+                                      {client.companyName}
+                                    </button>
+                                  </li>
+                                ))
+                              )}
+                            </ul>
+                          </>
+                        )}
                       </div>
                     </div>
 
@@ -1094,11 +1621,106 @@ export function CreateJobDrawer({
                         Shown as <span className="font-medium text-slate-600">Owner</span> on the Jobs page and in job details.
                       </p>
                     </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">Location</label>
+                      <input
+                        type="text"
+                        value={formData.jobLocation}
+                        onChange={(e) => setFormData(prev => ({ ...prev, jobLocation: e.target.value }))}
+                        placeholder="Bangalore, India"
+                        className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-2">Work mode</label>
+                        <select
+                          value={formData.jobLocationType}
+                          onChange={(e) => setFormData(prev => ({ ...prev, jobLocationType: e.target.value }))}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                        >
+                          <option value="">Select work mode</option>
+                          <option>On-site</option>
+                          <option>Remote</option>
+                          <option>Hybrid</option>
+                        </select>
+                      </div>
+                      <div />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">Salary</label>
+                      <div className="grid grid-cols-[220px_1fr] gap-3">
+                        <select
+                          value={formData.currency}
+                          onChange={(e) => setFormData(prev => ({ ...prev, currency: e.target.value }))}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                        >
+                          <option>Rupees (₹ - India)</option>
+                          <option>US Dollar ($ - USA)</option>
+                          <option>Euro (€ - Europe)</option>
+                          <option>Pound (£ - UK)</option>
+                        </select>
+                        <input
+                          type="text"
+                          value={formData.salaryInput}
+                          onChange={(e) => setFormData(prev => ({ ...prev, salaryInput: e.target.value }))}
+                          placeholder="Enter salary"
+                          className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">Job Summary</label>
+                      <textarea
+                        value={formData.jobSummary}
+                        onChange={(e) => setFormData(prev => ({ ...prev, jobSummary: e.target.value }))}
+                        rows={4}
+                        placeholder="Brief summary of the role"
+                        className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-y"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">Key Responsibilities</label>
+                      <textarea
+                        value={formData.keyResponsibilitiesText}
+                        onChange={(e) => setFormData(prev => ({ ...prev, keyResponsibilitiesText: e.target.value }))}
+                        rows={5}
+                        placeholder="One responsibility per line"
+                        className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-y"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">Qualifications and Experience</label>
+                      <textarea
+                        value={formData.qualificationsExperienceText}
+                        onChange={(e) => setFormData(prev => ({ ...prev, qualificationsExperienceText: e.target.value }))}
+                        rows={5}
+                        placeholder="One qualification per line"
+                        className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-y"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">Compensation & Benefits</label>
+                      <textarea
+                        value={formData.compensationBenefitsText}
+                        onChange={(e) => setFormData(prev => ({ ...prev, compensationBenefitsText: e.target.value }))}
+                        rows={5}
+                        placeholder="One item per line"
+                        className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-y"
+                      />
+                    </div>
                   </div>
                 )}
               </div>
 
-              {/* Section 2: Job Description */}
+              {false && (
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
                 <button
                   type="button"
@@ -1159,16 +1781,6 @@ export function CreateJobDrawer({
                       <div className="border border-slate-200 rounded-xl overflow-hidden">
                         {/* Toolbar */}
                         <div className="bg-slate-50 border-b border-slate-200 p-2 flex items-center gap-1 flex-wrap">
-                          <button
-                            type="button"
-                            onClick={handleAiAssist}
-                            disabled={aiGenerating}
-                            className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1"
-                          >
-                            <Sparkles size={14} />
-                            {aiGenerating ? 'Generating...' : 'AI Assist'}
-                          </button>
-                          <div className="w-px h-6 bg-slate-300 mx-1" />
                           <button type="button" className="p-1.5 hover:bg-slate-200 rounded" title="Bold">
                             <span className="text-xs font-bold">B</span>
                           </button>
@@ -1185,7 +1797,7 @@ export function CreateJobDrawer({
                           value={formData.jobDescriptionHtml}
                           onChange={(e) => setFormData(prev => ({ ...prev, jobDescriptionHtml: e.target.value }))}
                           rows={12}
-                          placeholder="Enter job description... Use AI Assist to generate automatically."
+                          placeholder="Enter job description or use the Generate With AI button at the top."
                           className="w-full px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none resize-y min-h-[300px]"
                         />
                       </div>
@@ -1483,8 +2095,9 @@ export function CreateJobDrawer({
                   </div>
                 )}
               </div>
+              )}
 
-              {/* Section 3: Job Application Form */}
+              {false && (
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
                 <button
                   type="button"
@@ -1781,6 +2394,7 @@ export function CreateJobDrawer({
                   </div>
                 )}
               </div>
+              )}
 
               {/* Section 4: Publish & Share */}
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
@@ -2167,6 +2781,318 @@ export function CreateJobDrawer({
               </button>
             </div>
           </motion.div>
+
+          <AnimatePresence>
+            {showAiPromptBox && (
+              <motion.div
+                key="ai-panel"
+                initial={{ x: '100%', opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: '100%', opacity: 0 }}
+                transition={{ type: 'spring', damping: 26, stiffness: 210 }}
+                onClick={(e) => e.stopPropagation()}
+                className="fixed right-0 top-0 z-[70] h-full w-[680px] border-l border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.28)] pointer-events-auto flex flex-col max-w-[92vw]"
+              >
+                <div className="flex items-center justify-between gap-4 border-b border-slate-200 bg-white px-6 py-5">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">AI Drawer</p>
+                    <h3 className="mt-1 text-base font-bold text-slate-900">Generate Job Description</h3>
+                    <p className="mt-1 text-sm text-slate-500">
+                      Use a custom prompt and generate the description with AI.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAiPromptBox(false)}
+                    className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                    aria-label="Close AI drawer"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-hidden bg-slate-50">
+                  <div className="flex h-full flex-col">
+                    <div className="flex-1 overflow-y-auto px-6 py-6">
+                      <div className="space-y-4">
+                        <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+                          <p className="text-[15px] leading-8 text-slate-600">
+                            Ask AI to write a strong job description for this role. Include tone, skills, seniority,
+                            work mode, responsibilities, or any hiring details you want. Press
+                            <span className="mx-1 inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-500">
+                              Enter
+                            </span>
+                            to generate.
+                          </p>
+                        </div>
+
+                        <div className="flex justify-start">
+                          <div className="flex max-w-[92%] items-start gap-3">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white shadow-sm">
+                              AI
+                            </div>
+                            <div className="max-w-[88%] rounded-[22px] border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-slate-700 shadow-sm">
+                              Role: <span className="font-semibold text-slate-900">{aiDetectedRole || formData.jobTitle || 'Will detect from your prompt'}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {aiMessages.map((message) => (
+                          <div
+                            key={message.id}
+                            className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                          >
+                            <div className="flex max-w-[92%] items-start gap-3">
+                              {message.role === 'ai' ? (
+                                <>
+                                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white shadow-sm">
+                                    AI
+                                  </div>
+                                  <div className="max-w-[88%] rounded-[22px] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
+                                    {message.content}
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <div className="max-w-[88%] rounded-[22px] bg-blue-600 px-4 py-3 text-sm text-white shadow-sm">
+                                    {message.content}
+                                  </div>
+                                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700 shadow-sm">
+                                    You
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+
+                        {aiQuestionStep === 'company' ? (
+                          <div className="flex justify-start">
+                            <div className="flex max-w-[92%] items-start gap-3">
+                              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white shadow-sm">
+                                AI
+                              </div>
+                              <div className="w-full max-w-[88%] rounded-[22px] border border-slate-200 bg-white px-4 py-4 shadow-sm">
+                                <label className="block text-sm font-medium text-slate-700 mb-2">Choose company</label>
+                                <select
+                                  value={aiDraftData.companyId}
+                                  onChange={(e) => handleAiCompanySelect(e.target.value)}
+                                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                >
+                                  <option value="">Select company</option>
+                                  {clients.map((client) => (
+                                    <option key={client.id} value={client.id}>
+                                      {client.companyName}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {aiDrawerError ? (
+                          <div className="flex justify-start">
+                            <div className="flex max-w-[92%] items-start gap-3">
+                              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white shadow-sm">
+                                AI
+                              </div>
+                              <div className="max-w-[88%] rounded-[22px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm">
+                                {aiDrawerError}
+                              </div>
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {aiGenerating ? (
+                          <div className="flex justify-start">
+                            <div className="flex max-w-[92%] items-start gap-3">
+                              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white shadow-sm">
+                                AI
+                              </div>
+                              <div className="max-w-[88%] rounded-[22px] border border-slate-200 bg-white px-4 py-4 text-sm text-slate-500 shadow-sm">
+                                Generating job description...
+                              </div>
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {aiGeneratedDescription ? (
+                          <div className="flex justify-start">
+                            <div className="flex max-w-[92%] items-start gap-3">
+                              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white shadow-sm">
+                                AI
+                              </div>
+                              <div className="max-w-[88%] rounded-[22px] border border-slate-200 bg-white px-4 py-4 shadow-sm">
+                                <div className="space-y-4">
+                                  <div className="grid grid-cols-2 gap-3">
+                                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Job Title</p>
+                                      <p className="mt-2 text-sm font-medium text-slate-900">{formData.jobTitle || aiDraftData.jobTitle || '-'}</p>
+                                    </div>
+                                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Openings</p>
+                                      <p className="mt-2 text-sm font-medium text-slate-900">{formData.numberOfOpenings || aiDraftData.openings || '-'}</p>
+                                    </div>
+                                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Company</p>
+                                      <p className="mt-2 text-sm font-medium text-slate-900">
+                                        {clients.find((client) => client.id === (formData.companyId || aiDraftData.companyId))?.companyName || '-'}
+                                      </p>
+                                    </div>
+                                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Location</p>
+                                      <p className="mt-2 text-sm font-medium text-slate-900">{formData.jobLocation || aiDraftData.location || '-'}</p>
+                                    </div>
+                                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Work Mode</p>
+                                      <p className="mt-2 text-sm font-medium text-slate-900">{formData.jobLocationType || aiDraftData.workMode || '-'}</p>
+                                    </div>
+                                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Salary</p>
+                                      <p className="mt-2 text-sm font-medium text-slate-900">
+                                        {formData.salaryInput ? `${formData.currency} ${formData.salaryInput}` : aiDraftData.salary || '-'}
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  {aiDescriptionView.title ? (
+                                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                                      <h4 className="text-xl font-semibold text-slate-900">{aiDescriptionView.title}</h4>
+                                      {aiDescriptionView.intro.map((paragraph, index) => (
+                                        <p key={`${paragraph}-${index}`} className="mt-3 text-sm leading-7 text-slate-600">
+                                          {paragraph}
+                                        </p>
+                                      ))}
+                                    </div>
+                                  ) : null}
+
+                                  {aiDescriptionView.sections.map((section) => (
+                                    <div
+                                      key={section.heading}
+                                      className="rounded-2xl border border-slate-200 bg-white px-4 py-4"
+                                    >
+                                      <h5 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">
+                                        {section.heading}
+                                      </h5>
+                                      {section.paragraphs.map((paragraph, index) => (
+                                        <p key={`${section.heading}-p-${index}`} className="mt-3 text-sm leading-7 text-slate-600">
+                                          {paragraph}
+                                        </p>
+                                      ))}
+                                      {section.items.length ? (
+                                        <div className="mt-3 space-y-2">
+                                          {section.items.map((item, index) => (
+                                            <div
+                                              key={`${section.heading}-i-${index}`}
+                                              className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-700"
+                                            >
+                                              {item}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  ))}
+
+                                  {(aiGeneratedQualification || aiGeneratedSpecialization) ? (
+                                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4">
+                                      <h5 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">
+                                        Education
+                                      </h5>
+                                      {aiGeneratedQualification ? (
+                                        <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                                          Qualification: {aiGeneratedQualification}
+                                        </div>
+                                      ) : null}
+                                      {aiGeneratedSpecialization ? (
+                                        <div className="mt-2 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                                          Specialization: {aiGeneratedSpecialization}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  ) : null}
+
+                                  {aiGeneratedQuestions.length ? (
+                                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4">
+                                      <h5 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">
+                                        Screening Questions
+                                      </h5>
+                                      <div className="mt-3 space-y-2">
+                                        {aiGeneratedQuestions.map((question, index) => (
+                                          <div
+                                            key={`screening-question-${index}`}
+                                            className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-700"
+                                          >
+                                            {index + 1}. {question}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="border-t border-slate-200 bg-white px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="text"
+                          value={aiPrompt}
+                          onChange={(e) => setAiPrompt(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              handleGenerateFromPromptBox();
+                            }
+                          }}
+                          placeholder="Message the AI to generate the job description..."
+                          className="flex-1 rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleGenerateFromPromptBox}
+                          disabled={aiGenerating}
+                          className="inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-blue-400 text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+                          aria-label="Generate now"
+                        >
+                          <SendHorizontal size={18} />
+                        </button>
+                      </div>
+
+                      <div className="mt-3 flex items-center justify-between gap-3">
+                        <span className="text-sm text-slate-500">
+                          {aiGenerating ? 'Generating job description...' : aiGeneratedDescription ? 'Job description generated' : 'Ready to generate'}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowAiPromptBox(false)}
+                            className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                          >
+                            Close
+                          </button>
+                          {aiGeneratedDescription ? (
+                          <button
+                            type="button"
+                            onClick={handleFinalizeAiJob}
+                            className="rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-green-700"
+                          >
+                            Finalize This Job
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </>
       )}
     </AnimatePresence>

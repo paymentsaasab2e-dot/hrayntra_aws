@@ -1,6 +1,12 @@
 import { prisma } from '../../config/prisma.js';
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
 import { dbLogger } from '../../utils/db-logger.js';
+import { generateMeetingLink } from '../../services/meetingService.js';
+import {
+  sendCandidateAssignmentEmail,
+  sendCandidateInterviewScheduledEmail,
+  sendInterviewPanelScheduledEmail,
+} from '../../services/emailService.js';
 
 const CANDIDATE_ACTIVITY_ENTITY = 'CANDIDATE';
 const NOTE_ACTIVITY_KIND = 'candidate-note';
@@ -238,6 +244,39 @@ function buildScheduledAt(date, time) {
   }
 
   return scheduledAt;
+}
+
+async function generateCandidateMeetingLink({ candidate, job, data, interviewers, userId }) {
+  const platform = mapMeetingPlatform(data?.platform, data?.mode);
+  if (String(data?.mode || '').toLowerCase() !== 'video' || !platform) {
+    return { meetingLink: null, platform: null, error: null };
+  }
+
+  const scheduledAt = buildScheduledAt(data?.date, data?.time);
+  const interviewerIds = Array.isArray(interviewers) ? interviewers.map((item) => item.id).filter(Boolean) : [];
+  const panelUsers = interviewerIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: interviewerIds } },
+        select: { email: true },
+      })
+    : [];
+
+  const result = await generateMeetingLink(platform, {
+    id: `candidate-preview-${candidate.id}-${Date.now()}`,
+    date: scheduledAt,
+    duration: parseDurationToMinutes(data?.duration),
+    timezone: String(data?.timezone || 'Asia/Kolkata').trim() || 'Asia/Kolkata',
+    candidateName: `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() || candidate.email || 'Candidate',
+    jobTitle: job.title,
+    panelEmails: panelUsers.map((item) => item.email).filter(Boolean),
+    notes: String(data?.notes || '').trim() || undefined,
+  }, userId);
+
+  return {
+    meetingLink: result.meetingLink,
+    platform,
+    error: result.error || null,
+  };
 }
 
 async function getCandidateActivities(candidateId) {
@@ -478,6 +517,7 @@ export const candidateService = {
       experience: data.experience,
       currentTitle: data.currentTitle,
       currentCompany: data.currentCompany,
+      designation: data.designation,
       location: data.location,
       status: data.status,
       source: data.source,
@@ -486,6 +526,9 @@ export const candidateService = {
       noticePeriod: data.noticePeriod,
       hotlist: data.hotlist,
       salary: data.salary,
+      assignedJobs: data.assignedJobs,
+      stage: data.stage,
+      lastActivity: data.lastActivity ? new Date(data.lastActivity) : undefined,
       dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : undefined,
       gender: data.gender,
       address: data.address,
@@ -504,6 +547,10 @@ export const candidateService = {
       github: data.github,
       website: data.website,
       notes: data.notes,
+      cvSummary: data.cvSummary,
+      cvEducationEntries: data.cvEducationEntries,
+      cvWorkExperienceEntries: data.cvWorkExperienceEntries,
+      cvPortfolioLinks: data.cvPortfolioLinks,
       tags: data.tags,
       preferredLocation: data.preferredLocation,
       willingToRelocate: data.willingToRelocate,
@@ -524,7 +571,7 @@ export const candidateService = {
   },
 
   async delete(id) {
-    await prisma.$transaction(async (tx) => {
+    const deletedCount = await prisma.$transaction(async (tx) => {
       // Orphaned activity rows (no FK cascade) — remove so DB stays clean
       await tx.activity.deleteMany({
         where: {
@@ -541,8 +588,14 @@ export const candidateService = {
         data: { convertedToCandidateId: null },
       });
 
-      await tx.candidate.delete({ where: { id } });
+      const result = await tx.candidate.deleteMany({ where: { id } });
+      return result.count;
     });
+
+    if (deletedCount === 0) {
+      return { message: 'Candidate already deleted' };
+    }
+
     return { message: 'Candidate deleted successfully' };
   },
 
@@ -772,105 +825,107 @@ export const candidateService = {
 
     const updatedAssignedJobs = Array.from(new Set([...(candidate.assignedJobs || []), jobId]));
 
-    await prisma.$transaction(async (tx) => {
-      let targetStage = existingStage;
+    const pipelineNotes = String(data?.notes || '').trim() || null;
 
-      if (!targetStage) {
-        const nextOrder =
-          job.pipelineStages.length > 0
-            ? Math.max(...job.pipelineStages.map((stage) => stage.order || 0)) + 1
-            : 1;
+    const activityPayload = {
+      action: 'Candidate added to pipeline',
+      description: `${candidate.firstName} ${candidate.lastName}`.trim()
+        ? `${candidate.firstName} ${candidate.lastName} added to ${job.title} at ${stageName} stage.`
+        : `Candidate added to ${job.title} at ${stageName} stage.`,
+      performedById: userId,
+      entityType: CANDIDATE_ACTIVITY_ENTITY,
+      entityId: candidateId,
+      category: 'Candidates',
+      relatedType: 'job',
+      relatedId: job.id,
+      relatedLabel: job.title,
+      metadata: {
+        kind: PIPELINE_ACTIVITY_KIND,
+        jobId: job.id,
+        relatedJobTitle: job.title,
+        recruiterId: data?.recruiterId || null,
+        priority: data?.priority || 'Medium',
+        stage: stageName,
+        notes: pipelineNotes,
+      },
+    };
 
-        targetStage = await tx.pipelineStage.create({
-          data: {
-            jobId,
-            name: stageName,
-            order: nextOrder,
-            color: '#2563eb',
-          },
-        });
-      }
+    let targetStage = existingStage;
 
-      await tx.pipelineEntry.deleteMany({
-        where: {
-          candidateId,
+    if (!targetStage) {
+      const nextOrder =
+        job.pipelineStages.length > 0
+          ? Math.max(...job.pipelineStages.map((stage) => stage.order || 0)) + 1
+          : 1;
+
+      targetStage = await prisma.pipelineStage.create({
+        data: {
           jobId,
+          name: stageName,
+          order: nextOrder,
+          color: '#2563eb',
         },
       });
+    }
 
-      await tx.pipelineEntry.create({
+    await prisma.pipelineEntry.deleteMany({
+      where: {
+        candidateId,
+        jobId,
+      },
+    });
+
+    await prisma.pipelineEntry.create({
+      data: {
+        candidateId,
+        jobId,
+        stageId: targetStage.id,
+        movedById: userId,
+        notes: pipelineNotes,
+      },
+    });
+
+    const existingMatch = await prisma.match.findFirst({
+      where: {
+        candidateId,
+        jobId,
+      },
+    });
+
+    if (existingMatch) {
+      await prisma.match.update({
+        where: { id: existingMatch.id },
+        data: {
+          status: mapStageToMatchStatus(stageName),
+          notes: pipelineNotes || existingMatch.notes || null,
+        },
+      });
+    } else {
+      await prisma.match.create({
         data: {
           candidateId,
           jobId,
-          stageId: targetStage.id,
-          movedById: userId,
-          notes: String(data?.notes || '').trim() || null,
+          createdById: userId,
+          score: 75,
+          status: mapStageToMatchStatus(stageName),
+          notes: pipelineNotes,
         },
       });
+    }
 
-      const existingMatch = await tx.match.findFirst({
-        where: {
-          candidateId,
-          jobId,
-        },
-      });
+    await prisma.candidate.update({
+      where: { id: candidateId },
+      data: {
+        stage: stageName,
+        assignedToId: data?.recruiterId || candidate.assignedToId || undefined,
+        assignedJobs: updatedAssignedJobs,
+        lastActivity: new Date(),
+        status: 'ACTIVE',
+      },
+    });
 
-      if (existingMatch) {
-        await tx.match.update({
-          where: { id: existingMatch.id },
-          data: {
-            status: mapStageToMatchStatus(stageName),
-            notes: String(data?.notes || '').trim() || existingMatch.notes || null,
-          },
-        });
-      } else {
-        await tx.match.create({
-          data: {
-            candidateId,
-            jobId,
-            createdById: userId,
-            score: 75,
-            status: mapStageToMatchStatus(stageName),
-            notes: String(data?.notes || '').trim() || null,
-          },
-        });
-      }
-
-      await tx.candidate.update({
-        where: { id: candidateId },
-        data: {
-          stage: stageName,
-          assignedToId: data?.recruiterId || candidate.assignedToId || undefined,
-          assignedJobs: updatedAssignedJobs,
-          lastActivity: new Date(),
-          status: 'ACTIVE',
-        },
-      });
-
-      await tx.activity.create({
-        data: {
-          action: 'Candidate added to pipeline',
-          description: `${candidate.firstName} ${candidate.lastName}`.trim()
-            ? `${candidate.firstName} ${candidate.lastName} added to ${job.title} at ${stageName} stage.`
-            : `Candidate added to ${job.title} at ${stageName} stage.`,
-          performedById: userId,
-          entityType: CANDIDATE_ACTIVITY_ENTITY,
-          entityId: candidateId,
-          category: 'Candidates',
-          relatedType: 'job',
-          relatedId: job.id,
-          relatedLabel: job.title,
-          metadata: {
-            kind: PIPELINE_ACTIVITY_KIND,
-            jobId: job.id,
-            relatedJobTitle: job.title,
-            recruiterId: data?.recruiterId || null,
-            priority: data?.priority || 'Medium',
-            stage: stageName,
-            notes: String(data?.notes || '').trim() || null,
-          },
-        },
-      });
+    await prisma.activity.create({
+      data: activityPayload,
     });
 
     return this.getById(candidateId);
@@ -970,11 +1025,30 @@ export const candidateService = {
     if (!interviewers.length) {
       throw new Error('Select at least one interviewer');
     }
+    const panelMembers = await prisma.user.findMany({
+      where: { id: { in: interviewers.map((item) => item.id).filter(Boolean) } },
+      select: { id: true, name: true, email: true },
+    });
 
     const leadInterviewer =
       interviewers.find((item) => item.role === 'Lead Interviewer') || interviewers[0];
     const scheduledAt = buildScheduledAt(data?.date, data?.time);
     const notes = String(data?.notes || '').trim();
+    let generatedMeetingLink = data?.mode === 'video' ? String(data?.meetingLink || '').trim() || null : null;
+    const resolvedPlatform = mapMeetingPlatform(data?.platform, data?.mode);
+
+    if (String(data?.mode || '').toLowerCase() === 'video' && resolvedPlatform && !generatedMeetingLink) {
+      const generated = await generateCandidateMeetingLink({ candidate, job, data, interviewers, userId });
+      if (!generated.meetingLink) {
+        throw new Error(generated.error || 'Unable to generate meeting link');
+      }
+      generatedMeetingLink = generated.meetingLink;
+    }
+
+    const client = await prisma.client.findUnique({
+      where: { id: job.clientId },
+      select: { companyName: true },
+    });
 
     const interview = await prisma.$transaction(async (tx) => {
       const createdInterview = await tx.interview.create({
@@ -989,13 +1063,13 @@ export const candidateService = {
           type: mapInterviewType(data?.type, data?.mode),
           status: 'SCHEDULED',
           location: data?.mode === 'in-person' ? String(data?.location || '').trim() || null : null,
-          meetingLink: data?.mode === 'video' ? String(data?.meetingLink || '').trim() || null : null,
+          meetingLink: generatedMeetingLink,
           notes: notes || null,
           // In our UI, "Interview Type" is the human-friendly label (HR Screening, Technical Round 1, etc.).
           // Persist that label in `round` so the Candidate drawer can display it cleanly.
           round: String(data?.type || data?.round || 1),
           mode: mapInterviewMode(data?.mode),
-          platform: mapMeetingPlatform(data?.platform, data?.mode),
+          platform: resolvedPlatform,
           timezone: String(data?.timezone || '').trim() || null,
           instructions: data?.mode === 'phone' ? String(data?.phoneNumber || '').trim() || null : null,
           panelIds: interviewers.map((item) => item.id).filter(Boolean),
@@ -1061,7 +1135,110 @@ export const candidateService = {
       return createdInterview;
     });
 
+    if (Boolean(data?.sendCandidateInvite) && candidate.email) {
+      await sendCandidateInterviewScheduledEmail({
+        toEmail: candidate.email,
+        candidateName: `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() || candidate.email,
+        jobTitle: job.title,
+        companyName: client?.companyName || 'Company',
+        scheduledAt,
+        timezone: String(data?.timezone || 'Asia/Kolkata').trim() || 'Asia/Kolkata',
+        interviewType: String(data?.type || '').trim() || null,
+        roundLabel: String(data?.round || '').trim() || null,
+        durationLabel: String(data?.duration || '').trim() || null,
+        modeLabel:
+          String(data?.mode || '').toLowerCase() === 'video'
+            ? 'Video Call'
+            : String(data?.mode || '').toLowerCase() === 'in-person'
+              ? 'In Person'
+              : String(data?.mode || '').toLowerCase() === 'phone'
+                ? 'Phone Call'
+                : 'Interview',
+        platformLabel:
+          resolvedPlatform === 'GOOGLE_MEET'
+            ? 'Google Meet'
+            : resolvedPlatform === 'ZOOM'
+              ? 'Zoom'
+              : null,
+        meetingLink: generatedMeetingLink,
+        location: data?.mode === 'in-person' ? String(data?.location || '').trim() || null : null,
+        phoneNumber: data?.mode === 'phone' ? String(data?.phoneNumber || '').trim() || null : null,
+        interviewerNames: interviewers.map((item) => item.name).filter(Boolean),
+        notes: notes || null,
+        senderUserId: userId,
+      });
+    }
+
+    if (Boolean(data?.sendInterviewerInvite) && panelMembers.length) {
+      const candidateName = `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() || candidate.email;
+      for (const panelMember of panelMembers) {
+        if (!panelMember.email) continue;
+        await sendInterviewPanelScheduledEmail({
+          toEmail: panelMember.email,
+          recipientName: panelMember.name,
+          candidateName,
+          jobTitle: job.title,
+          companyName: client?.companyName || 'Company',
+          scheduledAt,
+          timezone: String(data?.timezone || 'Asia/Kolkata').trim() || 'Asia/Kolkata',
+          interviewType: String(data?.type || '').trim() || null,
+          roundLabel: String(data?.round || '').trim() || null,
+          durationLabel: String(data?.duration || '').trim() || null,
+          modeLabel:
+            String(data?.mode || '').toLowerCase() === 'video'
+              ? 'Video Call'
+              : String(data?.mode || '').toLowerCase() === 'in-person'
+                ? 'In Person'
+                : String(data?.mode || '').toLowerCase() === 'phone'
+                  ? 'Phone Call'
+                  : 'Interview',
+          platformLabel:
+            resolvedPlatform === 'GOOGLE_MEET'
+              ? 'Google Meet'
+              : resolvedPlatform === 'ZOOM'
+                ? 'Zoom'
+                : null,
+          meetingLink: generatedMeetingLink,
+          location: data?.mode === 'in-person' ? String(data?.location || '').trim() || null : null,
+          phoneNumber: data?.mode === 'phone' ? String(data?.phoneNumber || '').trim() || null : null,
+          interviewerNames: panelMembers.map((item) => item.name).filter(Boolean),
+          notes: notes || null,
+          senderUserId: userId,
+        });
+      }
+    }
+
     return interview;
+  },
+
+  async generateInterviewMeetingLink(candidateId, data, userId) {
+    const candidate = await getCandidateOrThrow(candidateId);
+    const jobId = String(data?.jobId || candidate.assignedJobs?.[0] || '').trim();
+
+    if (!jobId) {
+      throw new Error('Linked job is required to generate a meeting link');
+    }
+
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      select: { id: true, title: true, clientId: true },
+    });
+
+    if (!job) {
+      throw new Error('Job not found');
+    }
+
+    const interviewers = Array.isArray(data?.interviewers) ? data.interviewers.filter(Boolean) : [];
+    const result = await generateCandidateMeetingLink({ candidate, job, data, interviewers, userId });
+
+    if (!result.meetingLink) {
+      throw new Error(result.error || 'Unable to generate meeting link');
+    }
+
+    return {
+      meetingLink: result.meetingLink,
+      platform: result.platform,
+    };
   },
 
   async updateInterview(candidateId, interviewId, data, userId) {
@@ -1239,13 +1416,57 @@ export const candidateService = {
 
     switch (action) {
       case 'assign_recruiter': {
-        if (!payload?.recruiterId) {
-          throw new Error('Recruiter ID is required');
+        const recruiterIds = Array.isArray(payload?.recruiterIds)
+          ? payload.recruiterIds.filter(Boolean)
+          : payload?.recruiterId
+            ? [payload.recruiterId]
+            : [];
+
+        if (!recruiterIds.length) {
+          throw new Error('At least one recruiter is required');
         }
+
+        const uniqueRecruiterIds = Array.from(new Set(recruiterIds.map(String)));
+        const primaryRecruiterId = uniqueRecruiterIds[0];
+        const recruiters = await prisma.user.findMany({
+          where: { id: { in: uniqueRecruiterIds }, isActive: true },
+          select: { id: true, name: true, email: true },
+        });
+
+        if (!recruiters.length) {
+          throw new Error('Selected recruiters were not found');
+        }
+
         const updated = await prisma.candidate.updateMany({
           where: { id: { in: candidateIds } },
-          data: { assignedToId: payload.recruiterId },
+          data: { assignedToId: primaryRecruiterId },
         });
+
+        const assignedCandidates = await prisma.candidate.findMany({
+          where: { id: { in: candidateIds } },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true,
+            currentTitle: true,
+            currentCompany: true,
+            experience: true,
+            location: true,
+            stage: true,
+            skills: true,
+            assignedJobs: true,
+          },
+        });
+
+        const assignedBy = userId
+          ? await prisma.user.findUnique({
+              where: { id: userId },
+              select: { name: true },
+            })
+          : null;
+
         // Log activity for each candidate
         for (const candidateId of candidateIds) {
           const candidate = await prisma.candidate.findUnique({
@@ -1264,11 +1485,41 @@ export const candidateService = {
                 relatedType: 'candidate',
                 relatedId: candidateId,
                 relatedLabel: `${candidate.firstName} ${candidate.lastName}`.trim() || candidate.email,
-                metadata: { kind: 'candidate-bulk-action', recruiterId: payload.recruiterId },
+                metadata: {
+                  kind: 'candidate-bulk-action',
+                  recruiterId: primaryRecruiterId,
+                  recruiterIds: uniqueRecruiterIds,
+                },
               },
             });
           }
         }
+
+        await Promise.allSettled(
+          recruiters
+            .filter((recruiter) => recruiter.email)
+            .map((recruiter) =>
+              sendCandidateAssignmentEmail({
+                toEmail: recruiter.email,
+                assigneeName: recruiter.name,
+                assignedByName: assignedBy?.name || null,
+                senderUserId: userId,
+                candidates: assignedCandidates.map((candidate) => ({
+                  name: `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() || candidate.email || 'Candidate',
+                  email: candidate.email,
+                  phone: candidate.phone,
+                  currentTitle: candidate.currentTitle,
+                  currentCompany: candidate.currentCompany,
+                  experience: candidate.experience,
+                  location: candidate.location,
+                  stage: candidate.stage,
+                  skills: candidate.skills,
+                  assignedJobs: candidate.assignedJobs,
+                })),
+              })
+            )
+        );
+
         return { updated: updated.count };
       }
 

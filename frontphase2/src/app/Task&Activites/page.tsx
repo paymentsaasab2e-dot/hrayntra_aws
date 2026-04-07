@@ -342,6 +342,22 @@ export default function App() {
     return [];
   };
 
+  const refreshTasksAndStats = async ({ includeStats = true }: { includeStats?: boolean } = {}) => {
+    const tasksResponse = await apiGetTasks();
+    const fetchedBackendTasks = tasksResponse.data ? extractBackendTasks(tasksResponse.data) : [];
+    const typedBackendTasks = Array.isArray(fetchedBackendTasks) ? (fetchedBackendTasks as BackendTask[]) : [];
+
+    setBackendTasks(typedBackendTasks);
+    setTasks(typedBackendTasks.map(transformBackendTaskToFrontend));
+
+    if (includeStats) {
+      const statsResponse = await apiGetTaskStats();
+      setStats((statsResponse.data as TaskStats | null) ?? null);
+    }
+
+    return typedBackendTasks;
+  };
+
   // Fetch tasks and stats from API
   useEffect(() => {
     const fetchData = async () => {
@@ -354,50 +370,19 @@ export default function App() {
         if (!token) {
           console.warn('No authentication token found. Using mock data.');
           setTasks(MOCK_TASKS);
+          setBackendTasks([]);
           setLoading(false);
           setStatsLoading(false);
           return;
         }
 
-        // Fetch tasks and stats in parallel
-        const [tasksResponse, statsResponse] = await Promise.all([
-          apiGetTasks().catch(err => {
-            console.error('Failed to fetch tasks:', err);
-            return { data: null };
-          }),
-          apiGetTaskStats().catch(err => {
-            console.error('Failed to fetch stats:', err);
-            return { data: null };
-          }),
-        ]);
-
-        // Process tasks
-        if (tasksResponse.data) {
-          const fetchedBackendTasks = extractBackendTasks(tasksResponse.data);
-
-          if (Array.isArray(fetchedBackendTasks) && fetchedBackendTasks.length > 0) {
-            const typedBackendTasks = fetchedBackendTasks as BackendTask[];
-            setBackendTasks(typedBackendTasks);
-            const transformedTasks = typedBackendTasks.map(transformBackendTaskToFrontend);
-            setTasks(transformedTasks);
-          } else {
-            setTasks(MOCK_TASKS);
-            setBackendTasks([]);
-          }
-        } else {
-          setTasks(MOCK_TASKS);
-          setBackendTasks([]);
-        }
-
-        // Process stats
-        if (statsResponse.data) {
-          setStats(statsResponse.data as TaskStats);
-        }
+        await refreshTasksAndStats();
       } catch (err: any) {
         console.error('Failed to fetch data:', err);
         setError(err.message || 'Failed to load data');
-        setTasks(MOCK_TASKS);
+        setTasks([]);
         setBackendTasks([]);
+        setStats(null);
       } finally {
         setLoading(false);
         setStatsLoading(false);
@@ -737,14 +722,8 @@ export default function App() {
         onCreateTaskFromSuggestion={handleCreateTaskFromSuggestion}
         onCreateSuccess={async () => {
           setCreateTaskPrefill(null);
-          // Refresh tasks after creation
           try {
-            const response = await apiGetTasks();
-            const backendTasks = response.data ? extractBackendTasks(response.data) : [];
-            if (Array.isArray(backendTasks) && backendTasks.length > 0) {
-              const transformedTasks = backendTasks.map(transformBackendTaskToFrontend);
-              setTasks(transformedTasks);
-            }
+            await refreshTasksAndStats();
           } catch (error) {
             console.error('Failed to refresh tasks:', error);
           }
@@ -767,22 +746,15 @@ export default function App() {
           }
         }}
         onUpdateSuccess={async () => {
-          // Refresh tasks list after update
           try {
-            const response = await apiGetTasks();
-            const backendTasks = response.data ? extractBackendTasks(response.data) : [];
-            if (Array.isArray(backendTasks) && backendTasks.length > 0) {
-              const transformedTasks = backendTasks.map(transformBackendTaskToFrontend);
-              setTasks(transformedTasks);
-              
-              // Also refresh selected task if it exists
-              if (selectedTask && isBackendTaskObjectId(selectedTask.id)) {
-                const taskResponse = await apiGetTask(selectedTask.id);
-                if (taskResponse.data) {
-                  const backendTask = taskResponse.data as BackendTask;
-                  setSelectedBackendTask(backendTask);
-                  setSelectedTask(transformBackendTaskToFrontend(backendTask));
-                }
+            await refreshTasksAndStats();
+
+            if (selectedTask && isBackendTaskObjectId(selectedTask.id)) {
+              const taskResponse = await apiGetTask(selectedTask.id);
+              if (taskResponse.data) {
+                const backendTask = taskResponse.data as BackendTask;
+                setSelectedBackendTask(backendTask);
+                setSelectedTask(transformBackendTaskToFrontend(backendTask));
               }
             }
           } catch (error) {
@@ -801,12 +773,7 @@ export default function App() {
           }
           try {
             await apiMarkTaskCompleted(taskId);
-            const response = await apiGetTasks();
-            const backendTasks = response.data ? extractBackendTasks(response.data) : [];
-            if (Array.isArray(backendTasks) && backendTasks.length > 0) {
-              const transformedTasks = backendTasks.map(transformBackendTaskToFrontend);
-              setTasks(transformedTasks);
-            }
+            await refreshTasksAndStats();
             if (selectedTask && selectedTask.id === taskId) {
               const taskResponse = await apiGetTask(taskId);
               if (taskResponse.data) {
@@ -831,7 +798,7 @@ export default function App() {
           }
           try {
             await apiDeleteTask(taskId);
-            setTasks((prev) => prev.filter((t) => t.id !== taskId));
+            await refreshTasksAndStats();
             setDrawerOpen(false);
             setSelectedTask(null);
             setSelectedBackendTask(null);

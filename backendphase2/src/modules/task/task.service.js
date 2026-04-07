@@ -1,6 +1,12 @@
 import { prisma } from '../../config/prisma.js';
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
 import { dbLogger } from '../../utils/db-logger.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export const taskService = {
   async getAll(req) {
@@ -301,7 +307,35 @@ export const taskService = {
   },
 
   async delete(id) {
+    const task = await prisma.task.findUnique({
+      where: { id },
+      include: { files: true },
+    });
+
+    if (!task) {
+      throw new Error('Task not found');
+    }
+
+    const localFileUrls = [
+      ...(task.attachments || []),
+      ...task.files.map((file) => file.fileUrl),
+    ].filter((fileUrl) => fileUrl && !fileUrl.startsWith('http://') && !fileUrl.startsWith('https://'));
+
+    for (const fileUrl of localFileUrls) {
+      try {
+        const normalizedPath = fileUrl.replace(/^\/+/, '');
+        const absolutePath = path.join(__dirname, '..', '..', '..', normalizedPath);
+        if (fs.existsSync(absolutePath)) {
+          fs.unlinkSync(absolutePath);
+        }
+      } catch (error) {
+        console.warn(`Failed to remove task file during delete: ${fileUrl}`, error);
+      }
+    }
+
+    await prisma.taskFile.deleteMany({ where: { taskId: id } });
     await prisma.task.delete({ where: { id } });
+
     return { message: 'Task deleted successfully' };
   },
 

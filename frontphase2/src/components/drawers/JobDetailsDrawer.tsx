@@ -368,12 +368,24 @@ export function JobDetailsDrawer({
                         {job.employmentType}
                       </span>
                     )}
+                    {!showStatusChange ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowStatusChange(true)}
+                        className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold border ${STATUS_STYLES[job.status]} hover:opacity-80 transition-opacity`}
+                      >
+                        {job.status}
+                      </button>
+                    ) : null}
                     {job.salaryRange && (
                       <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded flex items-center gap-1">
                         <DollarSign size={12} />
                         {job.salaryRange}
                       </span>
                     )}
+                    <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
+                      {job.postedDate ?? job.createdDate}
+                    </span>
                   </div>
                 </>
               ) : (
@@ -403,23 +415,19 @@ export function JobDetailsDrawer({
           {/* Right-side info panel (inline in header area) */}
           {job && (
             <div className="mt-4 pt-4 border-t border-slate-100 grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
-              <div>
-                <span className="text-slate-400 font-medium">Job ID</span>
-                <p className="font-mono text-slate-700 mt-0.5">{job.id}</p>
-              </div>
-              <div>
+              <div className="hidden">
                 <span className="text-slate-400 font-medium">Posted Date</span>
                 <p className="text-slate-700 mt-0.5">{job.postedDate ?? job.createdDate}</p>
               </div>
-              <div>
+              <div className="hidden">
                 <span className="text-slate-400 font-medium">Recruiter</span>
                 <p className="text-slate-700 mt-0.5">{job.recruiter ?? job.owner}</p>
               </div>
-              <div>
+              <div className="hidden">
                 <span className="text-slate-400 font-medium">Hiring Manager</span>
                 <p className="text-slate-700 mt-0.5">{job.hiringManager ?? '—'}</p>
               </div>
-              <div className="col-span-2">
+              <div className="col-span-2 hidden">
                 <span className="text-slate-400 font-medium">Status</span>
                 <div className="mt-0.5">
                   {!showStatusChange ? (
@@ -486,6 +494,78 @@ export function JobDetailsDrawer({
             <div className="flex-1 overflow-y-auto bg-slate-50/30 p-5">
               {activeTab === 'overview' && (
                 <div className="space-y-4">
+                  <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="p-5 border-b border-slate-100">
+                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Overview</h4>
+                    </div>
+                    <div className="p-5 space-y-5">
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Job Title *</p>
+                          <p className="mt-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">{job.title || '—'}</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Number Of Openings *</p>
+                          <p className="mt-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">{job.openings || '—'}</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">For Which Company *</p>
+                          <p className="mt-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">{job.client || '—'}</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Assign recruiter</p>
+                          <p className="mt-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">{job.recruiter || job.owner || '—'}</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Location</p>
+                          <p className="mt-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">{job.location || '—'}</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Work mode</p>
+                          <p className="mt-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">{job.jobLocationType || '—'}</p>
+                        </div>
+                        <div className="sm:col-span-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Salary</p>
+                          <p className="mt-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">
+                            {job.salaryRange ||
+                              (job.minSalary || job.maxSalary
+                                ? `${job.salaryCurrency ? `${job.salaryCurrency} ` : ''}${job.minSalary ?? ''}${job.maxSalary !== undefined ? ` - ${job.maxSalary}` : ''}`
+                                : '—')}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Job Summary</p>
+                        <div className="mt-1 min-h-[120px] rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 whitespace-pre-wrap">
+                          {job.overview || 'Brief summary of the role'}
+                        </div>
+                      </div>
+
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Key Responsibilities</p>
+                        <div className="mt-1 min-h-[120px] rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 whitespace-pre-wrap">
+                          {job.keyResponsibilities?.length ? job.keyResponsibilities.join('\n') : 'One responsibility per line'}
+                        </div>
+                      </div>
+
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Qualifications and Experience</p>
+                        <div className="mt-1 min-h-[120px] rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 whitespace-pre-wrap">
+                          {[job.education, job.experienceRequired].filter(Boolean).join('\n') || 'One qualification per line'}
+                        </div>
+                      </div>
+
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Compensation & Benefits</p>
+                        <div className="mt-1 min-h-[120px] rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 whitespace-pre-wrap">
+                          {job.benefits?.length ? job.benefits.join('\n') : '—'}
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
+                  <div className="hidden">
                   {/* Job Snapshot */}
                   <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="p-5 border-b border-slate-100 flex items-center justify-between gap-2">
@@ -792,6 +872,7 @@ export function JobDetailsDrawer({
                       <p className="text-sm text-slate-500">No overview content yet. Edit job to add details.</p>
                     </div>
                   )}
+                  </div>
                 </div>
               )}
 

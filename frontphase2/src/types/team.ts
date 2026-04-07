@@ -151,6 +151,10 @@ export interface TeamMember {
     tasks: number;
     assignedLeads?: number;
   };
+  credentialData?: {
+    loginId: string;
+    tempPassword: string;
+  } | null;
   createdAt: string;
   updatedAt: string;
 }

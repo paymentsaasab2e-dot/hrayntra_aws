@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
@@ -63,7 +63,7 @@ import { ImageWithFallback } from '../ImageWithFallback';
 import { useFiles } from '../../hooks/useFiles';
 import { ScheduleMeetingForm } from '../ScheduleMeetingForm';
 import { NotesService } from '../NotesService';
-import { apiUpdateClient, apiCreateClient, apiGetUsers, apiGetJobs, apiGetContacts, apiCreateContact, apiFetch, apiGetClientActivities, apiGetClientScheduledMeetings, apiCreateScheduledMeeting, apiUpdateScheduledMeeting, apiDeleteScheduledMeeting, type BackendUser, type BackendJob, type BackendContact, type CreateContactData, type BackendClient, type ScheduledMeeting } from '../../lib/api';
+import { apiUpdateClient, apiCreateClient, apiGetUsers, apiGetJobs, apiGetContacts, apiCreateContact, apiUpdateContact, apiFetch, apiGetClientActivities, apiGetClientScheduledMeetings, apiCreateScheduledMeeting, apiUpdateScheduledMeeting, apiDeleteScheduledMeeting, filesApiUpload, type BackendUser, type BackendJob, type BackendContact, type CreateContactData, type BackendClient, type ScheduledMeeting } from '../../lib/api';
 import { CreateJobDrawer } from './CreateJobDrawer';
 
 const HEALTH_STYLES: Record<ClientHealthStatus, { bg: string; text: string; label: string }> = {
@@ -72,11 +72,11 @@ const HEALTH_STYLES: Record<ClientHealthStatus, { bg: string; text: string; labe
   'At risk': { bg: 'bg-red-50', text: 'text-red-700', label: 'At risk' },
 };
 
-const FieldRow = ({ label, value, href }: { label: string; value: string; href?: boolean }) => (
+const FieldRow = ({ label, value, href, blankWhenEmpty = false }: { label: string; value: string; href?: boolean; blankWhenEmpty?: boolean }) => (
   <div className="flex flex-col gap-0.5 py-2 border-b border-slate-100 last:border-0">
     <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{label}</p>
     <p className={`text-sm font-medium text-slate-900 ${href ? 'text-blue-600 hover:underline cursor-pointer truncate' : ''}`}>
-      {value || 'â€”'}
+      {value}
     </p>
   </div>
 );
@@ -85,7 +85,7 @@ const STAGE_STYLES: Record<ClientStage, string> = {
   Active: 'bg-emerald-100 text-emerald-700 border-emerald-200',
   'On Hold': 'bg-amber-100 text-amber-700 border-amber-200',
   Inactive: 'bg-slate-100 text-slate-600 border-slate-200',
-  'Hot Clients 🔥': 'bg-red-100 text-red-700 border-red-200',
+  'Hot Clients ðŸ”¥': 'bg-red-100 text-red-700 border-red-200',
 };
 
 const JOB_STATUS_STYLES: Record<JobStatus, string> = {
@@ -125,12 +125,41 @@ const ACTIVITY_CATEGORY_BG: Record<Exclude<ActivityFilterType, 'All'>, string> =
   Files: 'bg-slate-100',
 };
 
+const mapClientActivityCategory = (activity: any): Exclude<ActivityFilterType, 'All'> => {
+  const rawCategory = String(activity?.category || '');
+  const action = String(activity?.action || '').toLowerCase();
+  const description = String(activity?.description || '').toLowerCase();
+
+  if (rawCategory === 'Interviews') return 'Interviews';
+  if (rawCategory === 'Candidates') return 'Candidates';
+  if (rawCategory === 'Billing') return 'Billing';
+  if (rawCategory === 'Notes') return 'Notes';
+  if (rawCategory === 'Files') return 'Files';
+  if (rawCategory === 'Jobs') return 'Jobs';
+
+  if (action.includes('meeting') || description.includes('meeting')) {
+    return 'Interviews';
+  }
+
+  if (action.includes('candidate') || description.includes('candidate')) {
+    return 'Candidates';
+  }
+
+  return 'Jobs';
+};
+
 const NOTE_TAG_STYLES: Record<NoteTag, string> = {
   HR: 'bg-blue-100 text-blue-700 border-blue-200',
   Finance: 'bg-emerald-100 text-emerald-700 border-emerald-200',
   Contract: 'bg-amber-100 text-amber-700 border-amber-200',
   Feedback: 'bg-violet-100 text-violet-700 border-violet-200',
 };
+
+const splitCompanyLinks = (value: string) =>
+  value
+    .split(/\r?\n|\|/)
+    .map((item) => item.trim())
+    .filter(Boolean);
 
 const FILE_TYPE_BADGE_STYLES: Record<ClientFileType, string> = {
   NDA: 'bg-slate-100 text-slate-700 border-slate-200',
@@ -184,6 +213,9 @@ export function ClientDetailsDrawer({
             companyName: response.data?.companyName,
             industry: response.data?.industry,
             companySize: response.data?.companySize,
+            servicesNeeded: response.data?.servicesNeeded,
+            expectedBusinessValue: response.data?.expectedBusinessValue,
+            leadStatus: response.data?.leadStatus,
             website: response.data?.website,
             linkedin: response.data?.linkedin,
             location: response.data?.location,
@@ -209,6 +241,9 @@ export function ClientDetailsDrawer({
               location: response.data.location || client.location || 'Not specified',
               companySize: response.data.companySize || client.companySize,
               hiringLocations: response.data.hiringLocations || client.hiringLocations,
+              servicesNeeded: response.data.servicesNeeded || client.servicesNeeded,
+              expectedBusinessValue: response.data.expectedBusinessValue || client.expectedBusinessValue,
+              leadStatus: response.data.leadStatus || client.leadStatus,
               website: response.data.website || client.website,
               linkedin: response.data.linkedin || client.linkedin,
               timezone: response.data.timezone || client.timezone,
@@ -225,6 +260,9 @@ export function ClientDetailsDrawer({
               name: mappedClient.name,
               industry: mappedClient.industry,
               companySize: mappedClient.companySize,
+              servicesNeeded: mappedClient.servicesNeeded,
+              expectedBusinessValue: mappedClient.expectedBusinessValue,
+              leadStatus: mappedClient.leadStatus,
               website: mappedClient.website,
               linkedin: mappedClient.linkedin,
               location: mappedClient.location,
@@ -247,7 +285,7 @@ export function ClientDetailsDrawer({
       setFullClientData(client);
     }
   }, [client?.id, propIsAddMode]);
-  
+
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [overviewOpen, setOverviewOpen] = useState<Record<string, boolean>>({
     companySnapshot: false,
@@ -260,18 +298,39 @@ export function ClientDetailsDrawer({
   const [overviewEditMode, setOverviewEditMode] = useState(isAddMode);
   const [overviewEditForm, setOverviewEditForm] = useState({
     companyName: '',
+    logo: '',
     industry: '',
     companySize: '',
     website: '',
     linkedin: '',
     location: '',
+    city: '',
+    country: '',
+    directorName: '',
+    contactEmail: '',
+    contactPhone: '',
     hiringLocations: '',
     timezone: '',
     priority: '',
+    servicesNeeded: '',
+    expectedBusinessValue: '',
+    nextFollowUpDue: '',
     sla: '',
     status: 'ACTIVE' as 'ACTIVE' | 'ON_HOLD' | 'INACTIVE',
     assignedToId: '',
   });
+  const clientLogoInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingClientLogo, setUploadingClientLogo] = useState(false);
+  const [pendingClientLogoFile, setPendingClientLogoFile] = useState<File | null>(null);
+  const [pendingClientLogoPreview, setPendingClientLogoPreview] = useState('');
+
+  useEffect(() => {
+    return () => {
+      if (pendingClientLogoPreview.startsWith('blob:')) {
+        URL.revokeObjectURL(pendingClientLogoPreview);
+      }
+    };
+  }, [pendingClientLogoPreview]);
   const [selectedContact, setSelectedContact] = useState<ClientContact | null>(null);
   const [showAddContactForm, setShowAddContactForm] = useState(false);
   const [addContactDeptOpen, setAddContactDeptOpen] = useState(false);
@@ -402,7 +461,7 @@ export function ClientDetailsDrawer({
   const [changeStageReasonDropdownOpen, setChangeStageReasonDropdownOpen] = useState(false);
   const [changeStageForm, setChangeStageForm] = useState<{ stage: ClientStage; reason: string }>({ stage: 'Active', reason: '' });
 
-  const CLIENT_STAGES: ClientStage[] = ['Active', 'On Hold', 'Inactive', 'Hot Clients 🔥'];
+  const CLIENT_STAGES: ClientStage[] = ['Active', 'On Hold', 'Inactive', 'Hot Clients ðŸ”¥'];
   const STAGE_REASONS = ['Hiring paused', 'No response', 'Contract ended', 'Payment issue', 'Other'];
   const needsReason = changeStageForm.stage === 'On Hold' || changeStageForm.stage === 'Inactive';
 
@@ -492,6 +551,68 @@ export function ClientDetailsDrawer({
     setOverviewOpen((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
+  const clientLogoPreview =
+    pendingClientLogoPreview ||
+    overviewEditForm.logo ||
+    fullClientData?.logo ||
+    client?.logo ||
+    '';
+
+  const resetClientLogoDraft = () => {
+    setPendingClientLogoFile(null);
+    setPendingClientLogoPreview('');
+  };
+
+  const syncClientLogoLocally = (logoUrl: string) => {
+    setOverviewEditForm((prev) => ({ ...prev, logo: logoUrl }));
+    setFullClientData((prev) => (prev ? { ...prev, logo: logoUrl } : prev));
+  };
+
+  const handleClientLogoFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('Please choose an image file (PNG, JPG, WebP, etc.)');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Image must be 5MB or smaller.');
+      return;
+    }
+
+    if (isAddMode || !client?.id) {
+      const previewUrl = URL.createObjectURL(file);
+      if (pendingClientLogoPreview.startsWith('blob:')) {
+        URL.revokeObjectURL(pendingClientLogoPreview);
+      }
+      setPendingClientLogoFile(file);
+      setPendingClientLogoPreview(previewUrl);
+      setOverviewEditForm((prev) => ({ ...prev, logo: previewUrl }));
+      return;
+    }
+
+    try {
+      setUploadingClientLogo(true);
+      const uploadResponse = await filesApiUpload('client', client.id, file, 'LOGO');
+      const logoUrl = uploadResponse.data?.fileUrl;
+      if (!logoUrl) {
+        throw new Error('Upload succeeded but no image URL was returned.');
+      }
+
+      await apiUpdateClient(client.id, { logo: logoUrl });
+      syncClientLogoLocally(logoUrl);
+      onClientCreated?.();
+    } catch (error: any) {
+      console.error('Failed to upload client logo:', error);
+      alert(error.message || 'Failed to upload client logo');
+    } finally {
+      setUploadingClientLogo(false);
+    }
+  };
+
   const startOverviewEdit = async () => {
     if (!client) return;
     
@@ -523,7 +644,7 @@ export function ClientDetailsDrawer({
       'Active': 'ACTIVE',
       'On Hold': 'ON_HOLD',
       'Inactive': 'INACTIVE',
-      'Hot Clients 🔥': 'ACTIVE', // Hot Clients maps to ACTIVE status
+      'Hot Clients ðŸ”¥': 'ACTIVE', // Hot Clients maps to ACTIVE status
     };
     
     // Map backend status to frontend stage if using fetched client
@@ -540,18 +661,28 @@ export function ClientDetailsDrawer({
     
     setOverviewEditForm({
       companyName: fetchedClient?.companyName || client.name || '',
+      logo: fetchedClient?.logo || client.logo || '',
       industry: fetchedClient?.industry || client.industry || '',
       companySize: fetchedClient?.companySize || client.companySize || '',
       website: fetchedClient?.website || client.website || '',
       linkedin: fetchedClient?.linkedin || client.linkedin || '',
       location: fetchedClient?.location || client.location || '',
+      city: derivedCity,
+      country: derivedCountry,
+      directorName: primaryClientContact?.name || '',
+      contactEmail: primaryClientContactEmail,
+      contactPhone: primaryClientContactPhone,
       hiringLocations: fetchedClient?.hiringLocations || client.hiringLocations || '',
       timezone: fetchedClient?.timezone || client.timezone || '',
       priority: fetchedClient?.priority || client.priority || '',
+      servicesNeeded: fetchedClient?.servicesNeeded || client.servicesNeeded || '',
+      expectedBusinessValue: fetchedClient?.expectedBusinessValue || client.expectedBusinessValue || '',
+      nextFollowUpDue: fetchedClient?.nextFollowUpDue ? new Date(fetchedClient.nextFollowUpDue).toISOString().slice(0, 10) : '',
       sla: fetchedClient?.sla || client.sla || '',
       status: statusMap[clientStage] || 'ACTIVE',
       assignedToId: assignedToId,
     });
+    resetClientLogoDraft();
     setOverviewEditMode(true);
     setMoreMenuOpen(false);
     // Open all sections for editing
@@ -587,12 +718,26 @@ export function ClientDetailsDrawer({
           hiringLocations: overviewEditForm.hiringLocations || undefined,
           timezone: overviewEditForm.timezone || undefined,
           priority: overviewEditForm.priority || undefined,
+          servicesNeeded: overviewEditForm.servicesNeeded || undefined,
+          expectedBusinessValue: overviewEditForm.expectedBusinessValue || undefined,
+          nextFollowUpDue: overviewEditForm.nextFollowUpDue || undefined,
           sla: overviewEditForm.sla || undefined,
           status: overviewEditForm.status || 'ACTIVE',
           assignedToId: overviewEditForm.assignedToId || undefined,
         };
 
-        await apiCreateClient(createData);
+        const createdClient = await apiCreateClient(createData);
+
+        const createdClientId = createdClient.data?.id;
+        if (createdClientId && pendingClientLogoFile) {
+          const uploadResponse = await filesApiUpload('client', createdClientId, pendingClientLogoFile, 'LOGO');
+          const logoUrl = uploadResponse.data?.fileUrl;
+          if (logoUrl) {
+            await apiUpdateClient(createdClientId, { logo: logoUrl });
+          }
+        }
+
+        resetClientLogoDraft();
         onClientCreated?.();
         onClose();
       } catch (error: any) {
@@ -614,17 +759,58 @@ export function ClientDetailsDrawer({
         if (overviewEditForm.website !== undefined) updateData.website = overviewEditForm.website || null;
         if (overviewEditForm.linkedin !== undefined) updateData.linkedin = overviewEditForm.linkedin || null;
         if (overviewEditForm.location !== undefined) updateData.location = overviewEditForm.location || null;
-        if (overviewEditForm.hiringLocations !== undefined) updateData.hiringLocations = overviewEditForm.hiringLocations || null;
+        const mergedHiringLocations = [overviewEditForm.city, overviewEditForm.country].filter(Boolean).join(', ');
+        if (overviewEditForm.hiringLocations !== undefined || overviewEditForm.city !== undefined || overviewEditForm.country !== undefined) {
+          updateData.hiringLocations = mergedHiringLocations || overviewEditForm.hiringLocations || null;
+        }
         if (overviewEditForm.timezone !== undefined) updateData.timezone = overviewEditForm.timezone || null;
         if (overviewEditForm.priority !== undefined) updateData.priority = overviewEditForm.priority || null;
+        if (overviewEditForm.servicesNeeded !== undefined) updateData.servicesNeeded = overviewEditForm.servicesNeeded || null;
+        if (overviewEditForm.expectedBusinessValue !== undefined) updateData.expectedBusinessValue = overviewEditForm.expectedBusinessValue || null;
+        if (overviewEditForm.nextFollowUpDue !== undefined) updateData.nextFollowUpDue = overviewEditForm.nextFollowUpDue || null;
         if (overviewEditForm.sla !== undefined) updateData.sla = overviewEditForm.sla || null;
         if (overviewEditForm.status !== undefined) updateData.status = overviewEditForm.status;
         if (overviewEditForm.assignedToId !== undefined) {
           updateData.assignedToId = overviewEditForm.assignedToId || null;
         }
+        if (overviewEditForm.logo !== undefined) updateData.logo = overviewEditForm.logo || null;
 
         console.log('Updating client with data:', updateData);
         await apiUpdateClient(client.id, updateData);
+        if (primaryClientContact?.id) {
+          const [firstName = '', ...lastParts] = overviewEditForm.directorName.trim().split(/\s+/).filter(Boolean);
+          await apiUpdateContact(primaryClientContact.id, {
+            firstName: firstName || 'Unknown',
+            lastName: lastParts.join(' '),
+            email: overviewEditForm.contactEmail || undefined,
+            phone: overviewEditForm.contactPhone || undefined,
+            location: [overviewEditForm.city, overviewEditForm.country].filter(Boolean).join(', ') || overviewEditForm.location || undefined,
+            designation: 'Director',
+            companyId: client.id,
+            ownerId: overviewEditForm.assignedToId || undefined,
+            isPrimary: true,
+          });
+        } else if (
+          overviewEditForm.directorName.trim() ||
+          overviewEditForm.contactEmail.trim() ||
+          overviewEditForm.contactPhone.trim()
+        ) {
+          const [firstName = '', ...lastParts] = overviewEditForm.directorName.trim().split(/\s+/).filter(Boolean);
+          await apiCreateContact({
+            firstName: firstName || 'Unknown',
+            lastName: lastParts.join(' '),
+            email: overviewEditForm.contactEmail || undefined,
+            phone: overviewEditForm.contactPhone || undefined,
+            location: [overviewEditForm.city, overviewEditForm.country].filter(Boolean).join(', ') || overviewEditForm.location || undefined,
+            designation: 'Director',
+            companyId: client.id,
+            ownerId: overviewEditForm.assignedToId || undefined,
+            isPrimary: true,
+            contactType: 'CLIENT',
+          });
+        }
+        setFullClientData((prev) => (prev ? { ...prev, logo: updateData.logo ?? prev.logo } : prev));
+        onClientCreated?.();
         setOverviewEditMode(false);
         
         // Refresh activities if Activity tab is open
@@ -633,17 +819,6 @@ export function ClientDetailsDrawer({
           const activities = Array.isArray(response.data) ? response.data : [];
           
           const mappedActivities: ClientActivityItem[] = activities.map((activity: any) => {
-            const categoryMap: Record<string, ActivityFilterType> = {
-              'General': 'Jobs',
-              'Jobs': 'Jobs',
-              'Candidates': 'Candidates',
-              'Interviews': 'Interviews',
-              'Billing': 'Billing',
-              'Notes': 'Notes',
-              'Files': 'Files',
-              'Contacts': 'Jobs',
-            };
-
             const user = activity.performedBy || {};
             const userName = user.firstName && user.lastName 
               ? `${user.firstName} ${user.lastName}`.trim()
@@ -677,7 +852,7 @@ export function ClientDetailsDrawer({
 
             return {
               id: activity.id,
-              category: (categoryMap[activity.category] || 'Jobs') as Exclude<ActivityFilterType, 'All'>,
+              category: mapClientActivityCategory(activity),
               title: activity.action,
               description: activity.description,
               user: {
@@ -739,20 +914,6 @@ export function ClientDetailsDrawer({
         
         // Map backend activities to frontend format
         const mappedActivities: ClientActivityItem[] = activities.map((activity: any) => {
-            const categoryMap: Record<string, ActivityFilterType> = {
-              'General': 'Jobs', // Map General to Jobs for filtering
-              'Jobs': 'Jobs',
-              'Candidates': 'Candidates',
-              'Interviews': 'Interviews',
-              'Billing': 'Billing',
-              'Notes': 'Notes',
-              'Files': 'Files',
-              'Contacts': 'Jobs', // Map Contacts to Jobs for now
-              'Placements': 'Jobs', // Map Placements to Jobs for now
-              'Team': 'Jobs', // Map Team to Jobs for now
-              'System': 'Jobs', // Map System to Jobs for now
-            };
-
           const user = activity.performedBy || {};
           const userName = user.firstName && user.lastName 
             ? `${user.firstName} ${user.lastName}`.trim()
@@ -787,7 +948,7 @@ export function ClientDetailsDrawer({
 
           return {
             id: activity.id,
-            category: (categoryMap[activity.category] || 'Jobs') as Exclude<ActivityFilterType, 'All'>,
+            category: mapClientActivityCategory(activity),
             title: activity.action,
             description: activity.description,
             user: {
@@ -846,7 +1007,7 @@ export function ClientDetailsDrawer({
           title: job.title,
           department: (job as any).department || 'Not specified',
           location: job.location || 'Not specified',
-          hiringManager: job.assignedTo?.name || (job as any).hiringManager || '—',
+          hiringManager: job.assignedTo?.name || (job as any).hiringManager || 'â€”',
           openings: job.openings,
           pipelineStages: (job as any).pipelineStages || [],
           status: statusMap[job.status] || 'Open',
@@ -945,6 +1106,7 @@ export function ClientDetailsDrawer({
       // Reset form to empty values when opening in add mode
       setOverviewEditForm({
         companyName: '',
+        logo: '',
         industry: '',
         companySize: '',
         website: '',
@@ -957,6 +1119,7 @@ export function ClientDetailsDrawer({
         status: 'ACTIVE' as 'ACTIVE' | 'ON_HOLD' | 'INACTIVE',
         assignedToId: '',
       });
+      resetClientLogoDraft();
       // Set edit mode to true so form is visible
       setOverviewEditMode(true);
       // Open relevant sections
@@ -985,6 +1148,28 @@ export function ClientDetailsDrawer({
   ];
 
   const revenue = client?.revenue ?? `$${(Number(client?.placements ?? 0) * 3.5).toFixed(1)}k`;
+  const primaryClientContact = clientContacts.find((contact) => contact.isPrimary) || clientContacts[0] || null;
+  const primaryClientContactEmail = primaryClientContact?.email && !primaryClientContact.email.includes('@placeholder.local') ? primaryClientContact.email : '';
+  const primaryClientContactPhone = primaryClientContact?.phone || '';
+  const locationSource = fullClientData?.hiringLocations || client?.hiringLocations || fullClientData?.location || client?.location || '';
+  const locationParts = locationSource.split(',').map((part) => part.trim()).filter(Boolean);
+  const derivedCity = locationParts[0] || '';
+  const derivedCountry = locationParts.length > 1 ? locationParts[locationParts.length - 1] : '';
+  const companyLinksValue = [fullClientData?.website || client?.website || '', fullClientData?.linkedin || client?.linkedin || '']
+    .filter(Boolean)
+    .join(' | ');
+  const statusValue = fullClientData?.leadStatus || client?.leadStatus || client?.stage || '';
+  const businessValue =
+    fullClientData?.expectedBusinessValue ||
+    client?.expectedBusinessValue ||
+    fullClientData?.revenueGenerated ||
+    fullClientData?.billingTotalRevenue ||
+    fullClientData?.revenue ||
+    client?.revenueGenerated ||
+    client?.billingTotalRevenue ||
+    client?.revenue ||
+    '';
+  const servicesNeededValue = fullClientData?.servicesNeeded || client?.servicesNeeded || '';
 
   // Don't render if no client and not in add mode
   if (!client && !isAddMode) {
@@ -1019,7 +1204,7 @@ export function ClientDetailsDrawer({
                 <div className="flex-1 min-w-0 flex items-center gap-3">
                   {!isAddMode && (
                   <div className="w-12 h-12 rounded-xl overflow-hidden border border-slate-200 flex-shrink-0 bg-white">
-                      <ImageWithFallback src={client?.logo} alt={client?.name || ''} className="w-full h-full object-cover" />
+                      <ImageWithFallback src={fullClientData?.logo || client?.logo} alt={client?.name || ''} className="w-full h-full object-cover" />
                   </div>
                   )}
                   <div className="min-w-0">
@@ -1051,7 +1236,7 @@ export function ClientDetailsDrawer({
                                         'Active': 'ACTIVE',
                                         'On Hold': 'ON_HOLD',
                                         'Inactive': 'INACTIVE',
-                                        'Hot Clients 🔥': 'ACTIVE',
+                                        'Hot Clients ðŸ”¥': 'ACTIVE',
                                       };
                                       try {
                                         await apiUpdateClient(client!.id, {
@@ -1064,17 +1249,6 @@ export function ClientDetailsDrawer({
                                           const activities = Array.isArray(response.data) ? response.data : [];
                                           
                                           const mappedActivities: ClientActivityItem[] = activities.map((activity: any) => {
-                                            const categoryMap: Record<string, ActivityFilterType> = {
-                                              'General': 'Jobs',
-                                              'Jobs': 'Jobs',
-                                              'Candidates': 'Candidates',
-                                              'Interviews': 'Interviews',
-                                              'Billing': 'Billing',
-                                              'Notes': 'Notes',
-                                              'Files': 'Files',
-                                              'Contacts': 'Jobs',
-                                            };
-
                                             const user = activity.performedBy || {};
                                             const userName = user.firstName && user.lastName 
                                               ? `${user.firstName} ${user.lastName}`.trim()
@@ -1108,7 +1282,7 @@ export function ClientDetailsDrawer({
 
                                             return {
                                               id: activity.id,
-                                              category: (categoryMap[activity.category] || 'Jobs') as Exclude<ActivityFilterType, 'All'>,
+                                              category: mapClientActivityCategory(activity),
                                               title: activity.action,
                                               description: activity.description,
                                               user: {
@@ -1353,6 +1527,49 @@ export function ClientDetailsDrawer({
                       {overviewOpen.companySnapshot && (
                         <div className="px-5 pb-5 pt-0 border-t border-slate-100">
                           <div className="space-y-4 pt-2">
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Company Logo</label>
+                              <input
+                                ref={clientLogoInputRef}
+                                type="file"
+                                accept="image/*"
+                                onChange={handleClientLogoFileChange}
+                                className="hidden"
+                              />
+                              <div className="flex items-center gap-4">
+                                <div className="w-16 h-16 rounded-xl overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center shrink-0">
+                                  {clientLogoPreview ? (
+                                    <img src={clientLogoPreview} alt="Client logo preview" className="w-full h-full object-cover" />
+                                  ) : (
+                                    <Building2 size={24} className="text-slate-300" />
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => clientLogoInputRef.current?.click()}
+                                    disabled={uploadingClientLogo}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
+                                  >
+                                    <Upload size={16} />
+                                    {uploadingClientLogo ? 'Uploadingâ€¦' : 'Upload Logo'}
+                                  </button>
+                                  {clientLogoPreview && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        resetClientLogoDraft();
+                                        setOverviewEditForm((prev) => ({ ...prev, logo: '' }));
+                                      }}
+                                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50"
+                                    >
+                                      <Trash2 size={16} />
+                                      Remove
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
                             <div>
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Company Name *</label>
                               <input
@@ -1983,6 +2200,178 @@ export function ClientDetailsDrawer({
                     />
                   ) : (
                     <div className="space-y-4">
+                    <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="p-5 border-b border-slate-100">
+                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Lead Information</h4>
+                      </div>
+                      <div className="p-5 space-y-4">
+                        {!overviewEditMode ? (
+                          <>
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                              <div><FieldRow label="Company *" value={fullClientData?.name || client?.name || ''} /></div>
+                              <div><FieldRow label="Company Links" value={companyLinksValue} href={!!companyLinksValue} /></div>
+                              <div><FieldRow label="Director Name *" value={primaryClientContact?.name || ''} /></div>
+                              <div><FieldRow label="Team Name" value={fullClientData?.companySize || client?.companySize || ''} /></div>
+                              <div><FieldRow label="Email *" value={primaryClientContactEmail} href={!!primaryClientContactEmail} /></div>
+                              <div><FieldRow label="Phone" value={primaryClientContactPhone} /></div>
+                              <div><FieldRow label="Location" value={fullClientData?.location || client?.location || ''} /></div>
+                              <div><FieldRow label="City" value={derivedCity} /></div>
+                              <div><FieldRow label="Country" value={derivedCountry} /></div>
+                              <div><FieldRow label="Sector" value={fullClientData?.industry || client?.industry || ''} /></div>
+                              <div><FieldRow label="Status" value={statusValue} /></div>
+                              <div><FieldRow label="Interest Level" value={fullClientData?.priority || client?.priority || ''} /></div>
+                              <div><FieldRow label="Next Follow-up Date" value={fullClientData?.nextFollowUpDue || client?.nextFollowUpDue || ''} /></div>
+                              <div><FieldRow label="Assigned To" value={client?.owner?.name || ''} /></div>
+                            </div>
+                            <div><FieldRow label="Services Needed" value={servicesNeededValue} /></div>
+                            <div><FieldRow label="Expected Business Value" value={businessValue} /></div>
+                          </>
+                        ) : (
+                          <>
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Company Logo</label>
+                              <input
+                                ref={clientLogoInputRef}
+                                type="file"
+                                accept="image/*"
+                                onChange={handleClientLogoFileChange}
+                                className="hidden"
+                              />
+                              <div className="flex items-center gap-4">
+                                <div className="w-16 h-16 rounded-xl overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center shrink-0">
+                                  {clientLogoPreview ? (
+                                    <img src={clientLogoPreview} alt="Client logo preview" className="w-full h-full object-cover" />
+                                  ) : (
+                                    <Building2 size={24} className="text-slate-300" />
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => clientLogoInputRef.current?.click()}
+                                    disabled={uploadingClientLogo}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
+                                  >
+                                    <Upload size={16} />
+                                    {uploadingClientLogo ? 'Uploadingâ€¦' : 'Upload Logo'}
+                                  </button>
+                                  {clientLogoPreview && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        resetClientLogoDraft();
+                                        setOverviewEditForm((prev) => ({ ...prev, logo: '' }));
+                                      }}
+                                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50"
+                                    >
+                                      <Trash2 size={16} />
+                                      Remove
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Company *</label>
+                                <input type="text" value={overviewEditForm.companyName} onChange={(e) => setOverviewEditForm((p) => ({ ...p, companyName: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Company Links</label>
+                                <textarea value={[overviewEditForm.website, overviewEditForm.linkedin].filter(Boolean).join('\n')} onChange={(e) => {
+                                  const [website = '', linkedin = ''] = splitCompanyLinks(e.target.value);
+                                  setOverviewEditForm((p) => ({ ...p, website, linkedin }));
+                                }} rows={3} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-none" />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Director Name *</label>
+                                <input type="text" value={overviewEditForm.directorName} onChange={(e) => setOverviewEditForm((p) => ({ ...p, directorName: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Team Name</label>
+                                <input type="text" value={overviewEditForm.companySize} onChange={(e) => setOverviewEditForm((p) => ({ ...p, companySize: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Email *</label>
+                                <input type="text" value={overviewEditForm.contactEmail} onChange={(e) => setOverviewEditForm((p) => ({ ...p, contactEmail: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Phone</label>
+                                <input type="text" value={overviewEditForm.contactPhone} onChange={(e) => setOverviewEditForm((p) => ({ ...p, contactPhone: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Location</label>
+                                <input type="text" value={overviewEditForm.location} onChange={(e) => setOverviewEditForm((p) => ({ ...p, location: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">City</label>
+                                <input type="text" value={overviewEditForm.city} onChange={(e) => setOverviewEditForm((p) => ({ ...p, city: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Country</label>
+                                <input type="text" value={overviewEditForm.country} onChange={(e) => setOverviewEditForm((p) => ({ ...p, country: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Sector</label>
+                                <input type="text" value={overviewEditForm.industry} onChange={(e) => setOverviewEditForm((p) => ({ ...p, industry: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Status</label>
+                                <select value={overviewEditForm.status} onChange={(e) => setOverviewEditForm((p) => ({ ...p, status: e.target.value as 'ACTIVE' | 'ON_HOLD' | 'INACTIVE' }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white">
+                                  <option value="ACTIVE">Active</option>
+                                  <option value="ON_HOLD">On Hold</option>
+                                  <option value="INACTIVE">Inactive</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Interest Level</label>
+                                <input type="text" value={overviewEditForm.priority} onChange={(e) => setOverviewEditForm((p) => ({ ...p, priority: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Next Follow-up Date</label>
+                                <input type="date" value={overviewEditForm.nextFollowUpDue} onChange={(e) => setOverviewEditForm((p) => ({ ...p, nextFollowUpDue: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Assigned To</label>
+                                <div className="relative">
+                                  <button
+                                    type="button"
+                                    onClick={() => setAssignedToDropdownOpen(!assignedToDropdownOpen)}
+                                    className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 flex items-center justify-between bg-white"
+                                  >
+                                    <span className="text-slate-900">{users.find((u) => u.id === overviewEditForm.assignedToId)?.name || 'Select recruiter'}</span>
+                                    <ChevronDown size={16} className="text-slate-400" />
+                                  </button>
+                                  {assignedToDropdownOpen && (
+                                    <>
+                                      <div className="fixed inset-0 z-10" onClick={() => setAssignedToDropdownOpen(false)} aria-hidden />
+                                      <ul className="absolute z-20 mt-1 w-full rounded-xl border border-slate-200 bg-white py-1 shadow-lg max-h-48 overflow-y-auto">
+                                        {users.map((user) => (
+                                          <li key={user.id}>
+                                            <button type="button" onClick={() => { setOverviewEditForm((p) => ({ ...p, assignedToId: user.id })); setAssignedToDropdownOpen(false); }} className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${overviewEditForm.assignedToId === user.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'}`}>
+                                              {user.name}
+                                            </button>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Services Needed</label>
+                              <textarea value={overviewEditForm.servicesNeeded} onChange={(e) => setOverviewEditForm((p) => ({ ...p, servicesNeeded: e.target.value }))} rows={3} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Expected Business Value</label>
+                              <textarea value={overviewEditForm.expectedBusinessValue} onChange={(e) => setOverviewEditForm((p) => ({ ...p, expectedBusinessValue: e.target.value }))} rows={3} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </section>
+                    <div className="hidden">
                     {/* 1. Company Snapshot Card */}
                     <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                       <button
@@ -2006,17 +2395,17 @@ export function ClientDetailsDrawer({
                             <>
                               {client && (
                                 <>
-                          <FieldRow label="Company Name" value={fullClientData?.name || client?.name || 'â€”'} />
-                          <FieldRow label="Industry" value={fullClientData?.industry || client?.industry || 'â€”'} />
-                          <FieldRow label="Company size" value={fullClientData?.companySize || client?.companySize || 'â€”'} />
-                          <FieldRow label="Website" value={fullClientData?.website || client?.website || 'â€”'} href={!!(fullClientData?.website || client?.website)} />
-                          <FieldRow label="LinkedIn" value={fullClientData?.linkedin || client?.linkedin || 'â€”'} href={!!(fullClientData?.linkedin || client?.linkedin)} />
-                          <FieldRow label="Location" value={fullClientData?.location || client?.location || fullClientData?.hiringLocations || client?.hiringLocations || 'â€”'} />
+                          <FieldRow label="Company Name" value={fullClientData?.name || client?.name || 'Ã¢â‚¬â€'} />
+                          <FieldRow label="Industry" value={fullClientData?.industry || client?.industry || 'Ã¢â‚¬â€'} />
+                          <FieldRow label="Company size" value={fullClientData?.companySize || client?.companySize || 'Ã¢â‚¬â€'} />
+                          <FieldRow label="Website" value={fullClientData?.website || client?.website || 'Ã¢â‚¬â€'} href={!!(fullClientData?.website || client?.website)} />
+                          <FieldRow label="LinkedIn" value={fullClientData?.linkedin || client?.linkedin || 'Ã¢â‚¬â€'} href={!!(fullClientData?.linkedin || client?.linkedin)} />
+                          <FieldRow label="Location" value={fullClientData?.location || client?.location || fullClientData?.hiringLocations || client?.hiringLocations || 'Ã¢â‚¬â€'} />
                           <FieldRow label="Locations / Hiring locations" value={fullClientData?.hiringLocations || client?.hiringLocations || fullClientData?.location || client?.location || 'Not specified'} />
-                          <FieldRow label="Timezone" value={fullClientData?.timezone || client?.timezone || 'â€”'} />
+                          <FieldRow label="Timezone" value={fullClientData?.timezone || client?.timezone || 'Ã¢â‚¬â€'} />
                           <FieldRow label="Client since" value={(() => {
                             const clientSince = fullClientData?.clientSince || client?.clientSince;
-                            if (!clientSince) return 'â€”';
+                            if (!clientSince) return 'Ã¢â‚¬â€';
                             if (typeof clientSince === 'string' && clientSince.includes('-')) {
                               return new Date(clientSince).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
                             }
@@ -2134,10 +2523,10 @@ export function ClientDetailsDrawer({
                               
                               return (
                                 <>
-                                  <FieldRow label="Contact Name" value={primaryContact.name || 'â€”'} />
-                                  <FieldRow label="Designation" value={primaryContact.designation || 'â€”'} />
-                                  <FieldRow label="Email" value={primaryContact.email || 'â€”'} href={!!primaryContact.email} />
-                                  <FieldRow label="Phone" value={primaryContact.phone || 'â€”'} />
+                                  <FieldRow label="Contact Name" value={primaryContact.name || 'Ã¢â‚¬â€'} />
+                                  <FieldRow label="Designation" value={primaryContact.designation || 'Ã¢â‚¬â€'} />
+                                  <FieldRow label="Email" value={primaryContact.email || 'Ã¢â‚¬â€'} href={!!primaryContact.email} />
+                                  <FieldRow label="Phone" value={primaryContact.phone || 'Ã¢â‚¬â€'} />
                                 </>
                               );
                             })()}
@@ -2183,8 +2572,8 @@ export function ClientDetailsDrawer({
                             </p>
                           </div>
                           <FieldRow label="Client stage" value={client.stage} />
-                          <FieldRow label="Priority" value={client.priority ?? 'â€”'} />
-                          <FieldRow label="SLA / Response expectations" value={client.sla ?? 'â€”'} />
+                          <FieldRow label="Priority" value={client.priority ?? 'Ã¢â‚¬â€'} />
+                          <FieldRow label="SLA / Response expectations" value={client.sla ?? 'Ã¢â‚¬â€'} />
                                 </>
                               )}
                             </>
@@ -2331,15 +2720,15 @@ export function ClientDetailsDrawer({
                           </div>
                           <div className="rounded-lg bg-slate-50 border border-slate-100 p-3">
                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Interviews this week</p>
-                            <p className="text-lg font-bold text-slate-900 mt-0.5">{client?.interviewsThisWeek ?? 'â€”'}</p>
+                            <p className="text-lg font-bold text-slate-900 mt-0.5">{client?.interviewsThisWeek ?? 'Ã¢â‚¬â€'}</p>
                           </div>
                           <div className="rounded-lg bg-slate-50 border border-slate-100 p-3">
                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Placements this month</p>
-                            <p className="text-lg font-bold text-slate-900 mt-0.5">{client?.placementsThisMonth ?? client?.placements ?? 'â€”'}</p>
+                            <p className="text-lg font-bold text-slate-900 mt-0.5">{client?.placementsThisMonth ?? client?.placements ?? 'Ã¢â‚¬â€'}</p>
                           </div>
                           <div className="rounded-lg bg-emerald-50 border border-emerald-100 p-3 col-span-2">
                             <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Revenue generated</p>
-                            <p className="text-lg font-bold text-emerald-800 mt-0.5">{client?.revenueGenerated ?? client?.revenue ?? 'â€”'}</p>
+                            <p className="text-lg font-bold text-emerald-800 mt-0.5">{client?.revenueGenerated ?? client?.revenue ?? 'Ã¢â‚¬â€'}</p>
                           </div>
                         </div>
                       )}
@@ -2371,24 +2760,24 @@ export function ClientDetailsDrawer({
                               const s = HEALTH_STYLES[status];
                               return (
                                 <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${s.bg} ${s.text}`}>
-                                  {status === 'Good' && 'ðŸŸ¢ '}
-                                  {status === 'Needs attention' && 'ðŸŸ¡ '}
-                                  {status === 'At risk' && 'ðŸ”´ '}
+                                  {status === 'Good' && 'Ã°Å¸Å¸Â¢ '}
+                                  {status === 'Needs attention' && 'Ã°Å¸Å¸Â¡ '}
+                                  {status === 'At risk' && 'Ã°Å¸â€Â´ '}
                                   {s.label}
                                 </span>
                               );
                             })()}
                           </div>
-                          <FieldRow label="Last activity" value={client?.lastActivity ?? 'â€”'} />
-                          <FieldRow label="Next follow-up due" value={client?.nextFollowUpDue ?? 'â€”'} />
-                          <FieldRow label="Stale jobs count" value={client?.staleJobsCount != null ? String(client.staleJobsCount) : 'â€”'} />
-                          <FieldRow label="Pending invoices" value={client?.pendingInvoicesCount != null ? String(client.pendingInvoicesCount) : 'â€”'} />
-                          <FieldRow label="Average time-to-fill" value={client?.avgTimeToFill ?? 'â€”'} />
+                          <FieldRow label="Last activity" value={client?.lastActivity ?? 'Ã¢â‚¬â€'} />
+                          <FieldRow label="Next follow-up due" value={client?.nextFollowUpDue ?? 'Ã¢â‚¬â€'} />
+                          <FieldRow label="Stale jobs count" value={client?.staleJobsCount != null ? String(client.staleJobsCount) : 'Ã¢â‚¬â€'} />
+                          <FieldRow label="Pending invoices" value={client?.pendingInvoicesCount != null ? String(client.pendingInvoicesCount) : 'Ã¢â‚¬â€'} />
+                          <FieldRow label="Average time-to-fill" value={client?.avgTimeToFill ?? 'Ã¢â‚¬â€'} />
                         </div>
                       )}
                     </section>
 
-                    {/* 5. Quick Actions Strip â€” always visible, no dropdown */}
+                    {/* 5. Quick Actions Strip Ã¢â‚¬â€ always visible, no dropdown */}
                     <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
                       <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Quick actions</h4>
                       <div className="grid grid-cols-2 gap-2">
@@ -2418,6 +2807,7 @@ export function ClientDetailsDrawer({
                         </button>
                       </div>
                     </section>
+                    </div>
                     </div>
                   )
                 ) : activeTab === 'contacts' ? (
@@ -2707,7 +3097,7 @@ export function ClientDetailsDrawer({
                                     {contact.isPrimary ? (
                                       <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-600" title="Primary contact">
                                         <span className="sr-only">Primary</span>
-                                        <span className="text-[10px] font-bold">âœ“</span>
+                                        <span className="text-[10px] font-bold">Ã¢Å“â€œ</span>
                                       </span>
                                     ) : (
                                       <span className="inline-block w-6 h-6 rounded-full border border-slate-200 bg-white" />
@@ -2754,14 +3144,14 @@ export function ClientDetailsDrawer({
                             <div>
                               <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Contact info</h5>
                               <div className="space-y-1 text-sm">
-                                <p className="font-medium text-slate-900">{selectedContact.designation} Â· {selectedContact.department}</p>
+                                <p className="font-medium text-slate-900">{selectedContact.designation} Ã‚Â· {selectedContact.department}</p>
                                 <p className="text-slate-600">{selectedContact.email}</p>
                                 <p className="text-slate-600">{selectedContact.phone}</p>
                               </div>
                             </div>
                             <div>
                               <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Preferred communication</h5>
-                              <p className="text-sm font-medium text-slate-900">{selectedContact.preferredChannel ?? 'â€”'}</p>
+                              <p className="text-sm font-medium text-slate-900">{selectedContact.preferredChannel ?? 'Ã¢â‚¬â€'}</p>
                             </div>
                             <div>
                               <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Notes</h5>
@@ -2777,7 +3167,7 @@ export function ClientDetailsDrawer({
                                     <li key={i} className="text-sm border-l-2 border-slate-200 pl-3 py-0.5">
                                       <span className="text-slate-500">{a.date}</span>
                                       <span className="font-medium text-slate-700"> {a.type}</span>
-                                      <span className="text-slate-600"> â€” {a.summary}</span>
+                                      <span className="text-slate-600"> Ã¢â‚¬â€ {a.summary}</span>
                                     </li>
                                   ))
                                 )}
@@ -2901,7 +3291,7 @@ export function ClientDetailsDrawer({
                                           {s.stage}: {s.count}
                                         </span>
                                       ))}
-                                      {(!job.pipelineStages || job.pipelineStages.length === 0) && <span className="text-xs text-slate-400">â€”</span>}
+                                      {(!job.pipelineStages || job.pipelineStages.length === 0) && <span className="text-xs text-slate-400">Ã¢â‚¬â€</span>}
                                     </div>
                                   </td>
                                   <td className="px-4 py-3">
@@ -2936,7 +3326,7 @@ export function ClientDetailsDrawer({
 
                   return (
                   <div className="space-y-4">
-                    {/* Stage counts â€” similar to JobDetailsDrawer */}
+                    {/* Stage counts Ã¢â‚¬â€ similar to JobDetailsDrawer */}
                     <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
                       <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Stage counts</h4>
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -2949,7 +3339,7 @@ export function ClientDetailsDrawer({
                       </div>
                     </div>
 
-                    {/* Pipeline configuration â€” copied from JobDetailsDrawer */}
+                    {/* Pipeline configuration Ã¢â‚¬â€ copied from JobDetailsDrawer */}
                     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                       <div className="p-4 border-b border-slate-100">
                         <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Pipeline configuration</h4>
@@ -3014,7 +3404,7 @@ export function ClientDetailsDrawer({
                       </div>
                     </div>
 
-                    {/* Kanban pipeline â€” horizontal scroll when needed, scrollbar hidden; scroll only inside each stage card */}
+                    {/* Kanban pipeline Ã¢â‚¬â€ horizontal scroll when needed, scrollbar hidden; scroll only inside each stage card */}
                     <div className="flex gap-4 pb-2 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                       {pipelineStages.map((stage) => {
                         const candidates = baseCandidates.filter((c) => c.currentStage === stage.name);
@@ -3032,7 +3422,7 @@ export function ClientDetailsDrawer({
                                 <span className="text-xs font-bold rounded-full bg-white/80 px-1.5 py-0.5">{candidates.length}</span>
                               </div>
                             </div>
-                            {/* Scroll only inside this stage card â€” candidates list */}
+                            {/* Scroll only inside this stage card Ã¢â‚¬â€ candidates list */}
                             <div className="flex-1 min-h-0 p-2 overflow-y-auto overflow-x-hidden space-y-2">
                               {candidates.length === 0 ? (
                                 <p className="text-xs text-slate-400 py-4 text-center">No candidates</p>
@@ -3148,7 +3538,7 @@ export function ClientDetailsDrawer({
                   </div>
                 ) : activeTab === 'billing' ? (
                   <div className="space-y-4">
-                    {/* Finance summary cards â€” same soft card layout as Jobs */}
+                    {/* Finance summary cards Ã¢â‚¬â€ same soft card layout as Jobs */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex items-center gap-3">
                         <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center">
@@ -3156,7 +3546,7 @@ export function ClientDetailsDrawer({
                         </div>
                         <div>
                           <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total revenue</p>
-                          <p className="text-lg font-bold text-slate-900">{client?.billingTotalRevenue ?? client?.revenue ?? 'â€”'}</p>
+                          <p className="text-lg font-bold text-slate-900">{client?.billingTotalRevenue ?? client?.revenue ?? 'Ã¢â‚¬â€'}</p>
                         </div>
                       </div>
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex items-center gap-3">
@@ -3165,7 +3555,7 @@ export function ClientDetailsDrawer({
                         </div>
                         <div>
                           <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Outstanding</p>
-                          <p className="text-lg font-bold text-slate-900">{client?.billingOutstanding ?? 'â€”'}</p>
+                          <p className="text-lg font-bold text-slate-900">{client?.billingOutstanding ?? 'Ã¢â‚¬â€'}</p>
                         </div>
                       </div>
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex items-center gap-3">
@@ -3174,7 +3564,7 @@ export function ClientDetailsDrawer({
                         </div>
                         <div>
                           <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Paid amount</p>
-                          <p className="text-lg font-bold text-slate-900">{client?.billingPaid ?? 'â€”'}</p>
+                          <p className="text-lg font-bold text-slate-900">{client?.billingPaid ?? 'Ã¢â‚¬â€'}</p>
                         </div>
                       </div>
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex items-center gap-3">
@@ -3270,7 +3660,7 @@ export function ClientDetailsDrawer({
                   };
                   return (
                   <div className="space-y-4">
-                    {/* Timeline filters â€” same soft card layout as Billing */}
+                    {/* Timeline filters Ã¢â‚¬â€ same soft card layout as Billing */}
                     <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
                       <div className="flex flex-wrap items-center gap-2">
                         {ACTIVITY_TIMELINE_FILTERS.map((f) => (
@@ -3400,7 +3790,7 @@ export function ClientDetailsDrawer({
                   const uploadsBase = (typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/v1') : 'http://localhost:5000/api/v1').replace(/\/api\/v1\/?$/, '');
                   const toFileHref = (fileUrl?: string | null) => buildFileHref(fileUrl, uploadsBase);
                   const formatUploadDate = (d: string) => {
-                    if (!d) return 'â€”';
+                    if (!d) return 'Ã¢â‚¬â€';
                     try {
                       const date = new Date(d);
                       return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
@@ -3444,7 +3834,7 @@ export function ClientDetailsDrawer({
                           className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <Upload size={16} />
-                          {filesUploading ? 'Uploadingâ€¦' : 'Upload File'}
+                          {filesUploading ? 'UploadingÃ¢â‚¬Â¦' : 'Upload File'}
                         </button>
                         <div className="flex flex-wrap items-center gap-2 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                           {FILE_TYPE_OPTIONS.map((type) => (
@@ -3464,7 +3854,7 @@ export function ClientDetailsDrawer({
                     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                       <div className="p-4 border-b border-slate-100 flex items-center justify-between">
                         <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Files</h4>
-                        <p className="text-xs text-slate-500">{filesLoading ? 'Loadingâ€¦' : `${filteredFiles.length} files`}</p>
+                        <p className="text-xs text-slate-500">{filesLoading ? 'LoadingÃ¢â‚¬Â¦' : `${filteredFiles.length} files`}</p>
                       </div>
                       <div className="overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                         <table className="w-full text-left border-collapse min-w-[640px]">
@@ -3480,7 +3870,7 @@ export function ClientDetailsDrawer({
                           <tbody className="divide-y divide-slate-100">
                             {filesLoading ? (
                               <tr>
-                                <td colSpan={5} className="px-4 py-12 text-center text-sm text-slate-500">Loading filesâ€¦</td>
+                                <td colSpan={5} className="px-4 py-12 text-center text-sm text-slate-500">Loading filesÃ¢â‚¬Â¦</td>
                               </tr>
                             ) : filteredFiles.length === 0 ? (
                               <tr>
@@ -3507,7 +3897,7 @@ export function ClientDetailsDrawer({
                                       ) : (
                                         <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center shrink-0"><User size={12} className="text-slate-500" /></div>
                                       )}
-                                      <span className="text-sm text-slate-600 truncate">{file.uploadedBy?.name ?? 'â€”'}</span>
+                                      <span className="text-sm text-slate-600 truncate">{file.uploadedBy?.name ?? 'Ã¢â‚¬â€'}</span>
                                     </div>
                                   </td>
                                   <td className="px-4 py-3 text-sm text-slate-600">{formatUploadDate(file.uploadDate)}</td>
@@ -3682,7 +4072,7 @@ export function ClientDetailsDrawer({
                                             </div>
                                           )}
                                           <span className="text-[11px] font-medium text-slate-600">Scheduled by {scheduledByName}</span>
-                                          <span className="text-[11px] text-slate-400">Â·</span>
+                                          <span className="text-[11px] text-slate-400">Ã‚Â·</span>
                                           <span className="text-[11px] text-slate-500">
                                             {new Date(meeting.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                                           </span>
@@ -3774,6 +4164,62 @@ export function ClientDetailsDrawer({
       onJobCreated={() => {
         setCreateJobDrawerOpen(false);
         void refreshClientJobs();
+        if (client?.id) {
+          void apiGetClientActivities(client.id)
+            .then((response) => {
+              const activities = Array.isArray(response.data) ? response.data : [];
+              const mappedActivities: ClientActivityItem[] = activities.map((activity: any) => {
+                const user = activity.performedBy || {};
+                const userName = user.firstName && user.lastName
+                  ? `${user.firstName} ${user.lastName}`.trim()
+                  : user.name || user.email || 'Unknown User';
+
+                const activityDate = new Date(activity.createdAt);
+                const now = new Date();
+                const isToday = activityDate.toDateString() === now.toDateString();
+                const isYesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000).toDateString() === activityDate.toDateString();
+
+                let dateDisplay = '';
+                if (isToday) {
+                  dateDisplay = 'Today';
+                } else if (isYesterday) {
+                  dateDisplay = 'Yesterday';
+                } else {
+                  dateDisplay = activityDate.toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    year: activityDate.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
+                  });
+                }
+
+                const timeDisplay = activityDate.toLocaleTimeString('en-US', {
+                  hour: 'numeric',
+                  minute: '2-digit',
+                  hour12: true,
+                });
+
+                return {
+                  id: activity.id,
+                  category: mapClientActivityCategory(activity),
+                  title: activity.action,
+                  description: activity.description,
+                  user: {
+                    name: userName,
+                    avatar: user.avatar || undefined,
+                  },
+                  timestamp: `${dateDisplay} at ${timeDisplay}`,
+                  timestampFull: activityDate.toISOString(),
+                  relatedType: activity.relatedType as any,
+                  relatedLabel: activity.relatedLabel,
+                  relatedId: activity.relatedId,
+                };
+              });
+              setClientActivities(mappedActivities);
+            })
+            .catch((error) => {
+              console.error('Failed to refresh client activities after job creation:', error);
+            });
+        }
         onJobCreated?.();
       }}
     />

@@ -3,6 +3,7 @@ import { prisma } from '../../config/prisma.js';
 import { sendResponse } from '../../utils/response.js';
 import { createOAuthState, verifyOAuthState } from '../../utils/oauth-state.js';
 import { oauthTokenService } from './oauth-token.service.js';
+import { integrationService } from '../integration/integration.service.js';
 
 const GMAIL_SCOPES =
   'openid email profile https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly';
@@ -45,7 +46,16 @@ export const googleOAuthController = {
     try {
       const { code, state } = req.query;
       if (!code) return fail('google_failed');
-      const { userId, extraScopes } = verifyOAuthState(state);
+      const parsedState = verifyOAuthState(state);
+      const { userId, extraScopes, service } = parsedState;
+
+      if (service === 'gmail' || service === 'google-calendar' || service === 'google-meet') {
+        const result = await integrationService.handleCallback(service, String(code), String(state || ''));
+        return res.redirect(
+          `${frontend}/setting?section=communication&integration_connected=${encodeURIComponent(result.provider)}&email=${encodeURIComponent(result.accountEmail || '')}`
+        );
+      }
+
       const mode = extraScopes[0] || 'both';
 
       const body = new URLSearchParams({

@@ -6,8 +6,7 @@ const router = express.Router();
 
 router.use(authMiddleware);
 
-router.post('/linkedin/post', socialController.postToLinkedIn);
-router.post('/twitter/post', socialController.postToTwitter);
-router.post('/facebook/post', socialController.postToFacebook);
+router.post('/publish', socialController.publishJobPost);
+router.get('/status', socialController.getStatus);
 
 export default router;

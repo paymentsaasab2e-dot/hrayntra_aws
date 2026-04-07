@@ -1,13 +1,17 @@
 import express from 'express';
+import multer from 'multer';
 import { clientController } from './client.controller.js';
 import { authMiddleware } from '../../middleware/auth.middleware.js';
 
 const router = express.Router();
+const importUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 router.use(authMiddleware);
 
 router.get('/', clientController.getAll);
 router.get('/metrics', clientController.getMetrics);
+router.post('/import/preview', importUpload.single('file'), clientController.previewImport);
+router.post('/import', clientController.importClients);
 router.get('/:id', clientController.getById);
 router.get('/:clientId/activities', clientController.getActivities);
 router.post('/', clientController.create);
