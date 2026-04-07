@@ -39,7 +39,10 @@ const getApiConfig = () => {
 
 const { base: API_BASE_NEW, routePrefix: API_ROUTE_PREFIX } = getApiConfig();
 
-const buildPath = (path: string) => `${API_ROUTE_PREFIX}${path}`;
+const buildPath = (path: string) => {
+  const normalizedPath = path.replace(/^\/api(?=\/|$)/, '');
+  return `${API_ROUTE_PREFIX}${normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`}`;
+};
 
 const normalizeArrayPayload = <T>(payload: unknown): T[] => {
   if (Array.isArray(payload)) return payload as T[];

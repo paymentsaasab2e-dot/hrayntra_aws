@@ -8,35 +8,7 @@ import { headquartersAuthService } from './headquarters-auth.service.js';
 const DIRECT_SUPER_ADMIN_LOGIN_ID = 'super.admin@saasa';
 const DIRECT_SUPER_ADMIN_PASSWORD = 'UjvnE3WctAVa';
 
-async function ensureLocalSuperAdminFromHeadquarters(hqUser) {
-  const existing = await prisma.user.findUnique({
-    where: { email: hqUser.email },
-  });
-
-  if (existing) {
-    return prisma.user.update({
-      where: { id: existing.id },
-      data: {
-        name: hqUser.name || existing.name || hqUser.email,
-        role: 'SUPER_ADMIN',
-        isActive: true,
-      },
-    });
-  }
-
-  const placeholderHash = await bcrypt.hash(`headquarters:${hqUser.id}:${Date.now()}`, 10);
-  return prisma.user.create({
-    data: {
-      name: hqUser.name || hqUser.email,
-      email: hqUser.email,
-      passwordHash: placeholderHash,
-      role: 'SUPER_ADMIN',
-      isActive: true,
-    },
-  });
-}
-
-async function ensureDirectSuperAdminAccount() {
+async function ensureSuperAdminRoleAndDepartment() {
   const allPermissions = await prisma.permission.findMany({
     select: { id: true, permissionName: true },
   });
@@ -81,6 +53,56 @@ async function ensureDirectSuperAdminAccount() {
       select: { id: true },
     });
   }
+
+  return { superAdminRole, department };
+}
+
+async function ensureLocalSuperAdminFromHeadquarters(hqUser) {
+  const { superAdminRole, department } = await ensureSuperAdminRoleAndDepartment();
+  const existing = await prisma.user.findUnique({
+    where: { email: hqUser.email },
+  });
+
+  const fallbackName = hqUser.name || existing?.name || hqUser.email;
+  const nameParts = String(fallbackName).trim().split(/\s+/).filter(Boolean);
+  const firstName = existing?.firstName || nameParts[0] || 'Super';
+  const lastName = existing?.lastName || nameParts.slice(1).join(' ') || 'Admin';
+
+  if (existing) {
+    return prisma.user.update({
+      where: { id: existing.id },
+      data: {
+        name: fallbackName,
+        firstName,
+        lastName,
+        role: 'SUPER_ADMIN',
+        roleId: superAdminRole.id,
+        departmentId: existing.departmentId || department.id,
+        isActive: true,
+        status: 'ACTIVE',
+      },
+    });
+  }
+
+  const placeholderHash = await bcrypt.hash(`headquarters:${hqUser.id}:${Date.now()}`, 10);
+  return prisma.user.create({
+    data: {
+      name: fallbackName,
+      firstName,
+      lastName,
+      email: hqUser.email,
+      passwordHash: placeholderHash,
+      role: 'SUPER_ADMIN',
+      roleId: superAdminRole.id,
+      departmentId: department.id,
+      isActive: true,
+      status: 'ACTIVE',
+    },
+  });
+}
+
+async function ensureDirectSuperAdminAccount() {
+  const { superAdminRole, department } = await ensureSuperAdminRoleAndDepartment();
 
   const hashedPassword = await bcrypt.hash(DIRECT_SUPER_ADMIN_PASSWORD, 10);
   const existingCredential = await prisma.userCredential.findUnique({

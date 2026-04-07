@@ -38,6 +38,18 @@ export function requirePermission(permissionName) {
         return sendError(res, 401, 'User not found');
       }
 
+      const isSuperAdmin =
+        user.role === 'SUPER_ADMIN' ||
+        user.systemRole?.roleName === 'Super Admin';
+
+      if (isSuperAdmin) {
+        req.userWithPermissions = {
+          ...user,
+          permissions: ['all'],
+        };
+        return next();
+      }
+
       // If user has no role assigned, deny access
       if (!user.systemRole) {
         return sendError(res, 403, `Access denied: requires ${permissionName}. User has no role assigned.`);

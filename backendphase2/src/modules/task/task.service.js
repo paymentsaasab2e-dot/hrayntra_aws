@@ -18,11 +18,13 @@ export const taskService = {
     if (status) {
       // Map frontend status to backend enum
       const statusMap = {
-        'Pending': 'TODO',
+        'Pending': 'PENDING',
         'In Progress': 'IN_PROGRESS',
         'Completed': 'DONE',
-        'Overdue': 'TODO', // Overdue is calculated, not stored
+        'Overdue': 'PENDING', // Overdue is calculated, not stored
         'Cancelled': 'CANCELLED',
+        'TODO': 'PENDING', // legacy value support
+        'PENDING': 'PENDING',
       };
       where.status = statusMap[status] || status;
     }
@@ -117,10 +119,12 @@ export const taskService = {
     };
 
     const statusMap = {
-      'Pending': 'TODO',
+      'Pending': 'PENDING',
       'In Progress': 'IN_PROGRESS',
       'Completed': 'DONE',
       'Cancelled': 'CANCELLED',
+      'TODO': 'PENDING',
+      'PENDING': 'PENDING',
     };
 
     const linkedEntityTypeMap = {
@@ -169,7 +173,7 @@ export const taskService = {
       dueDate,
       dueTime,
       priority: priorityMap[data.priority] || 'MEDIUM',
-      status: statusMap[data.status] || 'TODO',
+      status: statusMap[data.status] || 'PENDING',
       taskType: data.taskType || data.type || null,
       assignedToId,
       createdById: data.createdById,
@@ -216,10 +220,12 @@ export const taskService = {
     };
 
     const statusMap = {
-      'Pending': 'TODO',
+      'Pending': 'PENDING',
       'In Progress': 'IN_PROGRESS',
       'Completed': 'DONE',
       'Cancelled': 'CANCELLED',
+      'TODO': 'PENDING',
+      'PENDING': 'PENDING',
     };
 
     const linkedEntityTypeMap = {
