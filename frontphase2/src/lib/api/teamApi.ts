@@ -14,10 +14,7 @@ import type {
   TeamMemberStats,
 } from '../../types/team';
 
-// Note: New API routes are at /api/team, not /api/v1/team
-// We'll use a custom base or adjust the path
-// Remove /api/v1 if present, as new routes are at /api/team, /api/roles, etc.
-const getApiBase = () => {
+const getApiConfig = () => {
   const isLocalBrowser =
     typeof window !== 'undefined' &&
     (window.location.hostname === 'localhost' ||
@@ -26,13 +23,23 @@ const getApiBase = () => {
 
   if (isLocalBrowser) {
     const base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || 'http://localhost:5001';
-    return base.replace(/\/api\/v1$/, '');
+    return {
+      base: base.replace(/\/api\/v1$/, ''),
+      routePrefix: '/api',
+    };
   }
 
-  // Production/non-local browsers must use same-origin proxy to avoid mixed-content.
-  return '/api/proxy';
+  // Production/non-local browsers must use same-origin proxy.
+  // The proxy already forwards to /api/v1 upstream, so we must not prepend /api here.
+  return {
+    base: '/api/proxy',
+    routePrefix: '',
+  };
 };
-const API_BASE_NEW = getApiBase();
+
+const { base: API_BASE_NEW, routePrefix: API_ROUTE_PREFIX } = getApiConfig();
+
+const buildPath = (path: string) => `${API_ROUTE_PREFIX}${path}`;
 
 /**
  * Get all team members with filters
@@ -45,7 +52,7 @@ export async function getTeamMembers(filters: TeamMemberFilters = {}) {
     }
   });
   const qs = query.toString();
-  const path = `/api/team${qs ? `?${qs}` : ''}`;
+  const path = buildPath(`/team${qs ? `?${qs}` : ''}`);
   
   // Use direct fetch for new API routes
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
@@ -73,7 +80,7 @@ export async function getTeamMembers(filters: TeamMemberFilters = {}) {
  * Get team member by ID
  */
 export async function getTeamMemberById(id: string) {
-  const path = `/api/team/${id}`;
+  const path = buildPath(`/team/${id}`);
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -99,7 +106,7 @@ export async function getTeamMemberById(id: string) {
  * Create a new team member
  */
 export async function createTeamMember(payload: CreateMemberPayload) {
-  const path = '/api/team';
+  const path = buildPath('/team');
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -126,7 +133,7 @@ export async function createTeamMember(payload: CreateMemberPayload) {
  * Update team member
  */
 export async function updateTeamMember(id: string, payload: UpdateMemberPayload) {
-  const path = `/api/team/${id}`;
+  const path = buildPath(`/team/${id}`);
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -157,7 +164,7 @@ export async function updateTeamMember(id: string, payload: UpdateMemberPayload)
  * Deactivate team member (soft delete)
  */
 export async function deactivateTeamMember(id: string) {
-  const path = `/api/team/${id}/deactivate`;
+  const path = buildPath(`/team/${id}/deactivate`);
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -183,7 +190,7 @@ export async function deactivateTeamMember(id: string) {
  * Delete team member (hard delete - removes from database)
  */
 export async function deleteTeamMember(id: string) {
-  const path = `/api/team/${id}`;
+  const path = buildPath(`/team/${id}`);
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -209,7 +216,7 @@ export async function deleteTeamMember(id: string) {
  * Activate team member
  */
 export async function activateTeamMember(id: string) {
-  const path = `/api/team/${id}/activate`;
+  const path = buildPath(`/team/${id}/activate`);
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -235,7 +242,7 @@ export async function activateTeamMember(id: string) {
  * Generate credentials for a team member
  */
 export async function generateCredentials(id: string, payload: GenerateCredentialsPayload) {
-  const path = `/api/team/${id}/credentials`;
+  const path = buildPath(`/team/${id}/credentials`);
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -262,7 +269,7 @@ export async function generateCredentials(id: string, payload: GenerateCredentia
  * Reset password for a team member
  */
 export async function resetPassword(id: string) {
-  const path = `/api/team/${id}/reset-password`;
+  const path = buildPath(`/team/${id}/reset-password`);
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -288,7 +295,7 @@ export async function resetPassword(id: string) {
  * Resend invite email
  */
 export async function resendInvite(id: string) {
-  const path = `/api/team/${id}/resend-invite`;
+  const path = buildPath(`/team/${id}/resend-invite`);
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -314,7 +321,7 @@ export async function resendInvite(id: string) {
  * Lock account
  */
 export async function lockAccount(id: string) {
-  const path = `/api/team/${id}/lock`;
+  const path = buildPath(`/team/${id}/lock`);
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -340,7 +347,7 @@ export async function lockAccount(id: string) {
  * Unlock account
  */
 export async function unlockAccount(id: string) {
-  const path = `/api/team/${id}/unlock`;
+  const path = buildPath(`/team/${id}/unlock`);
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -366,7 +373,7 @@ export async function unlockAccount(id: string) {
  * Get login history for a team member
  */
 export async function getLoginHistory(id: string) {
-  const path = `/api/team/${id}/login-history`;
+  const path = buildPath(`/team/${id}/login-history`);
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -392,7 +399,7 @@ export async function getLoginHistory(id: string) {
  * Get activity for a team member
  */
 export async function getMemberActivity(id: string) {
-  const path = `/api/team/${id}/activity`;
+  const path = buildPath(`/team/${id}/activity`);
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -418,7 +425,7 @@ export async function getMemberActivity(id: string) {
  * Get all roles
  */
 export async function getRoles() {
-  const path = '/api/roles';
+  const path = buildPath('/roles');
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -444,7 +451,7 @@ export async function getRoles() {
  * Get all departments
  */
 export async function getDepartments() {
-  const path = '/api/departments';
+  const path = buildPath('/departments');
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -470,7 +477,7 @@ export async function getDepartments() {
  * Get department by ID
  */
 export async function getDepartmentById(id: string) {
-  const path = `/api/departments/${id}`;
+  const path = buildPath(`/departments/${id}`);
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -496,7 +503,7 @@ export async function getDepartmentById(id: string) {
  * Create a department
  */
 export async function createDepartment(payload: { name: string; description?: string }) {
-  const path = '/api/departments';
+  const path = buildPath('/departments');
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -523,7 +530,7 @@ export async function createDepartment(payload: { name: string; description?: st
  * Update a department
  */
 export async function updateDepartment(id: string, payload: { name?: string; description?: string }) {
-  const path = `/api/departments/${id}`;
+  const path = buildPath(`/departments/${id}`);
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -550,7 +557,7 @@ export async function updateDepartment(id: string, payload: { name?: string; des
  * Delete a department
  */
 export async function deleteDepartment(id: string) {
-  const path = `/api/departments/${id}`;
+  const path = buildPath(`/departments/${id}`);
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -576,7 +583,7 @@ export async function deleteDepartment(id: string) {
  * Get targets for a team member
  */
 export async function getTargets(memberId: string) {
-  const path = `/api/team/${memberId}/targets`;
+  const path = buildPath(`/team/${memberId}/targets`);
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -602,7 +609,7 @@ export async function getTargets(memberId: string) {
  * Save targets for a team member
  */
 export async function saveTargets(memberId: string, targets: Array<{ targetType: string; targetValue: number; period: string }>) {
-  const path = `/api/team/${memberId}/targets`;
+  const path = buildPath(`/team/${memberId}/targets`);
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -629,7 +636,7 @@ export async function saveTargets(memberId: string, targets: Array<{ targetType:
  * Get all permissions grouped by module
  */
 export async function getAllPermissions() {
-  const path = '/api/permissions';
+  const path = buildPath('/permissions');
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -655,7 +662,7 @@ export async function getAllPermissions() {
  * Create a new role
  */
 export async function createRole(payload: { roleName: string; description?: string; color: string; permissionIds: string[] }) {
-  const path = '/api/roles';
+  const path = buildPath('/roles');
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -682,7 +689,7 @@ export async function createRole(payload: { roleName: string; description?: stri
  * Update a role
  */
 export async function updateRole(id: string, payload: { roleName?: string; description?: string; color?: string; permissionIds?: string[] }) {
-  const path = `/api/roles/${id}`;
+  const path = buildPath(`/roles/${id}`);
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -709,7 +716,7 @@ export async function updateRole(id: string, payload: { roleName?: string; descr
  * Delete a role
  */
 export async function deleteRole(id: string) {
-  const path = `/api/roles/${id}`;
+  const path = buildPath(`/roles/${id}`);
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -735,7 +742,7 @@ export async function deleteRole(id: string) {
  * Get role by ID
  */
 export async function getRoleById(id: string) {
-  const path = `/api/roles/${id}`;
+  const path = buildPath(`/roles/${id}`);
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
