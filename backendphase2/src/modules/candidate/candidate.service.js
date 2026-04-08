@@ -7,7 +7,7 @@ import {
   sendCandidateInterviewScheduledEmail,
   sendInterviewPanelScheduledEmail,
 } from '../../services/emailService.js';
-import { buildSuperAdminOwnerScope } from '../../utils/superAdminScope.js';
+import { buildSuperAdminOwnerScope, isSuperAdminUser } from '../../utils/superAdminScope.js';
 
 const CANDIDATE_ACTIVITY_ENTITY = 'CANDIDATE';
 const NOTE_ACTIVITY_KIND = 'candidate-note';
@@ -140,6 +140,88 @@ function mapActivityToNote(activity) {
     },
     tags: Array.isArray(metadata.tags) ? metadata.tags.filter(Boolean) : [],
     isPinned: Boolean(metadata.isPinned),
+  };
+}
+
+function clampScore(value, fallback = 0) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  return Math.max(0, Math.min(100, Math.round(num)));
+}
+
+function buildAiCandidateAnalysis(candidate) {
+  const matches = Array.isArray(candidate?.matches) ? candidate.matches : [];
+  const primaryMatch = matches.find((item) => Number.isFinite(Number(item?.score))) || matches[0] || null;
+
+  const experienceYears = Number(candidate?.experience ?? candidate?.experienceYears ?? 0);
+  const hasEducation = Boolean(candidate?.education || candidate?.recruiterEducation);
+  const skillsCount = Array.isArray(candidate?.skills) ? candidate.skills.length : 0;
+
+  if (primaryMatch && Number.isFinite(Number(primaryMatch?.score))) {
+    const overall = clampScore(primaryMatch.score, 0);
+    const skillsMatch = clampScore(overall + Math.min(skillsCount * 2, 8) - 4, overall);
+    const experienceFit = clampScore(overall + Math.min(experienceYears * 2, 10) - 5, overall);
+    const educationFit = clampScore(overall + (hasEducation ? 4 : -6), overall);
+    const keywordMatch = clampScore(Math.round((skillsMatch * 0.5) + (experienceFit * 0.3) + (educationFit * 0.2)), overall);
+
+    const jobTitle = primaryMatch?.job?.title || null;
+    const insights = [
+      {
+        type: overall >= 65 ? 'strength' : 'gap',
+        text: jobTitle
+          ? `AI fit score is ${overall}% for applied job "${jobTitle}".`
+          : `AI fit score is ${overall}% based on latest matched job.`,
+      },
+      {
+        type: skillsMatch >= 60 ? 'strength' : 'gap',
+        text: skillsMatch >= 60
+          ? 'Skills alignment is strong for the selected role.'
+          : 'Skills alignment needs improvement for the selected role.',
+      },
+      {
+        type: experienceFit >= 60 ? 'strength' : 'gap',
+        text: experienceFit >= 60
+          ? 'Experience level is relevant to current role expectations.'
+          : 'Experience appears lighter than this role typically expects.',
+      },
+    ];
+
+    return {
+      source: 'match',
+      jobTitle,
+      overall,
+      breakdown: {
+        skillsMatch,
+        experienceFit,
+        educationFit,
+        keywordMatch,
+      },
+      insights,
+    };
+  }
+
+  const skillsMatch = clampScore(skillsCount > 0 ? 55 + skillsCount * 8 : 38, 0);
+  const experienceFit = clampScore(experienceYears > 0 ? 45 + experienceYears * 6 : 35, 0);
+  const educationFit = hasEducation ? 72 : 48;
+  const keywordMatch = clampScore(Math.round((skillsMatch * 0.45) + (experienceFit * 0.35) + (educationFit * 0.2)), 0);
+  const overall = clampScore(Math.round((skillsMatch + experienceFit + educationFit + keywordMatch) / 4), 0);
+
+  return {
+    source: 'estimated',
+    jobTitle: null,
+    overall,
+    breakdown: {
+      skillsMatch,
+      experienceFit,
+      educationFit,
+      keywordMatch,
+    },
+    insights: [
+      {
+        type: 'gap',
+        text: 'No applied-job match score available yet. This is an estimated profile-fit score.',
+      },
+    ],
   };
 }
 
@@ -338,6 +420,7 @@ async function buildCandidateResponse(candidate) {
           ? candidate.recruiterLanguages
           : [],
     notes: candidate.notes || candidate.recruiterNotes || null,
+    aiCandidateAnalysis: buildAiCandidateAnalysis(candidate),
   };
 
   return {
@@ -386,12 +469,16 @@ export const candidateService = {
 
     const andParts = [];
     const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
-    if (superAdminScope) {
-      andParts.push(superAdminScope);
-    }
 
+    // When mine=true, use the expanded "my candidates" scope only:
+    // - created by me
+    // - linked to jobs created by me (matches / pipeline / interviews)
+    // Do NOT also AND with the legacy super-admin owner scope, otherwise
+    // candidates applied on my jobs but not directly assigned/created get excluded.
     if (mine && req.user?.id) {
       andParts.push(await buildMineCandidatesScope(req.user.id));
+    } else if (superAdminScope) {
+      andParts.push(superAdminScope);
     }
     if (search) {
       // MongoDB doesn't support mode: 'insensitive' - use contains for case-sensitive search
@@ -487,8 +574,21 @@ export const candidateService = {
 
   async getById(id, req = null) {
     const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
+    let accessScope = superAdminScope;
+
+    // Keep drawer access aligned with list access for super admins:
+    // allow candidate created/assigned directly OR linked to jobs created by this super admin.
+    if (isSuperAdminUser(req) && req?.user?.id) {
+      const mineScope = await buildMineCandidatesScope(req.user.id);
+      if (accessScope && mineScope) {
+        accessScope = { OR: [accessScope, mineScope] };
+      } else {
+        accessScope = mineScope || accessScope;
+      }
+    }
+
     const candidate = await prisma.candidate.findFirst({
-      where: superAdminScope ? { AND: [{ id }, superAdminScope] } : { id },
+      where: accessScope ? { AND: [{ id }, accessScope] } : { id },
       include: candidateDetailInclude,
     });
 
@@ -1416,8 +1516,7 @@ export const candidateService = {
 
     const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
     const mineScope = mine ? await buildMineCandidatesScope(userId) : null;
-    const scopeParts = [superAdminScope, mineScope].filter(Boolean);
-    const scopeWhere = scopeParts.length === 0 ? null : (scopeParts.length === 1 ? scopeParts[0] : { AND: scopeParts });
+    const scopeWhere = mine ? mineScope : superAdminScope;
 
     // Get counts by stage
     const stages = [

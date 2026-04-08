@@ -18,7 +18,10 @@ function normalizeRoleKey(input) {
 const DEFAULT_SYSTEM_ROLES = [
   { roleName: 'Super Admin', description: 'Full system access', color: 'red' },
   { roleName: 'Admin', description: 'Administrative access', color: 'blue' },
+  { roleName: 'Senior Recruiter', description: 'Senior recruitment role', color: 'teal' },
   { roleName: 'Recruiter', description: 'Recruitment operations access', color: 'green' },
+  { roleName: 'Account Manager', description: 'Client account management', color: 'amber' },
+  { roleName: 'Finance', description: 'Finance and billing access', color: 'orange' },
   { roleName: 'Manager', description: 'Team management access', color: 'purple' },
   { roleName: 'Viewer', description: 'Read-only access', color: 'gray' },
 ];

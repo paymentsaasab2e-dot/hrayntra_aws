@@ -1002,10 +1002,44 @@ function scoreDeterministic(candidateFeatures, jobFeatures) {
 
 function formatJobResponse(scoredJob) {
   const finalLabel = scoredJob.matchLabel || getMatchLabel(scoredJob.finalScore);
+  const rawJob = scoredJob.rawJob || {};
+  const responsibilities =
+    Array.isArray(rawJob.keyResponsibilities) && rawJob.keyResponsibilities.length
+      ? rawJob.keyResponsibilities.filter(Boolean)
+      : typeof rawJob.responsibilities === 'string'
+      ? rawJob.responsibilities
+          .split(/\r?\n|[-\u2022]/)
+          .map((item) => String(item || '').trim())
+          .filter(Boolean)
+      : Array.isArray(rawJob.responsibilities)
+      ? rawJob.responsibilities.filter(Boolean)
+      : [];
+  const requirements =
+    Array.isArray(rawJob.requirements) && rawJob.requirements.length
+      ? rawJob.requirements.filter(Boolean)
+      : Array.isArray(rawJob.skills)
+      ? rawJob.skills.filter(Boolean)
+      : [];
+  const benefits = Array.isArray(rawJob.benefits) ? rawJob.benefits.filter(Boolean) : [];
+
+  const salaryJson =
+    rawJob.salary && typeof rawJob.salary === 'object' && !Array.isArray(rawJob.salary)
+      ? rawJob.salary
+      : undefined;
+  const salaryMin = rawJob.salaryMin ?? salaryJson?.min ?? null;
+  const salaryMax = rawJob.salaryMax ?? salaryJson?.max ?? null;
+  const salaryCurrency = rawJob.salaryCurrency ?? salaryJson?.currency ?? null;
+  const salaryType = rawJob.salaryType ?? salaryJson?.type ?? null;
+  const expectedSalary = rawJob.expectedSalary ?? salaryJson?.amount ?? null;
+
   return {
     jobId: scoredJob.jobId,
+    id: scoredJob.jobId,
+    jobTitle: scoredJob.title,
     title: scoredJob.title,
     company: scoredJob.company,
+    companyLogo: rawJob.company?.logoUrl || rawJob.client?.logo || null,
+    openings: rawJob.openings ?? 1,
     finalScore: scoredJob.finalScore,
     breakdown: scoredJob.breakdown,
     matchedSkills: scoredJob.matchedSkills,
@@ -1025,6 +1059,35 @@ function formatJobResponse(scoredJob) {
     whyNotMatched: scoredJob.finalScore < 50 ? scoredJob.whyNotMatched : null,
     aiEnhanced: Boolean(scoredJob.aiEnhanced),
     diagnostics: scoredJob.diagnostics,
+    type: rawJob.type || rawJob.employmentType || null,
+    employmentType: rawJob.employmentType || rawJob.type || null,
+    experienceRequired: rawJob.experienceRequired || rawJob.experienceLevel || null,
+    experienceLevel: rawJob.experienceLevel || rawJob.experienceRequired || null,
+    salary: rawJob.salary ?? null,
+    salaryMin,
+    salaryMax,
+    salaryCurrency,
+    salaryType,
+    expectedSalary,
+    overview: rawJob.overview || rawJob.aboutRole || rawJob.description || null,
+    description: rawJob.description || rawJob.jobDescription || rawJob.overview || rawJob.aboutRole || null,
+    jobDescription: rawJob.jobDescription || rawJob.description || null,
+    jobSummary: rawJob.jobSummary || rawJob.overview || rawJob.aboutRole || rawJob.description || null,
+    responsibilities: rawJob.responsibilities || null,
+    keyResponsibilities: responsibilities,
+    qualificationsAndExperience: rawJob.qualificationsAndExperience || null,
+    requirements,
+    skills: Array.isArray(rawJob.skills) ? rawJob.skills : [],
+    preferredSkills: Array.isArray(rawJob.preferredSkills) ? rawJob.preferredSkills : [],
+    education: rawJob.education || rawJob.qualification || rawJob.educationalQualification || null,
+    qualification: rawJob.qualification || rawJob.education || null,
+    educationalQualification: rawJob.educationalQualification || rawJob.education || null,
+    compensation: rawJob.compensation || expectedSalary || null,
+    compensationBenefits: rawJob.compensationBenefits || null,
+    benefits,
+    companyOverview: rawJob.companyOverview || rawJob.overview || null,
+    postedDate: rawJob.postedDate || rawJob.postedAt || rawJob.createdAt || null,
+    jobLocationType: rawJob.jobLocationType || rawJob.workMode || null,
   };
 }
 

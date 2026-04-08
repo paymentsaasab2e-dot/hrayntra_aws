@@ -1,4 +1,47 @@
 import { prisma } from '../config/prisma.js';
+import { isSuperAdminUser } from '../utils/superAdminScope.js';
+
+async function buildAccessibleDepartmentWhere(req) {
+  if (!isSuperAdminUser(req) || !req?.user?.id) {
+    return {};
+  }
+
+  const ownerId = req.user.id;
+  const activityRows = await prisma.userActivity.findMany({
+    where: {
+      userId: ownerId,
+      module: 'Team',
+      action: 'Department created',
+    },
+    select: { metadata: true },
+    orderBy: { timestamp: 'desc' },
+    take: 500,
+  });
+
+  const createdDepartmentIds = [
+    ...new Set(
+      activityRows
+        .map((row) => row?.metadata?.departmentId)
+        .filter((id) => typeof id === 'string' && id.length > 0)
+    ),
+  ];
+
+  return {
+    OR: [
+      {
+        users: {
+          some: {
+            OR: [
+              { id: ownerId },
+              { credential: { is: { createdBy: ownerId } } },
+            ],
+          },
+        },
+      },
+      ...(createdDepartmentIds.length ? [{ id: { in: createdDepartmentIds } }] : []),
+    ],
+  };
+}
 
 /**
  * Get all departments with user counts and preview
@@ -6,11 +49,21 @@ import { prisma } from '../config/prisma.js';
  */
 export async function getAllDepartments(req, res) {
   try {
+    const scopedWhere = await buildAccessibleDepartmentWhere(req);
     const departments = await prisma.department.findMany({
+      where: scopedWhere,
       include: {
         users: {
           where: {
             status: 'ACTIVE',
+            ...(isSuperAdminUser(req) && req?.user?.id
+              ? {
+                  OR: [
+                    { id: req.user.id },
+                    { credential: { is: { createdBy: req.user.id } } },
+                  ],
+                }
+              : {}),
           },
           select: {
             id: true,
@@ -64,11 +117,22 @@ export async function getAllDepartments(req, res) {
 export async function getDepartmentById(req, res) {
   try {
     const { id } = req.params;
+    const scopedWhere = await buildAccessibleDepartmentWhere(req);
 
-    const department = await prisma.department.findUnique({
-      where: { id },
+    const department = await prisma.department.findFirst({
+      where: scopedWhere?.OR?.length
+        ? { AND: [{ id }, scopedWhere] }
+        : { id },
       include: {
         users: {
+          where: isSuperAdminUser(req) && req?.user?.id
+            ? {
+                OR: [
+                  { id: req.user.id },
+                  { credential: { is: { createdBy: req.user.id } } },
+                ],
+              }
+            : undefined,
           include: {
             systemRole: {
               select: {
@@ -137,6 +201,20 @@ export async function createDepartment(req, res) {
       },
     });
 
+    if (req?.user?.id) {
+      await prisma.userActivity.create({
+        data: {
+          userId: req.user.id,
+          action: 'Department created',
+          module: 'Team',
+          metadata: {
+            departmentId: department.id,
+            departmentName: department.name,
+          },
+        },
+      });
+    }
+
     return res.status(201).json({
       success: true,
       data: department,
@@ -159,6 +237,21 @@ export async function updateDepartment(req, res) {
   try {
     const { id } = req.params;
     const { name, description } = req.body;
+    const scopedWhere = await buildAccessibleDepartmentWhere(req);
+    if (scopedWhere?.OR?.length) {
+      const existingScoped = await prisma.department.findFirst({
+        where: {
+          AND: [{ id }, scopedWhere],
+        },
+        select: { id: true },
+      });
+      if (!existingScoped) {
+        return res.status(404).json({
+          success: false,
+          message: 'Department not found',
+        });
+      }
+    }
 
     // Check if name is being changed and if it's unique
     if (name) {
@@ -214,6 +307,21 @@ export async function updateDepartment(req, res) {
 export async function deleteDepartment(req, res) {
   try {
     const { id } = req.params;
+    const scopedWhere = await buildAccessibleDepartmentWhere(req);
+    if (scopedWhere?.OR?.length) {
+      const existingScoped = await prisma.department.findFirst({
+        where: {
+          AND: [{ id }, scopedWhere],
+        },
+        select: { id: true },
+      });
+      if (!existingScoped) {
+        return res.status(404).json({
+          success: false,
+          message: 'Department not found',
+        });
+      }
+    }
 
     // Count active users in this department
     const activeUserCount = await prisma.user.count({

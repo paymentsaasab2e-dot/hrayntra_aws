@@ -190,6 +190,8 @@ export interface CandidateProfileDrawerData {
   }>;
   aiScore?: {
     overall: number;
+    source?: 'match' | 'estimated' | string;
+    jobTitle?: string | null;
     breakdown: {
       skillsMatch: number;
       experienceFit: number;
@@ -3599,6 +3601,11 @@ export function CandidateProfileDrawer({
                     <section className="flex h-full min-h-0 w-full flex-col rounded-2xl border border-slate-200 bg-white xl:w-[40%]">
                       <div className="border-b border-slate-200 px-5 py-4">
                         <h3 className="text-base font-semibold text-slate-900">AI Candidate Analysis</h3>
+                        {aiScore.jobTitle ? (
+                          <p className="mt-1 text-xs text-slate-500">
+                            Based on applied job: <span className="font-medium text-slate-700">{aiScore.jobTitle}</span>
+                          </p>
+                        ) : null}
                       </div>
 
                       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">

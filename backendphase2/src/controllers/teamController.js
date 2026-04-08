@@ -7,6 +7,38 @@ import {
   getInviteExpiry,
 } from '../utils/credentialGenerator.js';
 import { sendInviteEmail, sendPasswordResetEmail } from '../services/emailService.js';
+import { isSuperAdminUser } from '../utils/superAdminScope.js';
+
+function getSuperAdminMemberScope(req) {
+  if (!isSuperAdminUser(req) || !req?.user?.id) {
+    return null;
+  }
+
+  return {
+    OR: [
+      { id: req.user.id },
+      { credential: { is: { createdBy: req.user.id } } },
+    ],
+  };
+}
+
+async function findAccessibleMember(req, memberId) {
+  const member = await prisma.user.findUnique({
+    where: { id: memberId },
+    select: {
+      id: true,
+      credential: { select: { createdBy: true } },
+    },
+  });
+
+  if (!member) return null;
+  if (!isSuperAdminUser(req) || !req?.user?.id) return member;
+
+  const allowed =
+    member.id === req.user.id || member.credential?.createdBy === req.user.id;
+
+  return allowed ? member : null;
+}
 
 /**
  * Get all team members with filters
@@ -50,6 +82,12 @@ export async function getAllTeamMembers(req, res) {
     // Manager filter
     if (managerId) {
       where.managerId = managerId;
+    }
+
+    const superAdminScope = getSuperAdminMemberScope(req);
+    if (superAdminScope) {
+      const existingAnd = Array.isArray(where.AND) ? where.AND : [];
+      where.AND = [...existingAnd, superAdminScope];
     }
 
     // Fetch members with includes
@@ -133,6 +171,13 @@ export async function getAllTeamMembers(req, res) {
 export async function getTeamMemberById(req, res) {
   try {
     const { id } = req.params;
+    const accessible = await findAccessibleMember(req, id);
+    if (!accessible) {
+      return res.status(404).json({
+        success: false,
+        message: 'Team member not found',
+      });
+    }
 
     const member = await prisma.user.findUnique({
       where: { id },
@@ -380,6 +425,13 @@ export async function createTeamMember(req, res) {
 export async function updateTeamMember(req, res) {
   try {
     const { id } = req.params;
+    const accessible = await findAccessibleMember(req, id);
+    if (!accessible) {
+      return res.status(404).json({
+        success: false,
+        message: 'Team member not found',
+      });
+    }
     const {
       firstName,
       lastName,
@@ -542,6 +594,13 @@ export async function updateTeamMember(req, res) {
 export async function deactivateTeamMember(req, res) {
   try {
     const { id } = req.params;
+    const accessible = await findAccessibleMember(req, id);
+    if (!accessible) {
+      return res.status(404).json({
+        success: false,
+        message: 'Team member not found',
+      });
+    }
 
     await prisma.user.update({
       where: { id },
@@ -577,6 +636,13 @@ export async function deactivateTeamMember(req, res) {
 export async function deleteTeamMember(req, res) {
   try {
     const { id } = req.params;
+    const accessible = await findAccessibleMember(req, id);
+    if (!accessible) {
+      return res.status(404).json({
+        success: false,
+        message: 'Team member not found',
+      });
+    }
 
     // Check if member exists
     const member = await prisma.user.findUnique({
@@ -791,6 +857,13 @@ export async function deleteTeamMember(req, res) {
 export async function activateTeamMember(req, res) {
   try {
     const { id } = req.params;
+    const accessible = await findAccessibleMember(req, id);
+    if (!accessible) {
+      return res.status(404).json({
+        success: false,
+        message: 'Team member not found',
+      });
+    }
 
     await prisma.user.update({
       where: { id },
@@ -827,6 +900,13 @@ export async function generateMemberCredentials(req, res) {
   try {
     const { id } = req.params;
     const { customLoginId, sendInvite } = req.body;
+    const accessible = await findAccessibleMember(req, id);
+    if (!accessible) {
+      return res.status(404).json({
+        success: false,
+        message: 'Team member not found',
+      });
+    }
 
     // Find member
     const member = await prisma.user.findUnique({
@@ -946,6 +1026,13 @@ export async function generateMemberCredentials(req, res) {
 export async function resetMemberPassword(req, res) {
   try {
     const { id } = req.params;
+    const accessible = await findAccessibleMember(req, id);
+    if (!accessible) {
+      return res.status(404).json({
+        success: false,
+        message: 'Team member or credentials not found',
+      });
+    }
 
     // Find member and credential
     const member = await prisma.user.findUnique({
@@ -1005,6 +1092,13 @@ export async function resetMemberPassword(req, res) {
 export async function resendMemberInvite(req, res) {
   try {
     const { id } = req.params;
+    const accessible = await findAccessibleMember(req, id);
+    if (!accessible) {
+      return res.status(404).json({
+        success: false,
+        message: 'Team member or credentials not found',
+      });
+    }
 
     // Find member and credential
     const member = await prisma.user.findUnique({
@@ -1074,6 +1168,13 @@ export async function resendMemberInvite(req, res) {
 export async function lockMemberAccount(req, res) {
   try {
     const { id } = req.params;
+    const accessible = await findAccessibleMember(req, id);
+    if (!accessible) {
+      return res.status(404).json({
+        success: false,
+        message: 'Credentials not found',
+      });
+    }
 
     await prisma.userCredential.update({
       where: { userId: id },
@@ -1108,6 +1209,13 @@ export async function lockMemberAccount(req, res) {
 export async function unlockMemberAccount(req, res) {
   try {
     const { id } = req.params;
+    const accessible = await findAccessibleMember(req, id);
+    if (!accessible) {
+      return res.status(404).json({
+        success: false,
+        message: 'Credentials not found',
+      });
+    }
 
     await prisma.userCredential.update({
       where: { userId: id },
@@ -1143,6 +1251,13 @@ export async function unlockMemberAccount(req, res) {
 export async function getMemberLoginHistory(req, res) {
   try {
     const { id } = req.params;
+    const accessible = await findAccessibleMember(req, id);
+    if (!accessible) {
+      return res.status(200).json({
+        success: true,
+        data: [],
+      });
+    }
 
     // Find credential
     const credential = await prisma.userCredential.findUnique({
@@ -1183,6 +1298,13 @@ export async function getMemberLoginHistory(req, res) {
 export async function getMemberActivity(req, res) {
   try {
     const { id } = req.params;
+    const accessible = await findAccessibleMember(req, id);
+    if (!accessible) {
+      return res.status(200).json({
+        success: true,
+        data: [],
+      });
+    }
 
     const activities = await prisma.userActivity.findMany({
       where: { userId: id },
