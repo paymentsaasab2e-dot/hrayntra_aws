@@ -812,6 +812,21 @@ export interface BackendCandidate {
     };
     relatedJob?: string | null;
   }>;
+  aiCandidateAnalysis?: {
+    source?: 'match' | 'estimated' | string;
+    jobTitle?: string | null;
+    overall?: number;
+    breakdown?: {
+      skillsMatch?: number;
+      experienceFit?: number;
+      educationFit?: number;
+      keywordMatch?: number;
+    };
+    insights?: Array<{
+      type?: 'strength' | 'gap' | string;
+      text?: string;
+    }>;
+  };
   rating?: number | null;
   hotlist: boolean;
   avatar?: string | null;

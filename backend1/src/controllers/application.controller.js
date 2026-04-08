@@ -35,6 +35,41 @@ function splitResponsibilities(value) {
     .filter(Boolean);
 }
 
+function formatApplicationStatus(status) {
+  const statusMap = {
+    SUBMITTED: 'Submitted',
+    UNDER_REVIEW: 'Under Review',
+    SHORTLISTED: 'Shortlisted',
+    ASSESSMENT: 'Assessment',
+    INTERVIEW: 'Interview',
+    FINAL_DECISION: 'Final Decision',
+    SELECTED: 'Selected',
+    REJECTED: 'Rejected',
+  };
+
+  return statusMap[status] || status || 'Submitted';
+}
+
+function formatSalaryText(job) {
+  const salary = job?.salary;
+  if (salary && typeof salary === 'object') {
+    if (salary.amount) return String(salary.amount);
+    if (salary.min && salary.max) {
+      const currency = salary.currency || '';
+      const type = salary.type ? `/${String(salary.type).toLowerCase()}` : '';
+      return `${currency}${salary.min} - ${currency}${salary.max}${type}`;
+    }
+  }
+
+  if (job?.salaryMin && job?.salaryMax) {
+    const currency = job.salaryCurrency || '';
+    const type = job.salaryType ? `/${String(job.salaryType).toLowerCase()}` : '';
+    return `${currency}${job.salaryMin} - ${currency}${job.salaryMax}${type}`;
+  }
+
+  return 'Not specified';
+}
+
 function normalizePortfolioLinks(links) {
   if (!Array.isArray(links)) return [];
 
@@ -320,7 +355,7 @@ async function createApplication(req, res) {
     // Verify job exists
     const job = await prisma.job.findUnique({
       where: { id: jobId },
-      include: { company: true },
+      include: { company: true, client: true },
     });
 
     if (!job) {
@@ -342,6 +377,7 @@ async function createApplication(req, res) {
         job: {
           include: {
             company: true,
+            client: true,
           },
         },
       },
@@ -368,6 +404,14 @@ async function createApplication(req, res) {
         applicationId: application.id,
         status: application.status,
         appliedAt: application.appliedAt,
+        job: {
+          id: application.job.id,
+          title: application.job.title,
+          company:
+            application.job.company?.name ||
+            application.job.client?.companyName ||
+            'Unknown Company',
+        },
       },
     });
   } catch (error) {
@@ -487,6 +531,118 @@ async function getApplications(req, res) {
 }
 
 /**
+ * Get single application detail by applicationId
+ * GET /api/applications/detail/:applicationId
+ */
+async function getApplicationById(req, res) {
+  try {
+    const { applicationId } = req.params;
+    const startedAt = Date.now();
+
+    if (!applicationId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Application ID is required',
+      });
+    }
+
+    console.log(`📥 DB fetch requested: application-detail | applicationId=${applicationId}`);
+
+    const application = await prisma.application.findUnique({
+      where: { id: applicationId },
+      include: {
+        job: {
+          include: {
+            company: true,
+            client: true,
+          },
+        },
+        timeline: {
+          orderBy: {
+            occurredAt: 'asc',
+          },
+        },
+        communications: {
+          orderBy: {
+            sentAt: 'asc',
+          },
+        },
+      },
+    });
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        message: 'Application not found',
+      });
+    }
+
+    const statusLabel = formatApplicationStatus(application.status);
+    const timeline = (application.timeline || []).map((item) => ({
+      id: item.id,
+      status: formatApplicationStatus(item.status),
+      title: item.title || formatApplicationStatus(item.status),
+      description: item.description || null,
+      occurredAt: item.occurredAt,
+    }));
+
+    const communications = (application.communications || []).map((item) => ({
+      id: item.id,
+      channel: String(item.channel || '').toLowerCase(),
+      subject: item.subject || null,
+      message: item.message || '',
+      sentAt: item.sentAt,
+    }));
+
+    console.log(
+      `📦 DB fetch result: application-detail | applicationId=${applicationId} | status=${application.status} | timeline=${timeline.length} | communications=${communications.length} | elapsedMs=${Date.now() - startedAt}`
+    );
+
+    return res.json({
+      success: true,
+      data: {
+        id: application.id,
+        candidateId: application.candidateId,
+        jobId: application.jobId,
+        status: statusLabel,
+        statusCode: application.status,
+        appliedAt: application.appliedAt,
+        updatedAt: application.updatedAt,
+        emailUpdates: application.emailUpdates,
+        whatsappUpdates: application.whatsappUpdates,
+        offerDetails: application.offerDetails || null,
+        screeningAnswers: application.screeningAnswers || null,
+        job: {
+          id: application.job.id,
+          title: application.job.title,
+          company:
+            application.job.company?.name ||
+            application.job.client?.companyName ||
+            'Unknown Company',
+          location: application.job.location || 'Not specified',
+          workMode: application.job.workMode || application.job.jobLocationType || 'Not specified',
+          experience:
+            application.job.experienceRequired ||
+            application.job.experienceLevel ||
+            'Not specified',
+          employmentType: application.job.employmentType || application.job.type || 'Full-time',
+          salary: formatSalaryText(application.job),
+        },
+        timeline,
+        communications,
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching application detail:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch application detail',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+}
+
+/**
  * Check if candidate has applied to a job
  * GET /api/applications/check/:candidateId/:jobId
  */
@@ -552,5 +708,6 @@ async function checkApplication(req, res) {
 module.exports = {
   createApplication,
   getApplications,
+  getApplicationById,
   checkApplication,
 };

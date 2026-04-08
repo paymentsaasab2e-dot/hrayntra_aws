@@ -61,6 +61,14 @@ function isValidObjectId(id: string): boolean {
   return typeof id === 'string' && /^[a-f0-9]{24}$/i.test(id.trim());
 }
 
+function isSuperAdminRole(role?: string | null): boolean {
+  const normalized = String(role || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '_');
+  return normalized === 'SUPER_ADMIN';
+}
+
 const TAG_COLOR_PALETTE = [
   '#2563eb',
   '#7c3aed',
@@ -198,6 +206,24 @@ function mapCandidateProfile(c: BackendCandidate): CandidateProfileDrawerData {
   );
   const overall = Math.round((skillsMatch + experienceFit + educationFit + keywordMatch) / 4);
   const insightItems: NonNullable<CandidateProfileDrawerData['aiScore']>['insights'] = [];
+  const backendAi = (c as BackendCandidate).aiCandidateAnalysis;
+  const backendBreakdown = backendAi?.breakdown || {};
+  const aiSkillsMatch =
+    typeof backendBreakdown.skillsMatch === 'number' && Number.isFinite(backendBreakdown.skillsMatch)
+      ? Math.max(0, Math.min(100, Math.round(backendBreakdown.skillsMatch)))
+      : skillsMatch;
+  const aiExperienceFit =
+    typeof backendBreakdown.experienceFit === 'number' && Number.isFinite(backendBreakdown.experienceFit)
+      ? Math.max(0, Math.min(100, Math.round(backendBreakdown.experienceFit)))
+      : experienceFit;
+  const aiEducationFit =
+    typeof backendBreakdown.educationFit === 'number' && Number.isFinite(backendBreakdown.educationFit)
+      ? Math.max(0, Math.min(100, Math.round(backendBreakdown.educationFit)))
+      : educationFit;
+  const aiKeywordMatch =
+    typeof backendBreakdown.keywordMatch === 'number' && Number.isFinite(backendBreakdown.keywordMatch)
+      ? Math.max(0, Math.min(100, Math.round(backendBreakdown.keywordMatch)))
+      : keywordMatch;
 
   if (skillsCount > 0) {
     insightItems.push({
@@ -363,8 +389,11 @@ function mapCandidateProfile(c: BackendCandidate): CandidateProfileDrawerData {
     source: c.source || '—',
     status: c.status || 'NEW',
     availability: c.availability || (c.status === 'ACTIVE' ? 'available' : c.status === 'PLACED' ? 'unavailable' : 'limited'),
-    resumeUrl: c.resume || null,
-    summary: c.notes?.trim() || (c.skills?.length ? `Skills: ${c.skills.join(', ')}` : null),
+    resumeUrl: c.resume || c.resumeUrl || null,
+    summary:
+      c.notes?.trim() ||
+      c.cvSummary?.trim() ||
+      (c.skills?.length ? `Skills: ${c.skills.join(', ')}` : null),
     cvAddress: c.address || null,
     cvCity: c.city || null,
     cvCountry: c.country || null,
@@ -375,20 +404,35 @@ function mapCandidateProfile(c: BackendCandidate): CandidateProfileDrawerData {
         : salary.expected || null,
     cvCurrentSalary: c.currentSalary != null ? `${c.salary?.currency || 'INR'} ${c.currentSalary}` : null,
     cvEducation: c.education || null,
-    cvEducationEntries: c.cvEducationEntries || [],
-    cvWorkExperienceEntries: c.cvWorkExperienceEntries || [],
+    cvEducationEntries: Array.isArray(c.cvEducationEntries) ? c.cvEducationEntries : [],
+    cvWorkExperienceEntries: Array.isArray(c.cvWorkExperienceEntries) ? c.cvWorkExperienceEntries : [],
     cvPortfolioLinks: c.cvPortfolioLinks || [],
-    cvCertifications: c.certifications || [],
-    cvLanguages: c.languages || [],
+    cvCertifications:
+      (Array.isArray(c.certifications) && c.certifications.length
+        ? c.certifications
+        : Array.isArray((c as any).certificationsList)
+          ? (c as any).certificationsList
+          : []) || [],
+    cvLanguages:
+      (Array.isArray(c.languages) && c.languages.length
+        ? c.languages
+        : Array.isArray((c as any).recruiterLanguages)
+          ? (c as any).recruiterLanguages
+          : []) || [],
     cvPortfolio: c.portfolio || null,
     cvWebsite: c.website || null,
-    cvNotes: c.notes || null,
+    cvNotes: c.cvSummary || c.notes || null,
     cvPreferredLocation: c.preferredLocation || null,
-    cvSkills: c.skills || [],
+    cvSkills:
+      (Array.isArray(c.skills) && c.skills.length
+        ? c.skills
+        : Array.isArray((c as any).recruiterSkills)
+          ? (c as any).recruiterSkills
+          : []) || [],
     cvSummary: c.cvSummary || null,
     tags: c.tagObjects?.length ? c.tagObjects : fallbackTags,
     notes: c.internalNotes?.length ? c.internalNotes : fallbackNotes,
-    files: c.resume ? [{ name: 'Resume', url: c.resume }] : [],
+    files: (c.resume || c.resumeUrl) ? [{ name: 'Resume', url: c.resume || c.resumeUrl }] : [],
     activity: c.activityFeed?.length ? c.activityFeed : fallbackActivityItems,
     scheduledInterviews: (c.interviews || [])
       .filter((interview) => Boolean(interview.scheduledAt))
@@ -440,14 +484,27 @@ function mapCandidateProfile(c: BackendCandidate): CandidateProfileDrawerData {
               : 'scheduled',
       })),
     aiScore: {
-      overall,
+      overall:
+        typeof backendAi?.overall === 'number' && Number.isFinite(backendAi.overall)
+          ? Math.max(0, Math.min(100, Math.round(backendAi.overall)))
+          : overall,
+      source: backendAi?.source || 'estimated',
+      jobTitle: backendAi?.jobTitle || latestMatch?.job?.title || null,
       breakdown: {
-        skillsMatch,
-        experienceFit,
-        educationFit,
-        keywordMatch,
+        skillsMatch: aiSkillsMatch,
+        experienceFit: aiExperienceFit,
+        educationFit: aiEducationFit,
+        keywordMatch: aiKeywordMatch,
       },
-      insights: insightItems,
+      insights:
+        Array.isArray(backendAi?.insights) && backendAi.insights.length
+          ? backendAi.insights
+              .filter((item) => item && typeof item === 'object' && typeof item.text === 'string' && item.text.trim().length > 0)
+              .map((item) => ({
+                type: item.type === 'gap' ? 'gap' : 'strength',
+                text: String(item.text),
+              }))
+          : insightItems,
     },
   };
 }
@@ -573,6 +630,9 @@ function CandidatesPageContent() {
       const queryParams: Record<string, string | number | boolean> = {
         ...ALL_CANDIDATES_LIST_PARAMS,
       };
+      if (isSuperAdminRole(currentUser?.role)) {
+        queryParams.mine = true;
+      }
 
       if (filters.search) queryParams.search = filters.search;
       if (filters.assignedToId) queryParams.assignedToId = filters.assignedToId;
@@ -634,7 +694,7 @@ function CandidatesPageContent() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [filters, activeStage]);
+  }, [filters, activeStage, currentUser?.role]);
 
   useEffect(() => {
     loadCandidates();

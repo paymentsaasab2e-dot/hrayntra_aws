@@ -1,4 +1,31 @@
 import { prisma } from '../config/prisma.js';
+import { isSuperAdminUser } from '../utils/superAdminScope.js';
+
+const DEFAULT_ROLES = [
+  { roleName: 'Super Admin', description: 'Full system access', color: 'red' },
+  { roleName: 'Admin', description: 'Administrative access', color: 'blue' },
+  { roleName: 'Senior Recruiter', description: 'Senior recruitment role', color: 'teal' },
+  { roleName: 'Recruiter', description: 'Recruitment operations access', color: 'green' },
+  { roleName: 'Account Manager', description: 'Client account management', color: 'amber' },
+  { roleName: 'Finance', description: 'Finance and billing access', color: 'orange' },
+  { roleName: 'Viewer', description: 'Read-only access', color: 'gray' },
+  { roleName: 'Manager', description: 'Team management access', color: 'purple' },
+];
+
+async function ensureCommonDefaultRoles() {
+  await Promise.all(
+    DEFAULT_ROLES.map((role) =>
+      prisma.systemRole.upsert({
+        where: { roleName: role.roleName },
+        update: {
+          description: role.description,
+          color: role.color,
+        },
+        create: role,
+      })
+    )
+  );
+}
 
 /**
  * Get all roles with permissions and user counts
@@ -6,6 +33,8 @@ import { prisma } from '../config/prisma.js';
  */
 export async function getAllRoles(req, res) {
   try {
+    await ensureCommonDefaultRoles();
+
     const roles = await prisma.systemRole.findMany({
       include: {
         rolePermissions: {
@@ -21,6 +50,35 @@ export async function getAllRoles(req, res) {
       },
       orderBy: { createdAt: 'asc' },
     });
+
+    if (isSuperAdminUser(req) && req?.user?.id) {
+      const visibleUsers = await prisma.user.findMany({
+        where: {
+          OR: [
+            { id: req.user.id },
+            { credential: { is: { createdBy: req.user.id } } },
+          ],
+        },
+        select: { roleId: true },
+      });
+
+      const countByRoleId = visibleUsers.reduce((acc, user) => {
+        if (!user.roleId) return acc;
+        acc[user.roleId] = (acc[user.roleId] || 0) + 1;
+        return acc;
+      }, {});
+
+      return res.status(200).json({
+        success: true,
+        data: roles.map((role) => ({
+          ...role,
+          _count: {
+            ...(role._count || {}),
+            users: countByRoleId[role.id] || 0,
+          },
+        })),
+      });
+    }
 
     return res.status(200).json({
       success: true,
