@@ -7,6 +7,7 @@ import {
   sendCandidateInterviewScheduledEmail,
   sendInterviewPanelScheduledEmail,
 } from '../../services/emailService.js';
+import { buildSuperAdminOwnerScope } from '../../utils/superAdminScope.js';
 
 const CANDIDATE_ACTIVITY_ENTITY = 'CANDIDATE';
 const NOTE_ACTIVITY_KIND = 'candidate-note';
@@ -384,6 +385,11 @@ export const candidateService = {
     if (assignedToId) where.assignedToId = assignedToId;
 
     const andParts = [];
+    const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
+    if (superAdminScope) {
+      andParts.push(superAdminScope);
+    }
+
     if (mine && req.user?.id) {
       andParts.push(await buildMineCandidatesScope(req.user.id));
     }
@@ -479,9 +485,10 @@ export const candidateService = {
     return formatPaginationResponse(enriched, page, limit, total);
   },
 
-  async getById(id) {
-    const candidate = await prisma.candidate.findUnique({
-      where: { id },
+  async getById(id, req = null) {
+    const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
+    const candidate = await prisma.candidate.findFirst({
+      where: superAdminScope ? { AND: [{ id }, superAdminScope] } : { id },
       include: candidateDetailInclude,
     });
 
@@ -1407,7 +1414,10 @@ export const candidateService = {
       return emptyStats;
     }
 
-    const scopeWhere = mine ? await buildMineCandidatesScope(userId) : null;
+    const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
+    const mineScope = mine ? await buildMineCandidatesScope(userId) : null;
+    const scopeParts = [superAdminScope, mineScope].filter(Boolean);
+    const scopeWhere = scopeParts.length === 0 ? null : (scopeParts.length === 1 ? scopeParts[0] : { AND: scopeParts });
 
     // Get counts by stage
     const stages = [

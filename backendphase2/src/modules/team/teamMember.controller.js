@@ -13,7 +13,7 @@ export const teamMemberController = {
 
   async getById(req, res) {
     try {
-      const member = await teamMemberService.getById(req.params.id);
+      const member = await teamMemberService.getById(req.params.id, req.user);
       if (!member) {
         return sendError(res, 404, 'Team member not found');
       }

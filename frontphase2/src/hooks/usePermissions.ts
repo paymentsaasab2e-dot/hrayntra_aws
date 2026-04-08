@@ -3,8 +3,16 @@
 import { useMemo } from 'react';
 
 interface UserData {
+  role?: string;
   roleName?: string;
   permissions?: string[];
+}
+
+function normalizeRole(value?: string): string {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, ' ');
 }
 
 /**
@@ -17,9 +25,21 @@ export function usePermissions() {
       const currentUser = localStorage.getItem('currentUser');
       if (!currentUser) return {};
       const user = JSON.parse(currentUser);
+      const rawPermissions = user?.permissions || JSON.parse(localStorage.getItem('userPermissions') || '[]');
+      const normalizedPermissions = Array.isArray(rawPermissions)
+        ? rawPermissions
+            .map((perm) => {
+              if (typeof perm === 'string') return perm;
+              if (perm && typeof perm.permissionName === 'string') return perm.permissionName;
+              if (perm && typeof perm.name === 'string') return perm.name;
+              return '';
+            })
+            .filter(Boolean)
+        : [];
       return {
+        role: user?.role || '',
         roleName: user?.roleName || '',
-        permissions: user?.permissions || JSON.parse(localStorage.getItem('userPermissions') || '[]'),
+        permissions: normalizedPermissions,
       };
     } catch {
       return {};
@@ -27,8 +47,14 @@ export function usePermissions() {
   }, []);
 
   const permissions = userData.permissions || [];
+  const role = userData.role || '';
   const roleName = userData.roleName || '';
-  const hasFullAccess = roleName === 'Super Admin' || permissions.includes('all');
+  const normalizedRole = normalizeRole(role);
+  const normalizedRoleName = normalizeRole(roleName);
+  const isSuperAdminRole =
+    normalizedRole === 'super admin' ||
+    normalizedRoleName === 'super admin';
+  const hasFullAccess = isSuperAdminRole || permissions.includes('all');
 
   const hasPermission = (permissionName: string): boolean => {
     if (hasFullAccess) {
@@ -56,7 +82,7 @@ export function usePermissions() {
   };
 
   const isAdmin = (): boolean => {
-    return roleName === 'Admin' || hasFullAccess;
+    return normalizeRole(role) === 'admin' || normalizeRole(roleName) === 'admin' || hasFullAccess;
   };
 
   const canAccess = (module: string): boolean => {
@@ -84,6 +110,7 @@ export function usePermissions() {
     isAdmin,
     canAccess,
     permissions,
+    role,
     roleName,
   };
 }

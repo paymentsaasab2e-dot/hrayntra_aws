@@ -13,7 +13,7 @@ export const candidateController = {
 
   async getById(req, res) {
     try {
-      const candidate = await candidateService.getById(req.params.id);
+      const candidate = await candidateService.getById(req.params.id, req);
       if (!candidate) {
         return sendError(res, 404, 'Candidate not found');
       }

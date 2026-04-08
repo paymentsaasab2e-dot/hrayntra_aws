@@ -65,7 +65,7 @@ export const leadController = {
 
   async getById(req, res) {
     try {
-      const lead = await leadService.getById(req.params.id);
+      const lead = await leadService.getById(req.params.id, req);
       if (!lead) {
         return sendError(res, 404, 'Lead not found');
       }
@@ -85,6 +85,7 @@ export const leadController = {
       const lead = await leadService.create({
         ...req.body,
         performedById: req.user.id,
+        performedByRole: req.user.role,
       });
       sendResponse(res, 201, 'Lead created successfully', lead);
     } catch (error) {
@@ -141,6 +142,7 @@ export const leadController = {
         mapping: req.body?.mapping || {},
         duplicateRule: req.body?.duplicateRule || 'skip',
         performedById: req.user?.id,
+        performedByRole: req.user?.role,
       });
       sendResponse(res, 200, 'Leads imported successfully', result);
     } catch (error) {

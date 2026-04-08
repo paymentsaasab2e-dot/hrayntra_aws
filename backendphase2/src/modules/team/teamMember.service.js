@@ -8,6 +8,7 @@ import {
   calculateInviteExpiry,
 } from '../../utils/credentialGenerator.js';
 import { sendCredentialInvite, sendPasswordResetEmail } from '../../utils/emailService.js';
+import { isSuperAdminUser } from '../../utils/superAdminScope.js';
 
 export const teamMemberService = {
   async getAll(req) {
@@ -19,10 +20,10 @@ export const teamMemberService = {
     const { page, limit, skip } = getPaginationParams(req);
     const { department, role, status, manager, search } = req.query;
 
-    const where = {};
-    
+    const andFilters = [];
+
     if (department) {
-      where.departmentId = department;
+      andFilters.push({ departmentId: department });
     }
     
     if (role) {
@@ -31,27 +32,42 @@ export const teamMemberService = {
         where: { roleName: role },
       });
       if (roleRecord) {
-        where.roleId = roleRecord.id;
+        andFilters.push({ roleId: roleRecord.id });
       }
     }
     
     if (status) {
-      where.status = status;
+      andFilters.push({ status });
     }
     
     if (manager) {
-      where.managerId = manager;
+      andFilters.push({ managerId: manager });
     }
     
     if (search) {
       // Prisma-compatible case-insensitive search for MongoDB
       // Note: MongoDB with Prisma uses contains with mode: 'insensitive'
-      where.OR = [
-        { firstName: { contains: search, mode: 'insensitive' } },
-        { lastName: { contains: search, mode: 'insensitive' } },
-        { email: { contains: search, mode: 'insensitive' } },
-      ];
+      andFilters.push({
+        OR: [
+          { firstName: { contains: search, mode: 'insensitive' } },
+          { lastName: { contains: search, mode: 'insensitive' } },
+          { email: { contains: search, mode: 'insensitive' } },
+        ],
+      });
     }
+
+    // Super Admin data isolation:
+    // show only the Super Admin account itself + members created by this Super Admin.
+    if (isSuperAdminUser(req) && req?.user?.id) {
+      andFilters.push({
+        OR: [
+          { id: req.user.id },
+          { credential: { is: { createdBy: req.user.id } } },
+        ],
+      });
+    }
+
+    const where = andFilters.length ? { AND: andFilters } : {};
 
     const [members, total] = await Promise.all([
       prisma.user.findMany({
@@ -167,7 +183,7 @@ export const teamMemberService = {
     return formatPaginationResponse(formatted, page, limit, total);
   },
 
-  async getById(id) {
+  async getById(id, reqUser) {
     const member = await prisma.user.findUnique({
       where: { id },
       include: {
@@ -214,6 +230,12 @@ export const teamMemberService = {
 
     if (!member) {
       return null;
+    }
+
+    if (isSuperAdminUser(reqUser) && reqUser?.id && member.id !== reqUser.id) {
+      if (member.credential?.createdBy !== reqUser.id) {
+        return null;
+      }
     }
 
     return {

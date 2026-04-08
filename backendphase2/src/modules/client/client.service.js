@@ -3,6 +3,7 @@ import { getPaginationParams, formatPaginationResponse } from '../../utils/pagin
 import { dbLogger } from '../../utils/db-logger.js';
 import activityService from '../../services/activityService.js';
 import { sendClientAssignmentEmail } from '../../services/emailService.js';
+import { buildSuperAdminOwnerScope, mergeWhereWithScope } from '../../utils/superAdminScope.js';
 
 export const clientService = {
   async getAll(req) {
@@ -22,9 +23,12 @@ export const clientService = {
     if (req.query.hot !== undefined) where.hot = req.query.hot === 'true';
     if (req.query.tags) where.tags = { hasSome: Array.isArray(req.query.tags) ? req.query.tags : [req.query.tags] };
 
+    const superAdminScope = buildSuperAdminOwnerScope(req, ['assignedToId']);
+    const scopedWhere = mergeWhereWithScope(where, superAdminScope);
+
     const [clients, total] = await Promise.all([
       prisma.client.findMany({
-        where,
+        where: scopedWhere,
         skip,
         take: limit,
         include: {
@@ -37,15 +41,18 @@ export const clientService = {
         },
         orderBy: { createdAt: 'desc' },
       }),
-      prisma.client.count({ where }),
+      prisma.client.count({ where: scopedWhere }),
     ]);
 
     return formatPaginationResponse(clients, page, limit, total);
   },
 
-  async getById(id) {
-    const client = await prisma.client.findUnique({
-      where: { id },
+  async getById(id, req = null) {
+    const scope = buildSuperAdminOwnerScope(req, ['assignedToId']);
+    const scopedWhere = mergeWhereWithScope({ id }, scope);
+
+    const client = await prisma.client.findFirst({
+      where: scopedWhere,
       include: {
         assignedTo: {
           select: { id: true, name: true, email: true, avatar: true },
@@ -207,7 +214,9 @@ export const clientService = {
       logo: data.logo,
       location: data.location,
       status: data.status || 'PROSPECT',
-      assignedToId: data.assignedToId,
+      assignedToId:
+        data.assignedToId ||
+        (data.performedByRole === 'SUPER_ADMIN' && data.performedById ? data.performedById : undefined),
       address: data.address,
       companySize: data.companySize,
       hiringLocations: hiringLocationsValue,
@@ -399,56 +408,62 @@ export const clientService = {
     return activityService.getClientActivities({ clientId, limit: 100 });
   },
 
-  async getMetrics() {
+  async getMetrics(req = {}) {
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
 
     // Active Clients
+    const superAdminClientScope = buildSuperAdminOwnerScope(req, ['assignedToId']);
+    const superAdminJobScope = buildSuperAdminOwnerScope(req, ['assignedToId', 'createdById']);
+    const superAdminCandidateScope = buildSuperAdminOwnerScope(req, ['assignedToId', 'createdById']);
+
     const [activeClients, activeClientsLastMonth] = await Promise.all([
-      prisma.client.count({ where: { status: 'ACTIVE' } }),
+      prisma.client.count({ where: mergeWhereWithScope({ status: 'ACTIVE' }, superAdminClientScope) }),
       prisma.client.count({
-        where: {
+        where: mergeWhereWithScope({
           status: 'ACTIVE',
           createdAt: { lte: endOfLastMonth },
-        },
+        }, superAdminClientScope),
       }),
     ]);
 
     // Open Jobs
     const [openJobs, openJobsLastMonth] = await Promise.all([
-      prisma.job.count({ where: { status: 'OPEN' } }),
+      prisma.job.count({ where: mergeWhereWithScope({ status: 'OPEN' }, superAdminJobScope) }),
       prisma.job.count({
-        where: {
+        where: mergeWhereWithScope({
           status: 'OPEN',
           createdAt: { lte: endOfLastMonth },
-        },
+        }, superAdminJobScope),
       }),
     ]);
 
     // Candidates in Progress (ACTIVE status)
     const [candidatesInProgress, candidatesInProgressLastMonth] = await Promise.all([
-      prisma.candidate.count({ where: { status: 'ACTIVE' } }),
+      prisma.candidate.count({ where: mergeWhereWithScope({ status: 'ACTIVE' }, superAdminCandidateScope) }),
       prisma.candidate.count({
-        where: {
+        where: mergeWhereWithScope({
           status: 'ACTIVE',
           createdAt: { lte: endOfLastMonth },
-        },
+        }, superAdminCandidateScope),
       }),
     ]);
 
     // Placements this month
     // Count only confirmed joins (status=JOINED) within the month.
     // Using joining date prevents counting offers created this month but not joined yet.
-    const joinedInRangeWhere = (from, to) => ({
-      status: 'JOINED',
-      deletedAt: null,
-      OR: [
-        { actualJoiningDate: { gte: from, ...(to ? { lte: to } : {}) } },
-        { joiningDate: { gte: from, ...(to ? { lte: to } : {}) } },
-      ],
-    });
+    const superAdminPlacementScope = buildSuperAdminOwnerScope(req, ['recruiterId']);
+    const joinedInRangeWhere = (from, to) =>
+      mergeWhereWithScope({
+        status: 'JOINED',
+        deletedAt: null,
+        OR: [
+          { actualJoiningDate: { gte: from, ...(to ? { lte: to } : {}) } },
+          { joiningDate: { gte: from, ...(to ? { lte: to } : {}) } },
+        ],
+      }, superAdminPlacementScope);
 
     const [placementsThisMonth, placementsLastMonth] = await Promise.all([
       prisma.placement.count({
@@ -527,7 +542,7 @@ export const clientService = {
     };
   },
 
-  async importClients({ rows = [], mapping = {}, duplicateRule = 'skip', performedById }) {
+  async importClients({ rows = [], mapping = {}, duplicateRule = 'skip', performedById, performedByRole }) {
     const results = {
       total: rows.length,
       created: 0,
@@ -689,7 +704,7 @@ export const clientService = {
           continue;
         }
 
-        const createdClient = await this.create({ ...payload, performedById });
+        const createdClient = await this.create({ ...payload, performedById, performedByRole });
         await upsertPrimaryContact(createdClient.id);
         results.created += 1;
       } catch (error) {

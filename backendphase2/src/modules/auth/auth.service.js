@@ -8,7 +8,37 @@ import { headquartersAuthService } from './headquarters-auth.service.js';
 const DIRECT_SUPER_ADMIN_LOGIN_ID = 'super.admin@saasa';
 const DIRECT_SUPER_ADMIN_PASSWORD = 'UjvnE3WctAVa';
 
+function normalizeRoleKey(input) {
+  return String(input || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '_');
+}
+
+const DEFAULT_SYSTEM_ROLES = [
+  { roleName: 'Super Admin', description: 'Full system access', color: 'red' },
+  { roleName: 'Admin', description: 'Administrative access', color: 'blue' },
+  { roleName: 'Recruiter', description: 'Recruitment operations access', color: 'green' },
+  { roleName: 'Manager', description: 'Team management access', color: 'purple' },
+  { roleName: 'Viewer', description: 'Read-only access', color: 'gray' },
+];
+
+async function ensureDefaultSystemRoles() {
+  for (const role of DEFAULT_SYSTEM_ROLES) {
+    await prisma.systemRole.upsert({
+      where: { roleName: role.roleName },
+      update: {
+        description: role.description,
+        color: role.color,
+      },
+      create: role,
+    });
+  }
+}
+
 async function ensureSuperAdminRoleAndDepartment() {
+  await ensureDefaultSystemRoles();
+
   const allPermissions = await prisma.permission.findMany({
     select: { id: true, permissionName: true },
   });
@@ -211,18 +241,46 @@ export const authService = {
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
+    const normalizedRequestedRole = normalizeRoleKey(role);
+    const isSuperAdminSignup = normalizedRequestedRole === 'SUPER_ADMIN';
+    let roleId = undefined;
+    let departmentId = undefined;
+    let roleName = normalizedRequestedRole || 'RECRUITER';
+    let roleColor = 'blue';
+    let permissions = [];
+
+    if (isSuperAdminSignup) {
+      const { superAdminRole, department } = await ensureSuperAdminRoleAndDepartment();
+      roleId = superAdminRole.id;
+      departmentId = department.id;
+      roleName = 'SUPER_ADMIN';
+      roleColor = superAdminRole.color || 'red';
+      permissions = ['all'];
+    }
+
     const user = await prisma.user.create({
       data: {
         name,
         email,
         passwordHash,
-        role: role || 'RECRUITER',
+        role: roleName,
+        roleId,
+        departmentId,
+        isActive: true,
+        status: 'ACTIVE',
       },
     });
 
     await sendWelcomeEmail(email, name);
 
-    const accessToken = signToken({ userId: user.id, email: user.email });
+    const accessToken = signToken({
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      roleId: roleId || undefined,
+      roleName: isSuperAdminSignup ? 'Super Admin' : user.role,
+      permissions,
+    });
     const refreshToken = signRefreshToken({ userId: user.id });
 
     await prisma.user.update({
@@ -230,7 +288,20 @@ export const authService = {
       data: { refreshToken },
     });
 
-    return { user: { id: user.id, name: user.name, email: user.email, role: user.role }, accessToken, refreshToken };
+    return {
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        roleName: isSuperAdminSignup ? 'Super Admin' : user.role,
+        roleColor,
+      },
+      accessToken,
+      refreshToken,
+      permissions,
+      requirePasswordReset: false,
+    };
   },
 
   async login(loginIdOrEmail, password, ipAddress, userAgent) {
