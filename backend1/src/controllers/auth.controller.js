@@ -5,6 +5,72 @@ const { sendOTPEmail } = require('../services/email.service');
 const { OtpStatus } = require('@prisma/client');
 const jwt = require('jsonwebtoken');
 
+async function getOrCreateCandidateByWhatsApp({ candidateId, fullWhatsAppNumber, countryCode }) {
+  let candidate = await retryQuery(async () => {
+    return await prisma.candidate.findUnique({
+      where: { id: candidateId },
+    });
+  });
+
+  if (!candidate) {
+    candidate = await retryQuery(async () => {
+      return await prisma.candidate.findUnique({
+        where: { whatsappNumber: fullWhatsAppNumber },
+      });
+    });
+  }
+
+  if (!candidate) {
+    try {
+      candidate = await retryQuery(async () => {
+        return await prisma.candidate.upsert({
+          where: { id: candidateId },
+          update: {
+            whatsappNumber: fullWhatsAppNumber,
+            countryCode: countryCode,
+          },
+          create: {
+            id: candidateId,
+            whatsappNumber: fullWhatsAppNumber,
+            countryCode: countryCode,
+            isVerified: false,
+          },
+        });
+      });
+    } catch (error) {
+      if (error.code === 'P2002' || error.code === 'P2034') {
+        candidate = await retryQuery(async () => {
+          return await prisma.candidate.findUnique({
+            where: { whatsappNumber: fullWhatsAppNumber },
+          });
+        });
+      }
+
+      if (!candidate) {
+        throw error;
+      }
+    }
+  }
+
+  const needsUpdate =
+    candidate.countryCode !== countryCode ||
+    candidate.whatsappNumber !== fullWhatsAppNumber;
+
+  if (needsUpdate) {
+    candidate = await retryQuery(async () => {
+      return await prisma.candidate.update({
+        where: { id: candidate.id },
+        data: {
+          countryCode: countryCode,
+          whatsappNumber: fullWhatsAppNumber,
+        },
+      });
+    });
+  }
+
+  return candidate;
+}
+
 /**
  * Send OTP to WhatsApp number
  * POST /api/auth/send-otp
@@ -45,75 +111,12 @@ async function sendOTP(req, res) {
     // Generate unique ID based on WhatsApp number (deterministic - same number = same ID)
     const candidateId = generateCandidateId(fullWhatsAppNumber);
 
-    // Try to find candidate by generated ID first (for new ID-based system)
-    let candidate = await retryQuery(async () => {
-      return await prisma.candidate.findUnique({
-        where: { id: candidateId },
-      });
+    let candidate = await getOrCreateCandidateByWhatsApp({
+      candidateId,
+      fullWhatsAppNumber,
+      countryCode,
     });
-
-    // If not found by ID, try by WhatsApp number (for backward compatibility with existing records)
-    if (!candidate) {
-      candidate = await retryQuery(async () => {
-        return await prisma.candidate.findUnique({
-          where: { whatsappNumber: fullWhatsAppNumber },
-        });
-      });
-    }
-
-    // If candidate still doesn't exist, create with generated ID
-    if (!candidate) {
-      try {
-        console.log('Creating new candidate with ID based on WhatsApp number:', candidateId);
-        candidate = await retryQuery(async () => {
-          return await prisma.candidate.create({
-            data: {
-              id: candidateId, // Use generated ID based on WhatsApp number - THIS IS STORED IN DB
-              whatsappNumber: fullWhatsAppNumber,
-              countryCode: countryCode,
-              isVerified: false,
-            },
-          });
-        });
-        console.log('✅ Candidate created and stored in DB with ID:', candidate.id);
-        console.log('✅ Candidate ID matches generated ID:', candidate.id === candidateId);
-      } catch (error) {
-        // If ID already exists (shouldn't happen with hash, but handle it), try to find by WhatsApp number
-        if (error.code === 'P2002') {
-          console.log('Candidate ID already exists, finding by WhatsApp number...');
-          candidate = await retryQuery(async () => {
-            return await prisma.candidate.findUnique({
-              where: { whatsappNumber: fullWhatsAppNumber },
-            });
-          });
-          if (!candidate) {
-            throw error; // Re-throw if still not found
-          }
-          console.log('Found existing candidate with ID:', candidate.id);
-        } else {
-          throw error;
-        }
-      }
-    } else {
-      // Candidate exists - check if ID matches the generated one
-      if (candidate.id !== candidateId) {
-        console.log('Candidate exists but ID mismatch. Current:', candidate.id, 'Expected:', candidateId);
-        console.log('Will migrate to correct ID during OTP verification');
-        // Don't migrate here - will be handled during verification to avoid data loss
-        // Just update country code if needed
-      }
-      
-      // Update country code if it changed
-      if (candidate.countryCode !== countryCode) {
-        candidate = await retryQuery(async () => {
-          return await prisma.candidate.update({
-            where: { id: candidate.id },
-            data: { countryCode: countryCode },
-          });
-        });
-      }
-    }
-
+    console.log('Candidate ready for OTP flow:', candidate.id);
     // Invalidate all previous pending OTPs for this candidate
     await retryQuery(async () => {
       return await prisma.otpVerification.updateMany({
@@ -205,70 +208,12 @@ async function verifyOTP(req, res) {
     const candidateId = generateCandidateId(fullWhatsAppNumber);
     console.log('Verifying OTP for WhatsApp:', fullWhatsAppNumber, '| Candidate ID:', candidateId);
 
-    // Try to find candidate by ID first
-    let candidate = await retryQuery(async () => {
-      return await prisma.candidate.findUnique({
-        where: { id: candidateId },
-      });
+    let candidate = await getOrCreateCandidateByWhatsApp({
+      candidateId,
+      fullWhatsAppNumber,
+      countryCode,
     });
-
-    // If not found by ID, try by WhatsApp number (for backward compatibility)
-    if (!candidate) {
-      console.log('Candidate not found by ID, trying WhatsApp number...');
-      candidate = await retryQuery(async () => {
-        return await prisma.candidate.findUnique({
-          where: { whatsappNumber: fullWhatsAppNumber },
-        });
-      });
-    }
-
-    // If candidate doesn't exist, create it (this ensures candidate exists for verification)
-    if (!candidate) {
-      console.log('Candidate not found, creating new candidate...');
-      try {
-        candidate = await retryQuery(async () => {
-          return await prisma.candidate.create({
-            data: {
-              id: candidateId, // Use generated ID based on WhatsApp number
-              whatsappNumber: fullWhatsAppNumber,
-              countryCode: countryCode,
-              isVerified: false,
-            },
-          });
-        });
-        console.log('Candidate created successfully:', candidate.id);
-      } catch (error) {
-        // If ID already exists, try to find by WhatsApp number
-        if (error.code === 'P2002') {
-          console.log('Candidate ID already exists, finding by WhatsApp number...');
-          candidate = await retryQuery(async () => {
-            return await prisma.candidate.findUnique({
-              where: { whatsappNumber: fullWhatsAppNumber },
-            });
-          });
-          if (!candidate) {
-            return res.status(404).json({
-              success: false,
-              message: 'Candidate not found. Please request a new OTP.',
-            });
-          }
-        } else {
-          throw error;
-        }
-      }
-    } else {
-      console.log('Candidate found:', candidate.id);
-      // Update country code if it changed
-      if (candidate.countryCode !== countryCode) {
-        candidate = await retryQuery(async () => {
-          return await prisma.candidate.update({
-            where: { id: candidate.id },
-            data: { countryCode: countryCode },
-          });
-        });
-      }
-    }
-
+    console.log('Candidate found:', candidate.id);
     // Now find the latest pending OTP for this candidate
     console.log('Looking for pending OTP for candidate:', candidate.id);
     let latestOTP = await retryQuery(async () => {
@@ -695,3 +640,6 @@ module.exports = {
   verifyOTP,
   resendOTP,
 };
+
+
+

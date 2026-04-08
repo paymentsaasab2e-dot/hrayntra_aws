@@ -1136,10 +1136,50 @@ async function runJobMatchingPipeline({ candidate, cleanedResumeText, limit }) {
 
   let aiApplied = false;
   const aiStartedAt = Date.now();
-  console.log('[PIPELINE MODE] AI_MATCH_V2_ACTIVE');
   await Promise.all(
     topJobs.map(async (job) => {
       try {
+        if (job.aiSkillCleaningPending) {
+          const aiSkills = await extractSkillsWithOpenAI(job.rawJob);
+          if (aiSkills.length) {
+            job.jobFeatures.requiredSkills = aiSkills;
+            job.jobSummary.normalizedRequiredSkills = aiSkills;
+            const rescored = scoreDeterministic(candidateFeatures, job.jobFeatures);
+            job.deterministicScore = rescored.deterministicScore;
+            job.finalScore = rescored.deterministicScore;
+            job.breakdown = rescored.breakdown;
+            job.matchedSkills = rescored.matchedSkills;
+            job.missingSkills = rescored.missingSkills;
+            job.diagnostics = rescored.diagnostics;
+            job.whyNotMatched = rescored.deterministicScore < 55 ? deriveLowMatchReason(rescored) : null;
+            const confidence = computeConfidence(job, null);
+            job.confidenceScore = confidence.confidenceScore;
+            job.confidenceLevel = confidence.confidenceLevel;
+          }
+        }
+
+        const aiRoles = await inferRolesWithOpenAI(normalizedCandidate, job.rawJob);
+        if (aiRoles?.primaryRole) {
+          job.jobFeatures.roleCategories = uniqueStrings([
+            aiRoles.primaryRole,
+            ...(aiRoles.secondaryRoles || []),
+          ]).slice(0, 2);
+          const rescored = scoreDeterministic(candidateFeatures, job.jobFeatures);
+          job.deterministicScore = rescored.deterministicScore;
+          job.finalScore = rescored.deterministicScore;
+          job.breakdown = {
+            ...rescored.breakdown,
+            semanticBoost: job.breakdown.semanticBoost || 0,
+          };
+          job.matchedSkills = rescored.matchedSkills;
+          job.missingSkills = rescored.missingSkills;
+          job.diagnostics = rescored.diagnostics;
+          job.whyNotMatched = rescored.deterministicScore < 55 ? deriveLowMatchReason(rescored) : null;
+          const confidence = computeConfidence(job, null);
+          job.confidenceScore = confidence.confidenceScore;
+          job.confidenceLevel = confidence.confidenceLevel;
+        }
+
         let aiData = null;
 
         try {
@@ -1158,20 +1198,25 @@ async function runJobMatchingPipeline({ candidate, cleanedResumeText, limit }) {
 
         const aiMatchedSkills = sanitizeSkillList(aiData?.matchedSkills || []);
         const aiMissingSkills = sanitizeSkillList(aiData?.missingCriticalSkills || []);
+        const mergedMatchedSkills = aiMatchedSkills.length
+          ? Array.from(new Set([...job.matchedSkills, ...aiMatchedSkills]))
+          : job.matchedSkills;
+        const mergedMissingSkills = aiMissingSkills.length
+          ? Array.from(new Set([...job.missingSkills, ...aiMissingSkills])).filter(
+            (skill) => !mergedMatchedSkills.includes(skill)
+          )
+          : job.missingSkills;
 
         job.breakdown.aiScore = aiData?.finalScore ?? 0;
         job.breakdown.semanticBoost = 0;
         job.finalScore = Math.round(finalScore * 100) / 100;
-        if (aiMatchedSkills.length) {
-          job.matchedSkills = aiMatchedSkills;
-        }
-        if (aiMissingSkills.length) {
-          job.missingSkills = aiMissingSkills;
-        }
+        job.matchedSkills = mergedMatchedSkills;
+        job.missingSkills = mergedMissingSkills;
         job.aiScore = aiData?.finalScore || null;
         job.matchLabel = aiData?.verdict || 'Closest Match';
         job.aiAnalysis = aiData?.analysis || null;
-        job.explanation = aiData?.analysis?.summary || 'Deterministic match generated.';
+        job.explanation = aiData?.analysis?.summary
+          || await generateExplanationWithOpenAI(candidateSummaryText, job.rawJob, job);
         job.whyNotMatched = job.finalScore < 50 ? deriveLowMatchReason(job) : null;
         const confidence = computeConfidence(job, aiData?.finalScore ?? null);
         job.confidenceScore = confidence.confidenceScore;
@@ -1179,10 +1224,9 @@ async function runJobMatchingPipeline({ candidate, cleanedResumeText, limit }) {
         job.aiEnhanced = Boolean(aiData);
         aiApplied = aiApplied || Boolean(aiData);
 
-        console.log('[AI MATCH V2]');
-        console.log(`Deterministic Score: ${job.deterministicScore}`);
+        console.log('[AI MATCH]');
         console.log(`AI Score: ${aiData?.finalScore ?? 0}`);
-        console.log(`Combined Score: ${job.finalScore}`);
+        console.log(`Final Score: ${job.finalScore}`);
         console.log(`Matched Skills: ${job.matchedSkills.join(', ') || '-'}`);
         console.log(`Missing Skills: ${job.missingSkills.join(', ') || '-'}`);
       } catch (error) {

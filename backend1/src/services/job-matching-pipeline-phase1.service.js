@@ -1040,6 +1040,7 @@ async function runJobMatchingPipeline({ candidate, cleanedResumeText, limit }) {
   const candidateFeatures = buildCandidateFeatures(normalizedCandidate);
   const candidateSummaryText = buildCandidateSummaryText(normalizedCandidate, cleanedResumeText);
 
+  console.log('[PHASE1 JOB MATCH PIPELINE] ACTIVE');
   console.log('[PIPELINE START]');
   console.log('STEP 1: Candidate Loaded');
 
