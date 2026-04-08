@@ -1,368 +1,35 @@
 const OpenAI = require('openai');
 const { prisma } = require('../lib/prisma');
+const {
+  normalizeSkill,
+  tokenizeText,
+  summarizeCandidate,
+  summarizeJob,
+} = require('./job-normalization.service');
+const {
+  buildCandidateFeatures,
+  buildJobFeatures,
+} = require('./feature-extraction.service');
 
 const apiKey = process.env.OPENAI_API_KEY;
 const openai = apiKey ? new OpenAI({ apiKey }) : null;
-
-// Normalization maps for known variants
-const SKILL_ALIASES = {
-  'react.js': 'react', 'reactjs': 'react',
-  'node.js': 'node', 'nodejs': 'node',
-  'next.js': 'next', 'nextjs': 'next',
-  'vue.js': 'vue', 'vuejs': 'vue',
-  'express.js': 'express', 'expressjs': 'express',
-  'typescript': 'ts',
-  'postgresql': 'postgres',
-  'mongodb': 'mongo',
-  'tailwindcss': 'tailwind', 'tailwind css': 'tailwind',
+const DEFAULT_SCORE_WEIGHTS = {
+  skills: 40,
+  role: 20,
+  experience: 15,
+  location: 10,
+  education: 5,
+  semantic: 10,
 };
-
-const TOKEN_STOPWORDS = new Set([
-  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'but', 'by', 'for', 'from',
-  'have', 'in', 'is', 'it', 'its', 'of', 'on', 'or', 'our', 'that', 'the',
-  'their', 'this', 'to', 'we', 'with', 'you', 'your', 'will', 'can', 'all',
-  'eg', 'etc', 'li', 'ul', 'ol', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p',
-  'div', 'span', 'br', 'strong', 'em'
-]);
-
-const DOMAIN_KEYWORDS = {
-  it: [
-    'react', 'node', 'javascript', 'typescript', 'html', 'css', 'frontend', 'backend',
-    'fullstack', 'developer', 'software', 'web', 'api', 'mongodb', 'express', 'git',
-    'cloud', 'devops', 'engineering', 'engineer', 'programming', 'database', 'sql'
-  ],
-  pharmacy: [
-    'pharmacy', 'pharmacist', 'clinicalpharmacist', 'drug', 'medicine', 'medicines',
-    'dispensing', 'prescription', 'formulation', 'pharma', 'pharmaceutical', 'hospitalpharmacy',
-    'patientcare', 'dosage', 'chemist'
-  ],
-  healthcare: [
-    'healthcare', 'medical', 'nurse', 'doctor', 'clinic', 'hospital', 'health', 'patient',
-    'biotech', 'diagnostic', 'therapist'
-  ],
-  finance: [
-    'finance', 'financial', 'accounting', 'accountant', 'banking', 'investment', 'tax',
-    'audit', 'payroll', 'treasury', 'analyst', 'equity'
-  ],
-  hr: [
-    'hr', 'humanresources', 'recruiter', 'recruitment', 'talent', 'hiring', 'peopleops',
-    'sourcing', 'interviewer', 'onboarding'
-  ],
-  marketing: [
-    'marketing', 'seo', 'sem', 'content', 'brand', 'socialmedia', 'campaign', 'digitalmarketing',
-    'copywriting', 'growth', 'performance'
-  ],
-  sales: [
-    'sales', 'businessdevelopment', 'bdm', 'leadgeneration', 'accountmanager', 'inside sales',
-    'outsidesales', 'closing', 'pipeline', 'clientacquisition'
-  ],
-  logistics: [
-    'logistics', 'supplychain', 'warehouse', 'inventory', 'procurement', 'shipping',
-    'transport', 'dispatch', 'operations'
-  ]
-};
-
-/**
- * Step 1: Normalize skill strings
- */
-function normalizeSkill(skill) {
-  if (!skill || typeof skill !== 'string') return '';
-  let cleaned = skill.toLowerCase()
-    .replace(/\.js$/i, '')
-    .trim()
-    .replace(/[\.\-\s]+/g, '');
-  return SKILL_ALIASES[cleaned] || cleaned;
-}
-
-function uniqueNormalized(values = []) {
-  return Array.from(
-    new Set(
-      values
-        .flatMap((value) => Array.isArray(value) ? value : [value])
-        .filter((value) => typeof value === 'string')
-        .map((value) => value.trim())
-        .filter(Boolean)
-    )
-  );
-}
-
-function tokenizeText(value) {
-  if (!value || typeof value !== 'string') return [];
-  return value
-    .replace(/<[^>]+>/g, ' ')
-    .toLowerCase()
-    .split(/[^a-z0-9+#.\-/]+/i)
-    .map((part) => normalizeSkill(part))
-    .filter((part) => part && part.length > 1 && !TOKEN_STOPWORDS.has(part));
-}
-
-function normalizeWorkMode(value) {
-  if (!value || typeof value !== 'string') return null;
-  const normalized = value.toUpperCase().replace(/[\s-]+/g, '_');
-  if (normalized.includes('REMOTE')) return 'REMOTE';
-  if (normalized.includes('HYBRID')) return 'HYBRID';
-  if (normalized.includes('ON_SITE') || normalized.includes('ONSITE') || normalized.includes('OFFICE')) {
-    return 'ON_SITE';
-  }
-  return normalized;
-}
-
-function parseRequiredExperience(requiredExp) {
-  if (!requiredExp || typeof requiredExp !== 'string') return 0;
-  const matches = requiredExp.match(/(\d+(?:\.\d+)?)/g);
-  if (!matches || matches.length === 0) return 0;
-  return Number.parseFloat(matches[0]) || 0;
-}
-
-function formatDateSafe(value) {
-  if (!value) return null;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
-}
-
-function inferDomainFamily(values = []) {
-  const tokenCounts = new Map();
-
-  values
-    .flatMap((value) => Array.isArray(value) ? value : [value])
-    .flatMap((value) => typeof value === 'string' ? tokenizeText(value) : [])
-    .forEach((token) => {
-      for (const [domain, domainTokens] of Object.entries(DOMAIN_KEYWORDS)) {
-        if (domainTokens.includes(token)) {
-          tokenCounts.set(domain, (tokenCounts.get(domain) || 0) + 1);
-        }
-      }
-    });
-
-  const rankedDomains = Array.from(tokenCounts.entries()).sort((a, b) => b[1] - a[1]);
-  const [topDomain, topScore] = rankedDomains[0] || [];
-
-  return {
-    primary: topScore >= 2 ? topDomain : null,
-    rankedDomains,
-  };
-}
-
-function summarizeCandidate(candidate) {
-  const resumeJson = candidate.resume?.resumeJson || {};
-  const resumeSkills = Array.isArray(resumeJson.skills)
-    ? resumeJson.skills
-    : [
-        ...(Array.isArray(resumeJson.skills?.technical) ? resumeJson.skills.technical : []),
-        ...(Array.isArray(resumeJson.skills?.soft) ? resumeJson.skills.soft : []),
-      ];
-  const projectTechnologies = Array.isArray(candidate.project?.technologies)
-    ? candidate.project.technologies
-    : [];
-  const certificationNames = (candidate.certifications || []).map(
-    (certification) => certification.certificationName || certification.issuingOrganization
-  );
-  const workTitles = (candidate.workExperiences || []).map((item) => item.jobTitle);
-  const educationTitles = (candidate.educations || []).map(
-    (item) => [item.degree, item.fieldOfStudy, item.institution].filter(Boolean).join(' - ')
-  );
-  const preferredRoles = candidate.careerPreferences?.preferredRoles || [];
-  const preferredLocations = candidate.careerPreferences?.preferredLocations || [];
-
-  const normalizedSkills = uniqueNormalized([
-    candidate.recruiterSkills || [],
-    candidate.certificationsList || [],
-    candidate.recruiterLanguages || [],
-    (candidate.skills || []).map((skillItem) => skillItem.skill?.name || skillItem.name),
-    resumeSkills,
-    projectTechnologies,
-    certificationNames,
-  ]).map(normalizeSkill).filter(Boolean);
-
-  const textCorpus = uniqueNormalized([
-    candidate.currentTitle,
-    candidate.currentCompany,
-    candidate.location,
-    candidate.preferredLocation,
-    candidate.designation,
-    candidate.cvSummary,
-    candidate.summary?.summaryText,
-    candidate.recruiterEducation,
-    candidate.recruiterNotes,
-    candidate.profile?.skillsAdditionalNotes,
-    candidate.profile?.city,
-    candidate.profile?.country,
-    candidate.internship?.internshipTitle,
-    candidate.internship?.domainDepartment,
-    candidate.internship?.responsibilities,
-    candidate.internship?.learnings,
-    candidate.project?.projectTitle,
-    candidate.project?.projectType,
-    candidate.project?.projectDescription,
-    candidate.project?.responsibilities,
-    candidate.project?.projectOutcome,
-    candidate.gapExplanation?.reasonForGap,
-    candidate.gapExplanation?.selectedSkills || [],
-    candidate.visaWorkAuthorization?.selectedDestination,
-    candidate.visaWorkAuthorization?.additionalRemarks,
-    workTitles,
-    educationTitles,
-    preferredRoles,
-    preferredLocations,
-    candidate.assignedJobs || [],
-  ]);
-
-  const combinedTokens = new Set([
-    ...normalizedSkills,
-    ...textCorpus.flatMap(tokenizeText),
-  ]);
-
-  const currentSalary = candidate.currentSalary ?? candidate.careerPreferences?.currentSalary ?? null;
-  const expectedSalary = candidate.expectedSalary ?? candidate.careerPreferences?.preferredSalary ?? null;
-  const currentLocation = candidate.profile?.city || candidate.city || candidate.location || null;
-  const preferredWorkMode = normalizeWorkMode(candidate.careerPreferences?.preferredWorkMode || candidate.availability);
-  const candidateExperience =
-    candidate.experienceYears ??
-    candidate.profile?.totalExperience ??
-    (candidate.workExperiences?.length || 0) * 1.5;
-  const domainInference = inferDomainFamily([
-    candidate.currentTitle,
-    candidate.designation,
-    workTitles,
-    educationTitles,
-    candidate.summary?.summaryText,
-    candidate.cvSummary,
-    candidate.recruiterEducation,
-    normalizedSkills,
-    textCorpus,
-  ]);
-
-  return {
-    id: candidate.id,
-    name:
-      candidate.profile?.fullName ||
-      [candidate.firstName, candidate.lastName].filter(Boolean).join(' ') ||
-      'Candidate',
-    email: candidate.profile?.email || candidate.email || null,
-    currentTitle: candidate.currentTitle || candidate.designation || workTitles[0] || null,
-    currentLocation,
-    candidateExperience,
-    preferredRoles: uniqueNormalized(preferredRoles),
-    preferredLocations: uniqueNormalized([preferredLocations, candidate.preferredLocation]),
-    preferredIndustry: candidate.careerPreferences?.preferredIndustry || null,
-    preferredWorkMode,
-    currentSalary,
-    expectedSalary,
-    availabilityToStart:
-      candidate.careerPreferences?.availabilityToStart ||
-      candidate.noticePeriod ||
-      candidate.availability ||
-      null,
-    openToRelocation: Boolean(candidate.careerPreferences?.openToRelocation),
-    workTitles: uniqueNormalized(workTitles),
-    normalizedSkills: Array.from(new Set(normalizedSkills)),
-    keywords: Array.from(combinedTokens),
-    domainFamily: domainInference.primary,
-    domainSignals: domainInference.rankedDomains,
-    summaryText: uniqueNormalized([candidate.summary?.summaryText, candidate.cvSummary]).join(' | '),
-    rawSnapshot: {
-      profile: candidate.profile || null,
-      careerPreferences: candidate.careerPreferences || null,
-      summary: candidate.summary || null,
-      workExperiences: candidate.workExperiences || [],
-      educations: candidate.educations || [],
-      project: candidate.project || null,
-      internship: candidate.internship || null,
-      certifications: candidate.certifications || [],
-      resume: candidate.resume || null,
-    },
-  };
-}
-
-function summarizeJob(job) {
-  const requiredSkills = uniqueNormalized([
-    job.skills || [],
-    job.requirements || [],
-    job.keyResponsibilities || [],
-  ]);
-  const preferredSkills = uniqueNormalized(job.preferredSkills || []);
-  const responsibilities = uniqueNormalized([
-    job.responsibilities,
-    job.description,
-    job.overview,
-    job.aboutRole,
-    job.keyResponsibilities || [],
-  ]);
-  const titleKeywords = tokenizeText([
-    job.title,
-    job.department,
-    job.jobCategory,
-    job.industry,
-    job.hiringManager,
-  ].filter(Boolean).join(' '));
-  const descriptionKeywords = responsibilities.flatMap(tokenizeText);
-  const normalizedRequiredSkills = requiredSkills.map(normalizeSkill).filter(Boolean);
-  const normalizedPreferredSkills = preferredSkills.map(normalizeSkill).filter(Boolean);
-  const domainInference = inferDomainFamily([
-    job.title,
-    job.department,
-    job.jobCategory,
-    job.industry,
-    job.education,
-    job.description,
-    job.overview,
-    requiredSkills,
-    preferredSkills,
-    responsibilities,
-  ]);
-
-  return {
-    id: job.id,
-    title: job.title,
-    company: job.company?.name || job.client?.companyName || 'Unknown Company',
-    location: job.location || null,
-    workMode: normalizeWorkMode(job.workMode || job.jobLocationType),
-    employmentType: job.type || job.employmentType || null,
-    industry: job.industry || job.department || job.jobCategory || null,
-    department: job.department || null,
-    experienceRequired: job.experienceRequired || job.experienceLevel || null,
-    requiredExperienceYears: parseRequiredExperience(job.experienceRequired || job.experienceLevel || ''),
-    education: job.education || null,
-    salaryMin: job.salaryMin ?? job.salary?.min ?? null,
-    salaryMax: job.salaryMax ?? job.salary?.max ?? null,
-    salaryCurrency: job.salaryCurrency ?? job.salary?.currency ?? null,
-    salaryType: job.salaryType ?? job.salary?.type ?? null,
-    visaSponsorship: Boolean(job.visaSponsorship),
-    postedAt: formatDateSafe(job.postedAt || job.createdAt || job.updatedAt),
-    normalizedRequiredSkills,
-    normalizedPreferredSkills,
-    domainFamily: domainInference.primary,
-    domainSignals: domainInference.rankedDomains,
-    titleKeywords,
-    descriptionKeywords,
-    keywords: Array.from(
-      new Set([
-        ...normalizedRequiredSkills,
-        ...normalizedPreferredSkills,
-        ...titleKeywords,
-        ...descriptionKeywords,
-      ])
-    ),
-    responsibilities,
-    rawSnapshot: {
-      title: job.title,
-      description: job.description || null,
-      overview: job.overview || job.aboutRole || null,
-      responsibilities: job.responsibilities || null,
-      keyResponsibilities: job.keyResponsibilities || [],
-      skills: job.skills || [],
-      preferredSkills: job.preferredSkills || [],
-      requirements: job.requirements || [],
-      benefits: job.benefits || [],
-      education: job.education || null,
-      experienceRequired: job.experienceRequired || job.experienceLevel || null,
-      workMode: job.workMode || job.jobLocationType || null,
-      location: job.location || null,
-      industry: job.industry || job.department || job.jobCategory || null,
-      salary: job.salary || null,
-    },
-  };
-}
+const RELATED_ROLE_CATEGORY_GROUPS = [
+  ['Frontend', 'Full Stack'],
+  ['Backend', 'Full Stack'],
+  ['AI / ML', 'Data'],
+  ['Management', 'Leadership'],
+  ['Sales', 'Marketing'],
+  ['HR / Talent', 'Management'],
+  ['DevOps / Cloud', 'Backend'],
+];
 
 function calculateKeywordOverlap(candidateKeywords, jobKeywords) {
   if (!jobKeywords.length) return { score: 60, matches: [] };
@@ -526,6 +193,258 @@ function calculateLocationScore(candidate, job) {
     score = Math.min(100, score + 10);
   }
   return score;
+}
+
+function calculateLocationComponent(candidateFeatures, jobFeatures, weight = DEFAULT_SCORE_WEIGHTS.location) {
+  if (jobFeatures.workMode === 'REMOTE') {
+    return {
+      score: weight,
+      reason: 'Remote role is compatible with any candidate location.',
+    };
+  }
+
+  const candidateTokens = new Set(candidateFeatures.location?.tokens || []);
+  const preferredLocations = (candidateFeatures.preferredLocations || []).map((item) => String(item).toLowerCase());
+  const jobTokens = jobFeatures.jobLocation?.tokens || [];
+
+  let normalizedScore = 0.3;
+  let reason = 'Location is partially compatible.';
+
+  if (candidateFeatures.workModePreference && jobFeatures.workMode && candidateFeatures.workModePreference === jobFeatures.workMode) {
+    normalizedScore += 0.2;
+    reason = 'Preferred work mode aligns with the job.';
+  }
+
+  if (jobFeatures.workMode === 'HYBRID') {
+    normalizedScore = Math.max(normalizedScore, 0.7);
+    reason = 'Hybrid role offers moderate location flexibility.';
+  }
+
+  if (jobTokens.some((token) => candidateTokens.has(token))) {
+    normalizedScore = 1;
+    reason = 'Candidate location aligns with the job location.';
+  } else if (preferredLocations.some((location) => (jobFeatures.jobLocation?.normalized || '').includes(location))) {
+    normalizedScore = Math.max(normalizedScore, 0.85);
+    reason = 'Job matches one of the candidate preferred locations.';
+  }
+
+  return {
+    score: Math.round(normalizedScore * weight * 100) / 100,
+    reason,
+  };
+}
+
+function calculateRoleComponent(candidateFeatures, jobFeatures, weight = DEFAULT_SCORE_WEIGHTS.role) {
+  const candidateSet = new Set(candidateFeatures.roleCategories || []);
+  const jobSet = new Set(jobFeatures.roleCategories || []);
+  const directMatches = [...jobSet].filter((category) => candidateSet.has(category));
+
+  if (directMatches.length > 0) {
+    return {
+      score: weight,
+      matches: directMatches,
+      reason: `Role categories align directly: ${directMatches.join(', ')}.`,
+    };
+  }
+
+  const relatedMatches = [];
+  RELATED_ROLE_CATEGORY_GROUPS.forEach((group) => {
+    const hasCandidate = group.some((category) => candidateSet.has(category));
+    const hasJob = group.some((category) => jobSet.has(category));
+    if (hasCandidate && hasJob) {
+      relatedMatches.push(group.find((category) => jobSet.has(category)));
+    }
+  });
+
+  if (relatedMatches.length > 0) {
+    return {
+      score: Math.round(weight * 0.6 * 100) / 100,
+      matches: relatedMatches.filter(Boolean),
+      reason: `Role categories are related through adjacent domains: ${relatedMatches.filter(Boolean).join(', ')}.`,
+    };
+  }
+
+  return {
+    score: Math.round(weight * 0.15 * 100) / 100,
+    matches: [],
+    reason: 'Role categories are weakly aligned.',
+  };
+}
+
+function calculateExperienceComponent(candidateFeatures, jobFeatures, weight = DEFAULT_SCORE_WEIGHTS.experience) {
+  const candidateYears = Number(candidateFeatures.experienceYears || 0);
+  const requiredYears = Number(jobFeatures.requiredExperienceYears || 0);
+
+  if (!requiredYears) {
+    return {
+      score: Math.round(weight * 0.8 * 100) / 100,
+      reason: 'Job does not specify a strict experience threshold.',
+    };
+  }
+
+  if (candidateYears >= requiredYears) {
+    return {
+      score: weight,
+      reason: 'Candidate meets or exceeds the required experience.',
+    };
+  }
+
+  const gap = requiredYears - candidateYears;
+  if (gap <= 1) {
+    return {
+      score: Math.round(weight * 0.75 * 100) / 100,
+      reason: 'Candidate is slightly below the experience threshold but still close.',
+    };
+  }
+
+  if (gap <= 3) {
+    return {
+      score: Math.round(weight * 0.45 * 100) / 100,
+      reason: 'Candidate has partial experience alignment.',
+    };
+  }
+
+  return {
+    score: Math.round(weight * 0.15 * 100) / 100,
+    reason: 'Candidate is significantly below the required experience.',
+  };
+}
+
+function calculateEducationComponent(candidateFeatures, jobFeatures, weight = DEFAULT_SCORE_WEIGHTS.education) {
+  const candidateRank = candidateFeatures.educationRank || 0;
+  const jobRank = jobFeatures.educationRequirementRank || 0;
+
+  if (!jobRank) {
+    return {
+      score: Math.round(weight * 0.8 * 100) / 100,
+      reason: 'Education requirement is flexible or unspecified.',
+    };
+  }
+
+  if (candidateRank >= jobRank) {
+    return {
+      score: weight,
+      reason: 'Candidate meets the education requirement.',
+    };
+  }
+
+  if (candidateRank === jobRank - 1) {
+    return {
+      score: Math.round(weight * 0.5 * 100) / 100,
+      reason: 'Candidate is close to the education requirement.',
+    };
+  }
+
+  return {
+    score: Math.round(weight * 0.2 * 100) / 100,
+    reason: 'Education requirement is only partially met.',
+  };
+}
+
+function calculateSkillsComponent(candidateFeatures, jobFeatures, weight = DEFAULT_SCORE_WEIGHTS.skills) {
+  const candidateSet = new Set((candidateFeatures.skills || []).map(normalizeSkill).filter(Boolean));
+  const requiredSkills = (jobFeatures.requiredSkills || []).map(normalizeSkill).filter(Boolean);
+  const preferredSkills = (jobFeatures.preferredSkills || []).map(normalizeSkill).filter(Boolean);
+
+  if (!requiredSkills.length) {
+    return {
+      score: Math.round(weight * 0.7 * 100) / 100,
+      matchedSkills: preferredSkills.filter((skill) => candidateSet.has(skill)),
+      missingSkills: [],
+      reason: 'Job does not define required skills; preferred skills were used.',
+    };
+  }
+
+  const matchedSkills = requiredSkills.filter((skill) => candidateSet.has(skill));
+  const missingSkills = requiredSkills.filter((skill) => !candidateSet.has(skill));
+  const overlapRatio = matchedSkills.length / Math.max(requiredSkills.length, 1);
+  const preferredBonus = preferredSkills.filter((skill) => candidateSet.has(skill)).length * 0.03;
+  const normalizedScore = Math.min(1, overlapRatio + preferredBonus);
+
+  return {
+    score: Math.round(normalizedScore * weight * 100) / 100,
+    matchedSkills: Array.from(new Set([...matchedSkills, ...preferredSkills.filter((skill) => candidateSet.has(skill))])),
+    missingSkills,
+    reason: `${matchedSkills.length} of ${requiredSkills.length} required skills matched.`,
+  };
+}
+
+function buildShortReason({ roleComponent, skillsComponent, experienceComponent, locationComponent }) {
+  return [
+    skillsComponent.reason,
+    roleComponent.reason,
+    experienceComponent.reason,
+    locationComponent.reason,
+  ].filter(Boolean).slice(0, 2).join(' ');
+}
+
+function redistributeSemanticScore(nonSemanticScore, semanticWeight = DEFAULT_SCORE_WEIGHTS.semantic) {
+  if (nonSemanticScore <= 0) return 0;
+  const redistributed = (nonSemanticScore / (100 - semanticWeight)) * semanticWeight;
+  return Math.round(redistributed * 100) / 100;
+}
+
+async function scoreJobDeterministic(candidate, job, options = {}) {
+  const weights = { ...DEFAULT_SCORE_WEIGHTS, ...(options.weights || {}) };
+  const candidateSummary = options.candidateSummary || summarizeCandidate(candidate);
+  const jobSummary = options.jobSummary || summarizeJob(job);
+  const candidateFeatures = options.candidateFeatures || buildCandidateFeatures(candidateSummary);
+  const jobFeatures = options.jobFeatures || buildJobFeatures(jobSummary);
+
+  const skillsComponent = calculateSkillsComponent(candidateFeatures, jobFeatures, weights.skills);
+  const roleComponent = calculateRoleComponent(candidateFeatures, jobFeatures, weights.role);
+  const experienceComponent = calculateExperienceComponent(candidateFeatures, jobFeatures, weights.experience);
+  const locationComponent = calculateLocationComponent(candidateFeatures, jobFeatures, weights.location);
+  const educationComponent = calculateEducationComponent(candidateFeatures, jobFeatures, weights.education);
+
+  const nonSemanticScore =
+    skillsComponent.score +
+    roleComponent.score +
+    experienceComponent.score +
+    locationComponent.score +
+    educationComponent.score;
+
+  let semanticScore = redistributeSemanticScore(nonSemanticScore, weights.semantic);
+  let semanticReason = 'Semantic bonus redistributed proportionally from deterministic signals.';
+  if (options.semanticSimilarity != null) {
+    semanticScore = Math.round((Math.max(0, Math.min(100, options.semanticSimilarity)) / 100) * weights.semantic * 100) / 100;
+    semanticReason = 'Semantic bonus derived from optional embedding similarity.';
+  }
+
+  const totalScore = Math.round(Math.min(100, nonSemanticScore + semanticScore));
+  const shortReason = buildShortReason({
+    roleComponent,
+    skillsComponent,
+    experienceComponent,
+    locationComponent,
+  });
+
+  return {
+    totalScore,
+    matchedSkills: skillsComponent.matchedSkills,
+    missingSkills: skillsComponent.missingSkills,
+    shortReason,
+    candidateSummary,
+    jobSummary,
+    candidateFeatures,
+    jobFeatures,
+    breakdown: {
+      skillsScore: Math.round(skillsComponent.score * 100) / 100,
+      roleScore: Math.round(roleComponent.score * 100) / 100,
+      experienceScore: Math.round(experienceComponent.score * 100) / 100,
+      locationScore: Math.round(locationComponent.score * 100) / 100,
+      educationScore: Math.round(educationComponent.score * 100) / 100,
+      semanticScore: Math.round(semanticScore * 100) / 100,
+      reasons: {
+        skills: skillsComponent.reason,
+        role: roleComponent.reason,
+        experience: experienceComponent.reason,
+        location: locationComponent.reason,
+        education: educationComponent.reason,
+        semantic: semanticReason,
+      },
+    },
+  };
 }
 
 /**
@@ -737,6 +656,9 @@ module.exports = {
   getGptAnalysis,
   getBehaviorScore,
   qualifiesForPersonalizedMatch,
+  buildCandidateFeatures,
+  buildJobFeatures,
+  scoreJobDeterministic,
   normalizeSkill,
   summarizeCandidate,
   summarizeJob,
