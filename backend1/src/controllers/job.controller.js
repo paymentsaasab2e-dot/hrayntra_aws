@@ -1,6 +1,6 @@
-const { prisma } = require('../lib/prisma');
+const { prisma, retryQuery } = require('../lib/prisma');
 const matchingService = require('../services/matching.service');
-const { runJobMatchingPipeline } = require('../services/job-matching-pipeline.service');
+const { runJobMatchingPipeline: runJobMatchingPipelinePhase1 } = require('../services/job-matching-pipeline-phase1.service');
 
 // simple in-memory cache
 const cache = {
@@ -8,6 +8,21 @@ const cache = {
   lastFetched: 0,
   TTL: 300000, // 5 minutes
 };
+
+function isDbUnavailableError(error) {
+  const message = String(error?.message || '');
+  return (
+    error?.code === 'P2010' ||
+    error?.code === 'P1001' ||
+    message.includes('Server selection timeout') ||
+    message.includes('No available servers') ||
+    message.includes('ReplicaSetNoPrimary') ||
+    message.includes('No such host is known') ||
+    message.includes('ECONNREFUSED') ||
+    message.includes('ETIMEDOUT') ||
+    message.includes('connection')
+  );
+}
 
 /**
  * Get all active jobs
@@ -58,34 +73,36 @@ async function getAllJobs(req, res) {
       `📥 DB fetch requested: jobs-list | page=${page} | limit=${limit} | location=${location || '-'} | industry=${industry || '-'} | workMode=${workMode || '-'} | employmentType=${employmentType || '-'}`
     );
 
-    // Fetch jobs with company information
-    const [jobs, total] = await Promise.all([
-      prisma.job.findMany({
-        where,
-        include: {
-          company: {
-            select: {
-              id: true,
-              name: true,
-              logoUrl: true,
+    // Fetch jobs with retry support to survive transient DB/connectivity failures.
+    const [jobs, total] = await retryQuery(async () => {
+      return await Promise.all([
+        prisma.job.findMany({
+          where,
+          include: {
+            company: {
+              select: {
+                id: true,
+                name: true,
+                logoUrl: true,
+              },
+            },
+            client: {
+              select: {
+                id: true,
+                companyName: true,
+                logo: true,
+              },
             },
           },
-          client: {
-            select: {
-              id: true,
-              companyName: true,
-              logo: true,
-            },
+          orderBy: {
+            postedAt: 'desc',
           },
-        },
-        orderBy: {
-          postedAt: 'desc',
-        },
-        skip,
-        take: parseInt(limit),
-      }),
-      prisma.job.count({ where }),
-    ]);
+          skip,
+          take: parseInt(limit),
+        }),
+        prisma.job.count({ where }),
+      ]);
+    });
 
     // Format jobs for frontend
     const formattedJobs = jobs.map((job) => {
@@ -166,6 +183,18 @@ async function getAllJobs(req, res) {
 
     res.json(responsePayload);
   } catch (error) {
+    if (isDbUnavailableError(error)) {
+      console.warn('DB unavailable in getAllJobs:', error?.message || error);
+      if (cache.jobs && (Date.now() - cache.lastFetched < cache.TTL)) {
+        console.log('Serving stale cached jobs due to DB outage');
+        return res.json(cache.jobs);
+      }
+      return res.status(503).json({
+        success: false,
+        message: 'Database unavailable',
+      });
+    }
+
     console.error('Error fetching jobs:', error);
     res.status(500).json({
       success: false,
@@ -1026,7 +1055,7 @@ async function getPersonalizedJobs(req, res) {
             ? JSON.stringify(candidate.resume.resumeJson)
             : '';
 
-    const pipelineResult = await runJobMatchingPipeline({
+    const pipelineResult = await runJobMatchingPipelinePhase1({
       candidate,
       cleanedResumeText,
       limit: req.query.limit,
