@@ -1,5 +1,6 @@
 const { prisma } = require('../lib/prisma');
 const matchingService = require('../services/matching.service');
+const { runJobMatchingPipeline } = require('../services/job-matching-pipeline.service');
 
 // simple in-memory cache
 const cache = {
@@ -896,6 +897,18 @@ async function getPersonalizedJobs(req, res) {
           gaps: job.insights?.gaps || job.missingSkills,
           improvementSuggestions: job.insights?.improvementSuggestions || []
         },
+        normalizedJobProfile: {
+          normalizedTitle: job.jobSummary?.normalizedTitle || job.title,
+          roleCategories: job.jobSummary?.roleCategories || [],
+          requiredSkills: job.jobSummary?.structuredProfile?.requiredSkills || [],
+          preferredSkills: job.jobSummary?.structuredProfile?.preferredSkills || [],
+          requiredExperienceLevel: job.jobSummary?.structuredProfile?.requiredExperienceLevel || null,
+          workMode: job.jobSummary?.structuredProfile?.workMode || null,
+          location: job.jobSummary?.structuredProfile?.location || null,
+          educationRequirement: job.jobSummary?.structuredProfile?.educationRequirement || null,
+          salary: job.jobSummary?.salary || null,
+          domainFamily: job.jobSummary?.domainFamily || null,
+        },
         breakdown: {
           ruleScore: Math.round(job.ruleScore),
           embeddingScore: Math.round(job.embeddingScore),
@@ -946,13 +959,20 @@ async function getPersonalizedJobs(req, res) {
         name: candidateSnapshot.name,
         email: candidateSnapshot.email,
         currentTitle: candidateSnapshot.currentTitle,
+        normalizedCurrentTitle: candidateSnapshot.normalizedCurrentTitle,
         currentLocation: candidateSnapshot.currentLocation,
         candidateExperience: candidateSnapshot.candidateExperience,
+        experienceLevel: candidateSnapshot.experienceLevel,
         preferredRoles: candidateSnapshot.preferredRoles,
         preferredLocations: candidateSnapshot.preferredLocations,
         preferredIndustry: candidateSnapshot.preferredIndustry,
         preferredWorkMode: candidateSnapshot.preferredWorkMode,
         skills: candidateSnapshot.normalizedSkills,
+        roleCategories: candidateSnapshot.roleCategories,
+        educationLevel: candidateSnapshot.educationLevel,
+        domainFamily: candidateSnapshot.domainFamily,
+        dataQuality: candidateSnapshot.dataQuality,
+        structuredProfile: candidateSnapshot.structuredProfile,
         summaryText: candidateSnapshot.summaryText,
       },
       data: filteredMatches
@@ -961,6 +981,68 @@ async function getPersonalizedJobs(req, res) {
   } catch (error) {
     console.error('Tiered Matching Engine Failed:', error);
     res.status(500).json({ success: false, message: 'AI Orchestration Failure' });
+  }
+}
+
+function logMatchingStep(stepNumber, title, details) {
+  const label = `[JOB MATCHING][STEP ${stepNumber}] ${title}`;
+  console.log(details ? `${label} :: ${details}` : label);
+}
+
+async function getPersonalizedJobs(req, res) {
+  try {
+    const { candidateId } = req.query;
+    if (!candidateId) {
+      return res.status(400).json({ success: false, message: 'Candidate ID is required' });
+    }
+
+    const candidate = await prisma.candidate.findUnique({
+      where: { id: candidateId },
+      include: {
+        resume: true,
+        summary: true,
+        profile: true,
+        skills: { include: { skill: true } },
+        workExperiences: true,
+        careerPreferences: true,
+        educations: true,
+        project: true,
+        internship: true,
+        certifications: true,
+        gapExplanation: true,
+        visaWorkAuthorization: true,
+      },
+    });
+
+    if (!candidate) {
+      return res.status(404).json({ success: false, message: 'Candidate not found' });
+    }
+    const cleanedResumeText =
+      typeof candidate.resume?.resumeText === 'string'
+        ? candidate.resume.resumeText
+        : typeof candidate.resume?.cleanedText === 'string'
+          ? candidate.resume.cleanedText
+          : candidate.resume?.resumeJson
+            ? JSON.stringify(candidate.resume.resumeJson)
+            : '';
+
+    const pipelineResult = await runJobMatchingPipeline({
+      candidate,
+      cleanedResumeText,
+      limit: req.query.limit,
+    });
+
+    return res.json({
+      success: true,
+      totalMatches: pipelineResult.data.length,
+      totalJobsScanned: pipelineResult.totalJobsScanned,
+      aiApplied: pipelineResult.aiApplied,
+      candidateProfile: pipelineResult.candidateProfile,
+      data: pipelineResult.data,
+    });
+  } catch (error) {
+    console.error('Deterministic Matching Engine Failed:', error);
+    return res.status(500).json({ success: false, message: 'Job matching pipeline failure' });
   }
 }
 
