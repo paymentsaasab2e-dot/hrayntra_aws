@@ -1,7 +1,16 @@
 import { prisma } from '../../config/prisma.js';
+import { isSuperAdminUser } from '../../utils/superAdminScope.js';
+
+const DEFAULT_SUPER_ADMIN_ROLE_NAMES = [
+  'Super Admin',
+  'Admin',
+  'Recruiter',
+  'Manager',
+  'Viewer',
+];
 
 export const roleService = {
-  async getAll() {
+  async getAll(reqUser) {
     if (!prisma) {
       console.error('Prisma client is not initialized. Please check:');
       console.error('1. DATABASE_URL is set in .env file');
@@ -11,7 +20,12 @@ export const roleService = {
     }
 
     try {
+      const where = isSuperAdminUser(reqUser)
+        ? { roleName: { in: DEFAULT_SUPER_ADMIN_ROLE_NAMES } }
+        : {};
+
       const roles = await prisma.systemRole.findMany({
+        where,
         include: {
           rolePermissions: {
             include: {

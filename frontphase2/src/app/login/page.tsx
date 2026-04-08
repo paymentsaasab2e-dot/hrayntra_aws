@@ -17,6 +17,7 @@ export default function LoginPage() {
   const [signupName, setSignupName] = useState('');
   const [signupEmail, setSignupEmail] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
+  const [signupAsSuperAdmin, setSignupAsSuperAdmin] = useState(false);
 
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -49,10 +50,11 @@ export default function LoginPage() {
       
       // Check if password reset is required
       const requirePasswordReset = response.data?.requirePasswordReset || false;
-      const roleName = response.data?.user?.roleName || '';
+      const roleName = String(response.data?.user?.roleName || '').trim().toLowerCase().replace(/[\s_-]+/g, ' ');
+      const roleCode = String(response.data?.user?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, ' ');
       
       // Skip password reset for Super Admin
-      const isSuperAdmin = roleName === 'Super Admin' || roleName === 'Superadmin';
+      const isSuperAdmin = roleName === 'super admin' || roleCode === 'super admin';
       
       // Redirect to password reset if required (and not Super Admin), otherwise to dashboard/leads
       setTimeout(() => {
@@ -96,7 +98,12 @@ export default function LoginPage() {
 
     try {
       setLoading(true);
-      const response = await apiRegister(signupName.trim(), signupEmail.trim().toLowerCase(), signupPassword);
+      const response = await apiRegister(
+        signupName.trim(),
+        signupEmail.trim().toLowerCase(),
+        signupPassword,
+        signupAsSuperAdmin ? 'SUPER_ADMIN' : 'RECRUITER'
+      );
       
       // Verify tokens are stored
       if (typeof window !== 'undefined') {
@@ -107,7 +114,11 @@ export default function LoginPage() {
         console.log('[Signup] Access token stored successfully');
       }
       
-      setMessage('Account created successfully! Redirecting...');
+      setMessage(
+        signupAsSuperAdmin
+          ? 'Super Admin account created successfully! Redirecting...'
+          : 'Account created successfully! Redirecting...'
+      );
       // Redirect to leads after successful signup
       setTimeout(() => {
         const redirectTo = new URLSearchParams(window.location.search).get('redirect') || '/leads';
@@ -222,6 +233,20 @@ export default function LoginPage() {
                     />
                   </div>
                 </div>
+                <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-3">
+                  <input
+                    type="checkbox"
+                    checked={signupAsSuperAdmin}
+                    onChange={(e) => setSignupAsSuperAdmin(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="block">
+                    <span className="block text-sm font-semibold text-slate-900">Create as Super Admin</span>
+                    <span className="block text-xs text-slate-500">
+                      Grants full portal access for this new account.
+                    </span>
+                  </span>
+                </label>
                 <button
                   type="submit"
                   disabled={loading}

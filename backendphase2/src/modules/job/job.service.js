@@ -3,6 +3,7 @@ import { getPaginationParams, formatPaginationResponse } from '../../utils/pagin
 import { dbLogger } from '../../utils/db-logger.js';
 import activityService from '../../services/activityService.js';
 import { sendJobAssignmentEmail } from '../../services/emailService.js';
+import { buildSuperAdminOwnerScope, mergeWhereWithScope } from '../../utils/superAdminScope.js';
 
 // Helper function to get color for pipeline stage
 function getStageColor(stageName) {
@@ -165,10 +166,12 @@ export const jobService = {
     if (search) {
       where.title = { contains: search, mode: 'insensitive' };
     }
+    const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
+    const scopedWhere = mergeWhereWithScope(where, superAdminScope);
 
     const [jobs, total] = await Promise.all([
       prisma.job.findMany({
-        where,
+        where: scopedWhere,
         skip,
         take: limit,
         include: {
@@ -184,15 +187,18 @@ export const jobService = {
         },
         orderBy: { createdAt: 'desc' },
       }),
-      prisma.job.count({ where }),
+      prisma.job.count({ where: scopedWhere }),
     ]);
 
     return formatPaginationResponse(jobs, page, limit, total);
   },
 
-  async getById(id) {
-    return prisma.job.findUnique({
-      where: { id },
+  async getById(id, req = null) {
+    const scope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
+    const where = mergeWhereWithScope({ id }, scope);
+
+    return prisma.job.findFirst({
+      where,
       include: {
         client: true,
         assignedTo: {
@@ -685,10 +691,12 @@ export const jobService = {
     startOfWeek.setHours(0, 0, 0, 0);
 
     const mineFilter = req?.query?.mine === 'true' || req?.query?.mine === '1';
-    const scope =
+    const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
+    const scope = superAdminScope || (
       mineFilter && req?.user?.id
         ? { createdById: req.user.id }
-        : {};
+        : {}
+    );
 
     // Active Jobs (status = OPEN)
     const activeJobs = await prisma.job.count({

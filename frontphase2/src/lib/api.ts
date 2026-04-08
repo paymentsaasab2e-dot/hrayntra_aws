@@ -386,20 +386,27 @@ export async function apiLogin(email: string, password: string) {
     syncAuthCookie('accessToken', accessToken || null);
     syncAuthCookie('refreshToken', refreshToken || null);
     
+    const permissions = Array.isArray(res.data.permissions)
+      ? res.data.permissions
+      : [];
+    const resolvedRoleName =
+      res.data.user?.roleName ||
+      (typeof res.data.user?.role === 'string'
+        ? res.data.user.role.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
+        : '');
+
     // Store user data with permissions
     const userData = {
       ...res.data.user,
-      roleName: res.data.user?.roleName || '',
+      roleName: resolvedRoleName,
       roleColor: res.data.user?.roleColor || '',
-      permissions: res.data.permissions || [],
+      permissions,
       requirePasswordReset: res.data.requirePasswordReset || false,
     };
     localStorage.setItem('currentUser', JSON.stringify(userData));
     
     // Also store permissions separately for easy access
-    if (res.data.permissions) {
-      localStorage.setItem('userPermissions', JSON.stringify(res.data.permissions));
-    }
+    localStorage.setItem('userPermissions', JSON.stringify(permissions));
     if (res.data.requirePasswordReset) {
       localStorage.setItem('requirePasswordReset', 'true');
     }
@@ -408,10 +415,10 @@ export async function apiLogin(email: string, password: string) {
   return res;
 }
 
-export async function apiRegister(name: string, email: string, password: string) {
+export async function apiRegister(name: string, email: string, password: string, role?: string) {
   const res = await apiFetch<AuthPayload>('/auth/register', {
     method: 'POST',
-    body: { name, email, password },
+    body: { name, email, password, role },
   });
 
   if (typeof window !== 'undefined') {
@@ -421,7 +428,16 @@ export async function apiRegister(name: string, email: string, password: string)
     }
     syncAuthCookie('accessToken', res.data.accessToken);
     syncAuthCookie('refreshToken', res.data.refreshToken || null);
-    localStorage.setItem('currentUser', JSON.stringify(res.data.user));
+    localStorage.setItem('currentUser', JSON.stringify({
+      ...res.data.user,
+      roleName: res.data.user?.roleName || '',
+      roleColor: res.data.user?.roleColor || '',
+      permissions: res.data.permissions || [],
+      requirePasswordReset: res.data.requirePasswordReset || false,
+    }));
+    if (res.data.permissions) {
+      localStorage.setItem('userPermissions', JSON.stringify(res.data.permissions));
+    }
   }
 
   return res;
@@ -451,13 +467,28 @@ export async function apiRefreshToken() {
   return res;
 }
 
-export function apiLogout() {
+export async function apiLogout() {
   if (typeof window === 'undefined') return;
-  localStorage.removeItem('accessToken');
-  localStorage.removeItem('refreshToken');
-  localStorage.removeItem('currentUser');
-  syncAuthCookie('accessToken', null);
-  syncAuthCookie('refreshToken', null);
+
+  try {
+    const token = localStorage.getItem('accessToken');
+    if (token) {
+      await apiFetch<{ success?: boolean; message?: string }>('/auth/logout', {
+        method: 'POST',
+        auth: true,
+      });
+    }
+  } catch (error) {
+    console.warn('Logout API failed, clearing local session anyway.', error);
+  } finally {
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('currentUser');
+    localStorage.removeItem('userPermissions');
+    localStorage.removeItem('requirePasswordReset');
+    syncAuthCookie('accessToken', null);
+    syncAuthCookie('refreshToken', null);
+  }
 }
 
 // ────────────────────────────────────────────────────────────

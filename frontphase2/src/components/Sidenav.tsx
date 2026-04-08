@@ -2,9 +2,9 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { usePermissions } from '../hooks/usePermissions';
-import { apiGetUnifiedCalendar } from '../lib/api';
+import { apiGetUnifiedCalendar, apiLogout } from '../lib/api';
 import { NotificationDrawer } from './NotificationDrawer';
 import { 
   Search, 
@@ -62,7 +62,9 @@ const ImageWithFallback = ({
 // ─── User Dropdown ────────────────────────────────────────────────────────────
 const UserDropdown = ({ avatarUrl }: { avatarUrl: string }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const router = useRouter();
 
   useEffect(() => {
     const handle = (e: MouseEvent) => {
@@ -78,6 +80,23 @@ const UserDropdown = ({ avatarUrl }: { avatarUrl: string }) => {
     { icon: Settings, label: 'Settings' },
     { icon: LogOut,   label: 'Logout', color: 'text-red-500 hover:bg-red-50' },
   ];
+
+  async function handleMenuClick(label: string) {
+    if (label !== 'Logout' || isLoggingOut) {
+      return;
+    }
+
+    setIsLoggingOut(true);
+    setIsOpen(false);
+
+    try {
+      await apiLogout();
+    } finally {
+      router.replace('/login?redirect=%2F');
+      router.refresh();
+      setIsLoggingOut(false);
+    }
+  }
 
   return (
     <div className="relative" ref={ref}>
@@ -103,9 +122,12 @@ const UserDropdown = ({ avatarUrl }: { avatarUrl: string }) => {
             {menuItems.map((item, i) => (
               <button
                 key={i}
+                type="button"
+                onClick={() => handleMenuClick(item.label)}
+                disabled={item.label === 'Logout' && isLoggingOut}
                 className={`w-full flex items-center gap-3 px-4 py-2 text-sm transition-colors ${
                   item.color || 'text-slate-600 hover:bg-slate-50'
-                }`}
+                } ${item.label === 'Logout' && isLoggingOut ? 'opacity-70 cursor-not-allowed' : ''}`}
               >
                 <item.icon className="w-4 h-4" />
                 <span>{item.label}</span>

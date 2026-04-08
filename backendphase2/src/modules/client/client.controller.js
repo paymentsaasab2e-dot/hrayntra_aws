@@ -60,7 +60,7 @@ export const clientController = {
 
   async getById(req, res) {
     try {
-      const client = await clientService.getById(req.params.id);
+      const client = await clientService.getById(req.params.id, req);
       if (!client) {
         return sendError(res, 404, 'Client not found');
       }
@@ -75,6 +75,7 @@ export const clientController = {
       const client = await clientService.create({
         ...req.body,
         performedById: req.user?.id,
+        performedByRole: req.user?.role,
       });
       sendResponse(res, 201, 'Client created successfully', client);
     } catch (error) {
@@ -188,7 +189,7 @@ export const clientController = {
 
   async getMetrics(req, res) {
     try {
-      const metrics = await clientService.getMetrics();
+      const metrics = await clientService.getMetrics(req);
       sendResponse(res, 200, 'Metrics retrieved successfully', metrics);
     } catch (error) {
       sendError(res, 500, error.message, error);
@@ -244,6 +245,7 @@ export const clientController = {
         mapping: req.body?.mapping || {},
         duplicateRule: req.body?.duplicateRule || 'skip',
         performedById: req.user?.id,
+        performedByRole: req.user?.role,
       });
       sendResponse(res, 200, 'Clients imported successfully', result);
     } catch (error) {

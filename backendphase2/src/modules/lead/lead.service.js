@@ -4,6 +4,7 @@ import { dbLogger } from '../../utils/db-logger.js';
 import { sendLeadFollowUpEmail } from '../../emails/email.service.js';
 import { activityService } from '../activity/activity.service.js';
 import { sendLeadAssignmentEmail } from '../../services/emailService.js';
+import { buildSuperAdminOwnerScope, mergeWhereWithScope } from '../../utils/superAdminScope.js';
 
 function isValidObjectId(value) {
   return typeof value === 'string' && /^[a-fA-F0-9]{24}$/.test(value.trim());
@@ -68,9 +69,12 @@ export const leadService = {
       ];
     }
 
+    const superAdminScope = buildSuperAdminOwnerScope(req, ['assignedToId']);
+    const scopedWhere = mergeWhereWithScope(where, superAdminScope);
+
     const [leads, total] = await Promise.all([
       prisma.lead.findMany({
-        where,
+        where: scopedWhere,
         skip,
         take: limit,
         include: {
@@ -83,15 +87,18 @@ export const leadService = {
         },
         orderBy: { createdAt: 'desc' },
       }),
-      prisma.lead.count({ where }),
+      prisma.lead.count({ where: scopedWhere }),
     ]);
 
     return formatPaginationResponse(leads, page, limit, total);
   },
 
-  async getById(id) {
-    return prisma.lead.findUnique({
-      where: { id },
+  async getById(id, req = null) {
+    const scope = buildSuperAdminOwnerScope(req, ['assignedToId']);
+    const where = mergeWhereWithScope({ id }, scope);
+
+    return prisma.lead.findFirst({
+      where,
       include: {
         assignedTo: {
           select: { id: true, name: true, email: true, avatar: true },
@@ -171,7 +178,9 @@ export const leadService = {
       lastFollowUp: data.lastFollowUp ? new Date(data.lastFollowUp) : null,
       nextFollowUp: data.nextFollowUp ? new Date(data.nextFollowUp) : null,
       // Relations
-      assignedToId: resolvedAssignedToId,
+      assignedToId:
+        resolvedAssignedToId ||
+        (data.performedByRole === 'SUPER_ADMIN' && data.performedById ? data.performedById : null),
     };
 
     // Log the received data in JSON format
@@ -619,7 +628,7 @@ export const leadService = {
     return { message: 'Lead deleted successfully' };
   },
 
-  async importLeads({ rows = [], mapping = {}, duplicateRule = 'skip', performedById }) {
+  async importLeads({ rows = [], mapping = {}, duplicateRule = 'skip', performedById, performedByRole }) {
     const results = {
       total: rows.length,
       created: 0,
@@ -772,7 +781,7 @@ export const leadService = {
           continue;
         }
 
-        await this.create(payload);
+        await this.create({ ...payload, performedByRole });
         results.created += 1;
       } catch (error) {
         results.failed += 1;

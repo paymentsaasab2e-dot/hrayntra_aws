@@ -24,7 +24,7 @@ export const jobController = {
 
   async getById(req, res) {
     try {
-      const job = await jobService.getById(req.params.id);
+      const job = await jobService.getById(req.params.id, req);
       if (!job) {
         return sendError(res, 404, 'Job not found');
       }

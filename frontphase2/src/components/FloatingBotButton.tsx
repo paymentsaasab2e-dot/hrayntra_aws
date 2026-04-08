@@ -691,6 +691,13 @@ export function FloatingBotButton() {
   }, [drawerOpen]);
 
   useEffect(() => {
+    // Prevent stale global assistant overlays from surviving auth/page redirects.
+    setDrawerOpen(false);
+    setDragging(false);
+    setShowPageBubble(false);
+  }, [pathname]);
+
+  useEffect(() => {
     if (!drawerOpen) {
       setActiveTab('chat');
       setSelectedPrompt(null);
