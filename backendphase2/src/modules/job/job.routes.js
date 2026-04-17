@@ -1,0 +1,31 @@
+import express from 'express';
+import { jobController } from './job.controller.js';
+import { authMiddleware } from '../../middleware/auth.middleware.js';
+import { uploadSingleJobFile } from '../../utils/upload.middleware.js';
+import { requireAnyPermission } from '../../middleware/permission.middleware.js';
+
+const router = express.Router();
+
+router.get('/public-feed', jobController.getPublicFeed);
+
+router.use(authMiddleware);
+
+router.get('/', requireAnyPermission(['jobs_read', 'view_jobs']), jobController.getAll);
+router.get('/metrics', requireAnyPermission(['jobs_read', 'view_jobs']), jobController.getMetrics);
+router.get('/:id', requireAnyPermission(['jobs_read', 'view_jobs']), jobController.getById);
+router.post('/', requireAnyPermission(['jobs_create', 'create_job']), jobController.create);
+router.patch('/:id', requireAnyPermission(['jobs_update', 'edit_job', 'assign_job']), jobController.update);
+router.delete('/:id', requireAnyPermission(['jobs_delete', 'delete_job']), jobController.delete);
+
+// Notes routes
+router.get('/:jobId/notes', requireAnyPermission(['jobs_read', 'view_jobs']), jobController.getNotes);
+router.post('/:jobId/notes', requireAnyPermission(['jobs_update', 'edit_job']), jobController.createNote);
+router.patch('/:jobId/notes/:noteId', requireAnyPermission(['jobs_update', 'edit_job']), jobController.updateNote);
+router.delete('/:jobId/notes/:noteId', requireAnyPermission(['jobs_delete', 'delete_job']), jobController.deleteNote);
+
+// Files routes
+router.get('/:jobId/files', requireAnyPermission(['jobs_read', 'view_jobs']), jobController.getFiles);
+router.post('/:jobId/files', requireAnyPermission(['jobs_update', 'edit_job']), uploadSingleJobFile, jobController.createFile);
+router.delete('/:jobId/files/:fileId', requireAnyPermission(['jobs_delete', 'delete_job']), jobController.deleteFile);
+
+export default router;

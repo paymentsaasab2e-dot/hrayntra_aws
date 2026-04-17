@@ -1,0 +1,217 @@
+
+// ============================================================
+// LMS MODULE
+// ============================================================
+
+model LmsCourse {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  title           String
+  description     String
+  category        String
+  level           String
+  thumbnailUrl    String?
+  instructorName  String?
+  instructorAvatar String?
+  totalLessons    Int      @default(0)
+  estimatedHours  Float    @default(0)
+  tags            String[] @default([])
+  isPublished     Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  lessons         LmsLesson[]
+  enrollments     LmsEnrollment[]
+  
+  @@map("lms_courses")
+}
+
+model LmsLesson {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  courseId        String   @db.ObjectId
+  title           String
+  description     String
+  order           Int      @default(0)
+  durationMinutes Int      @default(0)
+  videoUrl        String?
+  contentHtml     String?
+  type            String
+  isLocked        Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  course          LmsCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@map("lms_lessons")
+}
+
+model LmsEnrollment {
+  id                 String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId             String   @db.ObjectId
+  courseId           String   @db.ObjectId
+  progressPercent    Float    @default(0)
+  completedLessonIds String[] @default([])
+  startedAt          DateTime @default(now())
+  completedAt        DateTime?
+  lastAccessedAt     DateTime @default(now())
+  savedAt            DateTime?
+
+  user               Candidate @relation("LmsEnrollments", fields: [userId], references: [id], onDelete: Cascade)
+  course             LmsCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId])
+  @@map("lms_enrollments")
+}
+
+model LmsQuiz {
+  id               String   @id @default(auto()) @map("_id") @db.ObjectId
+  title            String
+  description      String
+  category         String
+  skillTags        String[] @default([])
+  difficulty       String
+  estimatedMinutes Int      @default(0)
+  isPublished      Boolean  @default(false)
+  questions        Json
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  attempts         LmsQuizAttempt[]
+
+  @@map("lms_quizzes")
+}
+
+model LmsQuizAttempt {
+  id               String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId           String   @db.ObjectId
+  quizId           String   @db.ObjectId
+  score            Float
+  totalQuestions   Int
+  correctCount     Int
+  answerMap        Json
+  completedAt      DateTime @default(now())
+  timeTakenSeconds Int      @default(0)
+
+  user             Candidate @relation("LmsQuizAttempts", fields: [userId], references: [id], onDelete: Cascade)
+  quiz             LmsQuiz   @relation(fields: [quizId], references: [id], onDelete: Cascade)
+
+  @@map("lms_quiz_attempts")
+}
+
+model LmsNote {
+  id               String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId           String   @db.ObjectId
+  title            String
+  body             String
+  type             String
+  tags             String[] @default([])
+  sourceType       String?
+  sourceId         String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user             Candidate @relation("LmsNotes", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("lms_notes")
+}
+
+model LmsEvent {
+  id               String   @id @default(auto()) @map("_id") @db.ObjectId
+  title            String
+  description      String
+  type             String
+  hostName         String?
+  hostAvatar       String?
+  scheduledAt      DateTime
+  durationMinutes  Int      @default(0)
+  mode             String
+  meetingUrl       String?
+  capacity         Int?
+  tags             String[] @default([])
+  isPublished      Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  registrations    LmsEventRegistration[]
+
+  @@map("lms_events")
+}
+
+model LmsEventRegistration {
+  id               String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId           String   @db.ObjectId
+  eventId          String   @db.ObjectId
+  registeredAt     DateTime @default(now())
+  attended         Boolean  @default(false)
+
+  user             Candidate @relation("LmsEventRegistrations", fields: [userId], references: [id], onDelete: Cascade)
+  event            LmsEvent  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, eventId])
+  @@map("lms_event_registrations")
+}
+
+model LmsResumeDraft {
+  id                  String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId              String   @unique @db.ObjectId
+  basics              Json
+  skills              String[] @default([])
+  experience          Json
+  education           Json
+  certifications      Json
+  layoutMatrix        String
+  templateId          String
+  strengthScore       Float    @default(0)
+  lastSavedAt         DateTime @default(now())
+  syncedToCareerPath  Boolean  @default(false)
+
+  user                Candidate @relation("LmsResumeDraft", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("lms_resume_drafts")
+}
+
+model LmsCareerPath {
+  id               String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId           String   @unique @db.ObjectId
+  missionStarted   Boolean  @default(false)
+  currentPhase     String   @default("foundation")
+  roadmapItems     Json
+  plannedItemIds   String[] @default([])
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user             Candidate @relation("LmsCareerPath", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("lms_career_paths")
+}
+
+model LmsInterviewPrepSession {
+  id               String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId           String   @db.ObjectId
+  sessionType      String
+  category         String?
+  companySlug      String?
+  setId            String?
+  questions        Json
+  finalScore       Float?
+  completedAt      DateTime?
+  createdAt        DateTime @default(now())
+
+  user             Candidate @relation("LmsInterviewSessions", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("lms_interview_prep_sessions")
+}
+
+model LmsInterviewSet {
+  id               String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId           String   @db.ObjectId
+  title            String
+  sourceContext    String
+  questions        Json
+  savedAnswers     Json
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user             Candidate @relation("LmsInterviewSets", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("lms_interview_sets")
+}

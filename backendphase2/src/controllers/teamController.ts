@@ -1,0 +1,18 @@
+export {
+  getAllTeamMembers,
+  getTeamMemberById,
+  createTeamMember,
+  updateTeamMember,
+  deactivateTeamMember,
+  deleteTeamMember,
+  activateTeamMember,
+  generateMemberCredentials,
+  resetMemberPassword,
+  resendMemberInvite,
+  lockMemberAccount,
+  unlockMemberAccount,
+  getMemberLoginHistory,
+  getMemberActivity,
+  getMemberTargets,
+  saveMemberTargets,
+} from './teamController.js';

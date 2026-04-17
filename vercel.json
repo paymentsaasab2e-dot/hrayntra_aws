@@ -1,0 +1,14 @@
+{
+  "builds": [
+    {
+      "src": "frontphase2/package.json",
+      "use": "@vercel/next"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "frontphase2/$1"
+    }
+  ]
+}
