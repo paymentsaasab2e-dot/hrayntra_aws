@@ -18,6 +18,7 @@ const lmsRoutes = require('./lms/lms.router');
 const lmsAiRoutes = require('./routes/lms-ai.routes');
 const mockInterviewRoutes = require('./routes/mock-interview.routes');
 const settingsRoutes = require('./routes/settings.routes');
+const notificationRoutes = require('./routes/notification.routes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -94,6 +95,7 @@ app.use('/api/lms', lmsRoutes);
 app.use('/api/lms/questions', lmsAiRoutes);
 app.use('/api/mock-interview', mockInterviewRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
