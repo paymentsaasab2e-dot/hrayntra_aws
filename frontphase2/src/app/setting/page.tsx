@@ -72,7 +72,7 @@ export default function SettingsPage() {
             {renderContent()}
 
             <footer className="mt-12 py-8 border-t border-slate-200 flex justify-between items-center text-xs text-slate-400">
-              <p>© 2026 SAASA Recruitment Agency Platform. All rights reserved.</p>
+              <p>© 2026 HRYANTRA Recruitment Agency Platform. All rights reserved.</p>
               <div className="flex gap-4">
                 <button className="hover:text-slate-600">Privacy Policy</button>
                 <button className="hover:text-slate-600">Terms of Service</button>

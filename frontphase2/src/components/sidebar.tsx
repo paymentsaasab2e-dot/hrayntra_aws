@@ -94,7 +94,7 @@ export const Sidebar = ({ onCollapse }: { onCollapse?: (collapsed: boolean) => v
       <div className="flex items-center justify-between h-16 px-4 shrink-0">
         <div className="flex items-center overflow-hidden">
           <div className="w-8 h-8 rounded bg-blue-600 flex items-center justify-center shrink-0">
-            <span className="text-white font-bold text-xs">S</span>
+            <span className="text-white font-bold text-xs">H</span>
           </div>
           {!isCollapsed && (
             <motion.span 
@@ -102,7 +102,7 @@ export const Sidebar = ({ onCollapse }: { onCollapse?: (collapsed: boolean) => v
               animate={{ opacity: 1 }}
               className="ml-3 font-bold text-white tracking-tight text-lg whitespace-nowrap"
             >
-              SAASA B2E
+              HRYANTRA
             </motion.span>
           )}
         </div>
