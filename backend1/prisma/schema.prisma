@@ -185,6 +185,7 @@ model Candidate {
   globalAiInterviews     GlobalAiInterview[]     @relation("CandidateGlobalAiInterviews")
 
   cvAnalysis        CvAnalysis?
+  settings          Settings?
 
   @@index([email])
   @@index([firstName, lastName])
@@ -202,6 +203,32 @@ model OtpVerification {
   candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
 
   @@map("otp_verifications")
+}
+
+model Settings {
+  id                  String   @id @default(auto()) @map("_id") @db.ObjectId
+  candidateId         String   @unique @db.ObjectId
+
+  // Notification settings
+  emailNotifications  Boolean  @default(true)
+  smsNotifications    Boolean  @default(false)
+  jobAlerts           Boolean  @default(true)
+
+  // Privacy settings
+  profileVisibility   String   @default("Recruiters only")
+  dataSharing         Boolean  @default(false)
+
+  // Preferences
+  language            String   @default("English")
+  timezone            String   @default("Asia/Kolkata (UTC+05:30)")
+  theme               String   @default("System")
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  candidate           Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@map("settings")
 }
 
 // ============================================================
