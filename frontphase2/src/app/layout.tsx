@@ -3,8 +3,8 @@ import { FloatingBotMount } from "../components/FloatingBotMount";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Sidebar Component",
-  description: "Sidebar component with Tailwind CSS and Next.js",
+  title: "HRYANTRA",
+  description: "HRYANTRA - Recruitment Platform",
 };
 
 export default function RootLayout({

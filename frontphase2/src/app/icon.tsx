@@ -19,13 +19,15 @@ export default function Icon() {
           justifyContent: 'center',
           background: '#0b3b66',
           color: '#ffffff',
-          fontSize: 18,
+          fontSize: 8,
           fontWeight: 700,
-          borderRadius: 8,
+          borderRadius: 6,
           fontFamily: 'Arial, sans-serif',
+          textAlign: 'center',
+          lineHeight: 1,
         }}
       >
-        S
+        HRYANTRA
       </div>
     ),
     {

@@ -246,8 +246,8 @@ export function FloatingBotButton() {
             <motion.aside initial={{ x: 400, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 400, opacity: 0 }} transition={{ type: 'spring', damping: 25, stiffness: 200 }} className="fixed bottom-4 right-4 z-[9999] flex h-[600px] w-[400px] flex-col overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-2xl ring-1 ring-slate-900/5">
               <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-slate-50/50 px-6 py-4">
                 <div className="flex items-center gap-3">
-                  <div className="flex size-10 items-center justify-center rounded-2xl bg-orange-500 shadow-sm shadow-orange-200">
-                    <span className="text-xl">✳️</span>
+                  <div className="relative size-10 overflow-hidden rounded-2xl border border-orange-200 bg-white shadow-sm shadow-orange-200">
+                    <Image src={BOT_IMAGE_SRC} alt="ARIA" fill className="object-contain p-0.5" sizes="40px" priority={false} unoptimized />
                   </div>
                   <div>
                     <h2 className="text-base font-bold text-slate-900">{ARIA_IDENTITY.name}</h2>
@@ -295,11 +295,13 @@ export function FloatingBotButton() {
         ) : null}
       </AnimatePresence>
 
-      <button type="button" aria-label="Open assistant" aria-expanded={drawerOpen} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endDrag} onPointerCancel={endDrag} className="fixed z-[9999] box-border touch-none select-none rounded-full border-2 border-orange-400 bg-orange-500 p-1.5 shadow-lg ring-2 ring-orange-200/80 transition-all duration-200 hover:border-blue-400 hover:bg-blue-600 focus:outline-none" style={{ left: pos.x, top: pos.y, width: SIZE, height: SIZE, cursor: dragging ? 'grabbing' : 'grab' }}>
+      <button type="button" aria-label="Open assistant" aria-expanded={drawerOpen} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endDrag} onPointerCancel={endDrag} className="fixed z-[9999] box-border touch-none select-none rounded-full border-2 border-orange-400 bg-white p-1 shadow-lg ring-2 ring-orange-200/80 transition-all duration-200 hover:border-blue-400 hover:ring-blue-200/80 focus:outline-none" style={{ left: pos.x, top: pos.y, width: SIZE, height: SIZE, cursor: dragging ? 'grabbing' : 'grab' }}>
         <span className="relative block h-full w-full overflow-hidden rounded-full">
-          <Image src={BOT_IMAGE_SRC} alt="" width={56} height={56} className="pointer-events-none h-full w-full rounded-full object-cover" draggable={false} priority={false} />
+          <Image src={BOT_IMAGE_SRC} alt="ARIA floating assistant" fill className="pointer-events-none rounded-full object-contain p-0.5" draggable={false} priority={false} unoptimized />
         </span>
       </button>
     </>
   );
 }
+
+
