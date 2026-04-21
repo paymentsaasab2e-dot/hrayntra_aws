@@ -203,13 +203,6 @@ export function InterviewTable({
       </div>
 
       <div className="flex items-center justify-between border-t border-[#E5E7EB] px-5 py-4">
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="flex items-center justify-between border-t border-[#E5E7EB] px-5 py-4">
         <div className="flex items-center gap-2 text-[12px] text-[#6B7280]">
           <CheckSquare className="size-4" />
           {selectedIds.length} selected
