@@ -12,6 +12,7 @@ import {
   lockAccount,
   unlockAccount,
 } from '../../../lib/api/teamApi';
+import { requestConfirm } from '../../../lib/appDialog';
 import type { TeamMember } from '../../../types/team';
 import { LoginHistoryDrawer } from '../LoginHistoryDrawer';
 import { GenerateCredentialsDrawer } from '../GenerateCredentialsDrawer';
@@ -163,7 +164,7 @@ export const CredentialsTab: React.FC = () => {
   };
 
   const handleResetPassword = async (member: TeamMember) => {
-    if (!confirm('Are you sure you want to reset the password for this member?')) return;
+    if (!(await requestConfirm('Are you sure you want to reset the password for this member?'))) return;
     
     try {
       await resetPassword(member.id);

@@ -14,6 +14,7 @@ import { RequestReplacementDrawer } from '../../components/placements/modals/Req
 import { usePlacements } from '../../hooks/usePlacements';
 import type { Placement, PlacementFilters } from '../../types/placement';
 import { usePermissions } from '../../hooks/usePermissions';
+import { requestConfirm } from '../../lib/appDialog';
 
 export const dynamic = 'force-dynamic';
 
@@ -224,7 +225,7 @@ function PlacementsPageContent() {
             } : undefined}
             onRequestReplacement={canUpdatePlacement ? (placement) => setReplacementPlacement(placement) : undefined}
             onDelete={canDeletePlacement ? async (placement) => {
-              if (!window.confirm('Delete this placement?')) return;
+              if (!(await requestConfirm('Delete this placement?'))) return;
               try {
                 await deletePlacement(placement.id);
                 toast.success('Placement deleted successfully');

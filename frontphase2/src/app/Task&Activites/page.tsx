@@ -39,6 +39,7 @@ import type { TaskFormValues } from './types';
 import { apiGetTasks, apiGetTask, apiMarkTaskCompleted, apiDeleteTask, apiGetTaskStats, type TaskStats } from '../../lib/api';
 import { transformBackendTaskToFrontend, transformBackendTaskToDrawer } from '../../lib/taskTransform';
 import type { BackendTask } from '../../lib/api';
+import { requestConfirm, requestError } from '../../lib/appDialog';
 
 // --- Types ---
 
@@ -784,11 +785,11 @@ export default function App() {
             }
           } catch (error: any) {
             console.error('Failed to mark task as completed:', error);
-            alert(error.message || 'Failed to update task');
+            void requestError(error.message || 'Failed to update task');
           }
         }}
         onDelete={async (taskId) => {
-          if (!confirm('Are you sure you want to delete this task?')) return;
+          if (!(await requestConfirm('Are you sure you want to delete this task?'))) return;
           if (!isBackendTaskObjectId(taskId)) {
             setTasks((prev) => prev.filter((t) => t.id !== taskId));
             setDrawerOpen(false);
@@ -804,7 +805,7 @@ export default function App() {
             setSelectedBackendTask(null);
           } catch (error: any) {
             console.error('Failed to delete task:', error);
-            alert(error.message || 'Failed to delete task');
+            void requestError(error.message || 'Failed to delete task');
           }
         }}
         onRelatedEntityClick={(entity) => { /* TODO: navigate to /candidate, /job, /client by entity.type and entity.id */ }}

@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
+import { requestError } from '../lib/appDialog';
 
 export interface StatusChangeServiceProps<T extends string> {
   currentStatus: T;
@@ -38,7 +39,7 @@ export function StatusChangeService<T extends string>({
       setRemark('');
     } catch (error: any) {
       console.error('Failed to change status:', error);
-      alert(error.message || 'Failed to change status');
+      void requestError(error.message || 'Failed to change status');
     } finally {
       setSaving(false);
     }

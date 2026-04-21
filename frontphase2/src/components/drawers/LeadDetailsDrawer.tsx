@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { splitDateTimeForDisplay } from '../../utils/formatLeadDateTime';
 import { motion, AnimatePresence } from 'motion/react';
+import { requestError } from '../../lib/appDialog';
 import {
   Edit2,
   MoreVertical,
@@ -1000,7 +1001,7 @@ export function LeadDetailsDrawer({
       window.location.reload(); // Simple refresh - in production, use a proper state update
     } catch (error: any) {
       console.error('Failed to update lead:', error);
-      alert(error.message || 'Failed to update lead');
+      void requestError(error.message || 'Failed to update lead');
     }
   };
 
@@ -2497,7 +2498,7 @@ export function LeadDetailsDrawer({
                           });
                         } catch (error: any) {
                           console.error('Failed to create lead:', error);
-                          alert(error.message || 'Failed to create lead');
+                          void requestError(error.message || 'Failed to create lead');
                         }
                       }}
                       disabled={!addLeadForm.companyName.trim() || !addLeadForm.contactPerson.trim() || !addLeadForm.email.trim()}

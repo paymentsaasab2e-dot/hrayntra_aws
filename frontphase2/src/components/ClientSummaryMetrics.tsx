@@ -25,7 +25,7 @@ const labelMap = {
   revenueGenerated: 'REVENUE GENERATED',
 };
 
-export function ClientSummaryMetrics() {
+export function ClientSummaryMetrics({ refreshKey = 0 }: { refreshKey?: number }) {
   const [metrics, setMetrics] = useState<ClientMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +56,7 @@ export function ClientSummaryMetrics() {
     };
 
     fetchMetrics();
-  }, []);
+  }, [refreshKey]);
 
   // Default/fallback metrics if not loaded or error
   const defaultMetrics: ClientMetrics = {

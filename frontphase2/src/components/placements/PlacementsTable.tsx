@@ -18,6 +18,7 @@ import {
   getPlacementStatusLabel,
   getStatusBadgeStyle,
 } from '../../utils/placements';
+import { MuiTablePagination } from '../MuiTablePagination';
 
 interface PlacementsTableProps {
   data: Placement[];
@@ -334,27 +335,13 @@ export function PlacementsTable({
           Showing {(pagination.page - 1) * pagination.limit + 1}-
           {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total} placements
         </p>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            disabled={pagination.page <= 1}
-            onClick={() => onPageChange(pagination.page - 1)}
-            className="rounded-xl border border-[#D1D5DB] px-3 py-2 text-sm font-medium text-[#374151] hover:bg-[#F9FAFB] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Previous
-          </button>
-          <span className="text-sm text-[#6B7280]">
-            Page {pagination.page} of {pagination.totalPages}
-          </span>
-          <button
-            type="button"
-            disabled={pagination.page >= pagination.totalPages}
-            onClick={() => onPageChange(pagination.page + 1)}
-            className="rounded-xl border border-[#D1D5DB] px-3 py-2 text-sm font-medium text-[#374151] hover:bg-[#F9FAFB] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Next
-          </button>
-        </div>
+      </div>
+      <div className="px-6 pb-5 flex justify-end">
+        <MuiTablePagination
+          currentPage={pagination.page}
+          totalPages={pagination.totalPages}
+          onPageChange={onPageChange}
+        />
       </div>
     </div>
   );

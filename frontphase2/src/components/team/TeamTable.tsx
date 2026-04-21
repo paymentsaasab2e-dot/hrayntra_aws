@@ -5,6 +5,7 @@ import { Search, Filter, MoreVertical, Eye, Edit, Key, UserX, Lock, Unlock, Mail
 import { getTeamMembers, deleteTeamMember, lockAccount, unlockAccount, resetPassword, resendInvite } from '../../lib/api/teamApi';
 import { ImageWithFallback } from '../ImageWithFallback';
 import { toast } from 'sonner';
+import { requestConfirm } from '../../lib/appDialog';
 import type { TeamMember, TeamMemberFilters, UserStatus } from '../../types/team';
 import { EditMemberModal } from './EditMemberModal';
 import { GenerateCredentialsModal } from './GenerateCredentialsModal';
@@ -92,7 +93,7 @@ export const TeamTable: React.FC<TeamTableProps> = ({ onSelectMember }) => {
           loadMembers();
           break;
         case 'deactivate':
-          if (confirm('Are you sure you want to deactivate this member?')) {
+          if (await requestConfirm('Are you sure you want to deactivate this member?')) {
             await deleteTeamMember(member.id);
             toast.success('Member deactivated');
             loadMembers();

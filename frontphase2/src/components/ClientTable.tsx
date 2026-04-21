@@ -3,6 +3,7 @@ import { Eye, Briefcase, Check, Trash2, Upload } from 'lucide-react';
 import { ImageWithFallback } from './ImageWithFallback';
 import type { Client, ClientStage } from '@/app/client/types';
 import { apiUpdateClient, filesApiUpload } from '../lib/api';
+import { requestError, requestWarning } from '../lib/appDialog';
 
 const stageColors: Record<ClientStage, string> = {
   Active: 'bg-emerald-100 text-emerald-700',
@@ -71,12 +72,12 @@ export function ClientTable({ clients, selectedIds, onSelectionChange, onSelectC
     if (!file || !pendingUploadClientId) return;
 
     if (!file.type.startsWith('image/')) {
-      alert('Please choose an image file (PNG, JPG, WebP, etc.)');
+      void requestWarning('Please choose an image file (PNG, JPG, WebP, etc.)');
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      alert('Image must be 5MB or smaller.');
+      void requestWarning('Image must be 5MB or smaller.');
       return;
     }
 
@@ -92,7 +93,7 @@ export function ClientTable({ clients, selectedIds, onSelectionChange, onSelectC
       onLogoUpdated?.();
     } catch (error: any) {
       console.error('Failed to upload client logo:', error);
-      alert(error.message || 'Failed to upload client logo');
+      void requestError(error.message || 'Failed to upload client logo');
     } finally {
       setUploadingClientId(null);
       setPendingUploadClientId(null);
@@ -130,9 +131,9 @@ export function ClientTable({ clients, selectedIds, onSelectionChange, onSelectC
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {clients.map((client, index) => (
+            {clients.map((client) => (
               <tr
-                key={`${client.id}-${index}`}
+                key={client.id}
                 onClick={handleRowClick(client)}
                 className={`hover:bg-blue-50/50 transition-colors group cursor-pointer ${selectedIds.includes(client.id) ? 'bg-blue-50/80' : ''}`}
               >

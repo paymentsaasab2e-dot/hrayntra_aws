@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus, 
   LayoutGrid, 
@@ -23,7 +23,8 @@ import {
   CheckSquare,
   Trash2
 } from 'lucide-react';
-import { Pagination } from '../../components/Pagination';
+import { MuiTablePagination } from '../../components/MuiTablePagination';
+import { requestConfirm, requestError } from '../../lib/appDialog';
 import { motion, AnimatePresence } from 'motion/react';
 import { Toaster, toast } from 'sonner';
 import { CreateTaskModal } from '../../components/CreateTaskModal';
@@ -33,18 +34,50 @@ import { StatusChangeService } from '../../components/StatusChangeService';
 import {
   apiAddCandidateToPipeline,
   apiGetCandidates,
+  apiGetClients,
   apiGetMatches,
   apiGetJobs,
   apiGetJob,
   apiGetJobMetrics,
+  apiGetUsers,
   apiDeleteJob,
   apiUpdateJob,
+  type BackendClient,
   type BackendJob,
   type BackendCandidate,
+  type BackendUser,
   type JobMetrics,
 } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
-const ALL_JOBS_LIST_PARAMS = { limit: 500 } as const;
+const DEFAULT_PAGE = 1;
+const DEFAULT_PAGE_SIZE = 10;
+const JOBS_PAGE_CACHE_KEY = 'jobs:page-cache:v1';
+const JOBS_METRICS_CACHE_KEY = 'jobs:metrics-cache:v1';
+
+type JobsApiPayload = {
+  jobs: BackendJob[];
+  total: number;
+};
+
+function parseJobsApiPayload(res: any): JobsApiPayload {
+  let backendJobs: BackendJob[] = [];
+  let total = 0;
+
+  if (res?.data) {
+    if (Array.isArray(res.data)) {
+      backendJobs = res.data;
+      total = backendJobs.length;
+    } else if (Array.isArray(res.data.data)) {
+      backendJobs = res.data.data;
+      total = res.data?.pagination?.total ?? backendJobs.length;
+    } else if (Array.isArray(res.data.items)) {
+      backendJobs = res.data.items;
+      total = res.data?.pagination?.total ?? backendJobs.length;
+    }
+  }
+
+  return { jobs: backendJobs, total };
+}
 
 // Types
 type JobStatus = 'Active' | 'On Hold' | 'Closed';
@@ -78,7 +111,7 @@ function toJobForDrawer(j: Job): JobForDrawer {
     salaryRange: undefined, // Will be populated from backend
     postedDate: j.createdDate,
     recruiter: j.owner,
-    hiringManager: 'â€”',
+    hiringManager: '-',
     overview: undefined, // Will be populated from backend
     keyResponsibilities: undefined, // Will be populated from backend
     requiredSkills: undefined, // Will be populated from backend
@@ -131,7 +164,7 @@ interface JobsBoardViewProps {
 const STATS_CONFIG = [
   { key: 'activeJobs', label: 'Active Jobs', color: 'text-blue-600', bg: 'bg-blue-50', icon: Briefcase },
   { key: 'newJobsThisWeek', label: 'New Jobs (This Week)', color: 'text-green-600', bg: 'bg-green-50', icon: Plus },
-  { key: 'noCandidates', label: 'No Candidates', color: 'text-amber-600', bg: 'bg-amber-50', icon: Users },
+  { key: 'appliedCandidates', label: 'Candidates Applied', color: 'text-amber-600', bg: 'bg-amber-50', icon: Users },
   { key: 'nearSla', label: 'Near SLA', color: 'text-red-600', bg: 'bg-red-50', icon: Clock },
   { key: 'closedThisMonth', label: 'Closed This Month', color: 'text-gray-600', bg: 'bg-gray-50', icon: CheckCircle2 },
 ];
@@ -497,8 +530,8 @@ function mapBackendJob(job: BackendJob): Job {
   return {
     id: job.id,
     title: job.title,
-    client: job.client?.companyName ?? 'â€”',
-    location: job.location ?? 'â€”',
+    client: job.client?.companyName ?? '-',
+    location: job.location ?? '-',
     status: mapBackendStatus(job.status),
     applied,
     interviewed,
@@ -506,7 +539,7 @@ function mapBackendJob(job: BackendJob): Job {
     joined,
     openings: job.openings,
     owner: job.assignedTo?.name ?? 'Unassigned',
-    createdDate: job.createdAt?.slice(0, 10) ?? 'â€”',
+    createdDate: job.createdAt?.slice(0, 10) ?? '-',
     hot: (job as any).hot ?? false,
     aiMatch: (job as any).aiMatch ?? false,
     noCandidates: (job as any).noCandidates ?? false,
@@ -514,14 +547,14 @@ function mapBackendJob(job: BackendJob): Job {
   };
 }
 
-function toJobCandidateItemFromApplied(match: any, fallbackRecruiter = 'â€”'): JobCandidateItem {
+function toJobCandidateItemFromApplied(match: any, fallbackRecruiter = '-'): JobCandidateItem {
   return {
     id: match.candidateId || match.candidate?.id || match.id,
     candidateName: match.candidate
-      ? `${match.candidate.firstName || ''} ${match.candidate.lastName || ''}`.trim() || 'â€”'
-      : 'â€”',
+      ? `${match.candidate.firstName || ''} ${match.candidate.lastName || ''}`.trim() || '-'
+      : '-',
     currentStage: match.status || 'Applied',
-    score: typeof match.score === 'number' ? `${Math.round(match.score)}%` : 'â€”',
+    score: typeof match.score === 'number' ? `${Math.round(match.score)}%` : '-',
     recruiter: match.createdBy?.name || fallbackRecruiter,
     interviewStatus: 'Not scheduled',
     lastActivity: match.createdAt
@@ -532,17 +565,17 @@ function toJobCandidateItemFromApplied(match: any, fallbackRecruiter = 'â€”
           minute: '2-digit',
           hour12: true,
         })
-      : 'â€”',
+      : '-',
   };
 }
 
 function toJobCandidateItemFromAssigned(candidate: BackendCandidate): JobCandidateItem {
   return {
     id: candidate.id,
-    candidateName: `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() || 'â€”',
+    candidateName: `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() || '-',
     currentStage: candidate.stage || 'Applied',
-    score: 'â€”',
-    recruiter: candidate.assignedTo?.name || 'â€”',
+    score: '-',
+    recruiter: candidate.assignedTo?.name || '-',
     interviewStatus: 'Not scheduled',
     lastActivity: candidate.updatedAt
       ? new Date(candidate.updatedAt).toLocaleString('en-US', {
@@ -560,7 +593,7 @@ function toJobCandidateItemFromAssigned(candidate: BackendCandidate): JobCandida
           minute: '2-digit',
           hour12: true,
         })
-      : 'â€”',
+      : '-',
   };
 }
 
@@ -573,12 +606,38 @@ export default function JobsPage() {
   const canAddCandidate = hasPermission('add_candidate');
   const [view, setView] = useState<'list' | 'board'>('list');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [searchFilter, setSearchFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [clientFilterId, setClientFilterId] = useState('');
+  const [recruiterFilterId, setRecruiterFilterId] = useState('');
+  const [clientOptions, setClientOptions] = useState<Array<{ id: string; name: string }>>([]);
+  const [recruiterOptions, setRecruiterOptions] = useState<Array<{ id: string; name: string }>>([]);
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [createJobDrawerOpen, setCreateJobDrawerOpen] = useState(false);
   const [jobDrawerOpen, setJobDrawerOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(DEFAULT_PAGE);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [jobs, setJobs] = useState<Job[]>(() => {
+    try {
+      if (typeof window === 'undefined') return [];
+      const raw = window.sessionStorage.getItem(JOBS_PAGE_CACHE_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (
+        parsed &&
+        parsed.page === DEFAULT_PAGE &&
+        parsed.pageSize === DEFAULT_PAGE_SIZE &&
+        Array.isArray(parsed.jobs)
+      ) {
+        return parsed.jobs as Job[];
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  });
+  const [loading, setLoading] = useState(() => jobs.length === 0);
   const [error, setError] = useState<string | null>(null);
   const [jobCandidates, setJobCandidates] = useState<JobCandidateItem[]>([]);
   const [statusEdit, setStatusEdit] = useState<{
@@ -590,9 +649,40 @@ export default function JobsPage() {
     newStatus: null,
     remark: '',
   });
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
-  const [totalEntries, setTotalEntries] = useState(0);
+  const [totalEntries, setTotalEntries] = useState(() => {
+    try {
+      if (typeof window === 'undefined') return 0;
+      const raw = window.sessionStorage.getItem(JOBS_PAGE_CACHE_KEY);
+      if (!raw) return 0;
+      const parsed = JSON.parse(raw);
+      if (
+        parsed &&
+        parsed.page === DEFAULT_PAGE &&
+        parsed.pageSize === DEFAULT_PAGE_SIZE &&
+        typeof parsed.totalEntries === 'number'
+      ) {
+        return parsed.totalEntries as number;
+      }
+      return 0;
+    } catch {
+      return 0;
+    }
+  });
+  const hasVisibleJobsRef = useRef(jobs.length > 0);
+  const hasActiveFilters = Boolean(searchFilter || statusFilter || clientFilterId || recruiterFilterId);
+
+  const buildJobsQueryParams = useCallback(() => ({
+    page: currentPage,
+    limit: pageSize,
+    search: searchFilter || undefined,
+    status: statusFilter || undefined,
+    clientId: clientFilterId || undefined,
+    assignedToId: recruiterFilterId || undefined,
+  }), [currentPage, pageSize, searchFilter, statusFilter, clientFilterId, recruiterFilterId]);
+
+  useEffect(() => {
+    hasVisibleJobsRef.current = jobs.length > 0;
+  }, [jobs.length]);
 
   // Handle LinkedIn OAuth callback
   useEffect(() => {
@@ -622,52 +712,90 @@ export default function JobsPage() {
   useEffect(() => {
     let cancelled = false;
 
+    const loadFilterOptions = async () => {
+      try {
+        const [clientsRes, usersRes] = await Promise.all([
+          apiGetClients({ page: 1, limit: 500 }),
+          apiGetUsers({ isActive: true, limit: 200 }),
+        ]);
+        if (cancelled) return;
+
+        const clientsPayload = (clientsRes as any)?.data;
+        const clientsList: BackendClient[] = Array.isArray(clientsPayload)
+          ? clientsPayload
+          : Array.isArray(clientsPayload?.data)
+            ? clientsPayload.data
+            : Array.isArray(clientsPayload?.items)
+              ? clientsPayload.items
+              : [];
+
+        const usersPayload = (usersRes as any)?.data;
+        const usersList: BackendUser[] = Array.isArray(usersPayload)
+          ? usersPayload
+          : Array.isArray(usersPayload?.data)
+            ? usersPayload.data
+            : [];
+
+        const nextClients = clientsList
+          .map((client) => ({ id: String(client.id), name: client.companyName || 'Unnamed client' }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+        const nextRecruiters = usersList
+          .map((user) => ({ id: String(user.id), name: user.name || user.email || 'Unnamed recruiter' }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+
+        setClientOptions(nextClients);
+        setRecruiterOptions(nextRecruiters);
+      } catch (err) {
+        if (!cancelled) {
+          console.error('Failed to load jobs filter options:', err);
+        }
+      }
+    };
+
+    void loadFilterOptions();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
     async function loadJobs() {
       try {
-        setLoading(true);
+        if (!hasVisibleJobsRef.current) setLoading(true);
         setError(null);
-        const res = await apiGetJobs({
-          page: currentPage,
-          limit: pageSize,
-        });
+        const res = await apiGetJobs(buildJobsQueryParams());
         if (cancelled) return;
-        
-        // Backend returns: { success: true, message: "...", data: { data: [...], pagination: {...} } }
-        // So res.data is { data: [...], pagination: {...} }
-        let backendJobs: BackendJob[] = [];
-        let pagination: any = null;
 
-        if (res.data) {
-          if (Array.isArray(res.data)) {
-            // Direct array (unlikely but handle it)
-            backendJobs = res.data;
-          } else if (Array.isArray(res.data.data)) {
-            // Paginated response: { data: [...], pagination: {...} }
-            backendJobs = res.data.data;
-            pagination = res.data.pagination;
-          } else if (Array.isArray(res.data.items)) {
-            // Alternative structure with items
-            backendJobs = res.data.items;
-          } else {
-            console.warn('Unexpected response structure:', res.data);
-            backendJobs = [];
-          }
-        }
-        
-        if (!Array.isArray(backendJobs)) {
-          console.error('Unexpected API response format: data is not an array.', res);
+        const parsed = parseJobsApiPayload(res);
+        if (!Array.isArray(parsed.jobs)) {
+          console.error('Unexpected API response format: data is not an array.', parsed);
           setError('Unexpected API response format.');
           setJobs([]);
           setTotalEntries(0);
           return;
         }
-        
-        const mapped = backendJobs.map(mapBackendJob);
+
+        const mapped = parsed.jobs.map(mapBackendJob);
         setJobs(mapped);
-        if (pagination) {
-          setTotalEntries(pagination.total || 0);
-        } else {
-          setTotalEntries(mapped.length);
+        const total = parsed.total || mapped.length;
+        setTotalEntries(total);
+        if (!hasActiveFilters) {
+          try {
+            window.sessionStorage.setItem(
+              JOBS_PAGE_CACHE_KEY,
+              JSON.stringify({
+                page: currentPage,
+                pageSize,
+                totalEntries: total,
+                jobs: mapped,
+                cachedAt: Date.now(),
+              })
+            );
+          } catch {
+            // ignore storage errors
+          }
         }
       } catch (err: any) {
         if (cancelled) return;
@@ -686,6 +814,11 @@ export default function JobsPage() {
         if (cancelled) return;
         const metrics = (response as any).data?.data || (response as any).data || response;
         setJobMetrics(metrics);
+        try {
+          window.sessionStorage.setItem(JOBS_METRICS_CACHE_KEY, JSON.stringify(metrics));
+        } catch {
+          // ignore storage errors
+        }
       } catch (err: any) {
         if (cancelled) return;
         console.error('Failed to load job metrics:', err);
@@ -693,6 +826,7 @@ export default function JobsPage() {
         setJobMetrics({
           activeJobs: 0,
           newJobsThisWeek: 0,
+          appliedCandidates: 0,
           noCandidates: 0,
           nearSla: 0,
           closedThisMonth: 0,
@@ -708,7 +842,7 @@ export default function JobsPage() {
     return () => {
       cancelled = true;
     };
-  }, [currentPage, pageSize]);
+  }, [buildJobsQueryParams, currentPage, hasActiveFilters, pageSize]);
 
   const [loadingJobDetails, setLoadingJobDetails] = useState(false);
   const [jobDetails, setJobDetails] = useState<JobForDrawer | null>(null);
@@ -722,7 +856,33 @@ export default function JobsPage() {
   const [moveStageSaving, setMoveStageSaving] = useState(false);
   const [editJobDrawerOpen, setEditJobDrawerOpen] = useState(false);
   const [editingJobId, setEditingJobId] = useState<string | null>(null);
-  const [jobMetrics, setJobMetrics] = useState<JobMetrics | null>(null);
+  const [jobMetrics, setJobMetrics] = useState<JobMetrics | null>(() => {
+    try {
+      if (typeof window === 'undefined') return null;
+      const raw = window.sessionStorage.getItem(JOBS_METRICS_CACHE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (
+        parsed &&
+        typeof parsed.activeJobs === 'number' &&
+        typeof parsed.newJobsThisWeek === 'number' &&
+        typeof parsed.nearSla === 'number' &&
+        typeof parsed.closedThisMonth === 'number'
+      ) {
+        return {
+          activeJobs: parsed.activeJobs,
+          newJobsThisWeek: parsed.newJobsThisWeek,
+          appliedCandidates: typeof parsed.appliedCandidates === 'number' ? parsed.appliedCandidates : 0,
+          noCandidates: typeof parsed.noCandidates === 'number' ? parsed.noCandidates : 0,
+          nearSla: parsed.nearSla,
+          closedThisMonth: parsed.closedThisMonth,
+        } as JobMetrics;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  });
   const [loadingMetrics, setLoadingMetrics] = useState(false);
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
 
@@ -730,30 +890,26 @@ export default function JobsPage() {
     try {
       setLoading(true);
       setError(null);
-      const res = await apiGetJobs({
-        page: currentPage,
-        limit: pageSize,
-      });
-      let backendJobs: BackendJob[] = [];
-      let pagination: any = null;
-      
-      if (res.data) {
-        if (Array.isArray(res.data)) {
-          backendJobs = res.data;
-        } else if (Array.isArray((res.data as { data?: BackendJob[] }).data)) {
-          backendJobs = (res.data as { data: BackendJob[] }).data;
-          pagination = (res.data as any).pagination;
-        } else if (Array.isArray((res.data as { items?: BackendJob[] }).items)) {
-          backendJobs = (res.data as { items: BackendJob[] }).items;
-        }
-      }
-      if (Array.isArray(backendJobs)) {
-        const mapped = backendJobs.map(mapBackendJob);
+      const res = await apiGetJobs(buildJobsQueryParams());
+      const parsed = parseJobsApiPayload(res);
+      if (Array.isArray(parsed.jobs)) {
+        const mapped = parsed.jobs.map(mapBackendJob);
         setJobs(mapped);
-        if (pagination) {
-          setTotalEntries(pagination.total || 0);
-        } else {
-          setTotalEntries(mapped.length);
+        const total = parsed.total || mapped.length;
+        setTotalEntries(total);
+        if (!hasActiveFilters) {
+          try {
+            window.sessionStorage.setItem(
+              JOBS_PAGE_CACHE_KEY,
+              JSON.stringify({
+                page: currentPage,
+                pageSize,
+                totalEntries: total,
+                jobs: mapped,
+                cachedAt: Date.now(),
+              })
+            );
+          } catch {}
         }
       } else {
         setJobs([]);
@@ -772,10 +928,14 @@ export default function JobsPage() {
       const response = await apiGetJobMetrics({});
       const metrics = (response as any).data?.data || (response as any).data || response;
       setJobMetrics(metrics);
+      try {
+        window.sessionStorage.setItem(JOBS_METRICS_CACHE_KEY, JSON.stringify(metrics));
+      } catch {}
     } catch {
       setJobMetrics({
         activeJobs: 0,
         newJobsThisWeek: 0,
+        appliedCandidates: 0,
         noCandidates: 0,
         nearSla: 0,
         closedThisMonth: 0,
@@ -783,26 +943,22 @@ export default function JobsPage() {
     } finally {
       setLoadingMetrics(false);
     }
-  }, []);
+  }, [buildJobsQueryParams, currentPage, hasActiveFilters, pageSize]);
 
   // When a job is created/updated elsewhere (e.g. client drawer), keep this list in sync
   useEffect(() => {
     const JOBS_CHANGED = 'jobportal:jobs-changed';
     const refreshJobsList = async () => {
       try {
-        const res = await apiGetJobs(ALL_JOBS_LIST_PARAMS);
-        let backendJobs: BackendJob[] = [];
-        if (res.data) {
-          if (Array.isArray(res.data)) {
-            backendJobs = res.data;
-          } else if (Array.isArray(res.data.data)) {
-            backendJobs = res.data.data;
-          } else if (Array.isArray(res.data.items)) {
-            backendJobs = res.data.items;
-          }
-        }
-        if (Array.isArray(backendJobs)) {
-          setJobs(backendJobs.map(mapBackendJob));
+        const res = await apiGetJobs(buildJobsQueryParams());
+        const parsed = parseJobsApiPayload(res);
+        if (Array.isArray(parsed.jobs)) {
+          const mapped = parsed.jobs.map(mapBackendJob);
+          setJobs(mapped);
+          setTotalEntries(parsed.total || mapped.length);
+        } else {
+          setJobs([]);
+          setTotalEntries(0);
         }
       } catch (e) {
         console.error('Failed to refresh jobs after change event:', e);
@@ -817,10 +973,10 @@ export default function JobsPage() {
     };
     window.addEventListener(JOBS_CHANGED, refreshJobsList);
     return () => window.removeEventListener(JOBS_CHANGED, refreshJobsList);
-  }, []);
+  }, [buildJobsQueryParams]);
 
   const handleDeleteJob = async (jobId: string, jobTitle: string) => {
-    if (!window.confirm(`Are you sure you want to delete "${jobTitle}"? This action cannot be undone.`)) {
+    if (!(await requestConfirm(`Are you sure you want to delete "${jobTitle}"? This action cannot be undone.`))) {
       return;
     }
 
@@ -848,34 +1004,10 @@ export default function JobsPage() {
         console.error('Failed to refresh metrics:', err);
       }
       
-      // Reload jobs list
-      try {
-        setLoading(true);
-        const res = await apiGetJobs(ALL_JOBS_LIST_PARAMS);
-        let backendJobs: BackendJob[] = [];
-        if (res.data) {
-          if (Array.isArray(res.data)) {
-            backendJobs = res.data;
-          } else if (Array.isArray(res.data.data)) {
-            backendJobs = res.data.data;
-          } else if (Array.isArray(res.data.items)) {
-            backendJobs = res.data.items;
-          }
-        }
-        if (Array.isArray(backendJobs)) {
-          const mapped = backendJobs.map(mapBackendJob);
-          setJobs(mapped);
-        } else {
-          setJobs([]);
-        }
-      } catch (err: any) {
-        console.error('Failed to refresh jobs:', err);
-      } finally {
-        setLoading(false);
-      }
+      await reloadMyJobsAndMetrics();
     } catch (err: any) {
       console.error('Failed to delete job:', err);
-      alert(err?.message || 'Failed to delete job');
+      void requestError(err?.message || 'Failed to delete job');
     } finally {
       setDeletingJobId(null);
     }
@@ -883,7 +1015,7 @@ export default function JobsPage() {
 
   const fetchJobCandidates = useCallback(async (jobId: string, backendJob?: any) => {
     let appliedCandidates: JobCandidateItem[] = Array.isArray(backendJob?.matches)
-      ? backendJob.matches.map((match: any) => toJobCandidateItemFromApplied(match, backendJob?.assignedTo?.name || '—'))
+      ? backendJob.matches.map((match: any) => toJobCandidateItemFromApplied(match, backendJob?.assignedTo?.name || '-'))
       : [];
 
     const [matchesResult, candidatesResult] = await Promise.allSettled([
@@ -900,7 +1032,7 @@ export default function JobsPage() {
 
       if (Array.isArray(matchesData)) {
         appliedCandidates = matchesData.map((match: any) =>
-          toJobCandidateItemFromApplied(match, backendJob?.assignedTo?.name || '—')
+          toJobCandidateItemFromApplied(match, backendJob?.assignedTo?.name || '-')
         );
       }
     }
@@ -955,7 +1087,7 @@ export default function JobsPage() {
         postedDate: backendJob.postedDate ? new Date(backendJob.postedDate).toISOString().split('T')[0] : 
                    backendJob.createdAt ? backendJob.createdAt.split('T')[0] : job.createdDate,
         recruiter: backendJob.assignedTo?.name || job.owner,
-        hiringManager: backendJob.hiringManager || 'â€”',
+        hiringManager: backendJob.hiringManager || '-',
         applied: backendJob._count?.matches || job.applied,
         interviewed: backendJob._count?.interviews || job.interviewed,
         offered: 0,
@@ -1098,7 +1230,7 @@ export default function JobsPage() {
       setMoveStageOpen(false);
     } catch (error) {
       console.error('Failed to move candidate stage:', error);
-      alert((error as any)?.message || 'Failed to move stage');
+      void requestError((error as any)?.message || 'Failed to move stage');
     } finally {
       setMoveStageSaving(false);
     }
@@ -1130,41 +1262,11 @@ export default function JobsPage() {
         status: mapFrontendStatusToBackend(statusEdit.newStatus) as any,
         statusRemark: statusEdit.remark || undefined,
       } as any);
-      // Refresh jobs to get latest data
-      const res = await apiGetJobs(ALL_JOBS_LIST_PARAMS);
-      let backendJobs: BackendJob[] = [];
-      if (res.data) {
-        if (Array.isArray(res.data)) {
-          backendJobs = res.data;
-        } else if (Array.isArray(res.data.data)) {
-          backendJobs = res.data.data;
-        } else if (Array.isArray(res.data.items)) {
-          backendJobs = res.data.items;
-        }
-      }
-      const mapped = backendJobs.map(mapBackendJob);
-      setJobs(mapped);
+      await reloadMyJobsAndMetrics();
     } catch (err: any) {
       console.error('Failed to update job status with remark:', err);
-      alert(err.message || 'Failed to update job status');
-      // Revert by refreshing from backend
-      try {
-        const res = await apiGetJobs(ALL_JOBS_LIST_PARAMS);
-        let backendJobs: BackendJob[] = [];
-        if (res.data) {
-          if (Array.isArray(res.data)) {
-            backendJobs = res.data;
-          } else if (Array.isArray(res.data.data)) {
-            backendJobs = res.data.data;
-          } else if (Array.isArray(res.data.items)) {
-            backendJobs = res.data.items;
-          }
-        }
-        const mapped = backendJobs.map(mapBackendJob);
-        setJobs(mapped);
-      } catch {
-        // ignore
-      }
+      void requestError(err.message || 'Failed to update job status');
+      await reloadMyJobsAndMetrics();
     } finally {
       setStatusEdit({ jobId: null, newStatus: null, remark: '' });
     }
@@ -1172,24 +1274,7 @@ export default function JobsPage() {
 
   const handleCancelStatusEdit = async () => {
     setStatusEdit({ jobId: null, newStatus: null, remark: '' });
-    // Reload to ensure UI matches backend
-    try {
-      const res = await apiGetJobs(ALL_JOBS_LIST_PARAMS);
-      let backendJobs: BackendJob[] = [];
-      if (res.data) {
-        if (Array.isArray(res.data)) {
-          backendJobs = res.data;
-        } else if (Array.isArray(res.data.data)) {
-          backendJobs = res.data.data;
-        } else if (Array.isArray(res.data.items)) {
-          backendJobs = res.data.items;
-        }
-      }
-      const mapped = backendJobs.map(mapBackendJob);
-      setJobs(mapped);
-    } catch {
-      // ignore
-    }
+    await reloadMyJobsAndMetrics();
   };
 
   return (
@@ -1233,14 +1318,7 @@ export default function JobsPage() {
                 >
                   <RefreshCcw size={15} className="shrink-0" />
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setCreateTaskOpen(true)}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-lg text-xs font-semibold whitespace-nowrap hover:bg-gray-50 transition-all shadow-sm"
-                >
-                  <CheckSquare size={14} className="shrink-0" />
-                  Create Task
-                </button>
+                
                 {canCreateJob && (
                   <button
                     type="button"
@@ -1265,18 +1343,12 @@ export default function JobsPage() {
                       <div className={`${statConfig.bg} ${statConfig.color} p-2.5 rounded-xl transition-transform group-hover:scale-110`}>
                         <StatIcon size={22} />
                       </div>
-                      {loadingMetrics ? (
-                        <div className="text-xs font-bold text-gray-400 bg-gray-50 px-2 py-1 rounded">
-                          Loading...
-                        </div>
-                      ) : (
-                        <div className="text-xs font-bold text-gray-400 bg-gray-50 px-2 py-1 rounded">
-                          +12% <ChevronDown size={12} className="inline rotate-180" />
-                        </div>
-                      )}
+                      <div className="text-xs font-bold text-gray-400 bg-gray-50 px-2 py-1 rounded">
+                        {loadingMetrics ? 'Loading...' : 'Live'}
+                      </div>
                     </div>
                     <div className="space-y-1">
-                      <p className="text-2xl font-bold text-gray-900">{loadingMetrics ? 'â€”' : value}</p>
+                      <p className="text-2xl font-bold text-gray-900">{loadingMetrics ? '-' : value}</p>
                       <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">{statConfig.label}</p>
                     </div>
                   </div>
@@ -1289,28 +1361,57 @@ export default function JobsPage() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="relative">
-                    <button 
-                      onClick={() => setIsFilterOpen(!isFilterOpen)}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-xl border font-bold text-sm transition-all ${isFilterOpen ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'}`}
+                    <input
+                      type="text"
+                      value={searchFilter}
+                      onChange={(e) => {
+                        setSearchFilter(e.target.value);
+                        setCurrentPage(1);
+                      }}
+                      placeholder="Search jobs, client, location"
+                      className="w-72 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                  <button 
+                    onClick={() => setIsFilterOpen(!isFilterOpen)}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-xl border font-bold text-sm transition-all ${isFilterOpen ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'}`}
+                  >
+                    <Filter size={18} />
+                    Filters
+                    {isFilterOpen ? <ChevronDown size={16} className="rotate-180" /> : <ChevronDown size={16} />}
+                  </button>
+                  {statusFilter && (
+                    <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-full border border-blue-200 text-xs text-blue-700">
+                      <span className="font-bold">Status: {statusFilter.replace('_', ' ')}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStatusFilter('');
+                          setCurrentPage(1);
+                        }}
+                        className="hover:text-red-500"
+                      >
+                        x
+                      </button>
+                    </div>
+                  )}
+                  {hasActiveFilters && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchFilter('');
+                        setStatusFilter('');
+                        setClientFilterId('');
+                        setRecruiterFilterId('');
+                        setCurrentPage(1);
+                      }}
+                      className="text-xs font-bold text-blue-600 hover:underline"
                     >
-                      <Filter size={18} />
-                      Filters
-                      {isFilterOpen ? <ChevronDown size={16} className="rotate-180" /> : <ChevronDown size={16} />}
+                      Clear All
                     </button>
-                  </div>
-                  <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-full border border-gray-200 text-xs text-gray-500">
-                    <span className="font-bold text-blue-600">Active</span>
-                    <button className="hover:text-red-500">Ã—</button>
-                  </div>
-                  <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-full border border-gray-200 text-xs text-gray-500">
-                    <span className="font-bold">Last 30 Days</span>
-                    <button className="hover:text-red-500">Ã—</button>
-                  </div>
-                  <button className="text-xs font-bold text-blue-600 hover:underline">Clear All</button>
+                  )}
                 </div>
-                <div className="text-sm text-gray-500 font-medium">
-                  Sort by: <span className="text-gray-900 font-bold cursor-pointer hover:underline">Recently Created <ChevronDown size={14} className="inline" /></span>
-                </div>
+                
               </div>
 
               <AnimatePresence>
@@ -1321,64 +1422,60 @@ export default function JobsPage() {
                     exit={{ height: 0, opacity: 0 }}
                     className="overflow-hidden"
                   >
-                    <div className="bg-white p-6 rounded-2xl border border-gray-200 grid grid-cols-4 gap-6 shadow-sm">
+                    <div className="bg-white p-6 rounded-2xl border border-gray-200 grid grid-cols-1 md:grid-cols-3 gap-4 shadow-sm">
                       <div className="space-y-2">
                         <label className="text-xs font-bold text-gray-500 uppercase">Job Status</label>
-                        <select className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500">
-                          <option>All Statuses</option>
-                          <option>Active</option>
-                          <option>On Hold</option>
-                          <option>Closed</option>
+                        <select
+                          value={statusFilter}
+                          onChange={(e) => {
+                            setStatusFilter(e.target.value);
+                            setCurrentPage(1);
+                          }}
+                          className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="">All Statuses</option>
+                          <option value="OPEN">Active (Open)</option>
+                          <option value="ON_HOLD">On Hold</option>
+                          <option value="CLOSED">Closed</option>
+                          <option value="DRAFT">Draft</option>
+                          <option value="FILLED">Filled</option>
                         </select>
                       </div>
                       <div className="space-y-2">
                         <label className="text-xs font-bold text-gray-500 uppercase">Client</label>
-                        <select className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500">
-                          <option>All Clients</option>
-                          <option>TechCorp Solutions</option>
-                          <option>FinFlow Systems</option>
+                        <select
+                          value={clientFilterId}
+                          onChange={(e) => {
+                            setClientFilterId(e.target.value);
+                            setCurrentPage(1);
+                          }}
+                          className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="">All Clients</option>
+                          {clientOptions.map((client) => (
+                            <option key={client.id} value={client.id}>
+                              {client.name}
+                            </option>
+                          ))}
                         </select>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500 uppercase">Location</label>
-                        <input type="text" placeholder="City or Country" className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500 uppercase">Job Type</label>
-                        <select className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500">
-                          <option>Full-time</option>
-                          <option>Contract</option>
-                          <option>Freelance</option>
-                        </select>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500 uppercase">Salary Range</label>
-                        <div className="flex gap-2">
-                          <input type="text" placeholder="Min" className="w-1/2 p-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" />
-                          <input type="text" placeholder="Max" className="w-1/2 p-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" />
-                        </div>
                       </div>
                       <div className="space-y-2">
                         <label className="text-xs font-bold text-gray-500 uppercase">Recruiter</label>
-                        <select className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500">
-                          <option>All Recruiters</option>
-                          <option>Alex Rivers</option>
-                          <option>Sarah Chen</option>
+                        <select
+                          value={recruiterFilterId}
+                          onChange={(e) => {
+                            setRecruiterFilterId(e.target.value);
+                            setCurrentPage(1);
+                          }}
+                          className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="">All Recruiters</option>
+                          {recruiterOptions.map((recruiter) => (
+                            <option key={recruiter.id} value={recruiter.id}>
+                              {recruiter.name}
+                            </option>
+                          ))}
                         </select>
-                      </div>
-                      <div className="flex items-center gap-6 pt-6">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input type="checkbox" className="w-4 h-4 text-blue-600 rounded border-gray-300" />
-                          <span className="text-sm font-medium">Hot Jobs Only</span>
-                        </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input type="checkbox" className="w-4 h-4 text-blue-600 rounded border-gray-300" />
-                          <span className="text-sm font-medium">AI Match Ready</span>
-                        </label>
-                      </div>
-                      <div className="flex items-end justify-end pt-6">
-                        <button className="text-sm font-bold text-blue-600 hover:text-blue-700 px-4 py-2">Reset</button>
-                        <button className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold text-sm shadow-md hover:bg-blue-700 transition-colors">Apply Filters</button>
                       </div>
                     </div>
                   </motion.div>
@@ -1419,17 +1516,13 @@ export default function JobsPage() {
                     onCancelStatusEdit={handleCancelStatusEdit}
                   />
                   
-                  <Pagination
-                    currentPage={currentPage}
-                    totalPages={Math.ceil(totalEntries / pageSize)}
-                    onPageChange={setCurrentPage}
-                    pageSize={pageSize}
-                    onPageSizeChange={(newSize) => {
-                      setPageSize(newSize);
-                      setCurrentPage(1);
-                    }}
-                    totalEntries={totalEntries}
-                  />
+                  <div className="mt-4 flex justify-end">
+                    <MuiTablePagination
+                      currentPage={currentPage}
+                      totalPages={Math.ceil(totalEntries / pageSize)}
+                      onPageChange={setCurrentPage}
+                    />
+                  </div>
                 </>
               ) : (
                 <JobsBoardView jobs={jobs} onJobClick={openJobDrawer} canAssignJob={canAssignJob} />
@@ -1444,41 +1537,7 @@ export default function JobsPage() {
         onClose={() => setCreateJobDrawerOpen(false)}
         onJobCreated={() => {
           setCreateJobDrawerOpen(false);
-          // Reload jobs
-          const loadJobs = async () => {
-            try {
-              setLoading(true);
-              setError(null);
-              const res = await apiGetJobs(ALL_JOBS_LIST_PARAMS);
-              
-              let backendJobs: BackendJob[] = [];
-              if (res.data) {
-                if (Array.isArray(res.data)) {
-                  backendJobs = res.data;
-                } else if (Array.isArray(res.data.data)) {
-                  backendJobs = res.data.data;
-                } else if (Array.isArray(res.data.items)) {
-                  backendJobs = res.data.items;
-                }
-              }
-              
-              if (!Array.isArray(backendJobs)) {
-                console.error('Unexpected API response format: data is not an array.', res);
-                setError('Unexpected API response format.');
-                setJobs([]);
-                return;
-              }
-              
-              const mapped = backendJobs.map(mapBackendJob);
-              setJobs(mapped);
-            } catch (err: any) {
-              setError(err?.message || 'Failed to load jobs from API.');
-              setJobs([]);
-            } finally {
-              setLoading(false);
-            }
-          };
-          loadJobs();
+          void reloadMyJobsAndMetrics();
         }}
       />
 
@@ -1523,7 +1582,7 @@ export default function JobsPage() {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <div className="text-lg font-bold text-slate-900">Move candidate stage</div>
-                  <div className="text-xs text-slate-500 mt-1">Select a stage from this jobâ€™s pipeline.</div>
+                  <div className="text-xs text-slate-500 mt-1">Select a stage from this job's pipeline.</div>
                 </div>
                 <button
                   type="button"
@@ -1601,95 +1660,7 @@ export default function JobsPage() {
         onJobUpdated={() => {
           setEditJobDrawerOpen(false);
           setEditingJobId(null);
-          // Reload jobs and refresh job details if drawer is open
-          const loadJobs = async () => {
-            try {
-              setLoading(true);
-              setError(null);
-              const res = await apiGetJobs(ALL_JOBS_LIST_PARAMS);
-              
-              let backendJobs: BackendJob[] = [];
-              if (res.data) {
-                if (Array.isArray(res.data)) {
-                  backendJobs = res.data;
-                } else if (Array.isArray(res.data.data)) {
-                  backendJobs = res.data.data;
-                } else if (Array.isArray(res.data.items)) {
-                  backendJobs = res.data.items;
-                }
-              }
-              
-              if (!Array.isArray(backendJobs)) {
-                console.error('Unexpected API response format: data is not an array.', res);
-                setError('Unexpected API response format.');
-                setJobs([]);
-                return;
-              }
-              
-              const mapped = backendJobs.map(mapBackendJob);
-              setJobs(mapped);
-              
-              // Refresh job details if drawer is open
-              if (selectedJob && editingJobId) {
-                const updatedJob = mapped.find(j => j.id === editingJobId);
-                if (updatedJob) {
-                  setSelectedJob(updatedJob);
-                  // Reload full job details
-                  try {
-                    const response = await apiGetJob(editingJobId);
-                    const backendJob = (response as any).data?.data || (response as any).data || response;
-                    
-                    const mappedJob: JobForDrawer = {
-                      id: backendJob.id,
-                      title: backendJob.title,
-                      client: backendJob.client?.companyName || updatedJob.client,
-                      location: backendJob.location || updatedJob.location,
-                      status: mapBackendStatus(backendJob.status) as JobForDrawer['status'],
-                      employmentType: formatEmploymentType(backendJob.type) || undefined,
-                      salaryRange: formatSalaryRange(backendJob.salary),
-                      postedDate: backendJob.postedDate ? new Date(backendJob.postedDate).toISOString().split('T')[0] : 
-                                 backendJob.createdAt ? backendJob.createdAt.split('T')[0] : updatedJob.createdDate,
-                      recruiter: backendJob.assignedTo?.name || updatedJob.owner,
-                      hiringManager: backendJob.hiringManager || 'â€”',
-                      applied: backendJob._count?.matches || updatedJob.applied,
-                      interviewed: backendJob._count?.interviews || updatedJob.interviewed,
-                      offered: 0,
-                      joined: backendJob._count?.placements || updatedJob.joined,
-                      openings: backendJob.openings || updatedJob.openings,
-                      owner: backendJob.assignedTo?.name || updatedJob.owner,
-                      createdDate: backendJob.createdAt ? backendJob.createdAt.split('T')[0] : updatedJob.createdDate,
-                      overview: backendJob.overview || undefined,
-                      keyResponsibilities: backendJob.keyResponsibilities || undefined,
-                      requiredSkills: backendJob.skills || undefined,
-                      preferredSkills: backendJob.preferredSkills || undefined,
-                      experienceRequired: backendJob.experienceRequired || undefined,
-                      education: backendJob.education || undefined,
-                      benefits: backendJob.benefits || undefined,
-                    };
-                    
-                    setJobDetails(mappedJob);
-                    
-                    if (backendJob.pipelineStages && Array.isArray(backendJob.pipelineStages)) {
-                      const stages = backendJob.pipelineStages.map((stage: any) => ({
-                        id: stage.id,
-                        name: stage.name,
-                        sla: '',
-                      }));
-                      setJobPipelineStages(stages);
-                    }
-                  } catch (error) {
-                    console.error('Failed to refresh job details:', error);
-                  }
-                }
-              }
-            } catch (err: any) {
-              setError(err?.message || 'Failed to load jobs from API.');
-              setJobs([]);
-            } finally {
-              setLoading(false);
-            }
-          };
-          loadJobs();
+          void reloadMyJobsAndMetrics();
         }}
       />
 

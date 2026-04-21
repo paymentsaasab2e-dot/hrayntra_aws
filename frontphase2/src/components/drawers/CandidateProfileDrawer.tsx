@@ -7,6 +7,7 @@ import {
   buildFileHref,
 } from '../../utils/cloudinaryUrls';
 import { AnimatePresence, motion } from 'motion/react';
+import { requestSuccess } from '../../lib/appDialog';
 import {
   ArrowRightCircle,
   Briefcase,
@@ -1975,7 +1976,7 @@ function AddToPipelineModal({
         })
       );
       if (typeof window !== 'undefined') {
-        window.alert('Candidate added to pipeline successfully.');
+        void requestSuccess('Candidate added to pipeline successfully.');
       }
       onClose();
     } finally {

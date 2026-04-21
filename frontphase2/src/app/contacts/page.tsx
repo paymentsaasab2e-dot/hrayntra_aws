@@ -22,6 +22,7 @@ import { EditContactDrawer } from '../../components/contacts/EditContactDrawer';
 import { ImportContactsDrawer } from '../../components/contacts/ImportContactsDrawer';
 import { MergeContactsDrawer } from '../../components/contacts/MergeContactsDrawer';
 import { BulkActionsBar } from '../../components/contacts/BulkActionsBar';
+import { requestConfirm } from '../../lib/appDialog';
 
 export const dynamic = 'force-dynamic';
 
@@ -116,7 +117,7 @@ function ContactsPageContent() {
   };
 
   const handleDelete = async (contactId: string) => {
-    if (!confirm('Are you sure you want to delete this contact?')) return;
+    if (!(await requestConfirm('Are you sure you want to delete this contact?'))) return;
     try {
       await apiDeleteContact(contactId);
       toast.success('Contact deleted successfully');

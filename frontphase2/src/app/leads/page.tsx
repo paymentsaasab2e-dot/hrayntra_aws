@@ -23,7 +23,7 @@ import { ImageWithFallback } from '../../components/ImageWithFallback';
 import { LeadDetailsDrawer } from '../../components/drawers/LeadDetailsDrawer';
 import { LeadImportDrawer } from '../../components/drawers/LeadImportDrawer';
 import AriaChat from '../../components/AriaChat';
-import { TablePagination } from '../../components/TablePagination';
+import { MuiTablePagination } from '../../components/MuiTablePagination';
 import type { Lead, LeadStatus, Priority } from './types';
 import {
   apiGetLeads,
@@ -38,6 +38,7 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { splitDateTimeForDisplay } from '../../utils/formatLeadDateTime';
 import { usePermissions } from '../../hooks/usePermissions';
+import { requestError } from '../../lib/appDialog';
 
 /** Last / next follow-up column: date + time on separate lines (not raw ISO). */
 function LeadFollowUpTableCell({
@@ -553,7 +554,7 @@ export default function RecruitmentAgencyDashboard() {
       router.push('/client');
     } catch (err: any) {
       console.error('Failed to convert lead:', err);
-      alert(err.message || 'Failed to convert lead');
+      void requestError(err.message || 'Failed to convert lead');
     }
   };
 
@@ -588,7 +589,7 @@ export default function RecruitmentAgencyDashboard() {
       });
     } catch (err: any) {
       console.error('Failed to update lead status with remark:', err);
-      alert(err.message || 'Failed to update lead status');
+      void requestError(err.message || 'Failed to update lead status');
       // Revert by refreshing from backend
       try {
         await handleRefresh();
@@ -622,7 +623,7 @@ export default function RecruitmentAgencyDashboard() {
       setLeads(prev => prev.map(l => l.id === id ? { ...l, status: 'Lost' as LeadStatus } : l));
     } catch (err: any) {
       console.error('Failed to mark lead as lost:', err);
-      alert(err.message || 'Failed to update lead');
+      void requestError(err.message || 'Failed to update lead');
     }
   };
 
@@ -637,7 +638,7 @@ export default function RecruitmentAgencyDashboard() {
       return true;
     } catch (err: any) {
       console.error('Failed to delete lead:', err);
-      alert(err.message || 'Failed to delete lead');
+      void requestError(err.message || 'Failed to delete lead');
       return false;
     }
   };
@@ -691,7 +692,7 @@ export default function RecruitmentAgencyDashboard() {
       return true;
     } catch (err: any) {
       console.error('Failed to bulk delete leads:', err);
-      alert(err.message || 'Failed to delete selected leads');
+      void requestError(err.message || 'Failed to delete selected leads');
       return false;
     } finally {
       setBulkActionLoading(false);
@@ -734,7 +735,7 @@ export default function RecruitmentAgencyDashboard() {
       await handleRefresh();
     } catch (err: any) {
       console.error('Failed to bulk update leads:', err);
-      alert(err.message || 'Failed to update selected leads');
+      void requestError(err.message || 'Failed to update selected leads');
     } finally {
       setBulkActionLoading(false);
     }
@@ -1186,11 +1187,13 @@ export default function RecruitmentAgencyDashboard() {
               )}
             </div>
             {!loading && !error && (
-              <TablePagination
-                currentPage={currentPage}
-                totalPages={Math.ceil(totalEntries / PAGE_SIZE)}
-                onPageChange={setCurrentPage}
-              />
+              <div className="mt-4 flex justify-end">
+                <MuiTablePagination
+                  currentPage={currentPage}
+                  totalPages={Math.ceil(totalEntries / PAGE_SIZE)}
+                  onPageChange={setCurrentPage}
+                />
+              </div>
             )}
           </div>
         </div>

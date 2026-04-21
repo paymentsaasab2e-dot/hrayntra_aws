@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { motion, AnimatePresence } from 'motion/react';
+import { requestError } from '../../lib/appDialog';
 import {
   X,
   Pencil,
@@ -595,7 +596,7 @@ export function JobDetailsDrawer({
                           window.location.reload(); // Simple refresh for now
                         } catch (error: any) {
                           console.error('Failed to update job status:', error);
-                          alert(error.message || 'Failed to update job status');
+                          void requestError(error.message || 'Failed to update job status');
                         }
                       }}
                       onCancel={() => setShowStatusChange(false)}

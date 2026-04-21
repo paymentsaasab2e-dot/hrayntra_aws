@@ -24,6 +24,7 @@ import {
   apiUploadCandidateResumeFile,
 } from '@/lib/api';
 import { MY_JOBS_LIST_PARAMS } from '@/lib/myJobsListParams';
+import { requestConfirm } from '@/lib/appDialog';
 
 const METHOD_TABS = [
   { key: 'manual', label: 'Manual Entry' },
@@ -600,20 +601,20 @@ export default function AddCandidateDrawer({ isOpen, onClose, onSuccess, current
     if (nextTab) setActiveTab(nextTab);
   };
 
-  const confirmDiscard = () => {
+  const confirmDiscard = async () => {
     if (!hasUnsavedChanges) return true;
-    return window.confirm('You have unsaved changes. Close anyway?');
+    return requestConfirm('You have unsaved changes. Close anyway?');
   };
 
-  const handleDrawerClose = () => {
-    if (!confirmDiscard()) return;
+  const handleDrawerClose = async () => {
+    if (!(await confirmDiscard())) return;
     resetForNext(activeTab);
     onClose();
   };
 
-  const handleTabChange = (nextTab) => {
+  const handleTabChange = async (nextTab) => {
     if (nextTab === activeTab) return;
-    if (!confirmDiscard()) return;
+    if (!(await confirmDiscard())) return;
     resetForNext(nextTab);
   };
 

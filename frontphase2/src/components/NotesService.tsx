@@ -26,6 +26,7 @@ import {
   type CreateJobNoteData,
   type UpdateJobNoteData,
 } from '../lib/api';
+import { requestConfirm, requestError, requestWarning } from '../lib/appDialog';
 
 export type NoteTag = 'HR' | 'Finance' | 'Contract' | 'Feedback';
 
@@ -143,12 +144,12 @@ export function NotesService({
 
   const handleCreateNote = async () => {
     if (!noteForm.title.trim()) {
-      alert('Please enter a note title');
+      void requestWarning('Please enter a note title');
       return;
     }
 
     if (!entityId) {
-      alert(`No ${entityType} selected`);
+      void requestWarning(`No ${entityType} selected`);
       return;
     }
 
@@ -192,13 +193,13 @@ export function NotesService({
       onNoteCreated?.();
     } catch (error: any) {
       console.error('Failed to create note:', error);
-      alert(error.message || 'Failed to create note');
+      void requestError(error.message || 'Failed to create note');
     }
   };
 
   const handleUpdateNote = async (noteId: string) => {
     if (!noteForm.title.trim()) {
-      alert('Please enter a note title');
+      void requestWarning('Please enter a note title');
       return;
     }
 
@@ -244,12 +245,12 @@ export function NotesService({
       onNoteUpdated?.();
     } catch (error: any) {
       console.error('Failed to update note:', error);
-      alert(error.message || 'Failed to update note');
+      void requestError(error.message || 'Failed to update note');
     }
   };
 
   const handleDeleteNote = async (noteId: string) => {
-    if (!confirm('Are you sure you want to delete this note?')) return;
+    if (!(await requestConfirm('Are you sure you want to delete this note?'))) return;
     if (!entityId) return;
 
     try {
@@ -273,7 +274,7 @@ export function NotesService({
       onNoteDeleted?.();
     } catch (error: any) {
       console.error('Failed to delete note:', error);
-      alert(error.message || 'Failed to delete note');
+      void requestError(error.message || 'Failed to delete note');
     }
   };
 
@@ -315,7 +316,7 @@ export function NotesService({
       setPinnedNoteIds(pinned);
     } catch (error: any) {
       console.error('Failed to toggle pin:', error);
-      alert(error.message || 'Failed to toggle pin');
+      void requestError(error.message || 'Failed to toggle pin');
     }
   };
 

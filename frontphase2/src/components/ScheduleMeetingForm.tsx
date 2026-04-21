@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { CalendarPlus, ChevronDown, ChevronRight } from 'lucide-react';
 import { apiCreateScheduledMeeting, apiUpdateLead, type CreateScheduledMeetingData } from '../lib/api';
+import { requestError, requestWarning } from '../lib/appDialog';
 
 export interface ScheduleMeetingFormProps {
   entityType: 'client' | 'lead';
@@ -39,12 +40,12 @@ export function ScheduleMeetingForm({
 
   const handleSubmit = async () => {
     if (!entityId) {
-      alert(`No ${entityType} selected`);
+      void requestWarning(`No ${entityType} selected`);
       return;
     }
 
     if (!formData.date || !formData.time) {
-      alert('Please select both date and time for the meeting/follow-up');
+      void requestWarning('Please select both date and time for the meeting/follow-up');
       return;
     }
 
@@ -79,7 +80,7 @@ export function ScheduleMeetingForm({
       onSuccess?.();
     } catch (error: any) {
       console.error(`Failed to schedule ${entityType === 'client' ? 'meeting' : 'follow-up'}:`, error);
-      alert(error.message || `Failed to schedule ${entityType === 'client' ? 'meeting' : 'follow-up'}`);
+      void requestError(error.message || `Failed to schedule ${entityType === 'client' ? 'meeting' : 'follow-up'}`);
     } finally {
       setIsSubmitting(false);
     }
