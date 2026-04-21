@@ -23,7 +23,7 @@ import { ClientFilterDrawer } from '../../components/drawers/ClientFilterDrawer'
 import { ClientDetailsDrawer } from '../../components/drawers/ClientDetailsDrawer';
 import { ClientImportDrawer } from '../../components/drawers/ClientImportDrawer';
 import { CreateJobDrawer } from '../../components/drawers/CreateJobDrawer';
-import { Pagination } from '../../components/Pagination';
+import { TablePagination } from '../../components/TablePagination';
 import { INITIAL_CLIENTS } from './types';
 import type { Client } from './types';
 import { apiGetClients, apiDeleteClient, apiGetUsers, apiUpdateClient, type BackendClient, type BackendUser, type UpdateClientData } from '../../lib/api';
@@ -197,6 +197,7 @@ function extractBackendClients(responseData: unknown): BackendClient[] {
 }
 
 export default function App() {
+  const PAGE_SIZE = 10;
   const [activeTab, setActiveTab] = useState('all');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [selectedClients, setSelectedClients] = useState<string[]>([]);
@@ -216,7 +217,6 @@ export default function App() {
   const [bulkAssignedTo, setBulkAssignedTo] = useState('');
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
   const [totalEntries, setTotalEntries] = useState(0);
 
   const filteredClients = filterClientsByTab(clients, activeTab);
@@ -264,7 +264,7 @@ export default function App() {
         const response = await apiGetClients({
           search: searchQuery || undefined,
           page: currentPage,
-          limit: pageSize,
+          limit: PAGE_SIZE,
         });
 
         const backendClients = response.data ? extractBackendClients(response.data) : [];
@@ -302,7 +302,7 @@ export default function App() {
     };
 
     fetchClients();
-  }, [searchQuery, currentPage, pageSize]);
+  }, [searchQuery, currentPage]);
 
   const handleRefresh = async () => {
     try {
@@ -310,7 +310,7 @@ export default function App() {
       const response = await apiGetClients({
         search: searchQuery || undefined,
         page: currentPage,
-        limit: pageSize,
+        limit: PAGE_SIZE,
       });
 
       const backendClients = response.data ? extractBackendClients(response.data) : [];
@@ -427,7 +427,10 @@ export default function App() {
               type="text" 
               placeholder="Search by client name..." 
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setCurrentPage(1);
+                setSearchQuery(e.target.value);
+              }}
               className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-slate-700 shadow-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
             />
           </div>
@@ -464,13 +467,10 @@ export default function App() {
               }}
             />
 
-            <Pagination
+            <TablePagination
               currentPage={currentPage}
-              totalPages={Math.ceil(totalEntries / pageSize)}
+              totalPages={Math.ceil(totalEntries / PAGE_SIZE)}
               onPageChange={setCurrentPage}
-              pageSize={pageSize}
-              onPageSizeChange={(newSize) => { setPageSize(newSize); setCurrentPage(1); }}
-              totalEntries={totalEntries}
             />
           </>
         )}
@@ -504,15 +504,27 @@ export default function App() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <select value={bulkAssignedTo} onChange={(e) => handleBulkAssignChange(e.target.value)} disabled={bulkActionLoading} className="bg-slate-900 text-sm p-2 rounded-lg border border-slate-700">
-                <option value="">Assign To</option>
-                {teamMembers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+              <select
+                value={bulkAssignedTo}
+                onChange={(e) => handleBulkAssignChange(e.target.value)}
+                disabled={bulkActionLoading}
+                className="bg-slate-900 text-slate-100 text-sm p-2 rounded-lg border border-slate-700"
+                style={{ WebkitTextFillColor: '#f1f5f9' }}
+              >
+                <option value="" className="text-slate-900 bg-white">Assign To</option>
+                {teamMembers.map(u => <option key={u.id} value={u.id} className="text-slate-900 bg-white">{u.name}</option>)}
               </select>
-              <select value={bulkStatus} onChange={(e) => handleBulkStatusChange(e.target.value)} disabled={bulkActionLoading} className="bg-slate-900 text-sm p-2 rounded-lg border border-slate-700">
-                <option value="">Status</option>
-                <option value="ACTIVE">Active</option>
-                <option value="ON_HOLD">On Hold</option>
-                <option value="INACTIVE">Inactive</option>
+              <select
+                value={bulkStatus}
+                onChange={(e) => handleBulkStatusChange(e.target.value)}
+                disabled={bulkActionLoading}
+                className="bg-slate-900 text-slate-100 text-sm p-2 rounded-lg border border-slate-700"
+                style={{ WebkitTextFillColor: '#f1f5f9' }}
+              >
+                <option value="" className="text-slate-900 bg-white">Status</option>
+                <option value="ACTIVE" className="text-slate-900 bg-white">Active</option>
+                <option value="ON_HOLD" className="text-slate-900 bg-white">On Hold</option>
+                <option value="INACTIVE" className="text-slate-900 bg-white">Inactive</option>
               </select>
               <button onClick={handleBulkDelete} disabled={bulkActionLoading} className="bg-red-600 px-4 py-2 rounded-lg text-sm font-semibold">Delete</button>
               <button onClick={clearBulkSelection} disabled={bulkActionLoading} className="bg-slate-800 px-4 py-2 rounded-lg text-sm font-semibold">Clear</button>

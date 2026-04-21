@@ -46,6 +46,7 @@ export interface CreateJobDrawerProps {
   onClose: () => void;
   onJobCreated?: () => void;
   jobId?: string;
+  duplicateFromJobId?: string | null;
   onJobUpdated?: () => void;
   /** When opening “Add job” from a client, pre-select this client (company) in the form */
   defaultClientId?: string | null;
@@ -85,10 +86,12 @@ export function CreateJobDrawer({
   onClose,
   onJobCreated,
   jobId,
+  duplicateFromJobId = null,
   onJobUpdated,
   defaultClientId = null,
 }: CreateJobDrawerProps) {
   const isEditMode = !!jobId;
+  const isDuplicateMode = !jobId && !!duplicateFromJobId;
   const [loading, setLoading] = useState(false);
   const [loadingJob, setLoadingJob] = useState(false);
   const [clients, setClients] = useState<BackendClient[]>([]);
@@ -328,24 +331,24 @@ export function CreateJobDrawer({
 
   // Pre-select client when opened from Client drawer (add mode only)
   useEffect(() => {
-    if (!isOpen || jobId) return;
+    if (!isOpen || jobId || duplicateFromJobId) return;
     if (defaultClientId) {
       setFormData((prev) => ({ ...prev, companyId: defaultClientId }));
     }
-  }, [isOpen, defaultClientId, jobId]);
+  }, [isOpen, defaultClientId, jobId, duplicateFromJobId]);
 
   // Load data on mount
   useEffect(() => {
     if (isOpen) {
       const loadData = async () => {
         await Promise.all([loadClients(), loadUsers(), loadSocialStatus()]);
-        if (isEditMode && jobId) {
-          await loadJobData();
+        if (jobId || duplicateFromJobId) {
+          await loadJobData(jobId || duplicateFromJobId || undefined);
         }
       };
       loadData();
     }
-  }, [isOpen, jobId, isEditMode]);
+  }, [isOpen, jobId, duplicateFromJobId]);
 
   const loadSocialStatus = async () => {
     try {
@@ -445,11 +448,12 @@ export function CreateJobDrawer({
     }
   };
 
-  const loadJobData = async () => {
-    if (!jobId) return;
+  const loadJobData = async (sourceJobId?: string) => {
+    const targetJobId = sourceJobId || jobId || duplicateFromJobId || undefined;
+    if (!targetJobId) return;
     try {
       setLoadingJob(true);
-      const response = await apiGetJob(jobId);
+      const response = await apiGetJob(targetJobId);
       // Handle different response structures
       const job = response.data || (response as any);
       
@@ -622,7 +626,7 @@ export function CreateJobDrawer({
       
       setFormData(prev => ({
         ...prev,
-        jobTitle: job.title || '',
+        jobTitle: isDuplicateMode ? `${job.title || ''} Copy` : (job.title || ''),
         companyId: job.clientId || '',
         numberOfOpenings: String(job.openings || 1),
         jobDescriptionHtml: job.description || '',

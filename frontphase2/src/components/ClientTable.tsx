@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Eye, Briefcase, Mail, ArrowUpDown, Check, Trash2, Upload } from 'lucide-react';
+import { Eye, Briefcase, Check, Trash2, Upload } from 'lucide-react';
 import { ImageWithFallback } from './ImageWithFallback';
 import type { Client, ClientStage } from '@/app/client/types';
 import { apiUpdateClient, filesApiUpload } from '../lib/api';
@@ -119,9 +119,7 @@ export function ClientTable({ clients, selectedIds, onSelectionChange, onSelectC
                 />
               </th>
               <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                <div className="flex items-center gap-1 cursor-pointer hover:text-slate-700">
-                  Client Name <ArrowUpDown className="w-3 h-3" />
-                </div>
+                <div className="flex items-center gap-1 cursor-pointer hover:text-slate-700">Client Name</div>
               </th>
               <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Industry</th>
               <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Location</th>
@@ -202,13 +200,6 @@ export function ClientTable({ clients, selectedIds, onSelectionChange, onSelectC
                     >
                       <Briefcase className="w-4 h-4" />
                     </button>
-                    <button
-                      type="button"
-                      className="p-1.5 bg-white shadow-sm border border-slate-100 rounded-md text-slate-400 hover:text-indigo-600 transition-all"
-                      title="Email Client"
-                    >
-                      <Mail className="w-4 h-4" />
-                    </button>
                     {onDeleteClient && (
                       <button
                         type="button"
@@ -225,18 +216,6 @@ export function ClientTable({ clients, selectedIds, onSelectionChange, onSelectC
             ))}
           </tbody>
         </table>
-      </div>
-      <div className="px-4 py-3 border-t border-slate-200 flex items-center justify-between bg-white text-sm text-slate-500">
-        <div>Showing 5 of 124 clients</div>
-        <div className="flex items-center gap-2">
-          <button className="px-3 py-1 border border-slate-200 rounded hover:bg-slate-50 disabled:opacity-50" disabled>Previous</button>
-          <div className="flex items-center gap-1">
-            <button className="w-8 h-8 rounded bg-blue-600 text-white font-medium">1</button>
-            <button className="w-8 h-8 rounded hover:bg-slate-50 transition-colors">2</button>
-            <button className="w-8 h-8 rounded hover:bg-slate-50 transition-colors">3</button>
-          </div>
-          <button className="px-3 py-1 border border-slate-200 rounded hover:bg-slate-50">Next</button>
-        </div>
       </div>
     </div>
   );
