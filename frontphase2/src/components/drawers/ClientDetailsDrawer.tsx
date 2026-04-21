@@ -63,7 +63,7 @@ import { ImageWithFallback } from '../ImageWithFallback';
 import { useFiles } from '../../hooks/useFiles';
 import { ScheduleMeetingForm } from '../ScheduleMeetingForm';
 import { NotesService } from '../NotesService';
-import { apiUpdateClient, apiCreateClient, apiGetUsers, apiGetJobs, apiGetContacts, apiCreateContact, apiUpdateContact, apiFetch, apiGetClientActivities, apiGetClientScheduledMeetings, apiCreateScheduledMeeting, apiUpdateScheduledMeeting, apiDeleteScheduledMeeting, filesApiUpload, apiGetJob, type BackendUser, type BackendJob, type BackendContact, type CreateContactData, type BackendClient, type ScheduledMeeting } from '../../lib/api';
+import { apiUpdateClient, apiCreateClient, apiGetUsers, apiGetJobs, apiGetContacts, apiCreateContact, apiUpdateContact, apiDeleteContact, apiFetch, apiGetClientActivities, apiGetClientScheduledMeetings, apiCreateScheduledMeeting, apiUpdateScheduledMeeting, apiDeleteScheduledMeeting, filesApiUpload, apiGetJob, apiUpdateJob, type BackendUser, type BackendJob, type BackendContact, type CreateContactData, type BackendClient, type ScheduledMeeting } from '../../lib/api';
 import { CreateJobDrawer } from './CreateJobDrawer';
 import { JobDetailsDrawer, type JobForDrawer } from './JobDetailsDrawer';
 
@@ -353,10 +353,13 @@ export function ClientDetailsDrawer({
     isPrimary: false,
     notes: '',
   });
+  const [editingContactId, setEditingContactId] = useState<string | null>(null);
+  const [contactToDelete, setContactToDelete] = useState<ClientContact | null>(null);
+  const [deletingContact, setDeletingContact] = useState(false);
 
   const ADD_CONTACT_DEPARTMENTS = ['HR', 'Hiring Manager', 'Finance', 'Other'];
 
-  const openAddContactForm = () => {
+  const resetContactForm = () => {
     setAddContactForm({
       fullName: '',
       designation: '',
@@ -367,11 +370,117 @@ export function ClientDetailsDrawer({
       isPrimary: false,
       notes: '',
     });
+  };
+
+  const openAddContactForm = () => {
+    setEditingContactId(null);
+    resetContactForm();
     setShowAddContactForm(true);
     setAddContactDeptOpen(false);
   };
 
+  const mapBackendContactToClientContact = useCallback((contact: BackendContact): ClientContact => {
+    return {
+      id: contact.id,
+      name: `${contact.firstName} ${contact.lastName}`.trim(),
+      designation: contact.designation || contact.title || '',
+      department: (contact.department as ClientContact['department']) || 'Other',
+      email: contact.email || '',
+      phone: contact.phone || '',
+      isPrimary: contact.isPrimary || false,
+      lastContacted: contact.lastContacted
+        ? new Date(contact.lastContacted).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        : 'Never',
+      avatar: contact.avatar || undefined,
+      preferredChannel: (contact.preferredChannel as ClientContact['preferredChannel']) || undefined,
+      notes: contact.notes || undefined,
+      activity: [],
+    };
+  }, []);
+
+  const refreshClientContacts = useCallback(async () => {
+    if (!client?.id) {
+      setClientContacts([]);
+      return;
+    }
+
+    setLoadingContacts(true);
+    try {
+      const response = await apiGetContacts({ clientId: client.id, type: 'CLIENT' });
+      const contactsList = Array.isArray(response.data)
+        ? response.data
+        : (response.data as any)?.data || (response.data as any)?.items || [];
+      const mappedContacts: ClientContact[] = contactsList.map((contact: BackendContact) =>
+        mapBackendContactToClientContact(contact)
+      );
+      setClientContacts(mappedContacts);
+
+      setSelectedContact((prev) => {
+        if (!prev) return prev;
+        return mappedContacts.find((c) => c.id === prev.id) || null;
+      });
+    } catch (error) {
+      console.error('Failed to fetch contacts:', error);
+      setClientContacts([]);
+    } finally {
+      setLoadingContacts(false);
+    }
+  }, [client?.id, mapBackendContactToClientContact]);
+
+  const handleEditContactClick = (contact: ClientContact) => {
+    setEditingContactId(contact.id);
+    setAddContactForm({
+      fullName: contact.name || '',
+      designation: contact.designation || '',
+      department: contact.department || '',
+      email: contact.email || '',
+      phone: contact.phone || '',
+      whatsAppSameAsPhone: true,
+      isPrimary: Boolean(contact.isPrimary),
+      notes: contact.notes || '',
+    });
+    setShowAddContactForm(true);
+    setAddContactDeptOpen(false);
+  };
+
+  const handleWhatsAppClick = (contact: ClientContact) => {
+    const digits = (contact.phone || '').replace(/\D/g, '');
+    if (!digits) {
+      alert('No phone number available for this contact.');
+      return;
+    }
+    const url = `https://wa.me/${digits}?text=${encodeURIComponent(`Hi ${contact.name || ''}`.trim())}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleEmailClick = (contact: ClientContact) => {
+    if (!contact.email) {
+      alert('No email available for this contact.');
+      return;
+    }
+    const subject = encodeURIComponent(`Hello ${contact.name || ''}`.trim());
+    const body = encodeURIComponent(`Hi ${contact.name || ''},\n\n`);
+    const mailto = `mailto:${contact.email}?subject=${subject}&body=${body}`;
+    window.open(mailto, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleDeleteContact = async () => {
+    if (!contactToDelete) return;
+    try {
+      setDeletingContact(true);
+      await apiDeleteContact(contactToDelete.id);
+      setContactToDelete(null);
+      await refreshClientContacts();
+    } catch (error: any) {
+      console.error('Failed to delete contact:', error);
+      alert(error.message || 'Failed to delete contact');
+    } finally {
+      setDeletingContact(false);
+    }
+  };
+
   const [createJobDrawerOpen, setCreateJobDrawerOpen] = useState(false);
+  const [duplicateFromJobId, setDuplicateFromJobId] = useState<string | null>(null);
 
   const [selectedJobForDrawer, setSelectedJobForDrawer] = useState<JobForDrawer | null>(null);
   const [jobDetailsOpen, setJobDetailsOpen] = useState(false);
@@ -380,7 +489,30 @@ export function ClientDetailsDrawer({
 
   const openCreateJobDrawer = () => {
     setActiveTab('jobs');
+    setDuplicateFromJobId(null);
     setCreateJobDrawerOpen(true);
+  };
+
+  const openDuplicateJobDrawer = (job: ClientJob) => {
+    setActiveTab('jobs');
+    setDuplicateFromJobId(String(job.id));
+    setCreateJobDrawerOpen(true);
+  };
+
+  const handlePauseJob = async (job: ClientJob) => {
+    if (!client?.id) return;
+    try {
+      await apiUpdateJob(String(job.id), {
+        title: job.title,
+        clientId: client.id,
+        status: 'ON_HOLD',
+      });
+      await refreshClientJobs();
+      alert('Job paused successfully.');
+    } catch (error: any) {
+      console.error('Failed to pause job:', error);
+      alert(error?.message || 'Failed to pause job');
+    }
   };
 
   const openJobDrawerFromClientJob = async (job: ClientJob) => {
@@ -1102,50 +1234,8 @@ export function ClientDetailsDrawer({
 
   // Fetch contacts for the client
   useEffect(() => {
-    const fetchClientContacts = async () => {
-      if (!client?.id) {
-        setClientContacts([]);
-        return;
-      }
-
-      setLoadingContacts(true);
-      try {
-        const response = await apiGetContacts({ clientId: client.id, type: 'CLIENT' });
-        const contactsList = Array.isArray(response.data) 
-          ? response.data 
-          : (response.data as any)?.data || (response.data as any)?.items || [];
-        
-        // Map BackendContact to ClientContact format
-        const mappedContacts: ClientContact[] = contactsList.map((contact: BackendContact) => {
-          return {
-            id: contact.id,
-            name: `${contact.firstName} ${contact.lastName}`.trim(),
-            designation: contact.designation || contact.title || '',
-            department: (contact.department as ClientContact['department']) || 'Other',
-            email: contact.email || '',
-            phone: contact.phone || '',
-            isPrimary: contact.isPrimary || false,
-            lastContacted: contact.lastContacted 
-              ? new Date(contact.lastContacted).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-              : 'Never',
-            avatar: contact.avatar || undefined,
-            preferredChannel: (contact.preferredChannel as ClientContact['preferredChannel']) || undefined,
-            notes: contact.notes || undefined,
-            activity: [], // Can be populated from activity logs if needed
-          };
-        });
-        
-        setClientContacts(mappedContacts);
-      } catch (error) {
-        console.error('Failed to fetch contacts:', error);
-        setClientContacts([]);
-      } finally {
-        setLoadingContacts(false);
-      }
-    };
-
-    fetchClientContacts();
-  }, [client?.id]);
+    void refreshClientContacts();
+  }, [refreshClientContacts]);
 
   // Fetch scheduled meetings when schedule tab is active or client changes
   useEffect(() => {
@@ -1240,6 +1330,7 @@ export function ClientDetailsDrawer({
     client?.revenue ||
     '';
   const servicesNeededValue = fullClientData?.servicesNeeded || client?.servicesNeeded || '';
+  const phaseOneJobs = clientJobs.filter((job) => job.status !== 'Paused');
 
   // Don't render if no client and not in add mode
   if (!client && !isAddMode) {
@@ -2892,7 +2983,7 @@ export function ClientDetailsDrawer({
                         >
                           <ChevronRight size={20} className="rotate-180" />
                         </button>
-                        <h2 className="text-lg font-bold text-slate-900">Add Contact</h2>
+                        <h2 className="text-lg font-bold text-slate-900">{editingContactId ? 'Edit Contact' : 'Add Contact'}</h2>
                       </div>
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-5">
                         <div>
@@ -3011,7 +3102,11 @@ export function ClientDetailsDrawer({
                       <div className="flex justify-end gap-3">
                         <button
                           type="button"
-                          onClick={() => setShowAddContactForm(false)}
+                          onClick={() => {
+                            setShowAddContactForm(false);
+                            setEditingContactId(null);
+                            resetContactForm();
+                          }}
                           className="px-4 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors"
                         >
                           Cancel
@@ -3024,7 +3119,7 @@ export function ClientDetailsDrawer({
                               alert('Full name is required');
                               return;
                             }
-                            
+                             
                             try {
                               // Split fullName into firstName and lastName
                               const nameParts = addContactForm.fullName.trim().split(/\s+/);
@@ -3045,54 +3140,23 @@ export function ClientDetailsDrawer({
                                 preferredChannel: 'Email', // Default, can be enhanced later
                               };
 
-                              await apiCreateContact(contactData);
-                              setShowAddContactForm(false);
-                              // Reset form
-                              setAddContactForm({
-                                fullName: '',
-                                designation: '',
-                                department: '',
-                                email: '',
-                                phone: '',
-                                whatsAppSameAsPhone: true,
-                                isPrimary: false,
-                                notes: '',
-                              });
-                              // Refresh contacts list immediately
-                              if (client.id) {
-                                const response = await apiGetContacts({ clientId: client.id, type: 'CLIENT' });
-                                const contactsList = Array.isArray(response.data) 
-                                  ? response.data 
-                                  : (response.data as any)?.data || (response.data as any)?.items || [];
-                                
-                                const mappedContacts: ClientContact[] = contactsList.map((contact: BackendContact) => {
-                                  return {
-                                    id: contact.id,
-                                    name: `${contact.firstName} ${contact.lastName}`.trim(),
-                                    designation: contact.designation || contact.title || '',
-                                    department: (contact.department as ClientContact['department']) || 'Other',
-                                    email: contact.email || '',
-                                    phone: contact.phone || '',
-                                    isPrimary: contact.isPrimary || false,
-                                    lastContacted: contact.lastContacted 
-                                      ? new Date(contact.lastContacted).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                                      : 'Never',
-                                    avatar: contact.avatar || undefined,
-                                    preferredChannel: (contact.preferredChannel as ClientContact['preferredChannel']) || undefined,
-                                    notes: contact.notes || undefined,
-                                    activity: [],
-                                  };
-                                });
-                                setClientContacts(mappedContacts);
+                              if (editingContactId) {
+                                await apiUpdateContact(editingContactId, contactData);
+                              } else {
+                                await apiCreateContact(contactData);
                               }
+                              setShowAddContactForm(false);
+                              setEditingContactId(null);
+                              resetContactForm();
+                              await refreshClientContacts();
                             } catch (error: any) {
-                              console.error('Failed to create contact:', error);
-                              alert(error.message || 'Failed to create contact');
+                              console.error('Failed to save contact:', error);
+                              alert(error.message || 'Failed to save contact');
                             }
                           }}
                           className="px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors"
                         >
-                          Save Contact
+                          {editingContactId ? 'Update Contact' : 'Save Contact'}
                         </button>
                       </div>
                     </div>
@@ -3176,11 +3240,38 @@ export function ClientDetailsDrawer({
                                   <td className="px-4 py-3 text-xs text-slate-500">{contact.lastContacted}</td>
                                   <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                                     <div className="flex items-center justify-end gap-1">
-                                      <button type="button" className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Call"><Phone size={14} /></button>
-                                      <button type="button" className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="WhatsApp"><MessageCircle size={14} /></button>
-                                      <button type="button" className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors" title="Email"><Mail size={14} /></button>
-                                      <button type="button" className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors" title="Edit"><Edit2 size={14} /></button>
-                                      <button type="button" className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete"><Trash2 size={14} /></button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleWhatsAppClick(contact)}
+                                        className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                                        title="WhatsApp"
+                                      >
+                                        <MessageCircle size={14} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleEmailClick(contact)}
+                                        className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                                        title="Email"
+                                      >
+                                        <Mail size={14} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleEditContactClick(contact)}
+                                        className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                                        title="Edit"
+                                      >
+                                        <Edit2 size={14} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setContactToDelete(contact)}
+                                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                        title="Delete"
+                                      >
+                                        <Trash2 size={14} />
+                                      </button>
                                     </div>
                                   </td>
                                 </tr>
@@ -3247,6 +3338,35 @@ export function ClientDetailsDrawer({
                         </motion.div>
                       )}
                     </AnimatePresence>
+                    {contactToDelete && (
+                      <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/45 p-4">
+                        <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+                          <h3 className="text-base font-bold text-slate-900">Delete Contact</h3>
+                          <p className="mt-2 text-sm text-slate-600">
+                            Are you sure you want to delete <span className="font-semibold text-slate-900">{contactToDelete.name}</span>?
+                            This action cannot be undone.
+                          </p>
+                          <div className="mt-5 flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setContactToDelete(null)}
+                              disabled={deletingContact}
+                              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleDeleteContact}
+                              disabled={deletingContact}
+                              className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                            >
+                              {deletingContact ? 'Deleting...' : 'Delete'}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   )
                 ) : activeTab === 'jobs' ? (
@@ -3259,7 +3379,7 @@ export function ClientDetailsDrawer({
                         </div>
                         <div>
                           <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Open Jobs</p>
-                          <p className="text-lg font-bold text-slate-900">{clientJobs.filter((j) => j.status === 'Open').length || client?.openJobs || 0}</p>
+                          <p className="text-lg font-bold text-slate-900">{phaseOneJobs.filter((j) => j.status === 'Open').length || client?.openJobs || 0}</p>
                         </div>
                       </div>
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex items-center gap-3">
@@ -3268,7 +3388,7 @@ export function ClientDetailsDrawer({
                         </div>
                         <div>
                           <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Aging Jobs</p>
-                          <p className="text-lg font-bold text-slate-900">{clientJobs.filter((j) => j.isAging).length}</p>
+                          <p className="text-lg font-bold text-slate-900">{phaseOneJobs.filter((j) => j.isAging).length}</p>
                         </div>
                       </div>
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
@@ -3278,7 +3398,7 @@ export function ClientDetailsDrawer({
                         </div>
                         <div className="space-y-1.5">
                           {(() => {
-                            const byDept = clientJobs.reduce<Record<string, number>>((acc, j) => {
+                            const byDept = phaseOneJobs.reduce<Record<string, number>>((acc, j) => {
                               acc[j.department] = (acc[j.department] ?? 0) + 1;
                               return acc;
                             }, {});
@@ -3293,7 +3413,7 @@ export function ClientDetailsDrawer({
                               </div>
                             ));
                           })()}
-                          {clientJobs.length === 0 && (
+                          {phaseOneJobs.length === 0 && (
                             <p className="text-xs text-slate-500">No jobs</p>
                           )}
                         </div>
@@ -3334,14 +3454,14 @@ export function ClientDetailsDrawer({
                                   Loading jobs...
                                 </td>
                               </tr>
-                            ) : clientJobs.length === 0 ? (
+                            ) : phaseOneJobs.length === 0 ? (
                               <tr>
                                 <td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-500">
                                   No jobs yet. Click Add Job to create one.
                                 </td>
                               </tr>
                             ) : (
-                              clientJobs.map((job: ClientJob) => (
+                              phaseOneJobs.map((job: ClientJob) => (
                                 <tr key={job.id} className="hover:bg-slate-50/80 transition-colors">
                                   <td className="px-4 py-3">
                                     <p className="text-sm font-medium text-slate-900">{job.title}</p>
@@ -3386,9 +3506,28 @@ export function ClientDetailsDrawer({
                                       >
                                         <Eye size={14} />
                                       </button>
-                                      <button type="button" className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Add candidates"><UserPlus size={14} /></button>
-                                      <button type="button" className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors" title="Pause job"><Pause size={14} /></button>
-                                      <button type="button" className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors" title="Duplicate job"><Copy size={14} /></button>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          void handlePauseJob(job);
+                                        }}
+                                        className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                                        title="Pause job"
+                                      >
+                                        <Pause size={14} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          openDuplicateJobDrawer(job);
+                                        }}
+                                        className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                                        title="Duplicate job"
+                                      >
+                                        <Copy size={14} />
+                                      </button>
                                     </div>
                                   </td>
                                 </tr>
@@ -4090,10 +4229,15 @@ export function ClientDetailsDrawer({
     </AnimatePresence>
     <CreateJobDrawer
       isOpen={createJobDrawerOpen}
-      onClose={() => setCreateJobDrawerOpen(false)}
+      onClose={() => {
+        setCreateJobDrawerOpen(false);
+        setDuplicateFromJobId(null);
+      }}
       defaultClientId={client?.id ?? null}
+      duplicateFromJobId={duplicateFromJobId}
       onJobCreated={() => {
         setCreateJobDrawerOpen(false);
+        setDuplicateFromJobId(null);
         void refreshClientJobs();
         if (client?.id) {
           void apiGetClientActivities(client.id)
@@ -4107,16 +4251,6 @@ export function ClientDetailsDrawer({
 
                 const activityDate = new Date(activity.createdAt);
                 const now = new Date();
-    <JobDetailsDrawer
-      isOpen={jobDetailsOpen}
-      onClose={() => {
-        setJobDetailsOpen(false);
-        setSelectedJobForDrawer(null);
-      }}
-      job={selectedJobForDrawer}
-      jobCandidates={jobCandidatesForDrawer}
-      pipelineStages={jobPipelineStagesForDrawer}
-    />
                 const isToday = activityDate.toDateString() === now.toDateString();
                 const isYesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000).toDateString() === activityDate.toDateString();
 
@@ -4163,6 +4297,16 @@ export function ClientDetailsDrawer({
         }
         onJobCreated?.();
       }}
+    />
+    <JobDetailsDrawer
+      isOpen={jobDetailsOpen}
+      onClose={() => {
+        setJobDetailsOpen(false);
+        setSelectedJobForDrawer(null);
+      }}
+      job={selectedJobForDrawer}
+      jobCandidates={jobCandidatesForDrawer}
+      pipelineStages={jobPipelineStagesForDrawer}
     />
     </>
   );

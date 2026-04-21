@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { FloatingBotMount } from "../components/FloatingBotMount";
+import { GlobalAlertHost } from "../components/GlobalAlertHost";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -16,6 +17,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body suppressHydrationWarning>
         {children}
+        <GlobalAlertHost />
         <FloatingBotMount />
       </body>
     </html>

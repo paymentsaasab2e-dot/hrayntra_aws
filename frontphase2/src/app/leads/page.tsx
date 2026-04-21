@@ -23,7 +23,7 @@ import { ImageWithFallback } from '../../components/ImageWithFallback';
 import { LeadDetailsDrawer } from '../../components/drawers/LeadDetailsDrawer';
 import { LeadImportDrawer } from '../../components/drawers/LeadImportDrawer';
 import AriaChat from '../../components/AriaChat';
-import { Pagination } from '../../components/Pagination';
+import { TablePagination } from '../../components/TablePagination';
 import type { Lead, LeadStatus, Priority } from './types';
 import {
   apiGetLeads,
@@ -304,6 +304,7 @@ function extractBackendLeads(
 }
 
 export default function RecruitmentAgencyDashboard() {
+  const PAGE_SIZE = 10;
   const router = useRouter();
   const { hasPermission, hasAnyPermission } = usePermissions();
   const canCreateLead = hasPermission('leads_create');
@@ -326,8 +327,14 @@ export default function RecruitmentAgencyDashboard() {
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
   const [highlightedRows, setHighlightedRows] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
   const [totalEntries, setTotalEntries] = useState(0);
+  const [deleteConfirmState, setDeleteConfirmState] = useState<{
+    mode: 'single' | 'bulk';
+    leadId?: string;
+    companyName?: string;
+    count?: number;
+  } | null>(null);
+  const [deleteConfirmLoading, setDeleteConfirmLoading] = useState(false);
   const [metrics, setMetrics] = useState({
     NEW_LEADS: 0,
     CONTACTED: 0,
@@ -397,7 +404,7 @@ export default function RecruitmentAgencyDashboard() {
           status: statusFilter !== 'All' ? statusFilter : undefined,
           search: searchQuery || undefined,
           page: currentPage,
-          limit: pageSize,
+          limit: PAGE_SIZE,
         });
         
         // Backend returns: { success: true, message: "...", data: { data: [...], pagination: {...} } }
@@ -442,7 +449,7 @@ export default function RecruitmentAgencyDashboard() {
     };
 
     fetchLeads();
-  }, [statusFilter, searchQuery, currentPage, pageSize]);
+  }, [statusFilter, searchQuery, currentPage]);
 
   const filteredLeads = useMemo(() => {
     // If we're using API, filtering is done server-side, but we can still filter client-side for search
@@ -627,9 +634,11 @@ export default function RecruitmentAgencyDashboard() {
       if (selectedLeadId === id) {
         setSelectedLeadId(null);
       }
+      return true;
     } catch (err: any) {
       console.error('Failed to delete lead:', err);
       alert(err.message || 'Failed to delete lead');
+      return false;
     }
   };
 
@@ -640,7 +649,7 @@ export default function RecruitmentAgencyDashboard() {
         status: statusFilter !== 'All' ? statusFilter : undefined,
         search: searchQuery || undefined,
         page: currentPage,
-        limit: pageSize,
+        limit: PAGE_SIZE,
       });
       
       // Backend returns: { success: true, message: "...", data: { data: [...], pagination: {...} } }
@@ -673,22 +682,45 @@ export default function RecruitmentAgencyDashboard() {
     setBulkAssignedTo('');
   };
 
-  const handleBulkLeadDelete = async () => {
-    if (selectedLeadIds.length === 0) return;
-    if (!confirm(`Delete ${selectedLeadIds.length} selected lead${selectedLeadIds.length > 1 ? 's' : ''}? This action cannot be undone.`)) {
-      return;
-    }
-
+  const executeBulkLeadDelete = async () => {
     try {
       setBulkActionLoading(true);
       await Promise.all(selectedLeadIds.map((id) => apiDeleteLead(id)));
       clearBulkSelection();
       await handleRefresh();
+      return true;
     } catch (err: any) {
       console.error('Failed to bulk delete leads:', err);
       alert(err.message || 'Failed to delete selected leads');
+      return false;
     } finally {
       setBulkActionLoading(false);
+    }
+  };
+
+  const handleBulkLeadDelete = () => {
+    if (selectedLeadIds.length === 0) return;
+    setDeleteConfirmState({
+      mode: 'bulk',
+      count: selectedLeadIds.length,
+    });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteConfirmState) return;
+    setDeleteConfirmLoading(true);
+    let success = false;
+    try {
+      if (deleteConfirmState.mode === 'single' && deleteConfirmState.leadId) {
+        success = await handleDeleteLead(deleteConfirmState.leadId);
+      } else if (deleteConfirmState.mode === 'bulk') {
+        success = await executeBulkLeadDelete();
+      }
+    } finally {
+      setDeleteConfirmLoading(false);
+      if (success) {
+        setDeleteConfirmState(null);
+      }
     }
   };
 
@@ -913,7 +945,10 @@ export default function RecruitmentAgencyDashboard() {
                   placeholder="Search company, email, or contact..." 
                   className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => {
+                    setCurrentPage(1);
+                    setSearchQuery(e.target.value);
+                  }}
                 />
               </div>
               
@@ -927,7 +962,10 @@ export default function RecruitmentAgencyDashboard() {
                   <select 
                     className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer hover:border-blue-300 transition-colors"
                     value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value as LeadStatus | 'All')}
+                    onChange={(e) => {
+                      setCurrentPage(1);
+                      setStatusFilter(e.target.value as LeadStatus | 'All');
+                    }}
                   >
                     <option value="All">All Statuses</option>
                     <option value="New">New</option>
@@ -954,6 +992,7 @@ export default function RecruitmentAgencyDashboard() {
                   <button 
                     className="text-sm text-slate-500 hover:text-red-600 font-medium px-2 py-1 flex items-center gap-1 transition-colors"
                     onClick={() => {
+                      setCurrentPage(1);
                       setSearchQuery('');
                       setStatusFilter('All');
                     }}
@@ -1043,7 +1082,7 @@ export default function RecruitmentAgencyDashboard() {
                         <div className="flex flex-col gap-2">
                           {canUpdateLead ? (
                             <select
-                              className="px-3 py-1 rounded-full border border-slate-300 bg-white text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
+                              className="px-3 py-1 rounded-full border border-slate-300 bg-white text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
                               value={lead.status}
                               onChange={(e) =>
                                 handleInlineStatusChange(lead.id, e.target.value as LeadStatus)
@@ -1125,11 +1164,13 @@ export default function RecruitmentAgencyDashboard() {
                             <button 
                               className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md" 
                               title="Delete Lead"
-                              onClick={async (e) => {
+                              onClick={(e) => {
                                 e.stopPropagation();
-                                if (confirm(`Are you sure you want to delete ${lead.companyName}? This action cannot be undone.`)) {
-                                  await handleDeleteLead(lead.id);
-                                }
+                                setDeleteConfirmState({
+                                  mode: 'single',
+                                  leadId: lead.id,
+                                  companyName: lead.companyName,
+                                });
                               }}
                             >
                               <Trash2 size={18} />
@@ -1144,6 +1185,13 @@ export default function RecruitmentAgencyDashboard() {
                 </table>
               )}
             </div>
+            {!loading && !error && (
+              <TablePagination
+                currentPage={currentPage}
+                totalPages={Math.ceil(totalEntries / PAGE_SIZE)}
+                onPageChange={setCurrentPage}
+              />
+            )}
           </div>
         </div>
 
@@ -1223,10 +1271,11 @@ export default function RecruitmentAgencyDashboard() {
                       onChange={(e) => handleBulkLeadAssignChange(e.target.value)}
                       disabled={bulkActionLoading}
                       className="bg-transparent text-sm text-slate-100 outline-none"
+                      style={{ WebkitTextFillColor: '#f1f5f9' }}
                     >
-                      <option value="">Assign To</option>
+                      <option value="" className="text-slate-900 bg-white">Assign To</option>
                       {teamMembers.map((user) => (
-                        <option key={user.id} value={user.id}>
+                        <option key={user.id} value={user.id} className="text-slate-900 bg-white">
                           {user.name}
                         </option>
                       ))}
@@ -1242,13 +1291,14 @@ export default function RecruitmentAgencyDashboard() {
                       onChange={(e) => handleBulkLeadStatusChange(e.target.value)}
                       disabled={bulkActionLoading}
                       className="bg-transparent text-sm text-slate-100 outline-none"
+                      style={{ WebkitTextFillColor: '#f1f5f9' }}
                     >
-                      <option value="">Change Status</option>
-                      <option value="New">New</option>
-                      <option value="Contacted">Contacted</option>
-                      <option value="Qualified">Qualified</option>
-                      <option value="Converted">Converted</option>
-                      <option value="Lost">Lost</option>
+                      <option value="" className="text-slate-900 bg-white">Change Status</option>
+                      <option value="New" className="text-slate-900 bg-white">New</option>
+                      <option value="Contacted" className="text-slate-900 bg-white">Contacted</option>
+                      <option value="Qualified" className="text-slate-900 bg-white">Qualified</option>
+                      <option value="Converted" className="text-slate-900 bg-white">Converted</option>
+                      <option value="Lost" className="text-slate-900 bg-white">Lost</option>
                     </select>
                   </div>
                 )}
@@ -1273,6 +1323,46 @@ export default function RecruitmentAgencyDashboard() {
                 >
                   <X className="w-4 h-4" />
                   Clear
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {deleteConfirmState && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"
+            onClick={() => {
+              if (!deleteConfirmLoading) {
+                setDeleteConfirmState(null);
+              }
+            }}
+          >
+            <div
+              className="w-full max-w-md rounded-2xl border border-rose-300/40 bg-[#221218] p-5 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p className="text-sm font-medium text-white mb-6">
+                {deleteConfirmState.mode === 'single'
+                  ? `Are you sure you want to delete ${deleteConfirmState.companyName}?`
+                  : `Are you sure you want to delete ${deleteConfirmState.count} selected lead${deleteConfirmState.count === 1 ? '' : 's'}?`}{' '}
+                <span className="text-slate-300">This action cannot be undone.</span>
+              </p>
+              <div className="flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirmState(null)}
+                  disabled={deleteConfirmLoading}
+                  className="rounded-full border border-rose-300/70 px-5 py-2 text-sm font-semibold text-rose-100 hover:bg-rose-300/10 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDelete}
+                  disabled={deleteConfirmLoading}
+                  className="rounded-full bg-rose-300 px-6 py-2 text-sm font-bold text-rose-900 hover:bg-rose-200 disabled:opacity-60"
+                >
+                  {deleteConfirmLoading ? 'Deleting...' : 'OK'}
                 </button>
               </div>
             </div>
