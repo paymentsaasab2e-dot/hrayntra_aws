@@ -67,11 +67,13 @@ enum ApplicationStatus {
   REJECTED
 }
 
-enum NotificationType {
-  UPDATE
-  NEW
-  REMINDER
-  ALERT
+enum NotificationUserType {
+  job
+  application
+  interview
+  course
+  system
+  saved_search
 }
 
 enum OtpStatus {
@@ -940,21 +942,25 @@ model ApplicationCommunication {
 // ============================================================
 
 model Notification {
-  id          String           @id @default(auto()) @map("_id") @db.ObjectId
-  candidateId String           @db.ObjectId
-  type        NotificationType
-  title       String
-  message     String
-  isRead      Boolean          @default(false)
-  link        String?
-  createdAt   DateTime         @default(now())
+  id            String              @id @default(auto()) @map("_id") @db.ObjectId
+  candidateId   String              @db.ObjectId
+  type          NotificationUserType
+  title         String
+  description   String
+  actionButton  String?
+  actionPath    String?
+  metadata      Json?               // Additional data like jobId, applicationId, etc.
+  isRead        Boolean             @default(false)
+  readAt        DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
 
-  candidate   Candidate        @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  candidate     Candidate           @relation(fields: [candidateId], references: [id], onDelete: Cascade)
 
-  @@index([candidateId])
-  @@index([isRead])
-  @@index([createdAt])
   @@map("notifications")
+  @@index([candidateId])
+  @@index([candidateId, isRead])
+  @@index([createdAt])
 }
 
 // ============================================================
@@ -1360,3 +1366,4 @@ model GlobalAiInterviewMessage {
 
   @@map("global_ai_interview_messages")
 }
+

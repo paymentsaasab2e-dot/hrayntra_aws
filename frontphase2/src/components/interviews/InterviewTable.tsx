@@ -3,12 +3,14 @@ import { CalendarDays, CheckSquare, ExternalLink, MessageSquareText, MapPin, Mon
 import { ActionsDropdown, type InterviewAction } from './ActionsDropdown';
 import type { Interview } from '../../types/interview.types';
 import { getCandidateStageBadgeClasses, getCandidateStageLabel } from '../../utils/candidateStage';
+import { Pagination } from '../Pagination';
 
 interface InterviewTableProps {
   interviews: Interview[];
   selectedIds: string[];
   page: number;
   totalPages: number;
+  totalEntries: number;
   onToggleSelect: (interviewId: string) => void;
   onToggleSelectAll: () => void;
   onRowClick: (interview: Interview) => void;
@@ -43,6 +45,7 @@ export function InterviewTable({
   selectedIds,
   page,
   totalPages,
+  totalEntries,
   onToggleSelect,
   onToggleSelectAll,
   onRowClick,
@@ -200,41 +203,25 @@ export function InterviewTable({
       </div>
 
       <div className="flex items-center justify-between border-t border-[#E5E7EB] px-5 py-4">
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="flex items-center justify-between border-t border-[#E5E7EB] px-5 py-4">
         <div className="flex items-center gap-2 text-[12px] text-[#6B7280]">
           <CheckSquare className="size-4" />
           {selectedIds.length} selected
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            disabled={page === 1}
-            onClick={() => onPageChange(page - 1)}
-            className="rounded-lg border border-[#E5E7EB] px-3 py-1.5 text-[12px] font-medium text-[#374151] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Prev
-          </button>
-          {Array.from({ length: totalPages }).map((_, index) => (
-            <button
-              key={index}
-              type="button"
-              onClick={() => onPageChange(index + 1)}
-              className={`rounded-lg px-3 py-1.5 text-[12px] font-medium ${
-                page === index + 1 ? 'bg-[#2563EB] text-white' : 'border border-[#E5E7EB] text-[#374151]'
-              }`}
-            >
-              {index + 1}
-            </button>
-          ))}
-          <button
-            type="button"
-            disabled={page === totalPages}
-            onClick={() => onPageChange(page + 1)}
-            className="rounded-lg border border-[#E5E7EB] px-3 py-1.5 text-[12px] font-medium text-[#374151] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Next
-          </button>
-        </div>
+        <Pagination
+          currentPage={page}
+          totalPages={totalPages}
+          totalEntries={totalEntries}
+          onPageChange={onPageChange}
+        />
+
       </div>
     </div>
   );

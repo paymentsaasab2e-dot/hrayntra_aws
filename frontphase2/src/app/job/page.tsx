@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -23,6 +23,7 @@ import {
   CheckSquare,
   Trash2
 } from 'lucide-react';
+import { Pagination } from '../../components/Pagination';
 import { motion, AnimatePresence } from 'motion/react';
 import { Toaster, toast } from 'sonner';
 import { CreateTaskModal } from '../../components/CreateTaskModal';
@@ -589,6 +590,9 @@ export default function JobsPage() {
     newStatus: null,
     remark: '',
   });
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalEntries, setTotalEntries] = useState(0);
 
   // Handle LinkedIn OAuth callback
   useEffect(() => {
@@ -622,12 +626,17 @@ export default function JobsPage() {
       try {
         setLoading(true);
         setError(null);
-        const res = await apiGetJobs(ALL_JOBS_LIST_PARAMS);
+        const res = await apiGetJobs({
+          page: currentPage,
+          limit: pageSize,
+        });
         if (cancelled) return;
         
         // Backend returns: { success: true, message: "...", data: { data: [...], pagination: {...} } }
         // So res.data is { data: [...], pagination: {...} }
         let backendJobs: BackendJob[] = [];
+        let pagination: any = null;
+
         if (res.data) {
           if (Array.isArray(res.data)) {
             // Direct array (unlikely but handle it)
@@ -635,6 +644,7 @@ export default function JobsPage() {
           } else if (Array.isArray(res.data.data)) {
             // Paginated response: { data: [...], pagination: {...} }
             backendJobs = res.data.data;
+            pagination = res.data.pagination;
           } else if (Array.isArray(res.data.items)) {
             // Alternative structure with items
             backendJobs = res.data.items;
@@ -648,15 +658,22 @@ export default function JobsPage() {
           console.error('Unexpected API response format: data is not an array.', res);
           setError('Unexpected API response format.');
           setJobs([]);
+          setTotalEntries(0);
           return;
         }
         
         const mapped = backendJobs.map(mapBackendJob);
         setJobs(mapped);
+        if (pagination) {
+          setTotalEntries(pagination.total || 0);
+        } else {
+          setTotalEntries(mapped.length);
+        }
       } catch (err: any) {
         if (cancelled) return;
         setError(err?.message || 'Failed to load jobs from API.');
         setJobs([]);
+        setTotalEntries(0);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -691,7 +708,7 @@ export default function JobsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [currentPage, pageSize]);
 
   const [loadingJobDetails, setLoadingJobDetails] = useState(false);
   const [jobDetails, setJobDetails] = useState<JobForDrawer | null>(null);
@@ -713,26 +730,40 @@ export default function JobsPage() {
     try {
       setLoading(true);
       setError(null);
-      const res = await apiGetJobs(ALL_JOBS_LIST_PARAMS);
+      const res = await apiGetJobs({
+        page: currentPage,
+        limit: pageSize,
+      });
       let backendJobs: BackendJob[] = [];
+      let pagination: any = null;
+      
       if (res.data) {
         if (Array.isArray(res.data)) {
           backendJobs = res.data;
         } else if (Array.isArray((res.data as { data?: BackendJob[] }).data)) {
           backendJobs = (res.data as { data: BackendJob[] }).data;
+          pagination = (res.data as any).pagination;
         } else if (Array.isArray((res.data as { items?: BackendJob[] }).items)) {
           backendJobs = (res.data as { items: BackendJob[] }).items;
         }
       }
       if (Array.isArray(backendJobs)) {
-        setJobs(backendJobs.map(mapBackendJob));
+        const mapped = backendJobs.map(mapBackendJob);
+        setJobs(mapped);
+        if (pagination) {
+          setTotalEntries(pagination.total || 0);
+        } else {
+          setTotalEntries(mapped.length);
+        }
       } else {
         setJobs([]);
+        setTotalEntries(0);
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to load jobs';
       setError(message);
       setJobs([]);
+      setTotalEntries(0);
     } finally {
       setLoading(false);
     }
@@ -1372,20 +1403,34 @@ export default function JobsPage() {
                   Loading jobs from API...
                 </div>
               ) : view === 'list' ? (
-                <JobsListView 
-                  jobs={jobs} 
-                  onJobClick={openJobDrawer} 
-                  onDeleteJob={canDeleteJob ? handleDeleteJob : undefined} 
-                  deletingJobId={deletingJobId}
-                  canUpdateJob={canUpdateJob}
-                  canDeleteJob={canDeleteJob}
-                  canAddCandidate={canAddCandidate}
-                  statusEdit={statusEdit}
-                  onStatusChange={handleInlineStatusChange}
-                  onRemarkChange={handleRemarkChange}
-                  onSaveStatusEdit={handleSaveStatusEdit}
-                  onCancelStatusEdit={handleCancelStatusEdit}
-                />
+                <>
+                  <JobsListView 
+                    jobs={jobs} 
+                    onJobClick={openJobDrawer} 
+                    onDeleteJob={canDeleteJob ? handleDeleteJob : undefined} 
+                    deletingJobId={deletingJobId}
+                    canUpdateJob={canUpdateJob}
+                    canDeleteJob={canDeleteJob}
+                    canAddCandidate={canAddCandidate}
+                    statusEdit={statusEdit}
+                    onStatusChange={handleInlineStatusChange}
+                    onRemarkChange={handleRemarkChange}
+                    onSaveStatusEdit={handleSaveStatusEdit}
+                    onCancelStatusEdit={handleCancelStatusEdit}
+                  />
+                  
+                  <Pagination
+                    currentPage={currentPage}
+                    totalPages={Math.ceil(totalEntries / pageSize)}
+                    onPageChange={setCurrentPage}
+                    pageSize={pageSize}
+                    onPageSizeChange={(newSize) => {
+                      setPageSize(newSize);
+                      setCurrentPage(1);
+                    }}
+                    totalEntries={totalEntries}
+                  />
+                </>
               ) : (
                 <JobsBoardView jobs={jobs} onJobClick={openJobDrawer} canAssignJob={canAssignJob} />
               )}

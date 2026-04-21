@@ -40,6 +40,7 @@ export default function InterviewsPage() {
     pagination,
     setPagination,
     totalPages,
+    totalEntries,
     selectedIds,
     setSelectedIds,
     searchQuery,
@@ -158,6 +159,7 @@ export default function InterviewsPage() {
         selectedIds={selectedIds}
         page={pagination.page}
         totalPages={totalPages}
+        totalEntries={totalEntries}
         onToggleSelect={(interviewId) =>
           setSelectedIds((current) =>
             current.includes(interviewId) ? current.filter((id) => id !== interviewId) : [...current, interviewId]

@@ -11,14 +11,7 @@ export default function DashboardLayout({
 
   return (
     <div className="min-h-screen bg-slate-50 font-['Arimo',sans-serif]">
-      <Sidenav 
-        avatarUrl={avatarUrl}
-        userProfile={{
-          name: 'Ulli Thumke',
-          role: 'UI Designer',
-          avatarUrl: avatarUrl
-        }}
-      >
+      <Sidenav>
         {children}
       </Sidenav>
     </div>

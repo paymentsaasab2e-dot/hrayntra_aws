@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { usePermissions } from '../hooks/usePermissions';
+import { useUser } from '../hooks/useUser';
 import { apiGetUnifiedCalendar, apiLogout } from '../lib/api';
 import { NotificationDrawer } from './NotificationDrawer';
 import { 
@@ -60,7 +61,7 @@ const ImageWithFallback = ({
 
 // ─── Quick Action Popover ─────────────────────────────────────────────────────
 // ─── User Dropdown ────────────────────────────────────────────────────────────
-const UserDropdown = ({ avatarUrl }: { avatarUrl: string }) => {
+const UserDropdown = ({ avatarUrl, userName, userRole }: { avatarUrl: string; userName: string; userRole: string }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -82,6 +83,16 @@ const UserDropdown = ({ avatarUrl }: { avatarUrl: string }) => {
   ];
 
   async function handleMenuClick(label: string) {
+    if (label === 'My Profile') {
+      router.push('/setting?section=profile');
+      setIsOpen(false);
+      return;
+    }
+    if (label === 'Settings') {
+      router.push('/setting');
+      setIsOpen(false);
+      return;
+    }
     if (label !== 'Logout' || isLoggingOut) {
       return;
     }
@@ -109,15 +120,15 @@ const UserDropdown = ({ avatarUrl }: { avatarUrl: string }) => {
       <AnimatePresence>
         {isOpen && (
           <motion.div
-            initial={{ opacity: 0, y: 8, scale: 0.95 }}
+            initial={{ opacity: 0, y: -8, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 8, scale: 0.95 }}
+            exit={{ opacity: 0, y: -8, scale: 0.95 }}
             transition={{ duration: 0.15 }}
-            className="absolute right-0 mt-3 w-52 bg-white rounded-xl shadow-2xl border border-slate-100 py-2 z-50"
+            className="absolute bottom-full mb-3 left-0 w-52 bg-white rounded-xl shadow-2xl border border-slate-100 py-2 z-50"
           >
             <div className="px-4 py-2 border-b border-slate-100 mb-1">
-              <p className="text-sm font-semibold text-slate-800">John Doe</p>
-              <p className="text-xs text-slate-500">Recruiter • SAASA B2E</p>
+              <p className="text-sm font-semibold text-slate-800">{userName}</p>
+              <p className="text-xs text-slate-500">{userRole}</p>
             </div>
             {menuItems.map((item, i) => (
               <button
@@ -237,6 +248,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
   const [notificationDrawerOpen, setNotificationDrawerOpen] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
   const { hasPermission, hasAnyPermission, isAdmin, isSuperAdmin } = usePermissions();
+  const { user } = useUser();
   
   // Ensure client-side only rendering to prevent hydration errors
   useEffect(() => {
@@ -282,9 +294,9 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
   const showAll = mounted && isSuperAdmin();
 
   const profile = {
-    name: userProfile?.name || 'Ulli Thumke',
-    role: userProfile?.role || 'UI Designer',
-    avatarUrl: userProfile?.avatarUrl || avatarUrl,
+    name: user?.name || userProfile?.name || 'User',
+    role: user?.role || userProfile?.role || '',
+    avatarUrl: user?.avatar || userProfile?.avatarUrl || avatarUrl,
   };
 
   const SIDEBAR_W = isCollapsed ? 64 : 240;
@@ -360,7 +372,11 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
             </Tooltip>
           </div>
 
-          <UserDropdown avatarUrl={avatarUrl} />
+          <UserDropdown 
+            avatarUrl={profile.avatarUrl} 
+            userName={profile.name}
+            userRole={profile.role}
+          />
         </div>
       </nav>
 
@@ -494,11 +510,13 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
 
           {/* User row */}
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-full overflow-hidden shrink-0 ring-2 ring-white/10">
-              <ImageWithFallback src={profile.avatarUrl} alt="Profile" className="w-full h-full object-cover" />
-            </div>
+            <UserDropdown 
+              avatarUrl={profile.avatarUrl} 
+              userName={profile.name} 
+              userRole={profile.role} 
+            />
             {!isCollapsed && (
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <p className="text-[12px] font-semibold text-white truncate">{profile.name}</p>
                 <p className="text-[10px] text-[#4A6070] truncate">{profile.role}</p>
               </div>

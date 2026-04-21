@@ -7,8 +7,9 @@ import { leadFileService } from '../lead/lead-file.service.js';
 import { clientFileService } from '../client/client-file.service.js';
 import { candidateFileService } from '../candidate/candidate-file.service.js';
 import { interviewFileService } from '../interview/interview-file.service.js';
+import { userFileService } from '../user/user-file.service.js';
 
-const SUPPORTED_ENTITY_TYPES = ['job', 'lead', 'client', 'candidate', 'interview'];
+const SUPPORTED_ENTITY_TYPES = ['job', 'lead', 'client', 'candidate', 'interview', 'user'];
 
 export const filesService = {
   /**
@@ -37,6 +38,9 @@ export const filesService = {
     }
     if (entityType === 'interview') {
       return interviewFileService.getAll(entityId);
+    }
+    if (entityType === 'user') {
+      return userFileService.getAll(entityId);
     }
     return [];
   },
@@ -67,6 +71,9 @@ export const filesService = {
     if (entityType === 'interview') {
       return interviewFileService.create(entityId, fileData, uploadedById);
     }
+    if (entityType === 'user') {
+      return userFileService.create(entityId, fileData, uploadedById);
+    }
     throw new Error(`Create not implemented for entityType: ${entityType}`);
   },
 
@@ -91,6 +98,11 @@ export const filesService = {
     }
     if (entityType === 'interview') {
       return interviewFileService.delete(fileId);
+    }
+    if (entityType === 'user') {
+      // For user, fileId is expected to be the userId (avatar-userId)
+      const userId = fileId.replace('avatar-', '');
+      return userFileService.delete(userId);
     }
     throw new Error(`Delete not implemented for entityType: ${entityType}`);
   },

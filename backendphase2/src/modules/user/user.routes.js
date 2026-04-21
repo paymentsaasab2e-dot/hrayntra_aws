@@ -5,6 +5,9 @@ import { roleMiddleware } from '../../middleware/role.middleware.js';
 
 const router = express.Router();
 
+router.get('/me', authMiddleware, userController.getMe);
+router.patch('/me', authMiddleware, userController.updateMe);
+
 router.get('/', authMiddleware, userController.getAll);
 router.get('/:id', authMiddleware, userController.getById);
 router.patch('/:id', authMiddleware, roleMiddleware(['ADMIN', 'SUPER_ADMIN']), userController.update);

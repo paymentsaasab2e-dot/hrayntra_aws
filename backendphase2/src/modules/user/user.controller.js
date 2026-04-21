@@ -11,6 +11,18 @@ export const userController = {
     }
   },
 
+  async getMe(req, res) {
+    try {
+      const user = await userService.getById(req.user.id);
+      if (!user) {
+        return sendError(res, 404, 'User not found');
+      }
+      sendResponse(res, 200, 'User profile retrieved successfully', user);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
   async getById(req, res) {
     try {
       const user = await userService.getById(req.params.id);
@@ -27,6 +39,15 @@ export const userController = {
     try {
       const user = await userService.update(req.params.id, req.body);
       sendResponse(res, 200, 'User updated successfully', user);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async updateMe(req, res) {
+    try {
+      const user = await userService.update(req.user.id, req.body);
+      sendResponse(res, 200, 'Profile updated successfully', user);
     } catch (error) {
       sendError(res, 400, error.message, error);
     }

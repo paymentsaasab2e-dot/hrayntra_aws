@@ -551,6 +551,48 @@ export async function apiLogout() {
 }
 
 // ────────────────────────────────────────────────────────────
+// Users
+// ────────────────────────────────────────────────────────────
+
+export interface BackendUser {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  department?: string;
+  avatar?: string;
+  isActive: boolean;
+  lastLogin?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export async function apiGetMe() {
+  return apiFetch<BackendUser>('/users/me', { auth: true });
+}
+
+export async function apiUpdateMe(data: Partial<BackendUser>) {
+  return apiFetch<BackendUser>('/users/me', {
+    method: 'PATCH',
+    body: data,
+    auth: true,
+  });
+}
+
+export async function apiUploadUserAvatar(userId: string, file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('entityType', 'user');
+  formData.append('entityId', userId);
+  formData.append('fileType', 'Avatar');
+  
+  return apiFetchFormData<{ fileUrl: string }>('/files', formData, {
+    method: 'POST',
+    auth: true,
+  });
+}
+
+// ────────────────────────────────────────────────────────────
 // Jobs
 // ────────────────────────────────────────────────────────────
 

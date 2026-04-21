@@ -20,21 +20,25 @@ export const filesController = {
    * POST /api/v1/files
    * Body (multipart): file, entityType, entityId, fileType
    */
-  async create(req, res) {
+   async create(req, res) {
     try {
+      const { runWithTenantContext, getActiveTenantDbName } = await import('../../config/prisma.js');
+      let tenantDbName = getActiveTenantDbName() || req.user?.tenantDbName;
+      console.log('[filesController.create] Start. Tenant:', tenantDbName || '(none)', 'User:', req.user?.id);
+
       if (!req.file) {
         return sendError(res, 400, 'No file uploaded');
       }
       const { entityType, entityId, fileType } = req.body;
-      const defaultTypes = { job: 'JD', lead: 'Other', client: 'Contract', candidate: 'Other', interview: 'Other' };
+      const defaultTypes = { job: 'JD', lead: 'Other', client: 'Contract', candidate: 'Other', interview: 'Other', user: 'Avatar' };
       const type = (fileType || defaultTypes[entityType] || 'Other').trim();
 
       if (!entityType || !entityId) {
         return sendError(res, 400, 'entityType and entityId are required');
       }
 
-      if (!['job', 'lead', 'client', 'candidate', 'interview'].includes(entityType)) {
-        return sendError(res, 400, 'Only entityType=job, lead, client, candidate, or interview is supported for upload');
+      if (!['job', 'lead', 'client', 'candidate', 'interview', 'user'].includes(entityType)) {
+        return sendError(res, 400, 'Only entityType=job, lead, client, candidate, interview, or user is supported for upload');
       }
 
       const subDir =
@@ -46,7 +50,9 @@ export const filesController = {
               ? 'candidates'
               : entityType === 'interview'
                 ? 'interviews'
-                : 'jobs';
+                : entityType === 'user'
+                  ? 'users'
+                  : 'jobs';
       const resourceType = cloudinaryResourceTypeForFile(req.file.mimetype, req.file.originalname);
       const upload = await uploadBufferToCloudinary(req.file.buffer, {
         folder: `jobportal/${subDir}/${entityId}`,
@@ -61,7 +67,12 @@ export const filesController = {
         fileType: type,
       };
 
-      const file = await filesService.create(entityType, entityId, fileData, req.user.id);
+      // For user avatar, always use current user's ID
+      const targetEntityId = entityType === 'user' ? req.user.id : entityId;
+
+      const file = await runWithTenantContext(tenantDbName, () => 
+        filesService.create(entityType, targetEntityId, fileData, req.user.id)
+      );
       sendResponse(res, 201, 'File uploaded successfully', file);
     } catch (error) {
       sendError(res, 400, error.message, error);
