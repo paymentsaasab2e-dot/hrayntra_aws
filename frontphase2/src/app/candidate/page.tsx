@@ -26,7 +26,8 @@ import {
 } from 'lucide-react';
 import { CreateTaskModal } from '../../components/CreateTaskModal';
 import { Toaster, toast } from 'sonner';
-import { Pagination } from '../../components/Pagination';
+import { MuiTablePagination } from '../../components/MuiTablePagination';
+import { requestConfirm } from '../../lib/appDialog';
 import { MY_JOBS_LIST_PARAMS } from '../../lib/myJobsListParams';
 import {
   apiAddCandidateNote,
@@ -1060,7 +1061,7 @@ function CandidatesPageContent() {
         toast.error('This candidate cannot be deleted (invalid id).');
         return;
       }
-      if (!window.confirm('Permanently delete this candidate? This cannot be undone.')) {
+      if (!(await requestConfirm('Permanently delete this candidate? This cannot be undone.'))) {
         return;
       }
       try {
@@ -1178,13 +1179,7 @@ function CandidatesPageContent() {
             </div>
 
             <div className="flex items-center gap-3">
-              <button
-                onClick={() => setCreateTaskOpen(true)}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors shadow-sm"
-              >
-                <CheckSquare size={16} />
-                Add Task
-              </button>
+              
               {canCreateCandidate && (
                 <button
                   onClick={() => {
@@ -1238,7 +1233,7 @@ function CandidatesPageContent() {
                   selectedIds={selectedIds}
                   onMoveStage={canUpdateCandidate ? openBulkMoveStageModal : undefined}
                   onDelete={canDeleteCandidate ? async (ids) => {
-                    if (!confirm(`Are you sure you want to permanently delete ${ids.length} candidate(s)?`)) return;
+                    if (!(await requestConfirm(`Are you sure you want to permanently delete ${ids.length} candidate(s)?`))) return;
                     try {
                       await Promise.all(ids.map((candidateId) => apiDeleteCandidate(candidateId)));
                       toast.success(`Deleted ${ids.length} candidate(s)`);
@@ -1305,7 +1300,7 @@ function CandidatesPageContent() {
                     }
                   } : undefined}
                   onReject={canUpdateCandidate ? async (ids) => {
-                    if (!confirm(`Are you sure you want to reject ${ids.length} candidate(s)?`)) return;
+                    if (!(await requestConfirm(`Are you sure you want to reject ${ids.length} candidate(s)?`))) return;
                     const reason = prompt('Enter rejection reason (optional):') || 'Bulk rejection';
                     try {
                       await apiBulkActionCandidates('reject', ids, { reason });
@@ -1333,17 +1328,13 @@ function CandidatesPageContent() {
                   onChangeCandidateStage={canUpdateCandidate ? handleInlineCandidateStageChange : undefined}
                 />
                 
-                <Pagination
-                  currentPage={currentPage}
-                  totalPages={Math.ceil(totalEntries / pageSize)}
-                  onPageChange={setCurrentPage}
-                  pageSize={pageSize}
-                  onPageSizeChange={(newSize) => {
-                    setPageSize(newSize);
-                    setCurrentPage(1);
-                  }}
-                  totalEntries={totalEntries}
-                />
+                <div className="mt-4 flex justify-end">
+                  <MuiTablePagination
+                    currentPage={currentPage}
+                    totalPages={Math.ceil(totalEntries / pageSize)}
+                    onPageChange={setCurrentPage}
+                  />
+                </div>
               </>
             ) : (
               <CandidateGrid 

@@ -64,6 +64,7 @@ import { useFiles } from '../../hooks/useFiles';
 import { ScheduleMeetingForm } from '../ScheduleMeetingForm';
 import { NotesService } from '../NotesService';
 import { apiUpdateClient, apiCreateClient, apiGetUsers, apiGetJobs, apiGetContacts, apiCreateContact, apiUpdateContact, apiDeleteContact, apiFetch, apiGetClientActivities, apiGetClientScheduledMeetings, apiCreateScheduledMeeting, apiUpdateScheduledMeeting, apiDeleteScheduledMeeting, filesApiUpload, apiGetJob, apiUpdateJob, type BackendUser, type BackendJob, type BackendContact, type CreateContactData, type BackendClient, type ScheduledMeeting } from '../../lib/api';
+import { requestConfirm, requestError, requestSuccess, requestWarning } from '../../lib/appDialog';
 import { CreateJobDrawer } from './CreateJobDrawer';
 import { JobDetailsDrawer, type JobForDrawer } from './JobDetailsDrawer';
 
@@ -446,7 +447,7 @@ export function ClientDetailsDrawer({
   const handleWhatsAppClick = (contact: ClientContact) => {
     const digits = (contact.phone || '').replace(/\D/g, '');
     if (!digits) {
-      alert('No phone number available for this contact.');
+      void requestWarning('No phone number available for this contact.');
       return;
     }
     const url = `https://wa.me/${digits}?text=${encodeURIComponent(`Hi ${contact.name || ''}`.trim())}`;
@@ -455,7 +456,7 @@ export function ClientDetailsDrawer({
 
   const handleEmailClick = (contact: ClientContact) => {
     if (!contact.email) {
-      alert('No email available for this contact.');
+      void requestWarning('No email available for this contact.');
       return;
     }
     const subject = encodeURIComponent(`Hello ${contact.name || ''}`.trim());
@@ -473,7 +474,7 @@ export function ClientDetailsDrawer({
       await refreshClientContacts();
     } catch (error: any) {
       console.error('Failed to delete contact:', error);
-      alert(error.message || 'Failed to delete contact');
+      void requestError(error.message || 'Failed to delete contact');
     } finally {
       setDeletingContact(false);
     }
@@ -508,10 +509,10 @@ export function ClientDetailsDrawer({
         status: 'ON_HOLD',
       });
       await refreshClientJobs();
-      alert('Job paused successfully.');
+      void requestSuccess('Job paused successfully.');
     } catch (error: any) {
       console.error('Failed to pause job:', error);
-      alert(error?.message || 'Failed to pause job');
+      void requestError(error?.message || 'Failed to pause job');
     }
   };
 
@@ -777,12 +778,12 @@ export function ClientDetailsDrawer({
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      alert('Please choose an image file (PNG, JPG, WebP, etc.)');
+      void requestWarning('Please choose an image file (PNG, JPG, WebP, etc.)');
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      alert('Image must be 5MB or smaller.');
+      void requestWarning('Image must be 5MB or smaller.');
       return;
     }
 
@@ -810,7 +811,7 @@ export function ClientDetailsDrawer({
       onClientCreated?.();
     } catch (error: any) {
       console.error('Failed to upload client logo:', error);
-      alert(error.message || 'Failed to upload client logo');
+      void requestError(error.message || 'Failed to upload client logo');
     } finally {
       setUploadingClientLogo(false);
     }
@@ -906,7 +907,7 @@ export function ClientDetailsDrawer({
     if (isAddMode) {
       // Create new client
       if (!overviewEditForm.companyName.trim()) {
-        alert('Company name is required');
+        void requestWarning('Company name is required');
         return;
       }
       
@@ -945,7 +946,7 @@ export function ClientDetailsDrawer({
         onClose();
       } catch (error: any) {
         console.error('Failed to create client:', error);
-        alert(error.message || 'Failed to create client');
+        void requestError(error.message || 'Failed to create client');
       }
     } else {
       // Update existing client
@@ -1077,7 +1078,7 @@ export function ClientDetailsDrawer({
         window.location.reload();
       } catch (error: any) {
         console.error('Failed to update client:', error);
-        alert(error.message || 'Failed to update client');
+        void requestError(error.message || 'Failed to update client');
       }
     }
   };
@@ -1465,7 +1466,7 @@ export function ClientDetailsDrawer({
                                         window.location.reload();
                                       } catch (error: any) {
                                         console.error('Failed to update client stage:', error);
-                                        alert(error.message || 'Failed to update client stage');
+                                        void requestError(error.message || 'Failed to update client stage');
                                       }
                                     }}
                                     className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 flex items-center gap-2 ${client?.stage === stage ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'}`}
@@ -3116,7 +3117,7 @@ export function ClientDetailsDrawer({
                           onClick={async () => {
                             if (!client) return;
                             if (!addContactForm.fullName.trim()) {
-                              alert('Full name is required');
+                              void requestWarning('Full name is required');
                               return;
                             }
                              
@@ -3151,7 +3152,7 @@ export function ClientDetailsDrawer({
                               await refreshClientContacts();
                             } catch (error: any) {
                               console.error('Failed to save contact:', error);
-                              alert(error.message || 'Failed to save contact');
+                              void requestError(error.message || 'Failed to save contact');
                             }
                           }}
                           className="px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors"
@@ -4161,7 +4162,7 @@ export function ClientDetailsDrawer({
                                                   setScheduledMeetings(meetings.data || []);
                                                 } catch (error) {
                                                   console.error('Failed to mark as completed:', error);
-                                                  alert('Failed to update meeting status');
+                                                  void requestError('Failed to update meeting status');
                                                 }
                                               }}
                                               className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
@@ -4173,14 +4174,14 @@ export function ClientDetailsDrawer({
                                               type="button"
                                               onClick={async () => {
                                                 if (!client?.id) return;
-                                                if (!confirm('Are you sure you want to cancel this meeting?')) return;
+                                                if (!(await requestConfirm('Are you sure you want to cancel this meeting?'))) return;
                                                 try {
                                                   await apiUpdateScheduledMeeting(client.id, meeting.id, { status: 'CANCELLED' });
                                                   const meetings = await apiGetClientScheduledMeetings(client.id);
                                                   setScheduledMeetings(meetings.data || []);
                                                 } catch (error) {
                                                   console.error('Failed to cancel meeting:', error);
-                                                  alert('Failed to cancel meeting');
+                                                  void requestError('Failed to cancel meeting');
                                                 }
                                               }}
                                               className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
@@ -4194,14 +4195,14 @@ export function ClientDetailsDrawer({
                                           type="button"
                                           onClick={async () => {
                                             if (!client?.id) return;
-                                            if (!confirm('Are you sure you want to delete this meeting?')) return;
+                                            if (!(await requestConfirm('Are you sure you want to delete this meeting?'))) return;
                                             try {
                                               await apiDeleteScheduledMeeting(client.id, meeting.id);
                                               const meetings = await apiGetClientScheduledMeetings(client.id);
                                               setScheduledMeetings(meetings.data || []);
                                             } catch (error) {
                                               console.error('Failed to delete meeting:', error);
-                                              alert('Failed to delete meeting');
+                                              void requestError('Failed to delete meeting');
                                             }
                                           }}
                                           className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"

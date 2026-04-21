@@ -3,7 +3,7 @@ import { CalendarDays, CheckSquare, ExternalLink, MessageSquareText, MapPin, Mon
 import { ActionsDropdown, type InterviewAction } from './ActionsDropdown';
 import type { Interview } from '../../types/interview.types';
 import { getCandidateStageBadgeClasses, getCandidateStageLabel } from '../../utils/candidateStage';
-import { Pagination } from '../Pagination';
+import { MuiTablePagination } from '../MuiTablePagination';
 
 interface InterviewTableProps {
   interviews: Interview[];
@@ -208,10 +208,9 @@ export function InterviewTable({
           {selectedIds.length} selected
         </div>
 
-        <Pagination
+        <MuiTablePagination
           currentPage={page}
           totalPages={totalPages}
-          totalEntries={totalEntries}
           onPageChange={onPageChange}
         />
 

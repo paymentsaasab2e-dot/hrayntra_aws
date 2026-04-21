@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Plus,
   Upload,
@@ -23,10 +23,11 @@ import { ClientFilterDrawer } from '../../components/drawers/ClientFilterDrawer'
 import { ClientDetailsDrawer } from '../../components/drawers/ClientDetailsDrawer';
 import { ClientImportDrawer } from '../../components/drawers/ClientImportDrawer';
 import { CreateJobDrawer } from '../../components/drawers/CreateJobDrawer';
-import { TablePagination } from '../../components/TablePagination';
+import { MuiTablePagination } from '../../components/MuiTablePagination';
 import { INITIAL_CLIENTS } from './types';
 import type { Client } from './types';
 import { apiGetClients, apiDeleteClient, apiGetUsers, apiUpdateClient, type BackendClient, type BackendUser, type UpdateClientData } from '../../lib/api';
+import { requestConfirm } from '../../lib/appDialog';
 
 function filterClientsByTab(clients: Client[], activeTab: string): Client[] {
   switch (activeTab) {
@@ -45,15 +46,15 @@ function filterClientsByTab(clients: Client[], activeTab: string): Client[] {
 }
 
 // Tab Component
-const StatusTabs = ({ activeTab, onTabChange, clients }: { activeTab: string, onTabChange: (tab: string) => void, clients: Client[] }) => {
-  const counts = {
-    all: clients.length,
-    active: clients.filter(c => c.stage === 'Active').length,
-    'on-hold': clients.filter(c => c.stage === 'On Hold').length,
-    inactive: clients.filter(c => c.stage === 'Inactive').length,
-    hot: clients.filter(c => c.priority === 'High').length,
-  };
-
+const StatusTabs = ({
+  activeTab,
+  onTabChange,
+  counts,
+}: {
+  activeTab: string;
+  onTabChange: (tab: string) => void;
+  counts: { all: number; active: number; 'on-hold': number; inactive: number; hot: number };
+}) => {
   const tabs = [
     { id: 'all', label: 'All', count: counts.all },
     { id: 'active', label: 'Active Clients', count: counts.active },
@@ -198,6 +199,7 @@ function extractBackendClients(responseData: unknown): BackendClient[] {
 
 export default function App() {
   const PAGE_SIZE = 10;
+  const SEARCH_DEBOUNCE_MS = 350;
   const [activeTab, setActiveTab] = useState('all');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [selectedClients, setSelectedClients] = useState<string[]>([]);
@@ -211,20 +213,33 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [teamMembers, setTeamMembers] = useState<BackendUser[]>([]);
   const [bulkStatus, setBulkStatus] = useState('');
   const [bulkAssignedTo, setBulkAssignedTo] = useState('');
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalEntries, setTotalEntries] = useState(0);
+  const [metricsRefreshKey, setMetricsRefreshKey] = useState(0);
 
-  const filteredClients = filterClientsByTab(clients, activeTab);
+  const filteredClients = useMemo(() => filterClientsByTab(clients, activeTab), [clients, activeTab]);
+  const tabCounts = useMemo(
+    () => ({
+      all: clients.length,
+      active: clients.filter((c) => c.stage === 'Active').length,
+      'on-hold': clients.filter((c) => c.stage === 'On Hold').length,
+      inactive: clients.filter((c) => c.stage === 'Inactive').length,
+      hot: clients.filter((c) => c.priority === 'High').length,
+    }),
+    [clients]
+  );
 
   useEffect(() => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-    setIsAuthenticated(!!token);
-  }, []);
+    const timeout = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery.trim());
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timeout);
+  }, [searchQuery]);
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -247,104 +262,82 @@ export default function App() {
     fetchUsers();
   }, []);
 
-  useEffect(() => {
-    const fetchClients = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-
-        const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-        if (!token) {
-          setClients(INITIAL_CLIENTS);
-          setTotalEntries(INITIAL_CLIENTS.length);
-          setLoading(false);
-          return;
-        }
-
-        const response = await apiGetClients({
-          search: searchQuery || undefined,
-          page: currentPage,
-          limit: PAGE_SIZE,
-        });
-
-        const backendClients = response.data ? extractBackendClients(response.data) : [];
-        const pagination = (response.data as any)?.pagination;
-
-        if (!Array.isArray(backendClients)) {
-          setError('Unexpected API response format.');
-          setClients(INITIAL_CLIENTS);
-          setTotalEntries(INITIAL_CLIENTS.length);
-          return;
-        }
-
-        const mappedClients = backendClients.map(mapBackendClientToFrontend);
-        const clientMap = new Map<string, Client>();
-        mappedClients.forEach(client => {
-          const id = String(client.id);
-          clientMap.set(id, { ...client, id });
-        });
-        
-        const uniqueClients = Array.from(clientMap.values());
-        setClients(uniqueClients);
-        if (pagination) {
-          setTotalEntries(pagination.total || 0);
-        } else {
-          setTotalEntries(uniqueClients.length);
-        }
-        setIsEmpty(uniqueClients.length === 0 && totalEntries === 0);
-      } catch (err: any) {
-        console.error('Failed to fetch clients:', err);
-        setClients(INITIAL_CLIENTS);
-        setTotalEntries(INITIAL_CLIENTS.length);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchClients();
-  }, [searchQuery, currentPage]);
-
-  const handleRefresh = async () => {
+  const fetchClients = useCallback(async () => {
     try {
       setLoading(true);
+      setError(null);
+
+      const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+      if (!token) {
+        setClients(INITIAL_CLIENTS);
+        setTotalEntries(INITIAL_CLIENTS.length);
+        setIsEmpty(INITIAL_CLIENTS.length === 0);
+        return;
+      }
+
       const response = await apiGetClients({
-        search: searchQuery || undefined,
+        search: debouncedSearchQuery || undefined,
         page: currentPage,
         limit: PAGE_SIZE,
+        includeContacts: false,
+        includeLeadFields: false,
       });
 
       const backendClients = response.data ? extractBackendClients(response.data) : [];
       const pagination = (response.data as any)?.pagination;
 
+      if (!Array.isArray(backendClients)) {
+        setError('Unexpected API response format.');
+        setClients(INITIAL_CLIENTS);
+        setTotalEntries(INITIAL_CLIENTS.length);
+        setIsEmpty(INITIAL_CLIENTS.length === 0);
+        return;
+      }
+
       const mappedClients = backendClients.map(mapBackendClientToFrontend);
       const clientMap = new Map<string, Client>();
-      mappedClients.forEach(client => {
+      mappedClients.forEach((client) => {
         const id = String(client.id);
         clientMap.set(id, { ...client, id });
       });
       const uniqueClients = Array.from(clientMap.values());
+      const total = pagination?.total || uniqueClients.length;
+
       setClients(uniqueClients);
-      if (pagination) {
-        setTotalEntries(pagination.total || 0);
-      } else {
-        setTotalEntries(uniqueClients.length);
-      }
-      setIsEmpty(uniqueClients.length === 0 && totalEntries === 0);
+      setTotalEntries(total);
+      setIsEmpty(uniqueClients.length === 0 && total === 0);
+      setSelectedClients((prev) => prev.filter((id) => uniqueClients.some((c) => c.id === id)));
+      setMetricsRefreshKey((prev) => prev + 1);
     } catch (err: any) {
-      console.error('Failed to refresh clients:', err);
+      console.error('Failed to fetch clients:', err);
+      setError(err?.message || 'Failed to fetch clients');
+      setClients(INITIAL_CLIENTS);
+      setTotalEntries(INITIAL_CLIENTS.length);
+      setIsEmpty(INITIAL_CLIENTS.length === 0);
     } finally {
       setLoading(false);
     }
-  };
+  }, [debouncedSearchQuery, currentPage]);
+
+  useEffect(() => {
+    fetchClients();
+  }, [fetchClients]);
+
+  const handleRefresh = useCallback(async () => {
+    await fetchClients();
+  }, [fetchClients]);
 
   const handleDeleteClient = async (id: string) => {
     const client = clients.find(c => c.id === id);
-    if (!window.confirm(`Are you sure you want to delete ${client?.name || 'this client'}?`)) return;
+    if (!(await requestConfirm(`Are you sure you want to delete ${client?.name || 'this client'}?`))) return;
 
     try {
       await apiDeleteClient(id);
-      setClients(prev => prev.filter(c => c.id !== id));
-      await handleRefresh();
+      setClients((prev) => prev.filter((c) => c.id !== id));
+      setSelectedClients((prev) => prev.filter((selectedId) => selectedId !== id));
+      setTotalEntries((prev) => Math.max(0, prev - 1));
+      setMetricsRefreshKey((prev) => prev + 1);
+      void fetchClients();
     } catch (err: any) {
       console.error('Failed to delete client:', err);
     }
@@ -358,13 +351,14 @@ export default function App() {
 
   const handleBulkDelete = async () => {
     if (selectedClients.length === 0) return;
-    if (!window.confirm(`Delete ${selectedClients.length} selected clients?`)) return;
+    if (!(await requestConfirm(`Delete ${selectedClients.length} selected clients?`))) return;
 
     try {
       setBulkActionLoading(true);
       await Promise.all(selectedClients.map((id) => apiDeleteClient(id)));
       clearBulkSelection();
-      await handleRefresh();
+      setMetricsRefreshKey((prev) => prev + 1);
+      await fetchClients();
     } catch (err: any) {
       console.error('Failed to bulk delete clients:', err);
     } finally {
@@ -379,7 +373,8 @@ export default function App() {
       setBulkActionLoading(true);
       await Promise.all(selectedClients.map((id) => apiUpdateClient(id, updates)));
       clearBulkSelection();
-      await handleRefresh();
+      setMetricsRefreshKey((prev) => prev + 1);
+      await fetchClients();
     } catch (err: any) {
       console.error('Failed to bulk update clients:', err);
     } finally {
@@ -436,8 +431,8 @@ export default function App() {
           </div>
         </div>
 
-        <StatusTabs activeTab={activeTab} onTabChange={setActiveTab} clients={clients} />
-        <ClientSummaryMetrics />
+        <StatusTabs activeTab={activeTab} onTabChange={setActiveTab} counts={tabCounts} />
+        <ClientSummaryMetrics refreshKey={metricsRefreshKey} />
 
         {loading ? (
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 text-center text-slate-500">Loading...</div>
@@ -447,12 +442,7 @@ export default function App() {
           <EmptyState onImportClick={() => setShowImportDrawer(true)} />
         ) : (
           <>
-            <div className="mb-4 flex items-center">
-              <div className="flex items-center gap-2 text-sm text-slate-500">
-                <AlertCircle className="w-4 h-4 text-amber-500" />
-                <span>Showing <strong>{filteredClients.length}</strong> Clients</span>
-              </div>
-            </div>
+           
             
             <ClientTable
               clients={filteredClients}
@@ -467,11 +457,13 @@ export default function App() {
               }}
             />
 
-            <TablePagination
-              currentPage={currentPage}
-              totalPages={Math.ceil(totalEntries / PAGE_SIZE)}
-              onPageChange={setCurrentPage}
-            />
+            <div className="mt-4 flex justify-end">
+              <MuiTablePagination
+                currentPage={currentPage}
+                totalPages={Math.ceil(totalEntries / PAGE_SIZE)}
+                onPageChange={setCurrentPage}
+              />
+            </div>
           </>
         )}
       </div>

@@ -9,6 +9,8 @@ export const clientService = {
   async getAll(req) {
     const { page, limit, skip } = getPaginationParams(req);
     const { status, assignedToId, search } = req.query;
+    const includeContacts = req.query.includeContacts === 'true';
+    const includeLeadFields = req.query.includeLeadFields === 'true';
 
     const where = {};
     if (status) where.status = status;
@@ -25,42 +27,46 @@ export const clientService = {
 
     const superAdminScope = buildSuperAdminOwnerScope(req, ['assignedToId']);
     const scopedWhere = mergeWhereWithScope(where, superAdminScope);
+    const include = {
+      assignedTo: {
+        select: { id: true, name: true, email: true },
+      },
+      _count: {
+        select: { jobs: true, contacts: true, placements: true },
+      },
+    };
+
+    if (includeContacts) {
+      include.contacts = {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          designation: true,
+          email: true,
+          phone: true,
+          department: true,
+          lastContacted: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      };
+    }
 
     const [clients, total] = await Promise.all([
       prisma.client.findMany({
         where: scopedWhere,
         skip,
         take: limit,
-        include: {
-          assignedTo: {
-            select: { id: true, name: true, email: true },
-          },
-          contacts: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              designation: true,
-              email: true,
-              phone: true,
-              department: true,
-              lastContacted: true,
-              createdAt: true,
-            },
-            orderBy: { createdAt: 'desc' },
-            take: 5,
-          },
-          _count: {
-            select: { jobs: true, contacts: true, placements: true },
-          },
-        },
+        include,
         orderBy: { createdAt: 'desc' },
       }),
       prisma.client.count({ where: scopedWhere }),
     ]);
 
-    const clientIds = clients.map((client) => client.id).filter(Boolean);
-    const convertedLeads = clientIds.length
+    const clientIds = includeLeadFields ? clients.map((client) => client.id).filter(Boolean) : [];
+    const convertedLeads = includeLeadFields && clientIds.length
       ? await prisma.lead.findMany({
           where: { convertedToClientId: { in: clientIds } },
           select: {
@@ -86,28 +92,30 @@ export const clientService = {
         .map((lead) => [lead.convertedToClientId, lead])
     );
 
-    const mergedClients = clients.map((client) => {
-      const convertedLead = leadByClientId.get(client.id);
-      return {
-        ...client,
-        companySize: client.companySize || convertedLead?.teamName || null,
-        website:
-          client.website ||
-          (convertedLead?.companyLinks?.length ? convertedLead.companyLinks.join('\n') : null),
-        hiringLocations:
-          client.hiringLocations ||
-          (convertedLead?.city && convertedLead?.country
-            ? `${convertedLead.city}, ${convertedLead.country}`
-            : convertedLead?.city || convertedLead?.country || null),
-        priority: client.priority || convertedLead?.priority || null,
-        nextFollowUpDue: client.nextFollowUpDue || convertedLead?.nextFollowUp || null,
-        servicesNeeded:
-          client.servicesNeeded || convertedLead?.servicesNeeded || convertedLead?.interestedNeeds || null,
-        expectedBusinessValue:
-          client.expectedBusinessValue || convertedLead?.expectedBusinessValue || convertedLead?.notes || null,
-        leadStatus: client.leadStatus || convertedLead?.status || null,
-      };
-    });
+    const mergedClients = includeLeadFields
+      ? clients.map((client) => {
+          const convertedLead = leadByClientId.get(client.id);
+          return {
+            ...client,
+            companySize: client.companySize || convertedLead?.teamName || null,
+            website:
+              client.website ||
+              (convertedLead?.companyLinks?.length ? convertedLead.companyLinks.join('\n') : null),
+            hiringLocations:
+              client.hiringLocations ||
+              (convertedLead?.city && convertedLead?.country
+                ? `${convertedLead.city}, ${convertedLead.country}`
+                : convertedLead?.city || convertedLead?.country || null),
+            priority: client.priority || convertedLead?.priority || null,
+            nextFollowUpDue: client.nextFollowUpDue || convertedLead?.nextFollowUp || null,
+            servicesNeeded:
+              client.servicesNeeded || convertedLead?.servicesNeeded || convertedLead?.interestedNeeds || null,
+            expectedBusinessValue:
+              client.expectedBusinessValue || convertedLead?.expectedBusinessValue || convertedLead?.notes || null,
+            leadStatus: client.leadStatus || convertedLead?.status || null,
+          };
+        })
+      : clients;
 
     return formatPaginationResponse(mergedClients, page, limit, total);
   },
@@ -319,7 +327,7 @@ export const clientService = {
     console.log(`✅ Client created successfully with ID: ${client.id}\n`);
 
     // Log client creation activity
-    if (data.performedById) {
+    if (!data.skipSideEffects && data.performedById) {
       await activityService.logClientCreated({
         entityId: client.id,
         performedById: data.performedById,
@@ -332,7 +340,7 @@ export const clientService = {
       });
     }
 
-    if (client.assignedToId) {
+    if (!data.skipSideEffects && client.assignedToId) {
       await this.notifyAssignment(client, data.performedById);
     }
 
@@ -426,7 +434,7 @@ export const clientService = {
     console.log(`✅ Client updated successfully (ID: ${id})\n`);
 
     // Log field changes as activities
-    if (data.performedById) {
+    if (!data.skipSideEffects && data.performedById) {
       await activityService.logClientFieldChanges({
         entityId: id,
         performedById: data.performedById,
@@ -437,6 +445,7 @@ export const clientService = {
     }
 
     if (
+      !data.skipSideEffects &&
       data.assignedToId !== undefined &&
       data.assignedToId &&
       data.assignedToId !== currentClient.assignedToId
@@ -484,38 +493,6 @@ export const clientService = {
     const superAdminJobScope = buildSuperAdminOwnerScope(req, ['assignedToId', 'createdById']);
     const superAdminCandidateScope = buildSuperAdminOwnerScope(req, ['assignedToId', 'createdById']);
 
-    const [activeClients, activeClientsLastMonth] = await Promise.all([
-      prisma.client.count({ where: mergeWhereWithScope({ status: 'ACTIVE' }, superAdminClientScope) }),
-      prisma.client.count({
-        where: mergeWhereWithScope({
-          status: 'ACTIVE',
-          createdAt: { lte: endOfLastMonth },
-        }, superAdminClientScope),
-      }),
-    ]);
-
-    // Open Jobs
-    const [openJobs, openJobsLastMonth] = await Promise.all([
-      prisma.job.count({ where: mergeWhereWithScope({ status: 'OPEN' }, superAdminJobScope) }),
-      prisma.job.count({
-        where: mergeWhereWithScope({
-          status: 'OPEN',
-          createdAt: { lte: endOfLastMonth },
-        }, superAdminJobScope),
-      }),
-    ]);
-
-    // Candidates in Progress (ACTIVE status)
-    const [candidatesInProgress, candidatesInProgressLastMonth] = await Promise.all([
-      prisma.candidate.count({ where: mergeWhereWithScope({ status: 'ACTIVE' }, superAdminCandidateScope) }),
-      prisma.candidate.count({
-        where: mergeWhereWithScope({
-          status: 'ACTIVE',
-          createdAt: { lte: endOfLastMonth },
-        }, superAdminCandidateScope),
-      }),
-    ]);
-
     // Placements this month
     // Count only confirmed joins (status=JOINED) within the month.
     // Using joining date prevents counting offers created this month but not joined yet.
@@ -530,18 +507,54 @@ export const clientService = {
         ],
       }, superAdminPlacementScope);
 
-    const [placementsThisMonth, placementsLastMonth] = await Promise.all([
+    const [
+      activeClients,
+      activeClientsLastMonth,
+      openJobs,
+      openJobsLastMonth,
+      candidatesInProgress,
+      candidatesInProgressLastMonth,
+      placementsThisMonth,
+      placementsLastMonth,
+      revenueThisMonth,
+      revenueLastMonth,
+    ] = await Promise.all([
+      prisma.client.count({ where: mergeWhereWithScope({ status: 'ACTIVE' }, superAdminClientScope) }),
+      prisma.client.count({
+        where: mergeWhereWithScope(
+          {
+            status: 'ACTIVE',
+            createdAt: { lte: endOfLastMonth },
+          },
+          superAdminClientScope
+        ),
+      }),
+      prisma.job.count({ where: mergeWhereWithScope({ status: 'OPEN' }, superAdminJobScope) }),
+      prisma.job.count({
+        where: mergeWhereWithScope(
+          {
+            status: 'OPEN',
+            createdAt: { lte: endOfLastMonth },
+          },
+          superAdminJobScope
+        ),
+      }),
+      prisma.candidate.count({ where: mergeWhereWithScope({ status: 'ACTIVE' }, superAdminCandidateScope) }),
+      prisma.candidate.count({
+        where: mergeWhereWithScope(
+          {
+            status: 'ACTIVE',
+            createdAt: { lte: endOfLastMonth },
+          },
+          superAdminCandidateScope
+        ),
+      }),
       prisma.placement.count({
         where: joinedInRangeWhere(startOfMonth, null),
       }),
       prisma.placement.count({
         where: joinedInRangeWhere(startOfLastMonth, endOfLastMonth),
       }),
-    ]);
-
-    // Revenue this month
-    // Sum only revenue from placements that actually joined in the month.
-    const [revenueThisMonth, revenueLastMonth] = await Promise.all([
       prisma.placement.aggregate({
         where: joinedInRangeWhere(startOfMonth, null),
         _sum: { fee: true },
@@ -616,6 +629,35 @@ export const clientService = {
       failed: 0,
       errors: [],
     };
+
+    const nameColumn = mapping.name;
+    const normalizedImportNames = nameColumn
+      ? Array.from(
+          new Set(
+            rows
+              .map((row) => String(row?.[nameColumn] ?? '').trim())
+              .filter(Boolean)
+              .map((name) => name.toLowerCase())
+          )
+        )
+      : [];
+
+    const preloadedClients = normalizedImportNames.length
+      ? await prisma.client.findMany({
+          where: {
+            companyName: {
+              in: rows
+                .map((row) => String(row?.[nameColumn] ?? '').trim())
+                .filter(Boolean),
+            },
+          },
+          select: { id: true, companyName: true },
+        })
+      : [];
+
+    const existingClientByName = new Map(
+      preloadedClients.map((client) => [String(client.companyName || '').trim().toLowerCase(), client])
+    );
 
     for (let index = 0; index < rows.length; index += 1) {
       const row = rows[index] || {};
@@ -748,14 +790,24 @@ export const clientService = {
       };
 
       try {
-        const existing = await prisma.client.findFirst({
-          where: {
-            companyName: {
-              equals: companyName,
-              mode: 'insensitive',
+        const normalizedCompanyName = companyName.toLowerCase();
+        let existing = existingClientByName.get(normalizedCompanyName) || null;
+
+        if (!existing) {
+          existing = await prisma.client.findFirst({
+            where: {
+              companyName: {
+                equals: companyName,
+                mode: 'insensitive',
+              },
             },
-          },
-        });
+            select: { id: true, companyName: true },
+          });
+
+          if (existing) {
+            existingClientByName.set(normalizedCompanyName, existing);
+          }
+        }
 
         if (existing && duplicateRule === 'skip') {
           results.skipped += 1;
@@ -763,13 +815,22 @@ export const clientService = {
         }
 
         if (existing && duplicateRule === 'update') {
-          await this.update(existing.id, { ...payload, performedById });
+          await this.update(existing.id, { ...payload, performedById, skipSideEffects: true });
           await upsertPrimaryContact(existing.id);
           results.updated += 1;
           continue;
         }
 
-        const createdClient = await this.create({ ...payload, performedById, performedByRole });
+        const createdClient = await this.create({
+          ...payload,
+          performedById,
+          performedByRole,
+          skipSideEffects: true,
+        });
+        existingClientByName.set(normalizedCompanyName, {
+          id: createdClient.id,
+          companyName: createdClient.companyName,
+        });
         await upsertPrimaryContact(createdClient.id);
         results.created += 1;
       } catch (error) {

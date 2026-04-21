@@ -736,6 +736,7 @@ export const apiGetJob = async (id: string) => {
 export interface JobMetrics {
   activeJobs: number;
   newJobsThisWeek: number;
+  appliedCandidates: number;
   noCandidates: number;
   nearSla: number;
   closedThisMonth: number;
@@ -2343,6 +2344,8 @@ export const apiGetClients = async (params: {
   type?: string;
   page?: number;
   limit?: number;
+  includeContacts?: boolean;
+  includeLeadFields?: boolean;
 } = {}) => {
   const query = new URLSearchParams();
   Object.entries(params || {}).forEach(([key, value]) => {

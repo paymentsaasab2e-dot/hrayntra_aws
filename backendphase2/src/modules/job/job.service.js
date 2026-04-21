@@ -896,19 +896,28 @@ export const jobService = {
       },
     });
 
-    // No Candidates - jobs with no matches
-    const jobsWithNoCandidates = await prisma.job.findMany({
+    // Candidate metrics: derive from actual match rows (tenant + jobportal mirror when applicable)
+    const jobsForCandidateMetrics = await prisma.job.findMany({
       where: {
         ...scope,
-        status: { in: ['OPEN', 'DRAFT'] },
       },
-      include: {
+      select: {
+        id: true,
         _count: {
           select: { matches: true },
         },
       },
     });
-    const noCandidatesCount = jobsWithNoCandidates.filter(job => job._count.matches === 0).length;
+
+    const portalMatchCountMap = await getPortalMatchCountMap(jobsForCandidateMetrics.map((job) => job.id));
+    const mergedMatchCounts = jobsForCandidateMetrics.map((job) => {
+      const tenantMatches = Number(job?._count?.matches || 0);
+      const portalMatches = Number(portalMatchCountMap.get(job.id) || 0);
+      return tenantMatches + portalMatches;
+    });
+
+    const appliedCandidates = mergedMatchCounts.reduce((sum, count) => sum + count, 0);
+    const noCandidatesCount = mergedMatchCounts.filter((count) => count === 0).length;
 
     // Near SLA - jobs with slaRisk = true
     const nearSlaCount = await prisma.job.count({
@@ -931,6 +940,7 @@ export const jobService = {
     return {
       activeJobs,
       newJobsThisWeek,
+      appliedCandidates,
       noCandidates: noCandidatesCount,
       nearSla: nearSlaCount,
       closedThisMonth,

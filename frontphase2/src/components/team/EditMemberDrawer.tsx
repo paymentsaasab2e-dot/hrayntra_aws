@@ -5,6 +5,7 @@ import { X, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { updateTeamMember, getRoles, getDepartments, getTeamMembers, deleteTeamMember } from '../../lib/api/teamApi';
+import { requestConfirm } from '../../lib/appDialog';
 import type { TeamMember, Role, Department, UpdateMemberPayload } from '../../types/team';
 
 interface EditMemberDrawerProps {
@@ -157,7 +158,7 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
   };
 
   const handleDelete = async () => {
-    if (!confirm(`Are you sure you want to permanently delete ${member.firstName} ${member.lastName}? This action cannot be undone and will remove all associated data.`)) {
+    if (!(await requestConfirm(`Are you sure you want to permanently delete ${member.firstName} ${member.lastName}? This action cannot be undone and will remove all associated data.`))) {
       return;
     }
     try {

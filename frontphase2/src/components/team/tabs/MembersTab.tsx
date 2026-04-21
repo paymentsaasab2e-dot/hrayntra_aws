@@ -23,6 +23,7 @@ import { AddMemberDrawer } from '../AddMemberDrawer';
 import { EditMemberDrawer } from '../EditMemberDrawer';
 import { MemberProfileDrawer } from '../MemberProfileDrawer';
 import { usePermissions } from '../../../hooks/usePermissions';
+import { requestConfirm } from '../../../lib/appDialog';
 
 // Color mapping for role colors
 const roleColorMap: Record<string, string> = {
@@ -246,7 +247,7 @@ export const MembersTab: React.FC = () => {
   };
 
   const handleDelete = async (member: TeamMember) => {
-    if (!confirm(`Are you sure you want to permanently delete ${member.firstName} ${member.lastName}? This action cannot be undone and will remove all associated data.`)) {
+    if (!(await requestConfirm(`Are you sure you want to permanently delete ${member.firstName} ${member.lastName}? This action cannot be undone and will remove all associated data.`))) {
       return;
     }
     try {
@@ -563,7 +564,7 @@ export const MembersTab: React.FC = () => {
               setShowEditDrawer(true);
             }}
             onDelete={async () => {
-              if (!confirm(`Are you sure you want to permanently delete ${selectedMember.firstName} ${selectedMember.lastName}? This action cannot be undone and will remove all associated data.`)) {
+              if (!(await requestConfirm(`Are you sure you want to permanently delete ${selectedMember.firstName} ${selectedMember.lastName}? This action cannot be undone and will remove all associated data.`))) {
                 return;
               }
               try {

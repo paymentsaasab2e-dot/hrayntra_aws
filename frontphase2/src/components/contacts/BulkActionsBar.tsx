@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { Mail, Tag, User, Download, Trash2, X } from 'lucide-react';
 import { apiGetUsers } from '../../lib/api';
+import { requestConfirm } from '../../lib/appDialog';
 
 interface BulkActionsBarProps {
   selectedCount: number;
@@ -83,8 +84,8 @@ export function BulkActionsBar({ selectedCount, onBulkAction, onClearSelection }
             </button>
             
             <button
-              onClick={() => {
-                if (confirm(`Delete ${selectedCount} contacts?`)) {
+              onClick={async () => {
+                if (await requestConfirm(`Delete ${selectedCount} contacts?`)) {
                   onBulkAction('delete');
                 }
               }}

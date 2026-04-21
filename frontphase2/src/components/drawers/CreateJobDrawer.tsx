@@ -38,6 +38,7 @@ import {
 import { LinkedInConnect } from '../LinkedInConnect';
 import { LinkedInPostPreview } from '../LinkedInPostPreview';
 import { useLinkedIn } from '../../hooks/useLinkedIn';
+import { requestError, requestInfo, requestWarning } from '../../lib/appDialog';
 
 type ApplicationLogoOption = 'account' | 'company' | 'none' | 'custom';
 
@@ -669,7 +670,7 @@ export function CreateJobDrawer({
       }
     } catch (error) {
       console.error('Failed to load job data:', error);
-      alert('Failed to load job data. Please try again.');
+      void requestError('Failed to load job data. Please try again.');
     } finally {
       setLoadingJob(false);
     }
@@ -1163,15 +1164,15 @@ export function CreateJobDrawer({
   const handleSaveJob = async () => {
     // Validate required fields
     if (!formData.jobTitle.trim()) {
-      alert('Job Title is required');
+      void requestWarning('Job Title is required');
       return;
     }
     if (!formData.companyId) {
-      alert('Company is required');
+      void requestWarning('Company is required');
       return;
     }
     if (!formData.numberOfOpenings) {
-      alert('Number of Openings is required');
+      void requestWarning('Number of Openings is required');
       return;
     }
 
@@ -1326,7 +1327,7 @@ export function CreateJobDrawer({
         } catch (error: any) {
           console.error('Failed to upload file:', error);
           // Don't block job save - file upload is optional
-          alert(`Job saved successfully, but file upload failed: ${error.message}`);
+          void requestWarning(`Job saved successfully, but file upload failed: ${error.message}`);
         } finally {
           setUploadingFile(false);
           setUploadedFile(null);
@@ -1344,7 +1345,7 @@ export function CreateJobDrawer({
       onClose();
     } catch (error: any) {
       console.error('Failed to save job:', error);
-      alert(error.message || 'Failed to save job');
+      void requestError(error.message || 'Failed to save job');
     } finally {
       setLoading(false);
     }
@@ -1366,11 +1367,11 @@ export function CreateJobDrawer({
     e.target.value = '';
     if (!file) return;
     if (!file.type.startsWith('image/')) {
-      alert('Please choose an image file (PNG, JPG, WebP, etc.)');
+      void requestWarning('Please choose an image file (PNG, JPG, WebP, etc.)');
       return;
     }
     if (file.size > 5 * 1024 * 1024) {
-      alert('Image must be 5MB or smaller.');
+      void requestWarning('Image must be 5MB or smaller.');
       return;
     }
 
@@ -1382,7 +1383,7 @@ export function CreateJobDrawer({
           : null;
 
     if (!target) {
-      alert('Select a company in Job Details first. When editing an existing job, you can upload without that step.');
+      void requestWarning('Select a company in Job Details first. When editing an existing job, you can upload without that step.');
       return;
     }
 
@@ -1394,7 +1395,7 @@ export function CreateJobDrawer({
       setFormData((prev) => ({ ...prev, logoOption: 'custom', applicationLogoUrl: url }));
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Upload failed';
-      alert(message);
+      void requestInfo(message);
     } finally {
       setUploadingApplicationLogo(false);
     }
