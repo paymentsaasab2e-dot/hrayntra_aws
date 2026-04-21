@@ -25,7 +25,8 @@ import {
   Upload,
 } from 'lucide-react';
 import { CreateTaskModal } from '../../components/CreateTaskModal';
-import { Toaster } from 'sonner';
+import { Toaster, toast } from 'sonner';
+import { Pagination } from '../../components/Pagination';
 import { MY_JOBS_LIST_PARAMS } from '../../lib/myJobsListParams';
 import {
   apiAddCandidateNote,
@@ -55,7 +56,6 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { usePermissions } from '../../hooks/usePermissions';
 
 export const dynamic = 'force-dynamic';
-import { toast } from 'sonner';
 
 /** MongoDB ObjectIDs are 24 hex characters. Avoids invalid ID errors when opening profile. */
 function isValidObjectId(id: string): boolean {
@@ -556,6 +556,10 @@ function CandidatesPageContent() {
   const [bulkMoveStageLoading, setBulkMoveStageLoading] = useState(false);
   const [bulkMoveStageSaving, setBulkMoveStageSaving] = useState(false);
   const [deletingCandidateId, setDeletingCandidateId] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalEntries, setTotalEntries] = useState(0);
+
   const [inlineStageOptionsByJobId, setInlineStageOptionsByJobId] = useState<
     Record<string, Array<{ id: string; name: string }>>
   >({});
@@ -644,7 +648,8 @@ function CandidatesPageContent() {
       }
 
       const queryParams: Record<string, string | number | boolean> = {
-        ...ALL_CANDIDATES_LIST_PARAMS,
+        page: currentPage,
+        limit: pageSize,
       };
       if (isSuperAdminRole(currentUser?.role)) {
         queryParams.mine = true;
@@ -676,12 +681,15 @@ function CandidatesPageContent() {
       const res = await apiGetCandidates(queryParams);
 
       let backendCandidates: BackendCandidate[] = [];
-      const payload = res.data as BackendCandidate[] | { data?: BackendCandidate[]; items?: BackendCandidate[] } | undefined;
+      let pagination: any = null;
+
+      const payload = res.data as BackendCandidate[] | { data?: BackendCandidate[]; items?: BackendCandidate[]; pagination?: any } | undefined;
       if (payload) {
         if (Array.isArray(payload)) {
           backendCandidates = payload;
         } else if (Array.isArray(payload.data)) {
           backendCandidates = payload.data;
+          pagination = payload.pagination;
         } else if (Array.isArray(payload.items)) {
           backendCandidates = payload.items;
         } else {
@@ -695,22 +703,29 @@ function CandidatesPageContent() {
         if (!silent) {
           setError('Unexpected API response format.');
           setCandidates([]);
+          setTotalEntries(0);
         }
         return;
       }
 
       const mapped = backendCandidates.map(mapBackendCandidate);
       setCandidates(mapped);
+      if (pagination) {
+        setTotalEntries(pagination.total || 0);
+      } else {
+        setTotalEntries(mapped.length);
+      }
     } catch (err: any) {
       if (!silent) {
         setError(err?.message || 'Failed to load candidates.');
         setCandidates([]);
+        setTotalEntries(0);
       }
       toast.error(err?.message || 'Failed to load candidates.');
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [filters, activeStage, currentUser?.role]);
+  }, [filters, activeStage, currentUser?.role, currentPage, pageSize]);
 
   useEffect(() => {
     loadCandidates();
@@ -1136,7 +1151,7 @@ function CandidatesPageContent() {
                 <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
                   All candidates
                   <span className="text-sm font-normal text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full">
-                    {filteredCandidates.length} shown
+                    {totalEntries} shown
                   </span>
                 </h1>
                 <p className="text-xs text-slate-500 max-w-xl mt-0.5">
@@ -1316,6 +1331,18 @@ function CandidatesPageContent() {
                   movingCandidateId={inlineStageUpdatingCandidateId}
                   onLoadStageOptions={canUpdateCandidate ? loadInlineStageOptionsForCandidate : undefined}
                   onChangeCandidateStage={canUpdateCandidate ? handleInlineCandidateStageChange : undefined}
+                />
+                
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={Math.ceil(totalEntries / pageSize)}
+                  onPageChange={setCurrentPage}
+                  pageSize={pageSize}
+                  onPageSizeChange={(newSize) => {
+                    setPageSize(newSize);
+                    setCurrentPage(1);
+                  }}
+                  totalEntries={totalEntries}
                 />
               </>
             ) : (

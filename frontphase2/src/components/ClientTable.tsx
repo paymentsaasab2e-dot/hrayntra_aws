@@ -18,6 +18,7 @@ interface ClientTableProps {
   onSelectClient?: (client: Client) => void;
   onDeleteClient?: (id: string) => void;
   onLogoUpdated?: () => void;
+  onCreateJob?: (client: Client) => void;
 }
 
 // Custom Checkbox Component for better design tool compatibility
@@ -32,7 +33,7 @@ const CustomCheckbox = ({ checked, onChange }: { checked: boolean, onChange: () 
   </div>
 );
 
-export function ClientTable({ clients, selectedIds, onSelectionChange, onSelectClient, onDeleteClient, onLogoUpdated }: ClientTableProps) {
+export function ClientTable({ clients, selectedIds, onSelectionChange, onSelectClient, onDeleteClient, onLogoUpdated, onCreateJob }: ClientTableProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingClientId, setUploadingClientId] = useState<string | null>(null);
   const [pendingUploadClientId, setPendingUploadClientId] = useState<string | null>(null);
@@ -195,8 +196,9 @@ export function ClientTable({ clients, selectedIds, onSelectionChange, onSelectC
                     </button>
                     <button
                       type="button"
+                      onClick={() => onCreateJob?.(client)}
                       className="p-1.5 bg-white shadow-sm border border-slate-100 rounded-md text-slate-400 hover:text-emerald-600 transition-all"
-                      title="Create Job"
+                      title="Create Job for Client"
                     >
                       <Briefcase className="w-4 h-4" />
                     </button>

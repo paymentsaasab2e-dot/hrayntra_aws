@@ -262,6 +262,7 @@ export function useInterviews() {
   const [filters, setFilters] = useState<InterviewFiltersState>(defaultFilters);
   const [pagination, setPagination] = useState<PaginationState>({ page: 1, pageSize: 10 });
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [totalEntries, setTotalEntries] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -311,6 +312,7 @@ export function useInterviews() {
 
       setInterviews((response.data.data || []).map(mapInterview));
       setTotalPages(response.data.totalPages || 1);
+      setTotalEntries(response.data.totalCount || 0);
       setKpis(mapKpis(response.data.kpis));
     } catch (fetchError: any) {
       setError(fetchError.message || 'Unable to load interviews');

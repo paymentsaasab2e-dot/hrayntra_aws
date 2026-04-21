@@ -9,21 +9,26 @@ import { CommunicationSettings } from '../../components/settings/CommunicationSe
 import { BillingSettings } from '../../components/BillingSettings';
 import { SecuritySettings } from '../../components/SecuritySettings';
 import { CustomizationSettings } from '../../components/CustomizationSettings';
+import { ProfileSettings } from '../../components/ProfileSettings';
 import { Toaster, toast } from 'sonner';
 
 const companyLogo = "https://images.unsplash.com/photo-1709817552870-f96756fb8c9f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBjb21wYW55JTIwbG9nbyUyMG1pbmltYWx8ZW58MXx8fHwxNzcwNzUzNDIxfDA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral";
 
 export default function SettingsPage() {
-  const [activeSection, setActiveSection] = useState('organization');
+  const [activeSection, setActiveSection] = useState('profile');
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const section = new URLSearchParams(window.location.search).get('section');
     if (section === 'communication') setActiveSection('communication');
+    if (section === 'profile') setActiveSection('profile');
+    if (section === 'organization') setActiveSection('organization');
   }, []);
 
   const renderContent = () => {
     switch (activeSection) {
+      case 'profile':
+        return <ProfileSettings />;
       case 'organization':
         return <OrganizationSettings logo={companyLogo} />;
       case 'workflow':
@@ -39,7 +44,7 @@ export default function SettingsPage() {
       case 'customization':
         return <CustomizationSettings />;
       default:
-        return <OrganizationSettings logo={companyLogo} />;
+        return <ProfileSettings />;
     }
   };
 

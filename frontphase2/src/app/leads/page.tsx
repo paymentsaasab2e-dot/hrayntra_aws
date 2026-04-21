@@ -23,6 +23,7 @@ import { ImageWithFallback } from '../../components/ImageWithFallback';
 import { LeadDetailsDrawer } from '../../components/drawers/LeadDetailsDrawer';
 import { LeadImportDrawer } from '../../components/drawers/LeadImportDrawer';
 import AriaChat from '../../components/AriaChat';
+import { Pagination } from '../../components/Pagination';
 import type { Lead, LeadStatus, Priority } from './types';
 import {
   apiGetLeads,
@@ -324,6 +325,9 @@ export default function RecruitmentAgencyDashboard() {
   const [bulkAssignedTo, setBulkAssignedTo] = useState('');
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
   const [highlightedRows, setHighlightedRows] = useState<string[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalEntries, setTotalEntries] = useState(0);
   const [metrics, setMetrics] = useState({
     NEW_LEADS: 0,
     CONTACTED: 0,
@@ -331,6 +335,39 @@ export default function RecruitmentAgencyDashboard() {
     CONVERTED: 0,
     LOST: 0,
   });
+  
+  const selectedLead = leads.find(l => l.id === selectedLeadId);
+
+  // Check authentication status on client side only
+  useEffect(() => {
+    const token = localStorage.getItem('accessToken');
+    setIsAuthenticated(!!token);
+  }, []);
+
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+        if (!token) return;
+        const response = await apiGetUsers({ isActive: true, limit: 200 });
+        const payload = response.data;
+        const users = Array.isArray(payload)
+          ? payload
+          : Array.isArray(payload?.data)
+            ? payload.data
+            : [];
+        setTeamMembers(users);
+      } catch (err) {
+        console.error('Failed to fetch users for bulk lead assignment:', err);
+      }
+    };
+
+    fetchUsers();
+  }, []);
+
+  // Fetch leads from API
+  useEffect(() => {
+    const fetchLeads = async () => {
   
   const selectedLead = leads.find(l => l.id === selectedLeadId);
 
@@ -374,6 +411,7 @@ export default function RecruitmentAgencyDashboard() {
           // No token - use mock data for now
           console.warn('No authentication token found. Using mock data.');
           setLeads(INITIAL_LEADS);
+          setTotalEntries(INITIAL_LEADS.length);
           setLoading(false);
           return;
         }
@@ -383,6 +421,7 @@ export default function RecruitmentAgencyDashboard() {
           console.error('apiGetLeads is not a function');
           setError('API function not available');
           setLeads(INITIAL_LEADS);
+          setTotalEntries(INITIAL_LEADS.length);
           setLoading(false);
           return;
         }
@@ -390,22 +429,29 @@ export default function RecruitmentAgencyDashboard() {
         const response = await apiGetLeads({
           status: statusFilter !== 'All' ? statusFilter : undefined,
           search: searchQuery || undefined,
-          page: 1,
-          limit: 200,
+          page: currentPage,
+          limit: pageSize,
         });
         
         // Backend returns: { success: true, message: "...", data: { data: [...], pagination: {...} } }
         // So response.data is { data: [...], pagination: {...} }
         const backendLeads = response.data ? extractBackendLeads(response.data) : [];
+        const pagination = response.data?.pagination;
         
         if (!Array.isArray(backendLeads)) {
           console.error('backendLeads is not an array:', backendLeads);
           setLeads(INITIAL_LEADS);
+          setTotalEntries(INITIAL_LEADS.length);
           return;
         }
         
         const mappedLeads = backendLeads.map(mapBackendLeadToFrontend);
         setLeads(mappedLeads);
+        if (pagination) {
+          setTotalEntries(pagination.total || 0);
+        } else {
+          setTotalEntries(mappedLeads.length);
+        }
       } catch (err: any) {
         console.error('Failed to fetch leads:', err);
         
@@ -415,11 +461,13 @@ export default function RecruitmentAgencyDashboard() {
             err.message?.includes('401')) {
           console.warn('Authentication required. Using mock data. Please log in to access real data.');
           setLeads(INITIAL_LEADS);
+          setTotalEntries(INITIAL_LEADS.length);
           setError(null); // Don't show error for auth issues, just use mock data
         } else {
           setError(err.message || 'Failed to load leads');
           // Fallback to mock data on error
           setLeads(INITIAL_LEADS);
+          setTotalEntries(INITIAL_LEADS.length);
         }
       } finally {
         setLoading(false);
@@ -427,7 +475,7 @@ export default function RecruitmentAgencyDashboard() {
     };
 
     fetchLeads();
-  }, [statusFilter, searchQuery]);
+  }, [statusFilter, searchQuery, currentPage, pageSize]);
 
   const filteredLeads = useMemo(() => {
     // If we're using API, filtering is done server-side, but we can still filter client-side for search
@@ -624,13 +672,14 @@ export default function RecruitmentAgencyDashboard() {
       const response = await apiGetLeads({
         status: statusFilter !== 'All' ? statusFilter : undefined,
         search: searchQuery || undefined,
-        page: 1,
-        limit: 200,
+        page: currentPage,
+        limit: pageSize,
       });
       
       // Backend returns: { success: true, message: "...", data: { data: [...], pagination: {...} } }
       // So response.data is { data: [...], pagination: {...} }
       const backendLeads = response.data ? extractBackendLeads(response.data) : [];
+      const pagination = response.data?.pagination;
       
       if (!Array.isArray(backendLeads)) {
         console.error('backendLeads is not an array:', backendLeads);
@@ -639,6 +688,11 @@ export default function RecruitmentAgencyDashboard() {
       
       const mappedLeads = backendLeads.map(mapBackendLeadToFrontend);
       setLeads(mappedLeads);
+      if (pagination) {
+        setTotalEntries(pagination.total || 0);
+      } else {
+        setTotalEntries(mappedLeads.length);
+      }
     } catch (err: any) {
       console.error('Failed to refresh leads:', err);
     } finally {
@@ -1114,22 +1168,6 @@ export default function RecruitmentAgencyDashboard() {
                               <Trash2 size={18} />
                             </button>
                           )}
-                        </div>
-                      </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {(selectedLead || addLeadDrawerOpen) && (
-          <LeadDetailsDrawer
-            lead={selectedLead ?? null}
-            addLeadMode={addLeadDrawerOpen}
             onClose={() => {
               setSelectedLeadId(null);
               setAddLeadDrawerOpen(false);

@@ -22,6 +22,8 @@ import { ClientTable } from '../../components/ClientTable';
 import { ClientFilterDrawer } from '../../components/drawers/ClientFilterDrawer';
 import { ClientDetailsDrawer } from '../../components/drawers/ClientDetailsDrawer';
 import { ClientImportDrawer } from '../../components/drawers/ClientImportDrawer';
+import { CreateJobDrawer } from '../../components/drawers/CreateJobDrawer';
+import { Pagination } from '../../components/Pagination';
 import { INITIAL_CLIENTS } from './types';
 import type { Client } from './types';
 import { apiGetClients, apiDeleteClient, apiGetUsers, apiUpdateClient, type BackendClient, type BackendUser, type UpdateClientData } from '../../lib/api';
@@ -115,22 +117,20 @@ const EmptyState = ({ onImportClick }: { onImportClick?: () => void }) => (
 
 // Helper function to map backend client to frontend format
 function mapBackendClientToFrontend(backendClient: BackendClient): Client {
-  // Client UI supports only Active / On Hold / Inactive / Hot Clients.
   const statusMap: Record<string, Client['stage']> = {
     'ACTIVE': 'Active',
     'PROSPECT': 'Active',
     'ON_HOLD': 'On Hold',
     'INACTIVE': 'Inactive',
   };
-  // Note: 'Hot Clients 🔥' is a frontend-only stage that maps to 'ACTIVE' status in backend
 
   return {
-    id: backendClient.id, // Use string ID directly to avoid collisions
+    id: backendClient.id,
     name: backendClient.companyName,
     industry: backendClient.industry || 'Not specified',
     location: backendClient.location || 'Not specified',
     openJobs: backendClient._count?.jobs || 0,
-    activeCandidates: 0, // Would need to calculate from jobs/candidates
+    activeCandidates: 0,
     placements: backendClient._count?.placements || 0,
     stage: statusMap[backendClient.status] || 'Active',
     owner: backendClient.assignedTo ? {
@@ -202,6 +202,8 @@ export default function App() {
   const [selectedClients, setSelectedClients] = useState<string[]>([]);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [showAddClientDrawer, setShowAddClientDrawer] = useState(false);
+  const [showCreateJobDrawer, setShowCreateJobDrawer] = useState(false);
+  const [clientIdForJob, setClientIdForJob] = useState<string | null>(null);
   const [isEmpty, setIsEmpty] = useState(false);
   const [showImportDrawer, setShowImportDrawer] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
@@ -213,9 +215,12 @@ export default function App() {
   const [bulkStatus, setBulkStatus] = useState('');
   const [bulkAssignedTo, setBulkAssignedTo] = useState('');
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalEntries, setTotalEntries] = useState(0);
+
   const filteredClients = filterClientsByTab(clients, activeTab);
 
-  // Check authentication status on client side only
   useEffect(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
     setIsAuthenticated(!!token);
@@ -242,7 +247,6 @@ export default function App() {
     fetchUsers();
   }, []);
 
-  // Fetch clients from API
   useEffect(() => {
     const fetchClients = async () => {
       try {
@@ -250,82 +254,69 @@ export default function App() {
         setError(null);
 
         const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-        setIsAuthenticated(!!token);
-
         if (!token) {
-          console.warn('No authentication token found. Using mock data. Please log in to access real data.');
           setClients(INITIAL_CLIENTS);
+          setTotalEntries(INITIAL_CLIENTS.length);
           setLoading(false);
           return;
         }
 
         const response = await apiGetClients({
           search: searchQuery || undefined,
+          page: currentPage,
+          limit: pageSize,
         });
 
-        // Backend returns: { success: true, message: "...", data: { data: [...], pagination: {...} } }
         const backendClients = response.data ? extractBackendClients(response.data) : [];
+        const pagination = (response.data as any)?.pagination;
 
         if (!Array.isArray(backendClients)) {
-          console.error('Unexpected API response format: data is not an array.', response);
           setError('Unexpected API response format.');
           setClients(INITIAL_CLIENTS);
+          setTotalEntries(INITIAL_CLIENTS.length);
           return;
         }
 
         const mappedClients = backendClients.map(mapBackendClientToFrontend);
-        
-        // Deduplicate clients by ID to prevent duplicate key errors
-        // Use Map to keep the last occurrence of each ID
         const clientMap = new Map<string, Client>();
         mappedClients.forEach(client => {
-          // Ensure ID is always a string
           const id = String(client.id);
           clientMap.set(id, { ...client, id });
         });
         
         const uniqueClients = Array.from(clientMap.values());
-        
-        // Log if duplicates were found (for debugging)
-        if (mappedClients.length !== uniqueClients.length) {
-          console.warn(`Found ${mappedClients.length - uniqueClients.length} duplicate client(s), removed duplicates.`);
-        }
-        
         setClients(uniqueClients);
-        setIsEmpty(uniqueClients.length === 0);
+        if (pagination) {
+          setTotalEntries(pagination.total || 0);
+        } else {
+          setTotalEntries(uniqueClients.length);
+        }
+        setIsEmpty(uniqueClients.length === 0 && totalEntries === 0);
       } catch (err: any) {
         console.error('Failed to fetch clients:', err);
-
-        if (err.message?.includes('Authentication required') ||
-            err.message?.includes('No token') ||
-            err.message?.includes('401')) {
-          console.warn('Authentication required. Using mock data. Please log in to access real data.');
-          setClients(INITIAL_CLIENTS);
-          setError(null);
-        } else {
-          setError(err.message || 'Failed to load clients');
-          setClients(INITIAL_CLIENTS);
-        }
+        setClients(INITIAL_CLIENTS);
+        setTotalEntries(INITIAL_CLIENTS.length);
       } finally {
         setLoading(false);
       }
     };
 
     fetchClients();
-  }, [searchQuery]);
+  }, [searchQuery, currentPage, pageSize]);
 
   const handleRefresh = async () => {
     try {
       setLoading(true);
       const response = await apiGetClients({
         search: searchQuery || undefined,
+        page: currentPage,
+        limit: pageSize,
       });
 
       const backendClients = response.data ? extractBackendClients(response.data) : [];
+      const pagination = (response.data as any)?.pagination;
 
       const mappedClients = backendClients.map(mapBackendClientToFrontend);
-      // Deduplicate clients by ID to prevent duplicate key errors
-      // Use Map to keep the last occurrence of each ID
       const clientMap = new Map<string, Client>();
       mappedClients.forEach(client => {
         const id = String(client.id);
@@ -333,7 +324,12 @@ export default function App() {
       });
       const uniqueClients = Array.from(clientMap.values());
       setClients(uniqueClients);
-      setIsEmpty(uniqueClients.length === 0);
+      if (pagination) {
+        setTotalEntries(pagination.total || 0);
+      } else {
+        setTotalEntries(uniqueClients.length);
+      }
+      setIsEmpty(uniqueClients.length === 0 && totalEntries === 0);
     } catch (err: any) {
       console.error('Failed to refresh clients:', err);
     } finally {
@@ -343,20 +339,14 @@ export default function App() {
 
   const handleDeleteClient = async (id: string) => {
     const client = clients.find(c => c.id === id);
-    const name = client?.name || 'this client';
-    if (!window.confirm(`Are you sure you want to delete ${name}? This action cannot be undone.`)) {
-      return;
-    }
+    if (!window.confirm(`Are you sure you want to delete ${client?.name || 'this client'}?`)) return;
 
     try {
       await apiDeleteClient(id);
-      // Optimistically update list
       setClients(prev => prev.filter(c => c.id !== id));
-      setSelectedClients(prev => prev.filter(cid => cid !== id));
       await handleRefresh();
     } catch (err: any) {
       console.error('Failed to delete client:', err);
-      alert(err?.message || 'Failed to delete client');
     }
   };
 
@@ -368,9 +358,7 @@ export default function App() {
 
   const handleBulkDelete = async () => {
     if (selectedClients.length === 0) return;
-    if (!window.confirm(`Delete ${selectedClients.length} selected client${selectedClients.length > 1 ? 's' : ''}? This action cannot be undone.`)) {
-      return;
-    }
+    if (!window.confirm(`Delete ${selectedClients.length} selected clients?`)) return;
 
     try {
       setBulkActionLoading(true);
@@ -379,7 +367,6 @@ export default function App() {
       await handleRefresh();
     } catch (err: any) {
       console.error('Failed to bulk delete clients:', err);
-      alert(err?.message || 'Failed to delete selected clients');
     } finally {
       setBulkActionLoading(false);
     }
@@ -395,7 +382,6 @@ export default function App() {
       await handleRefresh();
     } catch (err: any) {
       console.error('Failed to bulk update clients:', err);
-      alert(err?.message || 'Failed to update selected clients');
     } finally {
       setBulkActionLoading(false);
     }
@@ -403,212 +389,133 @@ export default function App() {
 
   const handleBulkStatusChange = async (status: string) => {
     setBulkStatus(status);
-    if (!status) return;
-    await handleBulkUpdate({ status: status as UpdateClientData['status'] });
+    if (status) await handleBulkUpdate({ status: status as UpdateClientData['status'] });
   };
 
   const handleBulkAssignChange = async (assignedToId: string) => {
     setBulkAssignedTo(assignedToId);
-    if (!assignedToId) return;
-    await handleBulkUpdate({ assignedToId });
+    if (assignedToId) await handleBulkUpdate({ assignedToId });
   };
 
   return (
     <div className="w-full min-h-screen bg-slate-50">
       <div className="p-8 max-w-7xl mx-auto w-full">
-          {/* Page Header */}
-          <div className="flex flex-col md:flex-row md:items-start justify-between mb-8 gap-4">
-            <div>
-              <div className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">
-                Recruitment Hub / CRM
+        <div className="flex flex-col md:flex-row md:items-start justify-between mb-8 gap-4">
+          <div>
+            <div className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">
+              Recruitment Hub / CRM
+            </div>
+            <h1 className="text-3xl font-bold text-slate-900">Clients</h1>
+          </div>
+          <div className="flex items-center gap-2 md:gap-3 flex-wrap">
+            <button onClick={handleRefresh} disabled={loading} className="p-2.5 bg-white border border-slate-200 rounded-lg text-slate-500 hover:bg-slate-50 transition-all shadow-sm">
+              <RefreshCcw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+            <button onClick={() => setShowImportDrawer(true)} className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-lg text-slate-600 font-semibold hover:bg-slate-50 shadow-sm">
+              <Upload className="w-4 h-4" /> Import
+            </button>
+            <button onClick={() => { setSelectedClient(null); setShowAddClientDrawer(true); }} className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all">
+              <Plus className="w-5 h-5" /> Add Client
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-col lg:flex-row lg:items-center gap-4 mb-8">
+          <div className="flex-1 relative">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <input 
+              type="text" 
+              placeholder="Search by client name..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-slate-700 shadow-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+            />
+          </div>
+        </div>
+
+        <StatusTabs activeTab={activeTab} onTabChange={setActiveTab} clients={clients} />
+        <ClientSummaryMetrics />
+
+        {loading ? (
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 text-center text-slate-500">Loading...</div>
+        ) : error && !loading ? (
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 text-center text-red-500">Error: {error}</div>
+        ) : isEmpty ? (
+          <EmptyState onImportClick={() => setShowImportDrawer(true)} />
+        ) : (
+          <>
+            <div className="mb-4 flex items-center">
+              <div className="flex items-center gap-2 text-sm text-slate-500">
+                <AlertCircle className="w-4 h-4 text-amber-500" />
+                <span>Showing <strong>{filteredClients.length}</strong> Clients</span>
               </div>
-              <h1 className="text-3xl font-bold text-slate-900">Clients</h1>
             </div>
             
-            <div className="flex items-center gap-2 md:gap-3 flex-wrap">
-              <button 
-                onClick={handleRefresh}
-                disabled={loading}
-                className="p-2.5 bg-white border border-slate-200 rounded-lg text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-all shadow-sm disabled:opacity-50"
-              >
-                <RefreshCcw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
-              </button>
-              <button
-                onClick={() => setShowImportDrawer(true)}
-                className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-lg text-slate-600 font-semibold hover:bg-slate-50 transition-all shadow-sm"
-              >
-                <Upload className="w-4 h-4" /> Import Clients
-              </button>
-              <button
-                onClick={() => {
-                  setSelectedClient(null);
-                  setShowAddClientDrawer(true);
-                }}
-                className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all"
-              >
-                <Plus className="w-5 h-5" /> Add Client
-              </button>
-              <button className="p-2.5 bg-white border border-slate-200 rounded-lg text-slate-500 hover:bg-slate-50 transition-all shadow-sm">
-                <MoreVertical className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
+            <ClientTable
+              clients={filteredClients}
+              selectedIds={selectedClients}
+              onSelectionChange={setSelectedClients}
+              onSelectClient={setSelectedClient}
+              onDeleteClient={handleDeleteClient}
+              onLogoUpdated={handleRefresh}
+              onCreateJob={(client) => {
+                setClientIdForJob(client.id);
+                setShowCreateJobDrawer(true);
+              }}
+            />
 
-          {/* Search and Filters Bar */}
-          <div className="flex flex-col lg:flex-row lg:items-center gap-4 mb-8">
-            <div className="flex-1 relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-              <input 
-                type="text" 
-                placeholder="Search by client name, industry, location or owner..." 
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-slate-700 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
-              />
-            </div>
-            <div className="flex items-center gap-3">
-              <button 
-                onClick={() => setIsFilterOpen(true)}
-                className="flex items-center gap-2 px-4 py-3 bg-white border border-slate-200 rounded-xl text-slate-600 font-semibold hover:bg-slate-50 transition-all shadow-sm"
-              >
-                <Filter className="w-5 h-5" /> Filters
-              </button>
-              <div className="flex items-center bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
-                <button className="p-2 rounded-lg bg-blue-50 text-blue-600">
-                  <List className="w-5 h-5" />
-                </button>
-                <button className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-all">
-                  <Grid2x2 className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <StatusTabs activeTab={activeTab} onTabChange={setActiveTab} clients={clients} />
-          
-          <ClientSummaryMetrics />
-
-          {loading ? (
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 text-center text-slate-500">
-              Loading clients...
-            </div>
-          ) : error && !loading ? (
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 text-center text-red-500">
-              Error: {error}
-            </div>
-          ) : isEmpty ? (
-            <EmptyState onImportClick={() => setShowImportDrawer(true)} />
-          ) : (
-            <>
-              <div className="mb-4 flex items-center">
-                <div className="flex items-center gap-2 text-sm text-slate-500">
-                  <AlertCircle className="w-4 h-4 text-amber-500" />
-                  <span>Showing <strong>{filteredClients.length} {activeTab === 'all' ? 'Clients' : activeTab === 'active' ? 'Active Clients' : activeTab === 'on-hold' ? 'On Hold Clients' : activeTab === 'inactive' ? 'Inactive Clients' : activeTab === 'hot' ? 'Hot Clients' : 'Clients'}</strong></span>
-                </div>
-              </div>
-              
-              <ClientTable
-                clients={filteredClients}
-                selectedIds={selectedClients}
-                onSelectionChange={setSelectedClients}
-                onSelectClient={setSelectedClient}
-                onDeleteClient={handleDeleteClient}
-                onLogoUpdated={handleRefresh}
-              />
-            </>
-          )}
-        </div>
+            <Pagination
+              currentPage={currentPage}
+              totalPages={Math.ceil(totalEntries / pageSize)}
+              onPageChange={setCurrentPage}
+              pageSize={pageSize}
+              onPageSizeChange={(newSize) => { setPageSize(newSize); setCurrentPage(1); }}
+              totalEntries={totalEntries}
+            />
+          </>
+        )}
+      </div>
 
       <ClientDetailsDrawer
         client={selectedClient}
         isAddMode={showAddClientDrawer}
-        onClose={() => {
-          setSelectedClient(null);
-          setShowAddClientDrawer(false);
-        }}
+        onClose={() => { setSelectedClient(null); setShowAddClientDrawer(false); }}
         onDelete={(id) => { setSelectedClient(null); handleDeleteClient(id); }}
-        onClientCreated={() => {
-          setShowAddClientDrawer(false);
-          handleRefresh();
-        }}
-        onJobCreated={() => {
-          handleRefresh();
-        }}
+        onClientCreated={() => { setShowAddClientDrawer(false); handleRefresh(); }}
+        onJobCreated={handleRefresh}
+      />
+      <CreateJobDrawer
+        isOpen={showCreateJobDrawer}
+        onClose={() => { setShowCreateJobDrawer(false); setClientIdForJob(null); }}
+        onJobCreated={() => { setShowCreateJobDrawer(false); setClientIdForJob(null); handleRefresh(); }}
+        defaultClientId={clientIdForJob}
       />
       <ClientFilterDrawer isOpen={isFilterOpen} onClose={() => setIsFilterOpen(false)} />
-      <ClientImportDrawer
-        isOpen={showImportDrawer}
-        onClose={() => setShowImportDrawer(false)}
-        onImportComplete={() => { handleRefresh(); }}
-      />
+      <ClientImportDrawer isOpen={showImportDrawer} onClose={() => setShowImportDrawer(false)} onImportComplete={handleRefresh} />
+
       {selectedClients.length > 0 && (
-        <div className="fixed bottom-6 left-1/2 z-40 w-[min(94vw,980px)] -translate-x-1/2 rounded-2xl border border-slate-800 bg-slate-950/95 px-4 py-3 text-white shadow-2xl shadow-slate-950/40 backdrop-blur">
+        <div className="fixed bottom-6 left-1/2 z-40 w-[min(94vw,980px)] -translate-x-1/2 rounded-2xl border border-slate-800 bg-slate-950/95 px-4 py-3 text-white shadow-2xl backdrop-blur">
           <div className="flex items-center justify-between gap-4">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-blue-500/15 text-blue-300">
-                <BadgeCheck className="w-5 h-5" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-white">
-                  {selectedClients.length} client{selectedClients.length > 1 ? 's' : ''} selected
-                </p>
-                <p className="truncate text-xs text-slate-400">Use bulk actions to update or remove the selected clients.</p>
+            <div className="flex items-center gap-3">
+              <BadgeCheck className="w-5 h-5 text-blue-300" />
+              <div>
+                <p className="text-sm font-semibold">{selectedClients.length} selected</p>
+                <p className="text-xs text-slate-400">Use bulk actions</p>
               </div>
             </div>
-
-            <div className="flex flex-shrink-0 items-center gap-2">
-              <div className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2">
-                <UserPlus className="w-4 h-4 text-slate-400" />
-                <select
-                  value={bulkAssignedTo}
-                  onChange={(e) => handleBulkAssignChange(e.target.value)}
-                  disabled={bulkActionLoading}
-                  className="bg-transparent text-sm text-slate-100 outline-none"
-                >
-                  <option value="">Assign To</option>
-                  {teamMembers.map((user) => (
-                    <option key={user.id} value={user.id}>
-                      {user.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2">
-                <BadgeCheck className="w-4 h-4 text-slate-400" />
-                <select
-                  value={bulkStatus}
-                  onChange={(e) => handleBulkStatusChange(e.target.value)}
-                  disabled={bulkActionLoading}
-                  className="bg-transparent text-sm text-slate-100 outline-none"
-                >
-                  <option value="">Change Status</option>
-                  <option value="ACTIVE">Active</option>
-                  <option value="ON_HOLD">On Hold</option>
-                  <option value="INACTIVE">Inactive</option>
-                  <option value="PROSPECT">Prospect</option>
-                </select>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleBulkDelete}
-                disabled={bulkActionLoading}
-                className="flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <Trash2 className="w-4 h-4" />
-                Delete
-              </button>
-
-              <button
-                type="button"
-                onClick={clearBulkSelection}
-                disabled={bulkActionLoading}
-                className="flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <X className="w-4 h-4" />
-                Clear
-              </button>
+            <div className="flex items-center gap-2">
+              <select value={bulkAssignedTo} onChange={(e) => handleBulkAssignChange(e.target.value)} disabled={bulkActionLoading} className="bg-slate-900 text-sm p-2 rounded-lg border border-slate-700">
+                <option value="">Assign To</option>
+                {teamMembers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </select>
+              <select value={bulkStatus} onChange={(e) => handleBulkStatusChange(e.target.value)} disabled={bulkActionLoading} className="bg-slate-900 text-sm p-2 rounded-lg border border-slate-700">
+                <option value="">Status</option>
+                <option value="ACTIVE">Active</option>
+                <option value="ON_HOLD">On Hold</option>
+                <option value="INACTIVE">Inactive</option>
+              </select>
+              <button onClick={handleBulkDelete} disabled={bulkActionLoading} className="bg-red-600 px-4 py-2 rounded-lg text-sm font-semibold">Delete</button>
+              <button onClick={clearBulkSelection} disabled={bulkActionLoading} className="bg-slate-800 px-4 py-2 rounded-lg text-sm font-semibold">Clear</button>
             </div>
           </div>
         </div>
