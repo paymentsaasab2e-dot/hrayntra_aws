@@ -368,39 +368,6 @@ export default function RecruitmentAgencyDashboard() {
   // Fetch leads from API
   useEffect(() => {
     const fetchLeads = async () => {
-  
-  const selectedLead = leads.find(l => l.id === selectedLeadId);
-
-  // Check authentication status on client side only
-  useEffect(() => {
-    const token = localStorage.getItem('accessToken');
-    setIsAuthenticated(!!token);
-  }, []);
-
-  useEffect(() => {
-    const fetchUsers = async () => {
-      try {
-        const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-        if (!token) return;
-        const response = await apiGetUsers({ isActive: true, limit: 200 });
-        const payload = response.data;
-        const users = Array.isArray(payload)
-          ? payload
-          : Array.isArray(payload?.data)
-            ? payload.data
-            : [];
-        setTeamMembers(users);
-      } catch (err) {
-        console.error('Failed to fetch users for bulk lead assignment:', err);
-      }
-    };
-
-    fetchUsers();
-  }, []);
-
-  // Fetch leads from API
-  useEffect(() => {
-    const fetchLeads = async () => {
       try {
         setLoading(true);
         setError(null);
@@ -1168,6 +1135,22 @@ export default function RecruitmentAgencyDashboard() {
                               <Trash2 size={18} />
                             </button>
                           )}
+                        </div>
+                      </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {(selectedLead || addLeadDrawerOpen) && (
+          <LeadDetailsDrawer
+            lead={selectedLead ?? null}
+            addLeadMode={addLeadDrawerOpen}
             onClose={() => {
               setSelectedLeadId(null);
               setAddLeadDrawerOpen(false);
