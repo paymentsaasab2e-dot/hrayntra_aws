@@ -115,7 +115,7 @@ export function InterviewTable({
                     </div>
                     <div>
                       <div className="text-[13px] font-semibold text-[#111827]">{interview.candidate.name}</div>
-                      <div className="text-[12px] text-[#6B7280]">{interview.candidate.email}</div>
+                      <div className="text-[12px] text-[#6B7280]">{interview.candidate.email || 'No email available'}</div>
                     </div>
                   </div>
                 </td>

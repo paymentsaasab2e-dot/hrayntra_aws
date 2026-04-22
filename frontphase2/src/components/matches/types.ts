@@ -23,6 +23,11 @@ export interface MatchJob {
   id: string;
   title: string;
   client: string;
+  clientId?: string;
+  clientContactId?: string;
+  clientEmail?: string;
+  location?: string;
+  clientLocation?: string;
   status: 'Open' | 'Urgent' | 'On Hold';
 }
 
@@ -48,6 +53,7 @@ export interface MatchSubmissionHistory {
 export interface MatchCandidate {
   id: string;
   matchId: string;
+  isAppliedCandidate?: boolean;
   name: string;
   photo: string;
   initials: string;

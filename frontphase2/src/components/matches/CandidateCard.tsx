@@ -109,6 +109,11 @@ export default function CandidateCard({
                 <span className={`rounded-full border px-2 py-1 text-[10px] font-bold uppercase ${statusColors[candidate.status]}`}>
                   {candidate.status}
                 </span>
+                {candidate.isAppliedCandidate ? (
+                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-bold uppercase text-amber-700">
+                    Already Applied
+                  </span>
+                ) : null}
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-[#6B7280]">
                 <span className="flex items-center gap-1.5">

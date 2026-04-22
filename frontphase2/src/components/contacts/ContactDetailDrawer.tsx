@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { X, Mail, Phone, MapPin, Linkedin, Edit, Trash2, MessageSquare, Calendar, CheckSquare } from 'lucide-react';
+import { X, Mail, Phone, MapPin, Linkedin, Edit, Trash2, MessageSquare } from 'lucide-react';
 import { ImageWithFallback } from '../ImageWithFallback';
 import type { BackendContact } from '../../lib/api';
 import { ContactTypeBadge } from './ContactTypeBadge';
@@ -20,6 +20,20 @@ export function ContactDetailDrawer({ contact, isOpen, onClose, onEdit, onDelete
   const [activeTab, setActiveTab] = useState<'overview' | 'activity' | 'communication' | 'jobs'>('overview');
 
   if (!contact) return null;
+
+  const openWhatsApp = () => {
+    const rawPhone = contact.phone?.replace(/[^\d+]/g, '').trim();
+    if (!rawPhone) {
+      window.alert('No phone number is available for this contact.');
+      return;
+    }
+
+    const phone = rawPhone.startsWith('+') ? rawPhone.slice(1) : rawPhone;
+    const message = encodeURIComponent(
+      `Hi ${contact.firstName} ${contact.lastName},`
+    );
+    window.open(`https://wa.me/${phone}?text=${message}`, '_blank', 'noopener,noreferrer');
+  };
 
   const getInitials = () => {
     return `${contact.firstName[0]}${contact.lastName[0]}`.toUpperCase();
@@ -128,18 +142,13 @@ export function ContactDetailDrawer({ contact, isOpen, onClose, onEdit, onDelete
               </div>
 
               {/* Quick Actions */}
-              <div className="grid grid-cols-2 gap-2 mb-6">
-                <button className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-100">
+              <div className="grid grid-cols-1 gap-2 mb-6">
+                <button
+                  onClick={openWhatsApp}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-100"
+                >
                   <MessageSquare size={16} />
                   Send Message
-                </button>
-                <button className="flex items-center gap-2 px-4 py-2 bg-gray-50 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-100">
-                  <Calendar size={16} />
-                  Schedule
-                </button>
-                <button className="flex items-center gap-2 px-4 py-2 bg-gray-50 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-100">
-                  <CheckSquare size={16} />
-                  Add Task
                 </button>
               </div>
 

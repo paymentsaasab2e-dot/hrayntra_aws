@@ -250,6 +250,7 @@ function SearchableDropdown({
   error,
   autoFilled,
   emptyMessage,
+  disabled = false,
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -275,10 +276,14 @@ function SearchableDropdown({
       <div className="relative">
         <button
           type="button"
-          onClick={() => setOpen((prev) => !prev)}
+          onClick={() => {
+            if (disabled) return;
+            setOpen((prev) => !prev);
+          }}
+          disabled={disabled}
           className={`flex w-full items-center justify-between rounded-xl border bg-white px-3 py-2.5 text-left text-sm ${
             error ? 'border-red-400' : 'border-slate-200'
-          }`}
+          } ${disabled ? 'cursor-not-allowed bg-slate-50 text-slate-400' : ''}`}
         >
           <span className={selected ? 'text-slate-900' : 'text-slate-400'}>
             {selected ? getLabel(selected) : placeholder}
@@ -455,7 +460,15 @@ function StepProgress({ currentStep }) {
   );
 }
 
-export default function AddCandidateDrawer({ isOpen, onClose, onSuccess, currentUser, initialTab = 'manual' }) {
+export default function AddCandidateDrawer({
+  isOpen,
+  onClose,
+  onSuccess,
+  currentUser,
+  initialTab = 'manual',
+  defaultJobId = '',
+  lockJobSelection = false,
+}) {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState(DEFAULT_FORM_DATA);
@@ -488,6 +501,7 @@ export default function AddCandidateDrawer({ isOpen, onClose, onSuccess, current
   const [bulkResumeResults, setBulkResumeResults] = useState([]);
   const fieldRefs = useRef({});
   const importProgressRef = useRef(null);
+  const normalizedDefaultJobId = String(defaultJobId || '').trim();
 
   const selectedJob = useMemo(() => jobs.find((job) => job.id === formData.jobId) || null, [jobs, formData.jobId]);
   const selectedRecruiter = useMemo(
@@ -521,6 +535,11 @@ export default function AddCandidateDrawer({ isOpen, onClose, onSuccess, current
     if (!isOpen) return;
     setActiveTab(initialTab || 'manual');
   }, [initialTab, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !normalizedDefaultJobId) return;
+    setFormData((prev) => ({ ...prev, jobId: normalizedDefaultJobId }));
+  }, [isOpen, normalizedDefaultJobId]);
 
   useEffect(() => {
     if (!isOpen || dataLoaded) return;
@@ -576,6 +595,7 @@ export default function AddCandidateDrawer({ isOpen, onClose, onSuccess, current
     setFormData({
       ...DEFAULT_FORM_DATA,
       recruiterId: currentUser?._id || '',
+      jobId: normalizedDefaultJobId || '',
     });
     setErrors({});
     setParsedResumeFile(null);
@@ -875,6 +895,7 @@ export default function AddCandidateDrawer({ isOpen, onClose, onSuccess, current
           : Number(parsedCandidate.experience) || 0,
       location: preferredLocation || undefined,
       linkedinUrl: parsedCandidate.linkedinUrl || undefined,
+      jobId: formData.jobId || undefined,
       source: parsedCandidate.source || 'Other',
       priority: parsedCandidate.priority || 'Medium',
       recruiterId: currentUser?._id || undefined,
@@ -1973,6 +1994,7 @@ export default function AddCandidateDrawer({ isOpen, onClose, onSuccess, current
                     getLabel={(job) => job.title}
                     getSecondary={(job) => job.department}
                     emptyMessage="No jobs you created yet. Add a job on the Jobs page first."
+                    disabled={lockJobSelection}
                   />
 
                   {selectedJob ? (

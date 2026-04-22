@@ -190,7 +190,9 @@ function taskToFormValues(t: TaskForDrawer): TaskFormValues {
     priority: t.priority,
     dueDate: t.dueDate,
     reminder: t.reminder ?? '',
-    attachmentNames: '',
+    attachmentNames: Array.isArray(t.attachments) && t.attachments.length > 0
+      ? t.attachments.map((attachment) => attachment.name).filter(Boolean).join(', ')
+      : '',
     notifyAssignee: true,
     status: editStatus,
   };

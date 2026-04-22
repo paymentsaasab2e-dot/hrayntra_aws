@@ -90,6 +90,39 @@ const formatTimePart = (value: string) =>
     minute: '2-digit',
   });
 
+const isLikelyUrl = (value?: string | null) => /^https?:\/\//i.test(String(value || '').trim());
+
+const safeDisplayText = (value?: string | null, fallback = '') => {
+  const text = String(value || '').trim();
+  if (!text || isLikelyUrl(text)) return fallback;
+  return text;
+};
+
+const initialsFromName = (value?: string | null, fallback = 'NA') => {
+  const text = safeDisplayText(value, '').trim();
+  if (!text) return fallback;
+  const initials = text
+    .split(/\s+/)
+    .map((part) => part[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+  return initials || fallback;
+};
+
+const extractDisplayName = (firstName?: string | null, lastName?: string | null) => {
+  const name = [safeDisplayText(firstName, ''), safeDisplayText(lastName, '')].filter(Boolean).join(' ').trim();
+  if (!name) return 'Unknown Candidate';
+  return name;
+};
+
+const sanitizeEmail = (value?: string | null) => {
+  const email = String(value || '').trim();
+  if (!email || isLikelyUrl(email) || !email.includes('@')) return '';
+  return email;
+};
+
 const activityColor = (action: string): 'blue' | 'green' | 'orange' | 'red' | 'slate' => {
   if (action.toLowerCase().includes('cancel') || action.toLowerCase().includes('no show')) return 'red';
   if (action.toLowerCase().includes('feedback') || action.toLowerCase().includes('recording')) return 'green';
@@ -102,16 +135,16 @@ const mapInterview = (item: BackendInterviewListItem): Interview => ({
   id: item.id,
   candidate: {
     id: item.candidate.id,
-    name: `${item.candidate.firstName} ${item.candidate.lastName}`.trim(),
-    email: item.candidate.email,
-    avatar: item.candidate.avatar || undefined,
+    name: extractDisplayName(item.candidate.firstName, item.candidate.lastName),
+    email: sanitizeEmail(item.candidate.email),
+    avatar: isLikelyUrl(item.candidate.avatar) ? undefined : item.candidate.avatar || undefined,
     stage: item.candidate.stage || mapCandidateStageFallback(item.candidate.status),
     status: item.candidate.status || undefined,
   },
   job: {
     id: item.job.id,
-    title: item.job.title,
-    client: item.client.companyName,
+    title: safeDisplayText(item.job.title, 'Untitled Job'),
+    client: safeDisplayText(item.client.companyName, 'Unknown Client'),
     clientId: item.client.id,
   },
   round: (toTitle(item.round || 'Screening') as Interview['round']) || 'Screening',
@@ -138,18 +171,12 @@ const mapInterview = (item: BackendInterviewListItem): Interview => ({
   panel: (item.panel || []).map((member) => ({
     id: member.id,
     userId: member.user.id,
-    name: member.user.name,
+    name: safeDisplayText(member.user.name, 'Unknown Interviewer'),
     role: (toTitle(member.role) as InterviewPanelMember['role']) || 'Technical',
-    department: member.user.department || 'General',
-    email: member.user.email,
-    phone: member.user.phone || '-',
-    avatar:
-      member.user.avatar ||
-      member.user.name
-        .split(' ')
-        .map((part) => part[0])
-        .slice(0, 2)
-        .join(''),
+    department: safeDisplayText(member.user.department, 'General'),
+    email: sanitizeEmail(member.user.email) || 'No email available',
+    phone: safeDisplayText(member.user.phone, '-'),
+    avatar: initialsFromName(member.user.name, 'NA'),
   })),
   feedbackEntries: (item.feedbackEntries || []).map((entry) => ({
     id: entry.id,
@@ -177,14 +204,10 @@ const mapInterview = (item: BackendInterviewListItem): Interview => ({
   })),
   internalNotes: (item.interviewNotes || []).map((note) => ({
     id: note.id,
-    author: note.author.name,
+    author: safeDisplayText(note.author.name, 'Unknown User'),
     avatar:
-      note.author.avatar ||
-      note.author.name
-        .split(' ')
-        .map((part) => part[0])
-        .slice(0, 2)
-        .join(''),
+      safeDisplayText(note.author.avatar, '') ||
+      initialsFromName(note.author.name, 'NA'),
     timestamp: new Date(note.createdAt).toLocaleString('en-US', {
       month: 'short',
       day: 'numeric',
@@ -227,25 +250,19 @@ const mapUsersToPanel = (users: BackendUser[]): InterviewPanelMember[] =>
   users.map((user) => ({
     id: user.id,
     userId: user.id,
-    name: user.name,
+    name: safeDisplayText(user.name, 'Unknown User'),
     role: 'Technical',
-    department: user.department || 'General',
-    email: user.email,
+    department: safeDisplayText(user.department, 'General'),
+    email: sanitizeEmail(user.email) || 'No email available',
     phone: '-',
-    avatar:
-      user.avatar ||
-      user.name
-        .split(' ')
-        .map((part) => part[0])
-        .slice(0, 2)
-        .join(''),
+    avatar: initialsFromName(user.name, 'NA'),
   }));
 
 const mapCandidates = (candidates: BackendCandidate[]) =>
   candidates.map((candidate) => ({
     id: candidate.id,
-    name: `${candidate.firstName} ${candidate.lastName}`.trim(),
-    email: candidate.email,
+    name: extractDisplayName(candidate.firstName, candidate.lastName),
+    email: sanitizeEmail(candidate.email),
     avatar: undefined,
   }));
 
