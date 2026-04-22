@@ -4,7 +4,6 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  MoreVertical,
   Building2,
   Briefcase,
   MessageCircle,
@@ -20,7 +19,6 @@ import {
   UserPlus,
   FileText,
   Upload,
-  Archive,
   Trash2,
   Globe,
   MapPin,
@@ -288,7 +286,6 @@ export function ClientDetailsDrawer({
     }
   }, [client?.id, propIsAddMode]);
 
-  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [overviewOpen, setOverviewOpen] = useState<Record<string, boolean>>({
     companySnapshot: false,
     contactPerson: false,
@@ -670,7 +667,6 @@ export function ClientDetailsDrawer({
   const needsReason = changeStageForm.stage === 'On Hold' || changeStageForm.stage === 'Inactive';
 
   const openChangeStageForm = () => {
-    setMoreMenuOpen(false);
     setChangeStageForm({ stage: client?.stage ?? 'Active', reason: '' });
     setChangeStageDropdownOpen(false);
     setChangeStageReasonDropdownOpen(false);
@@ -686,7 +682,6 @@ export function ClientDetailsDrawer({
   const [showArchiveClientForm, setShowArchiveClientForm] = useState(false);
 
   const openArchiveClientForm = () => {
-    setMoreMenuOpen(false);
     setShowArchiveClientForm(true);
   };
 
@@ -696,7 +691,6 @@ export function ClientDetailsDrawer({
   const [deleteConfirmName, setDeleteConfirmName] = useState('');
 
   const openDeleteClientForm = () => {
-    setMoreMenuOpen(false);
     setDeleteConfirmName('');
     setShowDeleteClientForm(true);
   };
@@ -888,7 +882,6 @@ export function ClientDetailsDrawer({
     });
     resetClientLogoDraft();
     setOverviewEditMode(true);
-    setMoreMenuOpen(false);
     // Open all sections for editing
     setOverviewOpen({
       companySnapshot: true,
@@ -1556,64 +1549,14 @@ export function ClientDetailsDrawer({
                   >
                     <MessageCircle size={18} />
                   </button>
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => setMoreMenuOpen((v) => !v)}
-                      className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                      title="More actions"
-                    >
-                      <MoreVertical size={18} />
-                    </button>
-                    {moreMenuOpen && (
-                      <>
-                        <div
-                          className="fixed inset-0 z-10"
-                          onClick={() => setMoreMenuOpen(false)}
-                          aria-hidden
-                        />
-                        <div className="absolute right-0 top-full mt-1 w-52 py-2 bg-white rounded-xl border border-slate-200 shadow-lg z-20">
-                          <button
-                            type="button"
-                            onClick={startOverviewEdit}
-                            className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                          >
-                            <Edit2 size={16} /> Edit Client
-                          </button>
-                          <button className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2">
-                            <UserPlus size={16} /> Add Contact
-                          </button>
-                          <button className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2">
-                            <FileText size={16} /> Add Note
-                          </button>
-                          <button className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2">
-                            <Upload size={16} /> Upload File
-                          </button>
-                          <button
-                            type="button"
-                            onClick={openChangeStageForm}
-                            className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                          >
-                            Change Stage
-                          </button>
-                          <button
-                            type="button"
-                            onClick={openArchiveClientForm}
-                            className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                          >
-                            <Archive size={16} /> Archive Client
-                          </button>
-                          <button
-                            type="button"
-                            onClick={openDeleteClientForm}
-                            className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
-                          >
-                            <Trash2 size={16} /> Delete
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
+                  <button
+                    type="button"
+                    onClick={openDeleteClientForm}
+                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    title="Delete Client"
+                  >
+                    <Trash2 size={18} />
+                  </button>
                     </>
                   )}
                 </div>

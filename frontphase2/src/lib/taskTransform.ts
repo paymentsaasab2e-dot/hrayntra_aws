@@ -63,7 +63,10 @@ export function transformBackendTaskToFrontend(backendTask: BackendTask): Task {
 /**
  * Transform backend task to TaskForDrawer format
  */
-export function transformBackendTaskToDrawer(backendTask: BackendTask): TaskForDrawer {
+export function transformBackendTaskToDrawer(
+  backendTask: BackendTask,
+  options?: { relatedEntityName?: string }
+): TaskForDrawer {
   const priorityMap: Record<string, TaskPriority> = {
     'LOW': 'Low',
     'MEDIUM': 'Medium',
@@ -99,7 +102,7 @@ export function transformBackendTaskToDrawer(backendTask: BackendTask): TaskForD
     type: (backendTask.taskType as TaskType) || 'Note',
     relatedTo: {
       id: backendTask.linkedEntityId || '',
-      name: backendTask.linkedEntityId || 'Unknown',
+      name: options?.relatedEntityName || backendTask.linkedEntityId || 'Unknown',
       type: backendTask.linkedEntityType ? linkedEntityTypeMap[backendTask.linkedEntityType] : 'Internal',
     },
     dueDate,

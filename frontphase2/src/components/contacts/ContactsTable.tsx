@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { MoreVertical, ExternalLink, CheckSquare, Square } from 'lucide-react';
+import { CheckSquare, Square, Pencil, Trash2, MessageSquare } from 'lucide-react';
 import { ImageWithFallback } from '../ImageWithFallback';
 import type { BackendContact } from '../../lib/api';
 import { ContactTypeBadge } from './ContactTypeBadge';
@@ -57,6 +57,20 @@ export function ContactsTable({
     return `${contact.firstName[0]}${contact.lastName[0]}`.toUpperCase();
   };
 
+  const openWhatsApp = (contact: BackendContact) => {
+    const rawPhone = contact.phone?.replace(/[^\d+]/g, '').trim();
+    if (!rawPhone) {
+      window.alert('No phone number is available for this contact.');
+      return;
+    }
+
+    const phone = rawPhone.startsWith('+') ? rawPhone.slice(1) : rawPhone;
+    const message = encodeURIComponent(
+      `Hi ${contact.firstName} ${contact.lastName},`
+    );
+    window.open(`https://wa.me/${phone}?text=${message}`, '_blank', 'noopener,noreferrer');
+  };
+
   const formatLastContact = (dateString?: string | null) => {
     if (!dateString) return 'Never';
     try {
@@ -94,8 +108,8 @@ export function ContactsTable({
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-      <div className="overflow-x-auto">
+    <div className="bg-white border border-gray-200 rounded-xl overflow-visible">
+      <div className="overflow-x-auto overflow-y-visible">
         <table className="w-full text-left">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">
@@ -178,13 +192,12 @@ export function ContactsTable({
                 </td>
                 <td className="px-6 py-4">
                   {contact.company ? (
-                    <a
+                  <a
                       href={`/client/${contact.company.id}`}
                       onClick={(e) => e.stopPropagation()}
-                      className="flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:underline"
+                      className="text-sm font-medium text-blue-600 hover:underline"
                     >
                       {contact.company.companyName}
-                      <ExternalLink size={14} />
                     </a>
                   ) : (
                     <span className="text-sm text-gray-400">—</span>
@@ -222,9 +235,35 @@ export function ContactsTable({
                   </div>
                 </td>
                 <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
-                  <button className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition-colors">
-                    <MoreVertical size={16} />
-                  </button>
+                  <div className="inline-flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => onEdit(contact)}
+                      className="p-2 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                      aria-label="Edit contact"
+                      title="Edit"
+                    >
+                      <Pencil size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openWhatsApp(contact)}
+                      className="p-2 rounded-lg text-blue-500 hover:text-blue-700 hover:bg-blue-50 transition-colors"
+                      aria-label="Send message"
+                      title="Send Message"
+                    >
+                      <MessageSquare size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDelete(contact.id)}
+                      className="p-2 rounded-lg text-red-500 hover:text-red-700 hover:bg-red-50 transition-colors"
+                      aria-label="Delete contact"
+                      title="Delete"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}

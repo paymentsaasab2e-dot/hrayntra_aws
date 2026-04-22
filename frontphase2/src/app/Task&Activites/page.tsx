@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Users, 
   Briefcase, 
@@ -18,7 +18,6 @@ import {
   Clock,
   Filter,
   X,
-  ChevronLeft,
   Calendar as CalendarIcon,
   List as ListIcon,
   Pencil,
@@ -26,6 +25,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ImageWithFallback } from '../../components/ImageWithFallback';
+import { MuiTablePagination } from '../../components/MuiTablePagination';
 import { TaskDetailsDrawer, type TaskForDrawer, type TaskActivityItem } from '../../components/drawers/TaskDetailsDrawer';
 import { TaskSLAAlertBadge, TaskSLAAlertsPanel, getDaysOverdue } from '../../components/TaskSLAAlerts';
 import { TaskAnalyticsCards, type TaskAnalyticsData, type TaskAnalyticsCardId } from '../../components/TaskAnalyticsCards';
@@ -36,9 +36,9 @@ import {
   MOCK_AI_TASK_SUGGESTIONS,
 } from './types';
 import type { TaskFormValues } from './types';
-import { apiGetTasks, apiGetTask, apiMarkTaskCompleted, apiDeleteTask, apiGetTaskStats, type TaskStats } from '../../lib/api';
+import { apiGetTasks, apiGetJobs, apiGetTask, apiMarkTaskCompleted, apiDeleteTask, apiGetTaskStats, type TaskStats } from '../../lib/api';
 import { transformBackendTaskToFrontend, transformBackendTaskToDrawer } from '../../lib/taskTransform';
-import type { BackendTask } from '../../lib/api';
+import type { BackendJob, BackendTask } from '../../lib/api';
 import { requestConfirm, requestError } from '../../lib/appDialog';
 
 // --- Types ---
@@ -162,6 +162,8 @@ const MOCK_ACTIVITIES: Record<string, Activity[]> = {
   ]
 };
 
+const DEFAULT_PAGE_SIZE = 10;
+
 // --- Components ---
 
 const SummaryCard = ({ label, count, icon: Icon, color }: { label: string, count: number, icon: any, color: string }) => (
@@ -219,28 +221,77 @@ const FilterBar = ({
   onAddTask,
   onOpenSLAAlerts,
   slaOverdueCount = 0,
+  todayOnly,
+  priority,
+  assignedTo,
+  assigneeOptions,
+  onTodayToggle,
+  onPriorityChange,
+  onAssignedToChange,
+  onClearFilters,
 }: {
   onAddTask: () => void;
   onOpenSLAAlerts?: () => void;
   slaOverdueCount?: number;
+  todayOnly: boolean;
+  priority: string;
+  assignedTo: string;
+  assigneeOptions: string[];
+  onTodayToggle: () => void;
+  onPriorityChange: (value: string) => void;
+  onAssignedToChange: (value: string) => void;
+  onClearFilters: () => void;
 }) => (
   <div className="flex items-center justify-between py-4 border-b border-gray-200 gap-4 flex-wrap">
     <div className="flex items-center gap-3">
-      <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-600 cursor-pointer hover:bg-gray-50">
+      <button
+        type="button"
+        onClick={onTodayToggle}
+        className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${
+          todayOnly
+            ? 'border-blue-500 bg-blue-50 text-blue-700'
+            : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+        }`}
+      >
         <CalendarIcon size={16} />
         <span>Today</span>
+      </button>
+
+      <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600">
+        <select
+          value={priority}
+          onChange={(e) => onPriorityChange(e.target.value)}
+          className="bg-transparent outline-none"
+        >
+          <option value="">Priority</option>
+          <option value="High">High</option>
+          <option value="Medium">Medium</option>
+          <option value="Low">Low</option>
+        </select>
       </div>
-      <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-600 cursor-pointer hover:bg-gray-50">
-        <Filter size={16} />
-        <span>Task Type</span>
+
+      <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600">
+        <select
+          value={assignedTo}
+          onChange={(e) => onAssignedToChange(e.target.value)}
+          className="bg-transparent outline-none"
+        >
+          <option value="">Assigned to</option>
+          {assigneeOptions.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
       </div>
-      <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-600 cursor-pointer hover:bg-gray-50">
-        <span>Priority</span>
-      </div>
-      <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-600 cursor-pointer hover:bg-gray-50">
-        <span>Assigned to</span>
-      </div>
-      <button className="text-sm font-medium text-blue-600 hover:text-blue-700 ml-2">Clear Filters</button>
+
+      <button
+        type="button"
+        onClick={onClearFilters}
+        className="text-sm font-medium text-blue-600 hover:text-blue-700 ml-2"
+      >
+        Clear Filters
+      </button>
     </div>
 
     <div className="flex items-center gap-3">
@@ -328,6 +379,14 @@ export default function App() {
   const [slaDrawerOpen, setSlaDrawerOpen] = useState(false);
   const [tasks, setTasks] = useState<Task[]>(MOCK_TASKS);
   const [backendTasks, setBackendTasks] = useState<BackendTask[]>([]);
+  const [jobTitleById, setJobTitleById] = useState<Record<string, string>>({});
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = DEFAULT_PAGE_SIZE;
+  const [filters, setFilters] = useState({
+    todayOnly: false,
+    priority: '',
+    assignedTo: '',
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<TaskStats | null>(null);
@@ -343,14 +402,56 @@ export default function App() {
     return [];
   };
 
+  const extractBackendJobs = (responseData: unknown): BackendJob[] => {
+    if (Array.isArray(responseData)) return responseData as BackendJob[];
+    if (responseData && typeof responseData === 'object') {
+      const payload = responseData as { data?: unknown; items?: unknown };
+      if (Array.isArray(payload.data)) return payload.data as BackendJob[];
+      if (Array.isArray(payload.items)) return payload.items as BackendJob[];
+    }
+    return [];
+  };
+
   const refreshTasksAndStats = async ({ includeStats = true }: { includeStats?: boolean } = {}) => {
-    const tasksResponse = await apiGetTasks();
-    const fetchedBackendTasks = tasksResponse.data ? extractBackendTasks(tasksResponse.data) : [];
-    const typedBackendTasks = Array.isArray(fetchedBackendTasks) ? (fetchedBackendTasks as BackendTask[]) : [];
+    const [tasksResponse, jobsResponse] = await Promise.all([
+      apiGetTasks({ page: 1, limit: 500 }),
+      apiGetJobs({ limit: 500 }),
+    ]);
+
+    const taskCollection = tasksResponse.data
+      ? (() => {
+          if (Array.isArray(tasksResponse.data)) {
+            return { items: tasksResponse.data as BackendTask[], pagination: undefined };
+          }
+          const payload = tasksResponse.data as { data?: unknown; items?: unknown; pagination?: { total?: number } };
+          return {
+            items: extractBackendTasks(tasksResponse.data),
+            pagination: payload.pagination,
+          };
+        })()
+      : { items: [] as BackendTask[], pagination: undefined };
+
+    const typedBackendTasks = Array.isArray(taskCollection.items) ? taskCollection.items : [];
+    const typedJobs = extractBackendJobs(jobsResponse.data);
+    const jobsLookup = typedJobs.reduce<Record<string, string>>((acc, job) => {
+      acc[job.id] = job.title;
+      return acc;
+    }, {});
 
     setBackendTasks(typedBackendTasks);
-    setTasks(typedBackendTasks.map(transformBackendTaskToFrontend));
-
+    setJobTitleById(jobsLookup);
+    setTasks(
+      typedBackendTasks.map((backendTask) => {
+        const mappedTask = transformBackendTaskToFrontend(backendTask);
+        if (backendTask.linkedEntityType === 'JOB' && backendTask.linkedEntityId && jobsLookup[backendTask.linkedEntityId]) {
+          mappedTask.relatedTo = {
+            ...mappedTask.relatedTo,
+            name: jobsLookup[backendTask.linkedEntityId],
+          };
+        }
+        return mappedTask;
+      })
+    );
     if (includeStats) {
       const statsResponse = await apiGetTaskStats();
       setStats((statsResponse.data as TaskStats | null) ?? null);
@@ -372,6 +473,7 @@ export default function App() {
           console.warn('No authentication token found. Using mock data.');
           setTasks(MOCK_TASKS);
           setBackendTasks([]);
+          setJobTitleById({});
           setLoading(false);
           setStatsLoading(false);
           return;
@@ -383,6 +485,7 @@ export default function App() {
         setError(err.message || 'Failed to load data');
         setTasks([]);
         setBackendTasks([]);
+        setJobTitleById({});
         setStats(null);
       } finally {
         setLoading(false);
@@ -405,6 +508,42 @@ export default function App() {
   const slaOverdueCount = stats?.overdue ?? 0;
   const upcoming7dCount = stats?.upcoming7d ?? 0;
   const completedCount = stats?.completed ?? 0;
+  const filteredTasks = useMemo(() => {
+    const todayString = new Date().toISOString().split('T')[0];
+
+    return tasks.filter((task) => {
+      if (filters.todayOnly && task.dueDate !== todayString) return false;
+      if (filters.priority && task.priority !== filters.priority) return false;
+      if (filters.assignedTo && task.owner.name !== filters.assignedTo) return false;
+      return true;
+    });
+  }, [filters, tasks]);
+
+  const totalPages = Math.max(Math.ceil(filteredTasks.length / pageSize), 1);
+  const visibleTasks = filteredTasks.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filters.todayOnly, filters.priority, filters.assignedTo]);
+
+  const assigneeOptions = useMemo(() => {
+    return Array.from(new Set(tasks.map((task) => task.owner.name))).sort();
+  }, [tasks]);
+
+  const clearFilters = () => {
+    setCurrentPage(1);
+    setFilters({
+      todayOnly: false,
+      priority: '',
+      assignedTo: '',
+    });
+  };
 
   const openCreateTask = () => {
     setSelectedTask(null);
@@ -457,10 +596,31 @@ export default function App() {
     }
   };
 
-  const handleEditTask = (task: Task, e: React.MouseEvent) => {
+  const handleEditTask = async (task: Task, e: React.MouseEvent) => {
     e.stopPropagation();
-    setSelectedTask(task);
     setDrawerMode('edit');
+
+    if (isBackendTaskObjectId(task.id)) {
+      try {
+        const response = await apiGetTask(task.id);
+        if (response.data) {
+          const backendTask = response.data as BackendTask;
+          setSelectedBackendTask(backendTask);
+          setSelectedTask(transformBackendTaskToFrontend(backendTask));
+        } else {
+          setSelectedBackendTask(null);
+          setSelectedTask(task);
+        }
+      } catch (error) {
+        console.error('Failed to fetch task details for edit:', error);
+        setSelectedBackendTask(null);
+        setSelectedTask(task);
+      }
+    } else {
+      setSelectedBackendTask(null);
+      setSelectedTask(task);
+    }
+
     setDrawerOpen(true);
   };
 
@@ -527,6 +687,23 @@ export default function App() {
             onAddTask={openCreateTask}
             onOpenSLAAlerts={() => setSlaDrawerOpen(true)}
             slaOverdueCount={slaOverdueCount}
+            todayOnly={filters.todayOnly}
+            priority={filters.priority}
+            assignedTo={filters.assignedTo}
+            assigneeOptions={assigneeOptions}
+            onTodayToggle={() => {
+              setCurrentPage(1);
+              setFilters((prev) => ({ ...prev, todayOnly: !prev.todayOnly }));
+            }}
+            onPriorityChange={(priority) => {
+              setCurrentPage(1);
+              setFilters((prev) => ({ ...prev, priority }));
+            }}
+            onAssignedToChange={(assignedTo) => {
+              setCurrentPage(1);
+              setFilters((prev) => ({ ...prev, assignedTo }));
+            }}
+            onClearFilters={clearFilters}
           />
 
           {/* Main Content */}
@@ -558,14 +735,14 @@ export default function App() {
                         {error}
                       </td>
                     </tr>
-                  ) : tasks.length === 0 ? (
+                  ) : filteredTasks.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="px-6 py-8 text-center text-sm text-gray-500">
-                        No tasks found. Click "Create Task" to add one.
+                        No tasks found. Try clearing the filters or create a new task.
                       </td>
                     </tr>
                   ) : (
-                    tasks.map((task) => (
+                    visibleTasks.map((task) => (
                     <tr 
                       key={task.id} 
                       onClick={() => handleRowClick(task)}
@@ -586,7 +763,11 @@ export default function App() {
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex flex-col">
-                          <span className="text-sm font-bold text-gray-900">{task.relatedTo.name}</span>
+                          <span className="text-sm font-bold text-gray-900">
+                            {task.relatedTo.type === 'Job' && jobTitleById[task.relatedTo.id]
+                              ? jobTitleById[task.relatedTo.id]
+                              : task.relatedTo.name}
+                          </span>
                           <span className="text-[10px] text-gray-400 uppercase font-bold">{task.relatedTo.type}</span>
                         </div>
                       </td>
@@ -633,20 +814,16 @@ export default function App() {
                   )}
                 </tbody>
               </table>
-              <div className="p-4 border-t border-gray-100 flex items-center justify-between bg-gray-50/30">
-                <span className="text-xs text-gray-500 font-medium">Showing 6 of 124 tasks</span>
-                <div className="flex items-center gap-2">
-                  <button className="p-2 hover:bg-white border border-gray-200 rounded-lg text-gray-400 disabled:opacity-50" disabled>
-                    <ChevronLeft size={16} />
-                  </button>
-                  <button className="p-2 hover:bg-white border border-gray-200 rounded-lg text-gray-400">
-                    <ChevronRight size={16} />
-                  </button>
-                </div>
+              <div className="mt-4 flex justify-end">
+                <MuiTablePagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  onPageChange={setCurrentPage}
+                />
               </div>
             </div>
           ) : (
-            <CalendarView tasks={tasks} onTaskClick={handleRowClick} />
+            <CalendarView tasks={filteredTasks} onTaskClick={handleRowClick} />
           )}
       </main>
 
@@ -699,7 +876,12 @@ export default function App() {
         isOpen={drawerOpen}
         onClose={handleCloseDrawer}
         mode={drawerMode}
-        task={(drawerMode === 'detail' || drawerMode === 'edit') && selectedBackendTask ? transformBackendTaskToDrawer(selectedBackendTask) : (selectedTask ? (() => {
+        task={(drawerMode === 'detail' || drawerMode === 'edit') && selectedBackendTask ? transformBackendTaskToDrawer(selectedBackendTask, {
+          relatedEntityName:
+            selectedBackendTask.linkedEntityType === 'JOB' && selectedBackendTask.linkedEntityId
+              ? jobTitleById[selectedBackendTask.linkedEntityId] || selectedBackendTask.linkedEntityId
+              : selectedBackendTask.linkedEntityId || undefined,
+        }) : (selectedTask ? (() => {
           // Convert Task to TaskForDrawer format (fallback)
           const taskForDrawer: TaskForDrawer = {
             id: selectedTask.id,

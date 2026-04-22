@@ -262,7 +262,7 @@ export default function App() {
     fetchUsers();
   }, []);
 
-  const fetchClients = useCallback(async () => {
+  const fetchClients = useCallback(async (overrides?: { page?: number; search?: string }) => {
     try {
       setLoading(true);
       setError(null);
@@ -275,9 +275,12 @@ export default function App() {
         return;
       }
 
+      const effectivePage = overrides?.page ?? currentPage;
+      const effectiveSearch = overrides?.search ?? debouncedSearchQuery;
+
       const response = await apiGetClients({
-        search: debouncedSearchQuery || undefined,
-        page: currentPage,
+        search: effectiveSearch || undefined,
+        page: effectivePage,
         limit: PAGE_SIZE,
         includeContacts: false,
         includeLeadFields: false,
@@ -321,6 +324,15 @@ export default function App() {
 
   useEffect(() => {
     fetchClients();
+  }, [fetchClients]);
+
+  useEffect(() => {
+    const handleClientsChanged = () => {
+      void fetchClients();
+    };
+
+    window.addEventListener('jobportal:clients-changed', handleClientsChanged);
+    return () => window.removeEventListener('jobportal:clients-changed', handleClientsChanged);
   }, [fetchClients]);
 
   const handleRefresh = useCallback(async () => {
@@ -473,7 +485,16 @@ export default function App() {
         isAddMode={showAddClientDrawer}
         onClose={() => { setSelectedClient(null); setShowAddClientDrawer(false); }}
         onDelete={(id) => { setSelectedClient(null); handleDeleteClient(id); }}
-        onClientCreated={() => { setShowAddClientDrawer(false); handleRefresh(); }}
+        onClientCreated={() => {
+          setShowAddClientDrawer(false);
+          setSelectedClient(null);
+          setActiveTab('all');
+          setSelectedClients([]);
+          setSearchQuery('');
+          setDebouncedSearchQuery('');
+          setCurrentPage(1);
+          void fetchClients({ page: 1, search: '' });
+        }}
         onJobCreated={handleRefresh}
       />
       <CreateJobDrawer
@@ -483,7 +504,18 @@ export default function App() {
         defaultClientId={clientIdForJob}
       />
       <ClientFilterDrawer isOpen={isFilterOpen} onClose={() => setIsFilterOpen(false)} />
-      <ClientImportDrawer isOpen={showImportDrawer} onClose={() => setShowImportDrawer(false)} onImportComplete={handleRefresh} />
+      <ClientImportDrawer
+        isOpen={showImportDrawer}
+        onClose={() => setShowImportDrawer(false)}
+        onImportComplete={() => {
+          setActiveTab('all');
+          setSelectedClients([]);
+          setSearchQuery('');
+          setDebouncedSearchQuery('');
+          setCurrentPage(1);
+          void fetchClients({ page: 1, search: '' });
+        }}
+      />
 
       {selectedClients.length > 0 && (
         <div className="fixed bottom-6 left-1/2 z-40 w-[min(94vw,980px)] -translate-x-1/2 rounded-2xl border border-slate-800 bg-slate-950/95 px-4 py-3 text-white shadow-2xl backdrop-blur">

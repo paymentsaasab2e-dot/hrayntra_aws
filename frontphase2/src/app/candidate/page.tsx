@@ -732,6 +732,15 @@ function CandidatesPageContent() {
     loadCandidates();
   }, [loadCandidates]);
 
+  useEffect(() => {
+    const handleCandidatesChanged = () => {
+      void loadCandidates({ silent: true });
+    };
+
+    window.addEventListener('jobportal:candidates-changed', handleCandidatesChanged);
+    return () => window.removeEventListener('jobportal:candidates-changed', handleCandidatesChanged);
+  }, [loadCandidates]);
+
   // Refresh stats when candidates are updated
   const refreshStats = useCallback(() => {
     // Stats will be refreshed by StageTabs component

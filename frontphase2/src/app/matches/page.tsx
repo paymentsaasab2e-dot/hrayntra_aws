@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Info, Mail, MessageSquare, Trash2, UserPlus } from 'lucide-react';
+import { Mail, MessageSquare, Trash2, UserPlus } from 'lucide-react';
 import TopBar from '../../components/matches/TopBar';
 import AIManualToggle from '../../components/matches/AIManualToggle';
 import JobSelector from '../../components/matches/JobSelector';
@@ -22,12 +22,20 @@ import {
   apiBulkAddMatchesToPipeline,
   apiBulkEmailMatches,
   apiBulkRejectMatches,
+  apiGetCandidates,
+  apiGetClients,
   apiGetJobs,
   apiGetMatches,
   apiGetUsers,
   apiRejectMatch,
   apiSubmitMatch,
   apiToggleSavedMatch,
+  apiUpdateCandidate,
+  apiUpdateClient,
+  apiUpdateContact,
+  apiUpdateJob,
+  type BackendCandidate,
+  type BackendClient,
   type BackendJob,
   type BackendMatch,
   type BackendUser,
@@ -37,6 +45,16 @@ const INITIAL_FILTERS: MatchFilters = {
   skillMatch: 75,
   expMin: 5,
   expMax: 10,
+  location: '',
+  salaryMin: null,
+  salaryMax: null,
+  noticePeriod: null,
+};
+
+const CLEAR_FILTERS: MatchFilters = {
+  skillMatch: 0,
+  expMin: 0,
+  expMax: 50,
   location: '',
   salaryMin: null,
   salaryMax: null,
@@ -70,12 +88,30 @@ function mapJobToOption(job: BackendJob): MatchJob {
     id: job.id,
     title: job.title,
     client: job.client?.companyName || 'Unknown Client',
+    clientId: job.client?.id,
+    clientContactId: undefined,
+    clientEmail: undefined,
+    location: job.location || '',
+    clientLocation: '',
     status: status.includes('urgent')
       ? 'Urgent'
       : String(job.status || '').toUpperCase() === 'ON_HOLD'
       ? 'On Hold'
       : 'Open',
   };
+}
+
+function primaryClientEmail(client?: BackendClient | null) {
+  if (!client) return '';
+  const firstContactEmail = Array.isArray(client.contacts)
+    ? client.contacts.map((contact) => String(contact.email || '').trim()).find(Boolean)
+    : '';
+  return firstContactEmail || '';
+}
+
+function primaryClientContactId(client?: BackendClient | null) {
+  if (!client) return '';
+  return Array.isArray(client.contacts) ? client.contacts.find((contact) => Boolean(contact.id))?.id || '' : '';
 }
 
 function mapRecruiter(user: BackendUser) {
@@ -89,6 +125,7 @@ function mapBackendMatch(match: BackendMatch): MatchCandidate {
   return {
     id: match.candidateId,
     matchId: match.id,
+    isAppliedCandidate: false,
     name: match.name,
     photo: match.photo,
     initials: match.initials,
@@ -115,8 +152,94 @@ function mapBackendMatch(match: BackendMatch): MatchCandidate {
   };
 }
 
+function mapCandidateNotes(candidate: BackendCandidate) {
+  return (Array.isArray(candidate.internalNotes) ? candidate.internalNotes : []).map((note) => ({
+    id: note.id,
+    text: note.text,
+    createdAt: note.createdAt,
+    author: note.recruiter?.name || 'System',
+  }));
+}
+
+function mapCandidateActivity(candidate: BackendCandidate) {
+  return (Array.isArray(candidate.activityFeed) ? candidate.activityFeed : []).map((activity) => ({
+    id: activity.id,
+    title: activity.title || activity.type || 'Activity',
+    description: activity.description || activity.title || '',
+    timestamp: activity.timestamp,
+  }));
+}
+
+function isCandidateAppliedToJob(candidate: BackendCandidate, jobId: string) {
+  const assigned = Array.isArray(candidate.assignedJobs) ? candidate.assignedJobs : [];
+  const matchedJobs = Array.isArray(candidate.matches) ? candidate.matches : [];
+  if (assigned.includes(jobId)) return true;
+  return matchedJobs.some((match) => String(match.job?.id || '') === jobId);
+}
+
+function mapAppliedCandidate(candidate: BackendCandidate, jobId: string): MatchCandidate {
+  const fullName = `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() || 'Unknown Candidate';
+  const skills = Array.isArray(candidate.skills) ? candidate.skills : [];
+  const experience = Number(candidate.experience || 0);
+  const salaryAmount = Number(candidate.expectedSalary || candidate.salary?.max || candidate.salary?.min || 0);
+  const salaryCurrency = candidate.salary?.currency || 'INR';
+  const matchingJobMatch = Array.isArray(candidate.matches)
+    ? candidate.matches.find((match) => String(match.job?.id || '') === jobId)
+    : undefined;
+
+  return {
+    id: candidate.id,
+    matchId: matchingJobMatch?.id || '',
+    isAppliedCandidate: true,
+    name: fullName,
+    photo: '',
+    initials:
+      fullName
+        .split(' ')
+        .map((part) => part[0])
+        .filter(Boolean)
+        .slice(0, 2)
+        .join('')
+        .toUpperCase() || 'NA',
+    score: 0,
+    skills,
+    experience,
+    location: candidate.location || candidate.city || candidate.country || '-',
+    salary: {
+      expected: salaryAmount ? `${salaryCurrency} ${salaryAmount}` : '-',
+      currency: salaryCurrency,
+      amount: salaryAmount,
+      fit: 'average',
+    },
+    noticePeriod: candidate.noticePeriod || 'Unknown',
+    status: (matchingJobMatch?.status as MatchCandidate['status']) || 'Reviewed',
+    matchSource: 'manual',
+    explanation: {
+      skills: 'partial',
+      experience: 'partial',
+      location: 'partial',
+      salary: 'partial',
+      text: 'Candidate is already applied for this job.',
+      matchedSkills: skills.slice(0, 5),
+      missingSkills: [],
+      roleRequirement: 'Applied Candidate',
+    },
+    currentTitle: candidate.currentTitle || '-',
+    currentCompany: candidate.currentCompany || '-',
+    email: candidate.email || '-',
+    phone: candidate.phone || '-',
+    resumeName: candidate.resume ? 'Resume' : 'Not available',
+    portfolioUrl: candidate.portfolio || undefined,
+    savedAt: null,
+    notes: mapCandidateNotes(candidate),
+    activity: mapCandidateActivity(candidate),
+    matchRating: undefined,
+    submittedHistory: null,
+  };
+}
+
 export default function MatchesPage() {
-  const [activeView, setActiveView] = useState<'internal' | 'client'>('internal');
+  const activeView: 'internal' = 'internal';
   const [activeTab, setActiveTab] = useState<MatchMode>('manual');
   const [jobs, setJobs] = useState<MatchJob[]>([]);
   const [selectedJob, setSelectedJob] = useState<MatchJob | null>(null);
@@ -129,7 +252,7 @@ export default function MatchesPage() {
   const [openModal, setOpenModal] = useState<OpenModal>(null);
   const [activeCandidateId, setActiveCandidateId] = useState<string | null>(null);
   const [profileDrawerCandidateId, setProfileDrawerCandidateId] = useState<string | null>(null);
-  const [profileDrawerTab, setProfileDrawerTab] = useState<'overview' | 'resume' | 'ai' | 'notes' | 'activity'>('overview');
+  const [profileDrawerTab, setProfileDrawerTab] = useState<'overview' | 'resume' | 'ai' | 'notes'>('overview');
   const [sortBy, setSortBy] = useState('Highest Match');
   const [copiedCandidateId, setCopiedCandidateId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -161,14 +284,35 @@ export default function MatchesPage() {
     setLoading(true);
     setError(null);
     try {
-      const response = await apiGetMatches({
-        jobId: selectedJob.id,
-        source: activeTab,
-        limit: 100,
-      });
-      const matchItems = (response.data.data || []).map(mapBackendMatch);
-      setCandidates(matchItems);
-      setSavedMatches(matchItems.filter((candidate) => Boolean(candidate.savedAt)).map((candidate) => candidate.id));
+      const [matchesResponse, candidatesResponse] = await Promise.all([
+        apiGetMatches({
+          jobId: selectedJob.id,
+          source: activeTab,
+          limit: 100,
+        }),
+        apiGetCandidates({ page: 1, limit: 500 }),
+      ]);
+      const matchItems = (matchesResponse.data.data || []).map(mapBackendMatch);
+
+      const candidatesData =
+        (candidatesResponse as any)?.data?.data ||
+        (candidatesResponse as any)?.data?.items ||
+        (candidatesResponse as any)?.data ||
+        [];
+      const allCandidates: BackendCandidate[] = Array.isArray(candidatesData) ? candidatesData : [];
+      const matchedCandidateIds = new Set(matchItems.map((item) => item.id));
+      const appliedCandidates = allCandidates
+        .filter((candidate) => isCandidateAppliedToJob(candidate, selectedJob.id))
+        .filter((candidate) => !matchedCandidateIds.has(candidate.id))
+        .map((candidate) => mapAppliedCandidate(candidate, selectedJob.id));
+
+      const mergedCandidates = [...matchItems, ...appliedCandidates];
+      setCandidates(mergedCandidates);
+      setSavedMatches(
+        mergedCandidates
+          .filter((candidate) => Boolean(candidate.savedAt))
+          .map((candidate) => candidate.id)
+      );
     } catch (fetchError: any) {
       setError(fetchError.message || 'Unable to load matches');
       setCandidates([]);
@@ -178,20 +322,50 @@ export default function MatchesPage() {
     }
   }, [activeTab, selectedJob]);
 
+  const reloadMatchMeta = useCallback(async () => {
+    try {
+      const [jobsResponse, usersResponse, clientsResponse] = await Promise.all([
+        apiGetJobs({ status: 'OPEN', limit: 100 }),
+        apiGetUsers({ role: 'RECRUITER', isActive: true, limit: 100 }),
+        apiGetClients({ page: 1, limit: 500, includeContacts: true }),
+      ]);
+
+      const clients = unwrapCollection(clientsResponse.data) as BackendClient[];
+      const clientEmailById = new Map<string, string>();
+      const clientContactIdById = new Map<string, string>();
+      const clientLocationById = new Map<string, string>();
+      clients.forEach((client) => {
+        clientEmailById.set(client.id, primaryClientEmail(client));
+        clientContactIdById.set(client.id, primaryClientContactId(client));
+        clientLocationById.set(client.id, client.location || '');
+      });
+
+      const jobOptions = unwrapCollection(jobsResponse.data)
+        .map(mapJobToOption)
+        .map((job) => ({
+          ...job,
+          clientEmail: job.clientId ? clientEmailById.get(job.clientId) || '' : '',
+          clientContactId: job.clientId ? clientContactIdById.get(job.clientId) || '' : '',
+          clientLocation: job.clientId ? clientLocationById.get(job.clientId) || '' : '',
+        }));
+      setJobs(jobOptions);
+      setSelectedJob((current) => {
+        if (!current) return jobOptions[0] || null;
+        const updated = jobOptions.find((job) => job.id === current.id);
+        return updated || current;
+      });
+      setRecruiters(unwrapCollection(usersResponse.data).map(mapRecruiter));
+    } catch (fetchError: any) {
+      setError(fetchError.message || 'Unable to load match metadata');
+    }
+  }, []);
+
   useEffect(() => {
     const loadMeta = async () => {
       setLoading(true);
       setError(null);
       try {
-        const [jobsResponse, usersResponse] = await Promise.all([
-          apiGetJobs({ status: 'OPEN', limit: 100 }),
-          apiGetUsers({ role: 'RECRUITER', isActive: true, limit: 100 }),
-        ]);
-
-        const jobOptions = unwrapCollection(jobsResponse.data).map(mapJobToOption);
-        setJobs(jobOptions);
-        setSelectedJob((current) => current || jobOptions[0] || null);
-        setRecruiters(unwrapCollection(usersResponse.data).map(mapRecruiter));
+        await reloadMatchMeta();
       } catch (fetchError: any) {
         setError(fetchError.message || 'Unable to load match metadata');
       } finally {
@@ -200,7 +374,7 @@ export default function MatchesPage() {
     };
 
     void loadMeta();
-  }, []);
+  }, [reloadMatchMeta]);
 
   useEffect(() => {
     void refreshMatches();
@@ -213,6 +387,11 @@ export default function MatchesPage() {
     setProfileDrawerCandidateId(null);
   }, [selectedJob?.id, activeTab]);
 
+  const handleMatchDataUpdated = useCallback(async () => {
+    await reloadMatchMeta();
+    await refreshMatches();
+  }, [refreshMatches, reloadMatchMeta]);
+
   useEffect(() => {
     if (!toast) return;
     const timeout = window.setTimeout(() => setToast(null), 1800);
@@ -222,11 +401,11 @@ export default function MatchesPage() {
   const filteredCandidates = useMemo(() => {
     const list = candidates
       .filter((candidate) => candidate.score >= filters.skillMatch)
-      .filter((candidate) => candidate.experience >= filters.expMin && candidate.experience <= filters.expMax)
+      .filter(
+        (candidate) => candidate.experience >= filters.expMin && candidate.experience <= filters.expMax
+      )
       .filter((candidate) =>
-        filters.location
-          ? candidate.location.toLowerCase().includes(filters.location.toLowerCase())
-          : true
+        filters.location ? candidate.location.toLowerCase().includes(filters.location.toLowerCase()) : true
       )
       .filter((candidate) =>
         filters.salaryMin !== null ? candidate.salary.amount >= filters.salaryMin : true
@@ -243,7 +422,7 @@ export default function MatchesPage() {
     });
   }, [activeTab, candidates, filters, sortBy]);
 
-  const resetFilters = () => setFilters(INITIAL_FILTERS);
+  const resetFilters = () => setFilters(CLEAR_FILTERS);
 
   const toggleCandidateSelection = (candidateId: string) => {
     setSelectedCandidates((previous) =>
@@ -260,7 +439,7 @@ export default function MatchesPage() {
 
   const openProfileDrawer = (
     candidateId: string,
-    tab: 'overview' | 'resume' | 'ai' | 'notes' | 'activity' = 'overview'
+    tab: 'overview' | 'resume' | 'ai' | 'notes' = 'overview'
   ) => {
     setProfileDrawerCandidateId(candidateId);
     setProfileDrawerTab(tab);
@@ -304,7 +483,8 @@ export default function MatchesPage() {
     () =>
       candidates
         .filter((candidate) => selectedCandidates.includes(candidate.id))
-        .map((candidate) => candidate.matchId),
+        .map((candidate) => candidate.matchId)
+        .filter(Boolean),
     [candidates, selectedCandidates]
   );
 
@@ -386,7 +566,7 @@ export default function MatchesPage() {
 
   return (
     <div className="min-h-screen bg-[#F8F9FA] text-slate-900">
-      <TopBar activeView={activeView} onChangeView={setActiveView} />
+      <TopBar />
 
       <div className="border-b border-[#E5E7EB] bg-white px-6 py-4 sm:px-8">
         <div className="mx-auto flex max-w-6xl flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
@@ -405,24 +585,6 @@ export default function MatchesPage() {
               </div>
       ) : null}
 
-      {activeView === 'client' ? (
-        <div className="border-b border-blue-700 bg-[#2563EB] px-6 py-2.5 text-white sm:px-8">
-          <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <Info size={16} />
-              <span>Client Preview Mode: internal scores and recruiter-only actions are hidden.</span>
-          </div>
-                 <button 
-              type="button"
-              onClick={() => setActiveView('internal')}
-              className="text-xs font-bold uppercase tracking-widest hover:underline"
-            >
-              Exit Preview
-                   </button>
-                </div>
-            </div>
-      ) : null}
-
       <CandidateList
         candidates={loading ? [] : filteredCandidates}
         activeTab={activeTab}
@@ -437,6 +599,10 @@ export default function MatchesPage() {
         onToggleSave={(candidateId) => {
           const candidate = candidates.find((item) => item.id === candidateId);
           if (!candidate) return;
+          if (!candidate.matchId) {
+            setToast('Save is available only for scored matches');
+            return;
+          }
           const nextSaved = !savedMatches.includes(candidateId);
 
           void (async () => {
@@ -470,7 +636,14 @@ export default function MatchesPage() {
           }
           openCandidateModal(candidateId, 'submit');
         }}
-        onOpenReject={(candidateId) => openCandidateModal(candidateId, 'reject')}
+        onOpenReject={(candidateId) => {
+          const candidate = candidates.find((item) => item.id === candidateId);
+          if (!candidate?.matchId) {
+            setToast('Reject is available only for scored matches');
+            return;
+          }
+          openCandidateModal(candidateId, 'reject');
+        }}
         onExport={handleExport}
         onRateMatch={(candidateId, rating) =>
           updateCandidate(candidateId, (candidate) => ({ ...candidate, matchRating: rating }))
@@ -572,13 +745,18 @@ export default function MatchesPage() {
         candidate={activeCandidate}
         selectedJob={selectedJob || jobs[0] || { id: '', title: 'Select Job', client: 'No Client', status: 'Open' }}
         onClose={() => setOpenModal(null)}
-        onSubmit={async ({ message, notifyClient }) => {
-          if (!activeCandidate?.matchId) return;
+        onUpdated={handleMatchDataUpdated}
+        onSubmit={async ({ message }) => {
+          if (!activeCandidate?.matchId) {
+            setError('This candidate is not linked to a match record for the selected job.');
+            setToast('Unable to submit candidate without a match record');
+            return;
+          }
           try {
-            await apiSubmitMatch(activeCandidate.matchId, { message, notifyClient });
+            await apiSubmitMatch(activeCandidate.matchId, { message, notifyClient: true });
             await refreshMatches();
             setOpenModal(null);
-            setToast('Candidate submitted to client');
+            setToast('Candidate submitted and email sent to client');
           } catch (submitError: any) {
             setError(submitError.message || 'Unable to submit candidate');
             setToast(submitError.message || 'Unable to submit candidate');
@@ -613,7 +791,7 @@ export default function MatchesPage() {
         onClose={() => setOpenModal(null)}
         onViewHistory={() => {
           if (!activeCandidateId) return;
-          openProfileDrawer(activeCandidateId, 'activity');
+          openProfileDrawer(activeCandidateId, 'notes');
           setOpenModal(null);
         }}
         onSubmitAnyway={() => setOpenModal('submit')}

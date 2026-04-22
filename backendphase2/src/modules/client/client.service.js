@@ -5,14 +5,32 @@ import activityService from '../../services/activityService.js';
 import { sendClientAssignmentEmail } from '../../services/emailService.js';
 import { buildSuperAdminOwnerScope, mergeWhereWithScope } from '../../utils/superAdminScope.js';
 
+function applySystemWorkspaceExclusion(where = {}, includeSystem = false) {
+  if (includeSystem) return where;
+
+  const excludeWorkspaceWhere = {
+    OR: [
+      { industry: { not: 'Workspace' } },
+      { companyName: { not: { endsWith: ' Workspace' } } },
+    ],
+  };
+
+  if (!where || Object.keys(where).length === 0) {
+    return excludeWorkspaceWhere;
+  }
+
+  return { AND: [where, excludeWorkspaceWhere] };
+}
+
 export const clientService = {
   async getAll(req) {
     const { page, limit, skip } = getPaginationParams(req);
     const { status, assignedToId, search } = req.query;
     const includeContacts = req.query.includeContacts === 'true';
     const includeLeadFields = req.query.includeLeadFields === 'true';
+    const includeSystemClients = req.query.includeSystem === 'true';
 
-    const where = {};
+    let where = {};
     if (status) where.status = status;
     if (assignedToId) where.assignedToId = assignedToId;
     if (search) {
@@ -24,6 +42,7 @@ export const clientService = {
     }
     if (req.query.hot !== undefined) where.hot = req.query.hot === 'true';
     if (req.query.tags) where.tags = { hasSome: Array.isArray(req.query.tags) ? req.query.tags : [req.query.tags] };
+    where = applySystemWorkspaceExclusion(where, includeSystemClients);
 
     const superAdminScope = buildSuperAdminOwnerScope(req, ['assignedToId']);
     const scopedWhere = mergeWhereWithScope(where, superAdminScope);
@@ -507,6 +526,9 @@ export const clientService = {
         ],
       }, superAdminPlacementScope);
 
+    const includeSystemClients = req?.query?.includeSystem === 'true';
+    const clientBaseWhere = applySystemWorkspaceExclusion({}, includeSystemClients);
+
     const [
       activeClients,
       activeClientsLastMonth,
@@ -519,10 +541,13 @@ export const clientService = {
       revenueThisMonth,
       revenueLastMonth,
     ] = await Promise.all([
-      prisma.client.count({ where: mergeWhereWithScope({ status: 'ACTIVE' }, superAdminClientScope) }),
+      prisma.client.count({
+        where: mergeWhereWithScope({ ...clientBaseWhere, status: 'ACTIVE' }, superAdminClientScope),
+      }),
       prisma.client.count({
         where: mergeWhereWithScope(
           {
+            ...clientBaseWhere,
             status: 'ACTIVE',
             createdAt: { lte: endOfLastMonth },
           },

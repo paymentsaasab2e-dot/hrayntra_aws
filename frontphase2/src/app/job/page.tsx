@@ -17,7 +17,6 @@ import {
   Users, 
   CheckCircle2, 
   Clock, 
-  AlertCircle, 
   Flame,
   MoreHorizontal,
   CheckSquare,
@@ -28,6 +27,7 @@ import { requestConfirm, requestError } from '../../lib/appDialog';
 import { motion, AnimatePresence } from 'motion/react';
 import { Toaster, toast } from 'sonner';
 import { CreateTaskModal } from '../../components/CreateTaskModal';
+import AddCandidateDrawer from '../../components/candidates/AddCandidateDrawer';
 import { JobDetailsDrawer, type JobForDrawer, type JobCandidateItem } from '../../components/drawers/JobDetailsDrawer';
 import { CreateJobDrawer } from '../../components/drawers/CreateJobDrawer';
 import { StatusChangeService } from '../../components/StatusChangeService';
@@ -136,6 +136,7 @@ interface PipelineSnapshotProps {
 interface JobsListViewProps {
   jobs: Job[];
   onJobClick?: (job: Job) => void;
+  onAddCandidate?: (job: Job) => void;
   onDeleteJob?: (jobId: string, jobTitle: string) => Promise<void>;
   deletingJobId?: string | null;
   canUpdateJob: boolean;
@@ -203,7 +204,7 @@ const PipelineSnapshot = ({ applied, interviewed, offered, joined }: PipelineSna
   </div>
 );
 
-const JobsListView = ({ jobs, onJobClick, onDeleteJob, deletingJobId, canUpdateJob, canDeleteJob, canAddCandidate, statusEdit, onStatusChange, onRemarkChange, onSaveStatusEdit, onCancelStatusEdit }: JobsListViewProps) => (
+const JobsListView = ({ jobs, onJobClick, onAddCandidate, onDeleteJob, deletingJobId, canUpdateJob, canDeleteJob, canAddCandidate, statusEdit, onStatusChange, onRemarkChange, onSaveStatusEdit, onCancelStatusEdit }: JobsListViewProps) => (
   <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
     <table className="w-full text-left border-collapse">
       <thead className="bg-gray-50 sticky top-0 z-10">
@@ -214,7 +215,6 @@ const JobsListView = ({ jobs, onJobClick, onDeleteJob, deletingJobId, canUpdateJ
           <th className="p-4 text-xs font-bold text-gray-500 uppercase">Job Title & ID</th>
           <th className="p-4 text-xs font-bold text-gray-500 uppercase">Client & Location</th>
           <th className="p-4 text-xs font-bold text-gray-500 uppercase">Status</th>
-          <th className="p-4 text-xs font-bold text-gray-500 uppercase text-center">Indicators</th>
           <th className="p-4 text-xs font-bold text-gray-500 uppercase">Pipeline</th>
           <th className="p-4 text-xs font-bold text-gray-500 uppercase">Details</th>
           <th className="p-4 text-xs font-bold text-gray-500 uppercase text-right">Actions</th>
@@ -297,36 +297,6 @@ const JobsListView = ({ jobs, onJobClick, onDeleteJob, deletingJobId, canUpdateJ
               </div>
             </td>
             <td className="p-4">
-              <div className="flex items-center justify-center gap-2">
-                {job.hot && (
-                  <div className="relative group/tip">
-                    <Flame size={16} className="text-orange-500" />
-                    <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover/tip:block bg-gray-900 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap">Hot Job</span>
-                  </div>
-                )}
-                {job.slaRisk && (
-                  <div className="relative group/tip">
-                    <Clock size={16} className="text-red-500" />
-                    <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover/tip:block bg-gray-900 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap">SLA Risk</span>
-                  </div>
-                )}
-                {job.noCandidates && (
-                  <div className="relative group/tip">
-                    <AlertCircle size={16} className="text-amber-500" />
-                    <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover/tip:block bg-gray-900 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap">No Candidates</span>
-                  </div>
-                )}
-                {job.aiMatch && (
-                  <div className="relative group/tip">
-                    <div className="bg-purple-100 p-1 rounded">
-                      <BrainCircuit size={12} className="text-purple-600" />
-                    </div>
-                    <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover/tip:block bg-gray-900 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap">AI Match Ready</span>
-                  </div>
-                )}
-              </div>
-            </td>
-            <td className="p-4">
               <PipelineSnapshot 
                 applied={job.applied} 
                 interviewed={job.interviewed} 
@@ -347,7 +317,12 @@ const JobsListView = ({ jobs, onJobClick, onDeleteJob, deletingJobId, canUpdateJ
                   <Eye size={16} />
                 </button>
                 {canAddCandidate && (
-                  <button className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-blue-600 transition-colors" title="Add Candidate">
+                  <button
+                    type="button"
+                    onClick={() => onAddCandidate?.(job)}
+                    className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-blue-600 transition-colors"
+                    title="Add Candidate"
+                  >
                     <UserPlus size={16} />
                   </button>
                 )}
@@ -365,9 +340,6 @@ const JobsListView = ({ jobs, onJobClick, onDeleteJob, deletingJobId, canUpdateJ
                     <Trash2 size={16} />
                   </button>
                 )}
-                <button className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-900" title="More Options">
-                  <MoreHorizontal size={16} />
-                </button>
               </div>
             </td>
           </tr>
@@ -522,8 +494,9 @@ function formatSalaryRange(salary?: BackendJob['salary']): string | undefined {
   return undefined;
 }
 
-function mapBackendJob(job: BackendJob): Job {
-  const applied = job._count?.matches ?? 0;
+function mapBackendJob(job: BackendJob, assignedCandidateCount = 0): Job {
+  const appliedFromMatches = job._count?.matches ?? 0;
+  const applied = Math.max(appliedFromMatches, assignedCandidateCount);
   const interviewed = job._count?.interviews ?? 0;
   const joined = job._count?.placements ?? 0;
 
@@ -545,6 +518,21 @@ function mapBackendJob(job: BackendJob): Job {
     noCandidates: (job as any).noCandidates ?? false,
     slaRisk: (job as any).slaRisk ?? false,
   };
+}
+
+function buildAssignedCandidateCountByJob(candidates: BackendCandidate[]): Map<string, number> {
+  const counts = new Map<string, number>();
+
+  candidates.forEach((candidate) => {
+    const assigned = Array.isArray(candidate.assignedJobs) ? candidate.assignedJobs : [];
+    assigned.forEach((jobId) => {
+      const normalizedId = String(jobId || '').trim();
+      if (!normalizedId) return;
+      counts.set(normalizedId, (counts.get(normalizedId) || 0) + 1);
+    });
+  });
+
+  return counts;
 }
 
 function toJobCandidateItemFromApplied(match: any, fallbackRecruiter = '-'): JobCandidateItem {
@@ -614,6 +602,10 @@ export default function JobsPage() {
   const [recruiterOptions, setRecruiterOptions] = useState<Array<{ id: string; name: string }>>([]);
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [createJobDrawerOpen, setCreateJobDrawerOpen] = useState(false);
+  const [duplicateFromJobId, setDuplicateFromJobId] = useState<string | null>(null);
+  const [addCandidateDrawerOpen, setAddCandidateDrawerOpen] = useState(false);
+  const [selectedJobForCandidate, setSelectedJobForCandidate] = useState<Job | null>(null);
+  const [currentUserForCandidateDrawer, setCurrentUserForCandidateDrawer] = useState<any>(null);
   const [jobDrawerOpen, setJobDrawerOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [currentPage, setCurrentPage] = useState(DEFAULT_PAGE);
@@ -669,7 +661,20 @@ export default function JobsPage() {
     }
   });
   const hasVisibleJobsRef = useRef(jobs.length > 0);
+  const cloneDrawerTimerRef = useRef<number | null>(null);
   const hasActiveFilters = Boolean(searchFilter || statusFilter || clientFilterId || recruiterFilterId);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = localStorage.getItem('currentUser');
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      setCurrentUserForCandidateDrawer(parsed);
+    } catch {
+      setCurrentUserForCandidateDrawer(null);
+    }
+  }, []);
 
   const buildJobsQueryParams = useCallback(() => ({
     page: currentPage,
@@ -683,6 +688,14 @@ export default function JobsPage() {
   useEffect(() => {
     hasVisibleJobsRef.current = jobs.length > 0;
   }, [jobs.length]);
+
+  useEffect(() => {
+    return () => {
+      if (cloneDrawerTimerRef.current) {
+        window.clearTimeout(cloneDrawerTimerRef.current);
+      }
+    };
+  }, []);
 
   // Handle LinkedIn OAuth callback
   useEffect(() => {
@@ -765,10 +778,13 @@ export default function JobsPage() {
       try {
         if (!hasVisibleJobsRef.current) setLoading(true);
         setError(null);
-        const res = await apiGetJobs(buildJobsQueryParams());
+        const [jobsRes, candidatesRes] = await Promise.all([
+          apiGetJobs(buildJobsQueryParams()),
+          apiGetCandidates({ page: 1, limit: 500 }),
+        ]);
         if (cancelled) return;
 
-        const parsed = parseJobsApiPayload(res);
+        const parsed = parseJobsApiPayload(jobsRes);
         if (!Array.isArray(parsed.jobs)) {
           console.error('Unexpected API response format: data is not an array.', parsed);
           setError('Unexpected API response format.');
@@ -777,7 +793,17 @@ export default function JobsPage() {
           return;
         }
 
-        const mapped = parsed.jobs.map(mapBackendJob);
+        const candidatesData =
+          (candidatesRes as any)?.data?.data ||
+          (candidatesRes as any)?.data?.items ||
+          (candidatesRes as any)?.data ||
+          [];
+        const allCandidates: BackendCandidate[] = Array.isArray(candidatesData) ? candidatesData : [];
+        const assignedCandidateCountByJob = buildAssignedCandidateCountByJob(allCandidates);
+
+        const mapped = parsed.jobs.map((job) =>
+          mapBackendJob(job, assignedCandidateCountByJob.get(String(job.id)) || 0)
+        );
         setJobs(mapped);
         const total = parsed.total || mapped.length;
         setTotalEntries(total);
@@ -890,10 +916,22 @@ export default function JobsPage() {
     try {
       setLoading(true);
       setError(null);
-      const res = await apiGetJobs(buildJobsQueryParams());
-      const parsed = parseJobsApiPayload(res);
+      const [jobsRes, candidatesRes] = await Promise.all([
+        apiGetJobs(buildJobsQueryParams()),
+        apiGetCandidates({ page: 1, limit: 500 }),
+      ]);
+      const parsed = parseJobsApiPayload(jobsRes);
       if (Array.isArray(parsed.jobs)) {
-        const mapped = parsed.jobs.map(mapBackendJob);
+        const candidatesData =
+          (candidatesRes as any)?.data?.data ||
+          (candidatesRes as any)?.data?.items ||
+          (candidatesRes as any)?.data ||
+          [];
+        const allCandidates: BackendCandidate[] = Array.isArray(candidatesData) ? candidatesData : [];
+        const assignedCandidateCountByJob = buildAssignedCandidateCountByJob(allCandidates);
+        const mapped = parsed.jobs.map((job) =>
+          mapBackendJob(job, assignedCandidateCountByJob.get(String(job.id)) || 0)
+        );
         setJobs(mapped);
         const total = parsed.total || mapped.length;
         setTotalEntries(total);
@@ -950,10 +988,22 @@ export default function JobsPage() {
     const JOBS_CHANGED = 'jobportal:jobs-changed';
     const refreshJobsList = async () => {
       try {
-        const res = await apiGetJobs(buildJobsQueryParams());
-        const parsed = parseJobsApiPayload(res);
+        const [jobsRes, candidatesRes] = await Promise.all([
+          apiGetJobs(buildJobsQueryParams()),
+          apiGetCandidates({ page: 1, limit: 500 }),
+        ]);
+        const parsed = parseJobsApiPayload(jobsRes);
         if (Array.isArray(parsed.jobs)) {
-          const mapped = parsed.jobs.map(mapBackendJob);
+          const candidatesData =
+            (candidatesRes as any)?.data?.data ||
+            (candidatesRes as any)?.data?.items ||
+            (candidatesRes as any)?.data ||
+            [];
+          const allCandidates: BackendCandidate[] = Array.isArray(candidatesData) ? candidatesData : [];
+          const assignedCandidateCountByJob = buildAssignedCandidateCountByJob(allCandidates);
+          const mapped = parsed.jobs.map((job) =>
+            mapBackendJob(job, assignedCandidateCountByJob.get(String(job.id)) || 0)
+          );
           setJobs(mapped);
           setTotalEntries(parsed.total || mapped.length);
         } else {
@@ -1277,6 +1327,50 @@ export default function JobsPage() {
     await reloadMyJobsAndMetrics();
   };
 
+  const handleAddCandidateForJob = (job: Job) => {
+    setSelectedJobForCandidate(job);
+    setAddCandidateDrawerOpen(true);
+  };
+
+  const handleCloneJob = (job: JobForDrawer) => {
+    if (cloneDrawerTimerRef.current) {
+      window.clearTimeout(cloneDrawerTimerRef.current);
+      cloneDrawerTimerRef.current = null;
+    }
+
+    setJobDrawerOpen(false);
+    setDuplicateFromJobId(job.id);
+    cloneDrawerTimerRef.current = window.setTimeout(() => {
+      setCreateJobDrawerOpen(true);
+      cloneDrawerTimerRef.current = null;
+    }, 220);
+  };
+
+  const handleCloseJob = async (job: JobForDrawer) => {
+    if (!(await requestConfirm(`Close "${job.title}"? You can reopen it later by changing status.`))) {
+      return;
+    }
+
+    try {
+      await apiUpdateJob(job.id, {
+        status: 'CLOSED' as any,
+        statusRemark: 'Closed from Job drawer',
+      } as any);
+
+      setJobs((prev) =>
+        prev.map((item) => (item.id === job.id ? { ...item, status: 'Closed' } : item))
+      );
+      setSelectedJob((prev) => (prev && prev.id === job.id ? { ...prev, status: 'Closed' } : prev));
+      setJobDetails((prev) => (prev && prev.id === job.id ? { ...prev, status: 'Closed' } : prev));
+
+      await reloadMyJobsAndMetrics();
+      toast.success('Job closed successfully');
+    } catch (err: any) {
+      console.error('Failed to close job:', err);
+      void requestError(err?.message || 'Failed to close job');
+    }
+  };
+
   return (
     <div className="w-full min-h-screen bg-gray-50 font-sans text-gray-900">
       {/* Content Area */}
@@ -1322,7 +1416,10 @@ export default function JobsPage() {
                 {canCreateJob && (
                   <button
                     type="button"
-                    onClick={() => setCreateJobDrawerOpen(true)}
+                    onClick={() => {
+                      setDuplicateFromJobId(null);
+                      setCreateJobDrawerOpen(true);
+                    }}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-semibold whitespace-nowrap hover:bg-blue-700 transition-all shadow-sm shadow-blue-200/50"
                   >
                     <Plus size={15} className="shrink-0" />
@@ -1504,6 +1601,7 @@ export default function JobsPage() {
                   <JobsListView 
                     jobs={jobs} 
                     onJobClick={openJobDrawer} 
+                    onAddCandidate={handleAddCandidateForJob}
                     onDeleteJob={canDeleteJob ? handleDeleteJob : undefined} 
                     deletingJobId={deletingJobId}
                     canUpdateJob={canUpdateJob}
@@ -1534,9 +1632,14 @@ export default function JobsPage() {
 
       <CreateJobDrawer
         isOpen={canCreateJob && createJobDrawerOpen}
-        onClose={() => setCreateJobDrawerOpen(false)}
+        duplicateFromJobId={duplicateFromJobId}
+        onClose={() => {
+          setCreateJobDrawerOpen(false);
+          setDuplicateFromJobId(null);
+        }}
         onJobCreated={() => {
           setCreateJobDrawerOpen(false);
+          setDuplicateFromJobId(null);
           void reloadMyJobsAndMetrics();
         }}
       />
@@ -1565,8 +1668,8 @@ export default function JobsPage() {
           setEditJobDrawerOpen(true);
         } : undefined}
         onPublish={canUpdateJob ? (job) => { /* TODO: publish job */ } : undefined}
-        onClone={canCreateJob ? (job) => { /* TODO: clone job */ } : undefined}
-        onCloseJob={canDeleteJob ? (job) => { /* TODO: close job */ } : undefined}
+        onClone={canCreateJob ? handleCloneJob : undefined}
+        onCloseJob={canUpdateJob ? handleCloseJob : undefined}
         onMoveStage={canUpdateJob ? (candidateId, jobId) => openMoveStage(candidateId, jobId) : undefined}
         onScheduleInterview={canUpdateJob ? (candidateId, jobId) => { /* TODO: schedule interview */ } : undefined}
         onRejectCandidate={canUpdateJob ? (candidateId, jobId) => { /* TODO: reject candidate */ } : undefined}
@@ -1669,6 +1772,24 @@ export default function JobsPage() {
         onClose={() => setCreateTaskOpen(false)}
         onSuccess={() => setCreateTaskOpen(false)}
         initialRelatedTo="Job"
+      />
+
+      <AddCandidateDrawer
+        isOpen={canAddCandidate && addCandidateDrawerOpen}
+        onClose={() => {
+          setAddCandidateDrawerOpen(false);
+          setSelectedJobForCandidate(null);
+        }}
+        onSuccess={async () => {
+          if (selectedJobForCandidate?.id) {
+            await refreshJobCandidates(selectedJobForCandidate.id);
+          }
+          await reloadMyJobsAndMetrics();
+        }}
+        currentUser={currentUserForCandidateDrawer || { _id: '', name: 'You', email: '', role: 'RECRUITER' }}
+        initialTab="manual"
+        defaultJobId={selectedJobForCandidate?.id || ''}
+        lockJobSelection
       />
       <Toaster position="top-right" richColors />
 
