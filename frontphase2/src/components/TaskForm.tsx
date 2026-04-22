@@ -18,9 +18,8 @@ import {
   MOCK_CANDIDATES,
   MOCK_JOBS,
   MOCK_CLIENTS,
-  MOCK_INTERVIEWS,
 } from '../app/Task&Activites/types';
-import { apiGetUsers, apiGetCandidates, apiGetJobs, apiGetClients, type BackendUser, type BackendCandidate, type BackendJob, type BackendClient } from '../lib/api';
+import { apiGetUsers, apiGetCandidates, apiGetJobs, apiGetClients, apiGetInterviews, type BackendUser, type BackendCandidate, type BackendJob, type BackendClient, type BackendInterviewListItem } from '../lib/api';
 
 const DEFAULT_FORM_VALUES: TaskFormValues = {
   title: '',
@@ -93,7 +92,7 @@ export function TaskForm({
   const [candidates, setCandidates] = useState<RelatedEntity[]>(MOCK_CANDIDATES);
   const [jobs, setJobs] = useState<RelatedEntity[]>(MOCK_JOBS);
   const [clients, setClients] = useState<RelatedEntity[]>(MOCK_CLIENTS);
-  const [interviews, setInterviews] = useState<RelatedEntity[]>(MOCK_INTERVIEWS);
+  const [interviews, setInterviews] = useState<RelatedEntity[]>([]);
   const [loadingEntities, setLoadingEntities] = useState(false);
 
   // Fetch real data from API
@@ -174,8 +173,25 @@ export function TaskForm({
           console.error('Failed to fetch clients:', err);
         }
 
-        // Interviews - keep mock for now as there's no API endpoint yet
-        // setInterviews(MOCK_INTERVIEWS);
+        // Fetch interviews
+        try {
+          const interviewsResponse = await apiGetInterviews({ limit: 100 });
+          const interviewsList = Array.isArray(interviewsResponse.data)
+            ? interviewsResponse.data
+            : (interviewsResponse.data as any)?.data || [];
+          const mappedInterviews: RelatedEntity[] = interviewsList.map((i: BackendInterviewListItem) => {
+            const candidateName = `${i.candidate.firstName} ${i.candidate.lastName}`.trim();
+            const interviewRound = i.round?.trim() || i.type?.trim() || 'Interview';
+            return {
+              id: i.id,
+              label: `${candidateName} - ${interviewRound}`,
+              type: 'Interview' as TaskRelatedTo,
+            };
+          });
+          setInterviews(mappedInterviews);
+        } catch (err) {
+          console.error('Failed to fetch interviews:', err);
+        }
       } catch (error) {
         console.error('Failed to fetch entities:', error);
       } finally {

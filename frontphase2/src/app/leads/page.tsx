@@ -264,9 +264,11 @@ function mapBackendLeadToFrontend(backendLead: BackendLead): Lead {
     phone: backendLead.phone || '',
     status: backendLead.status,
     assignedTo: backendLead.assignedTo ? {
+      id: backendLead.assignedTo.id,
       name: backendLead.assignedTo.name,
       avatar: backendLead.assignedTo.avatar || '',
     } : { name: 'Unassigned', avatar: '' },
+    assignedToId: backendLead.assignedTo?.id,
     lastFollowUp: backendLead.lastFollowUp || '',
     nextFollowUp: backendLead.nextFollowUp || undefined,
     priority: backendLead.priority,
@@ -321,6 +323,7 @@ export default function RecruitmentAgencyDashboard() {
   const [importDrawerOpen, setImportDrawerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<LeadStatus | 'All'>('All');
+  const [recruiterFilter, setRecruiterFilter] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null); // null = not checked yet
   const [teamMembers, setTeamMembers] = useState<BackendUser[]>([]);
   const [bulkStatus, setBulkStatus] = useState('');
@@ -357,7 +360,7 @@ export default function RecruitmentAgencyDashboard() {
       try {
         const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
         if (!token) return;
-        const response = await apiGetUsers({ isActive: true, limit: 200 });
+        const response = await apiGetUsers({ isActive: true, limit: 200, role: 'RECRUITER' });
         const payload = response.data;
         const users = Array.isArray(payload)
           ? payload
@@ -403,6 +406,7 @@ export default function RecruitmentAgencyDashboard() {
         
         const response = await apiGetLeads({
           status: statusFilter !== 'All' ? statusFilter : undefined,
+          assignedToId: recruiterFilter || undefined,
           search: searchQuery || undefined,
           page: currentPage,
           limit: PAGE_SIZE,
@@ -450,20 +454,21 @@ export default function RecruitmentAgencyDashboard() {
     };
 
     fetchLeads();
-  }, [statusFilter, searchQuery, currentPage]);
+  }, [statusFilter, searchQuery, currentPage, recruiterFilter]);
 
   const filteredLeads = useMemo(() => {
-    // If we're using API, filtering is done server-side, but we can still filter client-side for search
-    if (searchQuery) {
-      return leads.filter(lead => {
-        const matchesSearch = lead.companyName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                              lead.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                              lead.contactPerson.toLowerCase().includes(searchQuery.toLowerCase());
-        return matchesSearch;
-      });
-    }
-    return leads;
-  }, [leads, searchQuery]);
+    const query = searchQuery.trim().toLowerCase();
+    return leads.filter((lead) => {
+      const matchesSearch =
+        !query ||
+        lead.companyName.toLowerCase().includes(query) ||
+        lead.email.toLowerCase().includes(query) ||
+        lead.contactPerson.toLowerCase().includes(query);
+      const matchesRecruiter =
+        !recruiterFilter || lead.assignedToId === recruiterFilter || lead.assignedTo?.id === recruiterFilter;
+      return matchesSearch && matchesRecruiter;
+    });
+  }, [leads, searchQuery, recruiterFilter]);
 
   const allVisibleSelected = filteredLeads.length > 0 && filteredLeads.every((lead) => selectedLeadIds.includes(lead.id));
 
@@ -985,18 +990,30 @@ export default function RecruitmentAgencyDashboard() {
                     <option>Campaign</option>
                   </select>
 
-                  <select className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer hover:border-blue-300 transition-colors">
-                    <option>All Recruiters</option>
-                    {RECRUITERS.map(r => <option key={r.name}>{r.name}</option>)}
+                  <select
+                    className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer hover:border-blue-300 transition-colors"
+                    value={recruiterFilter}
+                    onChange={(e) => {
+                      setCurrentPage(1);
+                      setRecruiterFilter(e.target.value);
+                    }}
+                  >
+                    <option value="">All Recruiters</option>
+                    {teamMembers.map((user) => (
+                      <option key={user.id} value={user.id}>
+                        {user.name}
+                      </option>
+                    ))}
                   </select>
 
                   <button 
                     className="text-sm text-slate-500 hover:text-red-600 font-medium px-2 py-1 flex items-center gap-1 transition-colors"
                     onClick={() => {
-                      setCurrentPage(1);
-                      setSearchQuery('');
-                      setStatusFilter('All');
-                    }}
+                    setCurrentPage(1);
+                    setSearchQuery('');
+                    setStatusFilter('All');
+                    setRecruiterFilter('');
+                  }}
                   >
                     <XCircle size={14} />
                     Clear

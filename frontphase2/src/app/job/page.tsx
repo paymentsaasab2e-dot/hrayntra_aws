@@ -88,6 +88,7 @@ interface Job {
   client: string;
   location: string;
   status: JobStatus;
+  jobLocationType?: string;
   applied: number;
   interviewed: number;
   offered: number;
@@ -462,7 +463,7 @@ function formatEmploymentType(type?: string | null): string | undefined {
     case 'FULL_TIME':
       return 'Full-time';
     case 'PART_TIME':
-      return 'Part-time';
+      return undefined;
     case 'CONTRACT':
       return 'Contract';
     case 'FREELANCE':
@@ -506,6 +507,7 @@ function mapBackendJob(job: BackendJob, assignedCandidateCount = 0): Job {
     client: job.client?.companyName ?? '-',
     location: job.location ?? '-',
     status: mapBackendStatus(job.status),
+    jobLocationType: job.jobLocationType ?? undefined,
     applied,
     interviewed,
     offered: 0,

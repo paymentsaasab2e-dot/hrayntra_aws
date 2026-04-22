@@ -745,11 +745,6 @@ export default function ReportsPage() {
     }
   };
 
-  const dateLabel = useMemo(() => {
-    const option = summary?.options.dateRanges.find((item) => item.value === draftFilters.dateRange);
-    return option?.label || 'Last 30 Days';
-  }, [summary, draftFilters.dateRange]);
-
   const handleExport = async (format: 'csv' | 'pdf') => {
     setExporting(format);
     setError(null);
@@ -776,15 +771,13 @@ export default function ReportsPage() {
     <div className="min-h-screen bg-[#F8FAFC] font-sans text-slate-900">
       <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-8 py-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-4">
-          <div className="flex cursor-default items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-            <Calendar size={16} className="text-slate-500" />
-            <span className="text-sm font-medium text-slate-700">{dateLabel}</span>
-            <ChevronDown size={14} className="text-slate-400" />
-          </div>
-
           <select
             value={draftFilters.dateRange}
-            onChange={(event) => setDraftFilters((prev) => ({ ...prev, dateRange: event.target.value }))}
+            onChange={(event) => {
+              const value = event.target.value;
+              setDraftFilters((prev) => ({ ...prev, dateRange: value }));
+              setAppliedFilters((prev) => ({ ...prev, dateRange: value }));
+            }}
             className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none transition-all focus:ring-2 focus:ring-blue-500"
           >
             {(summary?.options.dateRanges || [{ value: 'last_30_days', label: 'Last 30 Days' }]).map((option) => (
@@ -794,7 +787,11 @@ export default function ReportsPage() {
 
           <select
             value={draftFilters.clientId}
-            onChange={(event) => setDraftFilters((prev) => ({ ...prev, clientId: event.target.value }))}
+            onChange={(event) => {
+              const value = event.target.value;
+              setDraftFilters((prev) => ({ ...prev, clientId: value }));
+              setAppliedFilters((prev) => ({ ...prev, clientId: value }));
+            }}
             className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none transition-all focus:ring-2 focus:ring-blue-500"
           >
             <option value="">All Clients</option>
@@ -805,7 +802,11 @@ export default function ReportsPage() {
 
           <select
             value={draftFilters.jobId}
-            onChange={(event) => setDraftFilters((prev) => ({ ...prev, jobId: event.target.value }))}
+            onChange={(event) => {
+              const value = event.target.value;
+              setDraftFilters((prev) => ({ ...prev, jobId: value }));
+              setAppliedFilters((prev) => ({ ...prev, jobId: value }));
+            }}
             className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none transition-all focus:ring-2 focus:ring-blue-500"
           >
             <option value="">All Jobs</option>
@@ -816,7 +817,11 @@ export default function ReportsPage() {
 
           <select
             value={draftFilters.recruiterId}
-            onChange={(event) => setDraftFilters((prev) => ({ ...prev, recruiterId: event.target.value }))}
+            onChange={(event) => {
+              const value = event.target.value;
+              setDraftFilters((prev) => ({ ...prev, recruiterId: value }));
+              setAppliedFilters((prev) => ({ ...prev, recruiterId: value }));
+            }}
             className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none transition-all focus:ring-2 focus:ring-blue-500"
           >
             <option value="">All Recruiters</option>
@@ -882,14 +887,6 @@ export default function ReportsPage() {
                 className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition-all hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <FileText size={16} /> {exporting === 'pdf' ? 'Exporting...' : 'PDF Report'}
-              </button>
-            )}
-            {canCreateReports && (
-              <button
-                onClick={() => void generateCustomPreview()}
-                className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition-all hover:bg-slate-50"
-              >
-                <Mail size={16} /> Refresh Data
               </button>
             )}
           </div>

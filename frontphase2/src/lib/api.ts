@@ -2902,6 +2902,21 @@ export interface ContactStats {
   hiringManagers: number;
 }
 
+export interface ContactImportPreviewResult {
+  sheetName: string;
+  columns: string[];
+  previewRows: Record<string, string | number | boolean | null>[];
+  totalRows: number;
+  suggestedMapping: Record<string, string>;
+  columnStats: Record<string, number>;
+}
+
+export interface ContactImportExecuteResult {
+  imported: number;
+  skipped: number;
+  updated: number;
+}
+
 export const apiGetContacts = async (filters?: ContactFilters) => {
   const query = new URLSearchParams();
   const processedFilters = { ...filters };
@@ -2962,6 +2977,27 @@ export const apiUpdateContact = async (id: string, data: Partial<CreateContactDa
 export const apiDeleteContact = async (id: string) => {
   return apiFetch<ApiResponse<{ message: string }>>(`/contacts/${id}`, {
     method: 'DELETE',
+    auth: true,
+  });
+};
+
+export const apiPreviewContactImport = async (file: File) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  return apiFetchFormData<ContactImportPreviewResult>('/contacts/import/preview', formData, {
+    method: 'POST',
+    auth: true,
+  });
+};
+
+export const apiImportContacts = async (payload: {
+  rows: Record<string, string | number | boolean | null>[];
+  mapping: Record<string, string>;
+  duplicateRule: string;
+}) => {
+  return apiFetch<ContactImportExecuteResult>('/contacts/import', {
+    method: 'POST',
+    body: payload,
     auth: true,
   });
 };

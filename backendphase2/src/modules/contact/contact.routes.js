@@ -1,8 +1,10 @@
 import express from 'express';
+import multer from 'multer';
 import { contactController } from './contact.controller.js';
 import { authMiddleware } from '../../middleware/auth.middleware.js';
 
 const router = express.Router();
+const importUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 router.use(authMiddleware);
 
@@ -14,6 +16,8 @@ router.get('/duplicates', contactController.detectDuplicates);
 
 // CRUD routes
 router.get('/', contactController.getAll);
+router.post('/import/preview', importUpload.single('file'), contactController.previewImport);
+router.post('/import', contactController.importContacts);
 router.post('/', contactController.create);
 router.get('/:id', contactController.getById);
 router.patch('/:id', contactController.update);

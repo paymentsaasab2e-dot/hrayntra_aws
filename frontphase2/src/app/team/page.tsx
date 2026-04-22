@@ -83,13 +83,13 @@ function TeamPageContent() {
   const getActionButtonLabel = () => {
     switch (activeTab) {
       case 'members':
-        return '+ Add Member';
+        return 'Add Member';
       case 'roles':
-        return '+ Add Role';
+        return 'Add Role';
       case 'departments':
-        return '+ Add Department';
+        return 'Add Department';
       case 'targets':
-        return '+ Add Target';
+        return 'Add Target';
       case 'credentials':
         return null;
       default:

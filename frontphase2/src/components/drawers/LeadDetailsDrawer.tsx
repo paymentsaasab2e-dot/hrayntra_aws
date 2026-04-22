@@ -69,6 +69,8 @@ const NOTE_TAG_STYLES: Record<LeadNoteTag, string> = {
   Feedback: 'bg-violet-100 text-violet-700 border-violet-200',
 };
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export type AssignLeadFormData = {
   assignTo: string;
   priority: 'High' | 'Medium' | 'Low';
@@ -273,6 +275,7 @@ export function LeadDetailsDrawer({
     lastFollowUp: '',
     nextFollowUp: '',
   });
+  const [addLeadErrors, setAddLeadErrors] = useState<{ email?: string }>({});
   
   // Fetch recruiters from backend
   const [recruiters, setRecruiters] = useState<TeamMember[]>([]);
@@ -441,6 +444,7 @@ export function LeadDetailsDrawer({
       lastFollowUp: '',
       nextFollowUp: '',
     });
+    setAddLeadErrors({});
   };
 
   const createLeadFromAiForm = async (form: AddLeadFormData) => {
@@ -2073,7 +2077,30 @@ export function LeadDetailsDrawer({
                         </div>
                         <div>
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Email *</label>
-                          <input type="email" value={addLeadForm.email} onChange={(e) => setAddLeadForm((p) => ({ ...p, email: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" placeholder="email@company.com" />
+                          <input
+                            type="email"
+                            value={addLeadForm.email}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setAddLeadForm((p) => ({ ...p, email: value }));
+                              if (addLeadErrors.email) {
+                                setAddLeadErrors((prev) => ({ ...prev, email: undefined }));
+                              }
+                            }}
+                            onBlur={() => {
+                              const value = addLeadForm.email.trim();
+                              if (!value) {
+                                setAddLeadErrors((prev) => ({ ...prev, email: 'Email is required' }));
+                              } else if (!EMAIL_REGEX.test(value)) {
+                                setAddLeadErrors((prev) => ({ ...prev, email: 'Enter a valid email address' }));
+                              }
+                            }}
+                            className={`w-full rounded-xl border px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 ${addLeadErrors.email ? 'border-red-300' : 'border-slate-200'}`}
+                            placeholder="email@company.com"
+                          />
+                          {addLeadErrors.email && (
+                            <p className="mt-1 text-xs text-red-600">{addLeadErrors.email}</p>
+                          )}
                         </div>
                         <div>
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Phone</label>
@@ -2408,7 +2435,17 @@ export function LeadDetailsDrawer({
                     <button
                       type="button"
                       onClick={async () => {
-                        if (!addLeadForm.companyName.trim() || !addLeadForm.contactPerson.trim() || !addLeadForm.email.trim()) return;
+                        const email = addLeadForm.email.trim();
+                        if (!addLeadForm.companyName.trim() || !addLeadForm.contactPerson.trim() || !email) {
+                          if (!email) {
+                            setAddLeadErrors({ email: 'Email is required' });
+                          }
+                          return;
+                        }
+                        if (!EMAIL_REGEX.test(email)) {
+                          setAddLeadErrors({ email: 'Enter a valid email address' });
+                          return;
+                        }
                         
                         try {
                           const companyLinks = (addLeadForm.website ?? '')
@@ -2501,7 +2538,12 @@ export function LeadDetailsDrawer({
                           void requestError(error.message || 'Failed to create lead');
                         }
                       }}
-                      disabled={!addLeadForm.companyName.trim() || !addLeadForm.contactPerson.trim() || !addLeadForm.email.trim()}
+                      disabled={
+                        !addLeadForm.companyName.trim() ||
+                        !addLeadForm.contactPerson.trim() ||
+                        !addLeadForm.email.trim() ||
+                        !EMAIL_REGEX.test(addLeadForm.email.trim())
+                      }
                       className="px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                     >
                       <Plus size={16} />
