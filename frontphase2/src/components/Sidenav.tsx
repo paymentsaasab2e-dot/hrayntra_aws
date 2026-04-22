@@ -38,6 +38,18 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
+const DEFAULT_PROFILE_ICON = '/account-avatar-profile-user-11-svgrepo-com.svg';
+const BLOCKED_DEFAULT_AVATAR_PATTERNS = ['photo-1701463387028-3947648f1337', 'images.unsplash.com'];
+
+function resolveSidenavAvatar(src?: string | null) {
+  const value = String(src || '').trim();
+  if (!value) return DEFAULT_PROFILE_ICON;
+  if (BLOCKED_DEFAULT_AVATAR_PATTERNS.some((pattern) => value.includes(pattern))) {
+    return DEFAULT_PROFILE_ICON;
+  }
+  return value;
+}
+
 // ─── Fallback image component ─────────────────────────────────────────────────
 const ImageWithFallback = ({
   src,
@@ -49,14 +61,11 @@ const ImageWithFallback = ({
   className?: string;
 }) => {
   const [error, setError] = useState(false);
-  if (error || !src) {
-    return (
-      <div className={`${className} bg-gradient-to-br from-teal-400 to-blue-600 flex items-center justify-center`}>
-        <User className="w-4 h-4 text-white" />
-      </div>
-    );
+  const resolvedSrc = resolveSidenavAvatar(src);
+  if (error || !resolvedSrc) {
+    return <img src={DEFAULT_PROFILE_ICON} alt={alt} className={className} />;
   }
-  return <img src={src} alt={alt} className={className} onError={() => setError(true)} />;
+  return <img src={resolvedSrc} alt={alt} className={className} onError={() => setError(true)} />;
 };
 
 // ─── Quick Action Popover ─────────────────────────────────────────────────────
@@ -296,7 +305,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
   const profile = {
     name: user?.name || userProfile?.name || 'User',
     role: user?.role || userProfile?.role || '',
-    avatarUrl: user?.avatar || userProfile?.avatarUrl || avatarUrl,
+    avatarUrl: resolveSidenavAvatar(user?.avatar || userProfile?.avatarUrl || avatarUrl),
   };
 
   const SIDEBAR_W = isCollapsed ? 64 : 240;
