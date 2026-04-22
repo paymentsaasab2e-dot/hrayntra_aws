@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Mail, Tag, User, Download, Trash2, X } from 'lucide-react';
+import { Mail, User, Trash2, X } from 'lucide-react';
 import { apiGetUsers } from '../../lib/api';
 import { requestConfirm } from '../../lib/appDialog';
 
@@ -13,10 +13,8 @@ interface BulkActionsBarProps {
 
 export function BulkActionsBar({ selectedCount, onBulkAction, onClearSelection }: BulkActionsBarProps) {
   const [showAssignOwner, setShowAssignOwner] = useState(false);
-  const [showAddTags, setShowAddTags] = useState(false);
   const [owners, setOwners] = useState<Array<{ id: string; name: string }>>([]);
   const [selectedOwnerId, setSelectedOwnerId] = useState('');
-  const [tagsInput, setTagsInput] = useState('');
 
   React.useEffect(() => {
     const fetchOwners = async () => {
@@ -41,15 +39,6 @@ export function BulkActionsBar({ selectedCount, onBulkAction, onClearSelection }
     }
   };
 
-  const handleAddTags = () => {
-    if (tagsInput.trim()) {
-      const tags = tagsInput.split(',').map(t => t.trim()).filter(Boolean);
-      onBulkAction('add_tags', { tags });
-      setShowAddTags(false);
-      setTagsInput('');
-    }
-  };
-
   return (
     <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
       <div className="flex items-center justify-between">
@@ -65,22 +54,6 @@ export function BulkActionsBar({ selectedCount, onBulkAction, onClearSelection }
             >
               <User size={16} />
               Assign Owner
-            </button>
-            
-            <button
-              onClick={() => setShowAddTags(true)}
-              className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
-              <Tag size={16} />
-              Add Tag
-            </button>
-            
-            <button
-              onClick={() => onBulkAction('export')}
-              className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
-              <Download size={16} />
-              Export
             </button>
             
             <button
@@ -140,35 +113,6 @@ export function BulkActionsBar({ selectedCount, onBulkAction, onClearSelection }
         </div>
       )}
 
-      {/* Add Tags Modal */}
-      {showAddTags && (
-        <div className="mt-4 p-4 bg-white border border-gray-200 rounded-lg">
-          <div className="flex items-center gap-3">
-            <input
-              type="text"
-              value={tagsInput}
-              onChange={(e) => setTagsInput(e.target.value)}
-              placeholder="Enter tags (comma-separated)"
-              className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"
-            />
-            <button
-              onClick={handleAddTags}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium"
-            >
-              Add
-            </button>
-            <button
-              onClick={() => {
-                setShowAddTags(false);
-                setTagsInput('');
-              }}
-              className="px-4 py-2 border border-gray-200 text-gray-700 rounded-lg text-sm font-medium"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
