@@ -154,8 +154,7 @@ function ContactsPageContent() {
     try {
       const response = await apiGetContacts({ ...filters, limit: 10000 });
       const contactsData = Array.isArray(response.data) ? response.data : response.data?.data || [];
-      
-      // Convert to CSV
+
       const headers = ['Name', 'Email', 'Phone', 'Company', 'Designation', 'Contact Type', 'Status', 'Location'];
       const rows = contactsData.map((c: BackendContact) => [
         `${c.firstName} ${c.lastName}`,
@@ -167,8 +166,8 @@ function ContactsPageContent() {
         c.status,
         c.location || '',
       ]);
-      
-      const csv = [headers, ...rows].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+
+      const csv = [headers, ...rows].map((row) => row.map((cell) => `"${cell}"`).join(',')).join('\n');
       const blob = new Blob([csv], { type: 'text/csv' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -176,7 +175,7 @@ function ContactsPageContent() {
       link.download = `contacts-export-${new Date().toISOString().split('T')[0]}.csv`;
       link.click();
       URL.revokeObjectURL(url);
-      
+
       toast.success('Contacts exported successfully');
     } catch (error: any) {
       toast.error(error.message || 'Failed to export contacts');
