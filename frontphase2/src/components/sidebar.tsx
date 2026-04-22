@@ -169,9 +169,9 @@ export const Sidebar = ({ onCollapse }: { onCollapse?: (collapsed: boolean) => v
         <div className="flex items-center">
           <div className="w-9 h-9 rounded-full bg-gray-700 flex-shrink-0 border-2 border-white/10 overflow-hidden">
             <img 
-              src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=facearea&facepad=2&w=256&h=256&q=80" 
+              src="/account-avatar-profile-user-11-svgrepo-com.svg" 
               alt="Profile"
-              className="w-full h-full object-cover"
+              className="w-full h-full object-contain bg-white"
             />
           </div>
           {!isCollapsed && (
