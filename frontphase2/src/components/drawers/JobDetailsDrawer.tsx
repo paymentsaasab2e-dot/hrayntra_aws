@@ -521,6 +521,12 @@ export function JobDetailsDrawer({
                         {job.status}
                       </button>
                     ) : null}
+                    {job.jobLocationType && (
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
+                        <UserCheck size={12} />
+                        {job.jobLocationType}
+                      </span>
+                    )}
                     {job.salaryRange && (
                       <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded flex items-center gap-1">
                         <DollarSign size={12} />

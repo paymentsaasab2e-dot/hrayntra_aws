@@ -39,9 +39,11 @@ export interface Lead {
   phone: string;
   status: LeadStatus;
   assignedTo: {
+    id?: string;
     name: string;
     avatar: string;
   };
+  assignedToId?: string;
   lastFollowUp: string;
   nextFollowUp?: string;
   priority: Priority;

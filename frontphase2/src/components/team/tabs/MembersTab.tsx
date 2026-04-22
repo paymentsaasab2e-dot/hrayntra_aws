@@ -352,12 +352,6 @@ export const MembersTab: React.FC = () => {
         ) : members.length === 0 ? (
           <div className="p-12 text-center">
             <p className="text-slate-500 mb-4">No team members found</p>
-            <button
-              onClick={() => setShowAddDrawer(true)}
-              className="text-blue-600 hover:text-blue-700 font-medium"
-            >
-              + Add member
-            </button>
           </div>
         ) : (
           <div className="overflow-x-auto">

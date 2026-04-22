@@ -10,6 +10,7 @@ import type { SystemRole } from '../../../types/team';
 import { AddRoleDrawer } from '../AddRoleDrawer';
 import { EditRoleDrawer } from '../EditRoleDrawer';
 import { RoleMembersDrawer } from '../RoleMembersDrawer';
+import { mergePermissionMaps } from '../permissionCatalog';
 
 // Color mapping for role colors
 const roleColorMap: Record<string, string> = {
@@ -44,7 +45,7 @@ export const RolesTab: React.FC = () => {
     const [rolesRes, permsRes] = await Promise.all([getRoles(), getAllPermissions()]);
     return {
       roles: rolesRes.data || [],
-      permissions: permsRes.data || {},
+      permissions: mergePermissionMaps(permsRes.data || {}),
     };
   }, []);
 

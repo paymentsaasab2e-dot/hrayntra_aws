@@ -2,6 +2,7 @@ import { prisma, getActiveTenantDbName } from '../config/prisma.js';
 import { isSuperAdminUser } from '../utils/superAdminScope.js';
 import { getCache, setCache, deleteCacheByPattern } from '../cache/redis.js';
 import logger from '../utils/logger.js';
+import { DEFAULT_PERMISSIONS } from '../modules/role/default-permissions.js';
 import { ensureSuperAdminHasAllPermissions, syncDefaultPermissions } from '../modules/role/permission-sync.service.js';
 
 function getRolesCacheKey(page = 1, limit = 20) {
@@ -255,7 +256,25 @@ export async function createRole(req, res) {
 
     // Create role-permission relationships if permissionIds provided
     if (permissionIds && Array.isArray(permissionIds) && permissionIds.length > 0) {
-      const uniquePermissionIds = [...new Set(permissionIds.map((id) => String(id).trim()).filter(Boolean))];
+      const rawPermissionValues = [...new Set(permissionIds.map((id) => String(id).trim()).filter(Boolean))];
+      const permissionRecords = await prisma.permission.findMany({
+        where: {
+          OR: [
+            { id: { in: rawPermissionValues } },
+            { permissionName: { in: rawPermissionValues } },
+          ],
+        },
+        select: { id: true, permissionName: true },
+      });
+      const permissionById = new Map(permissionRecords.map((permission) => [permission.id, permission.id]));
+      const permissionByName = new Map(permissionRecords.map((permission) => [permission.permissionName, permission.id]));
+      const uniquePermissionIds = [
+        ...new Set(
+          rawPermissionValues
+            .map((value) => permissionById.get(value) || permissionByName.get(value))
+            .filter(Boolean),
+        ),
+      ];
       await prisma.rolePermission.createMany({
         data: uniquePermissionIds.map((permissionId) => ({
           roleId: role.id,
@@ -520,6 +539,27 @@ export async function getAllPermissions(req, res) {
         { permissionName: 'asc' },
       ],
     });
+
+    if (!permissions.length) {
+      const fallbackGrouped = DEFAULT_PERMISSIONS.reduce((acc, permission) => {
+        if (!acc[permission.module]) {
+          acc[permission.module] = [];
+        }
+        acc[permission.module].push({
+          id: permission.permissionName,
+          permissionName: permission.permissionName,
+          module: permission.module,
+          description: permission.description || null,
+        });
+        return acc;
+      }, {});
+
+      res.setHeader('Cache-Control', 'private, no-store');
+      return res.status(200).json({
+        success: true,
+        data: fallbackGrouped,
+      });
+    }
 
     // Group by module
     const grouped = {};

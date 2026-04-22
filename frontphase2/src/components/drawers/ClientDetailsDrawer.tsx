@@ -161,6 +161,13 @@ const splitCompanyLinks = (value: string) =>
     .map((item) => item.trim())
     .filter(Boolean);
 
+const normalizeDisplayValue = (value?: string | null, fallback = '-') => {
+  if (!value) return fallback;
+  const trimmed = String(value).trim();
+  if (!trimmed || trimmed.includes('Ã') || trimmed.includes('â')) return fallback;
+  return trimmed;
+};
+
 const FILE_TYPE_BADGE_STYLES: Record<ClientFileType, string> = {
   NDA: 'bg-slate-100 text-slate-700 border-slate-200',
   Contract: 'bg-blue-100 text-blue-700 border-blue-200',
@@ -3552,7 +3559,7 @@ export function ClientDetailsDrawer({
                   </div>
                 ) : activeTab === 'billing' ? (
                   <div className="space-y-4">
-                    {/* Finance summary cards Ã¢â‚¬â€ same soft card layout as Jobs */}
+                    {/* Finance summary cards - same soft card layout as Jobs */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex items-center gap-3">
                         <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center">
@@ -3560,7 +3567,7 @@ export function ClientDetailsDrawer({
                         </div>
                         <div>
                           <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total revenue</p>
-                          <p className="text-lg font-bold text-slate-900">{client?.billingTotalRevenue ?? client?.revenue ?? 'Ã¢â‚¬â€'}</p>
+                          <p className="text-lg font-bold text-slate-900">{normalizeDisplayValue(client?.billingTotalRevenue ?? client?.revenue)}</p>
                         </div>
                       </div>
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex items-center gap-3">
@@ -3569,7 +3576,7 @@ export function ClientDetailsDrawer({
                         </div>
                         <div>
                           <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Outstanding</p>
-                          <p className="text-lg font-bold text-slate-900">{client?.billingOutstanding ?? 'Ã¢â‚¬â€'}</p>
+                          <p className="text-lg font-bold text-slate-900">{normalizeDisplayValue(client?.billingOutstanding)}</p>
                         </div>
                       </div>
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex items-center gap-3">
@@ -3578,7 +3585,7 @@ export function ClientDetailsDrawer({
                         </div>
                         <div>
                           <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Paid amount</p>
-                          <p className="text-lg font-bold text-slate-900">{client?.billingPaid ?? 'Ã¢â‚¬â€'}</p>
+                          <p className="text-lg font-bold text-slate-900">{normalizeDisplayValue(client?.billingPaid)}</p>
                         </div>
                       </div>
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex items-center gap-3">
@@ -3674,7 +3681,7 @@ export function ClientDetailsDrawer({
                   };
                   return (
                   <div className="space-y-4">
-                    {/* Timeline filters Ã¢â‚¬â€ same soft card layout as Billing */}
+                    {/* Timeline filters - same soft card layout as Billing */}
                     <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
                       <div className="flex flex-wrap items-center gap-2">
                         {ACTIVITY_TIMELINE_FILTERS.map((f) => (

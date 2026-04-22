@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { 
   Search, 
   Filter, 
@@ -29,6 +29,18 @@ import { motion, AnimatePresence } from "motion/react";
 import { DndProvider, useDrag, useDrop, DragSourceMonitor, DropTargetMonitor } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { ImageWithFallback } from "../../components/ImageWithFallback";
+import AddCandidateDrawer from "../../components/candidates/AddCandidateDrawer";
+import {
+  apiGetCandidates,
+  apiGetClients,
+  apiGetJobs,
+  apiGetMe,
+  apiGetUsers,
+  type BackendCandidate,
+  type BackendClient,
+  type BackendJob,
+  type BackendUser,
+} from "../../lib/api";
 
 // --- Types & Constants ---
 
@@ -39,10 +51,15 @@ interface Candidate {
   name: string;
   jobTitle: string;
   clientName: string;
+  jobId?: string;
+  clientId?: string;
+  assignedToId?: string;
+  ownerName?: string;
   experience: string;
   location: string;
   status: "Waiting" | "Follow-up" | "Approved" | "Stalled";
   lastActivity: string;
+  followUpStatus?: "Overdue" | "Due Today" | "Upcoming" | "None";
   avatar: string;
   stage: Stage;
 }
@@ -62,10 +79,15 @@ const INITIAL_CANDIDATES: Candidate[] = [
     name: "Alex Thompson",
     jobTitle: "Senior Frontend Engineer",
     clientName: "TechFlow Systems",
+    jobId: "job-1",
+    clientId: "client-1",
+    assignedToId: "user-1",
+    ownerName: "Recruiter One",
     experience: "8 years",
     location: "London (Remote)",
     status: "Approved",
     lastActivity: "2 hours ago",
+    followUpStatus: "Upcoming",
     avatar: "https://images.unsplash.com/photo-1689600944138-da3b150d9cb8?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBoZWFkc2hvdCUyMHBvcnRyYWl0fGVufDF8fHx8MTc3MDQ2NzgyM3ww&ixlib=rb-4.1.0&q=80&w=1080",
     stage: "Applied",
   },
@@ -74,10 +96,15 @@ const INITIAL_CANDIDATES: Candidate[] = [
     name: "Sarah Chen",
     jobTitle: "Product Designer",
     clientName: "Innova Design Lab",
+    jobId: "job-2",
+    clientId: "client-2",
+    assignedToId: "user-2",
+    ownerName: "Recruiter Two",
     experience: "5 years",
     location: "San Francisco",
     status: "Waiting",
     lastActivity: "1 day ago",
+    followUpStatus: "Due Today",
     avatar: "https://images.unsplash.com/photo-1652471949169-9c587e8898cd?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx3b21hbiUyMHByb2Zlc3Npb25hbCUyMGhlYWRzaG90fGVufDF8fHx8MTc3MDQ1NzM5MXww&ixlib=rb-4.1.0&q=80&w=1080",
     stage: "Shortlisted",
   },
@@ -86,10 +113,15 @@ const INITIAL_CANDIDATES: Candidate[] = [
     name: "Marcus Miller",
     jobTitle: "Engineering Manager",
     clientName: "Quantum Solutions",
+    jobId: "job-3",
+    clientId: "client-3",
+    assignedToId: "user-1",
+    ownerName: "Recruiter One",
     experience: "12 years",
     location: "Berlin",
     status: "Stalled",
     lastActivity: "4 days ago",
+    followUpStatus: "Overdue",
     avatar: "https://images.unsplash.com/photo-1672685667592-0392f458f46f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtYW4lMjBwcm9mZXNzaW9uYWwlMjBoZWFkc2hvdHxlbnwxfHx8fDE3NzA1MDI0NTV8MA&ixlib=rb-4.1.0&q=80&w=1080",
     stage: "Sent to Client",
   },
@@ -98,10 +130,15 @@ const INITIAL_CANDIDATES: Candidate[] = [
     name: "Elena Rodriguez",
     jobTitle: "DevOps Engineer",
     clientName: "CloudScale Inc.",
+    jobId: "job-4",
+    clientId: "client-4",
+    assignedToId: "user-3",
+    ownerName: "Recruiter Three",
     experience: "6 years",
     location: "Madrid",
     status: "Follow-up",
     lastActivity: "5 hours ago",
+    followUpStatus: "Upcoming",
     avatar: "https://images.unsplash.com/photo-1655249493799-9cee4fe983bb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxidXNpbmVzcyUyMHBlcnNvbiUyMHByb2ZpbGUlMjBwb3J0cmFpdHxlbnwxfHx8fDE3NzA1Mjg4MjZ8MA&ixlib=rb-4.1.0&q=80&w=1080",
     stage: "Selected",
   },
@@ -110,10 +147,15 @@ const INITIAL_CANDIDATES: Candidate[] = [
     name: "James Wilson",
     jobTitle: "Sales Director",
     clientName: "Global Trade Co.",
+    jobId: "job-5",
+    clientId: "client-5",
+    assignedToId: "user-2",
+    ownerName: "Recruiter Two",
     experience: "15 years",
     location: "New York",
     status: "Approved",
     lastActivity: "Yesterday",
+    followUpStatus: "None",
     avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=1080",
     stage: "Offer Released",
   },
@@ -122,14 +164,78 @@ const INITIAL_CANDIDATES: Candidate[] = [
     name: "Priya Patel",
     jobTitle: "Data Scientist",
     clientName: "BioTech AI",
+    jobId: "job-6",
+    clientId: "client-6",
+    assignedToId: "user-3",
+    ownerName: "Recruiter Three",
     experience: "4 years",
     location: "Toronto",
     status: "Approved",
     lastActivity: "2 days ago",
+    followUpStatus: "Upcoming",
     avatar: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?q=80&w=1080",
     stage: "Joined",
   },
 ];
+
+function extractItems<T>(payload: unknown): T[] {
+  if (Array.isArray(payload)) return payload as T[];
+  if (payload && typeof payload === 'object') {
+    const obj = payload as { data?: unknown; items?: unknown };
+    if (Array.isArray(obj.data)) return obj.data as T[];
+    if (Array.isArray(obj.items)) return obj.items as T[];
+  }
+  return [];
+}
+
+function getFollowUpStatus(candidate: BackendCandidate): Candidate['followUpStatus'] {
+  const value = String(candidate.nextFollowUp || '').trim();
+  if (!value) return 'None';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'Upcoming';
+  const today = new Date();
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const compare = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()).getTime();
+  if (compare < startOfToday) return 'Overdue';
+  if (compare === startOfToday) return 'Due Today';
+  return 'Upcoming';
+}
+
+function mapBackendCandidateToPipelineCandidate(candidate: BackendCandidate): Candidate {
+  const job = Array.isArray(candidate.matches) ? candidate.matches[0]?.job : undefined;
+  const assignedJobId = Array.isArray(candidate.assignedJobs) && candidate.assignedJobs.length > 0
+    ? candidate.assignedJobs[0]
+    : job?.id || '';
+  const jobTitle = candidate.currentTitle || candidate.assignedJobTitles?.[0] || job?.title || 'Candidate';
+  const clientName = job?.client?.companyName || candidate.currentCompany || 'Client';
+  const candidateName = `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() || candidate.email;
+  const stage = String(candidate.stage || 'Applied').trim() as Stage;
+  const experience = typeof candidate.experience === 'number' ? `${candidate.experience} years` : '—';
+  return {
+    id: candidate.id,
+    name: candidateName,
+    jobTitle,
+    clientName,
+    jobId: assignedJobId || undefined,
+    clientId: job?.client?.id || undefined,
+    assignedToId: candidate.assignedTo?.id || undefined,
+    ownerName: candidate.assignedTo?.name || undefined,
+    experience,
+    location: candidate.location || '—',
+    status: candidate.status === 'REJECTED' ? 'Stalled' : candidate.status === 'PLACED' ? 'Approved' : 'Waiting',
+    lastActivity: candidate.updatedAt ? new Date(candidate.updatedAt).toLocaleDateString() : 'Just now',
+    followUpStatus: getFollowUpStatus(candidate),
+    avatar: candidate.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(candidateName)}&background=0f172a&color=fff`,
+    stage: ([
+      "Applied",
+      "Shortlisted",
+      "Sent to Client",
+      "Selected",
+      "Offer Released",
+      "Joined",
+    ].includes(stage) ? stage : "Applied") as Stage,
+  };
+}
 
 // --- Sub-components ---
 
@@ -264,8 +370,51 @@ const PipelineColumn = ({
 
 export default function App() {
   const [candidates, setCandidates] = useState<Candidate[]>(INITIAL_CANDIDATES);
+  const [jobs, setJobs] = useState<BackendJob[]>([]);
+  const [clients, setClients] = useState<BackendClient[]>([]);
+  const [owners, setOwners] = useState<BackendUser[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string>('');
   const [view, setView] = useState<"Board" | "List">("Board");
   const [searchQuery, setSearchQuery] = useState("");
+  const [isAddCandidateOpen, setIsAddCandidateOpen] = useState(false);
+  const [selectedJobId, setSelectedJobId] = useState('');
+  const [selectedClientId, setSelectedClientId] = useState('');
+  const [selectedOwnerId, setSelectedOwnerId] = useState('');
+  const [selectedFollowUp, setSelectedFollowUp] = useState('');
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadPipelineData() {
+      try {
+        const [candidatesRes, jobsRes, clientsRes, ownersRes, meRes] = await Promise.all([
+          apiGetCandidates({ page: 1, limit: 200 }),
+          apiGetJobs({ limit: 200 }),
+          apiGetClients({ limit: 200 }),
+          apiGetUsers({ role: 'RECRUITER', isActive: true, limit: 200 }),
+          apiGetMe().catch(() => null),
+        ]);
+
+        if (!mounted) return;
+
+        setCandidates(
+          extractItems<BackendCandidate>(candidatesRes.data).map(mapBackendCandidateToPipelineCandidate)
+        );
+        setJobs(extractItems<BackendJob>(jobsRes.data));
+        setClients(extractItems<BackendClient>(clientsRes.data));
+        setOwners(extractItems<BackendUser>(ownersRes.data));
+        if (meRes?.data?.id) setCurrentUserId(meRes.data.id);
+      } catch (error) {
+        console.error('Failed to load pipeline data, using fallback candidates:', error);
+        if (!mounted) return;
+        setCandidates(INITIAL_CANDIDATES);
+      }
+    }
+
+    loadPipelineData();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const moveCandidate = (id: string, newStage: Stage) => {
     setCandidates((prev) => 
@@ -273,11 +422,50 @@ export default function App() {
     );
   };
 
-  const filteredCandidates = candidates.filter(c => 
-    c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.jobTitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.clientName.toLowerCase().includes(searchQuery.toLowerCase())
+  const jobOptions = useMemo(() => jobs.map((job) => ({ id: job.id, label: job.title })), [jobs]);
+  const clientOptions = useMemo(
+    () => clients.map((client) => ({ id: client.id, label: client.companyName || 'Unnamed Client' })),
+    [clients]
   );
+  const ownerOptions = useMemo(
+    () => owners.map((owner) => ({ id: owner.id, label: owner.name || owner.email || 'Unknown Owner' })),
+    [owners]
+  );
+
+  const filteredCandidates = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return candidates.filter((candidate) => {
+      const matchesSearch =
+        !query ||
+        candidate.name.toLowerCase().includes(query) ||
+        candidate.jobTitle.toLowerCase().includes(query) ||
+        candidate.clientName.toLowerCase().includes(query);
+      const matchesJob =
+        !selectedJobId ||
+        candidate.jobId === selectedJobId ||
+        candidate.jobTitle.toLowerCase() === (jobOptions.find((job) => job.id === selectedJobId)?.label || '').toLowerCase();
+      const matchesClient =
+        !selectedClientId ||
+        candidate.clientId === selectedClientId ||
+        candidate.clientName.toLowerCase() === (clientOptions.find((client) => client.id === selectedClientId)?.label || '').toLowerCase();
+      const matchesOwner =
+        !selectedOwnerId ||
+        (selectedOwnerId === '__me__' ? candidate.assignedToId === currentUserId : candidate.assignedToId === selectedOwnerId);
+      const matchesFollowUp =
+        !selectedFollowUp || candidate.followUpStatus === selectedFollowUp;
+      return matchesSearch && matchesJob && matchesClient && matchesOwner && matchesFollowUp;
+    });
+  }, [
+    candidates,
+    clientOptions,
+    currentUserId,
+    jobOptions,
+    searchQuery,
+    selectedClientId,
+    selectedFollowUp,
+    selectedJobId,
+    selectedOwnerId,
+  ]);
 
   return (
     <DndProvider backend={HTML5Backend}>
@@ -314,7 +502,11 @@ export default function App() {
 
                 <div className="h-8 w-px bg-slate-200 mx-1" />
                 
-                <button className="flex items-center gap-2 bg-[#00bba7] text-white px-4 py-2 rounded-xl text-sm font-semibold hover:opacity-90 shadow-lg shadow-teal-500/10 transition-all active:scale-95">
+                <button
+                  type="button"
+                  onClick={() => setIsAddCandidateOpen(true)}
+                  className="flex items-center gap-2 bg-[#00bba7] text-white px-4 py-2 rounded-xl text-sm font-semibold hover:opacity-90 shadow-lg shadow-teal-500/10 transition-all active:scale-95"
+                >
                   <Plus className="w-4 h-4" />
                   Add Candidate
                 </button>
@@ -322,26 +514,87 @@ export default function App() {
             </div>
 
             {/* Filter Bar */}
-            <div className="flex items-center gap-3 overflow-x-auto no-scrollbar pb-1">
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[13px] font-medium text-slate-600 hover:border-slate-300 cursor-pointer shadow-sm transition-colors whitespace-nowrap">
+            <div className="flex flex-wrap items-center gap-3 overflow-x-auto no-scrollbar pb-1">
+              <label className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[13px] font-medium text-slate-600 shadow-sm transition-colors whitespace-nowrap">
                 <Briefcase className="w-3.5 h-3.5 text-slate-400" />
-                Job: <span className="text-slate-900 ml-1">All Jobs</span>
-              </div>
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[13px] font-medium text-slate-600 hover:border-slate-300 cursor-pointer shadow-sm transition-colors whitespace-nowrap">
+                <span>Job:</span>
+                <select
+                  value={selectedJobId}
+                  onChange={(e) => setSelectedJobId(e.target.value)}
+                  className="bg-transparent text-slate-900 outline-none"
+                >
+                  <option value="">All Jobs</option>
+                  {jobOptions.map((job) => (
+                    <option key={job.id} value={job.id}>
+                      {job.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[13px] font-medium text-slate-600 shadow-sm transition-colors whitespace-nowrap">
                 <Building2 className="w-3.5 h-3.5 text-slate-400" />
-                Client: <span className="text-slate-900 ml-1">All Clients</span>
-              </div>
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[13px] font-medium text-slate-600 hover:border-slate-300 cursor-pointer shadow-sm transition-colors whitespace-nowrap">
+                <span>Client:</span>
+                <select
+                  value={selectedClientId}
+                  onChange={(e) => setSelectedClientId(e.target.value)}
+                  className="bg-transparent text-slate-900 outline-none"
+                >
+                  <option value="">All Clients</option>
+                  {clientOptions.map((client) => (
+                    <option key={client.id} value={client.id}>
+                      {client.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[13px] font-medium text-slate-600 shadow-sm transition-colors whitespace-nowrap">
                 <User className="w-3.5 h-3.5 text-slate-400" />
-                Owner: <span className="text-slate-900 ml-1">Myself</span>
-              </div>
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[13px] font-medium text-slate-600 hover:border-slate-300 cursor-pointer shadow-sm transition-colors whitespace-nowrap">
+                <span>Owner:</span>
+                <select
+                  value={selectedOwnerId}
+                  onChange={(e) => setSelectedOwnerId(e.target.value)}
+                  className="bg-transparent text-slate-900 outline-none"
+                >
+                  <option value="">All Owners</option>
+                  <option value="__me__">Myself</option>
+                  {ownerOptions.map((owner) => (
+                    <option key={owner.id} value={owner.id}>
+                      {owner.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[13px] font-medium text-slate-600 shadow-sm transition-colors whitespace-nowrap">
                 <Clock className="w-3.5 h-3.5 text-slate-400" />
-                Follow-up: <span className="text-red-600 ml-1">Overdue</span>
-              </div>
-              <button className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 text-slate-500 rounded-lg text-[13px] font-medium hover:bg-slate-100 transition-colors ml-auto border border-dashed border-slate-300">
+                <span>Follow-up:</span>
+                <select
+                  value={selectedFollowUp}
+                  onChange={(e) => setSelectedFollowUp(e.target.value)}
+                  className="bg-transparent text-slate-900 outline-none"
+                >
+                  <option value="">All Follow-ups</option>
+                  <option value="Overdue">Overdue</option>
+                  <option value="Due Today">Due Today</option>
+                  <option value="Upcoming">Upcoming</option>
+                  <option value="None">None</option>
+                </select>
+              </label>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedJobId('');
+                  setSelectedClientId('');
+                  setSelectedOwnerId('');
+                  setSelectedFollowUp('');
+                }}
+                className="ml-auto flex items-center gap-2 px-3 py-1.5 bg-slate-50 text-slate-500 rounded-lg text-[13px] font-medium hover:bg-slate-100 transition-colors border border-dashed border-slate-300"
+              >
                 <Filter className="w-3.5 h-3.5" />
-                More Filters
+                Clear Filters
               </button>
             </div>
           </header>
@@ -437,6 +690,15 @@ export default function App() {
               )}
             </AnimatePresence>
           </div>
+
+          <AddCandidateDrawer
+            isOpen={isAddCandidateOpen}
+            onClose={() => setIsAddCandidateOpen(false)}
+            onSuccess={() => {
+              setIsAddCandidateOpen(false);
+            }}
+            currentUser={{ _id: '', name: 'You', email: '', role: 'RECRUITER' }}
+          />
       </div>
 
       <style>{`
@@ -465,3 +727,5 @@ export default function App() {
     </DndProvider>
   );
 }
+
+

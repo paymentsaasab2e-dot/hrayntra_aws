@@ -1,9 +1,10 @@
-'use client';
+﻿'use client';
 
 import React, { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { X, Upload, FileText, CheckCircle } from 'lucide-react';
+import { X, Upload, ChevronRight, CheckCircle, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
+import { apiImportContacts, apiPreviewContactImport } from '../../lib/api';
 
 interface ImportContactsDrawerProps {
   isOpen: boolean;
@@ -11,44 +12,140 @@ interface ImportContactsDrawerProps {
   onSuccess: () => void;
 }
 
-export function ImportContactsDrawer({ isOpen, onClose, onSuccess }: ImportContactsDrawerProps) {
-  const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [file, setFile] = useState<File | null>(null);
-  const [previewData, setPreviewData] = useState<any[]>([]);
-  const [isImporting, setIsImporting] = useState(false);
+const CONTACT_FIELDS = [
+  { id: 'firstName', label: 'First Name', required: true },
+  { id: 'lastName', label: 'Last Name', required: true },
+  { id: 'email', label: 'Email', required: false },
+  { id: 'phone', label: 'Phone', required: false },
+  { id: 'companyId', label: 'Company', required: false },
+  { id: 'designation', label: 'Designation', required: false },
+  { id: 'department', label: 'Department', required: false },
+  { id: 'location', label: 'Location', required: false },
+  { id: 'linkedinUrl', label: 'LinkedIn URL', required: false },
+  { id: 'contactType', label: 'Contact Type', required: false },
+  { id: 'status', label: 'Status', required: false },
+  { id: 'ownerId', label: 'Owner', required: false },
+  { id: 'avatarUrl', label: 'Avatar URL', required: false },
+  { id: 'tags', label: 'Tags', required: false },
+  { id: 'associatedJobIds', label: 'Associated Jobs', required: false },
+  { id: 'isPrimary', label: 'Primary Contact', required: false },
+  { id: 'preferredChannel', label: 'Preferred Channel', required: false },
+  { id: 'notes', label: 'Notes', required: false },
+];
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0];
-    if (selectedFile) {
-      setFile(selectedFile);
-      // Parse CSV preview (simplified)
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const text = event.target?.result as string;
-        const lines = text.split('\n').slice(0, 11); // First 10 rows + header
-        const headers = lines[0].split(',');
-        const rows = lines.slice(1).map(line => {
-          const values = line.split(',');
-          return headers.reduce((obj, header, idx) => {
-            obj[header.trim()] = values[idx]?.trim() || '';
-            return obj;
-          }, {} as any);
-        });
-        setPreviewData(rows);
-        setStep(2);
-      };
-      reader.readAsText(selectedFile);
+const DUPLICATE_OPTIONS = [
+  { id: 'skip', label: 'Skip duplicates' },
+  { id: 'update', label: 'Update existing' },
+  { id: 'create', label: 'Create anyway' },
+];
+
+export function ImportContactsDrawer({ isOpen, onClose, onSuccess }: ImportContactsDrawerProps) {
+  const [step, setStep] = useState(1);
+  const [fileName, setFileName] = useState('');
+  const [columnMapping, setColumnMapping] = useState<Record<string, string>>(
+    CONTACT_FIELDS.reduce((acc, field) => ({ ...acc, [field.id]: '' }), {})
+  );
+  const [duplicateRule, setDuplicateRule] = useState('skip');
+  const [previewRows, setPreviewRows] = useState<Record<string, string | number | boolean | null>[]>([]);
+  const [fileColumns, setFileColumns] = useState<string[]>([]);
+  const [columnStats, setColumnStats] = useState<Record<string, number>>({});
+  const [sheetName, setSheetName] = useState('');
+  const [totalRows, setTotalRows] = useState(0);
+  const [isParsing, setIsParsing] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [parseError, setParseError] = useState('');
+
+  const reset = () => {
+    setStep(1);
+    setFileName('');
+    setColumnMapping(
+      CONTACT_FIELDS.reduce((acc, field) => ({ ...acc, [field.id]: '' }), {})
+    );
+    setDuplicateRule('skip');
+    setPreviewRows([]);
+    setFileColumns([]);
+    setColumnStats({});
+    setSheetName('');
+    setTotalRows(0);
+    setIsParsing(false);
+    setIsImporting(false);
+    setParseError('');
+  };
+
+  const handleClose = () => {
+    reset();
+    onClose();
+  };
+
+  const handleDownloadTemplate = () => {
+    const rows = [
+      ['firstName', 'lastName', 'email', 'phone', 'company', 'designation', 'department', 'contactType', 'status', 'location'],
+      ['Sarah', 'Jenkins', 'sarah@example.com', '+919876543210', 'Acme Corp', 'Hiring Manager', 'Sales', 'CLIENT', 'ACTIVE', 'Mumbai'],
+    ];
+
+    const csv = rows
+      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'contacts-import-template.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleFileChange = async (file?: File) => {
+    if (!file) return;
+
+    setFileName(file.name);
+    setParseError('');
+    setIsParsing(true);
+
+    try {
+      const response = await apiPreviewContactImport(file);
+      const preview = response.data;
+      setSheetName(preview.sheetName || file.name);
+      setFileColumns(preview.columns || []);
+      setColumnStats(preview.columnStats || {});
+      setPreviewRows(preview.previewRows || []);
+      setTotalRows(preview.totalRows || 0);
+      setColumnMapping(
+        CONTACT_FIELDS.reduce(
+          (acc, field) => ({
+            ...acc,
+            [field.id]: preview.suggestedMapping?.[field.id] || '',
+          }),
+          {}
+        )
+      );
+      setStep(2);
+    } catch (error: any) {
+      setParseError(error.message || 'Failed to read the import file');
+      setFileColumns([]);
+      setColumnStats({});
+      setPreviewRows([]);
+      setTotalRows(0);
+    } finally {
+      setIsParsing(false);
     }
   };
 
   const handleImport = async () => {
-    if (!file) return;
+    if (previewRows.length === 0) return;
+
     setIsImporting(true);
     try {
-      // TODO: Implement actual import API call
-      await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate API call
-      toast.success(`${previewData.length} contacts imported successfully`);
+      const response = await apiImportContacts({
+        rows: previewRows,
+        mapping: columnMapping,
+        duplicateRule,
+      });
+      const imported = response.data?.imported ?? previewRows.length;
+      toast.success(`${imported} contacts imported successfully`);
       setStep(3);
+      onSuccess();
     } catch (error: any) {
       toast.error(error.message || 'Failed to import contacts');
     } finally {
@@ -56,171 +153,259 @@ export function ImportContactsDrawer({ isOpen, onClose, onSuccess }: ImportConta
     }
   };
 
-  const handleClose = () => {
-    setStep(1);
-    setFile(null);
-    setPreviewData([]);
-    onClose();
-  };
+  if (!isOpen) return null;
 
   return (
     <AnimatePresence>
-      {isOpen && (
-        <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+      <motion.div
+        key="import-backdrop"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={handleClose}
+        className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-[2px] pointer-events-auto"
+      />
+      <motion.div
+        key="import-panel"
+        initial={{ x: '100%' }}
+        animate={{ x: 0 }}
+        exit={{ x: '100%' }}
+        transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+        className="fixed right-0 top-0 h-full w-1/2 max-w-2xl bg-white shadow-2xl z-50 pointer-events-auto border-l border-slate-200 flex flex-col"
+      >
+        <div className="shrink-0 border-b border-slate-200 p-5 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-slate-900">Import Contacts</h2>
+          <button
+            type="button"
             onClick={handleClose}
-            className="fixed inset-0 z-[90] bg-slate-900/40"
-          />
-          <motion.aside
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={{ type: 'tween', duration: 0.25 }}
-            className="fixed right-0 top-0 z-[100] flex h-full w-full flex-col bg-white shadow-2xl sm:max-w-[600px]"
+            className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+            aria-label="Close"
           >
-            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
-              <h2 className="text-lg font-semibold text-gray-900">Import Contacts</h2>
-              <button
-                onClick={handleClose}
-                className="rounded-full p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
-              >
-                <X size={18} />
-              </button>
-            </div>
+            <X size={20} />
+          </button>
+        </div>
 
-            <div className="flex-1 overflow-y-auto px-6 py-5">
-              {/* Step 1: Upload */}
-              {step === 1 && (
-                <div className="space-y-4">
-                  <div className="border-2 border-dashed border-gray-300 rounded-xl p-12 text-center">
-                    <Upload size={48} className="mx-auto text-gray-400 mb-4" />
-                    <p className="text-sm font-medium text-gray-700 mb-2">
-                      Drag and drop CSV file here, or click to browse
-                    </p>
-                    <p className="text-xs text-gray-500 mb-4">CSV or Excel files only</p>
-                    <input
-                      type="file"
-                      accept=".csv,.xlsx,.xls"
-                      onChange={handleFileSelect}
-                      className="hidden"
-                      id="file-upload"
-                    />
-                    <label
-                      htmlFor="file-upload"
-                      className="inline-block px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium cursor-pointer hover:bg-blue-700"
-                    >
-                      Choose File
-                    </label>
-                  </div>
-                  <div className="text-center">
-                    <a
-                      href="/api/contacts/import-template"
-                      download
-                      className="text-sm text-blue-600 hover:underline"
-                    >
-                      Download CSV template
-                    </a>
-                  </div>
-                </div>
-              )}
-
-              {/* Step 2: Preview */}
-              {step === 2 && (
-                <div className="space-y-4">
-                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                    <div className="flex items-center gap-2 text-green-700">
-                      <CheckCircle size={20} />
-                      <span className="text-sm font-medium">
-                        {previewData.length} contacts ready to import
-                      </span>
-                    </div>
-                  </div>
-                  <div className="border border-gray-200 rounded-lg overflow-hidden">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-gray-50">
-                          <tr>
-                            <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500">Name</th>
-                            <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500">Email</th>
-                            <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500">Company</th>
-                            <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                          {previewData.slice(0, 10).map((row, idx) => (
-                            <tr key={idx}>
-                              <td className="px-4 py-2">{row.firstName || row.name || '—'}</td>
-                              <td className="px-4 py-2">{row.email || '—'}</td>
-                              <td className="px-4 py-2">{row.company || '—'}</td>
-                              <td className="px-4 py-2">
-                                <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs">
-                                  Ready
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Step 3: Complete */}
-              {step === 3 && (
-                <div className="text-center py-12">
-                  <CheckCircle size={64} className="mx-auto text-green-500 mb-4" />
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">Import Complete!</h3>
-                  <p className="text-sm text-gray-500">
-                    {previewData.length} contacts have been imported successfully.
-                  </p>
-                </div>
-              )}
-            </div>
-
-            <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-6 py-4">
-              {step === 1 && (
-                <>
-                  <button
-                    onClick={handleClose}
-                    className="px-4 py-2 border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50"
-                  >
-                    Cancel
-                  </button>
-                </>
-              )}
-              {step === 2 && (
-                <>
-                  <button
-                    onClick={() => setStep(1)}
-                    className="px-4 py-2 border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50"
-                  >
-                    Back
-                  </button>
-                  <button
-                    onClick={handleImport}
-                    disabled={isImporting}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {isImporting ? 'Importing...' : `Import ${previewData.length} Contacts`}
-                  </button>
-                </>
-              )}
-              {step === 3 && (
-                <button
-                  onClick={handleClose}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700"
+        <div className="shrink-0 px-5 pt-4 pb-2">
+          <div className="flex items-center gap-2">
+            {[1, 2, 3].map((s) => (
+              <React.Fragment key={s}>
+                <div
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium ${
+                    step === s ? 'bg-blue-600 text-white' : step > s ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                  }`}
                 >
-                  Done
+                  {step > s ? <CheckCircle size={16} /> : null}
+                  <span>Step {s}</span>
+                </div>
+                {s < 3 && <ChevronRight size={16} className="text-slate-300" />}
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto bg-slate-50/30 p-5">
+          {step === 1 && (
+            <div className="space-y-4">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Upload file</h4>
+                <p className="text-sm text-slate-600 mb-4">Upload a CSV or Excel file containing your contact data.</p>
+                <label className="relative flex rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-8 cursor-pointer hover:border-slate-300 hover:bg-slate-50/80 transition-colors">
+                  <input
+                    type="file"
+                    accept=".csv,.xlsx,.xls"
+                    className="sr-only"
+                    onChange={(e) => handleFileChange(e.target.files?.[0])}
+                  />
+                  <div className="flex flex-col items-center justify-center gap-2 w-full">
+                    <Upload size={32} className="text-slate-400" />
+                    <span className="text-sm font-medium text-slate-600">
+                      {fileName || (isParsing ? 'Reading file...' : 'Click or drag CSV / XLSX file')}
+                    </span>
+                    <span className="text-xs text-slate-400">CSV, XLSX up to 10MB</span>
+                  </div>
+                </label>
+                {parseError ? <p className="mt-3 text-sm text-red-600">{parseError}</p> : null}
+                {sheetName ? (
+                  <p className="mt-3 text-sm text-slate-500">
+                    Parsed sheet: <span className="font-medium text-slate-700">{sheetName}</span> with{' '}
+                    <span className="font-medium text-slate-700">{totalRows}</span> rows
+                  </p>
+                ) : null}
+              </div>
+              <div className="text-center">
+                <button
+                  type="button"
+                  onClick={handleDownloadTemplate}
+                  className="text-sm text-blue-600 hover:underline"
+                >
+                  Download CSV template
                 </button>
-              )}
+              </div>
             </div>
-          </motion.aside>
-        </>
-      )}
+          )}
+
+          {step === 2 && (
+            <div className="space-y-4">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Map columns</h4>
+                <p className="text-sm text-slate-600 mb-4">
+                  The uploaded columns are listed below with a suggested match for each contact field.
+                </p>
+
+                <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Detected columns</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {fileColumns.length > 0 ? (
+                      fileColumns.map((column) => (
+                        <div
+                          key={column}
+                          className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600"
+                        >
+                          {column}
+                          <span className="ml-2 text-slate-400">({columnStats[column] ?? 0})</span>
+                        </div>
+                      ))
+                    ) : (
+                      <span className="text-sm text-slate-400">
+                        {isParsing ? 'Reading file columns...' : 'Upload a file in step 1 to see columns here.'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {CONTACT_FIELDS.map((field) => (
+                    <div key={field.id} className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-xs font-bold uppercase tracking-wider text-slate-400">{field.label}</p>
+                        {field.required ? (
+                          <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold uppercase text-rose-600">
+                            Required
+                          </span>
+                        ) : null}
+                      </div>
+                      <select
+                        value={columnMapping[field.id] || ''}
+                        onChange={(e) => setColumnMapping((prev) => ({ ...prev, [field.id]: e.target.value }))}
+                        className="mt-3 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      >
+                        <option value="">Select column</option>
+                        {fileColumns.map((column) => (
+                          <option key={column} value={column}>
+                            {column}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-3 text-xs text-slate-500">
+                        {columnMapping[field.id]
+                          ? `Mapped to ${columnMapping[field.id]}`
+                          : 'No column selected yet.'}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {step === 3 && (
+            <div className="space-y-4">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="p-4 border-b border-slate-100">
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Preview</h4>
+                  <p className="text-xs text-slate-500 mt-0.5">First rows from your uploaded file</p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200">
+                        {fileColumns.map((column) => (
+                          <th key={column} className="px-4 py-3 text-[11px] font-bold text-slate-400 uppercase">
+                            {column}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {previewRows.map((row, i) => (
+                        <tr key={i} className="hover:bg-slate-50/80">
+                          {fileColumns.map((column) => (
+                            <td key={`${i}-${column}`} className="px-4 py-3 text-slate-600">
+                              {String(row[column] ?? '-')}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Duplicate handling</h4>
+                <div className="space-y-2">
+                  {DUPLICATE_OPTIONS.map((opt) => (
+                    <label key={opt.id} className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="duplicate-rule"
+                        checked={duplicateRule === opt.id}
+                        onChange={() => setDuplicateRule(opt.id)}
+                        className="text-blue-600 focus:ring-blue-500/20"
+                      />
+                      <span className="text-sm font-medium text-slate-700">{opt.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-amber-50 rounded-xl border border-amber-200 shadow-sm p-5">
+                <h4 className="text-xs font-bold text-amber-700 uppercase tracking-wider mb-2 flex items-center gap-2">
+                  <AlertCircle size={14} /> Import note
+                </h4>
+                <p className="text-sm text-amber-800">
+                  Contacts will be imported using the mappings you selected above. If a company name matches an existing client, it will be linked automatically.
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="shrink-0 border-t border-slate-200 p-5 flex items-center justify-between bg-white">
+          <div>
+            {step > 1 && (
+              <button
+                type="button"
+                onClick={() => setStep((s) => s - 1)}
+                className="px-4 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors flex items-center gap-2"
+              >
+                Back
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            {step < 3 ? (
+              <button
+                type="button"
+                onClick={() => setStep((s) => s + 1)}
+                disabled={(step === 1 && (!fileName || isParsing || !!parseError)) || (step === 2 && fileColumns.length === 0)}
+                className="px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Continue
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleImport}
+                disabled={isImporting || previewRows.length === 0}
+                className="px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isImporting ? 'Importing...' : 'Import'}
+              </button>
+            )}
+          </div>
+        </div>
+      </motion.div>
     </AnimatePresence>
   );
 }

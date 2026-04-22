@@ -427,9 +427,7 @@ async function getReportsSummary(query = {}, user = null) {
 
   const clientsFilterForOptions = combineWhere(clientScope(user));
   const jobsFilterForOptions = combineWhere(jobScope(user));
-  const recruitersFilterForOptions = userHasFullDbAccess(user)
-    ? { isActive: true }
-    : { id: user?.id || '__none__' };
+  const recruitersFilterForOptions = { isActive: true };
 
   const jobsWhere = combineWhere(
     jobScope(user),
