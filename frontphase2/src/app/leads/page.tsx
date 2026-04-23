@@ -23,7 +23,7 @@ import { ImageWithFallback } from '../../components/ImageWithFallback';
 import { LeadDetailsDrawer } from '../../components/drawers/LeadDetailsDrawer';
 import { LeadImportDrawer } from '../../components/drawers/LeadImportDrawer';
 import AriaChat from '../../components/AriaChat';
-import { MuiTablePagination } from '../../components/MuiTablePagination';
+import PaginationAll from '../../components/PaginationAll';
 import type { Lead, LeadStatus, Priority } from './types';
 import {
   apiGetLeads,
@@ -306,6 +306,27 @@ function extractBackendLeads(
   return [];
 }
 
+function buildLeadMetrics(leadList: Lead[]) {
+  return leadList.reduce(
+    (acc, lead) => {
+      const status = String(lead.status || '').toLowerCase();
+      if (status === 'new') acc.NEW_LEADS += 1;
+      else if (status === 'contacted') acc.CONTACTED += 1;
+      else if (status === 'qualified') acc.QUALIFIED += 1;
+      else if (status === 'converted') acc.CONVERTED += 1;
+      else if (status === 'lost') acc.LOST += 1;
+      return acc;
+    },
+    {
+      NEW_LEADS: 0,
+      CONTACTED: 0,
+      QUALIFIED: 0,
+      CONVERTED: 0,
+      LOST: 0,
+    }
+  );
+}
+
 export default function RecruitmentAgencyDashboard() {
   const PAGE_SIZE = 10;
   const router = useRouter();
@@ -375,6 +396,42 @@ export default function RecruitmentAgencyDashboard() {
 
     fetchUsers();
   }, []);
+
+  const loadLeadMetrics = async () => {
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+      if (!token) {
+        setMetrics(buildLeadMetrics(INITIAL_LEADS));
+        return;
+      }
+
+      const pageSize = 500;
+      let page = 1;
+      let totalPages = 1;
+      let collected: Lead[] = [];
+
+      while (page <= totalPages) {
+        const response = await apiGetLeads({
+          page,
+          limit: pageSize,
+        });
+
+        const backendLeads = response.data ? extractBackendLeads(response.data) : [];
+        collected = [...collected, ...backendLeads.map(mapBackendLeadToFrontend)];
+
+        const pagination = !Array.isArray(response.data) ? response.data?.pagination : undefined;
+        totalPages = pagination?.totalPages || Math.max(1, Math.ceil((pagination?.total || collected.length) / pageSize));
+
+        if (backendLeads.length < pageSize) break;
+        page += 1;
+      }
+
+      setMetrics(buildLeadMetrics(collected));
+    } catch (err) {
+      console.error('Failed to load lead metrics:', err);
+      setMetrics(buildLeadMetrics(INITIAL_LEADS));
+    }
+  };
 
   // Fetch leads from API
   useEffect(() => {
@@ -456,6 +513,10 @@ export default function RecruitmentAgencyDashboard() {
     fetchLeads();
   }, [statusFilter, searchQuery, currentPage, recruiterFilter]);
 
+  useEffect(() => {
+    void loadLeadMetrics();
+  }, []);
+
   const filteredLeads = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     return leads.filter((lead) => {
@@ -486,28 +547,10 @@ export default function RecruitmentAgencyDashboard() {
     ));
   };
 
-  const stats = {
-    New: leads.filter(l => l.status === 'New').length,
-    Contacted: leads.filter(l => l.status === 'Contacted').length,
-    Qualified: leads.filter(l => l.status === 'Qualified').length,
-    Converted: leads.filter(l => l.status === 'Converted').length,
-    Lost: leads.filter(l => l.status === 'Lost').length,
-  };
-
   const handleStatusCardClick = (nextStatus: LeadStatus | 'All') => {
     setCurrentPage(1);
     setStatusFilter((prev) => (prev === nextStatus ? 'All' : nextStatus));
   };
-
-  useEffect(() => {
-    setMetrics({
-      NEW_LEADS: stats.New,
-      CONTACTED: stats.Contacted,
-      QUALIFIED: stats.Qualified,
-      CONVERTED: stats.Converted,
-      LOST: stats.Lost,
-    });
-  }, [stats.New, stats.Contacted, stats.Qualified, stats.Converted, stats.Lost]);
 
   const handleConvert = async (id: string) => {
     try {
@@ -680,6 +723,7 @@ export default function RecruitmentAgencyDashboard() {
       } else {
         setTotalEntries(mappedLeads.length);
       }
+      void loadLeadMetrics();
     } catch (err: any) {
       console.error('Failed to refresh leads:', err);
     } finally {
@@ -1063,190 +1107,191 @@ export default function RecruitmentAgencyDashboard() {
             </div>
 
             {/* Leads Table */}
-            <div className="overflow-x-auto">
-              {loading && (
-                <div className="p-8 text-center text-slate-500">Loading leads...</div>
-              )}
-              {error && !loading && (
-                <div className="p-8 text-center text-red-500">Error: {error}</div>
-              )}
-              {!loading && !error && (
-                <table className="w-full text-left">
-                  <thead>
-                    <tr className="bg-slate-50 border-y border-slate-200 text-slate-500 uppercase text-[11px] font-bold tracking-wider">
-                      <th className="px-6 py-4 w-12">
-                        <SelectionCheckbox
-                          checked={allVisibleSelected}
-                          onChange={toggleSelectAll}
-                        />
-                      </th>
-                      <th className="px-6 py-4">Lead / Company</th>
-                      <th className="px-6 py-4">Source</th>
-                      <th className="px-6 py-4">Contact</th>
-                      <th className="px-6 py-4">Status</th>
-                      <th className="px-6 py-4">Assigned To</th>
-                      <th className="px-6 py-4">Last Follow-up</th>
-                      <th className="px-6 py-4 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredLeads.length === 0 ? (
-                      <tr>
-                        <td colSpan={8} className="px-6 py-8 text-center text-slate-500">
-                          No leads found
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredLeads.map(lead => (
-                    <tr 
-                      key={lead.id} 
-                      className={`group cursor-pointer transition-colors ${
-                        highlightedRows.includes(lead.id)
-                          ? 'bg-yellow-50 hover:bg-yellow-50'
-                          :
-                        selectedLeadIds.includes(lead.id)
-                          ? 'bg-blue-50/80 hover:bg-blue-50/80'
-                          : selectedLeadId === lead.id
-                            ? 'bg-blue-50/50 hover:bg-blue-50/60'
-                            : 'hover:bg-blue-50/50'
-                      }`}
-                      onClick={() => setSelectedLeadId(lead.id)}
-                    >
-                      <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
-                        <SelectionCheckbox
-                          checked={selectedLeadIds.includes(lead.id)}
-                          onChange={() => toggleLeadSelection(lead.id)}
-                        />
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex flex-col">
-                          <span className="text-sm font-semibold text-slate-900">{lead.companyName}</span>
-                          <span className="text-xs text-slate-500">{lead.type}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-1.5 text-xs text-slate-600 bg-slate-100 w-fit px-2 py-1 rounded-md">
-                          <ExternalLink size={12} />
-                          {lead.source}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex flex-col">
-                          <span className="text-sm text-slate-700">{lead.contactPerson}</span>
-                          <span className="text-xs text-slate-500">{lead.email}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex flex-col gap-2">
-                          {canUpdateLead ? (
-                            <select
-                              className="px-3 py-1 rounded-full border border-slate-300 bg-white text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
-                              value={lead.status}
-                              onChange={(e) =>
-                                handleInlineStatusChange(lead.id, e.target.value as LeadStatus)
-                              }
-                            >
-                              <option value="New">New</option>
-                              <option value="Contacted">Contacted</option>
-                              <option value="Qualified">Qualified</option>
-                              <option value="Converted">Converted</option>
-                              <option value="Lost">Lost</option>
-                            </select>
-                          ) : (
-                            <StatusTag status={lead.status} />
-                          )}
-
-                          {canUpdateLead && statusEdit.leadId === lead.id && (
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="text"
-                                placeholder="Add remark for this status change"
-                                className="flex-1 px-2 py-1 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                                value={statusEdit.remark}
-                                onChange={(e) =>
-                                  setStatusEdit(prev => ({
-                                    ...prev,
-                                    remark: e.target.value,
-                                  }))
-                                }
-                              />
-                              <button
-                                type="button"
-                                className="px-2 py-1 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
-                                onClick={handleSaveStatusEdit}
-                              >
-                                Save
-                              </button>
-                              <button
-                                type="button"
-                                className="px-2 py-1 text-xs font-medium text-slate-600 bg-slate-100 rounded-md hover:bg-slate-200"
-                                onClick={handleCancelStatusEdit}
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <ImageWithFallback 
-                            src={lead.assignedTo.avatar} 
-                            alt={lead.assignedTo.name} 
-                            className="w-7 h-7 rounded-full" 
+            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+              <div className="no-scrollbar overflow-x-auto">
+                {loading && (
+                  <div className="p-8 text-center text-slate-500">Loading leads...</div>
+                )}
+                {error && !loading && (
+                  <div className="p-8 text-center text-red-500">Error: {error}</div>
+                )}
+                {!loading && !error && (
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="bg-slate-50 border-y border-slate-200 text-slate-500 uppercase text-[11px] font-bold tracking-wider">
+                        <th className="px-6 py-4 w-12">
+                          <SelectionCheckbox
+                            checked={allVisibleSelected}
+                            onChange={toggleSelectAll}
                           />
-                          <span className="text-sm text-slate-700">{lead.assignedTo.name}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <LeadFollowUpTableCell
-                          lastFollowUp={lead.lastFollowUp}
-                          nextFollowUp={lead.nextFollowUp}
-                        />
-                      </td>
-                      <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-end gap-1">
-                          <button className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md" title="View Details" onClick={() => setSelectedLeadId(lead.id)}>
-                            <Eye size={18} />
-                          </button>
-                          {canConvertLead && (
-                            <button 
-                              className="p-1.5 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-md" 
-                              title="Convert to Client"
-                              onClick={() => handleConvert(lead.id)}
-                            >
-                              <UserPlus size={18} />
-                            </button>
-                          )}
-                          {canDeleteLead && (
-                            <button 
-                              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md" 
-                              title="Delete Lead"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setDeleteConfirmState({
-                                  mode: 'single',
-                                  leadId: lead.id,
-                                  companyName: lead.companyName,
-                                });
-                              }}
-                            >
-                              <Trash2 size={18} />
-                            </button>
-                          )}
-                        </div>
-                      </td>
+                        </th>
+                        <th className="px-6 py-4">Lead / Company</th>
+                        <th className="px-6 py-4">Source</th>
+                        <th className="px-6 py-4">Contact</th>
+                        <th className="px-6 py-4">Status</th>
+                        <th className="px-6 py-4">Assigned To</th>
+                        <th className="px-6 py-4">Last Follow-up</th>
+                        <th className="px-6 py-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredLeads.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} className="px-6 py-8 text-center text-slate-500">
+                            No leads found
+                          </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              )}
+                      ) : (
+                        filteredLeads.map((lead) => (
+                          <tr
+                            key={lead.id}
+                            className={`group cursor-pointer transition-colors ${
+                              highlightedRows.includes(lead.id)
+                                ? 'bg-yellow-50 hover:bg-yellow-50'
+                                : selectedLeadIds.includes(lead.id)
+                                  ? 'bg-blue-50/80 hover:bg-blue-50/80'
+                                  : selectedLeadId === lead.id
+                                    ? 'bg-blue-50/50 hover:bg-blue-50/60'
+                                    : 'hover:bg-blue-50/50'
+                            }`}
+                            onClick={() => setSelectedLeadId(lead.id)}
+                          >
+                            <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                              <SelectionCheckbox
+                                checked={selectedLeadIds.includes(lead.id)}
+                                onChange={() => toggleLeadSelection(lead.id)}
+                              />
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex flex-col">
+                                <span className="text-sm font-semibold text-slate-900">{lead.companyName}</span>
+                                <span className="text-xs text-slate-500">{lead.type}</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-1.5 text-xs text-slate-600 bg-slate-100 w-fit px-2 py-1 rounded-md">
+                                <ExternalLink size={12} />
+                                {lead.source}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex flex-col">
+                                <span className="text-sm text-slate-700">{lead.contactPerson}</span>
+                                <span className="text-xs text-slate-500">{lead.email}</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex flex-col gap-2">
+                                {canUpdateLead ? (
+                                  <select
+                                    className="px-3 py-1 rounded-full border border-slate-300 bg-white text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
+                                    value={lead.status}
+                                    onChange={(e) =>
+                                      handleInlineStatusChange(lead.id, e.target.value as LeadStatus)
+                                    }
+                                  >
+                                    <option value="New">New</option>
+                                    <option value="Contacted">Contacted</option>
+                                    <option value="Qualified">Qualified</option>
+                                    <option value="Converted">Converted</option>
+                                    <option value="Lost">Lost</option>
+                                  </select>
+                                ) : (
+                                  <StatusTag status={lead.status} />
+                                )}
+
+                                {canUpdateLead && statusEdit.leadId === lead.id && (
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="text"
+                                      placeholder="Add remark for this status change"
+                                      className="flex-1 px-2 py-1 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                      value={statusEdit.remark}
+                                      onChange={(e) =>
+                                        setStatusEdit((prev) => ({
+                                          ...prev,
+                                          remark: e.target.value,
+                                        }))
+                                      }
+                                    />
+                                    <button
+                                      type="button"
+                                      className="px-2 py-1 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
+                                      onClick={handleSaveStatusEdit}
+                                    >
+                                      Save
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="px-2 py-1 text-xs font-medium text-slate-600 bg-slate-100 rounded-md hover:bg-slate-200"
+                                      onClick={handleCancelStatusEdit}
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-2">
+                                <ImageWithFallback
+                                  src={lead.assignedTo.avatar}
+                                  alt={lead.assignedTo.name}
+                                  className="w-7 h-7 rounded-full"
+                                />
+                                <span className="text-sm text-slate-700">{lead.assignedTo.name}</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <LeadFollowUpTableCell
+                                lastFollowUp={lead.lastFollowUp}
+                                nextFollowUp={lead.nextFollowUp}
+                              />
+                            </td>
+                            <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex items-center justify-end gap-1">
+                                <button className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md" title="View Details" onClick={() => setSelectedLeadId(lead.id)}>
+                                  <Eye size={18} />
+                                </button>
+                                {canConvertLead && (
+                                  <button
+                                    className="p-1.5 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-md"
+                                    title="Convert to Client"
+                                    onClick={() => handleConvert(lead.id)}
+                                  >
+                                    <UserPlus size={18} />
+                                  </button>
+                                )}
+                                {canDeleteLead && (
+                                  <button
+                                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md"
+                                    title="Delete Lead"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setDeleteConfirmState({
+                                        mode: 'single',
+                                        leadId: lead.id,
+                                        companyName: lead.companyName,
+                                      });
+                                    }}
+                                  >
+                                    <Trash2 size={18} />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                )}
+              </div>
             </div>
             {!loading && !error && (
               <div className="mt-4 flex justify-end">
-                <MuiTablePagination
-                  currentPage={currentPage}
+                <PaginationAll
+                  initialPage={currentPage}
                   totalPages={Math.ceil(totalEntries / PAGE_SIZE)}
                   onPageChange={setCurrentPage}
                 />

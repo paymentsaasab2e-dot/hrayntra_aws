@@ -22,7 +22,7 @@ import {
   CheckSquare,
   Trash2
 } from 'lucide-react';
-import { MuiTablePagination } from '../../components/MuiTablePagination';
+import PaginationAll from '../../components/PaginationAll';
 import { requestConfirm, requestError } from '../../lib/appDialog';
 import { motion, AnimatePresence } from 'motion/react';
 import { Toaster, toast } from 'sonner';
@@ -1617,8 +1617,8 @@ export default function JobsPage() {
                   />
                   
                   <div className="mt-4 flex justify-end">
-                    <MuiTablePagination
-                      currentPage={currentPage}
+                    <PaginationAll
+                      initialPage={currentPage}
                       totalPages={Math.ceil(totalEntries / pageSize)}
                       onPageChange={setCurrentPage}
                     />
