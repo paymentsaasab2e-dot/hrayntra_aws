@@ -23,7 +23,7 @@ import { ClientFilterDrawer } from '../../components/drawers/ClientFilterDrawer'
 import { ClientDetailsDrawer } from '../../components/drawers/ClientDetailsDrawer';
 import { ClientImportDrawer } from '../../components/drawers/ClientImportDrawer';
 import { CreateJobDrawer } from '../../components/drawers/CreateJobDrawer';
-import { MuiTablePagination } from '../../components/MuiTablePagination';
+import PaginationAll from '../../components/PaginationAll';
 import { INITIAL_CLIENTS } from './types';
 import type { Client } from './types';
 import { apiGetClients, apiDeleteClient, apiGetUsers, apiUpdateClient, type BackendClient, type BackendUser, type UpdateClientData } from '../../lib/api';
@@ -470,8 +470,8 @@ export default function App() {
             />
 
             <div className="mt-4 flex justify-end">
-              <MuiTablePagination
-                currentPage={currentPage}
+              <PaginationAll
+                initialPage={currentPage}
                 totalPages={Math.ceil(totalEntries / PAGE_SIZE)}
                 onPageChange={setCurrentPage}
               />

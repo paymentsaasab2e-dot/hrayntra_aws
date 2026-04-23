@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { CreateTaskModal } from '../../components/CreateTaskModal';
 import { Toaster, toast } from 'sonner';
-import { MuiTablePagination } from '../../components/MuiTablePagination';
+import PaginationAll from '../../components/PaginationAll';
 import { requestConfirm } from '../../lib/appDialog';
 import { MY_JOBS_LIST_PARAMS } from '../../lib/myJobsListParams';
 import {
@@ -1338,8 +1338,8 @@ function CandidatesPageContent() {
                 />
                 
                 <div className="mt-4 flex justify-end">
-                  <MuiTablePagination
-                    currentPage={currentPage}
+                  <PaginationAll
+                    initialPage={currentPage}
                     totalPages={Math.ceil(totalEntries / pageSize)}
                     onPageChange={setCurrentPage}
                   />

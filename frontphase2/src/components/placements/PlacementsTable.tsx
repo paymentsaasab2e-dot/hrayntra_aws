@@ -18,7 +18,7 @@ import {
   getPlacementStatusLabel,
   getStatusBadgeStyle,
 } from '../../utils/placements';
-import { MuiTablePagination } from '../MuiTablePagination';
+import PaginationAll from '../PaginationAll';
 
 interface PlacementsTableProps {
   data: Placement[];
@@ -337,8 +337,8 @@ export function PlacementsTable({
         </p>
       </div>
       <div className="px-6 pb-5 flex justify-end">
-        <MuiTablePagination
-          currentPage={pagination.page}
+        <PaginationAll
+          initialPage={pagination.page}
           totalPages={pagination.totalPages}
           onPageChange={onPageChange}
         />
