@@ -494,6 +494,11 @@ export default function RecruitmentAgencyDashboard() {
     Lost: leads.filter(l => l.status === 'Lost').length,
   };
 
+  const handleStatusCardClick = (nextStatus: LeadStatus | 'All') => {
+    setCurrentPage(1);
+    setStatusFilter((prev) => (prev === nextStatus ? 'All' : nextStatus));
+  };
+
   useEffect(() => {
     setMetrics({
       NEW_LEADS: stats.New,
@@ -934,11 +939,46 @@ export default function RecruitmentAgencyDashboard() {
         <div className="flex-1 overflow-y-auto p-8">
           {/* Summary Cards */}
           <div className="grid grid-cols-5 gap-6 mb-8">
-            <SummaryCard label="NEW LEADS" count={metrics.NEW_LEADS} color="blue" icon={<Plus size={16} />} />
-            <SummaryCard label="CONTACTED" count={metrics.CONTACTED} color="yellow" icon={<Phone size={16} />} />
-            <SummaryCard label="QUALIFIED" count={metrics.QUALIFIED} color="purple" icon={<Target size={16} />} />
-            <SummaryCard label="CONVERTED" count={metrics.CONVERTED} color="green" icon={<CheckCircle size={16} />} />
-            <SummaryCard label="LOST" count={metrics.LOST} color="gray" icon={<XCircle size={16} />} />
+            <SummaryCard
+              label="NEW LEADS"
+              count={metrics.NEW_LEADS}
+              color="blue"
+              icon={<Plus size={16} />}
+              active={statusFilter === 'New'}
+              onClick={() => handleStatusCardClick('New')}
+            />
+            <SummaryCard
+              label="CONTACTED"
+              count={metrics.CONTACTED}
+              color="yellow"
+              icon={<Phone size={16} />}
+              active={statusFilter === 'Contacted'}
+              onClick={() => handleStatusCardClick('Contacted')}
+            />
+            <SummaryCard
+              label="QUALIFIED"
+              count={metrics.QUALIFIED}
+              color="purple"
+              icon={<Target size={16} />}
+              active={statusFilter === 'Qualified'}
+              onClick={() => handleStatusCardClick('Qualified')}
+            />
+            <SummaryCard
+              label="CONVERTED"
+              count={metrics.CONVERTED}
+              color="green"
+              icon={<CheckCircle size={16} />}
+              active={statusFilter === 'Converted'}
+              onClick={() => handleStatusCardClick('Converted')}
+            />
+            <SummaryCard
+              label="LOST"
+              count={metrics.LOST}
+              color="gray"
+              icon={<XCircle size={16} />}
+              active={statusFilter === 'Lost'}
+              onClick={() => handleStatusCardClick('Lost')}
+            />
           </div>
 
           {/* Table Controls */}
@@ -1396,7 +1436,21 @@ export default function RecruitmentAgencyDashboard() {
 
 // --- Helper Components ---
 
-const SummaryCard = ({ label, count, color, icon }: { label: string, count: number, color: string, icon: React.ReactNode }) => {
+const SummaryCard = ({
+  label,
+  count,
+  color,
+  icon,
+  active = false,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  color: string;
+  icon: React.ReactNode;
+  active?: boolean;
+  onClick?: () => void;
+}) => {
   const styles: any = {
     blue: { bg: 'bg-blue-50', text: 'text-blue-700', iconBg: 'bg-blue-100', border: 'border-blue-100' },
     yellow: { bg: 'bg-yellow-50', text: 'text-yellow-700', iconBg: 'bg-yellow-100', border: 'border-yellow-100' },
@@ -1406,13 +1460,23 @@ const SummaryCard = ({ label, count, color, icon }: { label: string, count: numb
   };
   const s = styles[color] || styles.gray;
   return (
-    <div className={`p-4 rounded-xl border shadow-sm transition-all hover:shadow-md cursor-pointer ${s.bg} ${s.border}`}>
+    <button
+      type="button"
+      onClick={onClick}
+      className={`group w-full p-4 rounded-xl border shadow-sm text-left transition-all hover:shadow-md hover:-translate-y-0.5 cursor-pointer ${
+        active ? `${s.bg} ${s.border} ring-2 ring-blue-500/20 shadow-md` : `${s.bg} ${s.border}`
+      }`}
+      aria-pressed={active}
+    >
       <div className="flex items-center justify-between mb-2">
         <div className={`p-2 rounded-lg ${s.iconBg} ${s.text}`}>{icon}</div>
         <span className={`text-2xl font-bold ${s.text}`}>{count}</span>
       </div>
-      <p className={`text-xs font-bold uppercase tracking-wider opacity-70 ${s.text}`}>{label}</p>
-    </div>
+      <div className="flex items-center justify-between gap-2">
+        <p className={`text-xs font-bold uppercase tracking-wider opacity-70 ${s.text}`}>{label}</p>
+        {active ? <span className={`text-[10px] font-bold uppercase tracking-[0.18em] ${s.text}`}>Active</span> : null}
+      </div>
+    </button>
   );
 };
 

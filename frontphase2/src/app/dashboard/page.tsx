@@ -91,6 +91,41 @@ function formatTrendPct(trend: number, up: boolean) {
   return { text: `${v}%`, up };
 }
 
+type CandidateStatsSnapshot = {
+  all: number;
+  applied: number;
+  longlist: number;
+  shortlist: number;
+  screening: number;
+  submitted: number;
+  interviewing: number;
+  offered: number;
+  hired: number;
+  rejected: number;
+};
+
+function normalizeCandidateStats(payload: unknown): CandidateStatsSnapshot | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const raw = 'data' in payload && (payload as { data?: unknown }).data && typeof (payload as { data?: unknown }).data === 'object'
+    ? (payload as { data: unknown }).data
+    : payload;
+  if (!raw || typeof raw !== 'object') return null;
+
+  const stats = raw as Partial<CandidateStatsSnapshot>;
+  return {
+    all: Number(stats.all ?? 0),
+    applied: Number(stats.applied ?? 0),
+    longlist: Number(stats.longlist ?? 0),
+    shortlist: Number(stats.shortlist ?? 0),
+    screening: Number(stats.screening ?? 0),
+    submitted: Number(stats.submitted ?? 0),
+    interviewing: Number(stats.interviewing ?? 0),
+    offered: Number(stats.offered ?? 0),
+    hired: Number(stats.hired ?? 0),
+    rejected: Number(stats.rejected ?? 0),
+  };
+}
+
 function interviewStatusLabel(status: string) {
   const u = status.toUpperCase();
   if (u.includes('COMPLET')) return 'Completed';
@@ -127,19 +162,40 @@ function buildJobStatusPie(jobs: BackendJob[]) {
   if (!jobs.length) {
     return { data: [{ name: 'Open', value: 0, color: '#3b82f6' }], open: 0, total: 0 };
   }
-  let open = 0;
-  for (const j of jobs) {
-    if (j.status === 'OPEN') open += 1;
+  const counts = new Map<string, number>();
+  const labels: Record<string, string> = {
+    OPEN: 'Open',
+    DRAFT: 'Draft',
+    ON_HOLD: 'On hold',
+    CLOSED: 'Closed',
+    FILLED: 'Filled',
+  };
+  const colors: Record<string, string> = {
+    OPEN: '#3b82f6',
+    DRAFT: '#94a3b8',
+    ON_HOLD: '#f59e0b',
+    CLOSED: '#64748b',
+    FILLED: '#10b981',
+  };
+
+  for (const job of jobs) {
+    const status = (job.status || 'UNKNOWN').trim().toUpperCase();
+    counts.set(status, (counts.get(status) || 0) + 1);
   }
-  const closed = Math.max(0, jobs.length - open);
+
+  const order = ['OPEN', 'DRAFT', 'ON_HOLD', 'CLOSED', 'FILLED'];
+  const data = order
+    .filter((status) => (counts.get(status) || 0) > 0)
+    .map((status) => ({
+      name: labels[status],
+      value: counts.get(status) || 0,
+      color: colors[status],
+    }));
+
+  const open = counts.get('OPEN') || 0;
   const total = jobs.length;
-  const openPct = total ? Math.round((open / total) * 100) : 0;
-  const closedPct = total ? Math.max(0, 100 - openPct) : 0;
   return {
-    data: [
-      { name: 'Open', value: openPct, color: '#3b82f6' },
-      { name: 'Other', value: closedPct, color: '#e2e8f0' },
-    ],
+    data: data.length ? data : [{ name: 'Open', value: 0, color: '#3b82f6' }],
     open,
     total,
   };
@@ -186,9 +242,7 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [clientMetrics, setClientMetrics] = useState<ClientMetrics | null>(null);
-  const [candidateStats, setCandidateStats] = useState<Awaited<ReturnType<typeof apiGetCandidateStats>>['data'] | null>(
-    null
-  );
+  const [candidateStats, setCandidateStats] = useState<CandidateStatsSnapshot | null>(null);
   const [jobMetrics, setJobMetrics] = useState<Awaited<ReturnType<typeof apiGetJobMetrics>>['data'] | null>(null);
   const [placementStats, setPlacementStats] = useState<Awaited<ReturnType<typeof apiGetPlacementStats>>['data'] | null>(
     null
@@ -243,7 +297,7 @@ export default function DashboardPage() {
       ]);
 
       setClientMetrics(cm.data ?? null);
-      setCandidateStats(cs.data ?? null);
+      setCandidateStats(normalizeCandidateStats(cs.data));
       setJobMetrics(jm.data ?? null);
       setPlacementStats(ps.data ?? null);
       setInterviewKpis(ik.data ?? null);
@@ -367,6 +421,7 @@ export default function DashboardPage() {
     const s = candidateStats;
     if (!s) return [];
     const defs = [
+      { label: 'All', count: s.all },
       { label: 'Applied', count: s.applied },
       { label: 'Longlist', count: s.longlist },
       { label: 'Shortlist', count: s.shortlist },
@@ -375,6 +430,7 @@ export default function DashboardPage() {
       { label: 'Interviewing', count: s.interviewing },
       { label: 'Offered', count: s.offered },
       { label: 'Hired', count: s.hired },
+      { label: 'Rejected', count: s.rejected },
     ];
     return defs.map((d, i) => ({
       ...d,
@@ -604,7 +660,7 @@ export default function DashboardPage() {
           className="block rounded-2xl border border-slate-200 bg-white p-6 shadow-sm outline-none ring-offset-2 transition-all hover:border-blue-200 hover:shadow-md focus-visible:ring-2 focus-visible:ring-blue-500 lg:col-span-5"
         >
           <div className="mb-6 flex items-start justify-between">
-            <h3 className="text-xs font-bold uppercase tracking-widest text-slate-500">Job status (sample)</h3>
+            <h3 className="text-xs font-bold uppercase tracking-widest text-slate-500">Job status</h3>
             <div className="text-right">
               <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Avg. open job aging</p>
               <p className="text-lg font-black text-slate-900">{aging != null ? `${aging} days` : '—'}</p>
@@ -630,7 +686,7 @@ export default function DashboardPage() {
             </ResponsiveContainer>
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
               <span className="text-3xl font-black tracking-tighter text-slate-900">{jobPie.total}</span>
-              <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Jobs (loaded)</span>
+              <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Jobs loaded</span>
             </div>
           </div>
           <div className="mt-4 flex justify-center gap-6">
@@ -638,13 +694,13 @@ export default function DashboardPage() {
               <div key={i} className="flex items-center gap-2">
                 <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
                 <span className="text-[11px] font-bold text-slate-500">
-                  {item.name} ({item.value}%)
+                  {item.name} ({item.value})
                 </span>
               </div>
             ))}
           </div>
           <p className="mt-2 text-center text-[10px] text-slate-400">
-            Open: {jobPie.open} · Based on up to {jobs.length} jobs from API
+            Open: {jobPie.open} · Based on {jobs.length} loaded job record(s)
           </p>
         </Link>
       </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { usePermissions } from '../hooks/usePermissions';
@@ -181,17 +181,20 @@ interface NavItemProps {
   active?: boolean;
   collapsed: boolean;
   badge?: number;
+  onNavigate?: () => void;
 }
 
-const NavItem = ({ icon: Icon, label, href, active, collapsed, badge }: NavItemProps) => {
+const NavItem = ({ icon: Icon, label, href, active, collapsed, badge, onNavigate }: NavItemProps) => {
   const pathname = usePathname();
   const isActive = active || (href && pathname === href);
   
   const content = (
     <div
+      data-sidenav-nav-item="true"
+      data-active={isActive ? 'true' : 'false'}
       className={`relative flex items-center h-9 rounded-md mx-2 my-0.5 px-2.5 cursor-pointer transition-all duration-150 group
         ${isActive
-          ? 'bg-white/15 text-white'
+          ? 'bg-white/15 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]'
           : 'text-[#8899AA] hover:bg-white/8 hover:text-white'
         }`}
     >
@@ -226,7 +229,11 @@ const NavItem = ({ icon: Icon, label, href, active, collapsed, badge }: NavItemP
   );
 
   if (href) {
-    return <Link href={href}>{content}</Link>;
+    return (
+      <Link href={href} onClick={onNavigate} className="block">
+        {content}
+      </Link>
+    );
   }
 
   return content;
@@ -244,6 +251,8 @@ const SectionLabel = ({ label, collapsed }: { label: string; collapsed: boolean 
 
 const Divider = () => <div className="h-px bg-white/8 my-2 mx-3" />;
 
+const SIDENAV_SCROLL_STORAGE_KEY = 'hrayntra:sidenav-scroll-top';
+
 // ─── Main Sidenav ─────────────────────────────────────────────────────────────
 interface SidenavProps {
   avatarUrl?: string;
@@ -256,13 +265,90 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
   const [mounted, setMounted] = useState(false);
   const [notificationDrawerOpen, setNotificationDrawerOpen] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
+  const navScrollRef = useRef<HTMLDivElement>(null);
+  const hasRestoredScrollRef = useRef(false);
   const { hasPermission, hasAnyPermission, isAdmin, isSuperAdmin } = usePermissions();
   const { user } = useUser();
+  const pathname = usePathname();
   
   // Ensure client-side only rendering to prevent hydration errors
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useLayoutEffect(() => {
+    if (!mounted || hasRestoredScrollRef.current) {
+      return;
+    }
+
+    const nav = navScrollRef.current;
+    if (!nav) {
+      return;
+    }
+
+    hasRestoredScrollRef.current = true;
+
+    try {
+      const savedScrollTop = window.sessionStorage.getItem(SIDENAV_SCROLL_STORAGE_KEY);
+      if (savedScrollTop !== null) {
+        nav.scrollTop = Number(savedScrollTop) || 0;
+      }
+    } catch {
+      // Ignore storage failures and fall back to the browser's default behavior.
+    }
+  }, [mounted]);
+
+  useEffect(() => {
+    const nav = navScrollRef.current;
+    if (!nav) {
+      return;
+    }
+
+    const activeItem = nav.querySelector<HTMLElement>('[data-sidenav-nav-item="true"][data-active="true"]');
+    if (!activeItem) {
+      return;
+    }
+
+    const navRect = nav.getBoundingClientRect();
+    const itemRect = activeItem.getBoundingClientRect();
+    const isFullyVisible = itemRect.top >= navRect.top && itemRect.bottom <= navRect.bottom;
+
+    if (!isFullyVisible) {
+      activeItem.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+        inline: 'nearest',
+      });
+    }
+  }, [pathname, mounted, isCollapsed]);
+
+  useEffect(() => {
+    return () => {
+      const nav = navScrollRef.current;
+      if (!nav) {
+        return;
+      }
+
+      try {
+        window.sessionStorage.setItem(SIDENAV_SCROLL_STORAGE_KEY, String(nav.scrollTop));
+      } catch {
+        // Ignore storage failures.
+      }
+    };
+  }, []);
+
+  const persistScrollPosition = () => {
+    const nav = navScrollRef.current;
+    if (!nav) {
+      return;
+    }
+
+    try {
+      window.sessionStorage.setItem(SIDENAV_SCROLL_STORAGE_KEY, String(nav.scrollTop));
+    } catch {
+      // Ignore storage failures.
+    }
+  };
 
   useEffect(() => {
     let ignore = false;
@@ -402,76 +488,81 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
         }}
       >
         {/* Scrollable nav */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden py-2" style={{ scrollbarWidth: 'none' }}>
+        <div
+          ref={navScrollRef}
+          onScroll={persistScrollPosition}
+          className="flex-1 overflow-y-auto overflow-x-hidden py-2"
+          style={{ scrollbarWidth: 'none' }}
+        >
           {/* Dashboard - always show */}
-          <NavItem icon={LayoutDashboard} label="Dashboard" href="/dashboard" collapsed={isCollapsed} />
+          <NavItem icon={LayoutDashboard} label="Dashboard" href="/dashboard" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
           
           {/* Leads */}
           {(mounted && (showAll || hasAnyPermission(['leads_read', 'leads_create', 'leads_update', 'leads_delete']))) && (
-            <NavItem icon={Target} label="Leads" href="/leads" collapsed={isCollapsed} />
+            <NavItem icon={Target} label="Leads" href="/leads" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
           )}
           
           {/* Clients */}
           {(mounted && (showAll || hasAnyPermission(['clients_read', 'clients_create', 'clients_update', 'clients_delete']))) && (
-            <NavItem icon={Users} label="Clients" href="/client" collapsed={isCollapsed} />
+            <NavItem icon={Users} label="Clients" href="/client" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
           )}
           
           {/* Jobs */}
           {(mounted && (showAll || hasAnyPermission(['jobs_read', 'jobs_create', 'jobs_update', 'jobs_delete', 'view_jobs', 'create_job', 'edit_job', 'delete_job', 'assign_job']))) && (
-            <NavItem icon={Briefcase} label="Jobs" href="/job" collapsed={isCollapsed} />
+            <NavItem icon={Briefcase} label="Jobs" href="/job" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
           )}
           
           {/* Candidates */}
           {(mounted && (showAll || hasAnyPermission(['candidates_read', 'candidates_create', 'candidates_update', 'candidates_delete', 'view_assigned_candidates', 'view_all_candidates', 'add_candidate', 'edit_candidate', 'delete_candidate']))) && (
-            <NavItem icon={UserRound} label="Candidates" href="/candidate" collapsed={isCollapsed} />
+            <NavItem icon={UserRound} label="Candidates" href="/candidate" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
           )}
 
           {/* Interviews */}
           {(mounted && (showAll || hasAnyPermission(['interviews_read', 'interviews_create', 'interviews_update', 'interviews_delete']))) && (
-            <NavItem icon={Calendar} label="Interviews" href="/interviews" collapsed={isCollapsed} />
+            <NavItem icon={Calendar} label="Interviews" href="/interviews" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
           )}
 
           {/* Placements */}
           {(mounted && (showAll || hasAnyPermission(['placements_read', 'placements_create', 'placements_update', 'placements_delete']))) && (
-            <NavItem icon={Award} label="Placements" href="/placement" collapsed={isCollapsed} />
+            <NavItem icon={Award} label="Placements" href="/placement" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
           )}
           
           {/* Pipeline */}
           {(mounted && (showAll || hasPermission('move_pipeline'))) && (
             <>
               <SectionLabel label="Recruitment Hub" collapsed={isCollapsed} />
-              <NavItem icon={GitBranch} label="Pipeline" href="/pipeline" collapsed={isCollapsed} />
+              <NavItem icon={GitBranch} label="Pipeline" href="/pipeline" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
             </>
           )}
           
           {/* Matches */}
           {(mounted && (showAll || hasAnyPermission(['jobs_read', 'view_jobs', 'candidates_read', 'view_all_candidates', 'view_assigned_candidates']))) && (
-            <NavItem icon={Zap} label="Matches" href="/matches" collapsed={isCollapsed} />
+            <NavItem icon={Zap} label="Matches" href="/matches" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
           )}
 
           <Divider />
 
           {/* Tasks & Activities - always show */}
-          <NavItem icon={CheckSquare} label="Tasks & Activities" href="/Task&Activites" collapsed={isCollapsed} />
+          <NavItem icon={CheckSquare} label="Tasks & Activities" href="/Task&Activites" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
           
           {/* Inbox - always show */}
-          <NavItem icon={Mail} label="Inbox" href="/inbox" collapsed={isCollapsed} badge={3} />
+          <NavItem icon={Mail} label="Inbox" href="/inbox" collapsed={isCollapsed} badge={3} onNavigate={persistScrollPosition} />
           
           {/* Contacts */}
           {(mounted && (showAll || hasAnyPermission(['clients_read', 'leads_read', 'candidates_read', 'view_all_candidates', 'view_assigned_candidates']))) && (
-            <NavItem icon={Contact} label="Contacts" href="/contacts" collapsed={isCollapsed} />
+            <NavItem icon={Contact} label="Contacts" href="/contacts" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
           )}
 
           <Divider />
 
           {/* Reports */}
           {(mounted && (showAll || hasAnyPermission(['reports_read', 'reports_create', 'reports_update', 'reports_delete']))) && (
-            <NavItem icon={BarChart3} label="Reports" href="/reports" collapsed={isCollapsed} />
+            <NavItem icon={BarChart3} label="Reports" href="/reports" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
           )}
           
           {/* Billing - show if Super Admin or has access_billing */}
           {(mounted && (showAll || hasPermission('access_billing'))) && (
-            <NavItem icon={CreditCard} label="Billing" href="/billing" collapsed={isCollapsed} />
+            <NavItem icon={CreditCard} label="Billing" href="/billing" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
           )}
 
           <div className="h-4" />
@@ -480,18 +571,18 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
           {(mounted && (showAll || hasAnyPermission(['add_team_member', 'assign_roles', 'edit_team_member', 'generate_credentials', 'manage_targets', 'manage_commission']))) && (
             <>
               <SectionLabel label="Team Management" collapsed={isCollapsed} />
-              <NavItem icon={UserPlus} label="Team" href="/team" collapsed={isCollapsed} />
+              <NavItem icon={UserPlus} label="Team" href="/team" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
             </>
           )}
 
           {/* Settings - show if Super Admin or has manage_settings */}
           {(mounted && (showAll || hasPermission('manage_settings'))) && (
-            <NavItem icon={Settings} label="Settings" href="/setting" collapsed={isCollapsed} />
+            <NavItem icon={Settings} label="Settings" href="/setting" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
           )}
           
           {/* Administration */}
           {(mounted && (isAdmin() || isSuperAdmin() || hasAnyPermission(['assign_roles', 'system_select_all', 'manage_settings']))) && (
-            <NavItem icon={ShieldCheck} label="Administration" href="/administration" collapsed={isCollapsed} />
+            <NavItem icon={ShieldCheck} label="Administration" href="/administration" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
           )}
         </div>
 

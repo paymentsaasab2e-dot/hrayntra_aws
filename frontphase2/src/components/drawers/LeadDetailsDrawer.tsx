@@ -70,6 +70,100 @@ const NOTE_TAG_STYLES: Record<LeadNoteTag, string> = {
 };
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_DOMAIN_REGEX = /^[a-zA-Z]{2,}$/;
+const KNOWN_DOMAINS = [
+  'gmail.com',
+  'yahoo.com',
+  'outlook.com',
+  'hotmail.com',
+  'icloud.com',
+  'rediffmail.com',
+  'mail.com',
+  'live.com',
+];
+
+function levenshtein(a: string, b: string) {
+  const m = a.length;
+  const n = b.length;
+  const dp = Array.from({ length: m + 1 }, (_, i) =>
+    Array(n + 1)
+      .fill(0)
+      .map((_, j) => (j === 0 ? i : 0))
+  );
+
+  for (let j = 0; j <= n; j += 1) dp[0][j] = j;
+  for (let i = 1; i <= m; i += 1) {
+    for (let j = 1; j <= n; j += 1) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+
+  return dp[m][n];
+}
+
+function validateEmail(email: string) {
+  const value = String(email || '').trim();
+
+  if (!EMAIL_REGEX.test(value)) {
+    return { valid: false, message: 'Invalid email format' };
+  }
+
+  const domain = value.split('@')[1]?.toLowerCase() || '';
+  if (!domain || !EMAIL_DOMAIN_REGEX.test(domain.replace(/\./g, ''))) {
+    return { valid: false, message: 'Invalid email format' };
+  }
+
+  if (!KNOWN_DOMAINS.includes(domain)) {
+    let best: string | null = null;
+    let bestDist = Infinity;
+
+    for (const known of KNOWN_DOMAINS) {
+      const dist = levenshtein(domain, known);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = known;
+      }
+    }
+
+    if (bestDist <= 3 && best) {
+      return { valid: false, message: `Did you mean @${best}?` };
+    }
+  }
+
+  return { valid: true, message: 'Valid email' };
+}
+
+type LeadRequiredFieldErrors = Partial<{
+  companyName: string;
+  contactPerson: string;
+  email: string;
+}>;
+
+function validateLeadRequiredFields(form: {
+  companyName?: string;
+  contactPerson?: string;
+  email?: string;
+}): LeadRequiredFieldErrors {
+  const errors: LeadRequiredFieldErrors = {};
+  const companyName = String(form.companyName || '').trim();
+  const contactPerson = String(form.contactPerson || '').trim();
+  const email = String(form.email || '').trim();
+
+  if (!companyName) errors.companyName = 'Company is required';
+  if (!contactPerson) errors.contactPerson = 'Director name is required';
+  if (!email) {
+    errors.email = 'Email is required';
+  } else {
+    const result = validateEmail(email);
+    if (!result.valid) {
+      errors.email = result.message;
+    }
+  }
+
+  return errors;
+}
 
 export type AssignLeadFormData = {
   assignTo: string;
@@ -275,7 +369,7 @@ export function LeadDetailsDrawer({
     lastFollowUp: '',
     nextFollowUp: '',
   });
-  const [addLeadErrors, setAddLeadErrors] = useState<{ email?: string }>({});
+  const [addLeadErrors, setAddLeadErrors] = useState<LeadRequiredFieldErrors>({});
   
   // Fetch recruiters from backend
   const [recruiters, setRecruiters] = useState<TeamMember[]>([]);
@@ -590,6 +684,7 @@ export function LeadDetailsDrawer({
     leadDetails: false,
   });
   const [overviewEditMode, setOverviewEditMode] = useState(false);
+  const [overviewEditErrors, setOverviewEditErrors] = useState<LeadRequiredFieldErrors>({});
   const [overviewEditForm, setOverviewEditForm] = useState({
     companyName: '',
     industry: '',
@@ -907,6 +1002,7 @@ export function LeadDetailsDrawer({
 
   const startOverviewEdit = () => {
     if (!lead) return;
+    setOverviewEditErrors({});
     setOverviewEditForm({
       companyName: lead.companyName,
       industry: lead.industry ?? '',
@@ -946,10 +1042,15 @@ export function LeadDetailsDrawer({
 
   const cancelOverviewEdit = () => {
     setOverviewEditMode(false);
+    setOverviewEditErrors({});
   };
 
   const saveOverviewEdit = async () => {
     if (!lead) return;
+
+    const nextErrors = validateLeadRequiredFields(overviewEditForm);
+    setOverviewEditErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) return;
     
     try {
       // Find assigned user ID from name (in a real app, you'd have a user lookup)
@@ -999,6 +1100,7 @@ export function LeadDetailsDrawer({
 
       await apiUpdateLead(lead.id, updateData);
       setOverviewEditMode(false);
+      setOverviewEditErrors({});
       
       // Refresh the lead data by calling the parent's refresh handler if available
       // For now, we'll just close edit mode - the parent should refresh
@@ -2069,7 +2171,27 @@ export function LeadDetailsDrawer({
                         </div>
                         <div>
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Director Name *</label>
-                          <input value={addLeadForm.contactPerson} onChange={(e) => setAddLeadForm((p) => ({ ...p, contactPerson: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" placeholder="e.g. John Doe" />
+                          <input
+                            value={addLeadForm.contactPerson}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setAddLeadForm((p) => ({ ...p, contactPerson: value }));
+                              if (addLeadErrors.contactPerson) {
+                                setAddLeadErrors((prev) => ({ ...prev, contactPerson: undefined }));
+                              }
+                            }}
+                            onBlur={() => {
+                              const nextErrors = validateLeadRequiredFields(addLeadForm);
+                              setAddLeadErrors((prev) => ({ ...prev, contactPerson: nextErrors.contactPerson }));
+                            }}
+                            className={`w-full rounded-xl border px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 ${
+                              addLeadErrors.contactPerson ? 'border-red-300' : 'border-slate-200'
+                            }`}
+                            placeholder="e.g. John Doe"
+                          />
+                          {addLeadErrors.contactPerson && (
+                            <p className="mt-1 text-xs text-red-600">{addLeadErrors.contactPerson}</p>
+                          )}
                         </div>
                         <div>
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Team Name</label>
@@ -2088,14 +2210,12 @@ export function LeadDetailsDrawer({
                               }
                             }}
                             onBlur={() => {
-                              const value = addLeadForm.email.trim();
-                              if (!value) {
-                                setAddLeadErrors((prev) => ({ ...prev, email: 'Email is required' }));
-                              } else if (!EMAIL_REGEX.test(value)) {
-                                setAddLeadErrors((prev) => ({ ...prev, email: 'Enter a valid email address' }));
-                              }
+                              const nextErrors = validateLeadRequiredFields(addLeadForm);
+                              setAddLeadErrors((prev) => ({ ...prev, email: nextErrors.email }));
                             }}
-                            className={`w-full rounded-xl border px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 ${addLeadErrors.email ? 'border-red-300' : 'border-slate-200'}`}
+                            className={`w-full rounded-xl border px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 ${
+                              addLeadErrors.email ? 'border-red-300' : 'border-slate-200'
+                            }`}
                             placeholder="email@company.com"
                           />
                           {addLeadErrors.email && (
@@ -2435,15 +2555,9 @@ export function LeadDetailsDrawer({
                     <button
                       type="button"
                       onClick={async () => {
-                        const email = addLeadForm.email.trim();
-                        if (!addLeadForm.companyName.trim() || !addLeadForm.contactPerson.trim() || !email) {
-                          if (!email) {
-                            setAddLeadErrors({ email: 'Email is required' });
-                          }
-                          return;
-                        }
-                        if (!EMAIL_REGEX.test(email)) {
-                          setAddLeadErrors({ email: 'Enter a valid email address' });
+                        const nextErrors = validateLeadRequiredFields(addLeadForm);
+                        setAddLeadErrors(nextErrors);
+                        if (Object.keys(nextErrors).length > 0) {
                           return;
                         }
                         
@@ -2542,7 +2656,7 @@ export function LeadDetailsDrawer({
                         !addLeadForm.companyName.trim() ||
                         !addLeadForm.contactPerson.trim() ||
                         !addLeadForm.email.trim() ||
-                        !EMAIL_REGEX.test(addLeadForm.email.trim())
+                        !validateEmail(addLeadForm.email.trim()).valid
                       }
                       className="px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                     >
@@ -2603,7 +2717,22 @@ export function LeadDetailsDrawer({
                           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                             <div>
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Company *</label>
-                              <input value={overviewEditForm.companyName} onChange={(e) => setOverviewEditForm((p) => ({ ...p, companyName: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                              <input
+                                value={overviewEditForm.companyName}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  setOverviewEditForm((p) => ({ ...p, companyName: value }));
+                                  if (overviewEditErrors.companyName) {
+                                    setOverviewEditErrors((prev) => ({ ...prev, companyName: undefined }));
+                                  }
+                                }}
+                                className={`w-full rounded-xl border px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 ${
+                                  overviewEditErrors.companyName ? 'border-red-300' : 'border-slate-200'
+                                }`}
+                              />
+                              {overviewEditErrors.companyName && (
+                                <p className="mt-1 text-xs text-red-600">{overviewEditErrors.companyName}</p>
+                              )}
                             </div>
                             <div>
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Company Links</label>
@@ -2611,7 +2740,22 @@ export function LeadDetailsDrawer({
                             </div>
                             <div>
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Director Name *</label>
-                              <input value={overviewEditForm.contactPerson} onChange={(e) => setOverviewEditForm((p) => ({ ...p, contactPerson: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                              <input
+                                value={overviewEditForm.contactPerson}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  setOverviewEditForm((p) => ({ ...p, contactPerson: value }));
+                                  if (overviewEditErrors.contactPerson) {
+                                    setOverviewEditErrors((prev) => ({ ...prev, contactPerson: undefined }));
+                                  }
+                                }}
+                                className={`w-full rounded-xl border px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 ${
+                                  overviewEditErrors.contactPerson ? 'border-red-300' : 'border-slate-200'
+                                }`}
+                              />
+                              {overviewEditErrors.contactPerson && (
+                                <p className="mt-1 text-xs text-red-600">{overviewEditErrors.contactPerson}</p>
+                              )}
                             </div>
                             <div>
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Team Name</label>
@@ -2619,7 +2763,27 @@ export function LeadDetailsDrawer({
                             </div>
                             <div>
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Email *</label>
-                              <input type="email" value={overviewEditForm.email} onChange={(e) => setOverviewEditForm((p) => ({ ...p, email: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                              <input
+                                type="email"
+                                value={overviewEditForm.email}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  setOverviewEditForm((p) => ({ ...p, email: value }));
+                                  if (overviewEditErrors.email) {
+                                    setOverviewEditErrors((prev) => ({ ...prev, email: undefined }));
+                                  }
+                                }}
+                                onBlur={() => {
+                                  const nextErrors = validateLeadRequiredFields(overviewEditForm);
+                                  setOverviewEditErrors((prev) => ({ ...prev, email: nextErrors.email }));
+                                }}
+                                className={`w-full rounded-xl border px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 ${
+                                  overviewEditErrors.email ? 'border-red-300' : 'border-slate-200'
+                                }`}
+                              />
+                              {overviewEditErrors.email && (
+                                <p className="mt-1 text-xs text-red-600">{overviewEditErrors.email}</p>
+                              )}
                             </div>
                             <div>
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Phone</label>

@@ -1202,11 +1202,16 @@ function ScheduleInterviewModal({
 
   const validate = () => {
     const nextErrors: Record<string, string | undefined> = {};
+    if (!status) nextErrors.status = 'Status is required';
     if (!interviewType) nextErrors.interviewType = 'Interview type is required';
+    if (!roundNumber || roundNumber < 1) nextErrors.roundNumber = 'Round number is required';
     if (!date) nextErrors.date = 'Date is required';
     if (!time) nextErrors.time = 'Time is required';
     if (!duration) nextErrors.duration = 'Duration is required';
     if (!mode) nextErrors.mode = 'Interview mode is required';
+    if (!linkedJobLabel && !candidate?.assignedJob && !candidate?.assignedJobId) {
+      nextErrors.linkedJob = 'Linked job is required';
+    }
     if (selectedInterviewers.length === 0) nextErrors.interviewers = 'Select at least one interviewer';
     if (mode === 'video' && !meetingPlatform) nextErrors.modeField = 'Select Google Meet or Zoom';
     if (mode === 'video' && !meetingLink.trim()) nextErrors.modeField = 'Meeting link is required';
@@ -1217,7 +1222,8 @@ function ScheduleInterviewModal({
   };
 
   const isFormValid =
-    Boolean(interviewType && date && time && duration && mode) &&
+    Boolean(status && interviewType && roundNumber >= 1 && date && time && duration && mode) &&
+    Boolean(linkedJobLabel || candidate?.assignedJob || candidate?.assignedJobId) &&
     selectedInterviewers.length > 0 &&
     (mode !== 'video' || Boolean(meetingPlatform)) &&
     (mode !== 'video' || Boolean(meetingLink.trim())) &&
@@ -1353,19 +1359,26 @@ function ScheduleInterviewModal({
                   <h4 className="text-sm font-semibold text-slate-900">Interview Details</h4>
                   <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="sm:col-span-2">
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Status</label>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">
+                        Status <span className="text-red-500">*</span>
+                      </label>
                       <select
                         value={status}
                         onChange={(e) => setStatus(e.target.value as any)}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                        className={`w-full rounded-xl border bg-white px-3 py-2.5 text-sm text-slate-700 outline-none ${
+                          errors.status ? 'border-red-300' : 'border-slate-200'
+                        } focus:border-blue-400 focus:ring-2 focus:ring-blue-100`}
                       >
                         <option value="scheduled">Scheduled</option>
                         <option value="completed">Completed</option>
                         <option value="cancelled">Cancelled</option>
                       </select>
+                      {errors.status ? <p className="mt-1 text-xs text-red-600">{errors.status}</p> : null}
                     </div>
                     <div className="sm:col-span-2">
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Interview Type</label>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">
+                        Interview Type <span className="text-red-500">*</span>
+                      </label>
                       <div className="relative" ref={typeRef}>
                         <button
                           type="button"
@@ -1403,18 +1416,29 @@ function ScheduleInterviewModal({
                     </div>
 
                     <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Round Number</label>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">
+                        Round Number <span className="text-red-500">*</span>
+                      </label>
                       <input
                         type="number"
                         min={1}
                         value={roundNumber}
-                        onChange={(e) => setRoundNumber(Math.max(1, Number(e.target.value) || 1))}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                        onChange={(e) => {
+                          const nextValue = Math.max(1, Number(e.target.value) || 1);
+                          setRoundNumber(nextValue);
+                          setErrors((prev) => ({ ...prev, roundNumber: undefined }));
+                        }}
+                        className={`w-full rounded-xl border bg-white px-3 py-2.5 text-sm text-slate-700 outline-none ${
+                          errors.roundNumber ? 'border-red-300' : 'border-slate-200'
+                        } focus:border-blue-400 focus:ring-2 focus:ring-blue-100`}
                       />
+                      {errors.roundNumber ? <p className="mt-1 text-xs text-red-600">{errors.roundNumber}</p> : null}
                     </div>
 
                     <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Date</label>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">
+                        Date <span className="text-red-500">*</span>
+                      </label>
                       <input
                         type="date"
                         min={minimumDate}
@@ -1434,7 +1458,9 @@ function ScheduleInterviewModal({
                     </div>
 
                     <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Time</label>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">
+                        Time <span className="text-red-500">*</span>
+                      </label>
                       <div className="relative" ref={timeRef}>
                         <button
                           type="button"
@@ -1473,7 +1499,9 @@ function ScheduleInterviewModal({
                     </div>
 
                     <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Duration</label>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">
+                        Duration <span className="text-red-500">*</span>
+                      </label>
                       <div className="relative" ref={durationRef}>
                         <button
                           type="button"
@@ -1514,7 +1542,9 @@ function ScheduleInterviewModal({
                     </div>
 
                     <div className="sm:col-span-2">
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Interview Mode</label>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">
+                        Interview Mode <span className="text-red-500">*</span>
+                      </label>
                       <div className="flex flex-wrap gap-2">
                         {[
                           { value: 'video', label: 'Video Call', icon: Video },
@@ -1548,7 +1578,9 @@ function ScheduleInterviewModal({
 
                     {mode === 'video' ? (
                       <div className="sm:col-span-2">
-                        <label className="mb-2 block text-sm font-medium text-slate-700">Meeting Platform</label>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">
+                          Meeting Platform <span className="text-red-500">*</span>
+                        </label>
                         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                           {(['Google Meet', 'Zoom'] as const).map((platform) => (
                             <button
@@ -1586,7 +1618,9 @@ function ScheduleInterviewModal({
 
                     {mode === 'in-person' ? (
                       <div className="sm:col-span-2">
-                        <label className="mb-2 block text-sm font-medium text-slate-700">Location / Office Address</label>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">
+                          Location / Office Address <span className="text-red-500">*</span>
+                        </label>
                         <input
                           value={location}
                           onChange={(e) => {
@@ -1602,7 +1636,9 @@ function ScheduleInterviewModal({
 
                     {mode === 'phone' ? (
                       <div className="sm:col-span-2">
-                        <label className="mb-2 block text-sm font-medium text-slate-700">Phone Number</label>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">
+                          Phone Number <span className="text-red-500">*</span>
+                        </label>
                         <input
                           value={phoneNumber}
                           onChange={(e) => {
@@ -1617,17 +1653,28 @@ function ScheduleInterviewModal({
                     ) : null}
 
                     <div className="sm:col-span-2">
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Linked Job</label>
-                      <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-600">
+                      <label className="mb-2 block text-sm font-medium text-slate-700">
+                        Linked Job <span className="text-red-500">*</span>
+                      </label>
+                      <div
+                        className={`rounded-xl border bg-white px-3 py-2.5 text-sm text-slate-600 ${
+                          errors.linkedJob ? 'border-red-300' : 'border-slate-200'
+                        }`}
+                      >
                         {linkedJobLabel || candidate?.assignedJob || (candidate?.assignedJobId ? `Job ID: ${candidate.assignedJobId}` : 'No linked job')}
                       </div>
+                      {errors.linkedJob ? <p className="mt-1 text-xs text-red-600">{errors.linkedJob}</p> : null}
                     </div>
                   </div>
                 </section>
 
                 <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <h4 className="text-sm font-semibold text-slate-900">Interview Panel</h4>
-                  <p className="mt-1 text-sm text-slate-500">Assign Interviewers</p>
+                  <h4 className="text-sm font-semibold text-slate-900">
+                    Interview Panel <span className="text-red-500">*</span>
+                  </h4>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Assign Interviewers <span className="text-red-500">*</span>
+                  </p>
                   <div className="relative mt-4" ref={interviewerRef}>
                     <button
                       type="button"
@@ -2248,6 +2295,9 @@ interface RejectCandidateModalProps {
 
 type RejectModalStep = 'form' | 'confirm' | 'progress' | 'done';
 
+const REJECT_FEEDBACK_MIN_LENGTH = 100;
+const REJECT_FEEDBACK_MAX_LENGTH = 100;
+
 function RejectCandidateModal({
   candidate,
   isOpen,
@@ -2277,7 +2327,11 @@ function RejectCandidateModal({
   const validate = () => {
     const nextErrors: { reason?: string; feedback?: string } = {};
     if (!reason) nextErrors.reason = 'Reject reason is required';
-    if (feedback.trim().length < 20) nextErrors.feedback = 'HR feedback must be at least 20 characters';
+    if (feedback.trim().length < REJECT_FEEDBACK_MIN_LENGTH) {
+      nextErrors.feedback = `HR feedback must be at least ${REJECT_FEEDBACK_MIN_LENGTH} characters`;
+    } else if (feedback.trim().length > REJECT_FEEDBACK_MAX_LENGTH) {
+      nextErrors.feedback = 'Characters exceeded';
+    }
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
   };
@@ -2371,11 +2425,17 @@ function RejectCandidateModal({
                     </div>
 
                     <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">HR Feedback</label>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">Feedback</label>
                       <textarea
                         value={feedback}
                         onChange={(e) => {
-                          setFeedback(e.target.value);
+                          const nextValue = e.target.value;
+                          if (nextValue.length > REJECT_FEEDBACK_MAX_LENGTH) {
+                            setFeedback(nextValue.slice(0, REJECT_FEEDBACK_MAX_LENGTH));
+                            setErrors((prev) => ({ ...prev, feedback: 'Characters exceeded' }));
+                            return;
+                          }
+                          setFeedback(nextValue);
                           setErrors((prev) => ({ ...prev, feedback: undefined }));
                         }}
                         rows={5}
@@ -2386,7 +2446,7 @@ function RejectCandidateModal({
                       />
                       <div className="mt-1 flex items-center justify-between">
                         {errors.feedback ? <p className="text-xs text-red-600">{errors.feedback}</p> : <span />}
-                        <p className="text-xs text-slate-400">{feedback.trim().length}/20 min</p>
+                        <p className="text-xs text-slate-400">{feedback.trim().length}/{REJECT_FEEDBACK_MAX_LENGTH} chars</p>
                       </div>
                     </div>
 

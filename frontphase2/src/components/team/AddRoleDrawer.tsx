@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { createRole } from '../../lib/api/teamApi';
 import type { Permission } from '../../types/team';
+import { buildFallbackPermissionsMap, mergePermissionMaps } from './permissionCatalog';
 
 interface AddRoleDrawerProps {
   isOpen: boolean;
@@ -59,6 +60,10 @@ const formatPermissionName = (name: string): string => {
 };
 
 export const AddRoleDrawer: React.FC<AddRoleDrawerProps> = ({ isOpen, permissions, onClose, onSuccess }) => {
+  const effectivePermissions = React.useMemo(
+    () => mergePermissionMaps(Object.keys(permissions || {}).length > 0 ? permissions : buildFallbackPermissionsMap()),
+    [permissions]
+  );
   const [formData, setFormData] = useState({
     roleName: '',
     description: '',
@@ -73,17 +78,17 @@ export const AddRoleDrawer: React.FC<AddRoleDrawerProps> = ({ isOpen, permission
   // Initialize module select all state
   useEffect(() => {
     const moduleStates: Record<string, boolean> = {};
-    Object.keys(permissions).forEach((module) => {
+    Object.keys(effectivePermissions).forEach((module) => {
       moduleStates[module] = false;
     });
     setModuleSelectAll(moduleStates);
-  }, [permissions]);
+  }, [effectivePermissions]);
 
   // Calculate selected permission count
   const selectedCount = formData.selectedPermissions.size;
 
   // Get modules in sorted order
-  const modules = Object.keys(permissions).sort((a, b) => {
+  const modules = Object.keys(effectivePermissions).sort((a, b) => {
     const aIndex = moduleOrder.indexOf(a);
     const bIndex = moduleOrder.indexOf(b);
     if (aIndex === -1 && bIndex === -1) return a.localeCompare(b);
@@ -116,7 +121,7 @@ export const AddRoleDrawer: React.FC<AddRoleDrawerProps> = ({ isOpen, permission
   };
 
   const handleModuleSelectAll = (module: string) => {
-    const modulePermissions = permissions[module] || [];
+    const modulePermissions = effectivePermissions[module] || [];
     const allSelected = modulePermissions.every((p) => formData.selectedPermissions.has(p.id));
 
     setFormData((prev) => {
@@ -291,8 +296,16 @@ export const AddRoleDrawer: React.FC<AddRoleDrawerProps> = ({ isOpen, permission
                 {errors.permissions && <p className="text-xs text-red-600">{errors.permissions}</p>}
 
                 <div className="space-y-4 max-h-[400px] overflow-y-auto">
+                  {modules.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-slate-200 bg-white px-4 py-6 text-center">
+                      <p className="text-sm font-semibold text-slate-800">Loading permissions...</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        If the API response is delayed, the default permission groups will appear here automatically.
+                      </p>
+                    </div>
+                  ) : null}
                   {modules.map((module) => {
-                    const modulePermissions = permissions[module] || [];
+                    const modulePermissions = effectivePermissions[module] || [];
                     const allSelected = modulePermissions.length > 0 && modulePermissions.every((p) => formData.selectedPermissions.has(p.id));
                     const someSelected = modulePermissions.some((p) => formData.selectedPermissions.has(p.id));
 
