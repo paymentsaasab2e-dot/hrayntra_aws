@@ -32,6 +32,11 @@ const formatPermissionName = (name: string): string => {
     .join(' ');
 };
 
+const getSafeRoleColorClass = (color?: string | null) => {
+  const key = String(color || '').trim().toLowerCase();
+  return roleColorMap[key] || 'bg-gray-500';
+};
+
 export const RolesTab: React.FC = () => {
   const [roles, setRoles] = useState<SystemRole[]>([]);
   const [permissions, setPermissions] = useState<Record<string, any[]>>({});
@@ -163,7 +168,7 @@ export const RolesTab: React.FC = () => {
                     <tr key={role.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className={`size-2 rounded-full ${roleColorMap[role.color.toLowerCase()] || 'bg-gray-500'}`} />
+                          <div className={`size-2 rounded-full ${getSafeRoleColorClass(role.color)}`} />
                           <div>
                             <div className="font-medium text-slate-900">{role.roleName}</div>
                             {role.description && (
@@ -173,7 +178,7 @@ export const RolesTab: React.FC = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className={`size-6 rounded-full ${roleColorMap[role.color.toLowerCase()] || 'bg-gray-500'}`} />
+                        <div className={`size-6 rounded-full ${getSafeRoleColorClass(role.color)}`} />
                       </td>
                       <td className="px-6 py-4">
                         <button
