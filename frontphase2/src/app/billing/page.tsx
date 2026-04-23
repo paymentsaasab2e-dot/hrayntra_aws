@@ -18,7 +18,7 @@ import {
   Settings,
   Wallet,
 } from 'lucide-react';
-import { apiFetch, buildApiUrl } from '../../lib/api';
+import { apiFetch } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
 
 type BillingTab =
@@ -145,9 +145,12 @@ function buildQuery(filters: FiltersState) {
   return params.toString();
 }
 
-function getUploadUrl(fileUrl: string) {
-  const base = buildApiUrl('/').replace(/\/api\/v1\/?$/, '').replace(/\/api\/proxy\/?$/, '');
-  return fileUrl.startsWith('http') ? fileUrl : `${base}${fileUrl}`;
+function buildDownloadHref(fileUrl: string, filename: string) {
+  const params = new URLSearchParams({
+    path: fileUrl,
+    filename,
+  });
+  return `/api/download-file?${params.toString()}`;
 }
 
 function Badge({ value }: { value: string }) {
@@ -326,7 +329,16 @@ export default function BillingPage() {
       const query = buildQuery(appliedFilters);
       const key = TAB_EXPORT_KEY[activeTab];
       const response = await apiFetch<{ fileUrl: string }>(`/billing/export/${key}/${format}?${query}`, { auth: true });
-      window.open(getUploadUrl(response.data.fileUrl), '_blank');
+      const extension = format === 'excel' ? 'xlsx' : format;
+      const downloadName = `billing-${key}-${new Date().toISOString().split('T')[0]}.${extension}`;
+      const href = buildDownloadHref(response.data.fileUrl, downloadName);
+      const link = document.createElement('a');
+      link.href = href;
+      link.download = downloadName;
+      link.rel = 'noopener noreferrer';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
     } catch (err: any) {
       setError(err?.message || 'Failed to export billing data.');
     } finally {

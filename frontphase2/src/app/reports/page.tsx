@@ -38,7 +38,7 @@ import {
   YAxis,
 } from 'recharts';
 import { AnimatePresence, motion } from 'motion/react';
-import { apiFetch, buildApiUrl } from '../../lib/api';
+import { apiFetch } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
 
 type ReportTab =
@@ -195,9 +195,12 @@ function buildQueryString(filters: FiltersState, extra: Record<string, string> =
   return params.toString();
 }
 
-function getUploadUrl(fileUrl: string) {
-  const base = buildApiUrl('/').replace(/\/api\/v1\/?$/, '').replace(/\/api\/proxy\/?$/, '');
-  return fileUrl.startsWith('http') ? fileUrl : `${base}${fileUrl}`;
+function buildDownloadHref(fileUrl: string, filename: string) {
+  const params = new URLSearchParams({
+    path: fileUrl,
+    filename,
+  });
+  return `/api/download-file?${params.toString()}`;
 }
 
 const Card = ({ title, children, className = '' }: { title?: string; children: React.ReactNode; className?: string }) => (
@@ -752,14 +755,32 @@ export default function ReportsPage() {
       if (activeTab === 'Custom Reports') {
         const query = buildQueryString(appliedFilters);
         const response = await apiFetch<{ downloadUrl: string }>(`/reports/export/${customSource}/${format}?${query}`, { auth: true });
-        window.open(getUploadUrl(response.data.downloadUrl), '_blank', 'noopener,noreferrer');
+        const extension = format === 'csv' ? 'csv' : 'pdf';
+        const downloadName = `${customSource.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${new Date().toISOString().split('T')[0]}.${extension}`;
+        const href = buildDownloadHref(response.data.downloadUrl, downloadName);
+        const link = document.createElement('a');
+        link.href = href;
+        link.download = downloadName;
+        link.rel = 'noopener noreferrer';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
         return;
       }
 
       const tabKey = TAB_EXPORT_KEY[activeTab as Exclude<ReportTab, 'Custom Reports'>];
       const query = buildQueryString(appliedFilters);
       const response = await apiFetch<{ downloadUrl: string }>(`/reports/summary/export/${tabKey}/${format}?${query}`, { auth: true });
-      window.open(getUploadUrl(response.data.downloadUrl), '_blank', 'noopener,noreferrer');
+      const extension = format === 'csv' ? 'csv' : 'pdf';
+      const downloadName = `${tabKey}-${new Date().toISOString().split('T')[0]}.${extension}`;
+      const href = buildDownloadHref(response.data.downloadUrl, downloadName);
+      const link = document.createElement('a');
+      link.href = href;
+      link.download = downloadName;
+      link.rel = 'noopener noreferrer';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to export report');
     } finally {
