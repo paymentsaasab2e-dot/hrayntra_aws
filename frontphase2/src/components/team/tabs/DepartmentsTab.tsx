@@ -7,7 +7,6 @@ import { toast } from 'sonner';
 import { getDepartments, deleteDepartment } from '../../../lib/api/teamApi';
 import type { Department } from '../../../types/team';
 import { AddDepartmentDrawer } from '../AddDepartmentDrawer';
-import { EditDepartmentDrawer } from '../EditDepartmentDrawer';
 import { DepartmentMembersDrawer } from '../DepartmentMembersDrawer';
 
 // Color mapping for role colors
@@ -45,7 +44,6 @@ export const DepartmentsTab: React.FC = () => {
   const [departments, setDepartments] = useState<DepartmentWithMembers[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddDrawer, setShowAddDrawer] = useState(false);
-  const [showEditDrawer, setShowEditDrawer] = useState(false);
   const [showMembersDrawer, setShowMembersDrawer] = useState(false);
   const [selectedDepartment, setSelectedDepartment] = useState<DepartmentWithMembers | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
@@ -96,6 +94,7 @@ export const DepartmentsTab: React.FC = () => {
   // Wire up the Add Department button from parent
   useEffect(() => {
     (window as any).openAddDepartmentDrawer = () => {
+      setSelectedDepartment(null);
       setShowAddDrawer(true);
     };
     return () => {
@@ -195,7 +194,7 @@ export const DepartmentsTab: React.FC = () => {
                           <button
                             onClick={() => {
                               setSelectedDepartment(dept);
-                              setShowEditDrawer(true);
+                              setShowAddDrawer(true);
                             }}
                             className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-600 hover:text-slate-900"
                             title="Edit"
@@ -241,29 +240,20 @@ export const DepartmentsTab: React.FC = () => {
       {/* Drawers */}
       <AddDepartmentDrawer
         isOpen={showAddDrawer}
-        onClose={() => setShowAddDrawer(false)}
+        department={selectedDepartment}
+        onClose={() => {
+          setShowAddDrawer(false);
+          setSelectedDepartment(null);
+        }}
         onSuccess={() => {
           setShowAddDrawer(false);
+          setSelectedDepartment(null);
           fetchData();
         }}
       />
 
       {selectedDepartment && (
         <>
-          <EditDepartmentDrawer
-            isOpen={showEditDrawer}
-            department={selectedDepartment}
-            onClose={() => {
-              setShowEditDrawer(false);
-              setSelectedDepartment(null);
-            }}
-            onSuccess={() => {
-              setShowEditDrawer(false);
-              setSelectedDepartment(null);
-              fetchData();
-            }}
-          />
-
           <DepartmentMembersDrawer
             isOpen={showMembersDrawer}
             department={selectedDepartment}

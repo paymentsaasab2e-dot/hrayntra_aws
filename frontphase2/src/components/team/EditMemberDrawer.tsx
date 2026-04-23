@@ -8,6 +8,65 @@ import { updateTeamMember, getRoles, getDepartments, getTeamMembers, deleteTeamM
 import { requestConfirm } from '../../lib/appDialog';
 import type { TeamMember, Role, Department, UpdateMemberPayload } from '../../types/team';
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const KNOWN_DOMAINS = [
+  'gmail.com',
+  'yahoo.com',
+  'outlook.com',
+  'hotmail.com',
+  'icloud.com',
+  'rediffmail.com',
+  'mail.com',
+  'live.com',
+];
+
+function levenshtein(a: string, b: string) {
+  const m = a.length;
+  const n = b.length;
+  const dp = Array.from({ length: m + 1 }, (_, i) =>
+    Array(n + 1).fill(0).map((_, j) => (j === 0 ? i : 0))
+  );
+
+  for (let j = 0; j <= n; j += 1) dp[0][j] = j;
+  for (let i = 1; i <= m; i += 1) {
+    for (let j = 1; j <= n; j += 1) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+
+  return dp[m][n];
+}
+
+function validateEmail(email: string) {
+  const value = String(email || '').trim();
+
+  if (!EMAIL_REGEX.test(value)) {
+    return { valid: false, message: 'Invalid email format' };
+  }
+
+  const domain = value.split('@')[1]?.toLowerCase() || '';
+  if (!KNOWN_DOMAINS.includes(domain)) {
+    let best: string | null = null;
+    let bestDist = Infinity;
+
+    for (const known of KNOWN_DOMAINS) {
+      const dist = levenshtein(domain, known);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = known;
+      }
+    }
+
+    if (bestDist <= 3 && best) {
+      return { valid: false, message: `Did you mean @${best}?` };
+    }
+  }
+
+  return { valid: true, message: 'Valid email' };
+}
+
 interface EditMemberDrawerProps {
   isOpen: boolean;
   member: TeamMember;
@@ -104,8 +163,11 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
     if (!formData.lastName?.trim()) newErrors.lastName = 'Last name is required';
     if (!formData.email?.trim()) {
       newErrors.email = 'Email is required';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      newErrors.email = 'Invalid email format';
+    } else {
+      const result = validateEmail(formData.email);
+      if (!result.valid) {
+        newErrors.email = result.message;
+      }
     }
     if (!formData.roleId) newErrors.roleId = 'Role is required';
 
@@ -257,6 +319,16 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
                       type="email"
                       value={formData.email || ''}
                       onChange={(e) => handleChange('email', e.target.value)}
+                      onBlur={() => {
+                        if (!formData.email?.trim()) {
+                          setErrors((prev) => ({ ...prev, email: 'Email is required' }));
+                          return;
+                        }
+                        const result = validateEmail(formData.email);
+                        if (!result.valid) {
+                          setErrors((prev) => ({ ...prev, email: result.message }));
+                        }
+                      }}
                       className={`w-full px-3 py-2 bg-white border rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all ${
                         errors.email ? 'border-red-300' : 'border-slate-200'
                       }`}

@@ -13,6 +13,7 @@ import type {
   UserActivity,
   TeamMemberStats,
 } from '../../types/team';
+import { buildFallbackPermissionsMap } from '../../components/team/permissionCatalog';
 
 const getApiConfig = () => {
   const isLocalBrowser =
@@ -73,6 +74,34 @@ const normalizeArrayPayload = <T>(payload: unknown): T[] => {
 
   return [];
 };
+
+const TEAM_CACHE_KEYS = {
+  roles: 'team:roles:cache',
+  permissions: 'team:permissions:cache',
+} as const;
+
+function isOfflineBrowser() {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
+}
+
+function readCache<T>(key: string): T | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCache<T>(key: string, value: T) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Ignore cache write errors.
+  }
+}
 
 /**
  * Get all team members with filters
@@ -455,21 +484,31 @@ export async function getMemberActivity(id: string) {
  * Get all roles
  */
 export async function getRoles() {
+  if (isOfflineBrowser()) {
+    return { data: readCache<Role[]>(TEAM_CACHE_KEYS.roles) || [], success: true };
+  }
+
   const path = buildPath('/roles?limit=100&page=1');
   const headers = getTeamAuthHeaders();
 
-  const res = await fetch(`${API_BASE_NEW}${path}`, {
-    method: 'GET',
-    headers,
-    cache: 'no-store',
-  });
-  
-  const json = await res.json();
-  if (!res.ok || json?.success === false) {
-    throw new Error(json?.message || `Request failed with status ${res.status}`);
+  try {
+    const res = await fetch(`${API_BASE_NEW}${path}`, {
+      method: 'GET',
+      headers,
+      cache: 'no-store',
+    });
+
+    const json = await res.json();
+    if (!res.ok || json?.success === false) {
+      throw new Error(json?.message || `Request failed with status ${res.status}`);
+    }
+
+    const roles = normalizeArrayPayload<Role>(json.data);
+    writeCache(TEAM_CACHE_KEYS.roles, roles);
+    return { data: roles, success: json.success };
+  } catch {
+    return { data: readCache<Role[]>(TEAM_CACHE_KEYS.roles) || [], success: true };
   }
-  
-  return { data: normalizeArrayPayload<Role>(json.data), success: json.success };
 }
 
 /**
@@ -661,21 +700,31 @@ export async function saveTargets(memberId: string, targets: Array<{ targetType:
  * Get all permissions grouped by module
  */
 export async function getAllPermissions() {
+  if (isOfflineBrowser()) {
+    return { data: buildFallbackPermissionsMap(), success: true };
+  }
+
   const path = buildPath('/permissions');
   const headers = getTeamAuthHeaders();
 
-  const res = await fetch(`${API_BASE_NEW}${path}`, {
-    method: 'GET',
-    headers,
-    cache: 'no-store',
-  });
-  
-  const json = await res.json();
-  if (!res.ok || json?.success === false) {
-    throw new Error(json?.message || `Request failed with status ${res.status}`);
+  try {
+    const res = await fetch(`${API_BASE_NEW}${path}`, {
+      method: 'GET',
+      headers,
+      cache: 'no-store',
+    });
+
+    const json = await res.json();
+    if (!res.ok || json?.success === false) {
+      throw new Error(json?.message || `Request failed with status ${res.status}`);
+    }
+
+    const permissions = json.data || buildFallbackPermissionsMap();
+    writeCache(TEAM_CACHE_KEYS.permissions, permissions);
+    return { data: permissions, success: json.success };
+  } catch {
+    return { data: readCache<Record<string, Permission[]>>(TEAM_CACHE_KEYS.permissions) || buildFallbackPermissionsMap(), success: true };
   }
-  
-  return { data: json.data || {}, success: json.success };
 }
 
 /**

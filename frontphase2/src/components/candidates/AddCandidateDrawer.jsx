@@ -24,7 +24,6 @@ import {
   apiUploadCandidateResumeFile,
 } from '@/lib/api';
 import { MY_JOBS_LIST_PARAMS } from '@/lib/myJobsListParams';
-import { requestConfirm } from '@/lib/appDialog';
 
 const METHOD_TABS = [
   { key: 'manual', label: 'Manual Entry' },
@@ -48,7 +47,18 @@ const NOTICE_PERIOD_OPTIONS = ['Immediate', '15 days', '30 days', '45 days', '60
 const AVAILABILITY_OPTIONS = ['Available', 'Interviewing Elsewhere', 'Not Available'];
 const CURRENCY_OPTIONS = ['INR', 'USD', 'GBP', 'AED', 'EUR'];
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const KNOWN_DOMAINS = [
+  'gmail.com',
+  'yahoo.com',
+  'outlook.com',
+  'hotmail.com',
+  'icloud.com',
+  'rediffmail.com',
+  'mail.com',
+  'live.com',
+];
 const LINKEDIN_REGEX = /^(https?:\/\/)?(www\.)?linkedin\.com\/in\/[A-Za-z0-9-_%]+\/?$/i;
+const NO_DIGITS_REGEX = /\d/;
 
 const DEFAULT_FORM_DATA = {
   firstName: '',
@@ -77,15 +87,6 @@ const DEFAULT_FORM_DATA = {
   skills: [],
   initialNote: '',
 };
-
-function hasMeaningfulValue(value) {
-  if (Array.isArray(value)) return value.length > 0;
-  return String(value ?? '').trim().length > 0;
-}
-
-function getDirtyState(formData, extras = {}) {
-  return Object.values(formData).some((value) => hasMeaningfulValue(value)) || Object.values(extras).some(Boolean);
-}
 
 function extractItems(payload) {
   if (Array.isArray(payload)) return payload;
@@ -158,6 +159,66 @@ function getInitials(name = '') {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join('');
+}
+
+function levenshtein(a, b) {
+  const m = a.length;
+  const n = b.length;
+  const dp = Array.from({ length: m + 1 }, (_, i) =>
+    Array(n + 1).fill(0).map((_, j) => (j === 0 ? i : 0))
+  );
+
+  for (let j = 0; j <= n; j += 1) dp[0][j] = j;
+  for (let i = 1; i <= m; i += 1) {
+    for (let j = 1; j <= n; j += 1) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+
+  return dp[m][n];
+}
+
+function validateEmail(email) {
+  const value = String(email || '').trim();
+
+  if (!EMAIL_REGEX.test(value)) {
+    return { valid: false, message: 'Invalid email format' };
+  }
+
+  const domain = value.split('@')[1]?.toLowerCase() || '';
+  if (!KNOWN_DOMAINS.includes(domain)) {
+    let best = null;
+    let bestDist = Infinity;
+
+    for (const known of KNOWN_DOMAINS) {
+      const dist = levenshtein(domain, known);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = known;
+      }
+    }
+
+    if (bestDist <= 3 && best) {
+      return { valid: false, message: `Did you mean @${best}?` };
+    }
+  }
+
+  return { valid: true, message: 'Valid email' };
+}
+
+function validateNoDigits(value, label) {
+  const text = String(value || '').trim();
+  if (!text) return { valid: false, message: `${label} is required` };
+  if (NO_DIGITS_REGEX.test(text)) {
+    return { valid: false, message: `${label} cannot contain numbers` };
+  }
+  return { valid: true, message: '' };
+}
+
+function stripDigits(value) {
+  return String(value || '').replace(/\d/g, '');
 }
 
 function DrawerInput({
@@ -509,21 +570,6 @@ export default function AddCandidateDrawer({
     [recruiters, formData.recruiterId]
   );
 
-  const hasUnsavedChanges = useMemo(
-    () =>
-      getDirtyState(formData, {
-        parsedResumeFile,
-        manualResumeFile,
-        parsedData,
-        csvFile,
-        csvRows: csvRows.length > 0,
-        csvResult,
-        bulkResumeFiles: bulkResumeFiles.length > 0,
-        bulkResumeResults: bulkResumeResults.length > 0,
-      }),
-    [bulkResumeFiles.length, bulkResumeResults.length, csvFile, csvResult, csvRows.length, formData, manualResumeFile, parsedData, parsedResumeFile]
-  );
-
   // Same scope as /job table: only jobs created by the logged-in user (not all OPEN jobs in the tenant).
   useEffect(() => {
     if (!isOpen) {
@@ -621,20 +667,13 @@ export default function AddCandidateDrawer({
     if (nextTab) setActiveTab(nextTab);
   };
 
-  const confirmDiscard = async () => {
-    if (!hasUnsavedChanges) return true;
-    return requestConfirm('You have unsaved changes. Close anyway?');
-  };
-
-  const handleDrawerClose = async () => {
-    if (!(await confirmDiscard())) return;
+  const handleDrawerClose = () => {
     resetForNext(activeTab);
     onClose();
   };
 
-  const handleTabChange = async (nextTab) => {
+  const handleTabChange = (nextTab) => {
     if (nextTab === activeTab) return;
-    if (!(await confirmDiscard())) return;
     resetForNext(nextTab);
   };
 
@@ -661,12 +700,23 @@ export default function AddCandidateDrawer({
     const nextErrors = {};
 
     if (step === 1) {
-      if (!formData.firstName.trim()) nextErrors.firstName = 'First name is required';
-      if (!formData.lastName.trim()) nextErrors.lastName = 'Last name is required';
+      const firstNameCheck = validateNoDigits(formData.firstName, 'First name');
+      if (!firstNameCheck.valid) nextErrors.firstName = firstNameCheck.message;
+
+      const lastNameCheck = validateNoDigits(formData.lastName, 'Last name');
+      if (!lastNameCheck.valid) nextErrors.lastName = lastNameCheck.message;
+
       if (!formData.email.trim()) {
         nextErrors.email = 'Email is required';
-      } else if (!EMAIL_REGEX.test(formData.email.trim())) {
-        nextErrors.email = 'Enter a valid email address';
+      } else {
+        const result = validateEmail(formData.email.trim());
+        if (!result.valid) {
+          nextErrors.email = result.message;
+        }
+      }
+      const companyCheck = validateNoDigits(formData.currentCompany, 'Current company');
+      if (formData.currentCompany.trim() && !companyCheck.valid) {
+        nextErrors.currentCompany = companyCheck.message;
       }
       if (formData.phone && !/^\d{7,15}$/.test(formData.phone.trim())) {
         nextErrors.phone = 'Phone must be 7-15 digits';
@@ -727,7 +777,7 @@ export default function AddCandidateDrawer({
   const handleDuplicateCheck = async (field) => {
     const value = field === 'email' ? formData.email.trim() : formData.phone.trim();
     if (!value) return;
-    if (field === 'email' && !EMAIL_REGEX.test(value)) return;
+    if (field === 'email' && !validateEmail(value).valid) return;
     if (field === 'phone' && !/^\d{7,15}$/.test(value)) return;
 
     try {
@@ -1890,7 +1940,13 @@ export default function AddCandidateDrawer({
                     name="firstName"
                     required
                     value={formData.firstName}
-                    onChange={(event) => updateFormData('firstName', event.target.value)}
+                    onChange={(event) => updateFormData('firstName', stripDigits(event.target.value))}
+                    onBlur={() => {
+                      const result = validateNoDigits(formData.firstName, 'First name');
+                      if (!result.valid) {
+                        setErrors((prev) => ({ ...prev, firstName: result.message }));
+                      }
+                    }}
                     error={errors.firstName}
                     inputRef={(node) => {
                       fieldRefs.current.firstName = node;
@@ -1902,7 +1958,13 @@ export default function AddCandidateDrawer({
                     name="lastName"
                     required
                     value={formData.lastName}
-                    onChange={(event) => updateFormData('lastName', event.target.value)}
+                    onChange={(event) => updateFormData('lastName', stripDigits(event.target.value))}
+                    onBlur={() => {
+                      const result = validateNoDigits(formData.lastName, 'Last name');
+                      if (!result.valid) {
+                        setErrors((prev) => ({ ...prev, lastName: result.message }));
+                      }
+                    }}
                     error={errors.lastName}
                     inputRef={(node) => {
                       fieldRefs.current.lastName = node;
@@ -1917,7 +1979,19 @@ export default function AddCandidateDrawer({
                       required
                       value={formData.email}
                       onChange={(event) => updateFormData('email', event.target.value)}
-                      onBlur={() => handleDuplicateCheck('email')}
+                      onBlur={() => {
+                        const value = formData.email.trim();
+                        if (!value) {
+                          setErrors((prev) => ({ ...prev, email: 'Email is required' }));
+                          return;
+                        }
+                        const result = validateEmail(value);
+                        if (!result.valid) {
+                          setErrors((prev) => ({ ...prev, email: result.message }));
+                          return;
+                        }
+                        handleDuplicateCheck('email');
+                      }}
                       error={errors.email}
                       autoFilled={autoFilledFields.email}
                     />
@@ -1941,7 +2015,16 @@ export default function AddCandidateDrawer({
                     label="Current Company"
                     name="currentCompany"
                     value={formData.currentCompany}
-                    onChange={(event) => updateFormData('currentCompany', event.target.value)}
+                    onChange={(event) => updateFormData('currentCompany', stripDigits(event.target.value))}
+                    onBlur={() => {
+                      const value = formData.currentCompany.trim();
+                      if (!value) return;
+                      const result = validateNoDigits(value, 'Current company');
+                      if (!result.valid) {
+                        setErrors((prev) => ({ ...prev, currentCompany: result.message }));
+                      }
+                    }}
+                    error={errors.currentCompany}
                     autoFilled={autoFilledFields.currentCompany}
                   />
                   <DrawerInput

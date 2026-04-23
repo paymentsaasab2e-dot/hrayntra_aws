@@ -7,6 +7,65 @@ import { toast } from 'sonner';
 import { createTeamMember, getRoles, getDepartments, getTeamMembers } from '../../lib/api/teamApi';
 import type { Role, Department, CreateMemberPayload, TeamMember } from '../../types/team';
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const KNOWN_DOMAINS = [
+  'gmail.com',
+  'yahoo.com',
+  'outlook.com',
+  'hotmail.com',
+  'icloud.com',
+  'rediffmail.com',
+  'mail.com',
+  'live.com',
+];
+
+function levenshtein(a: string, b: string) {
+  const m = a.length;
+  const n = b.length;
+  const dp = Array.from({ length: m + 1 }, (_, i) =>
+    Array(n + 1).fill(0).map((_, j) => (j === 0 ? i : 0))
+  );
+
+  for (let j = 0; j <= n; j += 1) dp[0][j] = j;
+  for (let i = 1; i <= m; i += 1) {
+    for (let j = 1; j <= n; j += 1) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+
+  return dp[m][n];
+}
+
+function validateEmail(email: string) {
+  const value = String(email || '').trim();
+
+  if (!EMAIL_REGEX.test(value)) {
+    return { valid: false, message: 'Invalid email format' };
+  }
+
+  const domain = value.split('@')[1]?.toLowerCase() || '';
+  if (!KNOWN_DOMAINS.includes(domain)) {
+    let best: string | null = null;
+    let bestDist = Infinity;
+
+    for (const known of KNOWN_DOMAINS) {
+      const dist = levenshtein(domain, known);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = known;
+      }
+    }
+
+    if (bestDist <= 3 && best) {
+      return { valid: false, message: `Did you mean @${best}?` };
+    }
+  }
+
+  return { valid: true, message: 'Valid email' };
+}
+
 interface AddMemberDrawerProps {
   isOpen: boolean;
   onClose: () => void;
@@ -105,8 +164,11 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
     if (!formData.lastName.trim()) newErrors.lastName = 'Last name is required';
     if (!formData.email.trim()) {
       newErrors.email = 'Email is required';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      newErrors.email = 'Invalid email format';
+    } else {
+      const result = validateEmail(formData.email);
+      if (!result.valid) {
+        newErrors.email = result.message;
+      }
     }
     if (!formData.roleId) newErrors.roleId = 'Role is required';
 
@@ -255,6 +317,16 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
                       type="email"
                       value={formData.email}
                       onChange={(e) => handleChange('email', e.target.value)}
+                      onBlur={() => {
+                        if (!formData.email.trim()) {
+                          setErrors((prev) => ({ ...prev, email: 'Email is required' }));
+                          return;
+                        }
+                        const result = validateEmail(formData.email);
+                        if (!result.valid) {
+                          setErrors((prev) => ({ ...prev, email: result.message }));
+                        }
+                      }}
                       className={`w-full px-3 py-2 bg-white border rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all ${
                         errors.email ? 'border-red-300' : 'border-slate-200'
                       }`}
@@ -488,11 +560,11 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
               >
                 {createdMember?.credentialData ? 'Close' : 'Cancel'}
               </button>
-              {createdMember?.credentialData ? (
-                <button
-                  type="button"
-                  onClick={handleClose}
-                  className="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
+                  {createdMember?.credentialData ? (
+                    <button
+                      type="button"
+                      onClick={handleClose}
+                      className="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
                 >
                   Done
                 </button>
@@ -500,7 +572,14 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
                 <button
                   type="submit"
                   onClick={handleSubmit}
-                  disabled={isSubmitting}
+                  disabled={
+                    isSubmitting ||
+                    !formData.firstName.trim() ||
+                    !formData.lastName.trim() ||
+                    !formData.email.trim() ||
+                    !validateEmail(formData.email).valid ||
+                    !formData.roleId
+                  }
                   className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
                   {isSubmitting ? (

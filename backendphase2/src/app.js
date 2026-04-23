@@ -190,6 +190,7 @@ app.use('/api/team', teamRoutesNew); // New TypeScript team routes
 app.use('/api/v1/roles', roleRoutes);
 app.use('/api/roles', rolesRoutesNew); // New TypeScript roles routes
 app.use('/api/permissions', permissionsRoutesNew); // Permissions route
+app.use('/api/v1/permissions', permissionsRoutesNew); // Permissions route alias for proxy/upstream compatibility
 app.use('/api/v1/departments', departmentRoutes);
 app.use('/api/departments', departmentsRoutesNew); // New TypeScript departments routes
 app.use('/api/v1', scheduledMeetingsRoutes); // Scheduled meetings routes
