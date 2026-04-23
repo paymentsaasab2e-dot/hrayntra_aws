@@ -5,11 +5,14 @@ export const dynamic = 'force-dynamic';
 
 const DEFAULT_BACKEND_BASE = 'https://api2.hryantra.com/api/v1';
 const backendBase = (process.env.BACKEND_INTERNAL_URL || DEFAULT_BACKEND_BASE).replace(/\/$/, '');
+const NEW_API_ROOT_PATHS = new Set(['team', 'roles', 'permissions', 'departments']);
 
 const buildTargetUrl = (req: NextRequest, pathParts: string[]) => {
   const pathname = pathParts.join('/');
   const query = req.nextUrl.search || '';
-  return `${backendBase}/${pathname}${query}`;
+  const rootPath = pathParts[0] || '';
+  const normalizedBase = NEW_API_ROOT_PATHS.has(rootPath) ? backendBase.replace(/\/api\/v1$/, '/api') : backendBase;
+  return `${normalizedBase}/${pathname}${query}`;
 };
 
 async function proxyRequest(req: NextRequest, pathParts: string[]) {

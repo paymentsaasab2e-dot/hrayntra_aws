@@ -31,7 +31,7 @@ const getApiConfig = () => {
   }
 
   // Production/non-local browsers must use same-origin proxy.
-  // The proxy already forwards to /api/v1 upstream, so we must not prepend /api here.
+  // The proxy handles route translation for the newer team endpoints.
   return {
     base: '/api/proxy',
     routePrefix: '',
@@ -43,6 +43,10 @@ const { base: API_BASE_NEW, routePrefix: API_ROUTE_PREFIX } = getApiConfig();
 const buildPath = (path: string) => {
   const normalizedPath = path.replace(/^\/api(?=\/|$)/, '');
   return `${API_ROUTE_PREFIX}${normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`}`;
+};
+
+const buildRolesPath = (suffix: string = '') => {
+  return buildPath(`/roles${suffix}`);
 };
 
 /** Auth + optional tenant header for /api/team, /api/roles, /api/permissions (must match backend tenant middleware). */
@@ -488,7 +492,8 @@ export async function getRoles() {
     return { data: readCache<Role[]>(TEAM_CACHE_KEYS.roles) || [], success: true };
   }
 
-  const path = buildPath('/roles?limit=100&page=1');
+  // Intentionally route roles through the newer proxy-backed endpoint.
+  const path = buildRolesPath('?limit=100&page=1');
   const headers = getTeamAuthHeaders();
 
   try {
