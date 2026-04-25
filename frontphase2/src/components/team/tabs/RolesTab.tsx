@@ -87,6 +87,17 @@ export const RolesTab: React.FC = () => {
     return role.rolePermissions?.length || 0;
   };
 
+  const upsertRoleLocal = useCallback((role: SystemRole) => {
+    setRoles((prev) => {
+      const exists = prev.some((item) => item.id === role.id);
+      return exists ? prev.map((item) => (item.id === role.id ? role : item)) : [role, ...prev];
+    });
+  }, []);
+
+  const removeRoleLocal = useCallback((roleId: string) => {
+    setRoles((prev) => prev.filter((role) => role.id !== roleId));
+  }, []);
+
   const handleEdit = (role: SystemRole) => {
     setSelectedRole(role);
     setShowEditDrawer(true);
@@ -102,6 +113,7 @@ export const RolesTab: React.FC = () => {
       await deleteRole(role.id);
       toast.success('Role deleted successfully');
       setDeleteConfirm(null);
+      removeRoleLocal(role.id);
       mutate();
     } catch (error: any) {
       toast.error(error.message || 'Failed to delete role');
@@ -261,9 +273,12 @@ export const RolesTab: React.FC = () => {
         isOpen={showAddDrawer}
         permissions={permissions}
         onClose={() => setShowAddDrawer(false)}
-        onSuccess={async () => {
+        onSuccess={(createdRole) => {
           setShowAddDrawer(false);
-          await mutate();
+          if (createdRole) {
+            upsertRoleLocal(createdRole);
+          }
+          mutate();
         }}
       />
 
@@ -277,10 +292,13 @@ export const RolesTab: React.FC = () => {
               setShowEditDrawer(false);
               setSelectedRole(null);
             }}
-            onSuccess={async () => {
+            onSuccess={(updatedRole) => {
               setShowEditDrawer(false);
               setSelectedRole(null);
-              await mutate();
+              if (updatedRole) {
+                upsertRoleLocal(updatedRole);
+              }
+              mutate();
             }}
           />
 

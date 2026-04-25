@@ -12,7 +12,7 @@ interface AddRoleDrawerProps {
   isOpen: boolean;
   permissions: Record<string, Permission[]>;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (role?: any) => void;
 }
 
 // Available colors
@@ -160,7 +160,7 @@ export const AddRoleDrawer: React.FC<AddRoleDrawerProps> = ({ isOpen, permission
 
     setIsSubmitting(true);
     try {
-      await createRole({
+      const response = await createRole({
         roleName: formData.roleName.trim(),
         description: formData.description.trim() || undefined,
         color: formData.color,
@@ -169,7 +169,7 @@ export const AddRoleDrawer: React.FC<AddRoleDrawerProps> = ({ isOpen, permission
 
       toast.success('Role created successfully');
       handleClose();
-      onSuccess();
+      onSuccess((response as any)?.data);
     } catch (error: any) {
       const errorMessage = error?.message || 'Failed to create role';
       if (errorMessage.toLowerCase().includes('name') || errorMessage.toLowerCase().includes('already')) {

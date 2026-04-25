@@ -469,10 +469,13 @@ export default function App() {
               }}
             />
 
-            <div className="mt-4 flex justify-end">
+            <div className="mt-4 w-full">
               <PaginationAll
                 initialPage={currentPage}
                 totalPages={Math.ceil(totalEntries / PAGE_SIZE)}
+                totalCount={totalEntries}
+                pageSize={PAGE_SIZE}
+                itemLabel="clients"
                 onPageChange={setCurrentPage}
               />
             </div>

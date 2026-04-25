@@ -27,7 +27,7 @@ function LinkedInCallbackContent() {
       try {
         // Forward the callback to backend API
         // The backend will handle OAuth exchange and return a redirect URL
-        const API_BASE = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || 'http://localhost:5000/api/v1';
+        const API_BASE = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || 'http://localhost:5001/api/v1';
         const callbackUrl = `${API_BASE}/linkedin/auth/linkedin/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
 
         // Use window.location to follow the redirect from backend

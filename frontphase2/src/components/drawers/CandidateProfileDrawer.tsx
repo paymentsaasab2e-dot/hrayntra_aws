@@ -211,6 +211,7 @@ interface CandidateProfileDrawerProps {
   candidate: CandidateProfileDrawerData | null;
   isOpen: boolean;
   onClose: () => void;
+  openEditDirectly?: boolean;
   currentUser?: {
     id: string;
     name: string;
@@ -221,8 +222,9 @@ interface CandidateProfileDrawerProps {
   recruiters?: CandidatePipelineRecruiterOption[];
   interviewers?: CandidateInterviewerOption[];
   existingInterviews?: CandidateScheduledInterview[];
+  editModalOpenToken?: number | null;
   onAction?: (
-    action: 'move-stage' | 'schedule-interview' | 'send-email' | 'reject' | 'more',
+    action: 'move-stage' | 'schedule-interview' | 'send-email' | 'reject' | 'more' | 'edit',
     candidate: CandidateProfileDrawerData
   ) => void;
   onAddNote?: (candidateId: string, note: { text: string; tags: string[] }) => void | Promise<void>;
@@ -2928,12 +2930,14 @@ export function CandidateProfileDrawer({
   candidate,
   isOpen,
   onClose,
+  openEditDirectly = false,
   currentUser,
   availableTags = [],
   jobs = [],
   recruiters = [],
   interviewers = [],
   existingInterviews = [],
+  editModalOpenToken = null,
   onAction,
   onAddNote,
   onEditNote,
@@ -2957,8 +2961,10 @@ export function CandidateProfileDrawer({
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const activityContainerRef = useRef<HTMLDivElement | null>(null);
+  const lastEditModalOpenTokenRef = useRef<number | null>(null);
   const [editInterview, setEditInterview] = useState<CandidateScheduledInterview | null>(null);
   const candidateFileInputRef = useRef<HTMLInputElement>(null);
+  const isDirectEditLaunch = openEditDirectly && Boolean(editModalOpenToken);
 
   const {
     files: candidateFiles,
@@ -2970,7 +2976,7 @@ export function CandidateProfileDrawer({
   } = useFiles('candidate', candidate?.id);
 
   const uploadsBase = useMemo(() => {
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/v1';
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1';
     // remove trailing "/api/v1" (and possible trailing slash) to build absolute "/uploads/..." links
     return apiBase.replace(/\/api\/v1\/?$/, '');
   }, []);
@@ -2993,7 +2999,7 @@ export function CandidateProfileDrawer({
   }, [candidate]);
 
   const handleAction = (
-    action: 'move-stage' | 'schedule-interview' | 'send-email' | 'reject' | 'more'
+    action: 'move-stage' | 'schedule-interview' | 'send-email' | 'reject' | 'more' | 'edit'
   ) => {
     if (action === 'move-stage') {
       setShowAddToPipelineModal(true);
@@ -3005,6 +3011,10 @@ export function CandidateProfileDrawer({
     }
     if (action === 'reject') {
       setShowRejectModal(true);
+      return;
+    }
+    if (action === 'edit') {
+      setShowEditModal(true);
       return;
     }
     if (candidate) onAction?.(action, candidate);
@@ -3070,6 +3080,13 @@ export function CandidateProfileDrawer({
     setEditError('');
   }, [candidate]);
 
+  useEffect(() => {
+    if (!candidate || !editModalOpenToken) return;
+    if (lastEditModalOpenTokenRef.current === editModalOpenToken) return;
+    lastEditModalOpenTokenRef.current = editModalOpenToken;
+    setShowEditModal(true);
+  }, [candidate, editModalOpenToken]);
+
   const updateEditField = <K extends keyof CandidateEditFormState>(
     field: K,
     value: CandidateEditFormState[K]
@@ -3129,7 +3146,11 @@ export function CandidateProfileDrawer({
       };
 
       await Promise.resolve(onUpdateCandidate(candidate.id, payload));
-      setShowEditModal(false);
+      if (openEditDirectly) {
+        onClose();
+      } else {
+        setShowEditModal(false);
+      }
       setToastMessage('Candidate updated successfully.');
     } catch (error: any) {
       setEditError(error?.message || 'Unable to update candidate right now.');
@@ -3195,7 +3216,11 @@ export function CandidateProfileDrawer({
                   className="fixed inset-0 z-[70] bg-slate-950/45"
                   onClick={() => {
                     if (!isSavingEdit) {
-                      setShowEditModal(false);
+                      if (openEditDirectly) {
+                        onClose();
+                      } else {
+                        setShowEditModal(false);
+                      }
                       setEditError('');
                     }
                   }}
@@ -3204,7 +3229,7 @@ export function CandidateProfileDrawer({
                   initial={{ x: '100%' }}
                   animate={{ x: 0 }}
                   exit={{ x: '100%' }}
-                  transition={{ type: 'tween', duration: 0.24 }}
+                  transition={{ type: 'tween', duration: 0.16 }}
                   className="fixed inset-y-0 right-0 z-[75] flex w-full max-w-full sm:max-w-[680px]"
                 >
                   <div className="flex h-full w-full flex-col bg-white shadow-2xl">
@@ -3216,7 +3241,11 @@ export function CandidateProfileDrawer({
                       <button
                         type="button"
                         onClick={() => {
-                          setShowEditModal(false);
+                          if (openEditDirectly) {
+                            onClose();
+                          } else {
+                            setShowEditModal(false);
+                          }
                           setEditError('');
                         }}
                         disabled={isSavingEdit}
@@ -3384,10 +3413,14 @@ export function CandidateProfileDrawer({
                       <div className="flex items-center justify-end gap-3">
                         <button
                           type="button"
-                          onClick={() => {
+                        onClick={() => {
+                          if (openEditDirectly) {
+                            onClose();
+                          } else {
                             setShowEditModal(false);
-                            setEditError('');
-                          }}
+                          }
+                          setEditError('');
+                        }}
                           disabled={isSavingEdit}
                           className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                         >
@@ -3409,22 +3442,24 @@ export function CandidateProfileDrawer({
               </>
             ) : null}
           </AnimatePresence>
-          <motion.div
-            className="fixed inset-0 z-40 bg-slate-950/35"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-          />
+          {!openEditDirectly ? (
+            <>
+              <motion.div
+                className="fixed inset-0 z-40 bg-slate-950/35"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={onClose}
+              />
 
-          <motion.aside
-            className="fixed inset-y-0 right-0 z-50 flex w-full max-w-full sm:max-w-[680px]"
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={{ type: 'tween', duration: 0.28 }}
-          >
-            <div className="flex h-full w-full flex-col bg-slate-50 shadow-2xl">
+              <motion.aside
+                className="fixed inset-y-0 right-0 z-50 flex w-full max-w-full sm:max-w-[680px]"
+                initial={{ x: '100%' }}
+                animate={{ x: 0 }}
+                exit={{ x: '100%' }}
+                transition={{ type: 'tween', duration: 0.28 }}
+              >
+                <div className="flex h-full w-full flex-col bg-slate-50 shadow-2xl">
               <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 backdrop-blur">
                 <div className="flex items-start justify-between gap-4 px-5 py-5 sm:px-6">
                   <div className="flex min-w-0 gap-4">
@@ -4300,8 +4335,10 @@ export function CandidateProfileDrawer({
                   </section>
                 )}
               </div>
-            </div>
-          </motion.aside>
+                </div>
+              </motion.aside>
+            </>
+          ) : null}
         </>
       ) : null}
     </AnimatePresence>

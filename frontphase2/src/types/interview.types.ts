@@ -83,6 +83,7 @@ export interface InterviewRecording {
 
 export interface Interview {
   id: string;
+  scheduledAt?: string;
   candidate: InterviewCandidate;
   job: InterviewJob;
   round: InterviewRound;
@@ -141,6 +142,24 @@ export interface ScheduleInterviewPayload {
   sendCalendarInvite: boolean;
   sendEmailNotification: boolean;
   sendWhatsAppReminder: boolean;
+}
+
+export interface UpdateInterviewPayload {
+  candidateId?: string;
+  jobId?: string;
+  clientId?: string;
+  round?: InterviewRound;
+  type?: InterviewType;
+  mode?: InterviewMode;
+  date?: string;
+  duration?: number;
+  timezone?: string;
+  meetingPlatform?: 'Zoom' | 'Google Meet' | 'MS Teams' | null;
+  location?: string | null;
+  notes?: string | null;
+  status?: InterviewStatus;
+  panelUserIds?: string[];
+  panelRoles?: Record<string, 'HR' | 'Technical' | 'Client' | 'Hiring Manager'>;
 }
 
 export interface ReschedulePayload {

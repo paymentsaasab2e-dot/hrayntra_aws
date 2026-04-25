@@ -12,6 +12,26 @@ const addMinutes = (value, minutes) => new Date(new Date(value).getTime() + minu
 
 const buildTopic = (interview) => `Interview: ${interview.candidateName} - ${interview.jobTitle}`;
 
+const TIMEZONE_ALIASES = {
+  'GMT+5:30': 'Asia/Kolkata',
+  'GMT+1:00': 'Etc/GMT-1',
+  'GMT+0:00': 'UTC',
+  'GMT-5:00': 'Etc/GMT+5',
+  'IST GMT+5:30': 'Asia/Kolkata',
+};
+
+const normalizeTimeZone = (timezone) => {
+  const raw = String(timezone || '').trim();
+  if (!raw) return 'UTC';
+  if (TIMEZONE_ALIASES[raw]) return TIMEZONE_ALIASES[raw];
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: raw }).format(new Date());
+    return raw;
+  } catch {
+    return 'UTC';
+  }
+};
+
 const ensure = (value, message) => {
   if (!value) {
     throw new Error(message);
@@ -91,6 +111,7 @@ async function getConnectedZoomAccessToken(userId) {
 export async function generateGoogleMeetLink(interview, userId) {
   const auth = new google.auth.OAuth2(env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET);
   const connectedAccessToken = userId ? await oauthTokenService.getValidGoogleAccessToken(userId) : null;
+  const timeZone = normalizeTimeZone(interview.timezone);
 
   if (connectedAccessToken) {
     auth.setCredentials({ access_token: connectedAccessToken });
@@ -109,13 +130,13 @@ export async function generateGoogleMeetLink(interview, userId) {
   const event = await calendar.events.insert({
     calendarId: 'primary',
     conferenceDataVersion: 1,
-    requestBody: {
-      summary: buildTopic(interview),
-      description: interview.notes || undefined,
-      start: { dateTime: new Date(interview.date).toISOString(), timeZone: interview.timezone },
-      end: { dateTime: addMinutes(interview.date, interview.duration), timeZone: interview.timezone },
-      attendees: (interview.panelEmails || []).map((email) => ({ email })),
-      conferenceData: {
+      requestBody: {
+        summary: buildTopic(interview),
+        description: interview.notes || undefined,
+        start: { dateTime: new Date(interview.date).toISOString(), timeZone },
+        end: { dateTime: addMinutes(interview.date, interview.duration), timeZone },
+        attendees: (interview.panelEmails || []).map((email) => ({ email })),
+        conferenceData: {
         createRequest: {
           requestId: interview.id || `${Date.now()}`,
           conferenceSolutionKey: { type: 'hangoutsMeet' },
@@ -129,6 +150,7 @@ export async function generateGoogleMeetLink(interview, userId) {
 
 export async function generateZoomLink(interview, userId) {
   let accessToken = await getConnectedZoomAccessToken(userId);
+  const timezone = normalizeTimeZone(interview.timezone);
 
   if (!accessToken) {
     if (!env.ZOOM_ACCOUNT_ID) {
@@ -159,7 +181,7 @@ export async function generateZoomLink(interview, userId) {
       type: 2,
       start_time: new Date(interview.date).toISOString(),
       duration: interview.duration,
-      timezone: interview.timezone,
+      timezone,
       agenda: interview.notes || undefined,
       settings: {
         host_video: true,

@@ -1,9 +1,7 @@
 import React from 'react';
-import { CalendarDays, CheckSquare, ExternalLink, MessageSquareText, MapPin, MonitorPlay, Phone, Users } from 'lucide-react';
-import { ActionsDropdown, type InterviewAction } from './ActionsDropdown';
+import { CalendarDays, Eye, FilePenLine, FlagTriangleRight, MapPin, MonitorPlay, Phone, XCircle } from 'lucide-react';
 import type { Interview } from '../../types/interview.types';
 import { getCandidateStageBadgeClasses, getCandidateStageLabel } from '../../utils/candidateStage';
-import PaginationAll from '../PaginationAll';
 
 interface InterviewTableProps {
   interviews: Interview[];
@@ -11,13 +9,15 @@ interface InterviewTableProps {
   page: number;
   totalPages: number;
   totalEntries: number;
+  pageSize: number;
   onToggleSelect: (interviewId: string) => void;
   onToggleSelectAll: () => void;
   onRowClick: (interview: Interview) => void;
-  onAction: (action: InterviewAction, interview: Interview) => void;
+  onViewCandidate: (interview: Interview) => void;
+  onEditInterview: (interview: Interview) => void;
+  onNoShowInterview: (interview: Interview) => void;
+  onRejectCandidate: (interview: Interview) => void;
   onPageChange: (page: number) => void;
-  canUpdate: boolean;
-  canDelete: boolean;
 }
 
 const statusClasses = {
@@ -46,23 +46,21 @@ export function InterviewTable({
   page,
   totalPages,
   totalEntries,
+  pageSize,
   onToggleSelect,
   onToggleSelectAll,
   onRowClick,
-  onAction,
+  onViewCandidate,
+  onEditInterview,
+  onNoShowInterview,
+  onRejectCandidate,
   onPageChange,
-  canUpdate,
-  canDelete,
 }: InterviewTableProps) {
   const allSelected = interviews.length > 0 && interviews.every((interview) => selectedIds.includes(interview.id));
-
-  const rowActions: InterviewAction[] = ['view', 'copyLink'];
-  if (canUpdate) {
-    rowActions.push('edit', 'reschedule', 'feedback', 'noShow');
-  }
-  if (canDelete) {
-    rowActions.push('cancel');
-  }
+  const safePageSize = Math.max(pageSize || 1, 1);
+  const displayTotal = totalEntries > 0 ? totalEntries : interviews.length;
+  const start = displayTotal > 0 ? Math.min((page - 1) * safePageSize + 1, displayTotal) : 0;
+  const end = displayTotal > 0 ? Math.min(page * safePageSize, displayTotal) : 0;
 
   return (
     <div className="rounded-2xl border border-[#E5E7EB] bg-white shadow-sm">
@@ -85,7 +83,7 @@ export function InterviewTable({
               <th className="px-5 py-4">Interviewer(s)</th>
               <th className="px-5 py-4">Status</th>
               <th className="px-5 py-4">Feedback</th>
-              <th className="px-5 py-4 text-right">Actions</th>
+              <th className="px-5 py-4">Actions</th>
             </tr>
           </thead>
 
@@ -160,7 +158,7 @@ export function InterviewTable({
                   <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${statusClasses[interview.status]}`}>
                     {interview.status}
                   </span>
-                  {interview.candidate.stage ? (
+                  {interview.candidate.stage && getCandidateStageLabel(interview.candidate.stage) !== 'Interviewing' ? (
                     <div className="mt-2">
                       <span
                         className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold ${getCandidateStageBadgeClasses(
@@ -175,25 +173,44 @@ export function InterviewTable({
                 <td className={`px-5 py-4 text-[12px] font-semibold ${feedbackClasses[interview.feedbackStatus]}`}>
                   {interview.feedbackStatus}
                 </td>
-                <td className="px-5 py-4">
-                  <div className="flex justify-end gap-1" onClick={(event) => event.stopPropagation()}>
-                    {canUpdate && (
-                      <button
-                        type="button"
-                        onClick={() => onAction('feedback', interview)}
-                        className="rounded-lg p-2 text-[#6B7280] hover:bg-[#F3F4F6]"
-                      >
-                        <MessageSquareText className="size-4" />
-                      </button>
-                    )}
+                <td className="px-5 py-4" onClick={(event) => event.stopPropagation()}>
+                  <div className="flex items-center gap-1.5">
                     <button
                       type="button"
-                      onClick={() => onAction('view', interview)}
-                      className="rounded-lg p-2 text-[#6B7280] hover:bg-[#F3F4F6]"
+                      onClick={() => onViewCandidate(interview)}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#E5E7EB] text-[#6B7280] hover:bg-[#F9FAFB] hover:text-[#111827]"
+                      title="View candidate"
+                      aria-label="View candidate"
                     >
-                      <ExternalLink className="size-4" />
+                      <Eye className="size-3.5" />
                     </button>
-                    <ActionsDropdown actions={rowActions} onSelect={(action) => onAction(action, interview)} />
+                    <button
+                      type="button"
+                      onClick={() => onEditInterview(interview)}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#E5E7EB] text-[#6B7280] hover:bg-[#F9FAFB] hover:text-[#111827]"
+                      title="Edit interview"
+                      aria-label="Edit interview"
+                    >
+                      <FilePenLine className="size-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onNoShowInterview(interview)}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#E5E7EB] text-[#6B7280] hover:bg-[#F9FAFB] hover:text-[#111827]"
+                      title="Mark no show"
+                      aria-label="Mark no show"
+                    >
+                      <FlagTriangleRight className="size-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onRejectCandidate(interview)}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-red-200 bg-red-50 text-red-600 hover:bg-red-100"
+                      title="Reject candidate"
+                      aria-label="Reject candidate"
+                    >
+                      <XCircle className="size-3.5" />
+                    </button>
                   </div>
                 </td>
               </tr>
@@ -202,18 +219,57 @@ export function InterviewTable({
         </table>
       </div>
 
-      <div className="flex items-center justify-between border-t border-[#E5E7EB] px-5 py-4">
-        <div className="flex items-center gap-2 text-[12px] text-[#6B7280]">
-          <CheckSquare className="size-4" />
-          {selectedIds.length} selected
+      <div className="flex items-center justify-between gap-4 border-t border-[#E5E7EB] px-5 py-4">
+        <p className="shrink-0 text-sm text-[#6B7280]">
+          Showing <span className="font-semibold text-[#111827]">{start}</span>-
+          <span className="font-semibold text-[#111827]">{end}</span> of{' '}
+          <span className="font-semibold text-[#111827]">{displayTotal}</span> interviews
+        </p>
+
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onPageChange(page - 1)}
+            disabled={page === 1}
+            className="flex items-center gap-1 rounded-md px-2 py-1 font-semibold text-black transition-colors duration-150 hover:text-black disabled:cursor-not-allowed disabled:hover:text-black"
+            aria-label="Previous page"
+          >
+            <span aria-hidden="true" className="text-black">
+              ←
+            </span>
+            <span className="text-black">prev</span>
+          </button>
+
+          {Array.from({ length: totalPages }, (_, index) => index + 1).map((current) => (
+            <button
+              key={current}
+              type="button"
+              onClick={() => onPageChange(current)}
+              aria-label={`Page ${current}`}
+              aria-current={page === current ? 'page' : undefined}
+              className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-150 ${
+                page === current
+                  ? 'bg-rose-400 font-semibold text-white shadow-sm'
+                  : 'text-black hover:bg-gray-100 hover:text-black'
+              }`}
+            >
+              {current}
+            </button>
+          ))}
+
+          <button
+            type="button"
+            onClick={() => onPageChange(page + 1)}
+            disabled={page === totalPages}
+            className="flex items-center gap-1 rounded-md px-2 py-1 font-semibold text-black transition-colors duration-150 hover:text-black disabled:cursor-not-allowed disabled:hover:text-black"
+            aria-label="Next page"
+          >
+            <span className="text-black">next</span>
+            <span aria-hidden="true" className="text-black">
+              →
+            </span>
+          </button>
         </div>
-
-        <PaginationAll
-          initialPage={page}
-          totalPages={totalPages}
-          onPageChange={onPageChange}
-        />
-
       </div>
     </div>
   );

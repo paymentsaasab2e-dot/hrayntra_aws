@@ -329,6 +329,11 @@ export function ClientDetailsDrawer({
   const [uploadingClientLogo, setUploadingClientLogo] = useState(false);
   const [pendingClientLogoFile, setPendingClientLogoFile] = useState<File | null>(null);
   const [pendingClientLogoPreview, setPendingClientLogoPreview] = useState('');
+  const uploadsBase = (
+    typeof window !== 'undefined'
+      ? process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1'
+      : 'http://localhost:5001/api/v1'
+  ).replace(/\/api\/v1\/?$/, '');
 
   useEffect(() => {
     return () => {
@@ -762,6 +767,13 @@ export function ClientDetailsDrawer({
     fullClientData?.logo ||
     client?.logo ||
     '';
+
+  const getClientLogoSrc = (logoUrl: string) => {
+    const trimmed = String(logoUrl || '').trim();
+    if (!trimmed) return '';
+    if (trimmed.startsWith('blob:') || trimmed.startsWith('data:')) return trimmed;
+    return buildFileHref(trimmed, uploadsBase);
+  };
 
   const resetClientLogoDraft = () => {
     setPendingClientLogoFile(null);
@@ -1293,8 +1305,12 @@ export function ClientDetailsDrawer({
       });
       // Set active tab to overview
       setActiveTab('overview');
+    } else {
+      // Normal view mode should not inherit edit mode from a prior add flow
+      setOverviewEditMode(false);
+      resetClientLogoDraft();
     }
-  }, [isAddMode]);
+  }, [isAddMode, client?.id]);
 
   const tabs = [
     { id: 'overview' as const, label: 'Overview', icon: LayoutGrid },
@@ -1589,8 +1605,8 @@ export function ClientDetailsDrawer({
 
             {/* Tabs */}
             {!isAddMode && (
-            <div className="shrink-0 bg-slate-50/80 border-b border-slate-200 px-4 pt-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-              <div className="flex gap-1 min-w-max">
+            <div className="shrink-0 bg-slate-50/80 border-b border-slate-200 px-3 pt-1 pb-2">
+              <div className="grid grid-cols-3 gap-1 sm:grid-cols-4 md:grid-cols-6 xl:grid-cols-9">
                 {tabs.map((tab) => {
                   const isActive = activeTab === tab.id;
                   const Icon = tab.icon;
@@ -1598,13 +1614,13 @@ export function ClientDetailsDrawer({
                     <button
                       key={tab.id}
                       onClick={() => setActiveTab(tab.id)}
-                      className={`flex items-center gap-1.5 px-3 py-3 text-sm font-medium rounded-t-lg transition-all duration-200 whitespace-nowrap ${
+                      className={`flex min-w-0 items-center justify-center gap-1 rounded-lg px-2 py-2 text-[11px] font-semibold transition-all duration-200 whitespace-nowrap ${
                         isActive
-                          ? 'bg-white text-blue-600 border-b-2 border-blue-600 -mb-px shadow-sm'
-                          : 'border-b-2 border-transparent text-slate-500 hover:text-slate-700 hover:bg-white/60'
+                          ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
+                          : 'text-slate-500 hover:text-slate-700 hover:bg-white/70'
                       }`}
                     >
-                      <Icon size={14} className={isActive ? 'text-blue-600' : 'text-slate-400'} strokeWidth={isActive ? 2.25 : 1.5} />
+                      <Icon size={12} className={isActive ? 'text-blue-600' : 'text-slate-400'} strokeWidth={isActive ? 2.25 : 1.5} />
                       {tab.label}
                     </button>
                   );
@@ -1651,7 +1667,11 @@ export function ClientDetailsDrawer({
                               <div className="flex items-center gap-4">
                                 <div className="w-16 h-16 rounded-xl overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center shrink-0">
                                   {clientLogoPreview ? (
-                                    <img src={clientLogoPreview} alt="Client logo preview" className="w-full h-full object-cover" />
+                                    <ImageWithFallback
+                                      src={getClientLogoSrc(clientLogoPreview)}
+                                      alt="Client logo preview"
+                                      className="w-full h-full object-cover block"
+                                    />
                                   ) : (
                                     <Building2 size={24} className="text-slate-300" />
                                   )}
@@ -2352,7 +2372,11 @@ export function ClientDetailsDrawer({
                               <div className="flex items-center gap-4">
                                 <div className="w-16 h-16 rounded-xl overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center shrink-0">
                                   {clientLogoPreview ? (
-                                    <img src={clientLogoPreview} alt="Client logo preview" className="w-full h-full object-cover" />
+                                    <ImageWithFallback
+                                      src={getClientLogoSrc(clientLogoPreview)}
+                                      alt="Client logo preview"
+                                      className="w-full h-full object-cover block"
+                                    />
                                   ) : (
                                     <Building2 size={24} className="text-slate-300" />
                                   )}
@@ -3808,7 +3832,7 @@ export function ClientDetailsDrawer({
                   const filteredFiles = filesTypeFilter === 'All'
                     ? clientFiles
                     : clientFiles.filter((f) => f.fileType === filesTypeFilter);
-                  const uploadsBase = (typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/v1') : 'http://localhost:5000/api/v1').replace(/\/api\/v1\/?$/, '');
+                  const uploadsBase = (typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1') : 'http://localhost:5001/api/v1').replace(/\/api\/v1\/?$/, '');
                   const toFileHref = (fileUrl?: string | null) => buildFileHref(fileUrl, uploadsBase);
                   const formatUploadDate = (d: string) => {
                     if (!d) return 'Ã¢â‚¬â€';

@@ -1,10 +1,9 @@
 import React from 'react';
 import {
   Eye,
-  FileText,
   Phone,
-  Mail,
   MessageSquare,
+  Pencil,
   UserPlus,
   ArrowRight,
   ChevronDown,
@@ -46,6 +45,7 @@ interface CandidateTableProps {
   onToggleSelect: (id: string) => void;
   onToggleSelectAll: () => void;
   onViewProfile?: (candidate: Candidate) => void;
+  onEditCandidate?: (candidate: Candidate) => void;
   /** Permanently delete candidate (parent should confirm + call API). */
   onDeleteCandidate?: (candidate: Candidate) => void | Promise<void>;
   /** When set, that row shows a loading state on the delete control */
@@ -79,6 +79,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
   onToggleSelect,
   onToggleSelectAll,
   onViewProfile,
+  onEditCandidate,
   onDeleteCandidate,
   deletingCandidateId,
   stageOptionsByJobId = {},
@@ -236,14 +237,18 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                       >
                         <Eye size={15} />
                       </button>
-                      <button className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-white rounded transition-all" title="View Resume">
-                        <FileText size={15} />
-                      </button>
                       <button className="p-1.5 text-slate-500 hover:text-green-600 hover:bg-white rounded transition-all" title="WhatsApp">
                         <MessageSquare size={15} />
                       </button>
-                      <button className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-white rounded transition-all" title="Email">
-                        <Mail size={15} />
+                      <button
+                        className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-white rounded transition-all"
+                        title="Edit candidate"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEditCandidate?.(candidate);
+                        }}
+                      >
+                        <Pencil size={15} />
                       </button>
                       {onDeleteCandidate && (
                         <button

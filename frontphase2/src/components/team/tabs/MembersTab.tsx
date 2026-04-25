@@ -70,6 +70,7 @@ export const MembersTab: React.FC = () => {
   const [showEditDrawer, setShowEditDrawer] = useState(false);
   const [showProfileDrawer, setShowProfileDrawer] = useState(false);
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
+  const [selectedMemberTempPassword, setSelectedMemberTempPassword] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
 
   const debouncedSearch = useDebounce(searchQuery, 300);
@@ -132,6 +133,67 @@ export const MembersTab: React.FC = () => {
     };
   }, [members, departments, roles]);
 
+  const memberMatchesFilters = useCallback(
+    (member: TeamMember) => {
+      const query = debouncedSearch.trim().toLowerCase();
+      if (query) {
+        const haystack = [
+          member.firstName,
+          member.lastName,
+          member.email,
+          member.designation,
+          member.location,
+          member.role?.roleName,
+          member.department?.name,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        if (!haystack.includes(query)) return false;
+      }
+
+      if (selectedDepartment !== 'all' && member.department?.id !== selectedDepartment) return false;
+      if (selectedRole !== 'all' && member.role?.roleName !== selectedRole) return false;
+      if (selectedStatus !== 'all' && member.status !== selectedStatus) return false;
+
+      return true;
+    },
+    [debouncedSearch, selectedDepartment, selectedRole, selectedStatus]
+  );
+
+  const upsertMemberLocal = useCallback((member: TeamMember) => {
+    setMembers((prev) => {
+      const matches = memberMatchesFilters(member);
+      const exists = prev.some((item) => item.id === member.id);
+
+      if (!matches) {
+        return prev.filter((item) => item.id !== member.id);
+      }
+
+      if (exists) {
+        return prev.map((item) => (item.id === member.id ? member : item));
+      }
+
+      return [member, ...prev];
+    });
+  }, [memberMatchesFilters]);
+
+  const removeMemberLocal = useCallback((memberId: string) => {
+    setMembers((prev) => prev.filter((member) => member.id !== memberId));
+  }, []);
+
+  useEffect(() => {
+    const handleMemberCreated = (event: Event) => {
+      const customEvent = event as CustomEvent<TeamMember | undefined>;
+      if (!customEvent.detail) return;
+      upsertMemberLocal(customEvent.detail);
+      mutate();
+    };
+
+    window.addEventListener('team:member-created', handleMemberCreated as EventListener);
+    return () => window.removeEventListener('team:member-created', handleMemberCreated as EventListener);
+  }, [mutate, upsertMemberLocal]);
+
   // Get initials
   const getInitials = (firstName: string, lastName: string) => {
     return `${firstName?.[0] || ''}${lastName?.[0] || ''}`.toUpperCase();
@@ -159,6 +221,7 @@ export const MembersTab: React.FC = () => {
   // Action handlers
   const handleView = (member: TeamMember) => {
     setSelectedMember(member);
+    setSelectedMemberTempPassword(null);
     setShowProfileDrawer(true);
     setMenuOpen(null);
   };
@@ -173,6 +236,7 @@ export const MembersTab: React.FC = () => {
     try {
       await deactivateTeamMember(member.id);
       toast.success('Member deactivated');
+      upsertMemberLocal({ ...member, status: 'INACTIVE' });
       mutate();
     } catch (error: any) {
       toast.error(error.message || 'Failed to deactivate member');
@@ -184,6 +248,7 @@ export const MembersTab: React.FC = () => {
     try {
       await activateTeamMember(member.id);
       toast.success('Member activated');
+      upsertMemberLocal({ ...member, status: 'ACTIVE' });
       mutate();
     } catch (error: any) {
       toast.error(error.message || 'Failed to activate member');
@@ -253,9 +318,7 @@ export const MembersTab: React.FC = () => {
     try {
       await deleteTeamMember(member.id);
       toast.success('Team member deleted successfully');
-      // Remove from local state immediately for instant UI update
-      setMembers(prev => prev.filter(m => m.id !== member.id));
-      // Also refresh from server to ensure consistency
+      removeMemberLocal(member.id);
       mutate();
     } catch (error: any) {
       toast.error(error.message || 'Failed to delete team member');
@@ -524,8 +587,14 @@ export const MembersTab: React.FC = () => {
       <AddMemberDrawer
         isOpen={showAddDrawer}
         onClose={() => setShowAddDrawer(false)}
-        onSuccess={() => {
+        onSuccess={(createdMember) => {
           setShowAddDrawer(false);
+          if (createdMember) {
+            upsertMemberLocal(createdMember);
+            setSelectedMember(createdMember);
+            setSelectedMemberTempPassword(createdMember.credentialData?.tempPassword || null);
+            setShowProfileDrawer(true);
+          }
           mutate();
         }}
       />
@@ -539,9 +608,12 @@ export const MembersTab: React.FC = () => {
               setShowEditDrawer(false);
               setSelectedMember(null);
             }}
-            onSuccess={() => {
+            onSuccess={(updatedMember) => {
               setShowEditDrawer(false);
               setSelectedMember(null);
+              if (updatedMember) {
+                upsertMemberLocal(updatedMember);
+              }
               mutate();
             }}
           />
@@ -549,9 +621,11 @@ export const MembersTab: React.FC = () => {
           <MemberProfileDrawer
             isOpen={showProfileDrawer}
             memberId={selectedMember.id}
+            initialTempPassword={selectedMemberTempPassword}
             onClose={() => {
               setShowProfileDrawer(false);
               setSelectedMember(null);
+              setSelectedMemberTempPassword(null);
             }}
             onEdit={() => {
               setShowProfileDrawer(false);
@@ -564,8 +638,7 @@ export const MembersTab: React.FC = () => {
               try {
                 await deleteTeamMember(selectedMember.id);
                 toast.success('Team member deleted successfully');
-                // Remove from local state immediately
-                setMembers(prev => prev.filter(m => m.id !== selectedMember.id));
+                removeMemberLocal(selectedMember.id);
                 setShowProfileDrawer(false);
                 setSelectedMember(null);
                 // Also refresh from server

@@ -65,6 +65,14 @@ export const taskService = {
           createdBy: {
             select: { id: true, name: true },
           },
+          files: {
+            include: {
+              uploadedBy: {
+                select: { id: true, name: true, email: true },
+              },
+            },
+            orderBy: { createdAt: 'desc' },
+          },
         },
         orderBy: { dueDate: 'asc' },
       }),
@@ -206,6 +214,14 @@ export const taskService = {
         createdBy: {
           select: { id: true, name: true, email: true },
         },
+        files: {
+          include: {
+            uploadedBy: {
+              select: { id: true, name: true, email: true },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+        },
       },
     });
 
@@ -325,6 +341,14 @@ export const taskService = {
         },
         createdBy: {
           select: { id: true, name: true, email: true },
+        },
+        files: {
+          include: {
+            uploadedBy: {
+              select: { id: true, name: true, email: true },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
         },
       },
     });

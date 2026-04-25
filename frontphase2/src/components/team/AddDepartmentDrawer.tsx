@@ -10,7 +10,7 @@ import type { Department } from '../../types/team';
 interface AddDepartmentDrawerProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (department?: Department) => void;
   department?: Department | null;
 }
 
@@ -61,15 +61,16 @@ export const AddDepartmentDrawer: React.FC<AddDepartmentDrawerProps> = ({ isOpen
       };
 
       if (isEditMode && department?.id) {
-        await updateDepartment(department.id, payload);
+        const response = await updateDepartment(department.id, payload);
         toast.success('Department updated');
+        onSuccess((response as any)?.data || { ...department, ...payload });
       } else {
-        await createDepartment(payload);
+        const response = await createDepartment(payload);
         toast.success('Department created');
+        onSuccess((response as any)?.data);
       }
 
       handleClose();
-      onSuccess();
     } catch (error: any) {
       const errorMessage = error?.message || `Failed to ${isEditMode ? 'update' : 'create'} department`;
       if (errorMessage.toLowerCase().includes('name') || errorMessage.toLowerCase().includes('already')) {

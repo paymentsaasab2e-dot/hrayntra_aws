@@ -240,7 +240,6 @@ const JobsListView = ({ jobs, onJobClick, onAddCandidate, onDeleteJob, deletingJ
                     <BrainCircuit size={14} className="text-purple-400 hover:text-purple-600 cursor-pointer" />
                   </div>
                 </div>
-                <span className="text-xs text-gray-400 font-mono">{job.id}</span>
               </div>
             </td>
             <td className="p-4">
@@ -348,13 +347,7 @@ const JobsListView = ({ jobs, onJobClick, onAddCandidate, onDeleteJob, deletingJ
       </tbody>
     </table>
     <div className="p-4 border-t border-gray-100 text-sm text-gray-500">
-      {jobs.length === 0 ? (
-        <span>No jobs found in the database yet.</span>
-      ) : (
-        <span>
-          Showing <span className="font-semibold text-gray-800">{jobs.length}</span> job{jobs.length === 1 ? '' : 's'} from the database.
-        </span>
-      )}
+      {jobs.length === 0 && <span>No jobs found in the database yet.</span>}
     </div>
   </div>
 );
@@ -386,11 +379,10 @@ const JobsBoardView = ({ jobs, onJobClick, canAssignJob }: JobsBoardViewProps) =
           <div className="flex flex-col gap-3">
             {jobs.slice(0, 6).map((job) => (
               <div key={job.id} role="button" tabIndex={0} onClick={() => onJobClick?.(job)} onKeyDown={(e) => e.key === 'Enter' && onJobClick?.(job)} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm hover:border-blue-400 cursor-pointer transition-all">
-                <div className="flex justify-between items-start mb-3">
-                  <div className="flex flex-col">
-                    <span className="text-xs font-mono text-gray-400 mb-1">{job.id}</span>
+              <div className="flex justify-between items-start mb-3">
+                <div className="flex flex-col">
                     <h4 className="font-bold text-gray-900 text-sm leading-tight">{job.title}</h4>
-                  </div>
+                </div>
                   {job.hot && <Flame size={14} className="text-orange-500" />}
                 </div>
                 <div className="flex items-center justify-between mt-4">
@@ -1616,10 +1608,13 @@ export default function JobsPage() {
                     onCancelStatusEdit={handleCancelStatusEdit}
                   />
                   
-                  <div className="mt-4 flex justify-end">
+                  <div className="mt-4 w-full">
                     <PaginationAll
                       initialPage={currentPage}
                       totalPages={Math.ceil(totalEntries / pageSize)}
+                      totalCount={totalEntries}
+                      pageSize={pageSize}
+                      itemLabel="jobs"
                       onPageChange={setCurrentPage}
                     />
                   </div>

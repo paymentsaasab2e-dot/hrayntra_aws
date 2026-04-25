@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -17,13 +17,8 @@ export const LoginHistoryDrawer: React.FC<LoginHistoryDrawerProps> = ({ isOpen, 
   const [history, setHistory] = useState<LoginHistory[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (isOpen && memberId) {
-      loadHistory();
-    }
-  }, [isOpen, memberId]);
-
-  const loadHistory = async () => {
+  const loadHistory = useCallback(async () => {
+    if (!memberId) return;
     setLoading(true);
     try {
       const res = await getLoginHistory(memberId);
@@ -33,7 +28,23 @@ export const LoginHistoryDrawer: React.FC<LoginHistoryDrawerProps> = ({ isOpen, 
     } finally {
       setLoading(false);
     }
-  };
+  }, [memberId]);
+
+  useEffect(() => {
+    if (isOpen && memberId) {
+      void loadHistory();
+    }
+  }, [isOpen, memberId, loadHistory]);
+
+  useEffect(() => {
+    if (!isOpen || !memberId) return;
+
+    const interval = window.setInterval(() => {
+      void loadHistory();
+    }, 10000);
+
+    return () => window.clearInterval(interval);
+  }, [isOpen, memberId, loadHistory]);
 
   const formatDateTime = (dateString: string) => {
     const date = new Date(dateString);
@@ -88,7 +99,10 @@ export const LoginHistoryDrawer: React.FC<LoginHistoryDrawerProps> = ({ isOpen, 
           >
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50/50">
-              <h2 className="text-lg font-bold text-slate-900">Login History</h2>
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Login History</h2>
+                <p className="text-xs text-slate-500">Auto-refreshes while open</p>
+              </div>
               <button
                 onClick={onClose}
                 className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400 hover:text-slate-600"

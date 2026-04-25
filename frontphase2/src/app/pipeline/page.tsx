@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { 
   Search, 
   Filter, 
@@ -28,6 +28,7 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { DndProvider, useDrag, useDrop, DragSourceMonitor, DropTargetMonitor } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
+import { useRouter } from "next/navigation";
 import { ImageWithFallback } from "../../components/ImageWithFallback";
 import AddCandidateDrawer from "../../components/candidates/AddCandidateDrawer";
 import {
@@ -239,7 +240,19 @@ function mapBackendCandidateToPipelineCandidate(candidate: BackendCandidate): Ca
 
 // --- Sub-components ---
 
-const CandidateCard = ({ candidate, moveCandidate }: { candidate: Candidate; moveCandidate: (id: string, stage: Stage) => void }) => {
+const CandidateCard = ({
+  candidate,
+  moveCandidate,
+  onViewCandidate,
+  onViewJob,
+  onRemove,
+}: {
+  candidate: Candidate;
+  moveCandidate: (id: string, stage: Stage) => void;
+  onViewCandidate: (candidate: Candidate) => void;
+  onViewJob: (candidate: Candidate) => void;
+  onRemove: (candidate: Candidate) => void;
+}) => {
   const [{ isDragging }, drag] = useDrag(() => ({
     type: "CANDIDATE",
     item: { id: candidate.id },
@@ -247,6 +260,26 @@ const CandidateCard = ({ candidate, moveCandidate }: { candidate: Candidate; mov
       isDragging: !!monitor.isDragging(),
     }),
   }));
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const handlePointerDown = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false);
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, []);
 
   const statusColors = {
     "Waiting": "bg-yellow-100 text-yellow-700",
@@ -270,11 +303,64 @@ const CandidateCard = ({ candidate, moveCandidate }: { candidate: Candidate; mov
           <div>
             <h4 className="font-semibold text-sm text-slate-900 leading-tight group-hover:text-blue-600 transition-colors">{candidate.name}</h4>
             <p className="text-xs text-slate-500">{candidate.jobTitle}</p>
+            <p className="text-[11px] text-slate-400 mt-0.5 truncate">
+              Assigned to: {candidate.ownerName || 'Unassigned'}
+            </p>
           </div>
         </div>
-        <button className="text-slate-400 hover:text-slate-600 p-1">
-          <MoreVertical className="w-4 h-4" />
-        </button>
+        <div ref={menuRef} className="relative">
+          <button
+            type="button"
+            onClick={() => setMenuOpen((prev) => !prev)}
+            className="rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-700"
+            aria-label="Open candidate actions"
+          >
+            <MoreVertical className="w-4 h-4" />
+          </button>
+
+          <AnimatePresence>
+            {menuOpen && (
+              <motion.div
+                initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                transition={{ duration: 0.12 }}
+                className="absolute right-0 top-8 z-50 w-44 rounded-xl border border-slate-200 bg-white p-1 shadow-xl"
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onViewCandidate(candidate);
+                  }}
+                  className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50"
+                >
+                  View Candidate
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onViewJob(candidate);
+                  }}
+                  className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50"
+                >
+                  View Job
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onRemove(candidate);
+                  }}
+                  className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm text-red-600 transition-colors hover:bg-red-50"
+                >
+                  Remove
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
 
       <div className="space-y-2 mb-4">
@@ -311,11 +397,17 @@ const CandidateCard = ({ candidate, moveCandidate }: { candidate: Candidate; mov
 const PipelineColumn = ({ 
   stage, 
   candidates, 
-  moveCandidate 
+  moveCandidate,
+  onViewCandidate,
+  onViewJob,
+  onRemove,
 }: { 
   stage: typeof STAGES[0]; 
   candidates: Candidate[];
   moveCandidate: (id: string, stage: Stage) => void;
+  onViewCandidate: (candidate: Candidate) => void;
+  onViewJob: (candidate: Candidate) => void;
+  onRemove: (candidate: Candidate) => void;
 }) => {
   const [{ isOver }, drop] = useDrop(() => ({
     accept: "CANDIDATE",
@@ -342,15 +434,19 @@ const PipelineColumn = ({
               {candidates.length}
             </span>
           </div>
-          <button className="text-slate-400 hover:text-slate-600 p-1 hover:bg-white rounded-md transition-colors">
-            <Plus className="w-4 h-4" />
-          </button>
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 pb-4 custom-scrollbar">
         {candidates.map((c) => (
-          <CandidateCard key={c.id} candidate={c} moveCandidate={moveCandidate} />
+          <CandidateCard
+            key={c.id}
+            candidate={c}
+            moveCandidate={moveCandidate}
+            onViewCandidate={onViewCandidate}
+            onViewJob={onViewJob}
+            onRemove={onRemove}
+          />
         ))}
         {candidates.length === 0 && (
           <div className="border-2 border-dashed border-slate-200 rounded-xl p-8 flex flex-col items-center justify-center text-center">
@@ -369,11 +465,13 @@ const PipelineColumn = ({
 // --- Main App Component ---
 
 export default function App() {
+  const router = useRouter();
   const [candidates, setCandidates] = useState<Candidate[]>(INITIAL_CANDIDATES);
   const [jobs, setJobs] = useState<BackendJob[]>([]);
   const [clients, setClients] = useState<BackendClient[]>([]);
   const [owners, setOwners] = useState<BackendUser[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string>('');
+  const [currentUserName, setCurrentUserName] = useState<string>('');
   const [view, setView] = useState<"Board" | "List">("Board");
   const [searchQuery, setSearchQuery] = useState("");
   const [isAddCandidateOpen, setIsAddCandidateOpen] = useState(false);
@@ -384,10 +482,9 @@ export default function App() {
 
   useEffect(() => {
     let mounted = true;
-    async function loadPipelineData() {
+    async function loadPipelineMeta() {
       try {
-        const [candidatesRes, jobsRes, clientsRes, ownersRes, meRes] = await Promise.all([
-          apiGetCandidates({ page: 1, limit: 200 }),
+        const [jobsRes, clientsRes, ownersRes, meRes] = await Promise.all([
           apiGetJobs({ limit: 200 }),
           apiGetClients({ limit: 200 }),
           apiGetUsers({ role: 'RECRUITER', isActive: true, limit: 200 }),
@@ -396,30 +493,74 @@ export default function App() {
 
         if (!mounted) return;
 
-        setCandidates(
-          extractItems<BackendCandidate>(candidatesRes.data).map(mapBackendCandidateToPipelineCandidate)
-        );
         setJobs(extractItems<BackendJob>(jobsRes.data));
         setClients(extractItems<BackendClient>(clientsRes.data));
         setOwners(extractItems<BackendUser>(ownersRes.data));
         if (meRes?.data?.id) setCurrentUserId(meRes.data.id);
+        if (meRes?.data?.name) setCurrentUserName(meRes.data.name);
       } catch (error) {
-        console.error('Failed to load pipeline data, using fallback candidates:', error);
-        if (!mounted) return;
-        setCandidates(INITIAL_CANDIDATES);
+        console.error('Failed to load pipeline metadata:', error);
       }
     }
 
-    loadPipelineData();
+    loadPipelineMeta();
     return () => {
       mounted = false;
     };
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadPipelineCandidates() {
+      try {
+        const candidateParams =
+          selectedOwnerId === '__me__'
+            ? { page: 1, limit: 200, mine: true }
+            : selectedOwnerId
+              ? { page: 1, limit: 200, assignedToId: selectedOwnerId }
+              : { page: 1, limit: 200 };
+
+        const candidatesRes = await apiGetCandidates(candidateParams);
+
+        if (!mounted) return;
+
+        setCandidates(
+          extractItems<BackendCandidate>(candidatesRes.data).map(mapBackendCandidateToPipelineCandidate)
+        );
+      } catch (error) {
+        console.error('Failed to load pipeline candidates, using fallback candidates:', error);
+        if (!mounted) return;
+        setCandidates(INITIAL_CANDIDATES);
+      }
+    }
+
+    loadPipelineCandidates();
+    return () => {
+      mounted = false;
+    };
+  }, [selectedOwnerId]);
+
   const moveCandidate = (id: string, newStage: Stage) => {
     setCandidates((prev) => 
       prev.map((c) => (c.id === id ? { ...c, stage: newStage, lastActivity: "Just now" } : c))
     );
+  };
+
+  const viewCandidate = (candidate: Candidate) => {
+    router.push(`/candidate?candidateId=${encodeURIComponent(candidate.id)}`);
+  };
+
+  const viewJob = (candidate: Candidate) => {
+    if (candidate.jobId) {
+      router.push(`/job?jobId=${encodeURIComponent(candidate.jobId)}`);
+      return;
+    }
+    router.push('/job');
+  };
+
+  const removeCandidate = (candidate: Candidate) => {
+    setCandidates((prev) => prev.filter((item) => item.id !== candidate.id));
   };
 
   const jobOptions = useMemo(() => jobs.map((job) => ({ id: job.id, label: job.title })), [jobs]);
@@ -450,7 +591,11 @@ export default function App() {
         candidate.clientName.toLowerCase() === (clientOptions.find((client) => client.id === selectedClientId)?.label || '').toLowerCase();
       const matchesOwner =
         !selectedOwnerId ||
-        (selectedOwnerId === '__me__' ? candidate.assignedToId === currentUserId : candidate.assignedToId === selectedOwnerId);
+        (selectedOwnerId === '__me__'
+          ? candidate.assignedToId === currentUserId ||
+            candidate.ownerName?.toLowerCase() === currentUserName.toLowerCase()
+          : candidate.assignedToId === selectedOwnerId ||
+            candidate.ownerName?.toLowerCase() === ownerOptions.find((owner) => owner.id === selectedOwnerId)?.label?.toLowerCase());
       const matchesFollowUp =
         !selectedFollowUp || candidate.followUpStatus === selectedFollowUp;
       return matchesSearch && matchesJob && matchesClient && matchesOwner && matchesFollowUp;
@@ -459,7 +604,9 @@ export default function App() {
     candidates,
     clientOptions,
     currentUserId,
+    currentUserName,
     jobOptions,
+    ownerOptions,
     searchQuery,
     selectedClientId,
     selectedFollowUp,
@@ -616,6 +763,9 @@ export default function App() {
                       stage={stage} 
                       candidates={filteredCandidates.filter(c => c.stage === stage.id)}
                       moveCandidate={moveCandidate}
+                      onViewCandidate={viewCandidate}
+                      onViewJob={viewJob}
+                      onRemove={removeCandidate}
                     />
                   ))}
                   <div className="w-1 px-4" /> {/* Spacer for scroll end */}

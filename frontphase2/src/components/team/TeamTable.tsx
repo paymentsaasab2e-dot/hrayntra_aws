@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { Search, Filter, MoreVertical, Eye, Edit, Key, UserX, Lock, Unlock, Mail, CheckCircle, AlertCircle } from 'lucide-react';
 import { getTeamMembers, deleteTeamMember, lockAccount, unlockAccount, resetPassword, resendInvite } from '../../lib/api/teamApi';
 import { ImageWithFallback } from '../ImageWithFallback';
@@ -30,6 +31,7 @@ export const TeamTable: React.FC<TeamTableProps> = ({ onSelectMember }) => {
   const [credentialsModalOpen, setCredentialsModalOpen] = useState(false);
   const [loginHistoryOpen, setLoginHistoryOpen] = useState(false);
   const [actionMenuOpen, setActionMenuOpen] = useState<string | null>(null);
+  const [actionMenuPos, setActionMenuPos] = useState<{ left: number; placement: 'right' | 'left'; vertical: 'top' | 'bottom'; offset: number } | null>(null);
 
   const loadMembers = useCallback(async () => {
     setLoading(true);
@@ -64,6 +66,7 @@ export const TeamTable: React.FC<TeamTableProps> = ({ onSelectMember }) => {
 
   const handleAction = async (action: string, member: TeamMember) => {
     setActionMenuOpen(null);
+    setActionMenuPos(null);
     try {
       switch (action) {
         case 'edit':
@@ -111,6 +114,30 @@ export const TeamTable: React.FC<TeamTableProps> = ({ onSelectMember }) => {
     } catch (error: any) {
       toast.error(error?.message || 'Action failed');
     }
+  };
+
+  const openActionMenu = (member: TeamMember, button: HTMLButtonElement) => {
+    const rect = button.getBoundingClientRect();
+    const menuWidth = 224;
+    const gap = 10;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const estimatedMenuHeight = 320;
+    const spaceRight = viewportWidth - rect.right - gap;
+    const spaceLeft = rect.left - gap;
+    const placement = spaceRight >= menuWidth || spaceRight >= spaceLeft ? 'right' : 'left';
+    const left = placement === 'right'
+      ? Math.min(rect.right + gap, viewportWidth - menuWidth - 12)
+      : Math.max(rect.left - gap - menuWidth, 12);
+    const spaceAbove = rect.top - gap;
+    const spaceBelow = viewportHeight - rect.bottom - gap;
+    const preferAbove = spaceAbove >= estimatedMenuHeight || spaceAbove >= spaceBelow;
+    const offset = preferAbove
+      ? Math.max(12, viewportHeight - rect.top + gap)
+      : Math.max(12, rect.bottom + gap);
+
+    setActionMenuOpen(member.id);
+    setActionMenuPos({ offset, left, placement, vertical: preferAbove ? 'bottom' : 'top' });
   };
 
   const getStatusBadge = (status: UserStatus) => {
@@ -280,112 +307,20 @@ export const TeamTable: React.FC<TeamTableProps> = ({ onSelectMember }) => {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              setActionMenuOpen(actionMenuOpen === member.id ? null : member.id);
+                              const target = e.currentTarget as HTMLButtonElement;
+                              if (actionMenuOpen === member.id) {
+                                setActionMenuOpen(null);
+                                setActionMenuPos(null);
+                                return;
+                              }
+                              openActionMenu(member, target);
                             }}
+                            type="button"
+                            data-team-actions-trigger
                             className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
                           >
                             <MoreVertical className="size-4 text-slate-600" />
                           </button>
-                          {actionMenuOpen === member.id && (
-                            <div className="absolute right-0 mt-2 w-48 bg-white border border-slate-200 rounded-lg shadow-lg z-10">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleAction('edit', member);
-                                }}
-                                className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                              >
-                                <Edit className="size-4" />
-                                Edit
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleAction('generate-credentials', member);
-                                }}
-                                className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                              >
-                                <Key className="size-4" />
-                                Generate Credentials
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleAction('reset-password', member);
-                                }}
-                                className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                              >
-                                <Key className="size-4" />
-                                Reset Password
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleAction('resend-invite', member);
-                                }}
-                                className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                              >
-                                <Mail className="size-4" />
-                                Resend Invite
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleAction('login-history', member);
-                                }}
-                                className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                              >
-                                <Eye className="size-4" />
-                                View Login History
-                              </button>
-                              {member.credential?.isLocked ? (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleAction('unlock', member);
-                                  }}
-                                  className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                                >
-                                  <Unlock className="size-4" />
-                                  Unlock Account
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleAction('lock', member);
-                                  }}
-                                  className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                                >
-                                  <Lock className="size-4" />
-                                  Lock Account
-                                </button>
-                              )}
-                              {member.status === 'ACTIVE' ? (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleAction('deactivate', member);
-                                  }}
-                                  className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
-                                >
-                                  <UserX className="size-4" />
-                                  Deactivate
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleAction('activate', member);
-                                  }}
-                                  className="w-full px-4 py-2 text-left text-sm text-green-600 hover:bg-green-50 flex items-center gap-2"
-                                >
-                                  <CheckCircle className="size-4" />
-                                  Activate
-                                </button>
-                              )}
-                            </div>
-                          )}
                         </div>
                       </div>
                     </td>
@@ -455,6 +390,134 @@ export const TeamTable: React.FC<TeamTableProps> = ({ onSelectMember }) => {
             memberId={selectedMember.id}
           />
         </>
+      )}
+
+      {typeof window !== 'undefined' && actionMenuOpen && actionMenuPos && createPortal(
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => {
+              setActionMenuOpen(null);
+              setActionMenuPos(null);
+            }}
+          />
+          <div
+            className="fixed z-50 w-56 max-h-[calc(100vh-24px)] overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-2xl py-2"
+            style={{
+              left: actionMenuPos.left,
+              ...(actionMenuPos.vertical === 'bottom'
+                ? { bottom: actionMenuPos.offset }
+                : { top: actionMenuPos.offset }),
+            }}
+          >
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleAction('edit', members.find((m) => m.id === actionMenuOpen)!);
+              }}
+              className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+            >
+              <Edit className="size-4" />
+              Edit
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleAction('generate-credentials', members.find((m) => m.id === actionMenuOpen)!);
+              }}
+              className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+            >
+              <Key className="size-4" />
+              Generate Credentials
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleAction('reset-password', members.find((m) => m.id === actionMenuOpen)!);
+              }}
+              className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+            >
+              <Key className="size-4" />
+              Reset Password
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleAction('resend-invite', members.find((m) => m.id === actionMenuOpen)!);
+              }}
+              className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+            >
+              <Mail className="size-4" />
+              Resend Invite
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleAction('login-history', members.find((m) => m.id === actionMenuOpen)!);
+              }}
+              className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+            >
+              <Eye className="size-4" />
+              View Login History
+            </button>
+            {members.find((m) => m.id === actionMenuOpen)?.credential?.isLocked ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleAction('unlock', members.find((m) => m.id === actionMenuOpen)!);
+                }}
+                className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+              >
+                <Unlock className="size-4" />
+                Unlock Account
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleAction('lock', members.find((m) => m.id === actionMenuOpen)!);
+                }}
+                className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+              >
+                <Lock className="size-4" />
+                Lock Account
+              </button>
+            )}
+            {members.find((m) => m.id === actionMenuOpen)?.status === 'ACTIVE' ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleAction('deactivate', members.find((m) => m.id === actionMenuOpen)!);
+                }}
+                className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+              >
+                <UserX className="size-4" />
+                Deactivate
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleAction('activate', members.find((m) => m.id === actionMenuOpen)!);
+                }}
+                className="w-full px-4 py-2 text-left text-sm text-green-600 hover:bg-green-50 flex items-center gap-2"
+              >
+                <CheckCircle className="size-4" />
+                Activate
+              </button>
+            )}
+          </div>
+        </>,
+        document.body
       )}
     </>
   );
