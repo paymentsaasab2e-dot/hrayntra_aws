@@ -330,16 +330,13 @@ export function PlacementsTable({
         </table>
       </div>
 
-      <div className="flex items-center justify-between border-t border-gray-100 px-6 py-4">
-        <p className="text-sm text-[#6B7280]">
-          Showing {(pagination.page - 1) * pagination.limit + 1}-
-          {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total} placements
-        </p>
-      </div>
-      <div className="px-6 pb-5 flex justify-end">
+      <div className="flex w-full items-center border-t border-gray-100 px-6 py-4">
         <PaginationAll
           initialPage={pagination.page}
           totalPages={pagination.totalPages}
+          totalCount={pagination.total}
+          pageSize={pagination.limit}
+          itemLabel="placements"
           onPageChange={onPageChange}
         />
       </div>

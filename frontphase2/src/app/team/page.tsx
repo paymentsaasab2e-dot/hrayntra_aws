@@ -184,9 +184,11 @@ function TeamPageContent() {
       <AddMemberDrawer
         isOpen={showAddMemberDrawer}
         onClose={() => setShowAddMemberDrawer(false)}
-        onSuccess={() => {
+        onSuccess={(member) => {
           setShowAddMemberDrawer(false);
-          // MembersTab will refetch on its own
+          if (member) {
+            window.dispatchEvent(new CustomEvent('team:member-created', { detail: member }));
+          }
         }}
       />
     </div>

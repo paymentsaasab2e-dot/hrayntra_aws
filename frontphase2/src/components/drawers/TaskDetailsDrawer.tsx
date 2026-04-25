@@ -46,6 +46,7 @@ import {
   MOCK_CLIENTS,
   MOCK_INTERVIEWS,
 } from '../../app/Task&Activites/types';
+import { apiGetTaskFiles, type TaskFile } from '../../lib/api';
 import { cloudinaryPdfViewerHref, normalizeCloudinaryDocumentUrl } from '../../utils/cloudinaryUrls';
 
 function cloudinaryViewableUrl(u: string) {
@@ -67,6 +68,7 @@ export interface TaskForDrawer {
   relatedTo: { id: string; name: string; type: TaskRelatedTo };
   dueDate: string;
   time: string;
+  dueTime?: string;
   priority: TaskPriority;
   status: TaskStatus;
   owner: { name: string; avatar: string };
@@ -155,6 +157,27 @@ function getEntitiesForRelatedTo(relatedTo: TaskRelatedTo): RelatedEntity[] {
 function taskToFormValues(t: TaskForDrawer): TaskFormValues {
   // Use assignedToId directly from task if available, otherwise try to find by name
   const assigneeId = t.assignedToId || MOCK_ASSIGNEES.find((u) => u.name === t.owner.name)?.id || '';
+  const normalizeTimeForInput = (value?: string) => {
+    if (!value) return '';
+    const trimmed = value.trim();
+    if (!trimmed) return '';
+    if (/^\d{2}:\d{2}$/.test(trimmed)) return trimmed;
+
+    const match = trimmed.match(/^(\d{1,2}):(\d{2})\s*([AP]M)$/i);
+    if (!match) return '';
+
+    let hours = Number(match[1]);
+    const minutes = match[2];
+    const period = match[3].toUpperCase();
+
+    if (period === 'AM') {
+      hours = hours === 12 ? 0 : hours;
+    } else if (hours !== 12) {
+      hours += 12;
+    }
+
+    return `${String(hours).padStart(2, '0')}:${minutes}`;
+  };
   
   // Map backend status to edit form status
   // Backend: 'PENDING' | 'TODO' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED'
@@ -189,6 +212,7 @@ function taskToFormValues(t: TaskForDrawer): TaskFormValues {
     assigneeId,
     priority: t.priority,
     dueDate: t.dueDate,
+    dueTime: normalizeTimeForInput(t.dueTime ?? t.time),
     reminder: t.reminder ?? '',
     attachmentNames: Array.isArray(t.attachments) && t.attachments.length > 0
       ? t.attachments.map((attachment) => attachment.name).filter(Boolean).join(', ')
@@ -198,7 +222,7 @@ function taskToFormValues(t: TaskForDrawer): TaskFormValues {
   };
 }
 
-const CREATE_FORM_INITIAL: TaskFormValues = {
+  const CREATE_FORM_INITIAL: TaskFormValues = {
   title: '',
   description: '',
   relatedTo: '',
@@ -206,6 +230,7 @@ const CREATE_FORM_INITIAL: TaskFormValues = {
   assigneeId: '',
   priority: '',
   dueDate: '',
+  dueTime: '',
   reminder: '',
   attachmentNames: '',
   notifyAssignee: true,
@@ -258,6 +283,65 @@ export function TaskDetailsDrawer({
   const [chatLoading, setChatLoading] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [chatSending, setChatSending] = useState(false);
+  const [hydratedAttachments, setHydratedAttachments] = useState<TaskAttachment[]>([]);
+  const [spreadsheetPreview, setSpreadsheetPreview] = useState<{ sheetName: string; rows: string[][] } | null>(null);
+  const [spreadsheetLoading, setSpreadsheetLoading] = useState(false);
+  const [spreadsheetError, setSpreadsheetError] = useState<string | null>(null);
+  const [documentPreviewHtml, setDocumentPreviewHtml] = useState<string | null>(null);
+  const [documentPreviewLoading, setDocumentPreviewLoading] = useState(false);
+  const [documentPreviewError, setDocumentPreviewError] = useState<string | null>(null);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+
+  const editPrefillKey = useMemo(() => {
+    if (mode !== 'edit' || !task) return '';
+
+    const attachmentsKey = (task.attachments ?? [])
+      .map((attachment) => `${attachment.name}:${attachment.url ?? ''}`)
+      .join('|');
+
+    return [
+      task.id,
+      task.title,
+      task.type,
+      task.relatedTo.id,
+      task.relatedTo.name,
+      task.relatedTo.type,
+      task.dueDate,
+      task.time,
+      task.dueTime ?? '',
+      task.priority,
+      task.status,
+      task.owner.name,
+      task.assignedToId ?? '',
+      task.backendStatus ?? '',
+      task.description ?? '',
+      task.reminder ?? '',
+      task.notes?.join('|') ?? '',
+      attachmentsKey,
+    ].join('::');
+  }, [
+    mode,
+    task?.id,
+    task?.title,
+    task?.type,
+    task?.relatedTo.id,
+    task?.relatedTo.name,
+    task?.relatedTo.type,
+    task?.dueDate,
+    task?.time,
+    task?.dueTime,
+    task?.priority,
+    task?.status,
+    task?.owner.name,
+    task?.assignedToId,
+    task?.backendStatus,
+    task?.description,
+    task?.reminder,
+    task?.notes,
+    task?.attachments,
+  ]);
 
   // When entering edit mode, prefill from task
   useEffect(() => {
@@ -265,7 +349,51 @@ export function TaskDetailsDrawer({
       setEditForm(taskToFormValues(task));
       setIsEditDirty(false);
     }
-  }, [mode, task?.id]);
+  }, [editPrefillKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const hydrateAttachments = async () => {
+      if (mode !== 'edit' || !task?.id) {
+        setHydratedAttachments([]);
+        return;
+      }
+
+      if (Array.isArray(task.attachments) && task.attachments.length > 0) {
+        setHydratedAttachments(task.attachments);
+        return;
+      }
+
+      try {
+        const response = await apiGetTaskFiles(task.id);
+        const files = Array.isArray(response.data) ? (response.data as TaskFile[]) : [];
+        const mapped = files.map((file) => ({
+          name: file.fileName,
+          url: file.fileUrl,
+        }));
+
+        if (!cancelled) {
+          setHydratedAttachments(mapped);
+          setEditForm((prev) => ({
+            ...prev,
+            attachmentNames: mapped.map((file) => file.name).filter(Boolean).join(', '),
+          }));
+        }
+      } catch (error) {
+        console.error('Failed to load task attachments:', error);
+        if (!cancelled) {
+          setHydratedAttachments([]);
+        }
+      }
+    };
+
+    void hydrateAttachments();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, task?.id, task?.attachments]);
 
   // When opening in create mode: apply prefill from AI suggestion or reset form
   useEffect(() => {
@@ -411,14 +539,32 @@ export function TaskDetailsDrawer({
     setShowAttachmentViewer(true);
   };
 
+  const buildTaskAttachmentProxyHref = (apiPath: string, filename: string) => {
+    const params = new URLSearchParams({
+      path: apiPath,
+      filename,
+    });
+    return `/api/download-file?${params.toString()}`;
+  };
+
   const getAttachmentUrl = (filename: string, attachmentUrl?: string | null) => {
     if (!task) return '';
     
     // If attachmentUrl is provided and is a valid URL, use it
     if (attachmentUrl && (attachmentUrl.startsWith('http://') || attachmentUrl.startsWith('https://'))) {
-      return cloudinaryViewableUrl(attachmentUrl);
+      try {
+        const parsed = new URL(attachmentUrl);
+        if (isLocalUploadsUrl(attachmentUrl)) {
+          return buildTaskAttachmentProxyHref(`/api/v1/tasks/${task.id}/attachments/${filename}`, filename);
+        }
+        if (parsed.host.includes('cloudinary.com')) {
+          return cloudinaryViewableUrl(attachmentUrl);
+        }
+      } catch {
+        // fall through to proxy
+      }
     }
-    
+
     // Check if the attachment in task.attachments has a URL
     const attachment = task.attachments?.find(att => 
       att.name === filename || att.name?.includes(filename) || filename.includes(att.name || '')
@@ -427,50 +573,133 @@ export function TaskDetailsDrawer({
     // If attachment has a URL, use it directly
     if (attachment?.url) {
       if (attachment.url.startsWith('http://') || attachment.url.startsWith('https://')) {
+        try {
+          const parsed = new URL(attachment.url);
+          if (parsed.pathname.startsWith('/uploads/')) {
+            return buildTaskAttachmentProxyHref(`/api/v1/tasks/${task.id}/attachments/${filename}`, filename);
+          }
+        } catch {
+          // fall through to direct URL handling
+        }
         return cloudinaryViewableUrl(attachment.url);
       }
       // If it's a relative path starting with /uploads, construct full URL without /api/v1
       if (attachment.url.startsWith('/uploads')) {
-        const API_BASE = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || 'http://localhost:5000/api/v1';
-        const BASE_URL = API_BASE.replace(/\/api\/v1$/, '') || 'http://localhost:5000';
-        return `${BASE_URL}${attachment.url}`;
+        return buildTaskAttachmentProxyHref(`/api/v1/tasks/${task.id}/attachments/${filename}`, filename);
       }
     }
     
     // Check if filename itself is a URL
     if (filename.startsWith('http://') || filename.startsWith('https://')) {
-      return cloudinaryViewableUrl(filename);
+      try {
+        const parsed = new URL(filename);
+        if (parsed.pathname.startsWith('/uploads/')) {
+          return buildTaskAttachmentProxyHref(`/api/v1/tasks/${task.id}/attachments/${filename}`, filename);
+        }
+        if (parsed.host.includes('cloudinary.com')) {
+          return cloudinaryViewableUrl(filename);
+        }
+      } catch {
+        // ignore
+      }
+      return buildTaskAttachmentProxyHref(`/api/v1/tasks/${task.id}/attachments/${filename}`, filename);
     }
     
-    // Otherwise, construct API endpoint
-    const API_BASE = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || 'http://localhost:5000/api/v1';
-    return `${API_BASE}/tasks/${task.id}/attachments/${encodeURIComponent(filename)}`;
+    // Otherwise, proxy through the Next app so the browser doesn't need direct backend access
+    return buildTaskAttachmentProxyHref(`/api/v1/tasks/${task.id}/attachments/${filename}`, filename);
   };
 
-  const getAttachmentPreviewUrl = (filename: string, attachmentUrl?: string | null) => {
-    // If attachmentUrl is provided and is a valid URL, use it directly
-    if (attachmentUrl && (attachmentUrl.startsWith('http://') || attachmentUrl.startsWith('https://'))) {
-      return cloudinaryViewableUrl(attachmentUrl);
+  const getAttachmentPreviewUrl = (filename: string) => {
+    if (!task) return '';
+    return buildTaskPreviewProxyHref(`/api/v1/tasks/${task.id}/attachments/${filename}/preview`, filename);
+  };
+
+  const fetchAttachmentBlob = async () => {
+    if (!task || !selectedAttachment) throw new Error('No attachment selected');
+    const url = getAttachmentUrl(selectedAttachment, selectedAttachmentUrl);
+    if (!url) throw new Error('Attachment URL unavailable');
+
+    const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+    const response = await fetch(url, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to load file (${response.status})`);
     }
-    
-    // Check if the attachment in task.attachments has a URL
-    const attachment = task?.attachments?.find(att => 
-      att.name === filename || att.name?.includes(filename) || filename.includes(att.name || '')
-    );
-    
-    // If attachment has a URL, use it directly
-    if (attachment?.url && (attachment.url.startsWith('http://') || attachment.url.startsWith('https://'))) {
-      return cloudinaryViewableUrl(attachment.url);
+
+    return response.blob();
+  };
+
+  const fetchAttachmentPreviewHtml = async () => {
+    if (!task || !selectedAttachment) throw new Error('No attachment selected');
+    const url = getAttachmentPreviewUrl(selectedAttachment);
+    if (!url) throw new Error('Attachment preview unavailable');
+
+    const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+    const response = await fetch(url, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to load preview (${response.status})`);
     }
-    
-    // Check if filename itself is a URL
-    if (filename.startsWith('http://') || filename.startsWith('https://')) {
-      return cloudinaryViewableUrl(filename);
+
+    return response.text();
+  };
+
+  const fetchAttachmentBlobUrl = async () => {
+    if (!task || !selectedAttachment) throw new Error('No attachment selected');
+    const blob = await fetchAttachmentBlob();
+    return URL.createObjectURL(blob);
+  };
+
+  const handleOpenAttachment = async () => {
+    try {
+      if (selectedAttachment && (isWordFile(selectedAttachment) || isSpreadsheetFile(selectedAttachment))) {
+        const html = documentPreviewHtml || await fetchAttachmentPreviewHtml();
+        const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+        const objectUrl = URL.createObjectURL(blob);
+        const newWindow = window.open(objectUrl, '_blank', 'noopener,noreferrer');
+        if (!newWindow) {
+          window.location.href = objectUrl;
+        }
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+        return;
+      }
+
+      const blob = await fetchAttachmentBlob();
+      const objectUrl = URL.createObjectURL(blob);
+      const newWindow = window.open(objectUrl, '_blank', 'noopener,noreferrer');
+      if (!newWindow) {
+        window.location.href = objectUrl;
+      }
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch (error: any) {
+      setToastMessage(error?.message || 'Failed to open file');
+      setShowErrorToast(true);
+      setTimeout(() => setShowErrorToast(false), 3000);
     }
-    
-    // For API endpoints, we'll need to fetch with auth headers and convert to blob URL
-    // This will be handled in useEffect when selectedAttachment changes
-    return null;
+  };
+
+  const handleDownloadAttachment = async () => {
+    try {
+      const blob = await fetchAttachmentBlob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = selectedAttachment || 'attachment';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch (error: any) {
+      setToastMessage(error?.message || 'Failed to download file');
+      setShowErrorToast(true);
+      setTimeout(() => setShowErrorToast(false), 3000);
+    }
   };
 
   // Fetch image with auth headers and convert to blob URL
@@ -483,15 +712,28 @@ export function TaskDetailsDrawer({
         }
         return null;
       });
+      setSpreadsheetPreview(null);
+      setSpreadsheetLoading(false);
+      setSpreadsheetError(null);
+      setDocumentPreviewHtml(null);
+      setDocumentPreviewLoading(false);
+      setDocumentPreviewError(null);
+      if (pdfBlobUrl && pdfBlobUrl.startsWith('blob:')) URL.revokeObjectURL(pdfBlobUrl);
+      setPdfBlobUrl(null);
+      setPdfLoading(false);
+      setPdfError(null);
       return;
     }
     
     const url = getAttachmentUrl(selectedAttachment, selectedAttachmentUrl);
-    const API_BASE = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || 'http://localhost:5000/api/v1';
-    const BASE_URL = API_BASE.replace(/\/api\/v1$/, '') || 'http://localhost:5000';
+    const API_BASE = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || 'http://localhost:5001/api/v1';
+    const BASE_URL = API_BASE.replace(/\/api\/v1$/, '') || 'http://localhost:5001';
     
     // If it's an external URL (not our API), use it directly
     if (url.startsWith('http://') || url.startsWith('https://')) {
+      if (isLocalUploadsUrl(url)) {
+        // Older local upload URLs should still go through the preview/download flow below.
+      } else {
       // Check if it's a static file URL (starts with base URL + /uploads)
       if (url.startsWith(`${BASE_URL}/uploads`)) {
         // Static file, use directly without auth
@@ -515,6 +757,7 @@ export function TaskDetailsDrawer({
         });
         setImageLoading(false);
         return;
+      }
       }
     }
     
@@ -557,9 +800,77 @@ export function TaskDetailsDrawer({
       };
       
       fetchImage();
+    } else if ((isSpreadsheetFile(selectedAttachment) || isWordFile(selectedAttachment)) && url) {
+      setDocumentPreviewLoading(true);
+      setDocumentPreviewError(null);
+      setDocumentPreviewHtml(null);
+      setSpreadsheetPreview(null);
+      setSpreadsheetLoading(false);
+      setSpreadsheetError(null);
+
+      const fetchDocumentPreview = async () => {
+        try {
+          const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+          const response = await fetch(getAttachmentPreviewUrl(selectedAttachment), {
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+            cache: 'no-store',
+          });
+
+          if (!response.ok) {
+            throw new Error(`Failed to load document preview (${response.status})`);
+          }
+
+          const html = await response.text();
+          setDocumentPreviewHtml(html);
+        } catch (error: any) {
+          console.error('Failed to load document preview:', error);
+          setDocumentPreviewError(error?.message || 'Preview unavailable');
+          setDocumentPreviewHtml(null);
+        } finally {
+          setDocumentPreviewLoading(false);
+        }
+      };
+
+      void fetchDocumentPreview();
+    } else if (isPdfFile(selectedAttachment) && url) {
+      setPdfLoading(true);
+      setPdfError(null);
+      if (pdfBlobUrl && pdfBlobUrl.startsWith('blob:')) URL.revokeObjectURL(pdfBlobUrl);
+      setPdfBlobUrl(null);
+      setSpreadsheetPreview(null);
+      setSpreadsheetLoading(false);
+      setSpreadsheetError(null);
+      setDocumentPreviewHtml(null);
+      setDocumentPreviewLoading(false);
+      setDocumentPreviewError(null);
+
+      const fetchPdfPreview = async () => {
+        try {
+          const blobUrl = await fetchAttachmentBlobUrl();
+          setPdfBlobUrl(blobUrl);
+        } catch (error: any) {
+          console.error('Failed to load PDF preview:', error);
+          setPdfError(error?.message || 'Preview unavailable');
+          setPdfBlobUrl(null);
+        } finally {
+          setPdfLoading(false);
+        }
+      };
+
+      void fetchPdfPreview();
     } else {
       setImageBlobUrl(null);
       setImageLoading(false);
+      setSpreadsheetPreview(null);
+      setSpreadsheetLoading(false);
+      setSpreadsheetError(null);
+      setDocumentPreviewHtml(null);
+      setDocumentPreviewLoading(false);
+      setDocumentPreviewError(null);
+      if (pdfBlobUrl && pdfBlobUrl.startsWith('blob:')) URL.revokeObjectURL(pdfBlobUrl);
+      setPdfBlobUrl(null);
+      setPdfLoading(false);
+      setPdfError(null);
     }
     
     // Cleanup blob URL on unmount or when attachment changes
@@ -583,6 +894,33 @@ export function TaskDetailsDrawer({
     return filename.toLowerCase().endsWith('.pdf');
   };
 
+  const isSpreadsheetFile = (filename: string) => {
+    const lower = filename.toLowerCase();
+    return lower.endsWith('.xlsx') || lower.endsWith('.xls');
+  };
+
+  const isWordFile = (filename: string) => {
+    const lower = filename.toLowerCase();
+    return lower.endsWith('.docx') || lower.endsWith('.doc');
+  };
+
+  const isLocalUploadsUrl = (value: string) => {
+    try {
+      return new URL(value).pathname.startsWith('/uploads/');
+    } catch {
+      return value.startsWith('/uploads/');
+    }
+  };
+
+  const buildTaskPreviewProxyHref = (apiPath: string, filename: string) => {
+    const params = new URLSearchParams({
+      path: apiPath,
+      filename,
+      preview: '1',
+    });
+    return `/api/download-file?${params.toString()}`;
+  };
+
   const resetCreateForm = () => setCreateForm(CREATE_FORM_INITIAL);
 
   const handleClose = () => {
@@ -592,6 +930,9 @@ export function TaskDetailsDrawer({
       return;
     }
     if (mode === 'create') resetCreateForm();
+    setShowSuccessToast(false);
+    setShowErrorToast(false);
+    setToastMessage('');
     onClose();
   };
 
@@ -617,15 +958,10 @@ export function TaskDetailsDrawer({
         assigneeId: createForm.assigneeId,
         priority: createForm.priority as any,
         dueDate: createForm.dueDate,
-        dueTime: createForm.dueDate ? undefined : undefined, // Extract time if needed
+        dueTime: createForm.dueTime || undefined,
         reminder: createForm.reminder || undefined,
         attachmentNames: createForm.attachmentNames || undefined,
         notifyAssignee: createForm.notifyAssignee,
-        taskType: createForm.title.toLowerCase().includes('call') ? 'Call' :
-                 createForm.title.toLowerCase().includes('email') ? 'Email' :
-                 createForm.title.toLowerCase().includes('interview') ? 'Interview' :
-                 createForm.title.toLowerCase().includes('meeting') ? 'Meeting' :
-                 createForm.title.toLowerCase().includes('follow') ? 'Follow-up' : 'Note',
       });
 
       // Upload files if any
@@ -638,13 +974,8 @@ export function TaskDetailsDrawer({
         }
       }
 
-      setToastMessage('Task created successfully');
-      setShowSuccessToast(true);
-      setTimeout(() => {
-        setShowSuccessToast(false);
-        onCreateSuccess?.();
-        handleClose();
-      }, 2000);
+      onCreateSuccess?.();
+      handleClose();
     } catch (error: any) {
       console.error('Failed to create task:', error);
       setToastMessage(error.message || 'Failed to create task');
@@ -672,15 +1003,11 @@ export function TaskDetailsDrawer({
         assigneeId: editForm.assigneeId,
         priority: editForm.priority as any,
         dueDate: editForm.dueDate,
+        dueTime: editForm.dueTime || undefined,
         reminder: editForm.reminder || undefined,
         attachmentNames: editForm.attachmentNames || undefined,
         notifyAssignee: editForm.notifyAssignee,
         status: editForm.status as any,
-        taskType: editForm.title.toLowerCase().includes('call') ? 'Call' :
-                 editForm.title.toLowerCase().includes('email') ? 'Email' :
-                 editForm.title.toLowerCase().includes('interview') ? 'Interview' :
-                 editForm.title.toLowerCase().includes('meeting') ? 'Meeting' :
-                 editForm.title.toLowerCase().includes('follow') ? 'Follow-up' : 'Note',
       });
 
       // Upload files if any
@@ -1022,9 +1349,9 @@ export function TaskDetailsDrawer({
                       {/* Attachments */}
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
                         <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Attachments</h4>
-                        {task.attachments && task.attachments.length > 0 ? (
+                        {((task.attachments && task.attachments.length > 0) || hydratedAttachments.length > 0) ? (
                           <ul className="space-y-2">
-                            {task.attachments.map((att, i) => (
+                            {(task.attachments && task.attachments.length > 0 ? task.attachments : hydratedAttachments).map((att, i) => (
                               <li key={i} className="flex items-center justify-between gap-2 p-2 rounded-lg hover:bg-slate-50 transition-colors">
                                 <div className="flex items-center gap-2 text-sm text-slate-700 flex-1 min-w-0">
                                   <Paperclip size={14} className="text-slate-400 shrink-0" />
@@ -1196,7 +1523,7 @@ export function TaskDetailsDrawer({
 
         {/* Success toast */}
         <AnimatePresence>
-          {showSuccessToast && (
+          {showSuccessToast && mode !== 'detail' && (
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -1249,13 +1576,13 @@ export function TaskDetailsDrawer({
                       <h3 className="text-lg font-bold text-slate-900 truncate">{selectedAttachment}</h3>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <a
-                        href={getAttachmentUrl(selectedAttachment, selectedAttachmentUrl)}
-                        download={selectedAttachment}
+                      <button
+                        type="button"
+                        onClick={handleDownloadAttachment}
                         className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
                       >
                         <Paperclip size={16} /> Download
-                      </a>
+                      </button>
                       <button
                         type="button"
                         onClick={() => {
@@ -1298,13 +1625,13 @@ export function TaskDetailsDrawer({
                               <FileText size={64} className="text-slate-300 mb-4" />
                               <p className="text-sm text-slate-600 mb-2">Image Preview Unavailable</p>
                               <p className="text-xs text-slate-500 mb-4">{selectedAttachment}</p>
-                              <a
-                                href={getAttachmentUrl(selectedAttachment, selectedAttachmentUrl)}
-                                download={selectedAttachment}
+                              <button
+                                type="button"
+                                onClick={handleDownloadAttachment}
                                 className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
                               >
                                 <Paperclip size={16} /> Download File
-                              </a>
+                              </button>
                             </div>
                           )}
                           {/* Hidden fallback for when image fails to load */}
@@ -1312,63 +1639,216 @@ export function TaskDetailsDrawer({
                             <FileText size={64} className="text-slate-300 mb-4" />
                             <p className="text-sm text-slate-600 mb-2">Image Preview Unavailable</p>
                             <p className="text-xs text-slate-500 mb-4">{selectedAttachment}</p>
-                            <a
-                              href={getAttachmentUrl(selectedAttachment, selectedAttachmentUrl)}
-                              download={selectedAttachment}
+                            <button
+                              type="button"
+                              onClick={handleDownloadAttachment}
                               className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
                             >
                               <Paperclip size={16} /> Download File
-                            </a>
+                            </button>
                           </div>
                         </div>
                       </div>
                     ) : isPdfFile(selectedAttachment) ? (
                       <div className="flex flex-col items-center justify-center min-h-[500px]">
-                        <div className="bg-white rounded-lg border-2 border-dashed border-slate-300 p-8 w-full max-w-2xl">
-                          <FileText size={64} className="text-slate-300 mb-4 mx-auto" />
+                        <div className="bg-white rounded-lg border border-dashed border-slate-300 p-4 w-full max-w-6xl shadow-sm">
+                          <div className="flex items-center justify-center mb-5">
+                            <div className="h-20 w-20 rounded-2xl bg-slate-100 flex items-center justify-center border border-slate-200">
+                              <FileText size={40} className="text-slate-300" />
+                            </div>
+                          </div>
                           <p className="text-sm text-slate-600 mb-2 text-center">PDF Preview</p>
-                          <p className="text-xs text-slate-500 mb-6 text-center">{selectedAttachment}</p>
+                          <p className="text-xs text-slate-500 mb-6 text-center break-all">{selectedAttachment}</p>
+                          <div className="mb-6 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                            {pdfLoading ? (
+                              <div className="flex items-center justify-center h-[65vh] bg-slate-50">
+                                <div className="text-center">
+                                  <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-blue-600" />
+                                  <p className="text-sm text-slate-600">Loading PDF preview...</p>
+                                </div>
+                              </div>
+                            ) : pdfError ? (
+                              <div className="flex items-center justify-center h-[65vh] bg-slate-50">
+                                <div className="text-center p-6">
+                                  <p className="text-sm font-medium text-slate-700">Preview unavailable</p>
+                                  <p className="mt-2 text-xs text-slate-500">{pdfError}</p>
+                                </div>
+                              </div>
+                            ) : pdfBlobUrl ? (
+                              <iframe
+                                title={selectedAttachment}
+                                src={`${pdfBlobUrl}#toolbar=1&navpanes=0`}
+                                className="h-[65vh] w-full bg-white"
+                              />
+                            ) : (
+                              <div className="flex items-center justify-center h-[65vh] bg-slate-50">
+                                <div className="text-center p-6">
+                                  <p className="text-sm font-medium text-slate-700">No preview data available</p>
+                                </div>
+                              </div>
+                            )}
+                          </div>
                           <div className="flex gap-3 justify-center">
-                            <a
-                              href={getAttachmentUrl(selectedAttachment, selectedAttachmentUrl)}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                            <button
+                              type="button"
+                              onClick={handleOpenAttachment}
                               className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
                             >
                               <ExternalLink size={16} /> Open PDF
-                            </a>
-                            <a
-                              href={getAttachmentUrl(selectedAttachment, selectedAttachmentUrl)}
-                              download={selectedAttachment}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleDownloadAttachment}
                               className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200"
                             >
                               <Paperclip size={16} /> Download
-                            </a>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : isSpreadsheetFile(selectedAttachment) ? (
+                      <div className="flex flex-col items-center justify-center min-h-[500px]">
+                        <div className="bg-white rounded-lg border border-dashed border-slate-300 p-4 w-full max-w-6xl shadow-sm">
+                          <div className="flex items-center justify-center mb-5">
+                            <div className="h-20 w-20 rounded-2xl bg-slate-100 flex items-center justify-center border border-slate-200">
+                              <FileText size={40} className="text-slate-300" />
+                            </div>
+                          </div>
+                          <p className="text-sm text-slate-600 mb-2 text-center">Spreadsheet Preview</p>
+                          <p className="text-xs text-slate-500 mb-6 text-center break-all">{selectedAttachment}</p>
+
+                          {documentPreviewLoading ? (
+                            <div className="flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 py-16">
+                              <div className="text-center">
+                                <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-blue-600" />
+                                <p className="text-sm text-slate-600">Loading spreadsheet preview...</p>
+                              </div>
+                            </div>
+                          ) : documentPreviewError ? (
+                            <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50 px-4 py-10 text-center">
+                              <p className="text-sm font-medium text-slate-700">Preview unavailable</p>
+                              <p className="mt-2 text-xs text-slate-500">{documentPreviewError}</p>
+                            </div>
+                          ) : documentPreviewHtml ? (
+                            <div className="mb-6 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                              <iframe
+                                title={selectedAttachment}
+                                srcDoc={documentPreviewHtml}
+                                className="h-[65vh] w-full bg-white"
+                                sandbox="allow-same-origin"
+                              />
+                            </div>
+                          ) : (
+                            <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50 px-4 py-10 text-center">
+                              <p className="text-sm font-medium text-slate-700">No preview data available</p>
+                              <p className="mt-2 text-xs text-slate-500">You can still open or download the file below.</p>
+                            </div>
+                          )}
+
+                          <div className="flex flex-wrap gap-3 justify-center">
+                            <button
+                              type="button"
+                              onClick={handleOpenAttachment}
+                              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
+                            >
+                              <ExternalLink size={16} /> Open File
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleDownloadAttachment}
+                              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200"
+                            >
+                              <Paperclip size={16} /> Download
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : isWordFile(selectedAttachment) ? (
+                      <div className="flex flex-col items-center justify-center min-h-[500px]">
+                        <div className="bg-white rounded-lg border border-dashed border-slate-300 p-4 w-full max-w-6xl shadow-sm">
+                          <div className="flex items-center justify-center mb-5">
+                            <div className="h-20 w-20 rounded-2xl bg-slate-100 flex items-center justify-center border border-slate-200">
+                              <FileText size={40} className="text-slate-300" />
+                            </div>
+                          </div>
+                          <p className="text-sm text-slate-600 mb-2 text-center">Document Preview</p>
+                          <p className="text-xs text-slate-500 mb-6 text-center break-all">{selectedAttachment}</p>
+
+                          {documentPreviewLoading ? (
+                            <div className="flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 py-16">
+                              <div className="text-center">
+                                <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-blue-600" />
+                                <p className="text-sm text-slate-600">Loading document preview...</p>
+                              </div>
+                            </div>
+                          ) : documentPreviewError ? (
+                            <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50 px-4 py-10 text-center">
+                              <p className="text-sm font-medium text-slate-700">Preview unavailable</p>
+                              <p className="mt-2 text-xs text-slate-500">{documentPreviewError}</p>
+                            </div>
+                          ) : documentPreviewHtml ? (
+                            <div className="mb-6 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                              <iframe
+                                title={selectedAttachment}
+                                srcDoc={documentPreviewHtml}
+                                className="h-[65vh] w-full bg-white"
+                                sandbox="allow-same-origin"
+                              />
+                            </div>
+                          ) : (
+                            <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50 px-4 py-10 text-center">
+                              <p className="text-sm font-medium text-slate-700">No preview data available</p>
+                              <p className="mt-2 text-xs text-slate-500">You can still open or download the file below.</p>
+                            </div>
+                          )}
+
+                          <div className="flex flex-wrap gap-3 justify-center">
+                            <button
+                              type="button"
+                              onClick={handleOpenAttachment}
+                              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
+                            >
+                              <ExternalLink size={16} /> Open File
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleDownloadAttachment}
+                              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200"
+                            >
+                              <Paperclip size={16} /> Download
+                            </button>
                           </div>
                         </div>
                       </div>
                     ) : (
                       <div className="flex flex-col items-center justify-center min-h-[500px]">
-                        <div className="bg-white rounded-lg border-2 border-dashed border-slate-300 p-8 max-w-2xl w-full">
-                          <FileText size={64} className="text-slate-300 mb-4 mx-auto" />
-                          <p className="text-sm text-slate-600 mb-2 text-center">File Preview</p>
-                          <p className="text-xs text-slate-500 mb-6 text-center">{selectedAttachment}</p>
-                          <div className="flex gap-3 justify-center">
-                            <a
-                              href={getAttachmentUrl(selectedAttachment, selectedAttachmentUrl)}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                        <div className="bg-white rounded-lg border border-dashed border-slate-300 p-8 w-full max-w-2xl shadow-sm">
+                          <div className="flex items-center justify-center mb-6">
+                            <div className="h-20 w-20 rounded-2xl bg-slate-100 flex items-center justify-center border border-slate-200">
+                              <FileText size={40} className="text-slate-300" />
+                            </div>
+                          </div>
+                          <p className="text-sm text-slate-600 mb-2 text-center">Document Preview</p>
+                          <p className="text-xs text-slate-500 mb-6 text-center break-all">{selectedAttachment}</p>
+                          <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50 px-4 py-10 text-center">
+                            <p className="text-sm font-medium text-slate-700">Preview unavailable for this file type</p>
+                            <p className="mt-2 text-xs text-slate-500">You can still open or download the file below.</p>
+                          </div>
+                          <div className="flex flex-wrap gap-3 justify-center">
+                            <button
+                              type="button"
+                              onClick={handleOpenAttachment}
                               className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
                             >
                               <ExternalLink size={16} /> Open File
-                            </a>
-                            <a
-                              href={getAttachmentUrl(selectedAttachment, selectedAttachmentUrl)}
-                              download={selectedAttachment}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleDownloadAttachment}
                               className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200"
                             >
                               <Paperclip size={16} /> Download
-                            </a>
+                            </button>
                           </div>
                         </div>
                       </div>

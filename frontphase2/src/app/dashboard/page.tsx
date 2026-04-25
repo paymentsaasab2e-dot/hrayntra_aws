@@ -605,22 +605,21 @@ export default function DashboardPage() {
           <h3 className="text-xs font-bold uppercase tracking-widest text-slate-500">Candidate pipeline (stages)</h3>
           <span className="text-[10px] font-bold text-slate-400">From candidate stats API · Click to open pipeline</span>
         </div>
-        <div className="p-6">
-          <div className="no-scrollbar flex w-full items-center gap-2 overflow-x-auto pb-2">
-            {pipelineStages.map((stage, i) => (
-              <React.Fragment key={stage.label}>
-                <div
-                  className={`flex min-w-[120px] flex-1 flex-col items-center rounded-xl border p-4 text-center transition-all hover:shadow-md ${stage.color}`}
+        <div className="p-5 sm:p-6">
+          <div className="grid w-full grid-flow-col auto-cols-fr gap-2">
+            {pipelineStages.map((stage) => (
+              <div
+                key={stage.label}
+                className={`flex min-w-0 flex-col items-center rounded-xl border px-2 py-2.5 text-center transition-all hover:shadow-md ${stage.color}`}
+              >
+                <span
+                  className="mb-1 w-full truncate text-[9px] font-black uppercase leading-tight tracking-widest opacity-70"
+                  title={stage.label}
                 >
-                  <span className="mb-1 text-[10px] font-black uppercase tracking-widest opacity-70">{stage.label}</span>
-                  <span className="text-xl font-black">{formatCount(stage.count)}</span>
-                </div>
-                {i < pipelineStages.length - 1 ? (
-                  <div className="flex shrink-0 items-center">
-                    <ChevronRight size={14} className="text-slate-300" />
-                  </div>
-                ) : null}
-              </React.Fragment>
+                  {stage.label}
+                </span>
+                <span className="text-[15px] font-black leading-none sm:text-base">{formatCount(stage.count)}</span>
+              </div>
             ))}
           </div>
         </div>

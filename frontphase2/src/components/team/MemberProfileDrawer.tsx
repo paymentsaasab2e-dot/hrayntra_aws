@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X, Edit, UserMinus, UserPlus, Mail, Phone, MapPin, Key, Lock, Unlock, Clock, History, Trash2 } from 'lucide-react';
+import { X, Edit, UserMinus, UserPlus, Mail, Phone, MapPin, Key, Lock, Unlock, Clock, History, Trash2, Eye, EyeOff, Copy } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import {
@@ -21,8 +21,9 @@ interface MemberProfileDrawerProps {
   isOpen: boolean;
   memberId: string;
   onClose: () => void;
-  onEdit: () => void;
+  onEdit?: () => void;
   onDelete?: () => void | Promise<void>;
+  initialTempPassword?: string | null;
 }
 
 // Color mapping
@@ -62,16 +63,21 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
   onClose,
   onEdit,
   onDelete,
+  initialTempPassword = null,
 }) => {
   const [member, setMember] = useState<TeamMemberDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [showLoginHistory, setShowLoginHistory] = useState(false);
+  const [sessionTempPassword, setSessionTempPassword] = useState(initialTempPassword || '');
+  const [showTempPassword, setShowTempPassword] = useState(true);
 
   useEffect(() => {
     if (isOpen && memberId) {
+      setSessionTempPassword(initialTempPassword || '');
+      setShowTempPassword(true);
       loadMember();
     }
-  }, [isOpen, memberId]);
+  }, [isOpen, memberId, initialTempPassword]);
 
   const loadMember = async () => {
     setLoading(true);
@@ -111,7 +117,12 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
     if (!member) return;
     try {
       const res = await generateCredentials(member.id, { sendInvite: true });
-      toast.success(`Credentials generated. Login ID: ${res.data?.loginId || 'N/A'}`);
+      const payload = res.data?.data || res.data || {};
+      if (payload?.tempPassword) {
+        setSessionTempPassword(payload.tempPassword);
+        setShowTempPassword(true);
+      }
+      toast.success(`Credentials generated. Login ID: ${payload?.loginId || 'N/A'}`);
       loadMember();
     } catch (error: any) {
       toast.error(error.message || 'Failed to generate credentials');
@@ -121,7 +132,12 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
   const handleResetPassword = async () => {
     if (!member) return;
     try {
-      await resetPassword(member.id);
+      const res = await resetPassword(member.id);
+      const payload = res.data?.data || res.data || {};
+      if (payload?.tempPassword) {
+        setSessionTempPassword(payload.tempPassword);
+        setShowTempPassword(true);
+      }
       toast.success('Password reset email sent');
       loadMember();
     } catch (error: any) {
@@ -174,6 +190,19 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
   }, [isOpen, onClose]);
 
   if (!isOpen) return null;
+
+  const canRevealPassword =
+    typeof window !== 'undefined' &&
+    (() => {
+      try {
+        const currentUser = localStorage.getItem('currentUser');
+        if (!currentUser) return false;
+        const parsed = JSON.parse(currentUser);
+        return parsed?.roleName === 'Super Admin';
+      } catch {
+        return false;
+      }
+    })();
 
   return (
     <>
@@ -265,13 +294,15 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
 
                     {/* Actions */}
                     <div className="flex items-center gap-2 mt-4">
-                      <button
-                        onClick={onEdit}
-                        className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-2"
-                      >
-                        <Edit size={14} />
-                        Edit
-                      </button>
+                      {onEdit && (
+                        <button
+                          onClick={onEdit}
+                          className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-2"
+                        >
+                          <Edit size={14} />
+                          Edit
+                        </button>
+                      )}
                       {onDelete && (
                         <button
                           type="button"
@@ -312,6 +343,87 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
 
                   {/* Content */}
                   <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                    {/* Credential Snapshot */}
+                    <section>
+                      <h3 className="text-sm font-bold text-slate-800 mb-3">Credential Snapshot</h3>
+                    <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5 space-y-3">
+                        <div className="flex items-center justify-between gap-4">
+                          <span className="text-sm text-slate-500">Member ID</span>
+                          <span className="text-sm font-mono text-slate-900 break-all">{member.id}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-4">
+                          <span className="text-sm text-slate-500">Login ID</span>
+                          <span className="text-sm font-mono text-slate-900 break-all">
+                            {member.credential?.loginId || 'Not generated'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-4">
+                          <span className="text-sm text-slate-500">Password</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-slate-900 font-mono">
+                              {sessionTempPassword
+                                ? (showTempPassword ? sessionTempPassword : '••••••••••••')
+                                : !member.credential
+                                  ? 'Not generated'
+                                  : member.credential.tempPasswordFlag
+                                    ? 'Temporary password issued'
+                                    : 'Hidden for security'}
+                            </span>
+                            {sessionTempPassword && canRevealPassword && (
+                              <button
+                                type="button"
+                                onClick={() => setShowTempPassword((prev) => !prev)}
+                                className="inline-flex items-center justify-center rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+                                title={showTempPassword ? 'Hide password' : 'Show password'}
+                              >
+                                {showTempPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                              </button>
+                            )}
+                            {sessionTempPassword && canRevealPassword && (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  try {
+                                    await navigator.clipboard.writeText(sessionTempPassword);
+                                    toast.success('Password copied');
+                                  } catch {
+                                    toast.error('Failed to copy password');
+                                  }
+                                }}
+                                className="inline-flex items-center justify-center rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+                                title="Copy password"
+                              >
+                                <Copy size={14} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between gap-4">
+                          <span className="text-sm text-slate-500">Credential Status</span>
+                          {!member.credential ? (
+                            <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-slate-100 text-slate-600">
+                              No Login
+                            </span>
+                          ) : member.credential.isLocked ? (
+                            <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-red-100 text-red-700">
+                              Locked
+                            </span>
+                          ) : member.credential.tempPasswordFlag ? (
+                            <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-700">
+                              Pending
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-green-100 text-green-700">
+                              Active
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500">
+                          Passwords are not stored in plain text. Use Reset Password to issue a fresh temporary password.
+                        </p>
+                      </div>
+                    </section>
+
                     {/* Stats Grid */}
                     <div className="grid grid-cols-3 gap-4">
                       <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">

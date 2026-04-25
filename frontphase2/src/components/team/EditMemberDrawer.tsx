@@ -71,7 +71,7 @@ interface EditMemberDrawerProps {
   isOpen: boolean;
   member: TeamMember;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (member?: TeamMember) => void;
 }
 
 export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, member, onClose, onSuccess }) => {
@@ -199,7 +199,7 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
       const result = await updateTeamMember(member.id, payload);
       console.log('✅ Update result:', result);
       toast.success('Team member updated successfully');
-      onSuccess();
+      onSuccess((result as any)?.data || member);
       handleClose();
     } catch (error: any) {
       const errorMessage = error?.message || 'Failed to update team member';

@@ -1,9 +1,31 @@
-const formatDateTime = (value, timezone) =>
-  new Intl.DateTimeFormat('en-US', {
+const TIMEZONE_ALIASES = {
+  'GMT+5:30': 'Asia/Kolkata',
+  'GMT+1:00': 'Etc/GMT-1',
+  'GMT+0:00': 'UTC',
+  'GMT-5:00': 'Etc/GMT+5',
+  'IST GMT+5:30': 'Asia/Kolkata',
+};
+
+const normalizeTimeZone = (timezone) => {
+  const raw = String(timezone || '').trim();
+  if (!raw) return 'UTC';
+  if (TIMEZONE_ALIASES[raw]) return TIMEZONE_ALIASES[raw];
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: raw }).format(new Date());
+    return raw;
+  } catch {
+    return 'UTC';
+  }
+};
+
+const formatDateTime = (value, timezone) => {
+  const safeTimeZone = normalizeTimeZone(timezone);
+  return new Intl.DateTimeFormat('en-US', {
     dateStyle: 'medium',
     timeStyle: 'short',
-    timeZone: timezone || 'UTC',
+    timeZone: safeTimeZone,
   }).format(new Date(value));
+};
 
 const layout = ({ title, intro, sections, ctaLabel, ctaLink }) => `
   <div style="font-family: Arial, sans-serif; background:#f8fafc; padding:24px; color:#111827;">

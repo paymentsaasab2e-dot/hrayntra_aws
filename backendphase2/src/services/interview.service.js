@@ -184,8 +184,8 @@ const countKpis = async (baseWhere = {}) => {
     prisma.interview.count({
       where: {
         ...baseWhere,
+        status: { in: ['COMPLETED', 'FEEDBACK_PENDING'] },
         OR: [{ status: 'FEEDBACK_PENDING' }, { feedbackEntries: { none: {} } }],
-        status: { notIn: ['CANCELLED', 'NO_SHOW'] },
       },
     }),
     prisma.interview.count({
@@ -216,6 +216,12 @@ const getInterviewOrThrow = async (id) => {
 
   return interview;
 };
+
+const getInterviewWithInclude = async (id) =>
+  prisma.interview.findUnique({
+    where: { id },
+    include: interviewInclude,
+  });
 
 const getPanelUsers = async (panelUserIds) =>
   prisma.user.findMany({
@@ -426,17 +432,17 @@ export const interviewService = {
         },
       });
 
-      return tx.interview.findUnique({
-        where: { id: interview.id },
-        include: interviewInclude,
-      });
+      return { id: interview.id };
     });
 
-    let result = created;
+    let result = await getInterviewWithInclude(created.id);
+    if (!result) {
+      throw new Error('Interview not found after creation');
+    }
     let meetingLinkError = null;
 
     if (payload.mode === 'ONLINE') {
-      const meetingResult = await attachMeetingLink(created, payload.meetingPlatform);
+      const meetingResult = await attachMeetingLink(result, payload.meetingPlatform);
       result = meetingResult.interview;
       meetingLinkError = meetingResult.meetingLinkError;
     }
@@ -452,9 +458,38 @@ export const interviewService = {
   },
 
   async update(id, payload, user) {
-    await getInterviewOrThrow(id);
+    const current = await getInterviewOrThrow(id);
+
+    const nextCandidateId = payload.candidateId || current.candidate.id;
+    const nextJobId = payload.jobId || current.job.id;
+
+    const [candidate, job, explicitClient, panelUsers] = await Promise.all([
+      payload.candidateId ? prisma.candidate.findUnique({ where: { id: nextCandidateId } }) : Promise.resolve(current.candidate),
+      payload.jobId ? prisma.job.findUnique({ where: { id: nextJobId } }) : Promise.resolve(current.job),
+      payload.clientId ? prisma.client.findUnique({ where: { id: payload.clientId } }) : Promise.resolve(null),
+      payload.panelUserIds ? getPanelUsers(payload.panelUserIds) : Promise.resolve(current.panel.map((member) => member.user)),
+    ]);
+
+    const client = payload.clientId
+      ? explicitClient
+      : payload.jobId
+        ? await prisma.client.findUnique({ where: { id: job.clientId } })
+        : current.client;
+
+    if (payload.candidateId && !candidate) throw new Error('Candidate not found');
+    if (payload.jobId && !job) throw new Error('Job not found');
+    if (payload.clientId && !client) throw new Error('Client not found');
+    if (job.clientId !== client.id) throw new Error('Job does not belong to the provided client');
+    if (payload.panelUserIds && panelUsers.length !== payload.panelUserIds.length) {
+      throw new Error('One or more panel users were not found');
+    }
+
+    const nextClientId = client.id;
 
     const updateData = {};
+    if (payload.candidateId !== undefined) updateData.candidateId = nextCandidateId;
+    if (payload.jobId !== undefined) updateData.jobId = nextJobId;
+    if (payload.clientId !== undefined || payload.jobId !== undefined) updateData.clientId = nextClientId;
     if (payload.round !== undefined) updateData.round = payload.round;
     if (payload.type !== undefined) updateData.type = payload.type;
     if (payload.mode !== undefined) updateData.mode = normalizeMode(payload.mode);
@@ -496,10 +531,14 @@ export const interviewService = {
         metadata: payload,
       });
 
-      return tx.interview.findUnique({ where: { id }, include: interviewInclude });
+      return { id };
     });
 
-    return updated;
+    const refreshed = await getInterviewWithInclude(updated.id);
+    if (!refreshed) {
+      throw new Error('Interview not found after update');
+    }
+    return refreshed;
   },
 
   async softDelete(id, user) {

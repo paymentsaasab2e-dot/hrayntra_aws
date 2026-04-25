@@ -29,6 +29,7 @@ const DEFAULT_FORM_VALUES: TaskFormValues = {
   assigneeId: '',
   priority: '',
   dueDate: '',
+  dueTime: '',
   reminder: '',
   attachmentNames: '',
   notifyAssignee: true,
@@ -43,6 +44,7 @@ function formValuesEqual(a: TaskFormValues, b: TaskFormValues): boolean {
     a.assigneeId === b.assigneeId &&
     a.priority === b.priority &&
     a.dueDate === b.dueDate &&
+    a.dueTime === b.dueTime &&
     a.reminder === b.reminder &&
     a.attachmentNames === b.attachmentNames &&
     a.notifyAssignee === b.notifyAssignee &&
@@ -243,6 +245,11 @@ export function TaskForm({
     const due = new Date(values.dueDate);
     return due < today;
   }, [values.dueDate]);
+
+  const attachmentNames = useMemo(
+    () => values.attachmentNames.split(',').map((item) => item.trim()).filter(Boolean),
+    [values.attachmentNames]
+  );
 
   const handleStatusSelect = (status: TaskEditStatus) => {
     if (status === 'Completed') {
@@ -446,10 +453,20 @@ export function TaskForm({
               onChange={(e) => onChange({ ...values, dueDate: e.target.value })}
               className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
             />
-            {isPastDue && (
+              {isPastDue && (
               <p className="mt-1 text-xs text-amber-600 font-medium">Due date is in the past.</p>
             )}
           </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-2">Due Time</label>
+          <input
+            type="time"
+            value={values.dueTime}
+            onChange={(e) => onChange({ ...values, dueTime: e.target.value })}
+            className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+          />
         </div>
 
         <TaskReminderField
@@ -476,16 +493,27 @@ export function TaskForm({
                 });
               }}
             />
-            <div className="flex items-center gap-2 w-full">
+            <div className="flex flex-col gap-2 w-full">
               <Paperclip size={18} className="text-slate-400 shrink-0" />
-              <span className="text-sm text-slate-500">
-                {values.attachmentNames || 'Click or drag files'}
-                {values.attachmentNames && (
-                  <span className="ml-2 text-xs text-slate-400">
-                    ({values.attachmentNames.split(', ').length} file{values.attachmentNames.split(', ').length !== 1 ? 's' : ''})
-                  </span>
-                )}
-              </span>
+              {attachmentNames.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {attachmentNames.map((name) => (
+                    <span
+                      key={name}
+                      className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700 shadow-sm"
+                    >
+                      {name}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <span className="text-sm text-slate-500">Click or drag files</span>
+              )}
+              {attachmentNames.length > 0 && (
+                <span className="text-xs text-slate-400">
+                  {attachmentNames.length} file{attachmentNames.length !== 1 ? 's' : ''} attached
+                </span>
+              )}
             </div>
           </label>
         </div>

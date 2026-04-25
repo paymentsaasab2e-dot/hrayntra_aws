@@ -16,7 +16,7 @@ interface EditContactDrawerProps {
   contact: BackendContact | null;
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (contact?: BackendContact) => void | Promise<void>;
 }
 
 export function EditContactDrawer({ contact, isOpen, onClose, onSuccess }: EditContactDrawerProps) {
@@ -86,9 +86,9 @@ export function EditContactDrawer({ contact, isOpen, onClose, onSuccess }: EditC
 
     setIsSubmitting(true);
     try {
-      await apiUpdateContact(contact.id, formData);
+      const response = await apiUpdateContact(contact.id, formData);
       toast.success('Contact updated successfully');
-      onSuccess();
+      onSuccess(response.data);
     } catch (error: any) {
       toast.error(error.message || 'Failed to update contact');
     } finally {

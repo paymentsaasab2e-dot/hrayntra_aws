@@ -541,6 +541,7 @@ function CandidatesPageContent() {
   });
   const [selectedCandidateProfile, setSelectedCandidateProfile] = useState<CandidateProfileDrawerData | null>(null);
   const [candidateDrawerOpen, setCandidateDrawerOpen] = useState(false);
+  const [candidateEditOpenToken, setCandidateEditOpenToken] = useState<number | null>(null);
   const [loadingCandidateProfile, setLoadingCandidateProfile] = useState(false);
   const [availableDrawerTags, setAvailableDrawerTags] = useState<CandidateTagItem[]>([]);
   const [pipelineJobs, setPipelineJobs] = useState<CandidatePipelineJobOption[]>([]);
@@ -1140,22 +1141,73 @@ function CandidatesPageContent() {
     }
   };
 
-  return (
-    <div className="w-full min-h-screen bg-[#f8fafc]">
-      {/* Pipeline Tabs */}
-      <StageTabs
-        activeStage={activeStage}
-        statsMine
-        onStageChange={(stage) => {
-          setActiveStage(stage);
-          setFilters((prev) => ({ ...prev, status: stage === 'all' ? '' : stage }));
-        }}
-        refreshTrigger={candidates.length}
-      />
+  const handleEditCandidate = async (candidate: Candidate) => {
+    const editToken = Date.now();
+    setCandidateEditOpenToken(editToken);
+    setCandidateDrawerOpen(true);
+    setLoadingCandidateProfile(true);
 
-        {/* Content Body */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="px-6 py-4 flex items-center justify-between bg-white border-b border-slate-200">
+    setSelectedCandidateProfile({
+      id: candidate.id,
+      name: candidate.name,
+      currentTitle: candidate.designation,
+      currentCompany: candidate.company,
+      designation: candidate.designation,
+      stage: candidate.stage,
+      experience: candidate.experience,
+      location: candidate.location,
+      email: candidate.email,
+      phone: candidate.phone,
+      expectedSalary: candidate.salary.expected || 'â€”',
+      noticePeriod: candidate.noticePeriod || 'â€”',
+      assignedJob: candidate.assignedJobs[0] || 'â€”',
+      recruiter: candidate.owner,
+      source: candidate.source,
+      availability: 'limited',
+      summary: null,
+      resumeUrl: null,
+      tags: candidate.skills.map((tag) => ({
+        id: `tag-${tag.toLowerCase().replace(/\s+/g, '-')}`,
+        label: tag,
+        color: getTagColor(tag),
+      })),
+      notes: [],
+      files: [],
+      assignedJobId: null,
+      scheduledInterviews: [],
+      activity: [],
+    });
+
+    try {
+      await loadCandidateProfile(candidate.id);
+    } catch (error) {
+      console.error('Failed to load candidate profile for edit:', error);
+      setCandidateEditOpenToken(null);
+      setCandidateDrawerOpen(false);
+      toast.error('Unable to open the edit drawer right now.');
+    } finally {
+      setLoadingCandidateProfile(false);
+    }
+  };
+
+  return (
+    <div className="w-full min-h-screen bg-gray-50 font-sans text-gray-900">
+      <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+        <div className="mx-auto max-w-[1440px] space-y-8">
+          {/* Pipeline Tabs */}
+          <StageTabs
+            activeStage={activeStage}
+            statsMine
+            onStageChange={(stage) => {
+              setActiveStage(stage);
+              setFilters((prev) => ({ ...prev, status: stage === 'all' ? '' : stage }));
+            }}
+            refreshTrigger={candidates.length}
+          />
+
+          {/* Content Body */}
+          <div className="flex-1 flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="px-6 py-4 flex items-center justify-between border-b border-slate-200">
             <div className="flex items-center gap-4">
               <div>
                 <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
@@ -1228,7 +1280,9 @@ function CandidatesPageContent() {
             </div>
           </div>
 
-          <div className="flex-1 overflow-auto bg-white">
+            </div>
+
+            <div className="flex-1 overflow-auto bg-white">
             {error && (
               <div className="m-4 p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800">
                 {error}
@@ -1328,6 +1382,7 @@ function CandidatesPageContent() {
                   onToggleSelect={handleToggleSelect}
                   onToggleSelectAll={handleToggleSelectAll}
                   onViewProfile={handleViewProfile}
+                  onEditCandidate={handleEditCandidate}
                   onDeleteCandidate={canDeleteCandidate ? handleDeleteCandidate : undefined}
                   deletingCandidateId={deletingCandidateId}
                   stageOptionsByJobId={inlineStageOptionsByJobId}
@@ -1337,25 +1392,30 @@ function CandidatesPageContent() {
                   onChangeCandidateStage={canUpdateCandidate ? handleInlineCandidateStageChange : undefined}
                 />
                 
-                <div className="mt-4 flex justify-end">
+                <div className="mt-4 w-full px-4 pb-4">
                   <PaginationAll
                     initialPage={currentPage}
                     totalPages={Math.ceil(totalEntries / pageSize)}
+                    totalCount={totalEntries}
+                    pageSize={pageSize}
+                    itemLabel="candidates"
                     onPageChange={setCurrentPage}
                   />
                 </div>
               </>
             ) : (
-              <CandidateGrid 
-                candidates={filteredCandidates} 
-                selectedIds={selectedIds}
-                onToggleSelect={handleToggleSelect}
-                onViewProfile={handleViewProfile}
-              />
+              <div className="px-4 pb-4">
+                <CandidateGrid
+                  candidates={filteredCandidates}
+                  selectedIds={selectedIds}
+                  onToggleSelect={handleToggleSelect}
+                  onViewProfile={handleViewProfile}
+                />
+              </div>
             )}
+            </div>
           </div>
         </div>
-
       <FilterDrawer 
         isOpen={isFilterOpen} 
         onClose={() => setIsFilterOpen(false)}
@@ -1604,6 +1664,7 @@ function CandidatesPageContent() {
         onClose={() => {
           setCandidateDrawerOpen(false);
           setSelectedCandidateProfile(null);
+          setCandidateEditOpenToken(null);
         }}
         onAction={(action, candidate) => {
           console.log('Candidate drawer action:', action, candidate.id);
@@ -1696,6 +1757,8 @@ function CandidatesPageContent() {
           await apiUpdateCandidate(candidateId, payload);
           await loadCandidateProfile(candidateId);
         } : undefined}
+        openEditDirectly={Boolean(candidateEditOpenToken)}
+        editModalOpenToken={candidateEditOpenToken}
       />
 
       <Toaster position="top-right" richColors />

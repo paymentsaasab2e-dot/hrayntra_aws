@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   Plus,
   Upload,
@@ -344,6 +344,7 @@ export default function RecruitmentAgencyDashboard() {
   const [importDrawerOpen, setImportDrawerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<LeadStatus | 'All'>('All');
+  const [sourceFilter, setSourceFilter] = useState('');
   const [recruiterFilter, setRecruiterFilter] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null); // null = not checked yet
   const [teamMembers, setTeamMembers] = useState<BackendUser[]>([]);
@@ -463,6 +464,7 @@ export default function RecruitmentAgencyDashboard() {
         
         const response = await apiGetLeads({
           status: statusFilter !== 'All' ? statusFilter : undefined,
+          source: sourceFilter || undefined,
           assignedToId: recruiterFilter || undefined,
           search: searchQuery || undefined,
           page: currentPage,
@@ -511,7 +513,7 @@ export default function RecruitmentAgencyDashboard() {
     };
 
     fetchLeads();
-  }, [statusFilter, searchQuery, currentPage, recruiterFilter]);
+  }, [statusFilter, sourceFilter, searchQuery, currentPage, recruiterFilter]);
 
   useEffect(() => {
     void loadLeadMetrics();
@@ -530,6 +532,65 @@ export default function RecruitmentAgencyDashboard() {
       return matchesSearch && matchesRecruiter;
     });
   }, [leads, searchQuery, recruiterFilter]);
+
+  const adjustLeadMetricCounts = useCallback((previousStatus?: LeadStatus, nextStatus?: LeadStatus) => {
+    const getKey = (status?: LeadStatus) => {
+      switch (status) {
+        case 'New':
+          return 'NEW_LEADS' as const;
+        case 'Contacted':
+          return 'CONTACTED' as const;
+        case 'Qualified':
+          return 'QUALIFIED' as const;
+        case 'Converted':
+          return 'CONVERTED' as const;
+        case 'Lost':
+          return 'LOST' as const;
+        default:
+          return null;
+      }
+    };
+
+    const prevKey = getKey(previousStatus);
+    const nextKey = getKey(nextStatus);
+
+    if (!prevKey && !nextKey) return;
+
+    setMetrics((current) => {
+      const next = { ...current };
+      if (prevKey) next[prevKey] = Math.max(0, next[prevKey] - 1);
+      if (nextKey) next[nextKey] += 1;
+      return next;
+    });
+  }, []);
+
+  const mergeLeadOptimistically = useCallback((lead: Lead) => {
+    setLeads((current) => [lead, ...current.filter((item) => item.id !== lead.id)]);
+    setTotalEntries((current) => current + 1);
+    adjustLeadMetricCounts(undefined, lead.status);
+  }, [adjustLeadMetricCounts]);
+
+  const replaceLeadOptimistically = useCallback((lead: Lead) => {
+    const previousLead = leads.find((item) => item.id === lead.id);
+    setLeads((current) => current.map((item) => (item.id === lead.id ? lead : item)));
+    setSelectedLeadId((current) => (current === lead.id ? lead.id : current));
+    if (previousLead && previousLead.status !== lead.status) {
+      adjustLeadMetricCounts(previousLead.status, lead.status);
+    }
+  }, [adjustLeadMetricCounts, leads]);
+
+  const removeLeadOptimistically = useCallback((leadId: string) => {
+    const previousLead = leads.find((item) => item.id === leadId);
+    setLeads((current) => current.filter((item) => item.id !== leadId));
+    setSelectedLeadIds((current) => current.filter((id) => id !== leadId));
+    setTotalEntries((current) => Math.max(0, current - 1));
+    if (selectedLeadId === leadId) {
+      setSelectedLeadId(null);
+    }
+    if (previousLead) {
+      adjustLeadMetricCounts(previousLead.status, undefined);
+    }
+  }, [adjustLeadMetricCounts, leads, selectedLeadId]);
 
   const allVisibleSelected = filteredLeads.length > 0 && filteredLeads.every((lead) => selectedLeadIds.includes(lead.id));
 
@@ -602,6 +663,10 @@ export default function RecruitmentAgencyDashboard() {
       
       // Update local state
       setLeads(prev => prev.map(l => l.id === id ? { ...l, status: 'Converted' as LeadStatus } : l));
+      const previousStatus = lead.status;
+      if (previousStatus !== 'Converted') {
+        adjustLeadMetricCounts(previousStatus, 'Converted');
+      }
       
       // Navigate to clients page after successful conversion
       router.push('/client');
@@ -623,7 +688,11 @@ export default function RecruitmentAgencyDashboard() {
 
   const handleInlineStatusChange = (id: string, newStatus: LeadStatus) => {
     // Optimistically update UI
+    const previousLead = leads.find((lead) => lead.id === id);
     setLeads(prev => prev.map(l => (l.id === id ? { ...l, status: newStatus } : l)));
+    if (previousLead && previousLead.status !== newStatus) {
+      adjustLeadMetricCounts(previousLead.status, newStatus);
+    }
     // Open remark editor for this row
     setStatusEdit({
       leadId: id,
@@ -640,6 +709,7 @@ export default function RecruitmentAgencyDashboard() {
         status: statusEdit.newStatus,
         statusRemark: statusEdit.remark || undefined,
       });
+      await handleRefresh({ silent: true });
     } catch (err: any) {
       console.error('Failed to update lead status with remark:', err);
       void requestError(err.message || 'Failed to update lead status');
@@ -673,7 +743,12 @@ export default function RecruitmentAgencyDashboard() {
       });
       
       // Update local state
+      const previousLead = leads.find((lead) => lead.id === id);
       setLeads(prev => prev.map(l => l.id === id ? { ...l, status: 'Lost' as LeadStatus } : l));
+      if (previousLead && previousLead.status !== 'Lost') {
+        adjustLeadMetricCounts(previousLead.status, 'Lost');
+      }
+      await handleRefresh({ silent: true });
     } catch (err: any) {
       console.error('Failed to mark lead as lost:', err);
       void requestError(err.message || 'Failed to update lead');
@@ -682,25 +757,26 @@ export default function RecruitmentAgencyDashboard() {
 
   const handleDeleteLead = async (id: string) => {
     try {
+      removeLeadOptimistically(id);
       await apiDeleteLead(id);
-      setLeads(prev => prev.filter(l => l.id !== id));
-      setSelectedLeadIds(prev => prev.filter(leadId => leadId !== id));
-      if (selectedLeadId === id) {
-        setSelectedLeadId(null);
-      }
+      await handleRefresh({ silent: true });
       return true;
     } catch (err: any) {
       console.error('Failed to delete lead:', err);
+      await handleRefresh({ silent: true });
       void requestError(err.message || 'Failed to delete lead');
       return false;
     }
   };
 
-  const handleRefresh = async () => {
+  const handleRefresh = async (options?: { silent?: boolean }) => {
     try {
-      setLoading(true);
+      if (!options?.silent) {
+        setLoading(true);
+      }
       const response = await apiGetLeads({
         status: statusFilter !== 'All' ? statusFilter : undefined,
+        source: sourceFilter || undefined,
         search: searchQuery || undefined,
         page: currentPage,
         limit: PAGE_SIZE,
@@ -727,7 +803,9 @@ export default function RecruitmentAgencyDashboard() {
     } catch (err: any) {
       console.error('Failed to refresh leads:', err);
     } finally {
-      setLoading(false);
+      if (!options?.silent) {
+        setLoading(false);
+      }
     }
   };
 
@@ -742,7 +820,7 @@ export default function RecruitmentAgencyDashboard() {
       setBulkActionLoading(true);
       await Promise.all(selectedLeadIds.map((id) => apiDeleteLead(id)));
       clearBulkSelection();
-      await handleRefresh();
+      await handleRefresh({ silent: true });
       return true;
     } catch (err: any) {
       console.error('Failed to bulk delete leads:', err);
@@ -786,7 +864,7 @@ export default function RecruitmentAgencyDashboard() {
       setBulkActionLoading(true);
       await Promise.all(selectedLeadIds.map((id) => apiUpdateLead(id, updates)));
       clearBulkSelection();
-      await handleRefresh();
+      await handleRefresh({ silent: true });
     } catch (err: any) {
       console.error('Failed to bulk update leads:', err);
       void requestError(err.message || 'Failed to update selected leads');
@@ -1065,13 +1143,20 @@ export default function RecruitmentAgencyDashboard() {
                     <option value="Lost">Lost</option>
                   </select>
 
-                  <select className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer hover:border-blue-300 transition-colors">
-                    <option>All Sources</option>
-                    <option>Website</option>
-                    <option>LinkedIn</option>
-                    <option>Email</option>
-                    <option>Referral</option>
-                    <option>Campaign</option>
+                  <select
+                    className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer hover:border-blue-300 transition-colors"
+                    value={sourceFilter}
+                    onChange={(e) => {
+                      setCurrentPage(1);
+                      setSourceFilter(e.target.value);
+                    }}
+                  >
+                    <option value="">All Sources</option>
+                    <option value="Website">Website</option>
+                    <option value="LinkedIn">LinkedIn</option>
+                    <option value="Email">Email</option>
+                    <option value="Referral">Referral</option>
+                    <option value="Campaign">Campaign</option>
                   </select>
 
                   <select
@@ -1096,6 +1181,7 @@ export default function RecruitmentAgencyDashboard() {
                     setCurrentPage(1);
                     setSearchQuery('');
                     setStatusFilter('All');
+                    setSourceFilter('');
                     setRecruiterFilter('');
                   }}
                   >
@@ -1289,10 +1375,13 @@ export default function RecruitmentAgencyDashboard() {
               </div>
             </div>
             {!loading && !error && (
-              <div className="mt-4 flex justify-end">
+              <div className="mt-4 w-full">
                 <PaginationAll
                   initialPage={currentPage}
                   totalPages={Math.ceil(totalEntries / PAGE_SIZE)}
+                  totalCount={totalEntries}
+                  pageSize={PAGE_SIZE}
+                  itemLabel="leads"
                   onPageChange={setCurrentPage}
                 />
               </div>
@@ -1312,9 +1401,9 @@ export default function RecruitmentAgencyDashboard() {
               try {
                 if (createdLead) {
                   const mappedLead = mapBackendLeadToFrontend(createdLead);
-                  setLeads((prev) => [mappedLead, ...prev.filter((lead) => lead.id !== mappedLead.id)]);
+                  mergeLeadOptimistically(mappedLead);
                 } else {
-                  await handleRefresh();
+                  await handleRefresh({ silent: true });
                 }
                 setStatusFilter('All');
                 setSearchQuery('');
@@ -1322,6 +1411,17 @@ export default function RecruitmentAgencyDashboard() {
                 toast.success('Lead created successfully');
               } catch (err: any) {
                 console.error('Failed to add lead:', err);
+              }
+            }}
+            onUpdateLead={async (updatedLead) => {
+              try {
+                if (updatedLead) {
+                  replaceLeadOptimistically(mapBackendLeadToFrontend(updatedLead));
+                }
+                await handleRefresh({ silent: true });
+                toast.success('Lead updated successfully');
+              } catch (err: any) {
+                console.error('Failed to update lead:', err);
               }
             }}
             onConvert={canConvertLead ? handleConvert : undefined}
@@ -1334,7 +1434,7 @@ export default function RecruitmentAgencyDashboard() {
                   priority: formData.priority,
                 });
                 toast.success('Lead assigned successfully');
-                await handleRefresh();
+                await handleRefresh({ silent: true });
               } catch (err: any) {
                 console.error('Failed to assign lead:', err);
                 toast.error(err.message || 'Failed to assign lead');
@@ -1348,7 +1448,7 @@ export default function RecruitmentAgencyDashboard() {
             onClose={() => setImportDrawerOpen(false)}
             onImportComplete={async () => {
               setImportDrawerOpen(false);
-              await handleRefresh();
+              await handleRefresh({ silent: true });
             }}
           />
         )}

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
@@ -110,6 +110,7 @@ export function CreateJobDrawer({
   const [aiGeneratedQuestions, setAiGeneratedQuestions] = useState<string[]>([]);
   const [aiQuestionStep, setAiQuestionStep] = useState<'initial' | 'openings' | 'company' | 'location' | 'salary' | 'qualification' | 'done'>('initial');
   const [aiMessages, setAiMessages] = useState<AiChatMessage[]>([]);
+  const aiConversationEndRef = useRef<HTMLDivElement | null>(null);
   const [aiDraftData, setAiDraftData] = useState<AiDraftData>({
     originalPrompt: '',
     jobTitle: '',
@@ -790,6 +791,12 @@ export function CreateJobDrawer({
     ]);
   };
 
+  const scrollAiConversationToBottom = useCallback(() => {
+    requestAnimationFrame(() => {
+      aiConversationEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    });
+  }, []);
+
   const pushUserMessage = (content: string) => {
     setAiMessages((prev) => [
       ...prev,
@@ -829,6 +836,20 @@ export function CreateJobDrawer({
       },
     ]);
   };
+
+  useEffect(() => {
+    if (!showAiPromptBox) return;
+    if (!aiMessages.length && !aiGeneratedDescription && !aiDrawerError && !aiGenerating) return;
+    scrollAiConversationToBottom();
+  }, [
+    showAiPromptBox,
+    aiMessages,
+    aiGeneratedDescription,
+    aiDrawerError,
+    aiGenerating,
+    aiQuestionStep,
+    scrollAiConversationToBottom,
+  ]);
 
   const parseAiDescriptionSections = (html: string) => {
     const fallback = {
@@ -3018,8 +3039,8 @@ export function CreateJobDrawer({
                                     </div>
                                   ) : null}
 
-                                  {aiGeneratedQuestions.length ? (
-                                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4">
+                        {aiGeneratedQuestions.length ? (
+                          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4">
                                       <h5 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">
                                         Screening Questions
                                       </h5>
@@ -3040,6 +3061,7 @@ export function CreateJobDrawer({
                             </div>
                           </div>
                         ) : null}
+                        <div ref={aiConversationEndRef} />
                       </div>
                     </div>
 

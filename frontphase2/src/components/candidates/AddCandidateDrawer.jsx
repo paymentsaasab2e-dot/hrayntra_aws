@@ -677,6 +677,33 @@ export default function AddCandidateDrawer({
     resetForNext(nextTab);
   };
 
+  const handleDownloadCsvTemplate = async () => {
+    try {
+      const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || 'http://localhost:5001/api/v1';
+      const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+      const response = await fetch(`${apiBase}/candidates/bulk-import/template`, {
+        method: 'GET',
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to download template (${response.status})`);
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'candidate_import_template.csv';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      toast.error(error?.message || 'Failed to download CSV template');
+    }
+  };
+
   const updateFormData = (name, value) => {
     setFormData((prev) => ({ ...prev, [name]: value }));
     setErrors((prev) => {
@@ -1824,15 +1851,14 @@ export default function AddCandidateDrawer({
                       onChange={(event) => handleCsvSelected(event.target.files?.[0])}
                     />
                   </label>
-                  <a
-                    href={`${process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || 'http://localhost:5000/api/v1'}/candidates/bulk-import/template`}
-                    target="_blank"
-                    rel="noreferrer"
+                  <button
+                    type="button"
+                    onClick={handleDownloadCsvTemplate}
                     className="inline-flex items-center gap-2 text-sm font-medium text-blue-600"
                   >
                     <Download size={16} />
                     Download CSV template
-                  </a>
+                  </button>
                 </>
               ) : null}
 

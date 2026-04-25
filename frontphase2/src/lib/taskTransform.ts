@@ -4,7 +4,10 @@ import type { Task, TaskForDrawer, TaskStatus, TaskPriority, TaskType, TaskRelat
 /**
  * Transform backend task format to frontend Task format
  */
-export function transformBackendTaskToFrontend(backendTask: BackendTask): Task {
+export function transformBackendTaskToFrontend(
+  backendTask: BackendTask,
+  options?: { relatedEntityName?: string }
+): Task {
   const priorityMap: Record<string, TaskPriority> = {
     'LOW': 'Low',
     'MEDIUM': 'Medium',
@@ -46,11 +49,12 @@ export function transformBackendTaskToFrontend(backendTask: BackendTask): Task {
     type: (backendTask.taskType as TaskType) || 'Note',
     relatedTo: {
       id: backendTask.linkedEntityId || '',
-      name: relatedToName,
+      name: options?.relatedEntityName || relatedToName,
       type: backendTask.linkedEntityType ? linkedEntityTypeMap[backendTask.linkedEntityType] : 'Internal',
     },
     dueDate,
     time: backendTask.dueTime || '',
+    dueTime: backendTask.dueTime || '',
     priority: priorityMap[backendTask.priority] || 'Medium',
     status,
     owner: {
@@ -107,6 +111,7 @@ export function transformBackendTaskToDrawer(
     },
     dueDate,
     time: backendTask.dueTime || '',
+    dueTime: backendTask.dueTime || '',
     priority: priorityMap[backendTask.priority] || 'Medium',
     status,
     owner: {
@@ -135,8 +140,8 @@ export function transformBackendTaskToDrawer(
             ? file.fileUrl 
             : (() => {
                 // For static files, use base URL without /api/v1
-                const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || 'http://localhost:5000/api/v1';
-                const baseUrl = apiUrl.replace(/\/api\/v1$/, '') || 'http://localhost:5000';
+                const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || 'http://localhost:5001/api/v1';
+                const baseUrl = apiUrl.replace(/\/api\/v1$/, '') || 'http://localhost:5001';
                 return `${baseUrl}${file.fileUrl}`;
               })(),
         }));

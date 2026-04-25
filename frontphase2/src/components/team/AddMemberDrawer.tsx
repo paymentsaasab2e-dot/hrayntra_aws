@@ -69,7 +69,7 @@ function validateEmail(email: string) {
 interface AddMemberDrawerProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (member?: TeamMember) => void;
 }
 
 export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClose, onSuccess }) => {
@@ -199,7 +199,7 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
           ? 'Team member created and credentials generated successfully'
           : 'Team member created successfully'
       );
-      onSuccess();
+      onSuccess(member);
     } catch (error: any) {
       const errorMessage = error?.message || 'Failed to create team member';
       if (errorMessage.toLowerCase().includes('email')) {

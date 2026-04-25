@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Paperclip, RotateCcw, X, XCircle } from 'lucide-react';
+import { Copy, Edit2, Paperclip, RotateCcw, Trash2, UserRoundX, X, XCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import type { InterviewAction } from './ActionsDropdown';
 import { DrawerActivityLog } from './DrawerActivityLog';
 import { DrawerFeedbackTab } from './DrawerFeedbackTab';
 import { DrawerFilesTab } from './DrawerFilesTab';
@@ -20,7 +21,9 @@ interface InterviewDrawerProps {
   onOpenCancel?: () => void;
   onOpenUploadRecording?: () => void;
   onOpenPanelAssignment?: () => void;
+  onOpenReject?: () => void;
   onAddNote?: (text: string) => Promise<void>;
+  onAction?: (action: InterviewAction) => void;
 }
 
 const tabs: Array<{ id: DrawerTab; label: string }> = [
@@ -41,7 +44,9 @@ export function InterviewDrawer({
   onOpenCancel,
   onOpenUploadRecording,
   onOpenPanelAssignment,
+  onOpenReject,
   onAddNote,
+  onAction,
 }: InterviewDrawerProps) {
   const [activeTab, setActiveTab] = useState<DrawerTab>('overview');
   const router = useRouter();
@@ -95,7 +100,7 @@ export function InterviewDrawer({
                     >
                       {interview.status}
                     </span>
-                    {interview.candidate.stage ? (
+                    {interview.candidate.stage && getCandidateStageLabel(interview.candidate.stage) !== 'Interviewing' ? (
                       <span
                         className={`mt-2 inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${getCandidateStageBadgeClasses(
                           interview.candidate.stage
@@ -107,13 +112,13 @@ export function InterviewDrawer({
                   </div>
                 </div>
                 <button type="button" onClick={onClose} className="rounded-lg p-2 text-[#6B7280] hover:bg-[#F3F4F6]">
-                  <X className="size-5" />
+                    <X className="size-5" />
                 </button>
               </div>
 
-              <div className="mt-4 flex flex-wrap gap-2">
+              <div className="mt-4 grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-4">
                 {onOpenFeedback && (
-                  <button type="button" onClick={onOpenFeedback} className="rounded-xl bg-[#2563EB] px-3 py-2 text-sm font-semibold text-white">
+                  <button type="button" onClick={onOpenFeedback} className="inline-flex w-full items-center justify-center rounded-md bg-[#2563EB] px-2 py-1.5 text-[11px] font-semibold text-white">
                     Add Feedback
                   </button>
                 )}
@@ -125,25 +130,67 @@ export function InterviewDrawer({
                     router.push(`/placement?create=1&candidateId=${encodeURIComponent(candidateId)}&jobId=${encodeURIComponent(jobId)}`);
                     onClose();
                   }}
-                  className="rounded-xl bg-green-600 px-3 py-2 text-sm font-semibold text-white hover:bg-green-700"
+                  className="inline-flex w-full items-center justify-center rounded-md bg-green-600 px-2 py-1.5 text-[11px] font-semibold text-white hover:bg-green-700"
                 >
                   Placed
                 </button>
                 {onOpenReschedule && (
-                  <button type="button" onClick={onOpenReschedule} className="rounded-xl border border-[#E5E7EB] px-3 py-2 text-sm font-semibold text-[#111827]">
-                    <span className="inline-flex items-center gap-2"><RotateCcw className="size-4" />Reschedule</span>
+                  <button type="button" onClick={onOpenReschedule} className="inline-flex w-full items-center justify-center rounded-md border border-[#E5E7EB] px-2 py-1.5 text-[11px] font-semibold text-[#111827]">
+                    <span className="inline-flex items-center gap-1"><RotateCcw className="size-3" />Reschedule</span>
                   </button>
                 )}
                 {onOpenCancel && (
-                  <button type="button" onClick={onOpenCancel} className="rounded-xl border border-[#E5E7EB] px-3 py-2 text-sm font-semibold text-[#111827]">
-                    <span className="inline-flex items-center gap-2"><XCircle className="size-4" />Cancel Interview</span>
+                  <button type="button" onClick={onOpenCancel} className="inline-flex w-full items-center justify-center rounded-md border border-[#E5E7EB] px-2 py-1.5 text-[11px] font-semibold text-[#111827]">
+                    <span className="inline-flex items-center gap-1"><XCircle className="size-3" />Cancel Interview</span>
                   </button>
                 )}
                 {onOpenUploadRecording && (
-                  <button type="button" onClick={onOpenUploadRecording} className="rounded-xl border border-[#E5E7EB] px-3 py-2 text-sm font-semibold text-[#111827]">
-                    <span className="inline-flex items-center gap-2"><Paperclip className="size-4" />Upload Recording</span>
+                  <button type="button" onClick={onOpenUploadRecording} className="inline-flex w-full items-center justify-center rounded-md border border-[#E5E7EB] px-2 py-1.5 text-[11px] font-semibold text-[#111827]">
+                    <span className="inline-flex items-center gap-1"><Paperclip className="size-3" />Upload Recording</span>
                   </button>
                 )}
+                {onAction ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('overview');
+                        onAction('edit');
+                      }}
+                      className="inline-flex w-full items-center justify-center rounded-md border border-[#E5E7EB] px-2 py-1.5 text-[11px] font-semibold text-[#111827]"
+                    >
+                      <span className="inline-flex items-center gap-1"><Edit2 className="size-3" />Edit Interview</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onOpenReject}
+                      className="inline-flex w-full items-center justify-center rounded-md border border-red-200 bg-red-50 px-2 py-1.5 text-[11px] font-semibold text-red-700 hover:bg-red-100"
+                    >
+                      <span className="inline-flex items-center gap-1"><XCircle className="size-3" />Reject Candidate</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onAction('copyLink')}
+                      className="inline-flex w-full items-center justify-center rounded-md border border-[#E5E7EB] px-2 py-1.5 text-[11px] font-semibold text-[#111827]"
+                    >
+                      <span className="inline-flex items-center gap-1"><Copy className="size-3" />Copy Meeting Link</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onAction('noShow')}
+                      className="inline-flex w-full items-center justify-center rounded-md border border-[#E5E7EB] px-2 py-1.5 text-[11px] font-semibold text-[#111827]"
+                    >
+                      <span className="inline-flex items-center gap-1"><UserRoundX className="size-3" />Mark No Show</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onAction('delete')}
+                      className="inline-flex w-full items-center justify-center rounded-md border border-red-200 bg-red-50 px-2 py-1.5 text-[11px] font-semibold text-red-700 hover:bg-red-100"
+                    >
+                      <span className="inline-flex items-center gap-1"><Trash2 className="size-3" />Delete Interview</span>
+                    </button>
+                  </>
+                ) : null}
               </div>
             </div>
 

@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Trophy, TrendingUp } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Search, Trophy, TrendingUp, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { getTeamMembers, getTargets, saveTargets } from '../../../lib/api/teamApi';
 import type { TeamMember, TeamTarget } from '../../../types/team';
@@ -47,9 +47,22 @@ export const TargetsTab: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   useEffect(() => {
     loadMembers();
+  }, []);
+
+  useEffect(() => {
+    const handleDocumentClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest('[data-targets-member-search]')) {
+        setShowSuggestions(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleDocumentClick);
+    return () => document.removeEventListener('mousedown', handleDocumentClick);
   }, []);
 
   const loadMembers = async () => {
@@ -95,6 +108,8 @@ export const TargetsTab: React.FC = () => {
 
   const handleMemberSelect = (member: TeamMember) => {
     setSelectedMember(member);
+    setSearchQuery(`${asSafeString(member.firstName)} ${asSafeString(member.lastName)}`.trim());
+    setShowSuggestions(false);
     loadMemberTargets(member.id);
   };
 
@@ -135,6 +150,12 @@ export const TargetsTab: React.FC = () => {
     );
   });
 
+  const searchSuggestions = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return filteredMembers.slice(0, 6);
+    return filteredMembers.slice(0, 8);
+  }, [filteredMembers, searchQuery]);
+
   // Sort members for leaderboard (placeholder values)
   const sortedByPlacements = [...members].sort((a, b) => {
     // Placeholder: would sort by actual placement count
@@ -155,24 +176,64 @@ export const TargetsTab: React.FC = () => {
         {/* Member Selector */}
         <div className="mb-6">
           <label className="block text-sm font-semibold text-slate-700 mb-2">Select Member</label>
-          <div className="relative">
+          <div className="relative" data-targets-member-search>
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-400" />
-            <select
-              value={selectedMember?.id || ''}
+            <input
+              type="text"
+              value={searchQuery}
               onChange={(e) => {
-                const member = members.find((m) => m.id === e.target.value);
-                if (member) handleMemberSelect(member);
+                const value = e.target.value;
+                setSearchQuery(value);
+                setSelectedMember(null);
+                setShowSuggestions(true);
               }}
+              onFocus={() => setShowSuggestions(true)}
+              placeholder="Search a team member..."
               className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-            >
-              <option value="">Select a team member...</option>
-              {filteredMembers.map((member) => (
-                <option key={member.id} value={member.id}>
-                  {asSafeString(member.firstName)} {asSafeString(member.lastName)} ({asSafeString(member.role?.roleName) || 'No Role'})
-                </option>
-              ))}
-            </select>
+            />
+
+            {showSuggestions && searchSuggestions.length > 0 && (
+              <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
+                <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Suggestions</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowSuggestions(false)}
+                    className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                    aria-label="Close suggestions"
+                  >
+                    <X className="size-4" />
+                  </button>
+                </div>
+                <div className="max-h-64 overflow-y-auto">
+                  {searchSuggestions.map((member) => {
+                    const fullName = `${asSafeString(member.firstName)} ${asSafeString(member.lastName)}`.trim();
+                    return (
+                      <button
+                        key={member.id}
+                        type="button"
+                        onClick={() => handleMemberSelect(member)}
+                        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-slate-900">{fullName}</div>
+                          <div className="truncate text-xs text-slate-500">
+                            {asSafeString(member.role?.roleName) || 'No Role'} • {asSafeString(member.email)}
+                          </div>
+                        </div>
+                        <span className="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">
+                          {asSafeString(member.department?.name) || 'No Dept'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
+          {searchQuery && !searchSuggestions.length && (
+            <p className="mt-2 text-xs text-slate-500">No matching team members found.</p>
+          )}
         </div>
 
         {/* Target Form */}
