@@ -48,6 +48,7 @@ async function getSettings(req, res) {
           candidateId,
           emailNotifications: true,
           smsNotifications: false,
+          whatsappNotifications: false,
           jobAlerts: true,
           profileVisibility: 'Recruiters only',
           dataSharing: false,
@@ -83,6 +84,7 @@ async function getSettings(req, res) {
       notifications: {
         emailNotifications: settings.emailNotifications,
         smsNotifications: settings.smsNotifications,
+        whatsappNotifications: settings.whatsappNotifications || false,
         jobAlerts: settings.jobAlerts,
       },
       privacy: {
@@ -171,7 +173,7 @@ async function updateAccountSettings(req, res) {
 async function updateNotificationSettings(req, res) {
   try {
     const { candidateId } = req.params;
-    const { emailNotifications, smsNotifications, jobAlerts } = req.body;
+    const { emailNotifications, smsNotifications, whatsappNotifications, jobAlerts } = req.body;
 
     if (!candidateId) {
       return res.status(400).json({
@@ -186,11 +188,13 @@ async function updateNotificationSettings(req, res) {
         candidateId,
         emailNotifications: emailNotifications ?? true,
         smsNotifications: smsNotifications ?? false,
+        whatsappNotifications: whatsappNotifications ?? false,
         jobAlerts: jobAlerts ?? true,
       },
       update: {
         ...(emailNotifications !== undefined && { emailNotifications }),
         ...(smsNotifications !== undefined && { smsNotifications }),
+        ...(whatsappNotifications !== undefined && { whatsappNotifications }),
         ...(jobAlerts !== undefined && { jobAlerts }),
       },
     });

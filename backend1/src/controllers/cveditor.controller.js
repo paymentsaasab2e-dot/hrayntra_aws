@@ -485,16 +485,25 @@ async function exportResumePDF(req, res) {
             }
             body {
               font-family: Arial, Helvetica, sans-serif;
-              padding: 40px;
+              padding: 0;
+              margin: 0;
               line-height: 1.6;
               color: #000000;
               background: #ffffff;
               font-size: 11pt;
             }
             .resume-container {
-              max-width: 800px;
-              margin: 0 auto;
+              width: 100%;
+              margin: 0;
+              padding: 0;
               background: #ffffff;
+            }
+            /* Reset template-specific padding if it interferes with page edges */
+            #resume-preview, #resume-preview-expanded {
+              width: 100% !important;
+              max-width: none !important;
+              min-height: auto !important;
+              box-shadow: none !important;
             }
             h1 {
               font-size: 24px;
@@ -560,9 +569,9 @@ async function exportResumePDF(req, res) {
               border-top: 1px solid #cccccc;
               margin: 20px 0;
             }
-            /* Ensure all text is black */
-            span, div, section {
-              color: #000000;
+            /* Ensure all text is black unless specified by template */
+            .resume-container :not([style*="color"]) {
+              color: inherit;
             }
             /* Proper spacing for sections */
             section {
@@ -592,9 +601,15 @@ async function exportResumePDF(req, res) {
             @media print {
               body {
                 padding: 0;
+                margin: 0;
               }
               .resume-container {
                 max-width: 100%;
+                width: 100%;
+              }
+              /* Hide UI elements if any leaked in */
+              .hide-on-print {
+                display: none !important;
               }
             }
           </style>
@@ -617,8 +632,8 @@ async function exportResumePDF(req, res) {
     
     // Set viewport for consistent rendering
     await page.setViewport({
-      width: 1200,
-      height: 1600,
+      width: 794, // A4 width at 96 DPI
+      height: 1123, // A4 height at 96 DPI
       deviceScaleFactor: 2,
     });
     
@@ -630,16 +645,16 @@ async function exportResumePDF(req, res) {
     // Wait a bit more for any dynamic content to render
     await page.waitForTimeout(500);
 
-    // Generate PDF with optimized settings
+    // Generate PDF with zero margins to allow HTML to control edges
     const pdfBuffer = await page.pdf({
       format: 'A4',
       printBackground: true,
-      preferCSSPageSize: false,
+      preferCSSPageSize: true,
       margin: {
-        top: '20mm',
-        right: '15mm',
-        bottom: '20mm',
-        left: '15mm',
+        top: '0',
+        right: '0',
+        bottom: '0',
+        left: '0',
       },
       displayHeaderFooter: false,
     });

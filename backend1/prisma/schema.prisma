@@ -214,6 +214,7 @@ model Settings {
   // Notification settings
   emailNotifications  Boolean  @default(true)
   smsNotifications    Boolean  @default(false)
+  whatsappNotifications Boolean @default(false)
   jobAlerts           Boolean  @default(true)
 
   // Privacy settings
