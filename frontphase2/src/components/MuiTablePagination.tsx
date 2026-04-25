@@ -55,8 +55,6 @@ export function MuiTablePagination({
     return pages;
   };
 
-  if (safeTotalPages <= 1) return null;
-
   return (
     <nav
       aria-label="Pagination"

@@ -1,6 +1,7 @@
 import React from 'react';
 import { CalendarDays, Eye, FilePenLine, FlagTriangleRight, MapPin, MonitorPlay, Phone, XCircle } from 'lucide-react';
 import type { Interview } from '../../types/interview.types';
+import PaginationAll from '../PaginationAll';
 import { getCandidateStageBadgeClasses, getCandidateStageLabel } from '../../utils/candidateStage';
 
 interface InterviewTableProps {
@@ -218,58 +219,15 @@ export function InterviewTable({
           </tbody>
         </table>
       </div>
-
       <div className="flex items-center justify-between gap-4 border-t border-[#E5E7EB] px-5 py-4">
-        <p className="shrink-0 text-sm text-[#6B7280]">
-          Showing <span className="font-semibold text-[#111827]">{start}</span>-
-          <span className="font-semibold text-[#111827]">{end}</span> of{' '}
-          <span className="font-semibold text-[#111827]">{displayTotal}</span> interviews
-        </p>
-
-        <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            onClick={() => onPageChange(page - 1)}
-            disabled={page === 1}
-            className="flex items-center gap-1 rounded-md px-2 py-1 font-semibold text-black transition-colors duration-150 hover:text-black disabled:cursor-not-allowed disabled:hover:text-black"
-            aria-label="Previous page"
-          >
-            <span aria-hidden="true" className="text-black">
-              ←
-            </span>
-            <span className="text-black">prev</span>
-          </button>
-
-          {Array.from({ length: totalPages }, (_, index) => index + 1).map((current) => (
-            <button
-              key={current}
-              type="button"
-              onClick={() => onPageChange(current)}
-              aria-label={`Page ${current}`}
-              aria-current={page === current ? 'page' : undefined}
-              className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-150 ${
-                page === current
-                  ? 'bg-rose-400 font-semibold text-white shadow-sm'
-                  : 'text-black hover:bg-gray-100 hover:text-black'
-              }`}
-            >
-              {current}
-            </button>
-          ))}
-
-          <button
-            type="button"
-            onClick={() => onPageChange(page + 1)}
-            disabled={page === totalPages}
-            className="flex items-center gap-1 rounded-md px-2 py-1 font-semibold text-black transition-colors duration-150 hover:text-black disabled:cursor-not-allowed disabled:hover:text-black"
-            aria-label="Next page"
-          >
-            <span className="text-black">next</span>
-            <span aria-hidden="true" className="text-black">
-              →
-            </span>
-          </button>
-        </div>
+        <PaginationAll
+          initialPage={page}
+          totalPages={Math.max(totalPages, 1)}
+          totalCount={displayTotal}
+          pageSize={pageSize}
+          itemLabel="interviews"
+          onPageChange={onPageChange}
+        />
       </div>
     </div>
   );

@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { apiFetch } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
+import PaginationAll from '../../components/PaginationAll';
 
 type BillingTab =
   | 'Invoices'
@@ -108,6 +109,8 @@ const DEFAULT_FILTERS: FiltersState = {
   invoiceStatus: '',
   search: '',
 };
+
+const BILLING_PAGE_SIZE = 10;
 
 const TAB_EXPORT_KEY: Record<BillingTab, string> = {
   Invoices: 'invoices',
@@ -218,6 +221,7 @@ export default function BillingPage() {
   const [appliedFilters, setAppliedFilters] = useState<FiltersState>(DEFAULT_FILTERS);
   const [data, setData] = useState<SummaryResponse | null>(null);
   const [settingsForm, setSettingsForm] = useState<BillingSettings | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
   const [exporting, setExporting] = useState<string | null>(null);
@@ -322,6 +326,13 @@ export default function BillingPage() {
     : activeTab === 'Taxes & Compliance' || activeTab === 'Billing Settings'
       ? []
       : DEFAULT_COLUMNS[activeTab];
+
+  const totalPages = Math.max(Math.ceil(tableRows.length / BILLING_PAGE_SIZE), 1);
+  const visibleRows = tableRows.slice((currentPage - 1) * BILLING_PAGE_SIZE, currentPage * BILLING_PAGE_SIZE);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeTab, appliedFilters, data]);
 
   async function exportTab(format: 'csv' | 'excel' | 'pdf') {
     try {
@@ -508,7 +519,19 @@ export default function BillingPage() {
           </Card>
         ) : (
           <Card>
-            <Table columns={columns} rows={tableRows} />
+            <Table columns={columns} rows={visibleRows} />
+            {columns.length ? (
+              <div className="flex items-center justify-between gap-4 border-t border-[#E5E7EB] px-5 py-4">
+                <PaginationAll
+                  initialPage={currentPage}
+                  totalPages={Math.max(totalPages, 1)}
+                  totalCount={tableRows.length}
+                  pageSize={BILLING_PAGE_SIZE}
+                  itemLabel="records"
+                  onPageChange={setCurrentPage}
+                />
+              </div>
+            ) : null}
           </Card>
         )}
       </div>

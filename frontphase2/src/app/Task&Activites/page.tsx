@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ImageWithFallback } from '../../components/ImageWithFallback';
-import { MuiTablePagination } from '../../components/MuiTablePagination';
+import PaginationAll from '../../components/PaginationAll';
 import { TaskDetailsDrawer, type TaskForDrawer, type TaskActivityItem } from '../../components/drawers/TaskDetailsDrawer';
 import { TaskSLAAlertBadge, TaskSLAAlertsPanel } from '../../components/TaskSLAAlerts';
 import {
@@ -41,6 +41,8 @@ type TaskType = 'Call' | 'Email' | 'Interview' | 'Follow-up' | 'Meeting' | 'Note
 type Priority = 'Low' | 'Medium' | 'High';
 type Status = 'Pending' | 'Completed' | 'Overdue';
 type TaskStatusSummary = 'Pending' | 'In Progress' | 'Completed' | 'Cancelled';
+
+const DEFAULT_PAGE_SIZE = 10;
 
 interface RelatedTo {
   id: string;
@@ -102,8 +104,6 @@ const MOCK_ACTIVITIES: Record<string, Activity[]> = {
     { id: 'a3', type: 'Follow-up', note: 'Waiting on compensation details from hiring manager.', timestamp: '2026-02-09 11:00 AM', recruiter: 'Alex Thompson' },
   ]
 };
-
-const DEFAULT_PAGE_SIZE = 10;
 
 // --- Components ---
 
@@ -733,6 +733,8 @@ export default function App() {
 
   const totalPages = Math.max(Math.ceil(filteredTasks.length / pageSize), 1);
   const visibleTasks = filteredTasks.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const showingStart = filteredTasks.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const showingEnd = filteredTasks.length === 0 ? 0 : Math.min(currentPage * pageSize, filteredTasks.length);
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -1087,10 +1089,13 @@ export default function App() {
                   )}
                 </tbody>
               </table>
-              <div className="mt-4 flex justify-end">
-                <MuiTablePagination
-                  currentPage={currentPage}
-                  totalPages={totalPages}
+              <div className="flex items-center justify-between gap-4 border-t border-[#E5E7EB] px-5 py-4">
+                <PaginationAll
+                  initialPage={currentPage}
+                  totalPages={Math.max(totalPages, 1)}
+                  totalCount={filteredTasks.length}
+                  pageSize={pageSize}
+                  itemLabel="tasks"
                   onPageChange={setCurrentPage}
                 />
               </div>
