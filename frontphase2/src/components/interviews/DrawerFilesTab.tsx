@@ -21,7 +21,7 @@ export function DrawerFilesTab({ interviewId }: DrawerFilesTabProps) {
   } = useFiles('interview', interviewId);
 
   const uploadsBase = useMemo(() => {
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/v1';
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1';
     return apiBase.replace(/\/api\/v1\/?$/, '');
   }, []);
   const toFileHref = (fileUrl?: string | null) => buildFileHref(fileUrl, uploadsBase);

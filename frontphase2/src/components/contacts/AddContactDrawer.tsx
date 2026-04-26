@@ -16,7 +16,7 @@ import {
 interface AddContactDrawerProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (contact?: BackendContact) => void | Promise<void>;
 }
 
 export function AddContactDrawer({ isOpen, onClose, onSuccess }: AddContactDrawerProps) {
@@ -129,7 +129,7 @@ export function AddContactDrawer({ isOpen, onClose, onSuccess }: AddContactDrawe
       }
 
       toast.success('Contact created successfully');
-      onSuccess();
+      onSuccess(response.data);
       onClose();
     } catch (error: any) {
       if (error.status === 409) {

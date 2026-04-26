@@ -453,26 +453,49 @@ export const teamMemberService = {
   },
 
   async delete(id) {
-    // Soft delete - set status to INACTIVE
-    const updated = await prisma.user.update({
+    const member = await prisma.user.findUnique({
       where: { id },
-      data: {
-        status: 'INACTIVE',
-        isActive: false,
-      },
+      select: { id: true },
     });
 
-    // Log activity
-    await prisma.userActivity.create({
-      data: {
-        userId: id,
-        action: 'Team member deactivated',
-        module: 'Team',
-        metadata: { reason: 'Soft delete' },
-      },
-    });
+    if (!member) {
+      return { message: 'Team member deleted successfully.' };
+    }
 
-    return { message: 'Team member deactivated successfully. Historical data is preserved.' };
+    // Remove dependent records first so the member can be permanently deleted.
+    await prisma.userCredential.deleteMany({ where: { userId: id } });
+    await prisma.userActivity.deleteMany({ where: { userId: id } });
+    await prisma.teamTask.deleteMany({ where: { userId: id } });
+    await prisma.teamTarget.deleteMany({ where: { userId: id } });
+    await prisma.commission.deleteMany({ where: { userId: id } });
+    await prisma.task.deleteMany({ where: { assignedToId: id } });
+    await prisma.task.deleteMany({ where: { createdById: id } });
+    await prisma.user.updateMany({ where: { managerId: id }, data: { managerId: null } });
+    await prisma.client.updateMany({ where: { assignedToId: id }, data: { assignedToId: null } });
+    await prisma.candidate.updateMany({ where: { assignedToId: id }, data: { assignedToId: null } });
+    await prisma.job.updateMany({ where: { assignedToId: id }, data: { assignedToId: null } });
+    await prisma.lead.updateMany({ where: { assignedToId: id }, data: { assignedToId: null } });
+    await prisma.contact.updateMany({ where: { ownerId: id }, data: { ownerId: null } });
+    await prisma.clientNote.deleteMany({ where: { createdById: id } });
+    await prisma.interview.updateMany({ where: { interviewerId: id }, data: { interviewerId: null } });
+    await prisma.interview.updateMany({ where: { createdById: id }, data: { createdById: null } });
+    await prisma.interviewFeedback.deleteMany({ where: { interviewerId: id } });
+    await prisma.interviewNote.deleteMany({ where: { authorId: id } });
+    await prisma.interviewActivityLog.deleteMany({ where: { userId: id } });
+    await prisma.placement.updateMany({ where: { recruiterId: id }, data: { recruiterId: null } });
+    await prisma.placementCommission.deleteMany({ where: { recruiterId: id } });
+    try {
+      await prisma.placementDocument.updateMany({ where: { uploadedBy: id }, data: { uploadedBy: null } });
+    } catch {
+      await prisma.placementDocument.deleteMany({ where: { uploadedBy: id } });
+    }
+    await prisma.placementActivityLog.deleteMany({ where: { performedBy: id } });
+    await prisma.pipelineEntry.updateMany({ where: { movedById: id }, data: { movedById: null } });
+    await prisma.match.updateMany({ where: { createdById: id }, data: { createdById: null } });
+
+    await prisma.user.delete({ where: { id } });
+
+    return { message: 'Team member deleted successfully.' };
   },
 
   async generateCredentials(userId, loginIdOption, sendInvite, createdById, customLoginId) {
@@ -632,7 +655,11 @@ export const teamMemberService = {
       },
     });
 
-    return { message: 'Password reset successfully. Email sent to user.' };
+    return {
+      message: 'Password reset successfully. Email sent to user.',
+      tempPassword,
+      loginId: user.credential.loginId,
+    };
   },
 
   async resendInvite(userId) {

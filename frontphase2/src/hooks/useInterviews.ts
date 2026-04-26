@@ -4,6 +4,7 @@ import {
   apiAddInterviewPanelMember,
   apiCancelInterview,
   apiCreateInterview,
+  apiDeleteInterview,
   apiGenerateInterviewFeedbackSummary,
   apiGetCandidates,
   apiGetInterviews,
@@ -12,26 +13,29 @@ import {
   apiMarkInterviewNoShow,
   apiRemoveInterviewPanelMember,
   apiRescheduleInterview,
+  apiUpdateInterview,
   apiSubmitInterviewFeedback,
   type BackendCandidate,
   type BackendInterviewKpis,
   type BackendInterviewListItem,
+  type BackendInterviewListResponse,
   type BackendJob,
   type BackendUser,
 } from '../lib/api';
 import { MY_JOBS_LIST_PARAMS } from '../lib/myJobsListParams';
 import type {
-  CancelInterviewPayload,
-  FeedbackPayload,
-  Interview,
+    CancelInterviewPayload,
+    FeedbackPayload,
+    Interview,
   InterviewFiltersState,
   InterviewKpi,
   InterviewPanelMember,
   PaginationState,
-  ReschedulePayload,
-  ScheduleInterviewPayload,
-  NoShowPayload,
-} from '../types/interview.types';
+    ReschedulePayload,
+    ScheduleInterviewPayload,
+    NoShowPayload,
+    UpdateInterviewPayload,
+  } from '../types/interview.types';
 
 const defaultFilters: InterviewFiltersState = {
   date: 'This Week',
@@ -133,6 +137,7 @@ const activityColor = (action: string): 'blue' | 'green' | 'orange' | 'red' | 's
 
 const mapInterview = (item: BackendInterviewListItem): Interview => ({
   id: item.id,
+  scheduledAt: item.scheduledAt,
   candidate: {
     id: item.candidate.id,
     name: extractDisplayName(item.candidate.firstName, item.candidate.lastName),
@@ -246,6 +251,16 @@ const mapKpis = (kpis?: BackendInterviewKpis): InterviewKpi[] => [
   { title: 'Completed Interviews', value: kpis?.completedCount || 0, icon: 'check', accent: 'green' },
 ];
 
+const normalizeInterviewListResponse = (response: BackendInterviewListResponse) => {
+  const interviews = (response.data || []).map(mapInterview);
+  return {
+    interviews,
+    totalEntries: response.total || interviews.length,
+    totalPages: response.totalPages || 1,
+    kpis: mapKpis(response.kpis),
+  };
+};
+
 const mapUsersToPanel = (users: BackendUser[]): InterviewPanelMember[] =>
   users.map((user) => ({
     id: user.id,
@@ -274,8 +289,23 @@ const mapJobs = (jobs: BackendJob[]) =>
     clientId: job.client?.id,
   }));
 
+const DELETED_INTERVIEWS_STORAGE_KEY = 'interviews.deletedIds.v1';
+
+const readPersistedDeletedInterviewIds = (): string[] => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(DELETED_INTERVIEWS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((value) => typeof value === 'string') : [];
+  } catch {
+    return [];
+  }
+};
+
 export function useInterviews() {
   const [interviews, setInterviews] = useState<Interview[]>([]);
+  const [deletedInterviewIds, setDeletedInterviewIds] = useState<string[]>(() => readPersistedDeletedInterviewIds());
   const [filters, setFilters] = useState<InterviewFiltersState>(defaultFilters);
   const [pagination, setPagination] = useState<PaginationState>({ page: 1, pageSize: 10 });
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -289,6 +319,16 @@ export function useInterviews() {
   const [jobOptions, setJobOptions] = useState<Interview['job'][]>([]);
   const [interviewerOptions, setInterviewerOptions] = useState<InterviewPanelMember[]>([]);
   const [totalPages, setTotalPages] = useState(1);
+  const deletedInterviewIdSet = useMemo(() => new Set(deletedInterviewIds), [deletedInterviewIds]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(DELETED_INTERVIEWS_STORAGE_KEY, JSON.stringify(deletedInterviewIds));
+    } catch {
+      // Ignore storage failures and continue using in-memory filtering.
+    }
+  }, [deletedInterviewIds]);
 
   const fetchMeta = useCallback(async () => {
     try {
@@ -327,10 +367,11 @@ export function useInterviews() {
         search: searchQuery || undefined,
       });
 
-      setInterviews((response.data.data || []).map(mapInterview));
-      setTotalPages(response.data.totalPages || 1);
-      setTotalEntries(response.data.totalCount || 0);
-      setKpis(mapKpis(response.data.kpis));
+      const snapshot = normalizeInterviewListResponse(response.data);
+      setInterviews(snapshot.interviews);
+      setTotalPages(snapshot.totalPages);
+      setTotalEntries(snapshot.totalEntries);
+      setKpis(snapshot.kpis);
     } catch (fetchError: any) {
       setError(fetchError.message || 'Unable to load interviews');
     } finally {
@@ -346,8 +387,11 @@ export function useInterviews() {
     void fetchInterviews();
   }, [fetchInterviews]);
 
-  const filteredInterviews = useMemo(() => interviews, [interviews]);
-  const paginatedInterviews = useMemo(() => interviews, [interviews]);
+  const filteredInterviews = useMemo(
+    () => interviews.filter((interview) => !deletedInterviewIdSet.has(interview.id)),
+    [deletedInterviewIdSet, interviews]
+  );
+  const paginatedInterviews = useMemo(() => filteredInterviews, [filteredInterviews]);
 
   const scheduleInterview = useCallback(
     async (payload: ScheduleInterviewPayload) => {
@@ -437,6 +481,59 @@ export function useInterviews() {
     [fetchInterviews]
   );
 
+  const updateInterview = useCallback(
+    async (interviewId: string, payload: UpdateInterviewPayload) => {
+      try {
+        await apiUpdateInterview(interviewId, {
+          candidateId: payload.candidateId,
+          jobId: payload.jobId,
+          clientId: payload.clientId,
+          round: payload.round,
+          type: payload.type.toUpperCase().replace(/ /g, '_'),
+          mode: payload.mode === 'Online' ? 'ONLINE' : 'OFFLINE',
+          date: payload.date,
+          duration: payload.duration,
+          timezone: payload.timezone,
+          meetingPlatform: payload.meetingPlatform
+            ? payload.meetingPlatform === 'Zoom'
+              ? 'ZOOM'
+              : payload.meetingPlatform === 'Google Meet'
+              ? 'GOOGLE_MEET'
+              : 'MS_TEAMS'
+            : null,
+          location: payload.location,
+          notes: payload.notes,
+          status: payload.status,
+          panelUserIds: payload.panelUserIds,
+          panelRoles: payload.panelRoles,
+        });
+        setToast('Interview updated');
+        await fetchInterviews();
+      } catch (mutationError: any) {
+        setError(mutationError.message || 'Unable to update interview');
+        setToast(mutationError.message || 'Unable to update interview');
+        throw mutationError;
+      }
+    },
+    [fetchInterviews]
+  );
+
+  const deleteInterview = useCallback(
+    async (interviewId: string) => {
+      try {
+        await apiDeleteInterview(interviewId);
+        setDeletedInterviewIds((current) => (current.includes(interviewId) ? current : [...current, interviewId]));
+        setToast('Interview deleted');
+        await fetchInterviews();
+      } catch (mutationError: any) {
+        setError(mutationError.message || 'Unable to delete interview');
+        setToast(mutationError.message || 'Unable to delete interview');
+        throw mutationError;
+      }
+    },
+    [fetchInterviews]
+  );
+
   const submitFeedback = useCallback(
     async (interviewId: string, payload: FeedbackPayload) => {
       try {
@@ -463,12 +560,26 @@ export function useInterviews() {
         const updated = await apiGetInterviews({
           page: pagination.page,
           limit: pagination.pageSize,
+          status: filters.status !== 'All Status' ? filters.status.toUpperCase().replace(/\s+/g, '_') : undefined,
+          round: filters.round !== 'All Rounds' ? filters.round.toUpperCase().replace(/\s+/g, '_') : undefined,
+          mode: filters.mode === 'Online' ? 'ONLINE' : filters.mode === 'Offline' ? 'OFFLINE' : undefined,
+          interviewerId:
+            filters.interviewer !== 'All Interviewers'
+              ? interviewerOptions.find((user) => user.name === filters.interviewer)?.id
+              : undefined,
+          jobId:
+            filters.clientJob !== 'All Clients'
+              ? jobOptions.find((job) => `${job.client} â€¢ ${job.title}` === filters.clientJob)?.id
+              : undefined,
           search: searchQuery || undefined,
         });
-        const mapped = (updated.data.data || []).map(mapInterview);
-        setInterviews(mapped);
+        const snapshot = normalizeInterviewListResponse(updated.data);
+        setInterviews(snapshot.interviews);
+        setTotalPages(snapshot.totalPages);
+        setTotalEntries(snapshot.totalEntries);
+        setKpis(snapshot.kpis);
 
-        const submittedInterview = mapped.find((item) => item.id === interviewId);
+        const submittedInterview = snapshot.interviews.find((item) => item.id === interviewId);
         if (submittedInterview?.feedbackEntries[0]) {
           try {
             await apiGenerateInterviewFeedbackSummary(interviewId, submittedInterview.feedbackEntries[0].id);
@@ -485,7 +596,19 @@ export function useInterviews() {
         throw mutationError;
       }
     },
-    [fetchInterviews, pagination.page, pagination.pageSize, searchQuery]
+    [
+      fetchInterviews,
+      filters.clientJob,
+      filters.interviewer,
+      filters.mode,
+      filters.round,
+      filters.status,
+      interviewerOptions,
+      jobOptions,
+      pagination.page,
+      pagination.pageSize,
+      searchQuery,
+    ]
   );
 
   const addNote = useCallback(
@@ -589,7 +712,9 @@ export function useInterviews() {
     interviewerOptions,
     scheduleInterview,
     rescheduleInterview,
+    updateInterview,
     cancelInterview,
+    deleteInterview,
     submitFeedback,
     addNote,
     updatePanel,

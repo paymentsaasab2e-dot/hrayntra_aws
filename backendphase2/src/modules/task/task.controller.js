@@ -4,6 +4,62 @@ import { sendResponse, sendError } from '../../utils/response.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import * as XLSX from 'xlsx';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+function normalizeAttachmentToken(value) {
+  return decodeURIComponent(String(value || ''))
+    .replace(/\+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function matchTaskAttachment(task, decodedFilename) {
+  const target = normalizeAttachmentToken(decodedFilename);
+  const taskFiles = Array.isArray(task?.files) ? task.files : [];
+  const legacyAttachments = Array.isArray(task?.attachments) ? task.attachments : [];
+
+  for (const file of taskFiles) {
+    const candidates = [
+      file?.fileName,
+      file?.fileUrl,
+      file?.fileUrl ? path.basename(String(file.fileUrl)) : '',
+      file?.fileUrl?.startsWith('http://') || file?.fileUrl?.startsWith('https://')
+        ? (() => {
+            try {
+              return path.basename(new URL(String(file.fileUrl)).pathname);
+            } catch {
+              return '';
+            }
+          })()
+        : '',
+    ].filter(Boolean);
+
+    if (candidates.some((candidate) => {
+      const normalized = normalizeAttachmentToken(candidate);
+      return (
+        normalized === target ||
+        normalized.includes(target) ||
+        target.includes(normalized)
+      );
+    })) {
+      return file;
+    }
+  }
+
+  const legacy = legacyAttachments.find((att) => {
+    const normalized = normalizeAttachmentToken(typeof att === 'string' ? att : att?.name || att?.url || '');
+    return (
+      normalized === target ||
+      normalized.includes(target) ||
+      target.includes(normalized)
+    );
+  });
+
+  return legacy || null;
+}
 
 export const taskController = {
   async getAll(req, res) {
@@ -83,12 +139,7 @@ export const taskController = {
       const decodedFilename = decodeURIComponent(filename);
 
       // First, check TaskFile model (new approach)
-      const taskFile = task.files?.find(file => 
-        file.fileName === decodedFilename || 
-        file.fileUrl.includes(decodedFilename) ||
-        decodedFilename.includes(file.fileName) ||
-        file.fileUrl.endsWith(decodedFilename)
-      );
+      const taskFile = matchTaskAttachment(task, decodedFilename);
 
       if (taskFile) {
         // If file URL is external, redirect
@@ -130,18 +181,18 @@ export const taskController = {
       }
 
       // Fallback: Check legacy attachments array (for backward compatibility)
-      const attachmentExists = task.attachments && task.attachments.some(att => 
-        att === decodedFilename || att.includes(decodedFilename) || decodedFilename.includes(att)
-      );
+      const attachmentExists = !!matchTaskAttachment(task, decodedFilename);
       
       if (!attachmentExists) {
         return sendError(res, 404, 'Attachment not found');
       }
 
       // Find the matching attachment
-      const attachment = task.attachments.find(att => 
-        att === decodedFilename || att.includes(decodedFilename) || decodedFilename.includes(att)
-      );
+      const attachment = task.attachments.find(att => {
+        const normalized = normalizeAttachmentToken(typeof att === 'string' ? att : att?.name || att?.url || '');
+        const target = normalizeAttachmentToken(decodedFilename);
+        return normalized === target || normalized.includes(target) || target.includes(normalized);
+      });
 
       // If attachment is a URL, redirect to it
       if (attachment && (attachment.startsWith('http://') || attachment.startsWith('https://'))) {
@@ -154,8 +205,6 @@ export const taskController = {
       const isImageFile = imageExtensions.some(ext => decodedFilename.toLowerCase().endsWith(ext));
 
       // Try to serve file from local storage
-      const __filename = fileURLToPath(import.meta.url);
-      const __dirname = path.dirname(__filename);
       const uploadsDir = path.join(__dirname, '..', '..', '..', 'uploads', 'tasks', taskId);
       const filePath = path.join(uploadsDir, decodedFilename);
 
@@ -233,6 +282,147 @@ export const taskController = {
         message: 'File not found in local storage',
       });
     } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
+  async getAttachmentPreview(req, res) {
+    try {
+      const { taskId, filename } = req.params;
+      console.log('[task.getAttachmentPreview] start', { taskId, filename });
+      const task = await taskService.getById(taskId, req);
+
+      if (!task) {
+        return sendError(res, 404, 'Task not found');
+      }
+
+      const decodedFilename = decodeURIComponent(filename);
+      const ext = path.extname(decodedFilename).toLowerCase();
+      const taskFile = matchTaskAttachment(task, decodedFilename);
+
+      console.log('[task.getAttachmentPreview] matched file', taskFile ? {
+        fileName: taskFile.fileName,
+        fileUrl: taskFile.fileUrl,
+      } : null);
+
+      if (!taskFile) {
+        return sendError(res, 404, 'Attachment not found');
+      }
+
+      let filePath = null;
+      if (taskFile.fileUrl.startsWith('http://') || taskFile.fileUrl.startsWith('https://')) {
+        const parsed = new URL(taskFile.fileUrl);
+        if (parsed.pathname.startsWith('/uploads/')) {
+          filePath = path.join(__dirname, '..', '..', '..', parsed.pathname);
+      }
+      } else {
+        filePath = path.join(__dirname, '..', '..', '..', taskFile.fileUrl);
+      }
+
+      console.log('[task.getAttachmentPreview] resolved path', filePath);
+
+      if (!filePath || !fs.existsSync(filePath)) {
+        console.log('[task.getAttachmentPreview] file missing on disk', { filePath });
+        return sendError(res, 404, 'Attachment file not found on server');
+      }
+
+      if (ext === '.pdf') {
+        console.log('[task.getAttachmentPreview] pdf preview direct stream');
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="${decodedFilename}"`);
+        return fs.createReadStream(filePath).pipe(res);
+      }
+
+      const safeTitle = decodedFilename.replace(/[&<>"']/g, (ch) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      }[ch]));
+      let previewBody = '<p class="empty">No preview data could be extracted from this document.</p>';
+
+      try {
+        if (ext === '.docx' || ext === '.doc') {
+          const mammothModule = await import('mammoth');
+          const mammoth = mammothModule.default || mammothModule;
+          const result = await mammoth.extractRawText({ path: filePath });
+          const text = (result?.value || '').trim();
+          const lines = text ? text.split(/\n+/).map(line => line.trim()).filter(Boolean) : [];
+          console.log('[task.getAttachmentPreview] doc preview lines', lines.length);
+          previewBody = lines.length
+            ? lines.map(line => `<p class="line">${line.replace(/[&<>"']/g, (ch) => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;',
+              }[ch]))}</p>`).join('')
+            : '<p class="empty">No text could be extracted from this document.</p>';
+        } else if (ext === '.xlsx' || ext === '.xls') {
+          const buffer = fs.readFileSync(filePath);
+          const workbook = XLSX.read(buffer, { type: 'buffer' });
+          const sheetName = workbook.SheetNames[0];
+          const sheet = workbook.Sheets[sheetName];
+          const rows = sheet ? XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', blankrows: false, raw: false }) : [];
+          const previewRows = Array.isArray(rows) ? rows.slice(0, 80) : [];
+          console.log('[task.getAttachmentPreview] spreadsheet preview', {
+            sheetName,
+            rowCount: previewRows.length,
+          });
+          previewBody = previewRows.length
+            ? `<div class="sheet-wrap"><table><tbody>${previewRows.map((row) => {
+                const cells = Array.isArray(row) ? row : [row];
+                return `<tr>${cells.map((cell) => `<td>${String(cell ?? '').replace(/[&<>"']/g, (ch) => ({
+                  '&': '&amp;',
+                  '<': '&lt;',
+                  '>': '&gt;',
+                  '"': '&quot;',
+                  "'": '&#39;',
+                }[ch]))}</td>`).join('')}</tr>`;
+              }).join('')}</tbody></table></div>`
+            : '<p class="empty">No rows could be extracted from this spreadsheet.</p>';
+        } else {
+          console.log('[task.getAttachmentPreview] unsupported preview extension', { ext });
+          previewBody = '<p class="empty">Preview unavailable for this file type.</p>';
+        }
+      } catch (previewError) {
+        console.error('[task.getAttachmentPreview] preview generation failed', previewError);
+        previewBody = `<p class="empty">Preview generation failed: ${String(previewError?.message || previewError)}</p>`;
+      }
+
+      const previewHtml = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body { font-family: Arial, sans-serif; margin: 0; padding: 24px; background: #f8fafc; color: #0f172a; }
+      .page { max-width: 920px; margin: 0 auto; background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08); overflow: hidden; }
+      .header { padding: 18px 22px; border-bottom: 1px solid #e2e8f0; background: #f8fafc; }
+      .header h1 { margin: 0; font-size: 16px; line-height: 1.4; word-break: break-word; }
+      .content { padding: 24px 22px; }
+      .line { margin: 0 0 12px; white-space: pre-wrap; line-height: 1.7; font-size: 14px; }
+      .empty { color: #64748b; font-size: 14px; }
+      .sheet-wrap { max-height: 70vh; overflow: auto; border: 1px solid #e2e8f0; border-radius: 12px; }
+      table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      td { border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; padding: 8px 10px; vertical-align: top; }
+      tr:first-child td { background: #f8fafc; font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="header"><h1>${safeTitle}</h1></div>
+      <div class="content">${previewBody}</div>
+    </div>
+  </body>
+</html>`;
+
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Content-Disposition', `inline; filename="${decodedFilename}"`);
+      return res.send(previewHtml);
+    } catch (error) {
+      console.error('[task.getAttachmentPreview] fatal error', error);
       sendError(res, 500, error.message, error);
     }
   },

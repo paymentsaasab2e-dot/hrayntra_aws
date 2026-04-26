@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const DEFAULT_API_BASE = 'http://localhost:5000/api/v1';
+const DEFAULT_API_BASE = 'http://localhost:5001/api/v1';
 
 function getBackendOrigin() {
   const apiBase = (process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_BASE).replace(/\/+$/, '');
@@ -38,6 +38,10 @@ function resolveSourceUrl(rawUrl: string, backendOrigin: string) {
       return parsed.toString();
     }
 
+    if (rawUrl.startsWith('/api/v1/')) {
+      return new URL(rawUrl, backendOrigin).toString();
+    }
+
     if (!rawUrl.startsWith('/uploads/')) return null;
     return new URL(rawUrl, backendOrigin).toString();
   } catch {
@@ -49,7 +53,10 @@ export async function GET(req: NextRequest) {
   const backendOrigin = getBackendOrigin();
   const rawUrl = req.nextUrl.searchParams.get('url') || req.nextUrl.searchParams.get('path') || '';
   const explicitFilename = req.nextUrl.searchParams.get('filename');
+  const previewMode = req.nextUrl.searchParams.get('preview') === '1';
   const sourceUrl = resolveSourceUrl(rawUrl, backendOrigin);
+  const authHeader = req.headers.get('authorization');
+  const cookieHeader = req.headers.get('cookie');
 
   if (!sourceUrl) {
     return NextResponse.json(
@@ -61,6 +68,10 @@ export async function GET(req: NextRequest) {
   const upstream = await fetch(sourceUrl, {
     redirect: 'follow',
     cache: 'no-store',
+    headers: {
+      ...(authHeader ? { Authorization: authHeader } : {}),
+      ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+    },
   });
 
   if (!upstream.ok) {
@@ -80,7 +91,9 @@ export async function GET(req: NextRequest) {
     status: 200,
     headers: {
       'Content-Type': contentType,
-      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Disposition': previewMode
+        ? `inline; filename="${filename}"`
+        : `attachment; filename="${filename}"`,
       'Cache-Control': 'no-store',
     },
   });

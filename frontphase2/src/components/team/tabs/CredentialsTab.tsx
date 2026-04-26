@@ -1,8 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { Search, MoreVertical, Key, Lock, Unlock, Mail, History, Eye, EyeOff } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Search, Key, Lock, Unlock, Mail, History, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   getTeamMembers,
@@ -14,6 +13,7 @@ import {
 } from '../../../lib/api/teamApi';
 import { requestConfirm } from '../../../lib/appDialog';
 import type { TeamMember } from '../../../types/team';
+import { MemberProfileDrawer } from '../MemberProfileDrawer';
 import { LoginHistoryDrawer } from '../LoginHistoryDrawer';
 import { GenerateCredentialsDrawer } from '../GenerateCredentialsDrawer';
 
@@ -40,6 +40,43 @@ const getRoleChipClass = (member: TeamMember) => {
 
 const getRoleLabel = (member: TeamMember) => {
   return (member as any)?.role?.roleName || 'Unassigned';
+};
+
+const getAccountStatus = (member: TeamMember) => {
+  const backendStatus = String(member.status || '').trim().toUpperCase();
+
+  if (backendStatus === 'INACTIVE') {
+    return {
+      label: 'Inactive',
+      className: 'bg-slate-100 text-slate-600',
+    };
+  }
+
+  if (!member.credential) {
+    return {
+      label: 'No Login',
+      className: 'bg-slate-100 text-slate-600',
+    };
+  }
+
+  if (member.credential.isLocked) {
+    return {
+      label: 'Locked',
+      className: 'bg-red-100 text-red-700',
+    };
+  }
+
+  if (member.credential.tempPasswordFlag) {
+    return {
+      label: 'Pending',
+      className: 'bg-amber-100 text-amber-700',
+    };
+  }
+
+  return {
+    label: backendStatus === 'ACTIVE' ? 'Active' : backendStatus || 'Active',
+    className: 'bg-green-100 text-green-700',
+  };
 };
 
 const formatRelativeTime = (dateString: string | null | undefined) => {
@@ -77,10 +114,11 @@ export const CredentialsTab: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedMembers, setSelectedMembers] = useState<Set<string>>(new Set());
-  const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [showLoginHistory, setShowLoginHistory] = useState(false);
   const [showGenerateDrawer, setShowGenerateDrawer] = useState(false);
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
+  const [showMemberDrawer, setShowMemberDrawer] = useState(false);
+  const [selectedMemberDrawerId, setSelectedMemberDrawerId] = useState<string | null>(null);
   const [bulkGenerating, setBulkGenerating] = useState(false);
   const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
 
@@ -91,7 +129,7 @@ export const CredentialsTab: React.FC = () => {
     
     setLoading(true);
     try {
-      const res = await getTeamMembers();
+      const res = await getTeamMembers({ limit: 100 });
       setMembers(res.data || []);
     } catch (error: any) {
       toast.error(error.message || 'Failed to load team members');
@@ -104,35 +142,48 @@ export const CredentialsTab: React.FC = () => {
     fetchData();
   }, [fetchData]);
 
-  // Filter members
-  const filteredMembers = members.filter((member) => {
-    // Search filter
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      const matchesSearch =
-        member.firstName.toLowerCase().includes(query) ||
-        member.lastName.toLowerCase().includes(query) ||
-        member.email.toLowerCase().includes(query);
-      if (!matchesSearch) return false;
-    }
+  const filteredMembers = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
 
-    // Status filter
-    if (statusFilter !== 'all') {
-      if (!member.credential) {
-        if (statusFilter !== 'no_credentials') return false;
-      } else if (statusFilter === 'active') {
-        if (member.credential.isLocked || member.credential.tempPasswordFlag) return false;
-      } else if (statusFilter === 'pending') {
-        if (!member.credential.tempPasswordFlag) return false;
-      } else if (statusFilter === 'locked') {
-        if (!member.credential.isLocked) return false;
-      } else if (statusFilter === 'no_credentials') {
-        return false; // Already handled above
+    return members.filter((member) => {
+      const fullName = `${member.firstName || ''} ${member.lastName || ''}`.trim().toLowerCase();
+      const roleName = String((member as any)?.role?.roleName || '').toLowerCase();
+      const departmentName = String((member as any)?.department?.name || '').toLowerCase();
+      const loginId = String(member.credential?.loginId || '').toLowerCase();
+      const designation = String(member.designation || '').toLowerCase();
+      const location = String(member.location || '').toLowerCase();
+      const email = String(member.email || '').toLowerCase();
+      const phone = String(member.phone || '').toLowerCase();
+      const statusKey = !member.credential
+        ? 'no_credentials'
+        : member.credential.isLocked
+          ? 'locked'
+          : member.credential.tempPasswordFlag
+            ? 'pending'
+            : 'active';
+
+      if (query) {
+        const matchesSearch =
+          fullName.includes(query) ||
+          email.includes(query) ||
+          phone.includes(query) ||
+          designation.includes(query) ||
+          location.includes(query) ||
+          roleName.includes(query) ||
+          departmentName.includes(query) ||
+          loginId.includes(query) ||
+          statusKey.includes(query);
+
+        if (!matchesSearch) return false;
       }
-    }
 
-    return true;
-  });
+      if (statusFilter !== 'all' && statusKey !== statusFilter) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [members, searchQuery, statusFilter]);
 
   const handleBulkGenerate = async () => {
     const membersToGenerate = filteredMembers.filter(
@@ -173,7 +224,6 @@ export const CredentialsTab: React.FC = () => {
     } catch (error: any) {
       toast.error(error.message || 'Failed to reset password');
     }
-    setMenuOpen(null);
   };
 
   const handleResendInvite = async (member: TeamMember) => {
@@ -184,7 +234,6 @@ export const CredentialsTab: React.FC = () => {
     } catch (error: any) {
       toast.error(error.message || 'Failed to resend invite');
     }
-    setMenuOpen(null);
   };
 
   const handleLock = async (member: TeamMember) => {
@@ -195,7 +244,6 @@ export const CredentialsTab: React.FC = () => {
     } catch (error: any) {
       toast.error(error.message || 'Failed to lock account');
     }
-    setMenuOpen(null);
   };
 
   const handleUnlock = async (member: TeamMember) => {
@@ -206,7 +254,6 @@ export const CredentialsTab: React.FC = () => {
     } catch (error: any) {
       toast.error(error.message || 'Failed to unlock account');
     }
-    setMenuOpen(null);
   };
 
   if (!userIsSuperAdmin) {
@@ -382,96 +429,82 @@ export const CredentialsTab: React.FC = () => {
                       {formatRelativeTime(member.credential?.lastLoginAt)}
                     </td>
                     <td className="px-6 py-4">
-                      {!member.credential ? (
-                        <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-gray-100 text-gray-600">No Login</span>
-                      ) : member.credential.isLocked ? (
-                        <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-red-100 text-red-700">Locked</span>
-                      ) : (
-                        <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-green-100 text-green-700">Active</span>
-                      )}
+                      {(() => {
+                        const status = getAccountStatus(member);
+                        return (
+                          <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${status.className}`}>
+                            {status.label}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="px-6 py-4">
-                      <div className="flex items-center justify-end gap-2">
-                        <div className="relative">
-                          <button
-                            onClick={() => setMenuOpen(menuOpen === member.id ? null : member.id)}
-                            className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-600 hover:text-slate-900"
-                          >
-                            <MoreVertical size={16} />
-                          </button>
-                          <AnimatePresence>
-                            {menuOpen === member.id && (
-                              <motion.div
-                                initial={{ opacity: 0, y: -10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -10 }}
-                                className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg shadow-lg border border-slate-200 z-10 py-1"
-                              >
-                                {!member.credential && (
-                                  <button
-                                    onClick={() => {
-                                      setSelectedMember(member);
-                                      setShowGenerateDrawer(true);
-                                      setMenuOpen(null);
-                                    }}
-                                    className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                                  >
-                                    <Key size={14} />
-                                    Generate Credentials
-                                  </button>
-                                )}
-                                {member.credential && (
-                                  <>
-                                    <button
-                                      onClick={() => handleResetPassword(member)}
-                                      className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                                    >
-                                      <Key size={14} />
-                                      Reset Password
-                                    </button>
-                                    {member.credential.tempPasswordFlag && (
-                                      <button
-                                        onClick={() => handleResendInvite(member)}
-                                        className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                                      >
-                                        <Mail size={14} />
-                                        Resend Invite
-                                      </button>
-                                    )}
-                                    {member.credential.isLocked ? (
-                                      <button
-                                        onClick={() => handleUnlock(member)}
-                                        className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                                      >
-                                        <Unlock size={14} />
-                                        Unlock Account
-                                      </button>
-                                    ) : (
-                                      <button
-                                        onClick={() => handleLock(member)}
-                                        className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                                      >
-                                        <Lock size={14} />
-                                        Lock Account
-                                      </button>
-                                    )}
-                                    <button
-                                      onClick={() => {
-                                        setSelectedMember(member);
-                                        setShowLoginHistory(true);
-                                        setMenuOpen(null);
-                                      }}
-                                      className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                                    >
-                                      <History size={14} />
-                                      Login History
-                                    </button>
-                                  </>
-                                )}
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedMemberDrawerId(member.id);
+                            setShowMemberDrawer(true);
+                          }}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900"
+                          title="View Member Details"
+                        >
+                          <Eye size={15} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedMember(member);
+                            if (!member.credential) {
+                              setShowGenerateDrawer(true);
+                            } else {
+                              void handleResetPassword(member);
+                            }
+                          }}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900"
+                          title="Reset Password"
+                        >
+                          <Key size={15} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!member.credential?.tempPasswordFlag) return;
+                            void handleResendInvite(member);
+                          }}
+                          disabled={!member.credential?.tempPasswordFlag}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-40"
+                          title="Resend Invite"
+                        >
+                          <Mail size={15} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!member.credential) return;
+                            if (member.credential.isLocked) {
+                              void handleUnlock(member);
+                            } else {
+                              void handleLock(member);
+                            }
+                          }}
+                          disabled={!member.credential}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-40"
+                          title={member.credential?.isLocked ? 'Unlock Account' : 'Lock Account'}
+                        >
+                          {member.credential?.isLocked ? <Unlock size={15} /> : <Lock size={15} />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedMember(member);
+                            setShowLoginHistory(true);
+                          }}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900"
+                          title="Login History"
+                        >
+                          <History size={15} />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -510,11 +543,14 @@ export const CredentialsTab: React.FC = () => {
         </>
       )}
 
-      {/* Click outside to close menu */}
-      {menuOpen && (
-        <div
-          className="fixed inset-0 z-0"
-          onClick={() => setMenuOpen(null)}
+      {selectedMemberDrawerId && (
+        <MemberProfileDrawer
+          isOpen={showMemberDrawer}
+          memberId={selectedMemberDrawerId}
+          onClose={() => {
+            setShowMemberDrawer(false);
+            setSelectedMemberDrawerId(null);
+          }}
         />
       )}
     </div>

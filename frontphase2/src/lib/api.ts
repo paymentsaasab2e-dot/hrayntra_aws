@@ -1718,6 +1718,33 @@ export const apiCreateInterview = async (payload: CreateInterviewPayload) => {
   });
 };
 
+export const apiUpdateInterview = async (
+  id: string,
+  payload: {
+    candidateId?: string;
+    jobId?: string;
+    clientId?: string;
+    round?: string;
+    type?: string;
+    mode?: string;
+    date?: string;
+    duration?: number;
+    timezone?: string;
+    meetingPlatform?: 'ZOOM' | 'GOOGLE_MEET' | 'MS_TEAMS' | null;
+    location?: string | null;
+    notes?: string | null;
+    status?: string;
+    panelUserIds?: string[];
+    panelRoles?: Record<string, 'HR' | 'TECHNICAL' | 'CLIENT' | 'HIRING_MANAGER'>;
+  }
+) => {
+  return apiFetch<BackendInterviewListItem>(`/interviews/${id}`, {
+    method: 'PATCH',
+    body: payload,
+    auth: true,
+  });
+};
+
 export const apiRescheduleInterview = async (
   id: string,
   payload: {
@@ -1742,6 +1769,13 @@ export const apiCancelInterview = async (
   return apiFetch<BackendInterviewListItem>(`/interviews/${id}/cancel`, {
     method: 'POST',
     body: payload,
+    auth: true,
+  });
+};
+
+export const apiDeleteInterview = async (id: string) => {
+  return apiFetch<{ message: string }>(`/interviews/${id}`, {
+    method: 'DELETE',
     auth: true,
   });
 };

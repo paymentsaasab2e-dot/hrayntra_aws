@@ -76,7 +76,10 @@ export const teamMemberController = {
   async resetPassword(req, res) {
     try {
       const result = await teamMemberService.resetPassword(req.params.id);
-      sendResponse(res, 200, result.message);
+      sendResponse(res, 200, result.message, {
+        tempPassword: result.tempPassword,
+        loginId: result.loginId,
+      });
     } catch (error) {
       sendError(res, 400, error.message, error);
     }

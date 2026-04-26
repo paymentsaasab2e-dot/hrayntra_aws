@@ -116,6 +116,9 @@ export const listInterviewsQuerySchema = z.object({
 
 export const updateInterviewSchema = z
   .object({
+    candidateId: objectId.optional(),
+    jobId: objectId.optional(),
+    clientId: objectId.optional(),
     round: z.string().min(1).optional(),
     type: interviewTypeEnum.optional(),
     mode: interviewModeEnum.optional(),

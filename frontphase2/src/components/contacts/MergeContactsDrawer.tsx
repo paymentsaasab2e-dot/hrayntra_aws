@@ -54,7 +54,6 @@ export function MergeContactsDrawer({
   if (!primaryContact || !duplicateContact) {
     return (
       <div className="text-center p-8">
-        <p className="text-gray-500">Please select two contacts to merge</p>
       </div>
     );
   }

@@ -2,7 +2,16 @@ import React, { useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Plus, X } from 'lucide-react';
 import { PanelAssignmentModal } from './PanelAssignmentModal';
-import type { InterviewCandidate, InterviewJob, InterviewPanelMember, InterviewRound, InterviewType, ScheduleInterviewPayload } from '../../types/interview.types';
+import type {
+  Interview,
+  InterviewCandidate,
+  InterviewJob,
+  InterviewPanelMember,
+  InterviewRound,
+  InterviewType,
+  ScheduleInterviewPayload,
+  UpdateInterviewPayload,
+} from '../../types/interview.types';
 
 interface ScheduleInterviewModalProps {
   isOpen: boolean;
@@ -11,12 +20,19 @@ interface ScheduleInterviewModalProps {
   interviewers: InterviewPanelMember[];
   onClose: () => void;
   onSchedule: (payload: ScheduleInterviewPayload) => Promise<void>;
+  editInterview?: Interview | null;
+  onUpdate?: (interviewId: string, payload: UpdateInterviewPayload) => Promise<void>;
 }
 
 const rounds: InterviewRound[] = ['Screening', 'Technical', 'HR', 'Managerial', 'Client', 'Final'];
 const types: InterviewType[] = ['Video', 'Phone', 'In-Person', 'Technical Test', 'Assessment', 'Group Discussion'];
 const platforms = ['Zoom', 'Google Meet', 'MS Teams'] as const;
-const timezones = ['GMT+5:30', 'GMT+1:00', 'GMT+0:00', 'GMT-5:00'];
+const timezoneOptions = [
+  { label: 'IST (GMT+5:30)', value: 'Asia/Kolkata' },
+  { label: 'GMT+1:00', value: 'Etc/GMT-1' },
+  { label: 'GMT+0:00', value: 'UTC' },
+  { label: 'GMT-5:00', value: 'Etc/GMT+5' },
+] as const;
 
 export function ScheduleInterviewModal({
   isOpen,
@@ -25,11 +41,14 @@ export function ScheduleInterviewModal({
   interviewers,
   onClose,
   onSchedule,
+  editInterview = null,
+  onUpdate,
 }: ScheduleInterviewModalProps) {
+  const isEditMode = Boolean(editInterview && onUpdate);
   const [query, setQuery] = useState('');
   const [showPanelModal, setShowPanelModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [form, setForm] = useState<ScheduleInterviewPayload>({
+  const buildDefaultForm = (): ScheduleInterviewPayload => ({
     candidateId: candidates[0]?.id || '',
     jobId: jobs[0]?.id || '',
     clientId: undefined,
@@ -39,7 +58,7 @@ export function ScheduleInterviewModal({
     date: 'Feb 20, 2026',
     time: '10:00 AM',
     duration: 60,
-    timezone: 'GMT+5:30',
+    timezone: 'Asia/Kolkata',
     panelIds: interviewers.slice(0, 2).map((item) => item.id),
     meetingPlatform: 'Zoom',
     panelRoles: {},
@@ -49,19 +68,38 @@ export function ScheduleInterviewModal({
     sendEmailNotification: true,
     sendWhatsAppReminder: true,
   });
+  const buildEditForm = (interview: Interview): ScheduleInterviewPayload => ({
+    candidateId: interview.candidate.id,
+    jobId: interview.job.id,
+    clientId: interview.job.clientId,
+    round: interview.round,
+    type: interview.type,
+    mode: interview.mode,
+    date: interview.date,
+    time: interview.time,
+    duration: interview.duration,
+    timezone: interview.timezone || 'UTC',
+    panelIds: interview.panel.map((member) => member.userId || member.id).filter(Boolean),
+    meetingPlatform: interview.meetingPlatform || 'Zoom',
+    panelRoles: Object.fromEntries(
+      interview.panel
+        .filter((member) => member.userId)
+        .map((member) => [member.userId as string, 'TECHNICAL'])
+    ),
+    location: interview.location || '',
+    notes: interview.notes || '',
+    sendCalendarInvite: true,
+    sendEmailNotification: true,
+    sendWhatsAppReminder: true,
+  });
+  const [form, setForm] = useState<ScheduleInterviewPayload>(buildDefaultForm());
 
   React.useEffect(() => {
-    if (isOpen && candidates[0]) {
+    if (isOpen) {
       setQuery('');
-      setForm((current) => ({
-        ...current,
-        candidateId: candidates[0].id,
-        jobId: jobs[0]?.id || current.jobId,
-        clientId: undefined,
-        panelIds: interviewers.slice(0, 2).map((item) => item.id),
-      }));
+      setForm(editInterview ? buildEditForm(editInterview) : buildDefaultForm());
     }
-  }, [candidates, interviewers, isOpen, jobs]);
+  }, [candidates, editInterview, interviewers, isOpen, jobs]);
 
   const filteredCandidates = useMemo(
     () =>
@@ -75,6 +113,8 @@ export function ScheduleInterviewModal({
 
   const selectedCandidate = candidates.find((candidate) => candidate.id === form.candidateId);
   const selectedJob = jobs.find((job) => job.id === form.jobId);
+  const selectedTimezoneLabel =
+    timezoneOptions.find((timezone) => timezone.value === form.timezone)?.label || form.timezone;
 
   React.useEffect(() => {
     if (selectedJob?.clientId) {
@@ -96,8 +136,10 @@ export function ScheduleInterviewModal({
           >
             <div className="flex items-center justify-between border-b border-[#E5E7EB] px-6 py-4">
               <div>
-                <h3 className="text-xl font-semibold text-[#111827]">Schedule Interview</h3>
-                <p className="text-sm text-[#6B7280]">Create and notify the interview panel in one flow.</p>
+                <h3 className="text-xl font-semibold text-[#111827]">{isEditMode ? 'Edit Interview' : 'Schedule Interview'}</h3>
+                <p className="text-sm text-[#6B7280]">
+                  {isEditMode ? 'Update the interview details and save the changes.' : 'Create and notify the interview panel in one flow.'}
+                </p>
               </div>
               <button type="button" onClick={onClose} className="rounded-lg p-2 text-[#6B7280] hover:bg-[#F3F4F6]">
                 <X className="size-5" />
@@ -135,7 +177,15 @@ export function ScheduleInterviewModal({
                   <label className="mb-2 block text-sm font-semibold text-[#111827]">Job Role</label>
                   <select
                     value={form.jobId}
-                    onChange={(event) => setForm((current) => ({ ...current, jobId: event.target.value }))}
+                    onChange={(event) => {
+                      const nextJobId = event.target.value;
+                      const nextJob = jobs.find((job) => job.id === nextJobId);
+                      setForm((current) => ({
+                        ...current,
+                        jobId: nextJobId,
+                        clientId: nextJob?.clientId || current.clientId,
+                      }));
+                    }}
                     className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-sm outline-none focus:border-[#2563EB]"
                   >
                     {jobs.map((job) => (
@@ -147,7 +197,11 @@ export function ScheduleInterviewModal({
                 </div>
                 <div>
                   <label className="mb-2 block text-sm font-semibold text-[#111827]">Client</label>
-                  <input value={selectedJob?.client || ''} readOnly className="w-full rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2.5 text-sm text-[#374151]" />
+                  <input
+                    value={selectedJob?.client || ''}
+                    readOnly
+                    className="w-full rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2.5 text-sm text-[#374151]"
+                  />
                 </div>
               </div>
 
@@ -202,10 +256,22 @@ export function ScheduleInterviewModal({
                 </div>
                 <div>
                   <label className="mb-2 block text-sm font-semibold text-[#111827]">Timezone</label>
-                  <select value={form.timezone} onChange={(event) => setForm((current) => ({ ...current, timezone: event.target.value }))} className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-sm outline-none focus:border-[#2563EB]">
-                    {timezones.map((timezone) => <option key={timezone}>{timezone}</option>)}
+                  <select
+                    value={form.timezone}
+                    onChange={(event) => setForm((current) => ({ ...current, timezone: event.target.value }))}
+                    className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-sm outline-none focus:border-[#2563EB]"
+                  >
+                    {timezoneOptions.map((timezone) => (
+                      <option key={timezone.value} value={timezone.value}>
+                        {timezone.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
+              </div>
+
+              <div className="rounded-xl border border-[#DBEAFE] bg-[#EFF6FF] px-4 py-3 text-sm text-[#1D4ED8]">
+                Selected timezone: {selectedTimezoneLabel}
               </div>
 
               <div>
@@ -251,28 +317,34 @@ export function ScheduleInterviewModal({
                 <textarea value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} rows={4} className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-sm outline-none focus:border-[#2563EB]" />
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-3">
-                {[
-                  ['sendCalendarInvite', 'Send Calendar Invite'],
-                  ['sendEmailNotification', 'Send Email Notification'],
-                  ['sendWhatsAppReminder', 'Send WhatsApp Reminder'],
-                ].map(([key, label]) => (
-                  <label key={key} className="flex items-center gap-2 rounded-xl border border-[#E5E7EB] px-3 py-2 text-sm text-[#374151]">
-                    <input
-                      type="checkbox"
-                      checked={form[key as keyof ScheduleInterviewPayload] as boolean}
-                      onChange={(event) =>
-                        setForm((current) => ({
-                          ...current,
-                          [key]: event.target.checked,
-                        }))
-                      }
-                      className="size-4 rounded border-[#D1D5DB] text-[#2563EB]"
-                    />
-                    {label}
-                  </label>
-                ))}
-              </div>
+              {!isEditMode ? (
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {[
+                    ['sendCalendarInvite', 'Send Calendar Invite'],
+                    ['sendEmailNotification', 'Send Email Notification'],
+                    ['sendWhatsAppReminder', 'Send WhatsApp Reminder'],
+                  ].map(([key, label]) => (
+                    <label key={key} className="flex items-center gap-2 rounded-xl border border-[#E5E7EB] px-3 py-2 text-sm text-[#374151]">
+                      <input
+                        type="checkbox"
+                        checked={form[key as keyof ScheduleInterviewPayload] as boolean}
+                        onChange={(event) =>
+                          setForm((current) => ({
+                            ...current,
+                            [key]: event.target.checked,
+                          }))
+                        }
+                        className="size-4 rounded border-[#D1D5DB] text-[#2563EB]"
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] px-4 py-3 text-sm text-[#6B7280]">
+                  Interview notifications are managed during scheduling.
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-end gap-3 border-t border-[#E5E7EB] bg-white px-6 py-4">
@@ -284,7 +356,32 @@ export function ScheduleInterviewModal({
                 onClick={async () => {
                   setIsSubmitting(true);
                   try {
-                    await onSchedule(form);
+                    if (isEditMode && editInterview && onUpdate) {
+                      await onUpdate(editInterview.id, {
+                        candidateId: form.candidateId,
+                        jobId: form.jobId,
+                        clientId: form.clientId,
+                        round: form.round,
+                        type: form.type,
+                        mode: form.mode,
+                        date: new Date(form.date).toISOString(),
+                        duration: form.duration,
+                        timezone: form.timezone,
+                        meetingPlatform: form.mode === 'Online'
+                          ? form.meetingPlatform === 'Google Meet'
+                            ? 'Google Meet'
+                            : form.meetingPlatform === 'MS Teams'
+                            ? 'MS Teams'
+                            : 'Zoom'
+                          : null,
+                        location: form.mode === 'Offline' ? form.location || null : null,
+                        notes: form.notes || null,
+                        panelUserIds: form.panelIds,
+                        panelRoles: form.panelRoles,
+                      });
+                    } else {
+                      await onSchedule(form);
+                    }
                     onClose();
                   } finally {
                     setIsSubmitting(false);
@@ -293,7 +390,7 @@ export function ScheduleInterviewModal({
                 disabled={isSubmitting}
                 className="rounded-xl bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isSubmitting ? 'Scheduling...' : 'Schedule Interview'}
+                {isSubmitting ? (isEditMode ? 'Saving...' : 'Scheduling...') : isEditMode ? 'Save Changes' : 'Schedule Interview'}
               </button>
             </div>
           </motion.div>

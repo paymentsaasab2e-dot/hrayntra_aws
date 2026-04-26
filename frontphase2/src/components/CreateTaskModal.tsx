@@ -14,6 +14,7 @@ const INITIAL_VALUES: TaskFormValues = {
   assigneeId: '',
   priority: '',
   dueDate: '',
+  dueTime: '',
   reminder: '',
   attachmentNames: '',
   notifyAssignee: true,

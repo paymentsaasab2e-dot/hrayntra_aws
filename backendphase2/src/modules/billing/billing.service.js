@@ -51,29 +51,153 @@ function escapePdfText(value) {
     .replace(/\)/g, '\\)');
 }
 
+function sanitizePdfValue(value) {
+  if (value === null || value === undefined || value === '') return '-';
+  if (value instanceof Date) return value.toISOString().split('T')[0];
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (typeof value === 'number') {
+    if (Number.isInteger(value)) return String(value);
+    return Number(value).toFixed(2);
+  }
+  return String(value);
+}
+
+function wrapPdfText(text, maxChars) {
+  const value = sanitizePdfValue(text);
+  const limit = Math.max(8, Number(maxChars || 32));
+  const words = value.split(/\s+/).filter(Boolean);
+  if (!words.length) return ['-'];
+  const lines = [];
+  let current = '';
+  for (const word of words) {
+    if (!current.length) {
+      current = word;
+      continue;
+    }
+    if ((current + ' ' + word).length <= limit) {
+      current += ` ${word}`;
+    } else {
+      lines.push(current);
+      current = word;
+    }
+  }
+  if (current.length) lines.push(current);
+  return lines.length ? lines : ['-'];
+}
+
+function makePdfLine(text, x, y, fontSize = 9, font = 'F1') {
+  return `0 0 0 rg BT /${font} ${fontSize} Tf 1 0 0 1 ${x} ${y} Tm (${escapePdfText(text)}) Tj ET`;
+}
+
+function drawPdfRect(x, y, width, height, stroke = '0.82 0.85 0.9 RG', fill = null) {
+  const commands = [];
+  if (fill) commands.push(`${fill} rg`);
+  commands.push(`${stroke}`);
+  commands.push(`${x} ${y} ${width} ${height} re ${fill ? 'B' : 'S'}`);
+  return commands.join(' ');
+}
+
+function estimateColumnWidths(headers, rows, availableWidth) {
+  const weights = headers.map((header) => {
+    const samples = rows.slice(0, 12).map((row) => sanitizePdfValue(row?.[header]));
+    const sampleLength = Math.max(
+      header.length,
+      ...samples.map((value) => String(value).length),
+      10
+    );
+    return Math.min(Math.max(sampleLength * 4.8, 56), 160);
+  });
+  const total = weights.reduce((sum, value) => sum + value, 0) || 1;
+  return weights.map((weight) => Math.max(46, Math.floor((weight / total) * availableWidth)));
+}
+
 function createSimplePdfBuffer(title, rows) {
-  const lines = [title];
-  rows.slice(0, 35).forEach((row) => {
-    const parts = Object.entries(row || {})
-      .slice(0, 5)
-      .map(([key, value]) => `${key}: ${value ?? ''}`);
-    lines.push(parts.join(' | '));
-  });
+  const printableRows = Array.isArray(rows) ? rows.slice(0, 48) : [];
+  const headers = printableRows.length ? Object.keys(printableRows[0]) : [];
+  const pageWidth = 842;
+  const pageHeight = 595;
+  const marginX = 24;
+  const marginTop = 26;
+  const marginBottom = 24;
+  const tableWidth = pageWidth - marginX * 2;
+  const availableRowWidth = tableWidth;
+  const columnWidths = headers.length ? estimateColumnWidths(headers, printableRows, availableRowWidth) : [];
 
-  const contentLines = ['BT', '/F1 12 Tf', '40 790 Td'];
-  lines.forEach((line, index) => {
-    if (index > 0) contentLines.push('0 -18 Td');
-    contentLines.push(`(${escapePdfText(line)}) Tj`);
-  });
-  contentLines.push('ET');
+  const contentLines = [];
+
+  const pushPageHeader = (isFirstPage) => {
+    let y = pageHeight - marginTop;
+    contentLines.push(makePdfLine(title, marginX, y, 16, 'F2'));
+    y -= 16;
+    contentLines.push(makePdfLine(`Summary: Total records ${printableRows.length}`, marginX, y, 9, 'F1'));
+    y -= 16;
+    return { y, isFirstPage };
+  };
+
+  const addTableHeader = (y) => {
+    const headerHeight = 20;
+    let x = marginX;
+    headers.forEach((header, index) => {
+      const width = columnWidths[index] || 80;
+      contentLines.push(drawPdfRect(x, y - headerHeight + 4, width, headerHeight, '0.76 0.8 0.86 RG', '0.95 0.97 1 rg'));
+      const wrappedHeader = wrapPdfText(header, Math.max(10, Math.floor(width / 5.2)));
+      wrappedHeader.slice(0, 2).forEach((line, lineIndex) => {
+        contentLines.push(makePdfLine(line, x + 4, y - 8 - (lineIndex * 8), 8.5, 'F2'));
+      });
+      x += width;
+    });
+    return y - headerHeight;
+  };
+
+  let yState = pushPageHeader(true);
+  let y = yState.y;
+
+  if (!printableRows.length || !headers.length) {
+    contentLines.push(makePdfLine('No data available', marginX, y - 8, 10, 'F1'));
+  } else {
+    y = addTableHeader(y);
+    const rowGap = 8;
+
+    printableRows.forEach((row, rowIndex) => {
+      const cellLines = headers.map((header, index) => {
+        const width = columnWidths[index] || 80;
+        return wrapPdfText(row?.[header], Math.max(10, Math.floor((width - 8) / 4.9)));
+      });
+      const rowHeight = Math.max(22, ...cellLines.map((lines) => 12 + ((lines.length - 1) * 7))) + rowGap;
+
+      if (y - rowHeight < marginBottom) {
+        contentLines.push('BT ET');
+        yState = pushPageHeader(false);
+        y = addTableHeader(yState.y);
+      }
+
+      let x = marginX;
+      headers.forEach((header, index) => {
+        const width = columnWidths[index] || 80;
+        contentLines.push(drawPdfRect(x, y - rowHeight + 4, width, rowHeight, '0.86 0.88 0.92 RG'));
+        const lines = cellLines[index];
+        const textYStart = y - 10;
+        lines.slice(0, 4).forEach((line, lineIndex) => {
+          contentLines.push(makePdfLine(line, x + 4, textYStart - (lineIndex * 7.2), 8.2, index === 0 ? 'F2' : 'F1'));
+        });
+        x += width;
+      });
+
+      y -= rowHeight;
+      if (rowIndex < printableRows.length - 1) {
+        y -= 1;
+      }
+    });
+  }
+
   const stream = contentLines.join('\n');
-
   const objects = [];
   objects.push('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj');
   objects.push('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj');
-  objects.push('3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj');
+  objects.push('3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>\nendobj');
   objects.push('4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj');
-  objects.push(`5 0 obj\n<< /Length ${Buffer.byteLength(stream, 'utf8')} >>\nstream\n${stream}\nendstream\nendobj`);
+  objects.push('5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj');
+  objects.push(`6 0 obj\n<< /Length ${Buffer.byteLength(stream, 'utf8')} >>\nstream\n${stream}\nendstream\nendobj`);
 
   let pdf = '%PDF-1.4\n';
   const offsets = [0];

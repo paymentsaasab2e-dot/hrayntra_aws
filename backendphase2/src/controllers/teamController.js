@@ -701,26 +701,6 @@ export async function deactivateTeamMember(req, res) {
 export async function deleteTeamMember(req, res) {
   try {
     const { id } = req.params;
-    const accessible = await findAccessibleMember(req, id);
-    if (!accessible) {
-      return res.status(404).json({
-        success: false,
-        message: 'Team member not found',
-      });
-    }
-
-    // Check if member exists
-    const member = await prisma.user.findUnique({
-      where: { id },
-      select: { id: true, firstName: true, lastName: true },
-    });
-
-    if (!member) {
-      return res.status(404).json({
-        success: false,
-        message: 'Team member not found',
-      });
-    }
 
     // Delete related records first (Prisma will handle cascading deletes based on schema)
     // Delete UserCredential and related LoginHistory
@@ -890,7 +870,7 @@ export async function deleteTeamMember(req, res) {
     });
 
     // Finally, delete the user
-    await prisma.user.delete({
+    await prisma.user.deleteMany({
       where: { id },
     });
 

@@ -263,6 +263,7 @@ interface LeadDetailsDrawerProps {
   onClose: () => void;
   /** Called when user submits the Add Lead form */
   onAddLead?: (data: AddLeadFormData, createdLead?: BackendLead) => void;
+  onUpdateLead?: (updatedLead?: BackendLead) => void;
   onConvert?: (id: string) => void;
   onMarkLost?: (id: string, formData?: MarkLostFormData) => void;
   onAssignLead?: (id: string, formData: AssignLeadFormData) => void;
@@ -320,6 +321,7 @@ export function LeadDetailsDrawer({
   addLeadMode = false,
   onClose,
   onAddLead,
+  onUpdateLead,
   onConvert,
   onMarkLost,
   onAssignLead,
@@ -543,8 +545,8 @@ export function LeadDetailsDrawer({
 
   const createLeadFromAiForm = async (form: AddLeadFormData) => {
     const createData = buildLeadCreatePayload(form);
-    await apiCreateLead(createData);
-    onAddLead?.(form);
+    const createdLeadResponse = await apiCreateLead(createData);
+    onAddLead?.(form, createdLeadResponse.data);
     resetAddLeadForm();
     setShowAiLeadDrawer(false);
     onClose();
@@ -1098,13 +1100,10 @@ export function LeadDetailsDrawer({
         nextFollowUp: overviewEditForm.nextFollowUp || undefined,
       };
 
-      await apiUpdateLead(lead.id, updateData);
+      const updatedLeadResponse = await apiUpdateLead(lead.id, updateData);
       setOverviewEditMode(false);
       setOverviewEditErrors({});
-      
-      // Refresh the lead data by calling the parent's refresh handler if available
-      // For now, we'll just close edit mode - the parent should refresh
-      window.location.reload(); // Simple refresh - in production, use a proper state update
+      onUpdateLead?.(updatedLeadResponse.data);
     } catch (error: any) {
       console.error('Failed to update lead:', error);
       void requestError(error.message || 'Failed to update lead');
@@ -3499,7 +3498,7 @@ export function LeadDetailsDrawer({
                 (() => {
                   const LEAD_FILE_TYPE_OPTIONS = ['All', 'Contract', 'Proposal', 'Other'] as const;
                   const filteredFiles = leadFilesTypeFilter === 'All' ? leadFiles : leadFiles.filter((f) => f.fileType === leadFilesTypeFilter);
-                  const uploadsBase = (typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/v1') : 'http://localhost:5000/api/v1').replace(/\/api\/v1\/?$/, '');
+                  const uploadsBase = (typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1') : 'http://localhost:5001/api/v1').replace(/\/api\/v1\/?$/, '');
                   const toFileHref = (fileUrl?: string | null) => buildFileHref(fileUrl, uploadsBase);
                   const formatUploadDate = (d: string) => {
                     if (!d) return '—';

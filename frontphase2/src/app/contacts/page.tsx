@@ -1,6 +1,6 @@
 'use client';
 
-import React, { Suspense, useState, useEffect, useMemo } from 'react';
+import React, { Suspense, useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Plus, Upload, Download, CheckSquare, MoreVertical } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
@@ -57,37 +57,149 @@ function ContactsPageContent() {
     };
   }, [searchParams]);
 
-  // Fetch contacts and stats
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
+  const loadContactsData = useCallback(async (options?: { silent?: boolean }) => {
+    try {
+      if (!options?.silent) {
         setLoading(true);
-        const [contactsRes, statsRes] = await Promise.all([
-          apiGetContacts(filters),
-          apiGetContactStats(),
-        ]);
+      }
+      const [contactsRes, statsRes] = await Promise.all([
+        apiGetContacts(filters),
+        apiGetContactStats(),
+      ]);
 
-        if (contactsRes.data) {
-          const contactsData = Array.isArray(contactsRes.data) ? contactsRes.data : contactsRes.data.data || [];
-          setContacts(contactsData);
-          if (contactsRes.pagination) {
-            setPagination(contactsRes.pagination);
-          }
-        }
+      const contactsData = contactsRes.data
+        ? Array.isArray(contactsRes.data)
+          ? contactsRes.data
+          : contactsRes.data.data || []
+        : [];
+      setContacts(contactsData);
+      if (contactsRes.pagination) {
+        setPagination(contactsRes.pagination);
+      }
 
-        if (statsRes.data) {
-          setStats(statsRes.data);
-        }
-      } catch (error: any) {
-        console.error('Failed to fetch contacts:', error);
-        toast.error(error.message || 'Failed to load contacts');
-      } finally {
+      if (statsRes.data) {
+        setStats(statsRes.data);
+      }
+    } catch (error: any) {
+      console.error('Failed to fetch contacts:', error);
+      toast.error(error.message || 'Failed to load contacts');
+    } finally {
+      if (!options?.silent) {
         setLoading(false);
       }
-    };
-
-    fetchData();
+    }
   }, [filters]);
+
+  const contactMatchesFilters = useCallback(
+    (contact: BackendContact) => {
+      const search = filters.search?.trim().toLowerCase();
+      if (search) {
+        const haystack = [
+          contact.firstName,
+          contact.lastName,
+          contact.email,
+          contact.phone,
+          contact.designation,
+          contact.department,
+          contact.location,
+          contact.company?.companyName,
+          contact.status,
+          contact.contactType,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        if (!haystack.includes(search)) return false;
+      }
+
+      if (filters.contactType && contact.contactType !== filters.contactType) return false;
+      if (filters.status && contact.status !== filters.status) return false;
+      if (filters.companyId && contact.companyId !== filters.companyId) return false;
+      if (filters.ownerId && contact.ownerId !== filters.ownerId) return false;
+      if (filters.location && String(contact.location || '').toLowerCase() !== filters.location.toLowerCase()) return false;
+      return true;
+    },
+    [filters]
+  );
+
+  const applyOptimisticContact = useCallback((contact: BackendContact) => {
+    setContacts((current) => [contact, ...current.filter((item) => item.id !== contact.id)]);
+
+    setPagination((current) => {
+      const nextTotal = current.total + 1;
+      return {
+        ...current,
+        total: nextTotal,
+        totalPages: Math.max(1, Math.ceil(nextTotal / current.limit)),
+      };
+    });
+
+    setStats((current) => {
+      if (!current) return current;
+      const next = { ...current, total: current.total + 1 };
+      if (contact.contactType === 'CANDIDATE') next.candidates += 1;
+      if (contact.contactType === 'CLIENT') next.clientContacts += 1;
+      if (contact.contactType === 'HIRING_MANAGER') next.hiringManagers += 1;
+      return next;
+    });
+  }, []);
+
+  const applyOptimisticContactUpdate = useCallback((updatedContact: BackendContact) => {
+    setContacts((current) => current.map((contact) => (contact.id === updatedContact.id ? updatedContact : contact)));
+    setSelectedContact((current) => (current?.id === updatedContact.id ? updatedContact : current));
+
+    setStats((current) => {
+      if (!current) return current;
+
+      const previousType = selectedContact?.id === updatedContact.id ? selectedContact.contactType : undefined;
+      const next = { ...current };
+
+      if (previousType && previousType !== updatedContact.contactType) {
+        if (previousType === 'CANDIDATE') next.candidates = Math.max(0, next.candidates - 1);
+        if (previousType === 'CLIENT') next.clientContacts = Math.max(0, next.clientContacts - 1);
+        if (previousType === 'HIRING_MANAGER') next.hiringManagers = Math.max(0, next.hiringManagers - 1);
+      }
+
+      if (updatedContact.contactType === 'CANDIDATE') next.candidates += 1;
+      if (updatedContact.contactType === 'CLIENT') next.clientContacts += 1;
+      if (updatedContact.contactType === 'HIRING_MANAGER') next.hiringManagers += 1;
+      return next;
+    });
+  }, [selectedContact]);
+
+  const applyOptimisticDelete = useCallback((contactId: string) => {
+    let removedContact: BackendContact | undefined;
+
+    setContacts((current) => {
+      removedContact = current.find((contact) => contact.id === contactId);
+      return current.filter((contact) => contact.id !== contactId);
+    });
+
+    setSelectedContact((current) => (current?.id === contactId ? null : current));
+
+    setPagination((current) => {
+      const nextTotal = Math.max(0, current.total - 1);
+      return {
+        ...current,
+        total: nextTotal,
+        totalPages: Math.max(1, Math.ceil(nextTotal / current.limit)),
+      };
+    });
+
+    setStats((current) => {
+      if (!current || !removedContact) return current;
+      const next = { ...current, total: Math.max(0, current.total - 1) };
+      if (removedContact.contactType === 'CANDIDATE') next.candidates = Math.max(0, next.candidates - 1);
+      if (removedContact.contactType === 'CLIENT') next.clientContacts = Math.max(0, next.clientContacts - 1);
+      if (removedContact.contactType === 'HIRING_MANAGER') next.hiringManagers = Math.max(0, next.hiringManagers - 1);
+      return next;
+    });
+  }, []);
+
+  // Fetch contacts and stats
+  useEffect(() => {
+    void loadContactsData();
+  }, [loadContactsData]);
 
   const updateFilters = (newFilters: Partial<ContactFilters>) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -118,16 +230,13 @@ function ContactsPageContent() {
 
   const handleDelete = async (contactId: string) => {
     if (!(await requestConfirm('Are you sure you want to delete this contact?'))) return;
+    applyOptimisticDelete(contactId);
     try {
       await apiDeleteContact(contactId);
       toast.success('Contact deleted successfully');
-      // Refresh contacts
-      const response = await apiGetContacts(filters);
-      if (response.data) {
-        const contactsData = Array.isArray(response.data) ? response.data : response.data.data || [];
-        setContacts(contactsData);
-      }
+      void loadContactsData({ silent: true });
     } catch (error: any) {
+      void loadContactsData({ silent: true });
       toast.error(error.message || 'Failed to delete contact');
     }
   };
@@ -139,12 +248,7 @@ function ContactsPageContent() {
       await apiBulkActionContacts(action, Array.from(selectedContactIds), payload);
       toast.success(`Bulk action completed: ${action}`);
       setSelectedContactIds(new Set());
-      // Refresh contacts
-      const response = await apiGetContacts(filters);
-      if (response.data) {
-        const contactsData = Array.isArray(response.data) ? response.data : response.data.data || [];
-        setContacts(contactsData);
-      }
+      await loadContactsData();
     } catch (error: any) {
       toast.error(error.message || 'Failed to perform bulk action');
     }
@@ -267,14 +371,12 @@ function ContactsPageContent() {
       <AddContactDrawer
         isOpen={isAddDrawerOpen}
         onClose={() => setIsAddDrawerOpen(false)}
-        onSuccess={async () => {
+        onSuccess={async (contact) => {
           setIsAddDrawerOpen(false);
-          toast.success('Contact created successfully');
-          const response = await apiGetContacts(filters);
-          if (response.data) {
-            const contactsData = Array.isArray(response.data) ? response.data : response.data.data || [];
-            setContacts(contactsData);
+          if (contact && contactMatchesFilters(contact)) {
+            applyOptimisticContact(contact);
           }
+          void loadContactsData({ silent: true });
         }}
       />
 
@@ -285,15 +387,13 @@ function ContactsPageContent() {
           setIsEditDrawerOpen(false);
           setSelectedContact(null);
         }}
-        onSuccess={async () => {
+        onSuccess={async (contact) => {
           setIsEditDrawerOpen(false);
-          setSelectedContact(null);
           toast.success('Contact updated successfully');
-          const response = await apiGetContacts(filters);
-          if (response.data) {
-            const contactsData = Array.isArray(response.data) ? response.data : response.data.data || [];
-            setContacts(contactsData);
+          if (contact) {
+            applyOptimisticContactUpdate(contact);
           }
+          void loadContactsData({ silent: true });
         }}
       />
 
@@ -303,11 +403,7 @@ function ContactsPageContent() {
         onSuccess={async () => {
           setIsImportDrawerOpen(false);
           toast.success('Contacts imported successfully');
-          const response = await apiGetContacts(filters);
-          if (response.data) {
-            const contactsData = Array.isArray(response.data) ? response.data : response.data.data || [];
-            setContacts(contactsData);
-          }
+          await loadContactsData();
         }}
       />
 
@@ -317,11 +413,7 @@ function ContactsPageContent() {
         onSuccess={async () => {
           setIsMergeDrawerOpen(false);
           toast.success('Contacts merged successfully');
-          const response = await apiGetContacts(filters);
-          if (response.data) {
-            const contactsData = Array.isArray(response.data) ? response.data : response.data.data || [];
-            setContacts(contactsData);
-          }
+          await loadContactsData();
         }}
       />
     </div>

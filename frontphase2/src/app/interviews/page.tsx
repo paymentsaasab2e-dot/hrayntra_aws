@@ -11,6 +11,7 @@ import { InterviewKPICards } from '../../components/interviews/InterviewKPICards
 import { InterviewTable } from '../../components/interviews/InterviewTable';
 import { NoShowModal } from '../../components/interviews/NoShowModal';
 import { PanelAssignmentModal } from '../../components/interviews/PanelAssignmentModal';
+import { RejectCandidateModal } from '../../components/interviews/RejectCandidateModal';
 import { RescheduleModal } from '../../components/interviews/RescheduleModal';
 import { ScheduleInterviewModal } from '../../components/interviews/ScheduleInterviewModal';
 import { UploadRecordingModal } from '../../components/interviews/UploadRecordingModal';
@@ -20,6 +21,8 @@ import { useInterviewModals } from '../../hooks/useInterviewModals';
 import type { Interview } from '../../types/interview.types';
 import type { InterviewAction } from '../../components/interviews/ActionsDropdown';
 import { usePermissions } from '../../hooks/usePermissions';
+import { requestConfirm } from '../../lib/appDialog';
+import { apiRejectCandidate } from '../../lib/api';
 
 export default function InterviewsPage() {
   const { hasPermission } = usePermissions();
@@ -28,6 +31,9 @@ export default function InterviewsPage() {
   const canDeleteInterview = hasPermission('interviews_delete');
   const [view, setView] = useState<'list' | 'calendar'>('list');
   const [panelModalOpen, setPanelModalOpen] = useState(false);
+  const [rejectModalOpen, setRejectModalOpen] = useState(false);
+  const [rejectInterview, setRejectInterview] = useState<Interview | null>(null);
+  const [editInterview, setEditInterview] = useState<Interview | null>(null);
   const drawer = useInterviewDrawer();
   const modals = useInterviewModals();
   const {
@@ -56,7 +62,9 @@ export default function InterviewsPage() {
     interviewerOptions,
     scheduleInterview,
     rescheduleInterview,
+    updateInterview,
     cancelInterview,
+    deleteInterview,
     submitFeedback,
     addNote,
     updatePanel,
@@ -79,15 +87,34 @@ export default function InterviewsPage() {
     drawer.openDrawer(interview.id);
   };
 
+  const openEditFlow = (interview: Interview) => {
+    setEditInterview(interview);
+    drawer.closeDrawer();
+    window.setTimeout(() => modals.open('schedule'), 260);
+  };
+
+  const openRejectFlow = (interview: Interview) => {
+    setRejectInterview(interview);
+    drawer.closeDrawer();
+    window.setTimeout(() => setRejectModalOpen(true), 260);
+  };
+
   const handleAction = (action: InterviewAction, interview: Interview) => {
-    if (action === 'feedback' || action === 'edit' || action === 'reschedule' || action === 'noShow') {
+    if (action === 'feedback' || action === 'edit' || action === 'reschedule' || action === 'noShow' || action === 'reject') {
       if (!canUpdateInterview) return;
     }
     if (action === 'cancel' && !canDeleteInterview) {
       return;
     }
-    if (action === 'view' || action === 'edit') {
+    if (action === 'delete' && !canDeleteInterview) {
+      return;
+    }
+    if (action === 'view') {
       openInterview(interview);
+      return;
+    }
+    if (action === 'edit') {
+      openEditFlow(interview);
       return;
     }
     if (action === 'reschedule') {
@@ -98,6 +125,23 @@ export default function InterviewsPage() {
     if (action === 'cancel') {
       openInterview(interview);
       modals.open('cancel');
+      return;
+    }
+    if (action === 'delete') {
+      void (async () => {
+        const confirmed = await requestConfirm(`Delete ${interview.candidate.name}'s interview? This will remove it from the schedule.`);
+        if (!confirmed) return;
+        try {
+          await deleteInterview(interview.id);
+          if (drawer.selectedInterviewId === interview.id) {
+            drawer.closeDrawer();
+          }
+        } catch {}
+      })();
+      return;
+    }
+    if (action === 'reject') {
+      openRejectFlow(interview);
       return;
     }
     if (action === 'feedback') {
@@ -160,6 +204,7 @@ export default function InterviewsPage() {
         page={pagination.page}
         totalPages={totalPages}
         totalEntries={totalEntries}
+        pageSize={pagination.pageSize}
         onToggleSelect={(interviewId) =>
           setSelectedIds((current) =>
             current.includes(interviewId) ? current.filter((id) => id !== interviewId) : [...current, interviewId]
@@ -171,10 +216,14 @@ export default function InterviewsPage() {
           )
         }
         onRowClick={openInterview}
-        onAction={handleAction}
+        onViewCandidate={(interview) => openInterview(interview)}
+        onEditInterview={(interview) => openEditFlow(interview)}
+        onNoShowInterview={(interview) => {
+          openInterview(interview);
+          modals.open('noShow');
+        }}
+        onRejectCandidate={(interview) => openRejectFlow(interview)}
         onPageChange={(page) => setPagination((current) => ({ ...current, page }))}
-        canUpdate={canUpdateInterview}
-        canDelete={canDeleteInterview}
       />
     );
   };
@@ -225,7 +274,10 @@ export default function InterviewsPage() {
                 {canCreateInterview && (
                   <button
                     type="button"
-                    onClick={() => modals.open('schedule')}
+                    onClick={() => {
+                      setEditInterview(null);
+                      modals.open('schedule');
+                    }}
                     className="flex items-center gap-2 rounded-xl bg-[#2563EB] px-5 py-2.5 text-sm font-bold text-white shadow-sm"
                   >
                     <Plus className="size-4" />
@@ -259,6 +311,8 @@ export default function InterviewsPage() {
         onOpenCancel={canDeleteInterview ? () => modals.open('cancel') : undefined}
         onOpenUploadRecording={canUpdateInterview ? () => modals.open('uploadRecording') : undefined}
         onOpenPanelAssignment={canUpdateInterview ? () => setPanelModalOpen(true) : undefined}
+        onOpenReject={canUpdateInterview && selectedInterview ? () => openRejectFlow(selectedInterview) : undefined}
+        onAction={selectedInterview ? (action) => handleAction(action, selectedInterview) : undefined}
         onAddNote={canUpdateInterview ? async (text) => {
           if (!selectedInterview) return;
           try {
@@ -267,17 +321,62 @@ export default function InterviewsPage() {
         } : undefined}
       />
 
+      <RejectCandidateModal
+        isOpen={canUpdateInterview && rejectModalOpen}
+        interview={rejectInterview}
+        onClose={() => {
+          setRejectModalOpen(false);
+          setRejectInterview(null);
+        }}
+        onReject={async ({ reason, feedback, sendEmail }) => {
+          if (!rejectInterview) return;
+          await apiRejectCandidate(rejectInterview.candidate.id, { reason, feedback, sendEmail });
+          setToast(`${rejectInterview.candidate.name} rejected`);
+          setRejectModalOpen(false);
+          setRejectInterview(null);
+          await retryLoad();
+        }}
+      />
+
       <ScheduleInterviewModal
-        isOpen={canCreateInterview && modals.isModalOpen('schedule')}
+        isOpen={modals.isModalOpen('schedule') && (canCreateInterview || !!editInterview)}
         candidates={candidateOptions}
         jobs={jobOptions}
         interviewers={interviewerOptions}
-        onClose={modals.close}
+        editInterview={editInterview}
+        onClose={() => {
+          modals.close();
+          setEditInterview(null);
+        }}
         onSchedule={async (payload) => {
           try {
-            await scheduleInterview(payload);
+            if (editInterview) {
+              await updateInterview(editInterview.id, {
+                round: payload.round,
+                type: payload.type,
+                mode: payload.mode,
+                date: new Date(payload.date).toISOString(),
+                duration: payload.duration,
+                timezone: payload.timezone,
+                meetingPlatform:
+                  payload.mode === 'Online'
+                    ? payload.meetingPlatform === 'Google Meet'
+                      ? 'Google Meet'
+                      : payload.meetingPlatform === 'MS Teams'
+                      ? 'MS Teams'
+                      : 'Zoom'
+                    : null,
+                location: payload.mode === 'Offline' ? payload.location || null : null,
+                notes: payload.notes || null,
+                panelUserIds: payload.panelIds,
+                panelRoles: payload.panelRoles,
+              });
+            } else {
+              await scheduleInterview(payload);
+            }
           } catch {}
         }}
+        onUpdate={updateInterview}
       />
 
       <RescheduleModal

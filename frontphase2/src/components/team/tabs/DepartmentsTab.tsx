@@ -74,6 +74,7 @@ export const DepartmentsTab: React.FC = () => {
       await deleteDepartment(dept.id);
       toast.success('Department deleted');
       setDeleteConfirm(null);
+      removeDepartmentLocal(dept.id);
       fetchData();
     } catch (error: any) {
       const errorMessage = error?.message || 'Failed to delete department';
@@ -89,6 +90,17 @@ export const DepartmentsTab: React.FC = () => {
   const handleMembersClick = (dept: DepartmentWithMembers) => {
     setSelectedDepartment(dept);
     setShowMembersDrawer(true);
+  };
+
+  const upsertDepartmentLocal = (dept: DepartmentWithMembers) => {
+    setDepartments((prev) => {
+      const exists = prev.some((item) => item.id === dept.id);
+      return exists ? prev.map((item) => (item.id === dept.id ? dept : item)) : [dept, ...prev];
+    });
+  };
+
+  const removeDepartmentLocal = (deptId: string) => {
+    setDepartments((prev) => prev.filter((dept) => dept.id !== deptId));
   };
 
   // Wire up the Add Department button from parent
@@ -245,9 +257,12 @@ export const DepartmentsTab: React.FC = () => {
           setShowAddDrawer(false);
           setSelectedDepartment(null);
         }}
-        onSuccess={() => {
+        onSuccess={(savedDepartment) => {
           setShowAddDrawer(false);
           setSelectedDepartment(null);
+          if (savedDepartment) {
+            upsertDepartmentLocal(savedDepartment as DepartmentWithMembers);
+          }
           fetchData();
         }}
       />

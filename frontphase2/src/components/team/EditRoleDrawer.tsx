@@ -13,7 +13,7 @@ interface EditRoleDrawerProps {
   role: SystemRole;
   permissions: Record<string, Permission[]>;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (role?: SystemRole) => void;
 }
 
 // Available colors
@@ -170,7 +170,7 @@ export const EditRoleDrawer: React.FC<EditRoleDrawerProps> = ({ isOpen, role, pe
 
     setIsSubmitting(true);
     try {
-      await updateRole(role.id, {
+      const response = await updateRole(role.id, {
         roleName: formData.roleName.trim(),
         description: formData.description.trim() || undefined,
         color: formData.color,
@@ -179,7 +179,7 @@ export const EditRoleDrawer: React.FC<EditRoleDrawerProps> = ({ isOpen, role, pe
 
       toast.success('Role updated successfully');
       handleClose();
-      onSuccess();
+      onSuccess((response as any)?.data || role);
     } catch (error: any) {
       const errorMessage = error?.message || 'Failed to update role';
       if (errorMessage.toLowerCase().includes('name') || errorMessage.toLowerCase().includes('already')) {

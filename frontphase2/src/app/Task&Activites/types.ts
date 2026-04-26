@@ -13,6 +13,7 @@ export interface TaskFormValues {
   assigneeId: string;
   priority: TaskPriority | '';
   dueDate: string;
+  dueTime: string;
   reminder: string;
   attachmentNames: string;
   notifyAssignee: boolean;

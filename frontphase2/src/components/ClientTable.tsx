@@ -165,7 +165,6 @@ export function ClientTable({ clients, selectedIds, onSelectionChange, onSelectC
                     </div>
                     <div>
                       <div className="font-semibold text-slate-900">{client.name}</div>
-                      <div className="text-xs text-slate-500">ID: {client.id}</div>
                     </div>
                   </div>
                 </td>

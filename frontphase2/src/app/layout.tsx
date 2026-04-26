@@ -7,6 +7,9 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "HRYANTRA",
   description: "HRYANTRA - Recruitment Platform",
+  icons: {
+    icon: '/fs.png',
+  },
 };
 
 export default function RootLayout({

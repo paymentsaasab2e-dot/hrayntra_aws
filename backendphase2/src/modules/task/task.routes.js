@@ -23,6 +23,7 @@ router.post('/:taskId/files/multiple', uploadMultipleTaskFiles, taskController.u
 router.delete('/:taskId/files/:fileId', taskController.deleteFile);
 
 // Attachment serving route (must be after file routes)
+router.get('/:taskId/attachments/:filename/preview', taskController.getAttachmentPreview);
 router.get('/:taskId/attachments/:filename', taskController.getAttachment);
 
 export default router;
