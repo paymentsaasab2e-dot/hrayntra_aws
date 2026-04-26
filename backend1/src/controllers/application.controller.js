@@ -378,6 +378,9 @@ async function createApplication(req, res) {
       return res.status(400).json({
         success: false,
         message: 'You have already applied to this job',
+        data: {
+          applicationId: existingApplication.id,
+        },
       });
     }
 
@@ -818,6 +821,7 @@ async function checkApplication(req, res) {
       success: true,
       data: {
         hasApplied: !!application,
+        applicationId: application?.id || null,
         status: application?.status || null,
       },
     });
