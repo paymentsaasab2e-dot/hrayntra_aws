@@ -19,7 +19,7 @@ const REJECT_REASONS = [
   'Other',
 ] as const;
 
-const FEEDBACK_MAX_LENGTH = 500;
+const FEEDBACK_MAX_LENGTH = 100;
 
 type Step = 'form' | 'confirm' | 'progress' | 'done';
 
@@ -27,7 +27,7 @@ export function RejectCandidateModal({ isOpen, interview, onClose, onReject }: R
   const [reason, setReason] = useState('');
   const [feedback, setFeedback] = useState('');
   const [sendEmail, setSendEmail] = useState(true);
-  const [errors, setErrors] = useState<{ reason?: string; feedback?: string }>({});
+  const [errors, setErrors] = useState<{ reason?: string }>({});
   const [step, setStep] = useState<Step>('form');
   const [progressStep, setProgressStep] = useState(0);
   const [submitting, setSubmitting] = useState(false);
@@ -44,12 +44,12 @@ export function RejectCandidateModal({ isOpen, interview, onClose, onReject }: R
     }
   }, [isOpen]);
 
+  const feedbackLength = feedback.trim().length;
+  const canProceed = Boolean(reason) && feedbackLength > 0;
+
   const validate = () => {
-    const nextErrors: { reason?: string; feedback?: string } = {};
+    const nextErrors: { reason?: string } = {};
     if (!reason) nextErrors.reason = 'Reject reason is required';
-    if (feedback.trim().length > FEEDBACK_MAX_LENGTH) {
-      nextErrors.feedback = 'Characters exceeded';
-    }
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
   };
@@ -138,24 +138,17 @@ export function RejectCandidateModal({ isOpen, interview, onClose, onReject }: R
                       <textarea
                         value={feedback}
                         onChange={(e) => {
-                          const nextValue = e.target.value;
-                          if (nextValue.length > FEEDBACK_MAX_LENGTH) {
-                            setFeedback(nextValue.slice(0, FEEDBACK_MAX_LENGTH));
-                            setErrors((prev) => ({ ...prev, feedback: 'Characters exceeded' }));
-                            return;
-                          }
+                          const nextValue = e.target.value.slice(0, FEEDBACK_MAX_LENGTH);
                           setFeedback(nextValue);
-                          setErrors((prev) => ({ ...prev, feedback: undefined }));
                         }}
                         rows={5}
-                        placeholder="Add optional rejection notes..."
-                        className={`w-full rounded-xl border bg-white px-3 py-2.5 text-sm text-slate-700 outline-none ${
-                          errors.feedback ? 'border-red-300' : 'border-slate-200'
-                        } focus:border-red-400 focus:ring-2 focus:ring-red-100`}
+                        placeholder="Add rejection notes..."
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
                       />
-                      <div className="mt-1 flex items-center justify-between">
-                        {errors.feedback ? <p className="text-xs text-red-600">{errors.feedback}</p> : <span />}
-                        <p className="text-xs text-slate-400">{feedback.trim().length}/{FEEDBACK_MAX_LENGTH} chars max</p>
+                      <div className="mt-1 flex items-center justify-between gap-3">
+                        <p className="text-xs text-slate-400">
+                          {feedbackLength}/{FEEDBACK_MAX_LENGTH} chars
+                        </p>
                       </div>
                     </div>
 
@@ -191,7 +184,8 @@ export function RejectCandidateModal({ isOpen, interview, onClose, onReject }: R
                     <button
                       type="button"
                       onClick={handlePrimaryReject}
-                      className="rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+                      disabled={!canProceed}
+                      className="rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Reject Candidate
                     </button>
@@ -208,8 +202,9 @@ export function RejectCandidateModal({ isOpen, interview, onClose, onReject }: R
                     <div className="rounded-2xl border border-red-100 bg-red-50 p-4 text-sm text-slate-700">
                       <p>This will trigger:</p>
                       <ul className="mt-2 space-y-1 text-slate-600">
-                        <li>HR feedback stored</li>
-                        <li>Candidate rejected</li>
+                        <li>Feedback stored</li>
+                        <li>Candidate stage updated</li>
+                        <li>AI Courses suggestions sent</li>
                         <li>{sendEmail ? 'Rejection email sent' : 'Rejection email skipped'}</li>
                       </ul>
                     </div>
@@ -236,7 +231,7 @@ export function RejectCandidateModal({ isOpen, interview, onClose, onReject }: R
               {step === 'progress' ? (
                 <div className="px-5 py-6">
                   <div className="space-y-4">
-                    {['Storing feedback...', 'Updating candidate...', 'Generating suggestions...', 'Sending email...'].map((label, index) => {
+                    {['Feedback stored', 'Candidate stage updated', 'AI Courses suggestions sent', 'Rejection email sent'].map((label, index) => {
                       const done = progressStep > index + 1;
                       const active = progressStep === index + 1;
                       return (

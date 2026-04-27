@@ -1,4 +1,5 @@
 import { env } from '../../config/env.js';
+import { getActiveTenantDbName } from '../../config/prisma.js';
 import { sendResponse } from '../../utils/response.js';
 import { createOAuthState, verifyOAuthState } from '../../utils/oauth-state.js';
 import { oauthTokenService } from './oauth-token.service.js';
@@ -25,6 +26,7 @@ export const microsoftOAuthController = {
     const state = createOAuthState({
       userId: req.user.id,
       service: 'microsoft',
+      tenantDbName: getActiveTenantDbName(),
       extraScopes: [mode],
     });
     const tenant = env.MICROSOFT_TENANT_ID || 'common';
@@ -89,7 +91,7 @@ export const microsoftOAuthController = {
       await oauthTokenService.setMicrosoftEmail(userId, email);
 
       return res.redirect(
-        `${frontend}/setting?section=communication&connected=microsoft&email=${encodeURIComponent(email)}`
+        `${frontend}/setting?section=communication&integration_connected=microsoft&email=${encodeURIComponent(email)}`
       );
     } catch {
       return fail();

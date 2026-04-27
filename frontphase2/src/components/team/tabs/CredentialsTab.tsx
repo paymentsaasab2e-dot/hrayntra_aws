@@ -16,6 +16,7 @@ import type { TeamMember } from '../../../types/team';
 import { MemberProfileDrawer } from '../MemberProfileDrawer';
 import { LoginHistoryDrawer } from '../LoginHistoryDrawer';
 import { GenerateCredentialsDrawer } from '../GenerateCredentialsDrawer';
+import PaginationAll from '../../../components/PaginationAll';
 
 // Color mapping for role colors
 const roleColorMap: Record<string, string> = {
@@ -121,6 +122,8 @@ export const CredentialsTab: React.FC = () => {
   const [selectedMemberDrawerId, setSelectedMemberDrawerId] = useState<string | null>(null);
   const [bulkGenerating, setBulkGenerating] = useState(false);
   const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
 
   const userIsSuperAdmin = isSuperAdmin();
 
@@ -146,6 +149,7 @@ export const CredentialsTab: React.FC = () => {
     const query = searchQuery.trim().toLowerCase();
 
     return members.filter((member) => {
+      const backendStatus = String(member.status || '').trim().toUpperCase();
       const fullName = `${member.firstName || ''} ${member.lastName || ''}`.trim().toLowerCase();
       const roleName = String((member as any)?.role?.roleName || '').toLowerCase();
       const departmentName = String((member as any)?.department?.name || '').toLowerCase();
@@ -154,7 +158,9 @@ export const CredentialsTab: React.FC = () => {
       const location = String(member.location || '').toLowerCase();
       const email = String(member.email || '').toLowerCase();
       const phone = String(member.phone || '').toLowerCase();
-      const statusKey = !member.credential
+      const statusKey = backendStatus === 'INACTIVE'
+        ? 'inactive'
+        : !member.credential
         ? 'no_credentials'
         : member.credential.isLocked
           ? 'locked'
@@ -184,6 +190,15 @@ export const CredentialsTab: React.FC = () => {
       return true;
     });
   }, [members, searchQuery, statusFilter]);
+
+  const pagedMembers = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredMembers.slice(start, start + pageSize);
+  }, [filteredMembers, currentPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, statusFilter]);
 
   const handleBulkGenerate = async () => {
     const membersToGenerate = filteredMembers.filter(
@@ -295,6 +310,7 @@ export const CredentialsTab: React.FC = () => {
           >
             <option value="all">All Status</option>
             <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
             <option value="pending">Pending</option>
             <option value="no_credentials">No Credentials</option>
             <option value="locked">Locked</option>
@@ -338,8 +354,9 @@ export const CredentialsTab: React.FC = () => {
             <p className="text-slate-500">No members found</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider w-12">
@@ -366,7 +383,7 @@ export const CredentialsTab: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {filteredMembers.map((member) => (
+                {pagedMembers.map((member) => (
                   <tr key={member.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-6 py-4">
                       <input
@@ -510,8 +527,19 @@ export const CredentialsTab: React.FC = () => {
                   </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
+              </table>
+            </div>
+            <div className="mt-4 w-full">
+              <PaginationAll
+                initialPage={currentPage}
+                totalPages={Math.max(1, Math.ceil(filteredMembers.length / pageSize))}
+                totalCount={filteredMembers.length}
+                pageSize={pageSize}
+                itemLabel="members"
+                onPageChange={setCurrentPage}
+              />
+            </div>
+          </>
         )}
       </div>
 

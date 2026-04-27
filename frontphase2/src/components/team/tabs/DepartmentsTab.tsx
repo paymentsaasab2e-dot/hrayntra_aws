@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Edit, Trash2, Users } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -8,6 +8,7 @@ import { getDepartments, deleteDepartment } from '../../../lib/api/teamApi';
 import type { Department } from '../../../types/team';
 import { AddDepartmentDrawer } from '../AddDepartmentDrawer';
 import { DepartmentMembersDrawer } from '../DepartmentMembersDrawer';
+import PaginationAll from '../../../components/PaginationAll';
 
 // Color mapping for role colors
 const roleColorMap: Record<string, string> = {
@@ -47,6 +48,8 @@ export const DepartmentsTab: React.FC = () => {
   const [showMembersDrawer, setShowMembersDrawer] = useState(false);
   const [selectedDepartment, setSelectedDepartment] = useState<DepartmentWithMembers | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -63,6 +66,20 @@ export const DepartmentsTab: React.FC = () => {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  const totalDepartments = departments.length;
+
+  const visibleDepartments = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return departments.slice(start, start + pageSize);
+  }, [currentPage, departments]);
+
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(totalDepartments / pageSize));
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, pageSize, totalDepartments]);
 
   const handleDelete = async (dept: DepartmentWithMembers) => {
     if (deleteConfirm !== dept.id) {
@@ -143,109 +160,121 @@ export const DepartmentsTab: React.FC = () => {
             </button>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-slate-50 border-b border-slate-200">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Department Name</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Members</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Member Avatars</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Created</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {departments.map((dept) => {
-                  const memberCount = dept._count?.users || 0;
-                  const previewMembers = dept.users || [];
-                  const remainingCount = memberCount - previewMembers.length;
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-slate-50 border-b border-slate-200">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Department Name</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Members</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Member Avatars</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Created</th>
+                    <th className="px-6 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {visibleDepartments.map((dept) => {
+                    const memberCount = dept._count?.users || 0;
+                    const previewMembers = dept.users || [];
+                    const remainingCount = memberCount - previewMembers.length;
 
-                  return (
-                    <tr key={dept.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-4">
-                        <div>
-                          <div className="font-medium text-slate-900">{dept.name}</div>
-                          {dept.description && (
-                            <div className="text-xs text-slate-500 mt-0.5">{dept.description}</div>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <button
-                          onClick={() => handleMembersClick(dept)}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors cursor-pointer"
-                        >
-                          <Users size={12} />
-                          {memberCount} member{memberCount !== 1 ? 's' : ''}
-                        </button>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          {previewMembers.map((member) => (
-                            <div
-                              key={member.id}
-                              className={`size-6 rounded-full flex items-center justify-center text-xs font-semibold ${roleColorMap[member.systemRole?.color?.toLowerCase() || 'gray'] || 'bg-gray-100 text-gray-600'}`}
-                              title={`${member.firstName} ${member.lastName}`}
-                            >
-                              {getInitials(member.firstName, member.lastName)}
-                            </div>
-                          ))}
-                          {remainingCount > 0 && (
-                            <span className="text-xs text-slate-500 font-medium">+{remainingCount} more</span>
-                          )}
-                          {memberCount === 0 && (
-                            <span className="text-xs text-slate-400">No members</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-slate-600">
-                        {formatDate(dept.createdAt)}
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center justify-end gap-2">
+                    return (
+                      <tr key={dept.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-6 py-4">
+                          <div>
+                            <div className="font-medium text-slate-900">{dept.name}</div>
+                            {dept.description && (
+                              <div className="text-xs text-slate-500 mt-0.5">{dept.description}</div>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
                           <button
-                            onClick={() => {
-                              setSelectedDepartment(dept);
-                              setShowAddDrawer(true);
-                            }}
-                            className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-600 hover:text-slate-900"
-                            title="Edit"
+                            onClick={() => handleMembersClick(dept)}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors cursor-pointer"
                           >
-                            <Edit size={16} />
+                            <Users size={12} />
+                            {memberCount} member{memberCount !== 1 ? 's' : ''}
                           </button>
-                          {deleteConfirm === dept.id ? (
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs text-slate-600">Delete {dept.name}?</span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2">
+                            {previewMembers.map((member) => (
+                              <div
+                                key={member.id}
+                                className={`size-6 rounded-full flex items-center justify-center text-xs font-semibold ${roleColorMap[member.systemRole?.color?.toLowerCase() || 'gray'] || 'bg-gray-100 text-gray-600'}`}
+                                title={`${member.firstName} ${member.lastName}`}
+                              >
+                                {getInitials(member.firstName, member.lastName)}
+                              </div>
+                            ))}
+                            {remainingCount > 0 && (
+                              <span className="text-xs text-slate-500 font-medium">+{remainingCount} more</span>
+                            )}
+                            {memberCount === 0 && (
+                              <span className="text-xs text-slate-400">No members</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-slate-600">
+                          {formatDate(dept.createdAt)}
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => {
+                                setSelectedDepartment(dept);
+                                setShowAddDrawer(true);
+                              }}
+                              className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-600 hover:text-slate-900"
+                              title="Edit"
+                            >
+                              <Edit size={16} />
+                            </button>
+                            {deleteConfirm === dept.id ? (
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-slate-600">Delete {dept.name}?</span>
+                                <button
+                                  onClick={() => handleDelete(dept)}
+                                  className="px-3 py-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+                                >
+                                  Confirm
+                                </button>
+                                <button
+                                  onClick={() => setDeleteConfirm(null)}
+                                  className="px-3 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
                               <button
                                 onClick={() => handleDelete(dept)}
-                                className="px-3 py-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+                                className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-600 hover:text-red-600"
+                                title="Delete"
                               >
-                                Confirm
+                                <Trash2 size={16} />
                               </button>
-                              <button
-                                onClick={() => setDeleteConfirm(null)}
-                                className="px-3 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => handleDelete(dept)}
-                              className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-600 hover:text-red-600"
-                              title="Delete"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-4 w-full">
+              <PaginationAll
+                initialPage={currentPage}
+                totalPages={Math.max(1, Math.ceil(totalDepartments / pageSize))}
+                totalCount={totalDepartments}
+                pageSize={pageSize}
+                itemLabel="departments"
+                onPageChange={setCurrentPage}
+              />
+            </div>
+          </>
         )}
       </div>
 

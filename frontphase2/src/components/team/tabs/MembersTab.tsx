@@ -24,6 +24,7 @@ import { EditMemberDrawer } from '../EditMemberDrawer';
 import { MemberProfileDrawer } from '../MemberProfileDrawer';
 import { usePermissions } from '../../../hooks/usePermissions';
 import { requestConfirm } from '../../../lib/appDialog';
+import PaginationAll from '../../../components/PaginationAll';
 
 // Color mapping for role colors
 const roleColorMap: Record<string, string> = {
@@ -72,6 +73,9 @@ export const MembersTab: React.FC = () => {
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
   const [selectedMemberTempPassword, setSelectedMemberTempPassword] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
+  const [totalMembers, setTotalMembers] = useState(0);
 
   const debouncedSearch = useDebounce(searchQuery, 300);
 
@@ -82,8 +86,10 @@ export const MembersTab: React.FC = () => {
       selectedDepartment,
       selectedRole,
       selectedStatus,
+      currentPage,
+      pageSize,
     ],
-    [debouncedSearch, selectedDepartment, selectedRole, selectedStatus]
+    [debouncedSearch, selectedDepartment, selectedRole, selectedStatus, currentPage]
   );
 
   const fetchData = useCallback(async () => {
@@ -93,6 +99,8 @@ export const MembersTab: React.FC = () => {
         departmentId: selectedDepartment !== 'all' ? selectedDepartment : undefined,
         roleName: selectedRole !== 'all' ? selectedRole : undefined,
         status: selectedStatus !== 'all' ? (selectedStatus as UserStatus) : undefined,
+        page: currentPage,
+        limit: pageSize,
       }),
       getRoles(),
       getDepartments(),
@@ -100,10 +108,11 @@ export const MembersTab: React.FC = () => {
 
     return {
       members: membersRes.data || [],
+      pagination: membersRes.pagination || null,
       roles: rolesRes.data || [],
       departments: deptsRes.data || [],
     };
-  }, [debouncedSearch, selectedDepartment, selectedRole, selectedStatus]);
+  }, [debouncedSearch, selectedDepartment, selectedRole, selectedStatus, currentPage]);
 
   const { data, error, isLoading, mutate } = useSWR(swrKey, fetchData, {
     revalidateOnFocus: false,
@@ -115,7 +124,12 @@ export const MembersTab: React.FC = () => {
     setMembers(data.members || []);
     setRoles(data.roles || []);
     setDepartments(data.departments || []);
+    setTotalMembers(data.pagination?.total || data.members?.length || 0);
   }, [data]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearch, selectedDepartment, selectedRole, selectedStatus]);
 
   useEffect(() => {
     if (!error) return;
@@ -417,8 +431,9 @@ export const MembersTab: React.FC = () => {
             <p className="text-slate-500 mb-4">No team members found</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Member</th>
@@ -578,8 +593,20 @@ export const MembersTab: React.FC = () => {
                   );
                 })}
               </tbody>
-            </table>
-          </div>
+              </table>
+            </div>
+
+            <div className="mt-4 w-full">
+              <PaginationAll
+                initialPage={currentPage}
+                totalPages={Math.max(1, Math.ceil(totalMembers / pageSize))}
+                totalCount={totalMembers}
+                pageSize={pageSize}
+                itemLabel="members"
+                onPageChange={setCurrentPage}
+              />
+            </div>
+          </>
         )}
       </div>
 
@@ -610,11 +637,13 @@ export const MembersTab: React.FC = () => {
             }}
             onSuccess={(updatedMember) => {
               setShowEditDrawer(false);
-              setSelectedMember(null);
               if (updatedMember) {
+                setSelectedMember(updatedMember);
                 upsertMemberLocal(updatedMember);
               }
-              mutate();
+              if (!updatedMember) {
+                setSelectedMember(null);
+              }
             }}
           />
 
@@ -627,7 +656,8 @@ export const MembersTab: React.FC = () => {
               setSelectedMember(null);
               setSelectedMemberTempPassword(null);
             }}
-            onEdit={() => {
+            onEdit={(memberData) => {
+              setSelectedMember(memberData as TeamMember);
               setShowProfileDrawer(false);
               setShowEditDrawer(true);
             }}

@@ -90,11 +90,7 @@ export function InterviewTable({
 
           <tbody className="divide-y divide-[#F3F4F6]">
             {interviews.map((interview) => (
-              <tr
-                key={interview.id}
-                onClick={() => onRowClick(interview)}
-                className="cursor-pointer transition-colors hover:bg-[#F9FAFB]"
-              >
+              <tr key={interview.id} className="transition-colors hover:bg-[#F9FAFB]">
                 <td className="px-5 py-4" onClick={(event) => event.stopPropagation()}>
                   <input
                     type="checkbox"
@@ -113,7 +109,13 @@ export function InterviewTable({
                         .join('')}
                     </div>
                     <div>
-                      <div className="text-[13px] font-semibold text-[#111827]">{interview.candidate.name}</div>
+                      <button
+                        type="button"
+                        onClick={() => onRowClick(interview)}
+                        className="text-[13px] font-semibold text-[#111827] transition-colors hover:text-[#2563EB] hover:underline"
+                      >
+                        {interview.candidate.name}
+                      </button>
                       <div className="text-[12px] text-[#6B7280]">{interview.candidate.email || 'No email available'}</div>
                     </div>
                   </div>

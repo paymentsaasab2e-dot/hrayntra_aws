@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Eye, Briefcase, Check, Trash2, Upload } from 'lucide-react';
+import { Eye, Pencil, Briefcase, Check, Trash2, Upload } from 'lucide-react';
 import { ImageWithFallback } from './ImageWithFallback';
 import type { Client, ClientStage } from '@/app/client/types';
 import { apiUpdateClient, filesApiUpload } from '../lib/api';
@@ -17,6 +17,7 @@ interface ClientTableProps {
   selectedIds: string[];
   onSelectionChange: (selectedIds: string[]) => void;
   onSelectClient?: (client: Client) => void;
+  onEditClient?: (client: Client) => void;
   onDeleteClient?: (id: string) => void;
   onLogoUpdated?: () => void;
   onCreateJob?: (client: Client) => void;
@@ -34,7 +35,7 @@ const CustomCheckbox = ({ checked, onChange }: { checked: boolean, onChange: () 
   </div>
 );
 
-export function ClientTable({ clients, selectedIds, onSelectionChange, onSelectClient, onDeleteClient, onLogoUpdated, onCreateJob }: ClientTableProps) {
+export function ClientTable({ clients, selectedIds, onSelectionChange, onSelectClient, onEditClient, onDeleteClient, onLogoUpdated, onCreateJob }: ClientTableProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingClientId, setUploadingClientId] = useState<string | null>(null);
   const [pendingUploadClientId, setPendingUploadClientId] = useState<string | null>(null);
@@ -53,12 +54,6 @@ export function ClientTable({ clients, selectedIds, onSelectionChange, onSelectC
       ? selectedIds.filter(selectedId => selectedId !== id)
       : [...selectedIds, id];
     onSelectionChange(newSelection);
-  };
-
-  const handleRowClick = (client: Client) => (e: React.MouseEvent) => {
-    const target = e.target as HTMLElement;
-    if (target.closest('button') || target.closest('[role="checkbox"]') || target.closest('input')) return;
-    onSelectClient?.(client);
   };
 
   const openLogoPicker = (clientId: string) => {
@@ -134,8 +129,7 @@ export function ClientTable({ clients, selectedIds, onSelectionChange, onSelectC
             {clients.map((client) => (
               <tr
                 key={client.id}
-                onClick={handleRowClick(client)}
-                className={`hover:bg-blue-50/50 transition-colors group cursor-pointer ${selectedIds.includes(client.id) ? 'bg-blue-50/80' : ''}`}
+                className={`hover:bg-blue-50/50 transition-colors group ${selectedIds.includes(client.id) ? 'bg-blue-50/80' : ''}`}
               >
                 <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
                   <CustomCheckbox
@@ -164,7 +158,14 @@ export function ClientTable({ clients, selectedIds, onSelectionChange, onSelectC
                       </button>
                     </div>
                     <div>
-                      <div className="font-semibold text-slate-900">{client.name}</div>
+                      <button
+                        type="button"
+                        onClick={() => onSelectClient?.(client)}
+                        className="font-semibold text-slate-900 text-left hover:text-blue-600 transition-colors"
+                        title="View client details"
+                      >
+                        {client.name}
+                      </button>
                     </div>
                   </div>
                 </td>
@@ -191,6 +192,14 @@ export function ClientTable({ clients, selectedIds, onSelectionChange, onSelectC
                       title="View Details"
                     >
                       <Eye className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onEditClient?.(client)}
+                      className="p-1.5 bg-white shadow-sm border border-slate-100 rounded-md text-slate-400 hover:text-amber-600 transition-all"
+                      title="Edit Client"
+                    >
+                      <Pencil className="w-4 h-4" />
                     </button>
                     <button
                       type="button"

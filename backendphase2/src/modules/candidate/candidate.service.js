@@ -1220,10 +1220,6 @@ export const candidateService = {
       throw new Error('Reject reason is required');
     }
 
-    if (feedback.length < 20) {
-      throw new Error('HR feedback must be at least 20 characters');
-    }
-
     await prisma.$transaction(async (tx) => {
       await tx.candidate.update({
         where: { id: candidateId },

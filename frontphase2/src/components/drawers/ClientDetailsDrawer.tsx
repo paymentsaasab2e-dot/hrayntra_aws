@@ -180,6 +180,7 @@ const FILE_TYPE_BADGE_STYLES: Record<ClientFileType, string> = {
 interface ClientDetailsDrawerProps {
   client: Client | null;
   isAddMode?: boolean;
+  initialMode?: 'view' | 'edit';
   onClose: () => void;
   onAddJob?: (clientId: string) => void;
   onMessage?: (clientId: string) => void;
@@ -191,6 +192,7 @@ interface ClientDetailsDrawerProps {
 export function ClientDetailsDrawer({
   client,
   isAddMode: propIsAddMode = false,
+  initialMode = 'view',
   onClose,
   onAddJob,
   onMessage,
@@ -1311,6 +1313,17 @@ export function ClientDetailsDrawer({
       resetClientLogoDraft();
     }
   }, [isAddMode, client?.id]);
+
+  useEffect(() => {
+    if (isAddMode || !client?.id) return;
+
+    if (initialMode === 'edit') {
+      startOverviewEdit();
+      return;
+    }
+
+    setOverviewEditMode(false);
+  }, [isAddMode, initialMode, client?.id]);
 
   const tabs = [
     { id: 'overview' as const, label: 'Overview', icon: LayoutGrid },

@@ -4,12 +4,13 @@ import { env } from '../config/env.js';
 const SECRET = () =>
   env.OAUTH_STATE_SECRET || env.JWT_ACCESS_SECRET || env.JWT_SECRET || 'dev-oauth-state-change-me';
 
-/** @param {{ userId: string, service: string, extraScopes?: string[] }} payload */
+/** @param {{ userId: string, service: string, tenantDbName?: string, extraScopes?: string[] }} payload */
 export function createOAuthState(payload) {
   return jwt.sign(
     {
       userId: payload.userId,
       service: payload.service,
+      tenantDbName: payload.tenantDbName || '',
       extraScopes: payload.extraScopes || [],
     },
     SECRET(),
@@ -28,6 +29,7 @@ export function verifyOAuthState(state) {
   return {
     userId: String(decoded.userId),
     service: String(decoded.service),
+    tenantDbName: String(decoded.tenantDbName || ''),
     extraScopes: Array.isArray(decoded.extraScopes) ? decoded.extraScopes.map(String) : [],
   };
 }

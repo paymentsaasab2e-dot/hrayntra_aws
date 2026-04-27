@@ -45,6 +45,7 @@ interface CandidateTableProps {
   onToggleSelect: (id: string) => void;
   onToggleSelectAll: () => void;
   onViewProfile?: (candidate: Candidate) => void;
+  onWhatsAppCandidate?: (candidate: Candidate) => void;
   onEditCandidate?: (candidate: Candidate) => void;
   /** Permanently delete candidate (parent should confirm + call API). */
   onDeleteCandidate?: (candidate: Candidate) => void | Promise<void>;
@@ -79,6 +80,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
   onToggleSelect,
   onToggleSelectAll,
   onViewProfile,
+  onWhatsAppCandidate,
   onEditCandidate,
   onDeleteCandidate,
   deletingCandidateId,
@@ -237,7 +239,15 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                       >
                         <Eye size={15} />
                       </button>
-                      <button className="p-1.5 text-slate-500 hover:text-green-600 hover:bg-white rounded transition-all" title="WhatsApp">
+                      <button
+                        type="button"
+                        className="p-1.5 text-slate-500 hover:text-green-600 hover:bg-white rounded transition-all"
+                        title="WhatsApp"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onWhatsAppCandidate?.(candidate);
+                        }}
+                      >
                         <MessageSquare size={15} />
                       </button>
                       <button

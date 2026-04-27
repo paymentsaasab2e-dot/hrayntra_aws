@@ -2297,7 +2297,6 @@ interface RejectCandidateModalProps {
 
 type RejectModalStep = 'form' | 'confirm' | 'progress' | 'done';
 
-const REJECT_FEEDBACK_MIN_LENGTH = 100;
 const REJECT_FEEDBACK_MAX_LENGTH = 100;
 
 function RejectCandidateModal({
@@ -2309,7 +2308,7 @@ function RejectCandidateModal({
   const [reason, setReason] = useState('');
   const [feedback, setFeedback] = useState('');
   const [sendEmail, setSendEmail] = useState(true);
-  const [errors, setErrors] = useState<{ reason?: string; feedback?: string }>({});
+  const [errors, setErrors] = useState<{ reason?: string }>({});
   const [step, setStep] = useState<RejectModalStep>('form');
   const [progressStep, setProgressStep] = useState(0);
   const [submitting, setSubmitting] = useState(false);
@@ -2327,13 +2326,8 @@ function RejectCandidateModal({
   }, [isOpen]);
 
   const validate = () => {
-    const nextErrors: { reason?: string; feedback?: string } = {};
+    const nextErrors: { reason?: string } = {};
     if (!reason) nextErrors.reason = 'Reject reason is required';
-    if (feedback.trim().length < REJECT_FEEDBACK_MIN_LENGTH) {
-      nextErrors.feedback = `HR feedback must be at least ${REJECT_FEEDBACK_MIN_LENGTH} characters`;
-    } else if (feedback.trim().length > REJECT_FEEDBACK_MAX_LENGTH) {
-      nextErrors.feedback = 'Characters exceeded';
-    }
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
   };
@@ -2431,23 +2425,13 @@ function RejectCandidateModal({
                       <textarea
                         value={feedback}
                         onChange={(e) => {
-                          const nextValue = e.target.value;
-                          if (nextValue.length > REJECT_FEEDBACK_MAX_LENGTH) {
-                            setFeedback(nextValue.slice(0, REJECT_FEEDBACK_MAX_LENGTH));
-                            setErrors((prev) => ({ ...prev, feedback: 'Characters exceeded' }));
-                            return;
-                          }
-                          setFeedback(nextValue);
-                          setErrors((prev) => ({ ...prev, feedback: undefined }));
+                          setFeedback(e.target.value.slice(0, REJECT_FEEDBACK_MAX_LENGTH));
                         }}
                         rows={5}
                         placeholder="Share internal rejection feedback for this candidate..."
-                        className={`w-full rounded-xl border bg-white px-3 py-2.5 text-sm text-slate-700 outline-none ${
-                          errors.feedback ? 'border-red-300' : 'border-slate-200'
-                        } focus:border-red-400 focus:ring-2 focus:ring-red-100`}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
                       />
                       <div className="mt-1 flex items-center justify-between">
-                        {errors.feedback ? <p className="text-xs text-red-600">{errors.feedback}</p> : <span />}
                         <p className="text-xs text-slate-400">{feedback.trim().length}/{REJECT_FEEDBACK_MAX_LENGTH} chars</p>
                       </div>
                     </div>
@@ -2501,9 +2485,9 @@ function RejectCandidateModal({
                     <div className="rounded-2xl border border-red-100 bg-red-50 p-4 text-sm text-slate-700">
                       <p>This will trigger:</p>
                       <ul className="mt-2 space-y-1 text-slate-600">
-                        <li>HR feedback stored</li>
-                        <li>Stage updated</li>
-                        <li>AI course suggestions sent</li>
+                        <li>Feedback stored</li>
+                        <li>Candidate stage updated</li>
+                        <li>AI Courses suggestions sent</li>
                         <li>{sendEmail ? 'Rejection email sent' : 'Rejection email skipped'}</li>
                       </ul>
                     </div>
@@ -2530,7 +2514,7 @@ function RejectCandidateModal({
               {step === 'progress' ? (
                 <div className="px-5 py-6">
                   <div className="space-y-4">
-                    {progressLabels.map((label, index) => {
+                    {['Feedback stored', 'Candidate stage updated', 'AI Courses suggestions sent', 'Rejection email sent'].map((label, index) => {
                       const done = progressStep > index + 1;
                       const active = progressStep === index + 1;
                       return (
@@ -3628,6 +3612,35 @@ export function CandidateProfileDrawer({
                         </div>
                       </div>
                     </section>
+
+                    <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4 lg:col-span-2">
+                      <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
+                        Skills
+                      </h3>
+                      <div className="flex flex-wrap gap-2">
+                        {candidate.cvSkills?.length ? (
+                          candidate.cvSkills.map((skill) => (
+                            <span
+                              key={skill}
+                              className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700"
+                            >
+                              {skill}
+                            </span>
+                          ))
+                        ) : candidate.skills?.length ? (
+                          candidate.skills.map((skill) => (
+                            <span
+                              key={skill}
+                              className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700"
+                            >
+                              {skill}
+                            </span>
+                          ))
+                        ) : (
+                          <p className="text-sm text-slate-500">No skills listed.</p>
+                        )}
+                      </div>
+                    </section>
                   </div>
                 )}
 
@@ -3902,24 +3915,6 @@ export function CandidateProfileDrawer({
                         Skills & Languages
                       </h3>
                       <div className="space-y-4">
-                        <div className="rounded-xl border border-slate-200 bg-white p-3">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Skills</p>
-                          {candidate.cvSkills?.length ? (
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              {candidate.cvSkills.map((skill) => (
-                                <span
-                                  key={skill}
-                                  className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700"
-                                >
-                                  {skill}
-                                </span>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="mt-2 text-sm text-slate-500">No extracted skills available.</p>
-                          )}
-                        </div>
-
                         <div className="rounded-xl border border-slate-200 bg-white p-3">
                           <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Languages</p>
                           {candidate.cvLanguages?.length ? (

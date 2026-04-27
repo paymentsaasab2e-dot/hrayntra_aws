@@ -1,4 +1,5 @@
 import { env } from '../../config/env.js';
+import { getActiveTenantDbName } from '../../config/prisma.js';
 import { sendResponse } from '../../utils/response.js';
 import { createOAuthState, verifyOAuthState } from '../../utils/oauth-state.js';
 import { linkedinService } from '../linkedin/linkedin.service.js';
@@ -12,7 +13,11 @@ export const linkedinOAuthSettingsController = {
     if (!req.user?.id) {
       return res.status(401).json({ success: false, error: 'Unauthorized' });
     }
-    const state = createOAuthState({ userId: req.user.id, service: 'linkedin' });
+    const state = createOAuthState({
+      userId: req.user.id,
+      service: 'linkedin',
+      tenantDbName: getActiveTenantDbName(),
+    });
     const params = new URLSearchParams({
       response_type: 'code',
       client_id: env.LINKEDIN_CLIENT_ID,
@@ -74,7 +79,7 @@ export const linkedinOAuthSettingsController = {
       );
 
       return res.redirect(
-        `${frontend}/setting?section=communication&connected=linkedin&email=${encodeURIComponent(email || '')}`
+        `${frontend}/setting?section=communication&integration_connected=linkedin&email=${encodeURIComponent(email || '')}`
       );
     } catch {
       return fail();

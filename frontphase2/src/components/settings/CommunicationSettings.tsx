@@ -15,7 +15,9 @@ import {
   apiConnectIntegration,
   apiDisconnectIntegration,
   apiGetIntegrationStatuses,
+  apiGetUserCommunication,
   type IntegrationProvider,
+  type CommunicationFullResponse,
   type IntegrationStatusResponse,
 } from '@/lib/api';
 import { ServiceConnectionCard } from './ServiceConnectionCard';
@@ -28,6 +30,7 @@ type IntegrationSection = {
     provider: IntegrationProvider;
     serviceName: string;
     description: string;
+    consentSummary: string;
     scopes: string[];
     icon: React.ReactNode;
     iconBgClass: string;
@@ -44,6 +47,8 @@ const INTEGRATION_SECTIONS: IntegrationSection[] = [
         provider: 'gmail',
         serviceName: 'Connect Gmail',
         description: 'Use your own Gmail account for recruiter email communication.',
+        consentSummary:
+          'Approve access only if you want this app to send emails and read your inbox on your behalf.',
         scopes: ['Send email', 'Read inbox', 'Profile'],
         icon: <Mail className="h-5 w-5 text-red-500" />,
         iconBgClass: 'bg-red-50',
@@ -52,6 +57,8 @@ const INTEGRATION_SECTIONS: IntegrationSection[] = [
         provider: 'outlook',
         serviceName: 'Connect Outlook',
         description: 'Connect Microsoft 365 / Outlook for personal recruiter email.',
+        consentSummary:
+          'Approve access only if you want this app to send and read mail from your Microsoft account.',
         scopes: ['Mail.Send', 'Mail.Read', 'User.Read'],
         icon: <Mail className="h-5 w-5 text-sky-600" />,
         iconBgClass: 'bg-sky-50',
@@ -60,6 +67,8 @@ const INTEGRATION_SECTIONS: IntegrationSection[] = [
         provider: 'google-calendar',
         serviceName: 'Connect Google Calendar',
         description: 'Sync interviews, follow-ups, and scheduling from your Google Calendar.',
+        consentSummary:
+          'Approve access only if you want this app to manage calendar scheduling from your Google account.',
         scopes: ['Calendar access', 'Profile', 'Email'],
         icon: <Calendar className="h-5 w-5 text-emerald-600" />,
         iconBgClass: 'bg-emerald-50',
@@ -76,6 +85,8 @@ const INTEGRATION_SECTIONS: IntegrationSection[] = [
         provider: 'zoom',
         serviceName: 'Connect Zoom',
         description: 'Create recruiter-owned Zoom meetings for interviews and client calls.',
+        consentSummary:
+          'Approve access only if you want this app to create and manage Zoom meetings for you.',
         scopes: ['Meeting write', 'Meeting read', 'User read'],
         icon: <Video className="h-5 w-5 text-blue-600" />,
         iconBgClass: 'bg-blue-50',
@@ -84,6 +95,8 @@ const INTEGRATION_SECTIONS: IntegrationSection[] = [
         provider: 'google-meet',
         serviceName: 'Connect Google Meet',
         description: 'Use Google OAuth to prepare Google Meet scheduling from your calendar account.',
+        consentSummary:
+          'Approve access only if you want this app to prepare Google Meet scheduling through your Google account.',
         scopes: ['Calendar access', 'Meet scheduling prep'],
         icon: <Video className="h-5 w-5 text-emerald-600" />,
         iconBgClass: 'bg-emerald-50',
@@ -92,6 +105,8 @@ const INTEGRATION_SECTIONS: IntegrationSection[] = [
         provider: 'microsoft-teams',
         serviceName: 'Connect Microsoft Teams',
         description: 'Create Teams meetings and calendar events from your Microsoft account.',
+        consentSummary:
+          'Approve access only if you want this app to create Teams meetings and calendar events on your behalf.',
         scopes: ['Calendars.ReadWrite', 'OnlineMeetings.ReadWrite'],
         icon: <MessagesSquare className="h-5 w-5 text-indigo-600" />,
         iconBgClass: 'bg-indigo-50',
@@ -107,6 +122,8 @@ const INTEGRATION_SECTIONS: IntegrationSection[] = [
         provider: 'linkedin',
         serviceName: 'Connect LinkedIn',
         description: 'Post jobs and social announcements through your LinkedIn identity.',
+        consentSummary:
+          'Approve access only if you want this app to post content using your LinkedIn identity.',
         scopes: ['Profile', 'Email', 'Post content'],
         icon: <Briefcase className="h-5 w-5 text-blue-700" />,
         iconBgClass: 'bg-blue-50',
@@ -115,6 +132,8 @@ const INTEGRATION_SECTIONS: IntegrationSection[] = [
         provider: 'twitter',
         serviceName: 'Connect Twitter / X',
         description: 'Publish hiring announcements and short updates from your X account.',
+        consentSummary:
+          'Approve access only if you want this app to publish posts from your X account.',
         scopes: ['Read profile', 'Write posts', 'Offline access'],
         icon: <MessageSquareShare className="h-5 w-5 text-slate-700" />,
         iconBgClass: 'bg-slate-100',
@@ -123,6 +142,8 @@ const INTEGRATION_SECTIONS: IntegrationSection[] = [
         provider: 'facebook',
         serviceName: 'Connect Facebook',
         description: 'Connect a Facebook identity to prepare posting to business pages.',
+        consentSummary:
+          'Approve access only if you want this app to manage Facebook posting permissions for pages.',
         scopes: ['Public profile', 'Email', 'Page post permissions'],
         icon: <Facebook className="h-5 w-5 text-blue-700" />,
         iconBgClass: 'bg-blue-50',
@@ -133,14 +154,86 @@ const INTEGRATION_SECTIONS: IntegrationSection[] = [
 
 const EMPTY_STATUS: IntegrationStatusResponse = {};
 
+function mergeStatuses(
+  integrationStatuses: IntegrationStatusResponse,
+  communication: CommunicationFullResponse | null
+): IntegrationStatusResponse {
+  const merged: IntegrationStatusResponse = { ...integrationStatuses };
+  const connections = communication?.connections;
+
+  if (connections) {
+    const gmailConnected = !!(integrationStatuses.gmail?.connected || connections.gmail?.connected);
+    const googleCalendarConnected = !!(
+      integrationStatuses['google-calendar']?.connected || connections.googleCalendar?.connected
+    );
+    const googleMeetConnected = !!(
+      integrationStatuses['google-meet']?.connected ||
+      connections.googleCalendar?.connected ||
+      connections.gmail?.connected
+    );
+    const outlookConnected = !!(integrationStatuses.outlook?.connected || connections.outlook?.connected);
+    const teamsConnected = !!(
+      integrationStatuses['microsoft-teams']?.connected || connections.teams?.connected
+    );
+    const linkedinConnected = !!(
+      integrationStatuses.linkedin?.connected || connections.linkedin?.connected
+    );
+
+    merged.gmail = {
+      provider: 'gmail',
+      label: 'Gmail',
+      connected: gmailConnected,
+      accountEmail: connections.gmail?.email,
+    };
+    merged['google-calendar'] = {
+      provider: 'google-calendar',
+      label: 'Google Calendar',
+      connected: googleCalendarConnected,
+      accountEmail: connections.googleCalendar?.email,
+    };
+    merged['google-meet'] = {
+      provider: 'google-meet',
+      label: 'Google Meet',
+      connected: googleMeetConnected,
+      accountEmail: connections.googleCalendar?.email || connections.gmail?.email,
+    };
+    merged.outlook = {
+      provider: 'outlook',
+      label: 'Outlook',
+      connected: outlookConnected,
+      accountEmail: connections.outlook?.email,
+    };
+    merged['microsoft-teams'] = {
+      provider: 'microsoft-teams',
+      label: 'Microsoft Teams',
+      connected: teamsConnected,
+      accountEmail: connections.teams?.email,
+    };
+    merged.linkedin = {
+      provider: 'linkedin',
+      label: 'LinkedIn',
+      connected: linkedinConnected,
+      accountEmail: connections.linkedin?.email,
+      accountName: connections.linkedin?.pageName,
+    };
+  }
+
+  return merged;
+}
+
 export function CommunicationSettings() {
   const [loading, setLoading] = useState(true);
   const [statuses, setStatuses] = useState<IntegrationStatusResponse>(EMPTY_STATUS);
   const [busyProvider, setBusyProvider] = useState<IntegrationProvider | null>(null);
 
   const reload = useCallback(async () => {
-    const response = await apiGetIntegrationStatuses();
-    setStatuses(response.data || {});
+    const [integrationResponse, communicationResponse] = await Promise.all([
+      apiGetIntegrationStatuses(),
+      apiGetUserCommunication(),
+    ]);
+    setStatuses(
+      mergeStatuses(integrationResponse.data || {}, communicationResponse.data || null)
+    );
   }, []);
 
   useEffect(() => {
@@ -167,8 +260,8 @@ export function CommunicationSettings() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
-    const connected = params.get('integration_connected');
-    const error = params.get('integration_error');
+    const connected = params.get('integration_connected') || params.get('connected');
+    const error = params.get('integration_error') || params.get('error');
     const email = params.get('email');
 
     if (connected) {
@@ -238,6 +331,10 @@ export function CommunicationSettings() {
               and are never exposed to the frontend. These connections are used later for email
               sending, calendars, meetings, job posting, and social announcements.
             </p>
+            <p className="mt-3 max-w-3xl rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-900">
+              Before connecting any service, you must review the requested permissions and confirm
+              consent. The next step will redirect you to the provider&apos;s own OAuth screen.
+            </p>
           </div>
           <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
             <span className="font-semibold">{connectedCount}</span> integrations connected
@@ -268,6 +365,7 @@ export function CommunicationSettings() {
                   onDisconnect={() => handleDisconnect(item.provider)}
                   connecting={busyProvider === item.provider}
                   scopes={status?.scope?.length ? status.scope : item.scopes}
+                  consentSummary={item.consentSummary}
                 />
               );
             })}

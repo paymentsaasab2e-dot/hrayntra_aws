@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState } from 'react';
-import Link from 'next/link';
 import {
   ArrowUpDown,
   Check,
@@ -212,11 +211,7 @@ export function PlacementsTable({
               const canMarkJoinedStatus = ['OFFER_ACCEPTED', 'JOINING_SCHEDULED'].includes(placement.status);
 
               return (
-                <tr
-                  key={placement.id}
-                  onClick={() => onView(placement)}
-                  className="cursor-pointer border-b border-gray-100 transition-colors hover:bg-gray-50"
-                >
+                <tr key={placement.id} className="border-b border-gray-100 transition-colors hover:bg-gray-50">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
                       <div className="h-10 w-10 overflow-hidden rounded-full border border-gray-200">
@@ -227,13 +222,13 @@ export function PlacementsTable({
                         />
                       </div>
                       <div>
-                        <Link
-                          href={`/placements/${placement.id}`}
-                          onClick={(event) => event.stopPropagation()}
+                        <button
+                          type="button"
+                          onClick={() => onView(placement)}
                           className="font-medium text-[#2563EB] hover:underline"
                         >
                           {`${placement.candidate.firstName} ${placement.candidate.lastName}`.trim()}
-                        </Link>
+                        </button>
                         <div className="mt-1">
                           <span
                             className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
@@ -276,13 +271,15 @@ export function PlacementsTable({
 
                   <td className="px-6 py-4">
                     <div className="flex items-center justify-end gap-1" onClick={(event) => event.stopPropagation()}>
-                      <Link
-                        href={`/placements/${placement.id}`}
+                      <button
+                        type="button"
+                        onClick={() => onView(placement)}
                         className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-[#2563EB]"
                         title="View placement"
+                        aria-label="View placement"
                       >
                         <Eye className="h-4 w-4" />
-                      </Link>
+                      </button>
 
                       <button
                         type="button"
@@ -311,6 +308,7 @@ export function PlacementsTable({
                         onClick={() => onView(placement)}
                         className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                         title="Activity"
+                        aria-label="Open placement activity"
                       >
                         <NotebookTabs className="h-4 w-4" />
                       </button>

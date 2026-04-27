@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 
 export type ServiceConnectionCardProps = {
@@ -14,6 +14,7 @@ export type ServiceConnectionCardProps = {
   onDisconnect: () => void | Promise<void>;
   connecting: boolean;
   scopes: string[];
+  consentSummary?: string;
 };
 
 export function ServiceConnectionCard({
@@ -27,7 +28,16 @@ export function ServiceConnectionCard({
   onDisconnect,
   connecting,
   scopes,
+  consentSummary,
 }: ServiceConnectionCardProps) {
+  const [consentAccepted, setConsentAccepted] = useState(false);
+
+  useEffect(() => {
+    if (connected) {
+      setConsentAccepted(false);
+    }
+  }, [connected, serviceName]);
+
   return (
     <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -74,6 +84,30 @@ export function ServiceConnectionCard({
         </div>
       </div>
 
+      {!connected ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+            Consent required
+          </p>
+          <p className="mt-1 text-sm leading-6 text-amber-900/90">
+            {consentSummary ||
+              'Review the requested access above, then confirm that you want to continue to the provider consent screen.'}
+          </p>
+          <label className="mt-3 flex cursor-pointer items-start gap-2 text-sm text-amber-950">
+            <input
+              type="checkbox"
+              checked={consentAccepted}
+              onChange={(event) => setConsentAccepted(event.target.checked)}
+              className="mt-1 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+            />
+            <span>
+              I understand this will redirect me to the provider&apos;s OAuth screen and grant the
+              listed permissions if I approve them.
+            </span>
+          </label>
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap gap-2 pt-1">
         {connected ? (
           <button
@@ -88,11 +122,11 @@ export function ServiceConnectionCard({
           <button
             type="button"
             onClick={() => void onConnect()}
-            disabled={connecting}
+            disabled={connecting || !consentAccepted}
             className="inline-flex items-center gap-2 rounded-lg bg-[#2b7fff] px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-60"
           >
             {connecting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {connecting ? 'Connecting...' : `Connect ${serviceName}`}
+            {connecting ? 'Connecting...' : consentAccepted ? `Connect ${serviceName}` : 'Consent first'}
           </button>
         )}
       </div>

@@ -21,7 +21,7 @@ interface MemberProfileDrawerProps {
   isOpen: boolean;
   memberId: string;
   onClose: () => void;
-  onEdit?: () => void;
+  onEdit?: (member: TeamMemberDetail) => void;
   onDelete?: () => void | Promise<void>;
   initialTempPassword?: string | null;
 }
@@ -96,7 +96,7 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
     try {
       await deactivateTeamMember(member.id);
       toast.success('Member deactivated');
-      loadMember();
+      onClose();
     } catch (error: any) {
       toast.error(error.message || 'Failed to deactivate member');
     }
@@ -296,7 +296,7 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
                     <div className="flex items-center gap-2 mt-4">
                       {onEdit && (
                         <button
-                          onClick={onEdit}
+                          onClick={() => onEdit(member)}
                           className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-2"
                         >
                           <Edit size={14} />
@@ -311,6 +311,7 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
                             e.stopPropagation();
                             try {
                               await onDelete();
+                              onClose();
                             } catch (error) {
                               console.error('Error in onDelete handler:', error);
                             }
