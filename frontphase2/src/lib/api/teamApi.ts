@@ -139,7 +139,11 @@ export async function getTeamMembers(filters: TeamMemberFilters = {}) {
     throw new Error(json?.message || `Request failed with status ${res.status}`);
   }
   
-  return { data: normalizeArrayPayload<TeamMember>(json.data), success: json.success };
+  return {
+    data: normalizeArrayPayload<TeamMember>(json.data),
+    pagination: json.pagination,
+    success: json.success,
+  };
 }
 
 /**

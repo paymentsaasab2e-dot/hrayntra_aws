@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { prisma } from '../../config/prisma.js';
+import { prisma, runWithTenantContext, getActiveTenantDbName } from '../../config/prisma.js';
 import { env } from '../../config/env.js';
 import { encryption } from '../../utils/encryption.js';
 import { createOAuthState, verifyOAuthState } from '../../utils/oauth-state.js';
@@ -240,9 +240,10 @@ export const integrationService = {
   async getAuthorizationUrl(userId, provider) {
     const config = ensureProvider(provider);
     const callbackUrl = getCallbackUrl(provider);
+    const tenantDbName = String(getActiveTenantDbName() || '').trim();
 
     if (config.family === 'google') {
-      const state = createOAuthState({ userId, service: provider });
+      const state = createOAuthState({ userId, service: provider, tenantDbName });
       const params = new URLSearchParams({
         client_id: env.GOOGLE_CLIENT_ID,
         redirect_uri: callbackUrl,
@@ -256,7 +257,7 @@ export const integrationService = {
     }
 
     if (config.family === 'microsoft') {
-      const state = createOAuthState({ userId, service: provider });
+      const state = createOAuthState({ userId, service: provider, tenantDbName });
       const params = new URLSearchParams({
         client_id: env.MICROSOFT_CLIENT_ID,
         response_type: 'code',
@@ -270,7 +271,7 @@ export const integrationService = {
     }
 
     if (config.family === 'linkedin') {
-      const state = createOAuthState({ userId, service: provider });
+      const state = createOAuthState({ userId, service: provider, tenantDbName });
       const params = new URLSearchParams({
         response_type: 'code',
         client_id: env.LINKEDIN_CLIENT_ID,
@@ -282,7 +283,7 @@ export const integrationService = {
     }
 
     if (config.family === 'zoom') {
-      const state = createOAuthState({ userId, service: provider });
+      const state = createOAuthState({ userId, service: provider, tenantDbName });
       const params = new URLSearchParams({
         response_type: 'code',
         client_id: env.ZOOM_CLIENT_ID,
@@ -296,6 +297,7 @@ export const integrationService = {
       const state = createOAuthState({
         userId,
         service: provider,
+        tenantDbName,
         extraScopes: [crypto.randomBytes(32).toString('base64url')],
       });
       const { extraScopes } = verifyOAuthState(state);
@@ -313,7 +315,7 @@ export const integrationService = {
     }
 
     if (config.family === 'facebook') {
-      const state = createOAuthState({ userId, service: provider });
+      const state = createOAuthState({ userId, service: provider, tenantDbName });
       const params = new URLSearchParams({
         client_id: env.FACEBOOK_CLIENT_ID,
         redirect_uri: callbackUrl,
@@ -332,6 +334,7 @@ export const integrationService = {
     const callbackUrl = getCallbackUrl(provider);
     const parsedState = verifyOAuthState(state);
     const userId = parsedState.userId;
+    const tenantDbName = parsedState.tenantDbName;
     let tokens = null;
     let profile = {};
     let scope = config.scopes;
@@ -447,18 +450,26 @@ export const integrationService = {
         ? new Date(Date.now() + Number(tokens.expires_in) * 1000)
         : null;
 
-    await upsertIntegrationConnection(userId, provider, {
-      accessToken: tokens?.access_token || null,
-      refreshToken: tokens?.refresh_token || null,
-      expiryDate,
-      scope,
-      accountEmail: profile?.email || profile?.mail || profile?.userPrincipalName || null,
-      accountName: profile?.name || profile?.display_name || profile?.displayName || null,
-      accountId: profile?.id || profile?.sub || profile?.userPrincipalName || null,
-      metadata: profile || null,
-    });
+    const write = async () => {
+      await upsertIntegrationConnection(userId, provider, {
+        accessToken: tokens?.access_token || null,
+        refreshToken: tokens?.refresh_token || null,
+        expiryDate,
+        scope,
+        accountEmail: profile?.email || profile?.mail || profile?.userPrincipalName || null,
+        accountName: profile?.name || profile?.display_name || profile?.displayName || null,
+        accountId: profile?.id || profile?.sub || profile?.userPrincipalName || null,
+        metadata: profile || null,
+      });
 
-    await persistLegacyConnections(userId, provider, tokens, profile, scope);
+      await persistLegacyConnections(userId, provider, tokens, profile, scope);
+    };
+
+    if (tenantDbName) {
+      await runWithTenantContext(tenantDbName, write);
+    } else {
+      await write();
+    }
 
     return {
       provider,

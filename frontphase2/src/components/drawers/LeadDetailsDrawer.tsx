@@ -260,6 +260,8 @@ interface LeadDetailsDrawerProps {
   lead: Lead | null;
   /** When true, drawer opens in "Add Lead" mode (no lead selected) */
   addLeadMode?: boolean;
+  /** Controls whether the drawer should immediately open in edit mode */
+  initialMode?: 'view' | 'edit';
   onClose: () => void;
   /** Called when user submits the Add Lead form */
   onAddLead?: (data: AddLeadFormData, createdLead?: BackendLead) => void;
@@ -319,6 +321,7 @@ const FieldRowDateTime = ({ label, value }: { label: string; value: string | nul
 export function LeadDetailsDrawer({
   lead,
   addLeadMode = false,
+  initialMode = 'view',
   onClose,
   onAddLead,
   onUpdateLead,
@@ -337,6 +340,16 @@ export function LeadDetailsDrawer({
   useEffect(() => {
     if (addLeadMode) setActiveTab('add');
   }, [addLeadMode]);
+
+  useEffect(() => {
+    if (addLeadMode || !lead) return;
+    if (initialMode === 'edit') {
+      startOverviewEdit();
+      return;
+    }
+    setOverviewEditMode(false);
+    setOverviewEditErrors({});
+  }, [addLeadMode, initialMode, lead?.id]);
 
   const [addLeadForm, setAddLeadForm] = useState<AddLeadFormData>({
     // Company Information

@@ -421,16 +421,16 @@ export default function DashboardPage() {
     const s = candidateStats;
     if (!s) return [];
     const defs = [
-      { label: 'All', count: s.all },
-      { label: 'Applied', count: s.applied },
-      { label: 'Longlist', count: s.longlist },
-      { label: 'Shortlist', count: s.shortlist },
-      { label: 'Screening', count: s.screening },
-      { label: 'Submitted', count: s.submitted },
-      { label: 'Interviewing', count: s.interviewing },
-      { label: 'Offered', count: s.offered },
-      { label: 'Hired', count: s.hired },
-      { label: 'Rejected', count: s.rejected },
+      { id: 'all', label: 'All', count: s.all },
+      { id: 'applied', label: 'Applied', count: s.applied },
+      { id: 'longlist', label: 'Longlist', count: s.longlist },
+      { id: 'shortlist', label: 'Shortlist', count: s.shortlist },
+      { id: 'screening', label: 'Screening', count: s.screening },
+      { id: 'submitted', label: 'Submitted', count: s.submitted },
+      { id: 'interviewing', label: 'Interviewing', count: s.interviewing },
+      { id: 'offered', label: 'Offered', count: s.offered },
+      { id: 'hired', label: 'Hired', count: s.hired },
+      { id: 'rejected', label: 'Rejected', count: s.rejected },
     ];
     return defs.map((d, i) => ({
       ...d,
@@ -596,21 +596,21 @@ export default function DashboardPage() {
       </div>
 
       {/* Pipeline */}
-      <Link
-        href="/pipeline"
-        aria-label="Open candidate pipeline page"
-        className="block overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm outline-none ring-offset-2 transition-all hover:border-blue-200 hover:shadow-md focus-visible:ring-2 focus-visible:ring-blue-500"
-      >
+      <div className="block overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm outline-none ring-offset-2 transition-all hover:border-blue-200 hover:shadow-md focus-visible:ring-2 focus-visible:ring-blue-500">
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <h3 className="text-xs font-bold uppercase tracking-widest text-slate-500">Candidate pipeline (stages)</h3>
-          <span className="text-[10px] font-bold text-slate-400">From candidate stats API · Click to open pipeline</span>
+          <Link href="/candidate" className="text-[10px] font-bold text-slate-400 hover:text-blue-600">
+            Open candidate page
+          </Link>
         </div>
         <div className="p-5 sm:p-6">
           <div className="grid w-full grid-flow-col auto-cols-fr gap-2">
             {pipelineStages.map((stage) => (
-              <div
-                key={stage.label}
+              <Link
+                key={stage.id}
+                href={`/candidate${stage.id === 'all' ? '' : `?stage=${stage.id}`}`}
                 className={`flex min-w-0 flex-col items-center rounded-xl border px-2 py-2.5 text-center transition-all hover:shadow-md ${stage.color}`}
+                aria-label={`Open candidate page for ${stage.label}`}
               >
                 <span
                   className="mb-1 w-full truncate text-[9px] font-black uppercase leading-tight tracking-widest opacity-70"
@@ -619,11 +619,11 @@ export default function DashboardPage() {
                   {stage.label}
                 </span>
                 <span className="text-[15px] font-black leading-none sm:text-base">{formatCount(stage.count)}</span>
-              </div>
+              </Link>
             ))}
           </div>
         </div>
-      </Link>
+      </div>
 
       {/* Charts */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">

@@ -9,6 +9,7 @@ import {
   RefreshCcw, 
   ChevronDown, 
   Eye, 
+  Pencil,
   UserPlus, 
   FileText, 
   BrainCircuit, 
@@ -137,6 +138,7 @@ interface PipelineSnapshotProps {
 interface JobsListViewProps {
   jobs: Job[];
   onJobClick?: (job: Job) => void;
+  onEditJob?: (job: Job) => void;
   onAddCandidate?: (job: Job) => void;
   onDeleteJob?: (jobId: string, jobTitle: string) => Promise<void>;
   deletingJobId?: string | null;
@@ -205,7 +207,7 @@ const PipelineSnapshot = ({ applied, interviewed, offered, joined }: PipelineSna
   </div>
 );
 
-const JobsListView = ({ jobs, onJobClick, onAddCandidate, onDeleteJob, deletingJobId, canUpdateJob, canDeleteJob, canAddCandidate, statusEdit, onStatusChange, onRemarkChange, onSaveStatusEdit, onCancelStatusEdit }: JobsListViewProps) => (
+const JobsListView = ({ jobs, onJobClick, onEditJob, onAddCandidate, onDeleteJob, deletingJobId, canUpdateJob, canDeleteJob, canAddCandidate, statusEdit, onStatusChange, onRemarkChange, onSaveStatusEdit, onCancelStatusEdit }: JobsListViewProps) => (
   <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
     <table className="w-full text-left border-collapse">
       <thead className="bg-gray-50 sticky top-0 z-10">
@@ -225,8 +227,7 @@ const JobsListView = ({ jobs, onJobClick, onAddCandidate, onDeleteJob, deletingJ
         {jobs.map((job) => (
           <tr
             key={job.id}
-            onClick={() => onJobClick?.(job)}
-            className="hover:bg-gray-50/50 transition-colors group cursor-pointer"
+            className="hover:bg-gray-50/50 transition-colors group"
           >
             <td className="p-4" onClick={(e) => e.stopPropagation()}>
               <input type="checkbox" className="rounded border-gray-300" />
@@ -234,9 +235,16 @@ const JobsListView = ({ jobs, onJobClick, onAddCandidate, onDeleteJob, deletingJ
             <td className="p-4">
               <div className="flex flex-col">
                 <div className="flex items-center gap-2">
-                  <span className="font-semibold text-gray-900">{job.title}</span>
+                  <button
+                    type="button"
+                    onClick={() => onJobClick?.(job)}
+                    className="font-semibold text-gray-900 text-left hover:text-blue-600 transition-colors"
+                    title="View job details"
+                  >
+                    {job.title}
+                  </button>
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <FileText size={14} className="text-gray-400 hover:text-blue-600 cursor-pointer" onClick={(e) => { e.stopPropagation(); onJobClick?.(job); }} />
+                    <FileText size={14} className="text-gray-400 cursor-default" />
                     <BrainCircuit size={14} className="text-purple-400 hover:text-purple-600 cursor-pointer" />
                   </div>
                 </div>
@@ -315,6 +323,14 @@ const JobsListView = ({ jobs, onJobClick, onAddCandidate, onDeleteJob, deletingJ
               <div className="flex items-center justify-end gap-1">
                 <button type="button" onClick={() => onJobClick?.(job)} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-blue-600 transition-colors" title="Preview job">
                   <Eye size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onEditJob?.(job)}
+                  className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-amber-600 transition-colors"
+                  title="Edit job"
+                >
+                  <Pencil size={16} />
                 </button>
                 {canAddCandidate && (
                   <button
@@ -1595,6 +1611,10 @@ export default function JobsPage() {
                   <JobsListView 
                     jobs={jobs} 
                     onJobClick={openJobDrawer} 
+                    onEditJob={canUpdateJob ? (job) => {
+                      setEditingJobId(job.id);
+                      setEditJobDrawerOpen(true);
+                    } : undefined}
                     onAddCandidate={handleAddCandidateForJob}
                     onDeleteJob={canDeleteJob ? handleDeleteJob : undefined} 
                     deletingJobId={deletingJobId}

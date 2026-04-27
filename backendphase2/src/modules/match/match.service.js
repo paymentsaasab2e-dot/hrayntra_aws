@@ -153,8 +153,7 @@ function mapSubmittedHistory(activities, jobId) {
 function getClientRecipients(client) {
   const contacts = Array.isArray(client?.contacts) ? client.contacts : [];
   const contactsWithEmail = contacts.filter((contact) => contact?.email);
-  const primaryContacts = contactsWithEmail.filter((contact) => contact.isPrimary);
-  const recipients = (primaryContacts.length ? primaryContacts : contactsWithEmail).map((contact) => contact.email);
+  const recipients = contactsWithEmail.map((contact) => contact.email);
   return [...new Set(recipients)];
 }
 
@@ -447,16 +446,14 @@ export const matchService = {
               include: {
                 contacts: {
                   where: {
-                    type: 'CLIENT',
-                    email: { not: null },
+                    contactType: 'CLIENT',
                   },
                   select: {
                     email: true,
                     firstName: true,
                     lastName: true,
-                    isPrimary: true,
                   },
-                  orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+                  orderBy: [{ createdAt: 'asc' }],
                 },
               },
             },
@@ -687,16 +684,14 @@ export const matchService = {
               include: {
                 contacts: {
                   where: {
-                    type: 'CLIENT',
-                    email: { not: null },
+                    contactType: 'CLIENT',
                   },
                   select: {
                     email: true,
                     firstName: true,
                     lastName: true,
-                    isPrimary: true,
                   },
-                  orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+                  orderBy: [{ createdAt: 'asc' }],
                 },
               },
             },

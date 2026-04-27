@@ -1,5 +1,6 @@
 import { env } from '../../config/env.js';
 import { prisma } from '../../config/prisma.js';
+import { getActiveTenantDbName } from '../../config/prisma.js';
 import { sendResponse } from '../../utils/response.js';
 import { createOAuthState, verifyOAuthState } from '../../utils/oauth-state.js';
 import { oauthTokenService } from './oauth-token.service.js';
@@ -24,6 +25,7 @@ export const googleOAuthController = {
     const state = createOAuthState({
       userId: req.user.id,
       service: 'google',
+      tenantDbName: getActiveTenantDbName(),
       extraScopes: [mode],
     });
     const params = new URLSearchParams({
@@ -85,7 +87,7 @@ export const googleOAuthController = {
       await oauthTokenService.setGoogleEmail(userId, email);
 
       return res.redirect(
-        `${frontend}/setting?section=communication&connected=google&email=${encodeURIComponent(email)}`
+        `${frontend}/setting?section=communication&integration_connected=google&email=${encodeURIComponent(email)}`
       );
     } catch {
       return fail('google_failed');

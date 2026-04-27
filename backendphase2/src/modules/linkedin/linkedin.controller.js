@@ -1,6 +1,7 @@
 import { sendResponse, sendError } from '../../utils/response.js';
 import { linkedinService } from './linkedin.service.js';
 import { env } from '../../config/env.js';
+import { getActiveTenantDbName, runWithTenantContext } from '../../config/prisma.js';
 import crypto from 'crypto';
 
 export const linkedinController = {
@@ -20,7 +21,8 @@ export const linkedinController = {
       authUrl.searchParams.set('redirect_uri', env.LINKEDIN_REDIRECT_URI);
       authUrl.searchParams.set('scope', 'openid profile email w_member_social');
       // Encode userId in state for callback
-      const stateWithUserId = `${state}:${req.user.id}`;
+      const tenantDbName = String(getActiveTenantDbName() || '').trim();
+      const stateWithUserId = `${state}:${req.user.id}:${tenantDbName}`;
       authUrl.searchParams.set('state', stateWithUserId);
 
       // Log OAuth initiation to terminal
@@ -54,9 +56,11 @@ export const linkedinController = {
       // Handle URL-encoded state parameter
       const decodedState = decodeURIComponent(state || '');
       let finalUserId = null;
+      let callbackTenantDbName = '';
       if (decodedState && decodedState.includes(':')) {
         const parts = decodedState.split(':');
-        finalUserId = parts[parts.length - 1]; // Get last part (userId)
+        finalUserId = parts.length >= 2 ? parts[parts.length - 2] : null;
+        callbackTenantDbName = parts.length >= 3 ? parts[parts.length - 1] : '';
       }
 
       if (!finalUserId) {
@@ -102,15 +106,21 @@ export const linkedinController = {
       const { sub, name, email, picture } = userInfo;
 
       // Save token to database
-      await linkedinService.saveToken(
-        finalUserId,
-        sub,
-        access_token,
-        expires_in,
-        name,
-        picture,
-        email || null
-      );
+      const save = () =>
+        linkedinService.saveToken(
+          finalUserId,
+          sub,
+          access_token,
+          expires_in,
+          name,
+          picture,
+          email || null
+        );
+      if (callbackTenantDbName) {
+        await runWithTenantContext(callbackTenantDbName, save);
+      } else {
+        await save();
+      }
 
       // Log successful connection to terminal
       console.log('\n✅ LinkedIn Account Connected Successfully!');

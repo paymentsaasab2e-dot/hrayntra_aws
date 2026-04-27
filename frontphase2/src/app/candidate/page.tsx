@@ -541,6 +541,7 @@ function CandidatesPageContent() {
   });
   const [selectedCandidateProfile, setSelectedCandidateProfile] = useState<CandidateProfileDrawerData | null>(null);
   const [candidateDrawerOpen, setCandidateDrawerOpen] = useState(false);
+  const [candidateDrawerMode, setCandidateDrawerMode] = useState<'view' | 'edit'>('view');
   const [candidateEditOpenToken, setCandidateEditOpenToken] = useState<number | null>(null);
   const [loadingCandidateProfile, setLoadingCandidateProfile] = useState(false);
   const [availableDrawerTags, setAvailableDrawerTags] = useState<CandidateTagItem[]>([]);
@@ -561,6 +562,7 @@ function CandidatesPageContent() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [totalEntries, setTotalEntries] = useState(0);
+  const [stageStatsRefreshTick, setStageStatsRefreshTick] = useState(0);
 
   const [inlineStageOptionsByJobId, setInlineStageOptionsByJobId] = useState<
     Record<string, Array<{ id: string; name: string }>>
@@ -744,8 +746,7 @@ function CandidatesPageContent() {
 
   // Refresh stats when candidates are updated
   const refreshStats = useCallback(() => {
-    // Stats will be refreshed by StageTabs component
-    // This is just a placeholder for future use if needed
+    setStageStatsRefreshTick((current) => current + 1);
   }, []);
 
   // Update URL params when filters or stage change
@@ -949,6 +950,7 @@ function CandidatesPageContent() {
 
         await loadCandidates({ silent: true });
         refreshStats();
+        setStageStatsRefreshTick((current) => current + 1);
         toast.success(`Stage updated to ${nextStageName}`);
       } catch (error: any) {
         console.error('Failed to update candidate stage from table:', error);
@@ -1049,6 +1051,7 @@ function CandidatesPageContent() {
       setSelectedIds([]);
       await loadCandidates({ silent: true });
       refreshStats();
+      setStageStatsRefreshTick((current) => current + 1);
     } catch (moveError: any) {
       console.error('Failed to move candidates to stage:', moveError);
       toast.error(moveError?.message || 'Failed to move candidates');
@@ -1098,6 +1101,8 @@ function CandidatesPageContent() {
   );
 
   const handleViewProfile = async (candidate: Candidate) => {
+    setCandidateDrawerMode('view');
+    setCandidateEditOpenToken(null);
     setCandidateDrawerOpen(true);
     setLoadingCandidateProfile(true);
 
@@ -1143,6 +1148,7 @@ function CandidatesPageContent() {
 
   const handleEditCandidate = async (candidate: Candidate) => {
     const editToken = Date.now();
+    setCandidateDrawerMode('edit');
     setCandidateEditOpenToken(editToken);
     setCandidateDrawerOpen(true);
     setLoadingCandidateProfile(true);
@@ -1190,6 +1196,19 @@ function CandidatesPageContent() {
     }
   };
 
+  const handleWhatsAppCandidate = useCallback((candidate: Candidate) => {
+    const rawPhone = String(candidate.phone || '').trim();
+    const phoneDigits = rawPhone.replace(/\D/g, '');
+
+    if (!phoneDigits) {
+      toast.error(`No phone number found for ${candidate.name}.`);
+      return;
+    }
+
+    const whatsappUrl = `https://wa.me/${phoneDigits}`;
+    window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+  }, []);
+
   return (
     <div className="w-full min-h-screen bg-gray-50 font-sans text-gray-900">
       <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
@@ -1201,8 +1220,9 @@ function CandidatesPageContent() {
             onStageChange={(stage) => {
               setActiveStage(stage);
               setFilters((prev) => ({ ...prev, status: stage === 'all' ? '' : stage }));
+              setStageStatsRefreshTick((current) => current + 1);
             }}
-            refreshTrigger={candidates.length}
+            refreshTrigger={stageStatsRefreshTick}
           />
 
           {/* Content Body */}
@@ -1382,6 +1402,7 @@ function CandidatesPageContent() {
                   onToggleSelect={handleToggleSelect}
                   onToggleSelectAll={handleToggleSelectAll}
                   onViewProfile={handleViewProfile}
+                  onWhatsAppCandidate={handleWhatsAppCandidate}
                   onEditCandidate={handleEditCandidate}
                   onDeleteCandidate={canDeleteCandidate ? handleDeleteCandidate : undefined}
                   deletingCandidateId={deletingCandidateId}
@@ -1646,6 +1667,7 @@ function CandidatesPageContent() {
       ) : null}
 
       <CandidateProfileDrawer
+        key={`${selectedCandidateProfile?.id || 'candidate'}-${candidateDrawerMode}`}
         isOpen={candidateDrawerOpen}
         currentUser={currentDrawerUser}
         availableTags={availableDrawerTags}
@@ -1664,6 +1686,7 @@ function CandidatesPageContent() {
         onClose={() => {
           setCandidateDrawerOpen(false);
           setSelectedCandidateProfile(null);
+          setCandidateDrawerMode('view');
           setCandidateEditOpenToken(null);
         }}
         onAction={(action, candidate) => {

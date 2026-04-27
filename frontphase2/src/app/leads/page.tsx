@@ -7,6 +7,7 @@ import {
   Search,
   Filter,
   Eye,
+  Pencil,
   UserPlus,
   CheckCircle,
   XCircle,
@@ -340,6 +341,7 @@ export default function RecruitmentAgencyDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  const [selectedLeadDrawerMode, setSelectedLeadDrawerMode] = useState<'view' | 'edit'>('view');
   const [addLeadDrawerOpen, setAddLeadDrawerOpen] = useState(false);
   const [importDrawerOpen, setImportDrawerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -1231,7 +1233,7 @@ export default function RecruitmentAgencyDashboard() {
                         filteredLeads.map((lead) => (
                           <tr
                             key={lead.id}
-                            className={`group cursor-pointer transition-colors ${
+                            className={`group transition-colors ${
                               highlightedRows.includes(lead.id)
                                 ? 'bg-yellow-50 hover:bg-yellow-50'
                                 : selectedLeadIds.includes(lead.id)
@@ -1240,7 +1242,6 @@ export default function RecruitmentAgencyDashboard() {
                                     ? 'bg-blue-50/50 hover:bg-blue-50/60'
                                     : 'hover:bg-blue-50/50'
                             }`}
-                            onClick={() => setSelectedLeadId(lead.id)}
                           >
                             <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
                               <SelectionCheckbox
@@ -1250,7 +1251,16 @@ export default function RecruitmentAgencyDashboard() {
                             </td>
                             <td className="px-6 py-4">
                               <div className="flex flex-col">
-                                <span className="text-sm font-semibold text-slate-900">{lead.companyName}</span>
+                                <button
+                                  type="button"
+                                  className="text-left text-sm font-semibold text-slate-900 hover:text-blue-700 hover:underline"
+                                  onClick={() => {
+                                    setSelectedLeadDrawerMode('view');
+                                    setSelectedLeadId(lead.id);
+                                  }}
+                                >
+                                  {lead.companyName}
+                                </button>
                                 <span className="text-xs text-slate-500">{lead.type}</span>
                               </div>
                             </td>
@@ -1336,8 +1346,25 @@ export default function RecruitmentAgencyDashboard() {
                             </td>
                             <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
                               <div className="flex items-center justify-end gap-1">
-                                <button className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md" title="View Details" onClick={() => setSelectedLeadId(lead.id)}>
+                                <button
+                                  className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md"
+                                  title="View Details"
+                                  onClick={() => {
+                                    setSelectedLeadDrawerMode('view');
+                                    setSelectedLeadId(lead.id);
+                                  }}
+                                >
                                   <Eye size={18} />
+                                </button>
+                                <button
+                                  className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-md"
+                                  title="Edit Lead"
+                                  onClick={() => {
+                                    setSelectedLeadDrawerMode('edit');
+                                    setSelectedLeadId(lead.id);
+                                  }}
+                                >
+                                  <Pencil size={18} />
                                 </button>
                                 {canConvertLead && (
                                   <button
@@ -1393,8 +1420,10 @@ export default function RecruitmentAgencyDashboard() {
           <LeadDetailsDrawer
             lead={selectedLead ?? null}
             addLeadMode={addLeadDrawerOpen}
+            initialMode={selectedLeadDrawerMode}
             onClose={() => {
               setSelectedLeadId(null);
+              setSelectedLeadDrawerMode('view');
               setAddLeadDrawerOpen(false);
             }}
             onAddLead={async (_data, createdLead) => {

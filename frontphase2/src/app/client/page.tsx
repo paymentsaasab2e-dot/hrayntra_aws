@@ -204,6 +204,7 @@ export default function App() {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [selectedClients, setSelectedClients] = useState<string[]>([]);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [selectedClientDrawerMode, setSelectedClientDrawerMode] = useState<'view' | 'edit'>('view');
   const [showAddClientDrawer, setShowAddClientDrawer] = useState(false);
   const [showCreateJobDrawer, setShowCreateJobDrawer] = useState(false);
   const [clientIdForJob, setClientIdForJob] = useState<string | null>(null);
@@ -460,7 +461,14 @@ export default function App() {
               clients={filteredClients}
               selectedIds={selectedClients}
               onSelectionChange={setSelectedClients}
-              onSelectClient={setSelectedClient}
+              onSelectClient={(client) => {
+                setSelectedClientDrawerMode('view');
+                setSelectedClient(client);
+              }}
+              onEditClient={(client) => {
+                setSelectedClientDrawerMode('edit');
+                setSelectedClient(client);
+              }}
               onDeleteClient={handleDeleteClient}
               onLogoUpdated={handleRefresh}
               onCreateJob={(client) => {
@@ -486,7 +494,8 @@ export default function App() {
       <ClientDetailsDrawer
         client={selectedClient}
         isAddMode={showAddClientDrawer}
-        onClose={() => { setSelectedClient(null); setShowAddClientDrawer(false); }}
+        initialMode={selectedClientDrawerMode}
+        onClose={() => { setSelectedClient(null); setSelectedClientDrawerMode('view'); setShowAddClientDrawer(false); }}
         onDelete={(id) => { setSelectedClient(null); handleDeleteClient(id); }}
         onClientCreated={() => {
           setShowAddClientDrawer(false);

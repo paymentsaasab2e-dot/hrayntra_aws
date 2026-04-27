@@ -1,36 +1,16 @@
 'use client';
 
-import React, { Suspense, useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import nextDynamic from 'next/dynamic';
 import { Plus } from 'lucide-react';
+import { Toaster } from 'sonner';
 import { usePermissions } from '../../hooks/usePermissions';
-
-const MembersTab = nextDynamic(
-  () => import('../../components/team/tabs/MembersTab').then((m) => m.MembersTab),
-  { ssr: false }
-);
-const RolesTab = nextDynamic(
-  () => import('../../components/team/tabs/RolesTab').then((m) => m.RolesTab),
-  { ssr: false }
-);
-const DepartmentsTab = nextDynamic(
-  () => import('../../components/team/tabs/DepartmentsTab').then((m) => m.DepartmentsTab),
-  { ssr: false }
-);
-const TargetsTab = nextDynamic(
-  () => import('../../components/team/tabs/TargetsTab').then((m) => m.TargetsTab),
-  { ssr: false }
-);
-const CredentialsTab = nextDynamic(
-  () => import('../../components/team/tabs/CredentialsTab').then((m) => m.CredentialsTab),
-  { ssr: false }
-);
-
-const AddMemberDrawer = nextDynamic(
-  () => import('../../components/team/AddMemberDrawer').then((m) => m.AddMemberDrawer),
-  { ssr: false }
-);
+import { MembersTab } from '../../components/team/tabs/MembersTab';
+import { RolesTab } from '../../components/team/tabs/RolesTab';
+import { DepartmentsTab } from '../../components/team/tabs/DepartmentsTab';
+import { TargetsTab } from '../../components/team/tabs/TargetsTab';
+import { CredentialsTab } from '../../components/team/tabs/CredentialsTab';
+import { AddMemberDrawer } from '../../components/team/AddMemberDrawer';
 
 export const dynamic = 'force-dynamic';
 
@@ -104,6 +84,7 @@ function TeamPageContent() {
 
   return (
     <div className="min-h-screen bg-[#f8fafc] font-sans">
+      <Toaster position="top-right" richColors />
       <div className="p-8 space-y-6">
         {/* Part 1: Page Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -196,9 +177,5 @@ function TeamPageContent() {
 }
 
 export default function TeamPage() {
-  return (
-    <Suspense fallback={<div className="min-h-screen bg-[#F8F9FB] flex items-center justify-center text-gray-500">Loading team...</div>}>
-      <TeamPageContent />
-    </Suspense>
-  );
+  return <TeamPageContent />;
 }
