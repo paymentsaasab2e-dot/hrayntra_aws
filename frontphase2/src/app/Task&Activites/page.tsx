@@ -961,7 +961,8 @@ export default function App() {
           {/* Main Content */}
           {view === 'list' ? (
             <div className="bg-white border border-gray-200 rounded-xl shadow-sm mt-6 overflow-hidden">
-              <table className="w-full text-left">
+              <div className="overflow-x-auto">
+              <table className="w-full min-w-[1180px] text-left">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50/50">
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Task Title</th>
@@ -1089,6 +1090,7 @@ export default function App() {
                   )}
                 </tbody>
               </table>
+              </div>
               <div className="flex items-center justify-between gap-4 border-t border-[#E5E7EB] px-5 py-4">
                 <PaginationAll
                   initialPage={currentPage}
