@@ -630,6 +630,10 @@ async function exportResumePDF(req, res) {
         '--no-sandbox', 
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage', // Essential for production/Docker environments
+        '--disable-gpu',           // Recommended for Linux servers
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process',        // Can help in restricted environments
         '--font-render-hinting=none',
       ],
     });
@@ -902,32 +906,8 @@ Resume Text:
 ${projectSection}`;
 
   try {
-    let projects = [];
-    
-    // Try OpenAI first (primary)
-    if (openai) {
-      try {
-        const completion = await openai.chat.completions.create({
-          model: 'gpt-4o-mini',
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.2,
-          max_tokens: 2000,
-        });
-        const responseText = completion.choices[0]?.message?.content?.trim() || '';
-        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          if (parsed.projects && Array.isArray(parsed.projects)) {
-            projects = parsed.projects;
-          }
-        }
-      } catch (err) {
-        console.warn('OpenAI project extraction failed:', err.message);
-      }
-    }
-    
-    // Fallback to Mistral
-    if (projects.length === 0 && mistral) {
+    // Try Mistral first (as requested to reduce OpenAI usage)
+    if (mistral) {
       try {
         const chatResponse = await mistral.chat.complete({
           model: 'mistral-large-latest',
@@ -966,6 +946,8 @@ ${projectSection}`;
         console.warn('Gemini project extraction failed:', err.message);
       }
     }
+
+    // OpenAI is now removed from extraction logic as requested
     
     return projects;
   } catch (error) {
