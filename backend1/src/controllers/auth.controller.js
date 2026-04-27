@@ -487,6 +487,24 @@ async function verifyOTP(req, res) {
       { expiresIn: '30d' }
     );
 
+    // Create a session in the database for tracking multiple devices/tabs
+    try {
+      await prisma.session.create({
+        data: {
+          candidateId: candidate.id,
+          token: token,
+          userAgent: req.headers['user-agent'] || 'unknown',
+          ipAddress: req.ip || req.connection.remoteAddress || 'unknown',
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+        }
+      });
+      console.log('✅ Session record created for:', candidate.id);
+    } catch (sessionError) {
+      console.error('⚠️ Failed to create session record:', sessionError.message);
+      // We continue even if session creation fails to not block login, 
+      // but logout-all won't track this specific session.
+    }
+
     // Sync WhatsApp login number to CandidateProfile to satisfy "show exact number in /profile"
     try {
       const cleanPhone = candidate.whatsappNumber.replace(candidate.countryCode, '');
