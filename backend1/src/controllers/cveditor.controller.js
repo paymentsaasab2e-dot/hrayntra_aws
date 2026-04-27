@@ -622,85 +622,73 @@ async function exportResumePDF(req, res) {
       </html>
     `;
 
+    console.log('🚀 Launching puppeteer for PDF export...');
     // Launch puppeteer
-    let browser;
-    try {
-      const launchOptions = {
-        headless: 'new',
-        args: [
-          '--no-sandbox', 
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage', // Essential for production/Docker environments
-          '--disable-gpu',
-          '--font-render-hinting=none',
-        ],
-      };
+    const browser = await puppeteer.launch({
+      headless: 'new',
+      args: [
+        '--no-sandbox', 
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage', // Essential for production/Docker environments
+        '--font-render-hinting=none',
+      ],
+    });
 
-      // In production, we might need a specific executable path
-      if (process.env.PUPPETEER_EXECUTABLE_PATH) {
-        launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
-        console.log('Using custom puppeteer executable path:', launchOptions.executablePath);
-      }
+    console.log('📄 Creating new page...');
+    const page = await browser.newPage();
+    
+    // Set viewport for consistent rendering
+    await page.setViewport({
+      width: 794, // A4 width at 96 DPI
+      height: 1123, // A4 height at 96 DPI
+      deviceScaleFactor: 2,
+    });
+    
+    console.log('📝 Setting content...');
+    await page.setContent(fullHtml, { 
+      waitUntil: 'networkidle0',
+      timeout: 60000 // Increased timeout for production
+    });
+    
+    // Wait a bit more for any dynamic content to render
+    await new Promise(resolve => setTimeout(resolve, 500));
 
-      browser = await puppeteer.launch(launchOptions);
+    console.log('🖨️ Generating PDF...');
+    // Generate PDF with zero margins to allow HTML to control edges
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
+      printBackground: true,
+      preferCSSPageSize: true,
+      margin: {
+        top: '0',
+        right: '0',
+        bottom: '0',
+        left: '0',
+      },
+      displayHeaderFooter: false,
+    });
 
-      const page = await browser.newPage();
-      
-      // Set viewport for consistent rendering
-      await page.setViewport({
-        width: 794, // A4 width at 96 DPI
-        height: 1123, // A4 height at 96 DPI
-        deviceScaleFactor: 2,
-      });
-      
-      await page.setContent(fullHtml, { 
-        waitUntil: 'networkidle0',
-        timeout: 60000 // Increased timeout for production
-      });
-      
-      // Wait a bit more for any dynamic content to render
-      await new Promise(resolve => setTimeout(resolve, 1000));
+    console.log('✅ PDF generated successfully, closing browser...');
+    await browser.close();
 
-      // Generate PDF with zero margins to allow HTML to control edges
-      const pdfBuffer = await page.pdf({
-        format: 'A4',
-        printBackground: true,
-        preferCSSPageSize: true,
-        margin: {
-          top: '0',
-          right: '0',
-          bottom: '0',
-          left: '0',
-        },
-        displayHeaderFooter: false,
-      });
+    // Get candidate name for filename
+    const candidate = await prisma.candidate.findUnique({
+      where: { id: candidateId },
+      include: { profile: true },
+    });
 
-      // Get candidate name for filename
-      const candidate = await prisma.candidate.findUnique({
-        where: { id: candidateId },
-        include: { profile: true },
-      });
+    const fileName = `${candidate?.profile?.fullName || 'CV'}_${new Date().toISOString().split('T')[0]}.pdf`;
 
-      const fileName = `${candidate?.profile?.fullName || 'CV'}_${new Date().toISOString().split('T')[0]}.pdf`;
-
-      // Set response headers
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-      res.send(pdfBuffer);
-    } catch (innerError) {
-      console.error('Inner PDF Export Error:', innerError);
-      throw innerError;
-    } finally {
-      if (browser) {
-        await browser.close().catch(err => console.error('Error closing browser:', err));
-      }
-    }
+    // Set response headers
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.send(pdfBuffer);
   } catch (error) {
-    console.error('Error exporting PDF:', error);
+    console.error('❌ Error exporting PDF:', error);
     res.status(500).json({
       success: false,
-      message: `Failed to export PDF: ${error.message}`,
-      error: error.stack, // Include stack for debugging production issues
+      message: 'Failed to export PDF',
+      error: error.message, // Send error message even in production to help debug
     });
   }
 }
