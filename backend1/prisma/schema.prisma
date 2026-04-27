@@ -188,6 +188,7 @@ model Candidate {
 
   cvAnalysis        CvAnalysis?
   settings          Settings?
+  sessions          Session[]
 
   @@index([email])
   @@index([firstName, lastName])
@@ -232,6 +233,22 @@ model Settings {
   candidate           Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
 
   @@map("settings")
+}
+
+model Session {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  candidateId String   @db.ObjectId
+  token       String   @unique
+  userAgent   String?
+  ipAddress   String?
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  lastUsedAt  DateTime @default(now())
+
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([candidateId])
+  @@map("sessions")
 }
 
 // ============================================================

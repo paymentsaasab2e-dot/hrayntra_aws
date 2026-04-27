@@ -625,7 +625,12 @@ async function exportResumePDF(req, res) {
     // Launch puppeteer
     const browser = await puppeteer.launch({
       headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      args: [
+        '--no-sandbox', 
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage', // Essential for production/Docker environments
+        '--font-render-hinting=none',
+      ],
     });
 
     const page = await browser.newPage();
@@ -643,7 +648,7 @@ async function exportResumePDF(req, res) {
     });
     
     // Wait a bit more for any dynamic content to render
-    await page.waitForTimeout(500);
+    await new Promise(resolve => setTimeout(resolve, 500));
 
     // Generate PDF with zero margins to allow HTML to control edges
     const pdfBuffer = await page.pdf({

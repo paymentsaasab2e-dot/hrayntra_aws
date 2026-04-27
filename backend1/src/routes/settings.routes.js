@@ -1,6 +1,6 @@
 const { Router } = require('express');
-const {
-  getSettings,
+const { protect } = require('../middleware/auth.middleware');
+const {  getSettings,
   updateAccountSettings,
   updateNotificationSettings,
   updatePrivacySettings,
@@ -13,7 +13,7 @@ const {
 const router = Router();
 
 // Get all settings
-router.get('/:candidateId', getSettings);
+router.get('/:candidateId', protect, getSettings);
 
 // Update specific settings sections
 router.put('/account/:candidateId', updateAccountSettings);
@@ -23,7 +23,7 @@ router.put('/preferences/:candidateId', updatePreferences);
 router.put('/application/:candidateId', updateApplicationSettings);
 
 // Danger zone actions
-router.post('/logout-all/:candidateId', logoutAllSessions);
-router.delete('/account/:candidateId', deleteAccount);
+router.post('/logout-all/:candidateId', protect, logoutAllSessions);
+router.delete('/account/:candidateId', protect, deleteAccount);
 
 module.exports = router;
