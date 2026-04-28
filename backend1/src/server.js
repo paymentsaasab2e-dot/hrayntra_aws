@@ -23,20 +23,6 @@ const contactImportRoutes = require('./routes/contact-import.routes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-
-// Auto-install Puppeteer dependencies in production if running on Linux
-if (process.env.NODE_ENV === 'production' && process.platform === 'linux') {
-  const { exec } = require('child_process');
-  console.log('🔍 Production environment detected. Attempting to verify Puppeteer dependencies...');
-  exec('sh ./scripts/install-deps.sh', (err, stdout, stderr) => {
-    if (err) {
-      console.warn('⚠️ Auto-install of system dependencies failed. This is expected if not running as root.');
-      console.warn('Error detail:', err.message);
-    } else {
-      console.log('✅ System dependency check/installation completed.');
-    }
-  });
-}
 const DEFAULT_ALLOWED_ORIGINS = 'http://localhost:3000,http://localhost:3001,https://jobportal-himanshu.vercel.app,https://frontend1-nu-ten.vercel.app';
 const allowedOrigins = (process.env.FRONTEND_URLS || process.env.FRONTEND_URL || DEFAULT_ALLOWED_ORIGINS)
   .split(',')
