@@ -3,7 +3,6 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { Mistral } = require('@mistralai/mistralai');
 const Anthropic = require('@anthropic-ai/sdk');
 const OpenAI = require('openai');
-const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
 const pdfParse = require('pdf-parse');
@@ -622,77 +621,18 @@ async function exportResumePDF(req, res) {
       </html>
     `;
 
-    console.log('🚀 Launching puppeteer for PDF export...');
-    // Launch puppeteer
-    const browser = await puppeteer.launch({
-      headless: 'new',
-      args: [
-        '--no-sandbox', 
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage', // Essential for production/Docker environments
-        '--disable-gpu',           // Recommended for Linux servers
-        '--no-first-run',
-        '--no-zygote',
-        '--single-process',        // Can help in restricted environments
-        '--font-render-hinting=none',
-      ],
+    // Puppeteer export is removed to avoid production environment issues.
+    // Client-side export is now used in the frontend.
+    res.status(410).json({
+      success: false,
+      message: 'Server-side PDF export is deprecated. Please use client-side export.',
     });
-
-    console.log('📄 Creating new page...');
-    const page = await browser.newPage();
-    
-    // Set viewport for consistent rendering
-    await page.setViewport({
-      width: 794, // A4 width at 96 DPI
-      height: 1123, // A4 height at 96 DPI
-      deviceScaleFactor: 2,
-    });
-    
-    console.log('📝 Setting content...');
-    await page.setContent(fullHtml, { 
-      waitUntil: 'networkidle0',
-      timeout: 60000 // Increased timeout for production
-    });
-    
-    // Wait a bit more for any dynamic content to render
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    console.log('🖨️ Generating PDF...');
-    // Generate PDF with zero margins to allow HTML to control edges
-    const pdfBuffer = await page.pdf({
-      format: 'A4',
-      printBackground: true,
-      preferCSSPageSize: true,
-      margin: {
-        top: '0',
-        right: '0',
-        bottom: '0',
-        left: '0',
-      },
-      displayHeaderFooter: false,
-    });
-
-    console.log('✅ PDF generated successfully, closing browser...');
-    await browser.close();
-
-    // Get candidate name for filename
-    const candidate = await prisma.candidate.findUnique({
-      where: { id: candidateId },
-      include: { profile: true },
-    });
-
-    const fileName = `${candidate?.profile?.fullName || 'CV'}_${new Date().toISOString().split('T')[0]}.pdf`;
-
-    // Set response headers
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-    res.send(pdfBuffer);
   } catch (error) {
-    console.error('❌ Error exporting PDF:', error);
+    console.error('❌ Error in exportResumePDF route:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to export PDF',
-      error: error.message, // Send error message even in production to help debug
+      message: 'Failed to process export request',
+      error: error.message,
     });
   }
 }

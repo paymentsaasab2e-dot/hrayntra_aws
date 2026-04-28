@@ -1,6 +1,7 @@
 const OpenAI = require('openai');
 const Anthropic = require('@anthropic-ai/sdk');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const MistralClient = require('@mistralai/mistralai');
 
 /**
  * Returns an instance of OpenAI Client
@@ -26,6 +27,15 @@ function getGeminiClient() {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
   return new GoogleGenerativeAI(apiKey);
+}
+
+/**
+ * Returns an instance of Mistral Client
+ */
+function getMistralClient() {
+  const apiKey = process.env.MISTRAL_API_KEY;
+  if (!apiKey) return null;
+  return new MistralClient.Mistral({ apiKey });
 }
 
 /**
@@ -187,23 +197,34 @@ Return ONLY valid JSON with no markdown in this format:
   "badge": "AI PRIORITY"
 }`;
 
-  // Try Anthropic first
+  // Try Mistral first (Primary)
   try {
-    const anthropic = getAnthropicClient();
-    if (anthropic) {
-      const message = await anthropic.messages.create({
-        model: 'claude-3-haiku-20240307',
-        max_tokens: 400,
+    const mistral = getMistralClient();
+    if (mistral) {
+      const response = await mistral.chat.complete({
+        model: 'mistral-large-latest',
+        messages: [{ role: 'user', content: prompt }],
         temperature: 0.3,
-        messages: [{ role: 'user', content: prompt }]
       });
-      return extractJson(message.content[0].text);
+      return extractJson(response.choices[0].message.content);
     }
   } catch (e) {
-    console.warn('Anthropic failed, falling back to OpenAI...', e.message);
+    console.warn('Mistral failed for insight, trying Gemini...', e.message);
   }
 
-  // Fallback to OpenAI
+  // Try Gemini
+  try {
+    const gemini = getGeminiClient();
+    if (gemini) {
+      const model = gemini.getGenerativeModel({ model: 'gemini-1.5-flash' });
+      const result = await model.generateContent(prompt);
+      return extractJson(result.response.text());
+    }
+  } catch (e) {
+    console.warn('Gemini failed for insight, trying OpenAI...', e.message);
+  }
+
+  // Fallback to OpenAI (last resort due to quota issues)
   try {
     const openai = getOpenAIClient();
     if (openai) {
@@ -215,7 +236,7 @@ Return ONLY valid JSON with no markdown in this format:
       return extractJson(completion.choices[0].message.content);
     }
   } catch (e) {
-    console.error('OpenAI also failed:', e.message);
+    console.error('All AI providers failed for insight:', e.message);
   }
 
   return {
@@ -244,6 +265,35 @@ Return ONLY a JSON array of 3 objects in this format:
   }
 ]`;
 
+  // Try Mistral
+  try {
+    const mistral = getMistralClient();
+    if (mistral) {
+      const response = await mistral.chat.complete({
+        model: 'mistral-large-latest',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.4,
+      });
+      const result = extractJson(response.choices[0].message.content);
+      if (result) return result;
+    }
+  } catch (e) {
+    console.warn('Mistral failed for recommendations, trying Gemini...', e.message);
+  }
+
+  // Try Gemini
+  try {
+    const gemini = getGeminiClient();
+    if (gemini) {
+      const model = gemini.getGenerativeModel({ model: 'gemini-1.5-flash' });
+      const result = await model.generateContent(prompt);
+      const res = extractJson(result.response.text());
+      if (res) return res;
+    }
+  } catch (e) {
+    console.warn('Gemini failed for recommendations, trying OpenAI...', e.message);
+  }
+
   try {
     const openai = getOpenAIClient();
     if (openai) {
@@ -256,7 +306,7 @@ Return ONLY a JSON array of 3 objects in this format:
       if (result) return result;
     }
   } catch (e) {
-    console.error('AI Recommendations failed:', e.message);
+    console.error('AI Recommendations failed across all providers:', e.message);
   }
 
   return [
@@ -292,6 +342,35 @@ Each object should have:
 Generate 6-8 total steps.
 Return ONLY valid JSON.`;
 
+  // Try Gemini first (Good for long structured lists)
+  try {
+    const gemini = getGeminiClient();
+    if (gemini) {
+      const model = gemini.getGenerativeModel({ model: 'gemini-1.5-flash' });
+      const result = await model.generateContent(prompt);
+      const res = extractJson(result.response.text());
+      if (res) return res;
+    }
+  } catch (e) {
+    console.warn('Gemini failed for roadmap, trying Mistral...', e.message);
+  }
+
+  // Try Mistral
+  try {
+    const mistral = getMistralClient();
+    if (mistral) {
+      const response = await mistral.chat.complete({
+        model: 'mistral-large-latest',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.4,
+      });
+      const result = extractJson(response.choices[0].message.content);
+      if (result) return result;
+    }
+  } catch (e) {
+    console.warn('Mistral failed for roadmap, trying OpenAI...', e.message);
+  }
+
   try {
     const openai = getOpenAIClient();
     if (openai) {
@@ -304,7 +383,7 @@ Return ONLY valid JSON.`;
       if (result) return result;
     }
   } catch (e) {
-    console.error('AI Roadmap failed:', e.message);
+    console.error('AI Roadmap failed across all providers:', e.message);
     return [
       { id: 'f-1', title: 'Complete Professional Profile', phase: 'foundation', status: 'planned', targetType: 'career', targetRoute: '/lms/profile', reason: 'Foundational step for all career tracking.' },
       { id: 'f-2', title: 'Resume Strength Check', phase: 'foundation', status: 'planned', targetType: 'resume', targetRoute: '/lms/resume-builder', reason: 'Ensure your resume is ATS-ready.' }
@@ -326,6 +405,35 @@ async function generateDailyMomentum(userState, profileContext) {
       
       Return JSON: { items: [{ id: string, text: string, type: string, optional: boolean }] }
     `;
+
+    // Try Mistral
+    try {
+      const mistral = getMistralClient();
+      if (mistral) {
+        const response = await mistral.chat.complete({
+          model: 'mistral-large-latest',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.5,
+        });
+        const result = extractJson(response.choices[0].message.content);
+        if (result) return { title: "Today's focus", items: result.items || [] };
+      }
+    } catch (e) {
+      console.warn('Mistral failed for DailyMomentum, trying Gemini...', e.message);
+    }
+
+    // Try Gemini
+    try {
+      const gemini = getGeminiClient();
+      if (gemini) {
+        const model = gemini.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        const result = await model.generateContent(prompt);
+        const res = extractJson(result.response.text());
+        if (res) return { title: "Today's focus", items: res.items || [] };
+      }
+    } catch (e) {
+      console.warn('Gemini failed for DailyMomentum, trying OpenAI...', e.message);
+    }
 
     const openai = getOpenAIClient();
     if (openai) {
@@ -365,6 +473,22 @@ async function generateSharedIntelligence(userState, profileContext) {
       Example summary: "Reviewing your notes on React Hooks has triggered a quiz recommendation for tomorrow."
       Example flowLabel: "Notes → Quiz → Skill Boost"
     `;
+
+    // Try Mistral
+    try {
+      const mistral = getMistralClient();
+      if (mistral) {
+        const response = await mistral.chat.complete({
+          model: 'mistral-large-latest',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.5,
+        });
+        const result = extractJson(response.choices[0].message.content);
+        if (result) return result;
+      }
+    } catch (e) {
+      console.warn('Mistral failed for SharedIntelligence, trying Gemini...', e.message);
+    }
 
     const openai = getOpenAIClient();
     if (openai) {
