@@ -3,6 +3,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { Mistral } = require('@mistralai/mistralai');
 const Anthropic = require('@anthropic-ai/sdk');
 const OpenAI = require('openai');
+const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
 const pdfParse = require('pdf-parse');
@@ -621,17 +622,87 @@ async function exportResumePDF(req, res) {
       </html>
     `;
 
-    // Puppeteer export is removed to avoid production environment issues.
-    // Client-side export is now used in the frontend.
-    res.status(410).json({
-      success: false,
-      message: 'Server-side PDF export is deprecated. Please use client-side export.',
-    });
+    console.log('--------------------------------------------------');
+    console.log('🚀 [PDF EXPORT] Request received for Candidate:', candidateId);
+    console.log('📄 [PDF EXPORT] HTML Content Length:', resume_html?.length || 0);
+    
+    let browser;
+    try {
+      console.log('🌐 [PDF EXPORT] Launching Puppeteer...');
+      browser = await puppeteer.launch({
+        headless: 'new',
+        args: [
+          '--no-sandbox', 
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--no-first-run',
+          '--no-zygote',
+          '--single-process',
+          '--font-render-hinting=none',
+        ],
+      });
+      console.log('✅ [PDF EXPORT] Browser launched successfully');
+
+      console.log('📝 [PDF EXPORT] Creating new page...');
+      const page = await browser.newPage();
+      
+      console.log('🖼️ [PDF EXPORT] Setting viewport...');
+      await page.setViewport({
+        width: 794, 
+        height: 1123, 
+        deviceScaleFactor: 2,
+      });
+      
+      console.log('🖊️ [PDF EXPORT] Setting HTML content...');
+      await page.setContent(fullHtml, { 
+        waitUntil: 'networkidle0',
+        timeout: 60000 
+      });
+      
+      console.log('⏳ [PDF EXPORT] Waiting for render...');
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      console.log('🖨️ [PDF EXPORT] Generating PDF buffer...');
+      const pdfBuffer = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        preferCSSPageSize: true,
+        margin: { top: '0', right: '0', bottom: '0', left: '0' },
+        displayHeaderFooter: false,
+      });
+
+      console.log('✅ [PDF EXPORT] PDF buffer created (Size:', (pdfBuffer.length / 1024).toFixed(2), 'KB)');
+      
+      await browser.close();
+      console.log('🚪 [PDF EXPORT] Browser closed');
+
+      const candidate = await prisma.candidate.findUnique({
+        where: { id: candidateId },
+        select: { profile: { select: { fullName: true } } },
+      });
+
+      const fileName = candidate?.profile?.fullName 
+        ? `Resume_${candidate.profile.fullName.replace(/\s+/g, '_')}.pdf`
+        : 'Resume.pdf';
+
+      console.log('📤 [PDF EXPORT] Sending PDF to client:', fileName);
+      console.log('--------------------------------------------------');
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      res.send(pdfBuffer);
+    } catch (browserError) {
+      if (browser) await browser.close();
+      console.error('❌ [PDF EXPORT] Puppeteer Error:', browserError.message);
+      console.error('❌ [PDF EXPORT] Stack Trace:', browserError.stack);
+      throw browserError;
+    }
   } catch (error) {
-    console.error('❌ Error in exportResumePDF route:', error);
+    console.error('❌ [PDF EXPORT] Final Catch Error:', error.message);
     res.status(500).json({
       success: false,
-      message: 'Failed to process export request',
+      message: 'Failed to export PDF on server',
       error: error.message,
     });
   }
