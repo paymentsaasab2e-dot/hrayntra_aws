@@ -1,18 +1,21 @@
 #!/bin/bash
-# High-comprehensive Puppeteer dependency installer for AWS/Linux environments
+# Comprehensive Puppeteer dependency installer for Docker/AWS
 echo "--------------------------------------------------------"
 echo "🔍 STARTING SYSTEM DEPENDENCY CHECK FOR PUPPETEER"
 echo "--------------------------------------------------------"
+
+# Set non-interactive mode for apt
+export DEBIAN_FRONTEND=noninteractive
 
 # Check if we are on a Debian/Ubuntu system
 if [ -f /usr/bin/apt-get ]; then
   echo "📦 Detected Debian-based system. Updating packages..."
   
-  # Use -y for non-interactive and avoid some common lock issues
-  sudo apt-get update || apt-get update
+  # Removed sudo as Docker containers run as root
+  apt-get update
   
   echo "📥 Installing required shared libraries..."
-  sudo apt-get install -y \
+  apt-get install -y \
     ca-certificates \
     fonts-liberation \
     libasound2 \
@@ -56,7 +59,6 @@ if [ -f /usr/bin/apt-get ]; then
   echo "✅ Dependencies installation attempt completed."
 else
   echo "⚠️ apt-get not found. This might not be a Debian-based environment."
-  echo "Please ensure the following libraries are installed manually: libnss3, libatk, libgbm, libXfixes"
 fi
 
 echo "--------------------------------------------------------"
