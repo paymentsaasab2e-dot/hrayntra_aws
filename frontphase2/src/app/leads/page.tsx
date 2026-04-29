@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   Plus,
   Upload,
@@ -28,6 +28,7 @@ import PaginationAll from '../../components/PaginationAll';
 import type { Lead, LeadStatus, Priority } from './types';
 import {
   apiGetLeads,
+  apiGetLead,
   apiUpdateLead,
   apiDeleteLead,
   apiConvertLeadToClient,
@@ -35,8 +36,8 @@ import {
   type BackendLead,
   type BackendUser,
 } from '../../lib/api';
-import { useRouter } from 'next/navigation';
-import { toast } from 'sonner';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Toaster, toast } from 'sonner';
 import { splitDateTimeForDisplay } from '../../utils/formatLeadDateTime';
 import { usePermissions } from '../../hooks/usePermissions';
 import { requestError } from '../../lib/appDialog';
@@ -331,6 +332,7 @@ function buildLeadMetrics(leadList: Lead[]) {
 export default function RecruitmentAgencyDashboard() {
   const PAGE_SIZE = 10;
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { hasPermission, hasAnyPermission } = usePermissions();
   const canCreateLead = hasPermission('leads_create');
   const canUpdateLead = hasPermission('leads_update');
@@ -372,12 +374,52 @@ export default function RecruitmentAgencyDashboard() {
   });
   
   const selectedLead = leads.find(l => l.id === selectedLeadId);
+  const pendingDeepLinkLeadIdRef = useRef<string | null>(null);
 
   // Check authentication status on client side only
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
     setIsAuthenticated(!!token);
   }, []);
+
+  useEffect(() => {
+    const leadId = searchParams.get('leadId');
+    if (!leadId) {
+      pendingDeepLinkLeadIdRef.current = null;
+      return;
+    }
+    if (pendingDeepLinkLeadIdRef.current === leadId && selectedLeadId === leadId) {
+      return;
+    }
+    pendingDeepLinkLeadIdRef.current = leadId;
+
+    const existingLead = leads.find((lead) => lead.id === leadId);
+    if (existingLead) {
+      setSelectedLeadId(leadId);
+      setSelectedLeadDrawerMode('view');
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await apiGetLead(leadId);
+        if (cancelled) return;
+        const backendLead = (response as any).data?.data || (response as any).data || response;
+        if (!backendLead) return;
+        const mappedLead = mapBackendLeadToFrontend(backendLead);
+        mergeLeadOptimistically(mappedLead);
+        setSelectedLeadId(mappedLead.id);
+        setSelectedLeadDrawerMode('view');
+      } catch (err) {
+        console.error('Failed to open lead from search:', err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [leads, searchParams, selectedLeadId]);
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -758,10 +800,16 @@ export default function RecruitmentAgencyDashboard() {
   };
 
   const handleDeleteLead = async (id: string) => {
+    const leadToDelete = leads.find((lead) => lead.id === id);
     try {
       removeLeadOptimistically(id);
       await apiDeleteLead(id);
       await handleRefresh({ silent: true });
+      toast.success(
+        leadToDelete
+          ? `Lead "${leadToDelete.companyName}" deleted successfully`
+          : 'Lead deleted successfully'
+      );
       return true;
     } catch (err: any) {
       console.error('Failed to delete lead:', err);
@@ -820,9 +868,11 @@ export default function RecruitmentAgencyDashboard() {
   const executeBulkLeadDelete = async () => {
     try {
       setBulkActionLoading(true);
+      const deletedCount = selectedLeadIds.length;
       await Promise.all(selectedLeadIds.map((id) => apiDeleteLead(id)));
       clearBulkSelection();
       await handleRefresh({ silent: true });
+      toast.success(`Deleted ${deletedCount} lead${deletedCount === 1 ? '' : 's'} successfully`);
       return true;
     } catch (err: any) {
       console.error('Failed to bulk delete leads:', err);
@@ -1019,6 +1069,11 @@ export default function RecruitmentAgencyDashboard() {
 
   return (
     <div className="w-full min-h-screen bg-[#F8FAFC] overflow-hidden text-slate-900">
+      <Toaster
+        position="top-right"
+        richColors
+        style={{ top: '5rem' }}
+      />
       {/* Main Content */}
       <main className="flex flex-col overflow-hidden relative">
         {/* Header */}
@@ -1448,6 +1503,8 @@ export default function RecruitmentAgencyDashboard() {
                   replaceLeadOptimistically(mapBackendLeadToFrontend(updatedLead));
                 }
                 await handleRefresh({ silent: true });
+                setSelectedLeadId(null);
+                setSelectedLeadDrawerMode('view');
                 toast.success('Lead updated successfully');
               } catch (err: any) {
                 console.error('Failed to update lead:', err);
@@ -1475,9 +1532,23 @@ export default function RecruitmentAgencyDashboard() {
           <LeadImportDrawer
             isOpen={importDrawerOpen}
             onClose={() => setImportDrawerOpen(false)}
-            onImportComplete={async () => {
+            onImportComplete={async (result) => {
               setImportDrawerOpen(false);
               await handleRefresh({ silent: true });
+              const created = result.created || 0;
+              const updated = result.updated || 0;
+              const skipped = result.skipped || 0;
+              const failed = result.failed || 0;
+              const parts = [];
+              if (created > 0) parts.push(`${created} created`);
+              if (updated > 0) parts.push(`${updated} updated`);
+              if (skipped > 0) parts.push(`${skipped} skipped`);
+              if (failed > 0) parts.push(`${failed} failed`);
+              toast.success(
+                parts.length > 0
+                  ? `Leads imported successfully (${parts.join(', ')})`
+                  : 'Leads imported successfully'
+              );
             }}
           />
         )}

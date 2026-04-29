@@ -1,11 +1,12 @@
 'use client';
 
-import React, { Suspense, useState, useEffect, useMemo, useCallback } from 'react';
+import React, { Suspense, useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Plus, Upload, Download, CheckSquare, MoreVertical } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import {
   apiGetContacts,
+  apiGetContact,
   apiGetContactStats,
   apiDeleteContact,
   apiBulkActionContacts,
@@ -39,7 +40,8 @@ function ContactsPageContent() {
   const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false);
   const [isImportDrawerOpen, setIsImportDrawerOpen] = useState(false);
   const [isMergeDrawerOpen, setIsMergeDrawerOpen] = useState(false);
-  const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 0 });
+  const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 0 });
+  const pendingDeepLinkContactIdRef = useRef<string | null>(null);
 
   // Get filters from URL
   const filters = useMemo<ContactFilters>(() => {
@@ -53,7 +55,7 @@ function ContactsPageContent() {
       recentlyContacted: (searchParams.get('recentlyContacted') as '7d' | '30d' | 'all') || undefined,
       search: searchParams.get('search') || undefined,
       page: Number(searchParams.get('page')) || 1,
-      limit: Number(searchParams.get('limit')) || 20,
+      limit: Number(searchParams.get('limit')) || 10,
     };
   }, [searchParams]);
 
@@ -67,14 +69,17 @@ function ContactsPageContent() {
         apiGetContactStats(),
       ]);
 
-      const contactsData = contactsRes.data
-        ? Array.isArray(contactsRes.data)
-          ? contactsRes.data
-          : contactsRes.data.data || []
-        : [];
+      const contactsPayload = contactsRes?.data;
+      const contactsData = Array.isArray(contactsPayload)
+        ? contactsPayload
+        : (contactsPayload as any)?.data || [];
+      const contactsPagination = Array.isArray(contactsPayload)
+        ? contactsRes.pagination
+        : (contactsPayload as any)?.pagination || contactsRes.pagination;
+
       setContacts(contactsData);
-      if (contactsRes.pagination) {
-        setPagination(contactsRes.pagination);
+      if (contactsPagination) {
+        setPagination(contactsPagination);
       }
 
       if (statsRes.data) {
@@ -89,6 +94,35 @@ function ContactsPageContent() {
       }
     }
   }, [filters]);
+
+  useEffect(() => {
+    const contactId = searchParams.get('contactId');
+    if (!contactId) {
+      pendingDeepLinkContactIdRef.current = null;
+      return;
+    }
+    if (pendingDeepLinkContactIdRef.current === contactId && selectedContact?.id === contactId) {
+      return;
+    }
+    pendingDeepLinkContactIdRef.current = contactId;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await apiGetContact(contactId);
+        if (cancelled) return;
+        const backendContact = (response as any).data?.data || (response as any).data || response;
+        if (!backendContact) return;
+        setSelectedContact(backendContact);
+      } catch (error) {
+        console.error('Failed to open contact from search:', error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams, selectedContact?.id]);
 
   const contactMatchesFilters = useCallback(
     (contact: BackendContact) => {
@@ -355,7 +389,7 @@ function ContactsPageContent() {
           onEdit={handleEdit}
           onDelete={handleDelete}
           pagination={pagination}
-          onPageChange={(page) => updateFilters({ page })}
+          onPageChange={(page) => updateFilters({ page, limit: 10 })}
         />
       </div>
 

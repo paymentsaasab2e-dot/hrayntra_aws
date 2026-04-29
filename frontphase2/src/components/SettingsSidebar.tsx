@@ -1,14 +1,11 @@
 import React from 'react';
 import { 
-  Building2, GitBranch, ShieldCheck, Share2, 
+  Share2, 
   CreditCard, Lock, Sliders, User as UserIcon
 } from 'lucide-react';
 
 const settingsNav = [
   { id: 'profile', label: 'Personal Profile', icon: UserIcon },
-  { id: 'organization', label: 'Organization', icon: Building2 },
-  { id: 'workflow', label: 'Recruitment Workflow', icon: GitBranch },
-  { id: 'roles', label: 'Roles & Permissions', icon: ShieldCheck },
   { id: 'communication', label: 'Communication & Integrations', icon: Share2 },
   { id: 'billing', label: 'Billing & Commission', icon: CreditCard },
   { id: 'security', label: 'Data & Security', icon: Lock },

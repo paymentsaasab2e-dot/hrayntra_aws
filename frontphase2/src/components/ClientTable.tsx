@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Eye, Pencil, Briefcase, Check, Trash2, Upload } from 'lucide-react';
+import { Eye, Pencil, Briefcase, Check, Trash2, Upload, ArrowUp, ArrowDown } from 'lucide-react';
 import { ImageWithFallback } from './ImageWithFallback';
 import type { Client, ClientStage } from '@/app/client/types';
 import { apiUpdateClient, filesApiUpload } from '../lib/api';
@@ -21,6 +21,8 @@ interface ClientTableProps {
   onDeleteClient?: (id: string) => void;
   onLogoUpdated?: () => void;
   onCreateJob?: (client: Client) => void;
+  clientNameSortOrder: 'asc' | 'desc';
+  onToggleClientNameSortOrder: () => void;
 }
 
 // Custom Checkbox Component for better design tool compatibility
@@ -35,7 +37,18 @@ const CustomCheckbox = ({ checked, onChange }: { checked: boolean, onChange: () 
   </div>
 );
 
-export function ClientTable({ clients, selectedIds, onSelectionChange, onSelectClient, onEditClient, onDeleteClient, onLogoUpdated, onCreateJob }: ClientTableProps) {
+export function ClientTable({
+  clients,
+  selectedIds,
+  onSelectionChange,
+  onSelectClient,
+  onEditClient,
+  onDeleteClient,
+  onLogoUpdated,
+  onCreateJob,
+  clientNameSortOrder,
+  onToggleClientNameSortOrder,
+}: ClientTableProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingClientId, setUploadingClientId] = useState<string | null>(null);
   const [pendingUploadClientId, setPendingUploadClientId] = useState<string | null>(null);
@@ -115,7 +128,19 @@ export function ClientTable({ clients, selectedIds, onSelectionChange, onSelectC
                 />
               </th>
               <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                <div className="flex items-center gap-1 cursor-pointer hover:text-slate-700">Client Name</div>
+                <button
+                  type="button"
+                  onClick={onToggleClientNameSortOrder}
+                  className="flex items-center gap-1 cursor-pointer hover:text-slate-700 transition-colors"
+                  title={`Sort client names ${clientNameSortOrder === 'asc' ? 'descending' : 'ascending'}`}
+                >
+                  <span>Client Name</span>
+                  {clientNameSortOrder === 'asc' ? (
+                    <ArrowUp className="w-3.5 h-3.5" />
+                  ) : (
+                    <ArrowDown className="w-3.5 h-3.5" />
+                  )}
+                </button>
               </th>
               <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Industry</th>
               <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Location</th>

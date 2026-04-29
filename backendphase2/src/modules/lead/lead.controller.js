@@ -5,7 +5,7 @@ import * as XLSX from 'xlsx';
 
 const LEAD_IMPORT_FIELD_ALIASES = {
   companyName: ['company', 'company name', 'lead company', 'client', 'organization', 'organisation'],
-  contactPerson: ['contact person', 'contact', 'director name', 'primary contact', 'name'],
+  contactPerson: ['contact person', 'contact', 'director name', 'primary contact'],
   email: ['email', 'email address', 'contact email'],
   phone: ['phone', 'phone number', 'mobile', 'mobile number', 'contact number'],
   type: ['type', 'lead type'],
@@ -28,25 +28,31 @@ const LEAD_IMPORT_FIELD_ALIASES = {
 const normalizeHeader = (value = '') =>
   String(value)
     .trim()
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
     .toLowerCase()
     .replace(/[_-]+/g, ' ')
     .replace(/\s+/g, ' ');
 
 const suggestLeadImportMapping = (columns = []) => {
   const mapping = {};
+  const normalizedColumns = columns.map((column) => ({
+    column,
+    normalized: normalizeHeader(column),
+  }));
 
   Object.entries(LEAD_IMPORT_FIELD_ALIASES).forEach(([fieldId, aliases]) => {
-    const exact = columns.find((column) => aliases.includes(normalizeHeader(column)));
+    const normalizedAliases = aliases.map((alias) => normalizeHeader(alias));
+    const exact = normalizedColumns.find(({ normalized }) => normalizedAliases.includes(normalized));
     if (exact) {
-      mapping[fieldId] = exact;
+      mapping[fieldId] = exact.column;
       return;
     }
 
-    const partial = columns.find((column) =>
-      aliases.some((alias) => normalizeHeader(column).includes(alias) || alias.includes(normalizeHeader(column)))
+    const partial = normalizedColumns.find(({ normalized }) =>
+      normalizedAliases.some((alias) => normalized.includes(alias) || alias.includes(normalized))
     );
     if (partial) {
-      mapping[fieldId] = partial;
+      mapping[fieldId] = partial.column;
     }
   });
 
@@ -126,6 +132,7 @@ export const leadController = {
         sheetName: firstSheetName,
         columns,
         previewRows,
+        rows,
         totalRows: rows.length,
         columnStats,
         suggestedMapping,
