@@ -1,31 +1,34 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Users, Briefcase, Award, Banknote, TrendingUp, TrendingDown } from 'lucide-react';
+import { Users, Briefcase, Award, TrendingUp, TrendingDown } from 'lucide-react';
 import { apiGetClientMetrics, type ClientMetrics } from '../lib/api';
 
 const colorMap = {
   activeClients: { bg: 'bg-blue-50', text: 'text-blue-600' },
   openJobs: { bg: 'bg-teal-50', text: 'text-teal-600' },
   placementsThisMonth: { bg: 'bg-purple-50', text: 'text-purple-600' },
-  revenueGenerated: { bg: 'bg-emerald-50', text: 'text-emerald-600' },
 };
 
 const iconMap = {
   activeClients: Users,
   openJobs: Briefcase,
   placementsThisMonth: Award,
-  revenueGenerated: Banknote,
 };
 
 const labelMap = {
   activeClients: 'ACTIVE CLIENTS',
   openJobs: 'OPEN JOBS',
   placementsThisMonth: 'PLACEMENTS (THIS MONTH)',
-  revenueGenerated: 'REVENUE GENERATED',
 };
 
-export function ClientSummaryMetrics({ refreshKey = 0 }: { refreshKey?: number }) {
+export function ClientSummaryMetrics({
+  refreshKey = 0,
+  activeClientsCount,
+}: {
+  refreshKey?: number;
+  activeClientsCount?: number;
+}) {
   const [metrics, setMetrics] = useState<ClientMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -73,19 +76,18 @@ export function ClientSummaryMetrics({ refreshKey = 0 }: { refreshKey?: number }
     'activeClients',
     'openJobs',
     'placementsThisMonth',
-    'revenueGenerated',
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
       {metricKeys.map((key) => {
         const metric = displayMetrics[key];
         const Icon = iconMap[key];
         const color = colorMap[key];
         const label = labelMap[key];
         
-        const value = key === 'revenueGenerated' 
-          ? (metric as ClientMetrics['revenueGenerated']).formatted 
+        const value = key === 'activeClients' && typeof activeClientsCount === 'number'
+          ? String(activeClientsCount)
           : String(metric.value);
         
         const trend = metric.trend !== 0 

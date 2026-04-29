@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef, Suspense } from 'react';
 import { StageTabs } from './components/StageTabs';
 import { CandidateTable, Candidate } from './components/CandidateTable';
 import { CandidateGrid } from './components/CandidateGrid';
@@ -543,6 +543,7 @@ function CandidatesPageContent() {
   const [candidateDrawerOpen, setCandidateDrawerOpen] = useState(false);
   const [candidateDrawerMode, setCandidateDrawerMode] = useState<'view' | 'edit'>('view');
   const [candidateEditOpenToken, setCandidateEditOpenToken] = useState<number | null>(null);
+  const pendingDeepLinkCandidateIdRef = useRef<string | null>(null);
   const [loadingCandidateProfile, setLoadingCandidateProfile] = useState(false);
   const [availableDrawerTags, setAvailableDrawerTags] = useState<CandidateTagItem[]>([]);
   const [pipelineJobs, setPipelineJobs] = useState<CandidatePipelineJobOption[]>([]);
@@ -642,6 +643,34 @@ function CandidatesPageContent() {
     },
     [syncCandidateCard]
   );
+
+  useEffect(() => {
+    const candidateId = searchParams.get('candidateId');
+    if (!candidateId) {
+      pendingDeepLinkCandidateIdRef.current = null;
+      return;
+    }
+    if (pendingDeepLinkCandidateIdRef.current === candidateId && candidateDrawerOpen && selectedCandidateProfile?.id === candidateId) {
+      return;
+    }
+    pendingDeepLinkCandidateIdRef.current = candidateId;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const profile = await loadCandidateProfile(candidateId);
+        if (cancelled || !profile) return;
+        setCandidateDrawerMode('view');
+        setCandidateDrawerOpen(true);
+      } catch (error) {
+        console.error('Failed to open candidate from search:', error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [candidateDrawerOpen, loadCandidateProfile, searchParams, selectedCandidateProfile?.id]);
 
   const loadCandidates = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = opts?.silent === true;

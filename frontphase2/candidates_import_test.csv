@@ -1,0 +1,21 @@
+firstName,lastName,email,phone,currentCompany,designation,experience,location,source
+Aarav,Sharma,candidate1@example.com,+91 950000000,ApexForge Solutions,Software Engineer,1,"Bengaluru, India",LinkedIn
+Isha,Verma,candidate2@example.com,+91 950000001,BluePeak Systems,HR Manager,2,"Mumbai, India",Naukri
+Rohan,Gupta,candidate3@example.com,+91 950000002,CrestWave Technologies,Account Executive,3,"Hyderabad, India",Indeed
+Meera,Iyer,candidate4@example.com,+91 950000003,DeltaCore Labs,Business Analyst,4,"Pune, India",Referral
+Kabir,Kapoor,candidate5@example.com,+91 950000004,Evergreen HealthTech,DevOps Engineer,5,"Delhi, India",Company Career Page
+Ananya,Reddy,candidate6@example.com,+91 950000005,FusionGrid Analytics,Product Manager,6,"Chennai, India",Agency
+Vihaan,Nair,candidate7@example.com,+91 950000006,GreenOrbit Retail,Software Engineer,7,"Ahmedabad, India",Other
+Saanvi,Patel,candidate8@example.com,+91 950000007,HarborLink Logistics,HR Manager,8,"Gurugram, India",LinkedIn
+Arjun,Malhotra,candidate9@example.com,+91 950000008,IonSpark FinServ,Account Executive,9,"Bengaluru, India",Naukri
+Pooja,Singh,candidate10@example.com,+91 950000009,JuniperCloud SaaS,Business Analyst,10,"Mumbai, India",Indeed
+Nikhil,Bose,candidate11@example.com,+91 950000010,Keystone Manufacturing,DevOps Engineer,11,"Hyderabad, India",Referral
+Priya,Joshi,candidate12@example.com,+91 950000011,LumaWorks Digital,Product Manager,12,"Pune, India",Company Career Page
+Aditya,Kumar,candidate13@example.com,+91 950000012,MetroBridge Infrastructure,Software Engineer,1,"Delhi, India",Agency
+Kavya,Mehta,candidate14@example.com,+91 950000013,NovaTalent Partners,HR Manager,2,"Chennai, India",Other
+Rahul,Chopra,candidate15@example.com,+91 950000014,OrbitEdge Commerce,Account Executive,3,"Ahmedabad, India",LinkedIn
+Neha,Ahuja,candidate16@example.com,+91 950000015,PioneerEdu Solutions,Business Analyst,4,"Gurugram, India",Naukri
+Suresh,Saxena,candidate17@example.com,+91 950000016,QuantumByte Security,DevOps Engineer,5,"Bengaluru, India",Indeed
+Ritika,Bhat,candidate18@example.com,+91 950000017,RiverStone Energy,Product Manager,6,"Mumbai, India",Referral
+Manish,Mishra,candidate19@example.com,+91 950000018,SummitSphere Media,Software Engineer,7,"Hyderabad, India",Company Career Page
+Divya,Pillai,candidate20@example.com,+91 950000019,VertexCare Networks,HR Manager,8,"Pune, India",Agency

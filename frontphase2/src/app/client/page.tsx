@@ -1,6 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { toast } from 'sonner';
 import {
   Plus,
   Upload,
@@ -16,8 +18,12 @@ import {
   Trash2,
   UserPlus,
   BadgeCheck,
+  Users,
+  Briefcase,
+  BadgeInfo,
+  Flame,
+  FolderOpen,
 } from 'lucide-react';
-import { ClientSummaryMetrics } from '../../components/ClientSummaryMetrics';
 import { ClientTable } from '../../components/ClientTable';
 import { ClientFilterDrawer } from '../../components/drawers/ClientFilterDrawer';
 import { ClientDetailsDrawer } from '../../components/drawers/ClientDetailsDrawer';
@@ -26,7 +32,7 @@ import { CreateJobDrawer } from '../../components/drawers/CreateJobDrawer';
 import PaginationAll from '../../components/PaginationAll';
 import { INITIAL_CLIENTS } from './types';
 import type { Client } from './types';
-import { apiGetClients, apiDeleteClient, apiGetUsers, apiUpdateClient, type BackendClient, type BackendUser, type UpdateClientData } from '../../lib/api';
+import { apiGetClients, apiGetClient, apiDeleteClient, apiGetUsers, apiUpdateClient, type BackendClient, type BackendUser, type UpdateClientData } from '../../lib/api';
 import { requestConfirm } from '../../lib/appDialog';
 
 function filterClientsByTab(clients: Client[], activeTab: string): Client[] {
@@ -45,8 +51,8 @@ function filterClientsByTab(clients: Client[], activeTab: string): Client[] {
   }
 }
 
-// Tab Component
-const StatusTabs = ({
+// Status Card Component
+const StatusCards = ({
   activeTab,
   onTabChange,
   counts,
@@ -55,39 +61,38 @@ const StatusTabs = ({
   onTabChange: (tab: string) => void;
   counts: { all: number; active: number; 'on-hold': number; inactive: number; hot: number };
 }) => {
-  const tabs = [
-    { id: 'all', label: 'All', count: counts.all },
-    { id: 'active', label: 'Active Clients', count: counts.active },
-    { id: 'on-hold', label: 'On Hold', count: counts['on-hold'] },
-    { id: 'inactive', label: 'Inactive', count: counts.inactive },
-    { id: 'hot', label: 'Hot Clients 🔥', count: counts.hot },
+  const cards = [
+    { id: 'all', label: 'All Clients', count: counts.all, icon: FolderOpen, accent: 'bg-slate-50 text-slate-600' },
+    { id: 'active', label: 'Active Clients', count: counts.active, icon: Users, accent: 'bg-blue-50 text-blue-600' },
+    { id: 'on-hold', label: 'On Hold', count: counts['on-hold'], icon: Briefcase, accent: 'bg-amber-50 text-amber-600' },
+    { id: 'inactive', label: 'Inactive', count: counts.inactive, icon: BadgeInfo, accent: 'bg-slate-50 text-slate-500' },
+    { id: 'hot', label: 'Hot Clients', count: counts.hot, icon: Flame, accent: 'bg-rose-50 text-rose-600' },
   ];
 
   return (
-    <div className="flex items-center gap-1 border-b border-slate-200 mb-6 overflow-x-auto no-scrollbar">
-      {tabs.map((tab) => (
-        <button
-          key={tab.id}
-          onClick={() => onTabChange(tab.id)}
-          className={`px-4 py-3 text-sm font-medium transition-all relative whitespace-nowrap ${
-            activeTab === tab.id 
-              ? 'text-blue-600' 
-              : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
-          }`}
-        >
-          <span className="flex items-center gap-2">
-            {tab.label}
-            <span className={`px-1.5 py-0.5 text-[10px] rounded-full font-bold ${
-              activeTab === tab.id ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-500'
-            }`}>
-              {tab.count}
-            </span>
-          </span>
-          {activeTab === tab.id && (
-            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-t-full"></div>
-          )}
-        </button>
-      ))}
+    <div className="grid grid-cols-1 gap-4 mb-6 sm:grid-cols-2 xl:grid-cols-5">
+      {cards.map((card) => {
+        const isActive = activeTab === card.id;
+        const Icon = card.icon;
+        return (
+          <button
+            key={card.id}
+            onClick={() => onTabChange(card.id)}
+            className={`rounded-xl border bg-white p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${
+              isActive ? 'border-blue-200 ring-2 ring-blue-100' : 'border-slate-200'
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${card.accent}`}>
+                <Icon className="h-5 w-5" />
+              </div>
+              {isActive ? <div className="mt-1 h-2 w-2 rounded-full bg-blue-600" /> : null}
+            </div>
+            <div className="mt-3 text-2xl font-bold text-slate-900">{card.count}</div>
+            <div className="mt-1 text-xs font-semibold uppercase tracking-wider text-slate-500">{card.label}</div>
+          </button>
+        );
+      })}
     </div>
   );
 };
@@ -198,9 +203,12 @@ function extractBackendClients(responseData: unknown): BackendClient[] {
 }
 
 export default function App() {
-  const PAGE_SIZE = 10;
+  const DISPLAY_PAGE_SIZE = 10;
+  const FETCH_LIMIT = 500;
   const SEARCH_DEBOUNCE_MS = 350;
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState('all');
+  const [clientNameSortOrder, setClientNameSortOrder] = useState<'asc' | 'desc'>('asc');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [selectedClients, setSelectedClients] = useState<string[]>([]);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
@@ -220,10 +228,21 @@ export default function App() {
   const [bulkAssignedTo, setBulkAssignedTo] = useState('');
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const [totalEntries, setTotalEntries] = useState(0);
-  const [metricsRefreshKey, setMetricsRefreshKey] = useState(0);
+  const pendingDeepLinkClientIdRef = useRef<string | null>(null);
 
   const filteredClients = useMemo(() => filterClientsByTab(clients, activeTab), [clients, activeTab]);
+  const sortedClients = useMemo(() => {
+    const list = [...filteredClients];
+    list.sort((a, b) => {
+      const comparison = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+      return clientNameSortOrder === 'asc' ? comparison : -comparison;
+    });
+    return list;
+  }, [filteredClients, clientNameSortOrder]);
+  const pagedClients = useMemo(() => {
+    const start = (currentPage - 1) * DISPLAY_PAGE_SIZE;
+    return sortedClients.slice(start, start + DISPLAY_PAGE_SIZE);
+  }, [sortedClients, currentPage]);
   const tabCounts = useMemo(
     () => ({
       all: clients.length,
@@ -234,6 +253,17 @@ export default function App() {
     }),
     [clients]
   );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeTab]);
+
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(sortedClients.length / DISPLAY_PAGE_SIZE));
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, sortedClients.length]);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -263,6 +293,37 @@ export default function App() {
     fetchUsers();
   }, []);
 
+  useEffect(() => {
+    const clientId = searchParams.get('clientId');
+    if (!clientId) {
+      pendingDeepLinkClientIdRef.current = null;
+      return;
+    }
+    if (pendingDeepLinkClientIdRef.current === clientId && selectedClient?.id === clientId) {
+      return;
+    }
+    pendingDeepLinkClientIdRef.current = clientId;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await apiGetClient(clientId);
+        if (cancelled) return;
+        const backendClient = (response as any).data?.data || (response as any).data || response;
+        if (!backendClient) return;
+        const mappedClient = mapBackendClientToFrontend(backendClient);
+        setSelectedClient(mappedClient);
+        setSelectedClientDrawerMode('view');
+      } catch (error) {
+        console.error('Failed to open client from search:', error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams, selectedClient?.id]);
+
   const fetchClients = useCallback(async (overrides?: { page?: number; search?: string }) => {
     try {
       setLoading(true);
@@ -271,29 +332,25 @@ export default function App() {
       const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
       if (!token) {
         setClients(INITIAL_CLIENTS);
-        setTotalEntries(INITIAL_CLIENTS.length);
         setIsEmpty(INITIAL_CLIENTS.length === 0);
         return;
       }
 
-      const effectivePage = overrides?.page ?? currentPage;
       const effectiveSearch = overrides?.search ?? debouncedSearchQuery;
 
       const response = await apiGetClients({
         search: effectiveSearch || undefined,
-        page: effectivePage,
-        limit: PAGE_SIZE,
+        page: 1,
+        limit: FETCH_LIMIT,
         includeContacts: false,
         includeLeadFields: false,
       });
 
       const backendClients = response.data ? extractBackendClients(response.data) : [];
-      const pagination = (response.data as any)?.pagination;
 
       if (!Array.isArray(backendClients)) {
         setError('Unexpected API response format.');
         setClients(INITIAL_CLIENTS);
-        setTotalEntries(INITIAL_CLIENTS.length);
         setIsEmpty(INITIAL_CLIENTS.length === 0);
         return;
       }
@@ -305,23 +362,19 @@ export default function App() {
         clientMap.set(id, { ...client, id });
       });
       const uniqueClients = Array.from(clientMap.values());
-      const total = pagination?.total || uniqueClients.length;
 
       setClients(uniqueClients);
-      setTotalEntries(total);
-      setIsEmpty(uniqueClients.length === 0 && total === 0);
+      setIsEmpty(uniqueClients.length === 0);
       setSelectedClients((prev) => prev.filter((id) => uniqueClients.some((c) => c.id === id)));
-      setMetricsRefreshKey((prev) => prev + 1);
     } catch (err: any) {
       console.error('Failed to fetch clients:', err);
       setError(err?.message || 'Failed to fetch clients');
       setClients(INITIAL_CLIENTS);
-      setTotalEntries(INITIAL_CLIENTS.length);
       setIsEmpty(INITIAL_CLIENTS.length === 0);
     } finally {
       setLoading(false);
     }
-  }, [debouncedSearchQuery, currentPage]);
+  }, [debouncedSearchQuery]);
 
   useEffect(() => {
     fetchClients();
@@ -348,8 +401,6 @@ export default function App() {
       await apiDeleteClient(id);
       setClients((prev) => prev.filter((c) => c.id !== id));
       setSelectedClients((prev) => prev.filter((selectedId) => selectedId !== id));
-      setTotalEntries((prev) => Math.max(0, prev - 1));
-      setMetricsRefreshKey((prev) => prev + 1);
       void fetchClients();
     } catch (err: any) {
       console.error('Failed to delete client:', err);
@@ -370,7 +421,6 @@ export default function App() {
       setBulkActionLoading(true);
       await Promise.all(selectedClients.map((id) => apiDeleteClient(id)));
       clearBulkSelection();
-      setMetricsRefreshKey((prev) => prev + 1);
       await fetchClients();
     } catch (err: any) {
       console.error('Failed to bulk delete clients:', err);
@@ -386,7 +436,6 @@ export default function App() {
       setBulkActionLoading(true);
       await Promise.all(selectedClients.map((id) => apiUpdateClient(id, updates)));
       clearBulkSelection();
-      setMetricsRefreshKey((prev) => prev + 1);
       await fetchClients();
     } catch (err: any) {
       console.error('Failed to bulk update clients:', err);
@@ -444,8 +493,7 @@ export default function App() {
           </div>
         </div>
 
-        <StatusTabs activeTab={activeTab} onTabChange={setActiveTab} counts={tabCounts} />
-        <ClientSummaryMetrics refreshKey={metricsRefreshKey} />
+        <StatusCards activeTab={activeTab} onTabChange={setActiveTab} counts={tabCounts} />
 
         {loading ? (
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 text-center text-slate-500">Loading...</div>
@@ -458,7 +506,7 @@ export default function App() {
            
             
             <ClientTable
-              clients={filteredClients}
+              clients={pagedClients}
               selectedIds={selectedClients}
               onSelectionChange={setSelectedClients}
               onSelectClient={(client) => {
@@ -475,14 +523,18 @@ export default function App() {
                 setClientIdForJob(client.id);
                 setShowCreateJobDrawer(true);
               }}
+              clientNameSortOrder={clientNameSortOrder}
+              onToggleClientNameSortOrder={() => {
+                setClientNameSortOrder((current) => (current === 'asc' ? 'desc' : 'asc'));
+              }}
             />
 
             <div className="mt-4 w-full">
               <PaginationAll
                 initialPage={currentPage}
-                totalPages={Math.ceil(totalEntries / PAGE_SIZE)}
-                totalCount={totalEntries}
-                pageSize={PAGE_SIZE}
+                totalPages={Math.max(1, Math.ceil(sortedClients.length / DISPLAY_PAGE_SIZE))}
+                totalCount={sortedClients.length}
+                pageSize={DISPLAY_PAGE_SIZE}
                 itemLabel="clients"
                 onPageChange={setCurrentPage}
               />
@@ -519,13 +571,27 @@ export default function App() {
       <ClientImportDrawer
         isOpen={showImportDrawer}
         onClose={() => setShowImportDrawer(false)}
-        onImportComplete={() => {
+        onImportComplete={(result) => {
           setActiveTab('all');
           setSelectedClients([]);
           setSearchQuery('');
           setDebouncedSearchQuery('');
           setCurrentPage(1);
           void fetchClients({ page: 1, search: '' });
+          const created = result.created || 0;
+          const updated = result.updated || 0;
+          const skipped = result.skipped || 0;
+          const failed = result.failed || 0;
+          const parts = [];
+          if (created > 0) parts.push(`${created} created`);
+          if (updated > 0) parts.push(`${updated} updated`);
+          if (skipped > 0) parts.push(`${skipped} skipped`);
+          if (failed > 0) parts.push(`${failed} failed`);
+          toast.success(
+            parts.length > 0
+              ? `Clients imported successfully (${parts.join(', ')})`
+              : 'Clients imported successfully'
+          );
         }}
       />
 

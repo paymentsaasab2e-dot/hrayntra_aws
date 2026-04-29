@@ -5,7 +5,15 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { usePermissions } from '../hooks/usePermissions';
 import { useUser } from '../hooks/useUser';
-import { apiGetUnifiedCalendar, apiLogout } from '../lib/api';
+import {
+  apiGetUnifiedCalendar,
+  apiLogout,
+  apiGetLeads,
+  apiGetCandidates,
+  apiGetClients,
+  apiGetJobs,
+  apiGetContacts,
+} from '../lib/api';
 import { NotificationDrawer } from './NotificationDrawer';
 import { 
   Search, 
@@ -28,7 +36,6 @@ import {
   CreditCard, 
   UserPlus, 
   Settings, 
-  ShieldCheck,
   ChevronLeft,
   Menu,
   User,
@@ -253,6 +260,24 @@ const Divider = () => <div className="h-px bg-white/8 my-2 mx-3" />;
 
 const SIDENAV_SCROLL_STORAGE_KEY = 'hrayntra:sidenav-scroll-top';
 
+type GlobalSearchResult = {
+  id: string;
+  title: string;
+  subtitle: string;
+  kind: string;
+  href: string;
+};
+
+function extractListItems<T>(response: any): T[] {
+  const payload = response?.data ?? response;
+  if (Array.isArray(payload)) return payload as T[];
+  if (payload && typeof payload === 'object') {
+    if (Array.isArray((payload as any).data)) return (payload as any).data as T[];
+    if (Array.isArray((payload as any).items)) return (payload as any).items as T[];
+  }
+  return [];
+}
+
 // ─── Main Sidenav ─────────────────────────────────────────────────────────────
 interface SidenavProps {
   avatarUrl?: string;
@@ -265,15 +290,30 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
   const [mounted, setMounted] = useState(false);
   const [notificationDrawerOpen, setNotificationDrawerOpen] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
+  const [navSearch, setNavSearch] = useState('');
+  const [searchResults, setSearchResults] = useState<GlobalSearchResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchFocused, setSearchFocused] = useState(false);
   const navScrollRef = useRef<HTMLDivElement>(null);
+  const searchTimerRef = useRef<number | null>(null);
+  const searchRequestSeqRef = useRef(0);
   const hasRestoredScrollRef = useRef(false);
   const { hasPermission, hasAnyPermission, isAdmin, isSuperAdmin } = usePermissions();
   const { user } = useUser();
   const pathname = usePathname();
+  const router = useRouter();
   
   // Ensure client-side only rendering to prevent hydration errors
   useEffect(() => {
     setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (searchTimerRef.current) {
+        window.clearTimeout(searchTimerRef.current);
+      }
+    };
   }, []);
 
   useLayoutEffect(() => {
@@ -396,11 +436,102 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
 
   const SIDEBAR_W = isCollapsed ? 64 : 240;
 
+  useEffect(() => {
+    const query = navSearch.trim();
+    if (searchTimerRef.current) {
+      window.clearTimeout(searchTimerRef.current);
+    }
+
+    if (!query || query.length < 2) {
+      setSearchResults([]);
+      setSearchLoading(false);
+      return;
+    }
+
+    const requestSeq = ++searchRequestSeqRef.current;
+    setSearchLoading(true);
+
+    searchTimerRef.current = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const [leadRes, candidateRes, clientRes, jobRes, contactRes] = await Promise.all([
+            apiGetLeads({ search: query, page: 1, limit: 4 }),
+            apiGetCandidates({ search: query, page: 1, limit: 4 }),
+            apiGetClients({ search: query, page: 1, limit: 4, includeContacts: false, includeLeadFields: false }),
+            apiGetJobs({ search: query, page: 1, limit: 4 }),
+            apiGetContacts({ search: query, page: 1, limit: 4 }),
+          ]);
+
+          if (searchRequestSeqRef.current !== requestSeq) return;
+
+          const leadItems = extractListItems<any>(leadRes).map((lead: any) => ({
+            id: String(lead.id),
+            title: String(lead.companyName || lead.contactPerson || lead.email || 'Lead'),
+            subtitle: [lead.contactPerson, lead.email].filter(Boolean).join(' • ') || 'Lead record',
+            kind: 'Lead',
+            href: `/leads?leadId=${encodeURIComponent(String(lead.id))}`,
+          }));
+
+          const candidateItems = extractListItems<any>(candidateRes).map((candidate: any) => ({
+            id: String(candidate.id),
+            title: [candidate.firstName, candidate.lastName].filter(Boolean).join(' ').trim() || candidate.email || 'Candidate',
+            subtitle: [candidate.currentCompany, candidate.email].filter(Boolean).join(' • ') || 'Candidate record',
+            kind: 'Candidate',
+            href: `/candidate?candidateId=${encodeURIComponent(String(candidate.id))}`,
+          }));
+
+          const clientItems = extractListItems<any>(clientRes).map((client: any) => ({
+            id: String(client.id),
+            title: String(client.companyName || client.name || 'Client'),
+            subtitle: [client.location, client.email].filter(Boolean).join(' • ') || 'Client record',
+            kind: 'Client',
+            href: `/client?clientId=${encodeURIComponent(String(client.id))}`,
+          }));
+
+          const jobItems = extractListItems<any>(jobRes).map((job: any) => ({
+            id: String(job.id),
+            title: String(job.title || 'Job'),
+            subtitle: [job.client?.companyName, job.location].filter(Boolean).join(' • ') || 'Job record',
+            kind: 'Job',
+            href: `/job?jobId=${encodeURIComponent(String(job.id))}`,
+          }));
+
+          const contactItems = extractListItems<any>(contactRes).map((contact: any) => ({
+            id: String(contact.id),
+            title: [contact.firstName, contact.lastName].filter(Boolean).join(' ').trim() || contact.email || 'Contact',
+            subtitle: [contact.company?.companyName, contact.email].filter(Boolean).join(' • ') || 'Contact record',
+            kind: 'Contact',
+            href: `/contacts?contactId=${encodeURIComponent(String(contact.id))}`,
+          }));
+
+          setSearchResults([...leadItems, ...candidateItems, ...clientItems, ...jobItems, ...contactItems].slice(0, 10));
+        } catch {
+          if (searchRequestSeqRef.current === requestSeq) {
+            setSearchResults([]);
+          }
+        } finally {
+          if (searchRequestSeqRef.current === requestSeq) {
+            setSearchLoading(false);
+          }
+        }
+      })();
+    }, 250);
+  }, [navSearch]);
+
+  const runSearchSelection = (result?: GlobalSearchResult | null) => {
+    const target = result || searchResults[0];
+    if (!target) return;
+    setNavSearch('');
+    setSearchResults([]);
+    setSearchFocused(false);
+    router.push(target.href);
+  };
+
   return (
     <>
       {/* ── Top Navigation Bar ─────────────────────────────────────────── */}
       <nav
-        className="fixed top-0 left-0 right-0 h-14 flex items-center justify-between px-5 z-50"
+        className="fixed top-0 left-0 right-0 h-14 flex items-center px-5 z-50"
         style={{ backgroundColor: '#0F2A44', borderBottom: '1px solid rgba(255,255,255,0.06)' }}
       >
         {/* Logo area — same width as sidebar so search starts after */}
@@ -421,20 +552,65 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
           </button>
         </div>
 
-        {/* Search */}
-        <div className="flex-1 max-w-sm">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/60 z-10" />
+        <div className="flex flex-1 justify-center px-4">
+          <div className="relative w-full max-w-2xl">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
             <input
               type="text"
-              placeholder="Search (e.g. 'Daily Tasks', 'UI Design')"
-              className="w-full text-[12px] bg-white/10 backdrop-blur-md border border-white/20 rounded-full py-1.5 pl-8 pr-4 text-white placeholder:text-white/50 focus:outline-none focus:ring-2 focus:ring-white/30 focus:bg-white/15 focus:border-white/30 transition-all shadow-lg shadow-black/10"
+              value={navSearch}
+              onChange={(e) => setNavSearch(e.target.value)}
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => {
+                window.setTimeout(() => setSearchFocused(false), 120);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  runSearchSelection();
+                }
+                if (e.key === 'Escape') {
+                  setNavSearch('');
+                  setSearchResults([]);
+                }
+              }}
+              placeholder="Search leads, candidates, clients..."
+              className="w-full rounded-full border border-white/15 bg-white py-2.5 pl-11 pr-4 text-[13px] text-slate-900 shadow-sm outline-none transition-colors placeholder:text-slate-400 focus:border-white/30 focus:ring-2 focus:ring-white/20"
             />
+            {searchFocused && (searchLoading || searchResults.length > 0) && (
+              <div className="absolute left-0 right-0 top-[calc(100%+10px)] z-[70] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+                {searchLoading ? (
+                  <div className="px-4 py-3 text-sm text-slate-500">Searching...</div>
+                ) : (
+                  <div className="max-h-[320px] overflow-auto py-2">
+                    {searchResults.map((result) => (
+                      <button
+                        key={`${result.kind}-${result.id}`}
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => runSearchSelection(result)}
+                        className="flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-slate-50"
+                      >
+                        <div className="mt-0.5 rounded-full bg-blue-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-blue-700">
+                          {result.kind}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-semibold text-slate-900">{result.title}</div>
+                          <div className="truncate text-xs text-slate-500">{result.subtitle}</div>
+                        </div>
+                      </button>
+                    ))}
+                    {searchResults.length === 0 && (
+                      <div className="px-4 py-3 text-sm text-slate-500">No matches found.</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
         {/* Right icons */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 shrink-0">
           <div className="flex items-center gap-4 pr-4 border-r border-white/10">
             <Tooltip content="Calendar">
               <Link href="/calendar" className="text-white/60 hover:text-white transition-colors">
@@ -461,9 +637,15 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
               </button>
             </Tooltip>
             <Tooltip content="Help Center">
-              <button className="text-white/60 hover:text-white transition-colors">
+              <Link
+                href="/help-center"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-white/60 hover:text-white transition-colors"
+                aria-label="Open Help Center"
+              >
                 <HelpCircle className="w-5 h-5" />
-              </button>
+              </Link>
             </Tooltip>
           </div>
 
@@ -580,10 +762,6 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
             <NavItem icon={Settings} label="Settings" href="/setting" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
           )}
           
-          {/* Administration */}
-          {(mounted && (isAdmin() || isSuperAdmin() || hasAnyPermission(['assign_roles', 'system_select_all', 'manage_settings']))) && (
-            <NavItem icon={ShieldCheck} label="Administration" href="/administration" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
-          )}
         </div>
 
         {/* Footer */}

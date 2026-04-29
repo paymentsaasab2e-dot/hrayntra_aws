@@ -23,6 +23,7 @@ import {
   CheckSquare,
   Trash2
 } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
 import PaginationAll from '../../components/PaginationAll';
 import { requestConfirm, requestError } from '../../lib/appDialog';
 import { motion, AnimatePresence } from 'motion/react';
@@ -596,6 +597,7 @@ function toJobCandidateItemFromAssigned(candidate: BackendCandidate): JobCandida
 }
 
 export default function JobsPage() {
+  const searchParams = useSearchParams();
   const { hasPermission, hasAnyPermission } = usePermissions();
   const canCreateJob = hasAnyPermission(['jobs_create', 'create_job']);
   const canUpdateJob = hasAnyPermission(['jobs_update', 'edit_job']);
@@ -618,6 +620,7 @@ export default function JobsPage() {
   const [currentUserForCandidateDrawer, setCurrentUserForCandidateDrawer] = useState<any>(null);
   const [jobDrawerOpen, setJobDrawerOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  const pendingDeepLinkJobIdRef = useRef<string | null>(null);
   const [currentPage, setCurrentPage] = useState(DEFAULT_PAGE);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [jobs, setJobs] = useState<Job[]>(() => {
@@ -1200,6 +1203,36 @@ export default function JobsPage() {
       setLoadingJobDetails(false);
     }
   };
+
+  useEffect(() => {
+    const jobId = searchParams.get('jobId');
+    if (!jobId) {
+      pendingDeepLinkJobIdRef.current = null;
+      return;
+    }
+    if (pendingDeepLinkJobIdRef.current === jobId && jobDrawerOpen && selectedJob?.id === jobId) {
+      return;
+    }
+    pendingDeepLinkJobIdRef.current = jobId;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await apiGetJob(jobId);
+        if (cancelled) return;
+        const backendJob = (response as any).data?.data || (response as any).data || response;
+        if (!backendJob) return;
+        const mappedJob = mapBackendJob(backendJob, backendJob._count?.matches || 0);
+        await openJobDrawer(mappedJob);
+      } catch (error) {
+        console.error('Failed to open job from search:', error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [jobDrawerOpen, searchParams, selectedJob?.id]);
 
   const persistJobPipelineStages = useCallback(async (jobId: string, stages: Array<{ id?: string; name: string; sla?: string }>) => {
     if (!jobId) return;

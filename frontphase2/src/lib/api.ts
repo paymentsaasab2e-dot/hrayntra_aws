@@ -1198,6 +1198,7 @@ export interface ClientImportPreviewResult {
   sheetName: string;
   columns: string[];
   previewRows: Record<string, string | number | boolean | null>[];
+  rows?: Record<string, string | number | boolean | null>[];
   totalRows: number;
   columnStats: Record<string, number>;
   suggestedMapping: Record<string, string>;
@@ -2390,6 +2391,10 @@ export const apiGetClients = async (params: {
   const qs = query.toString();
   const path = `/clients${qs ? `?${qs}` : ''}`;
   return apiFetch<{ data: BackendClient[]; pagination?: any } | BackendClient[]>(path, { auth: true });
+};
+
+export const apiGetClient = async (id: string) => {
+  return apiFetch<BackendClient>(`/clients/${id}`, { auth: true });
 };
 
 export interface ClientMetrics {

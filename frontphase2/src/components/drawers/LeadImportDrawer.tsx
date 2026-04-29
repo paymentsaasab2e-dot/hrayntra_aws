@@ -14,7 +14,14 @@ import { apiImportLeads, apiPreviewLeadImport } from '../../lib/api';
 export interface LeadImportDrawerProps {
   isOpen: boolean;
   onClose: () => void;
-  onImportComplete?: () => void;
+  onImportComplete?: (result: {
+    total: number;
+    created: number;
+    updated: number;
+    skipped: number;
+    failed: number;
+    errors: string[];
+  }) => void;
 }
 
 const CRM_FIELDS = [
@@ -59,6 +66,7 @@ export function LeadImportDrawer({
   const [duplicateRule, setDuplicateRule] = useState('skip');
   const [validationErrors] = useState<string[]>([]);
   const [previewRows, setPreviewRows] = useState<Record<string, string | number | boolean | null>[]>([]);
+  const [importRows, setImportRows] = useState<Record<string, string | number | boolean | null>[]>([]);
   const [fileColumns, setFileColumns] = useState<string[]>([]);
   const [columnStats, setColumnStats] = useState<Record<string, number>>({});
   const [sheetName, setSheetName] = useState('');
@@ -73,6 +81,7 @@ export function LeadImportDrawer({
     setColumnMapping(CRM_FIELDS.reduce((acc, f) => ({ ...acc, [f.id]: '' }), {}));
     setDuplicateRule('skip');
     setPreviewRows([]);
+    setImportRows([]);
     setFileColumns([]);
     setColumnStats({});
     setSheetName('');
@@ -90,12 +99,12 @@ export function LeadImportDrawer({
   const handleImport = async () => {
     try {
       setIsImporting(true);
-      await apiImportLeads({
-        rows: previewRows,
+      const response = await apiImportLeads({
+        rows: importRows.length > 0 ? importRows : previewRows,
         mapping: columnMapping,
         duplicateRule,
       });
-      onImportComplete?.();
+      onImportComplete?.(response.data);
       handleClose();
     } catch (error: any) {
       setParseError(error.message || 'Failed to import leads');
@@ -118,6 +127,7 @@ export function LeadImportDrawer({
       setFileColumns(preview.columns || []);
       setColumnStats(preview.columnStats || {});
       setPreviewRows(preview.previewRows || []);
+      setImportRows(preview.rows || preview.previewRows || []);
       setTotalRows(preview.totalRows || 0);
       setColumnMapping(
         CRM_FIELDS.reduce(
@@ -130,6 +140,7 @@ export function LeadImportDrawer({
       setFileColumns([]);
       setColumnStats({});
       setPreviewRows([]);
+      setImportRows([]);
       setTotalRows(0);
     } finally {
       setIsParsing(false);
