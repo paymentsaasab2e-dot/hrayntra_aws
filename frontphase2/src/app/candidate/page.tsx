@@ -16,13 +16,14 @@ import {
   type CandidatePipelineRecruiterOption,
   type CandidateTagItem,
 } from '../../components/drawers/CandidateProfileDrawer';
-import { 
+import {
   Filter, 
   LayoutGrid, 
   List, 
   Plus,
-  CheckSquare,
   Upload,
+  FileSpreadsheet,
+  FileText,
 } from 'lucide-react';
 import { CreateTaskModal } from '../../components/CreateTaskModal';
 import { Toaster, toast } from 'sonner';
@@ -544,6 +545,7 @@ function CandidatesPageContent() {
   const [candidateDrawerMode, setCandidateDrawerMode] = useState<'view' | 'edit'>('view');
   const [candidateEditOpenToken, setCandidateEditOpenToken] = useState<number | null>(null);
   const pendingDeepLinkCandidateIdRef = useRef<string | null>(null);
+  const loadCandidatesRequestIdRef = useRef(0);
   const [loadingCandidateProfile, setLoadingCandidateProfile] = useState(false);
   const [availableDrawerTags, setAvailableDrawerTags] = useState<CandidateTagItem[]>([]);
   const [pipelineJobs, setPipelineJobs] = useState<CandidatePipelineJobOption[]>([]);
@@ -584,6 +586,11 @@ function CandidatesPageContent() {
     }),
     [selectedCandidateProfile?.recruiter]
   );
+
+  const openCandidateDrawer = useCallback((tab: 'manual' | 'resume' | 'csv' | 'bulkResume') => {
+    setCandidateDrawerInitialTab(tab);
+    setIsAddCandidateOpen(true);
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -674,6 +681,7 @@ function CandidatesPageContent() {
 
   const loadCandidates = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = opts?.silent === true;
+    const requestId = ++loadCandidatesRequestIdRef.current;
     try {
       if (!silent) {
         setLoading(true);
@@ -733,6 +741,7 @@ function CandidatesPageContent() {
 
       if (!Array.isArray(backendCandidates)) {
         console.error('Unexpected API response format: data is not an array.', res);
+        if (requestId !== loadCandidatesRequestIdRef.current) return;
         if (!silent) {
           setError('Unexpected API response format.');
           setCandidates([]);
@@ -741,6 +750,7 @@ function CandidatesPageContent() {
         return;
       }
 
+      if (requestId !== loadCandidatesRequestIdRef.current) return;
       const mapped = backendCandidates.map(mapBackendCandidate);
       setCandidates(mapped);
       if (pagination) {
@@ -749,6 +759,7 @@ function CandidatesPageContent() {
         setTotalEntries(mapped.length);
       }
     } catch (err: any) {
+      if (requestId !== loadCandidatesRequestIdRef.current) return;
       if (!silent) {
         setError(err?.message || 'Failed to load candidates.');
         setCandidates([]);
@@ -756,7 +767,7 @@ function CandidatesPageContent() {
       }
       toast.error(err?.message || 'Failed to load candidates.');
     } finally {
-      if (!silent) setLoading(false);
+      if (requestId === loadCandidatesRequestIdRef.current && !silent) setLoading(false);
     }
   }, [filters, activeStage, currentUser?.role, currentPage, pageSize]);
 
@@ -1289,26 +1300,45 @@ function CandidatesPageContent() {
             </div>
 
             <div className="flex items-center gap-3">
-              
               {canCreateCandidate && (
                 <button
                   onClick={() => {
-                    setCandidateDrawerInitialTab('bulkResume');
-                    setIsAddCandidateOpen(true);
+                    openCandidateDrawer('resume');
                   }}
-                  className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors shadow-sm"
+                  className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
                 >
                   <Upload size={16} />
+                  Upload Resume
+                </button>
+              )}
+              {canCreateCandidate && (
+                <button
+                  onClick={() => {
+                    openCandidateDrawer('csv');
+                  }}
+                  className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+                >
+                  <FileSpreadsheet size={16} />
+                  Bulk CSV
+                </button>
+              )}
+              {canCreateCandidate && (
+                <button
+                  onClick={() => {
+                    openCandidateDrawer('bulkResume');
+                  }}
+                  className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+                >
+                  <FileText size={16} />
                   Bulk CV Upload
                 </button>
               )}
               {canCreateCandidate && (
                 <button
                   onClick={() => {
-                    setCandidateDrawerInitialTab('manual');
-                    setIsAddCandidateOpen(true);
+                    openCandidateDrawer('manual');
                   }}
-                  className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-sm shadow-blue-100"
+                  className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-blue-100 transition-colors hover:bg-blue-700"
                 >
                   <Plus size={16} />
                   Add Candidate
@@ -1487,10 +1517,11 @@ function CandidatesPageContent() {
         isOpen={canCreateCandidate && isAddCandidateOpen}
         onClose={() => setIsAddCandidateOpen(false)}
         onSuccess={() => {
-          loadCandidates();
+          void loadCandidates({ silent: true });
         }}
         currentUser={currentUser || { _id: '', name: 'You', email: '', role: 'RECRUITER' }}
         initialTab={candidateDrawerInitialTab}
+        showMethodTabs={false}
       />
 
       {canUpdateCandidate && bulkMoveStageOpen ? (

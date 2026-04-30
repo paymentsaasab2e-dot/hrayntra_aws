@@ -60,18 +60,125 @@ function cleanResumeText(rawText = '') {
     .trim();
 }
 
-function extractResumeName(fullText = '') {
-  const firstLine = String(fullText)
-    .split('\n')
-    .map((line) => line.trim())
-    .find(Boolean);
+const RESUME_TITLE_STOPWORDS = new Set([
+  'computer',
+  'software',
+  'engineer',
+  'developer',
+  'designer',
+  'analyst',
+  'manager',
+  'consultant',
+  'architect',
+  'specialist',
+  'lead',
+  'head',
+  'intern',
+  'student',
+  'graduate',
+  'professional',
+  'full',
+  'stack',
+  'frontend',
+  'front-end',
+  'backend',
+  'back-end',
+  'data',
+  'product',
+  'project',
+  'program',
+  'executive',
+  'director',
+  'recruiter',
+  'talent',
+  'operations',
+  'support',
+  'qa',
+  'tester',
+  'devops',
+  'cloud',
+  'security',
+  'marketing',
+  'sales',
+  'accountant',
+  'accounts',
+  'hr',
+  'human',
+  'resources',
+]);
 
-  if (!firstLine) return { firstName: '', lastName: '' };
-  const nameParts = firstLine.split(/\s+/).filter(Boolean);
+function looksLikePersonName(value = '') {
+  const cleaned = String(value || '')
+    .replace(/[\u2013\u2014|,]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!cleaned || /[@\d]/.test(cleaned)) return false;
+  if (/\b(?:resume|curriculum vitae|cv|profile|summary|skills|experience|education|projects|contact)\b/i.test(cleaned)) {
+    return false;
+  }
+
+  const parts = cleaned.split(' ').filter(Boolean);
+  if (parts.length < 2 || parts.length > 4) return false;
+
+  const lowerParts = parts.map((part) => part.toLowerCase());
+  if (lowerParts.some((part) => RESUME_TITLE_STOPWORDS.has(part))) return false;
+  if (lowerParts.some((part) => /(?:engineer|developer|designer|manager|analyst|consultant|architect|student|intern)/.test(part))) {
+    return false;
+  }
+
+  return parts.every((part) => /^[A-Za-z][A-Za-z.'-]*$/.test(part));
+}
+
+function splitNameCandidate(value = '') {
+  const cleaned = String(value || '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\.[a-z0-9]+$/i, '')
+    .replace(/[\u2013\u2014|,]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!looksLikePersonName(cleaned)) {
+    return { firstName: '', lastName: '' };
+  }
+
+  const nameParts = cleaned.split(' ').filter(Boolean);
   return {
     firstName: nameParts[0] || '',
     lastName: nameParts.slice(1).join(' '),
   };
+}
+
+function extractResumeName(fullText = '', fileName = '') {
+  const lines = String(fullText)
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const topCandidates = lines.slice(0, 10).filter(looksLikePersonName);
+  if (topCandidates.length) {
+    return splitNameCandidate(topCandidates[0]);
+  }
+
+  const fileCandidate = splitNameCandidate(path.parse(String(fileName || '')).name || '');
+  if (fileCandidate.firstName || fileCandidate.lastName) {
+    return fileCandidate;
+  }
+
+  const emailMatch = String(fullText).match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+  const emailLocalPart = emailMatch?.[0]?.split('@')[0] || '';
+  const emailCandidate = splitNameCandidate(
+    emailLocalPart
+      .replace(/\d+/g, ' ')
+      .replace(/[._-]+/g, ' ')
+      .trim()
+  );
+
+  if (emailCandidate.firstName || emailCandidate.lastName) {
+    return emailCandidate;
+  }
+
+  return { firstName: '', lastName: '' };
 }
 
 function buildLocation(location = '', city = '', country = '') {
@@ -218,7 +325,7 @@ function hasMeaningfulProvidedScore(providedScore = {}, providedBreakdown = {}) 
   return numericValues.some((value) => value > 0);
 }
 
-function extractFallbackResumeData(text = '') {
+function extractFallbackResumeData(text = '', fileName = '') {
   const lines = String(text).split('\n').map((line) => line.trim()).filter(Boolean);
   const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
   const phoneMatch = text.match(/(\+?\d[\d\s\-().]{7,}\d)/);
@@ -240,7 +347,7 @@ function extractFallbackResumeData(text = '') {
       ).map((item) => item.trim())
     )
   ).slice(0, 12);
-  const extractedName = extractResumeName(text);
+  const extractedName = extractResumeName(text, fileName);
 
   return {
     firstName: extractedName.firstName,
@@ -546,7 +653,7 @@ export async function processCandidateCv(file, { candidateId } = {}) {
   console.log(`  ✅ Text cleaned, length: ${cleanedText.length} characters`);
 
   console.log('\n🤖 STEP 4: Sending FULL Resume Text to AI (with fallback)');
-  const fallbackData = extractFallbackResumeData(cleanedText);
+  const fallbackData = extractFallbackResumeData(cleanedText, file.originalname || file.filename || '');
   let aiStructured = null;
   try {
     aiStructured = await extractStructuredResumeDataWithOpenAI(cleanedText, file);

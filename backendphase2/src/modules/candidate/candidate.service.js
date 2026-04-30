@@ -452,7 +452,7 @@ async function buildCandidateResponse(candidate, activityClient = prisma) {
   };
 }
 
-/** Candidates the user may see when mine=true: created by them, or applied / in pipeline on jobs they created. */
+/** Candidates the user may see when mine=true: created by them, assigned to them, or linked to jobs they created. */
 async function buildMineCandidatesScope(userId) {
   if (!userId) {
     return { id: { in: [] } };
@@ -462,7 +462,7 @@ async function buildMineCandidatesScope(userId) {
     select: { id: true },
   });
   const myJobIds = myJobs.map((j) => j.id);
-  const orClause = [{ createdById: userId }];
+  const orClause = [{ createdById: userId }, { assignedToId: userId }];
   if (myJobIds.length > 0) {
     orClause.push({ matches: { some: { jobId: { in: myJobIds } } } });
     orClause.push({ pipelineEntries: { some: { jobId: { in: myJobIds } } } });

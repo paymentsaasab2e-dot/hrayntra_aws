@@ -32,6 +32,20 @@ const METHOD_TABS = [
   { key: 'bulkResume', label: 'Bulk CV Upload' },
 ];
 
+const DRAWER_TITLES = {
+  manual: 'Add New Candidate',
+  resume: 'Upload Resume',
+  csv: 'Bulk CSV Import',
+  bulkResume: 'Bulk CV Upload',
+};
+
+const DRAWER_DESCRIPTIONS = {
+  manual: 'Create a candidate profile manually.',
+  resume: 'Upload a resume and let the parser fill the form.',
+  csv: 'Import candidates from a CSV file.',
+  bulkResume: 'Create candidates from multiple resume files.',
+};
+
 const PIPELINE_STAGES = ['Applied', 'Screening', 'Shortlist', 'Interview', 'Offer', 'Hired'];
 const SOURCE_OPTIONS = [
   'LinkedIn',
@@ -59,6 +73,7 @@ const KNOWN_DOMAINS = [
 ];
 const LINKEDIN_REGEX = /^(https?:\/\/)?(www\.)?linkedin\.com\/in\/[A-Za-z0-9-_%]+\/?$/i;
 const NO_DIGITS_REGEX = /\d/;
+const CANDIDATES_CHANGED_EVENT = 'jobportal:candidates-changed';
 
 const DEFAULT_FORM_DATA = {
   firstName: '',
@@ -150,6 +165,11 @@ function parseCsvContent(content) {
     });
     return row;
   });
+}
+
+function notifyCandidatesChanged() {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(CANDIDATES_CHANGED_EVENT));
 }
 
 function getInitials(name = '') {
@@ -529,6 +549,7 @@ export default function AddCandidateDrawer({
   initialTab = 'manual',
   defaultJobId = '',
   lockJobSelection = false,
+  showMethodTabs = true,
 }) {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [currentStep, setCurrentStep] = useState(1);
@@ -945,6 +966,8 @@ export default function AddCandidateDrawer({
       setCsvResult(response.data);
       setCsvPhase('complete');
       toast.success(`${response.data.created} candidates imported successfully`);
+      notifyCandidatesChanged();
+      onSuccess?.(null);
     } catch (error) {
       clearInterval(importProgressRef.current);
       setCsvPhase('preview');
@@ -1028,6 +1051,7 @@ export default function AddCandidateDrawer({
 
     const results = [];
     let createdCount = 0;
+    const backgroundUploads = [];
 
     for (let index = 0; index < bulkResumeFiles.length; index += 1) {
       const file = bulkResumeFiles[index];
@@ -1054,7 +1078,11 @@ export default function AddCandidateDrawer({
         const candidate = createResponse.data;
 
         if (file && !parsedCandidate?.resumeUrl) {
-          await apiUploadCandidateResumeFile(candidate.id, file);
+          backgroundUploads.push(
+            apiUploadCandidateResumeFile(candidate.id, file).catch((uploadError) => {
+              console.error('Resume upload failed after candidate creation:', uploadError);
+            })
+          );
         }
 
         createdCount += 1;
@@ -1081,8 +1109,12 @@ export default function AddCandidateDrawer({
     setBulkResumePhase('complete');
     if (createdCount > 0) {
       toast.success(`${createdCount} candidate${createdCount === 1 ? '' : 's'} created from CV upload`);
+      notifyCandidatesChanged();
       onSuccess?.(null);
     }
+    void Promise.allSettled(backgroundUploads).then(() => {
+      notifyCandidatesChanged();
+    });
   };
 
   const buildCandidatePayload = (duplicateAction = 'create') => ({
@@ -1158,9 +1190,6 @@ export default function AddCandidateDrawer({
       const response = await apiCreateCandidateFromDrawer(payload);
       const candidate = response.data;
       const uploadFile = parsedResumeFile || manualResumeFile;
-      if (uploadFile && !parsedData?.resumeUrl) {
-        await apiUploadCandidateResumeFile(candidate.id, uploadFile);
-      }
 
       toast.success(
         duplicateAction === 'updateExisting'
@@ -1173,8 +1202,18 @@ export default function AddCandidateDrawer({
         setInlineSuccess('Candidate saved! Fill in the next one.');
       } else {
         onSuccess?.(candidate);
+        notifyCandidatesChanged();
         resetForNext(activeTab);
         onClose();
+      }
+
+      if (uploadFile && !parsedData?.resumeUrl) {
+        void apiUploadCandidateResumeFile(candidate.id, uploadFile)
+          .then(() => notifyCandidatesChanged())
+          .catch((uploadError) => {
+            console.error('Resume upload failed after candidate creation:', uploadError);
+            toast.error(uploadError?.message || 'Candidate saved, but resume upload failed');
+          });
       }
     } catch (error) {
       if (String(error.message || '').toLowerCase().includes('already exists')) {
@@ -1303,6 +1342,9 @@ export default function AddCandidateDrawer({
     return { ready, duplicates, errorsCount };
   }, [csvRows]);
 
+  const drawerTitle = DRAWER_TITLES[activeTab] || DRAWER_TITLES.manual;
+  const drawerDescription = DRAWER_DESCRIPTIONS[activeTab] || DRAWER_DESCRIPTIONS.manual;
+
   if (!isOpen) return null;
 
   return (
@@ -1316,7 +1358,8 @@ export default function AddCandidateDrawer({
       >
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <div>
-            <h2 className="text-base font-medium text-slate-900">Add New Candidate</h2>
+            <h2 className="text-base font-medium text-slate-900">{drawerTitle}</h2>
+            <p className="mt-0.5 text-xs text-slate-500">{drawerDescription}</p>
             {inlineSuccess ? <p className="mt-1 text-xs font-medium text-emerald-600">{inlineSuccess}</p> : null}
           </div>
           <button
@@ -1329,13 +1372,15 @@ export default function AddCandidateDrawer({
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-5">
-          <div className="mb-5 flex flex-wrap gap-2">
-            {METHOD_TABS.map((tab) => (
-              <PillButton key={tab.key} active={activeTab === tab.key} onClick={() => handleTabChange(tab.key)}>
-                {tab.label}
-              </PillButton>
-            ))}
-          </div>
+          {showMethodTabs ? (
+            <div className="mb-5 flex flex-wrap gap-2">
+              {METHOD_TABS.map((tab) => (
+                <PillButton key={tab.key} active={activeTab === tab.key} onClick={() => handleTabChange(tab.key)}>
+                  {tab.label}
+                </PillButton>
+              ))}
+            </div>
+          ) : null}
 
           {saveBanner ? (
             <div

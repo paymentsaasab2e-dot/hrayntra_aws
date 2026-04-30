@@ -15,7 +15,8 @@ const CONTACT_IMPORT_FIELD_ALIASES = {
   linkedinUrl: ['linkedin', 'linkedin url', 'linked in', 'profile url'],
   contactType: ['contact type', 'type', 'kind', 'category'],
   status: ['status', 'state'],
-  ownerId: ['owner', 'owner name', 'assigned to'],
+  // Keep owner matching strict so a generic "Name" column does not get misread as owner.
+  ownerId: ['owner', 'assigned to', 'owner id', 'owner email'],
   avatarUrl: ['avatar', 'avatar url', 'photo', 'image'],
   tags: ['tags', 'tag'],
   associatedJobIds: ['jobs', 'job ids', 'associated jobs', 'assigned jobs'],
@@ -108,13 +109,48 @@ async function resolveClientId(rawValue) {
   return fallbackMatch?.id || null;
 }
 
+async function resolveOwnerId(rawValue) {
+  const value = String(rawValue || '').trim();
+  if (!value) return null;
+
+  if (isObjectId(value)) {
+    const existingUser = await prisma.user.findUnique({
+      where: { id: value },
+      select: { id: true },
+    });
+    return existingUser?.id || null;
+  }
+
+  const exactMatch = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { name: { equals: value, mode: 'insensitive' } },
+        { email: { equals: value, mode: 'insensitive' } },
+      ],
+    },
+    select: { id: true },
+  });
+  if (exactMatch?.id) return exactMatch.id;
+
+  const fallbackMatch = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { name: { contains: value, mode: 'insensitive' } },
+        { email: { contains: value, mode: 'insensitive' } },
+      ],
+    },
+    select: { id: true },
+  });
+  return fallbackMatch?.id || null;
+}
+
 const parseWorkbook = (buffer, originalName = '') => {
   const workbook = XLSX.read(buffer, { type: 'buffer' });
   const sheetName = workbook.SheetNames[0] || originalName || 'Sheet1';
   const worksheet = workbook.Sheets[sheetName];
   const rows = XLSX.utils.sheet_to_json(worksheet, {
     header: 1,
-    raw: false,
+    raw: true,
     defval: '',
     blankrows: false,
   });
@@ -413,10 +449,12 @@ export const contactController = {
       for (const row of uniqueRows) {
         try {
           const companyId = await resolveClientId(row.companyId || row.companyName);
+          const ownerId = await resolveOwnerId(row.ownerId);
           const result = await contactService.create(
             {
               ...row,
               companyId,
+              ownerId,
             },
             req.user?.id
           );
