@@ -99,7 +99,7 @@ async function sendOTP(req, res) {
     // Clean phone number (remove any non-digit characters)
     const cleanNumber = whatsappNumber.replace(/\D/g, '');
 
-    if (cleanNumber.length < 10) {
+    if (cleanNumber.length < 6) {
       return res.status(400).json({
         success: false,
         message: 'Invalid WhatsApp number',
