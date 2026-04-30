@@ -7,6 +7,7 @@ import { generateCredentials, getTeamMemberById } from '../../lib/api/teamApi';
 import { PortalAccessPreview } from './PortalAccessPreview';
 import { toast } from 'sonner';
 import type { SystemRole, TeamMember } from '../../types/team';
+import { PortalHost } from './PortalHost';
 
 interface GenerateCredentialsModalProps {
   isOpen: boolean;
@@ -98,7 +99,8 @@ export const GenerateCredentialsModal: React.FC<GenerateCredentialsModalProps> =
   } : null;
 
   return (
-    <AnimatePresence>
+    <PortalHost open={isOpen}>
+      <AnimatePresence>
       {isOpen && (
         <>
           <motion.div
@@ -278,6 +280,7 @@ export const GenerateCredentialsModal: React.FC<GenerateCredentialsModalProps> =
           </motion.div>
         </>
       )}
-    </AnimatePresence>
+      </AnimatePresence>
+    </PortalHost>
   );
 };

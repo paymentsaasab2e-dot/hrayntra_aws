@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { getLoginHistory } from '../../lib/api/teamApi';
 import type { LoginHistory } from '../../types/team';
+import { PortalHost } from './PortalHost';
 
 interface LoginHistoryDrawerProps {
   isOpen: boolean;
@@ -76,7 +77,8 @@ export const LoginHistoryDrawer: React.FC<LoginHistoryDrawerProps> = ({ isOpen, 
   }, [isOpen, onClose]);
 
   return (
-    <AnimatePresence>
+    <PortalHost open={isOpen}>
+      <AnimatePresence>
       {isOpen && (
         <>
           {/* Backdrop */}
@@ -167,6 +169,7 @@ export const LoginHistoryDrawer: React.FC<LoginHistoryDrawerProps> = ({ isOpen, 
           </motion.div>
         </>
       )}
-    </AnimatePresence>
+      </AnimatePresence>
+    </PortalHost>
   );
 };

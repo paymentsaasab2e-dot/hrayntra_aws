@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -60,6 +61,7 @@ const formatPermissionName = (name: string): string => {
 };
 
 export const AddRoleDrawer: React.FC<AddRoleDrawerProps> = ({ isOpen, permissions, onClose, onSuccess }) => {
+  const [mounted, setMounted] = useState(false);
   const effectivePermissions = React.useMemo(
     () => mergePermissionMaps(Object.keys(permissions || {}).length > 0 ? permissions : buildFallbackPermissionsMap()),
     [permissions]
@@ -74,6 +76,10 @@ export const AddRoleDrawer: React.FC<AddRoleDrawerProps> = ({ isOpen, permission
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [moduleSelectAll, setModuleSelectAll] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Initialize module select all state
   useEffect(() => {
@@ -204,7 +210,11 @@ export const AddRoleDrawer: React.FC<AddRoleDrawerProps> = ({ isOpen, permission
     return () => window.removeEventListener('keydown', handleEscape);
   }, [isOpen]);
 
-  return (
+  if (!mounted) {
+    return null;
+  }
+
+  return createPortal(
     <AnimatePresence>
       {isOpen && (
         <>
@@ -214,7 +224,7 @@ export const AddRoleDrawer: React.FC<AddRoleDrawerProps> = ({ isOpen, permission
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={handleClose}
-            className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[60]"
+            className="fixed inset-0 z-[1000] bg-slate-900/40 backdrop-blur-[2px]"
           />
 
           {/* Drawer */}
@@ -224,7 +234,7 @@ export const AddRoleDrawer: React.FC<AddRoleDrawerProps> = ({ isOpen, permission
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
             onClick={(e) => e.stopPropagation()}
-            className="fixed right-0 top-0 h-full max-w-xl w-full bg-white shadow-2xl z-[70] flex flex-col"
+            className="fixed right-0 top-0 z-[1010] flex h-full w-full max-w-xl flex-col bg-white shadow-2xl"
           >
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50/50">
@@ -375,5 +385,7 @@ export const AddRoleDrawer: React.FC<AddRoleDrawerProps> = ({ isOpen, permission
         </>
       )}
     </AnimatePresence>
+    ,
+    document.body
   );
 };

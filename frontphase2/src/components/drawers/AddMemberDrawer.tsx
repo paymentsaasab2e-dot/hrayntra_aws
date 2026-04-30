@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   X, 
@@ -21,8 +22,13 @@ interface AddMemberDrawerProps {
 }
 
 export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClose }) => {
+  const [mounted, setMounted] = useState(false);
   const [showPermissions, setShowPermissions] = useState(false);
   const [commissionType, setCommissionType] = useState('Percentage');
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const permissionGroups = [
     {
@@ -39,7 +45,11 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
     }
   ];
 
-  return (
+  if (!mounted) {
+    return null;
+  }
+
+  return createPortal(
     <AnimatePresence>
       {isOpen && (
         <>
@@ -49,7 +59,7 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50"
+            className="fixed inset-0 z-[1000] bg-slate-900/40 backdrop-blur-sm"
           />
           
           {/* Drawer */}
@@ -58,7 +68,7 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="fixed right-0 top-0 h-full w-full max-w-2xl bg-white shadow-2xl z-[60] flex flex-col overflow-hidden"
+            className="fixed right-0 top-0 z-[1010] flex h-full w-full max-w-2xl flex-col overflow-hidden bg-white shadow-2xl"
           >
             {/* Header */}
             <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-white sticky top-0 z-10">
@@ -337,5 +347,7 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
         </>
       )}
     </AnimatePresence>
+    ,
+    document.body
   );
 };
