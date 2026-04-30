@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { generateCredentials, getRoles } from '../../lib/api/teamApi';
 import type { TeamMember, SystemRole } from '../../types/team';
+import { PortalHost } from './PortalHost';
 
 interface GenerateCredentialsDrawerProps {
   isOpen: boolean;
@@ -153,7 +154,8 @@ export const GenerateCredentialsDrawer: React.FC<GenerateCredentialsDrawerProps>
   const loginIdPreview = computeLoginId();
 
   return (
-    <AnimatePresence>
+    <PortalHost open={isOpen}>
+      <AnimatePresence>
       {isOpen && (
         <>
           {/* Backdrop */}
@@ -387,6 +389,7 @@ export const GenerateCredentialsDrawer: React.FC<GenerateCredentialsDrawerProps>
           </motion.div>
         </>
       )}
-    </AnimatePresence>
+      </AnimatePresence>
+    </PortalHost>
   );
 };

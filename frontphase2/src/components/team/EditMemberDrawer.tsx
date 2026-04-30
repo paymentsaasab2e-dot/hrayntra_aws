@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { updateTeamMember, getRoles, getDepartments, getTeamMembers, deleteTeamMember } from '../../lib/api/teamApi';
 import { requestConfirm } from '../../lib/appDialog';
 import type { TeamMember, Role, Department, UpdateMemberPayload } from '../../types/team';
+import { PortalHost } from './PortalHost';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const KNOWN_DOMAINS = [
@@ -248,7 +249,8 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
   }, [isOpen]);
 
   return (
-    <AnimatePresence>
+    <PortalHost open={isOpen}>
+      <AnimatePresence>
       {isOpen && (
         <>
           {/* Backdrop */}
@@ -484,6 +486,7 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
           </motion.div>
         </>
       )}
-    </AnimatePresence>
+      </AnimatePresence>
+    </PortalHost>
   );
 };

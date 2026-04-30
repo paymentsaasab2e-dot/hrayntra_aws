@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { getRoleById, getRoles, updateTeamMember, getTeamMembers } from '../../lib/api/teamApi';
 import type { SystemRole, Role, TeamMember } from '../../types/team';
+import { PortalHost } from './PortalHost';
 
 interface RoleMembersDrawerProps {
   isOpen: boolean;
@@ -102,7 +103,8 @@ export const RoleMembersDrawer: React.FC<RoleMembersDrawerProps> = ({ isOpen, ro
   }, [isOpen, onClose]);
 
   return (
-    <AnimatePresence>
+    <PortalHost open={isOpen}>
+      <AnimatePresence>
       {isOpen && (
         <>
           {/* Backdrop */}
@@ -225,6 +227,7 @@ export const RoleMembersDrawer: React.FC<RoleMembersDrawerProps> = ({ isOpen, ro
           </motion.div>
         </>
       )}
-    </AnimatePresence>
+      </AnimatePresence>
+    </PortalHost>
   );
 };

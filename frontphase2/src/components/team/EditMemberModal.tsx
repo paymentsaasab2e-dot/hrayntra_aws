@@ -7,6 +7,7 @@ import { updateTeamMember, getRoles, getDepartments } from '../../lib/api/teamAp
 import { PortalAccessPreview } from './PortalAccessPreview';
 import { toast } from 'sonner';
 import type { UpdateMemberPayload, SystemRole, Department, TeamMember, UserStatus } from '../../types/team';
+import { PortalHost } from './PortalHost';
 
 interface EditMemberModalProps {
   isOpen: boolean;
@@ -134,7 +135,8 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({ isOpen, onClos
   if (!isOpen || !member) return null;
 
   return (
-    <AnimatePresence>
+    <PortalHost open={isOpen}>
+      <AnimatePresence>
       {isOpen && (
         <>
           <motion.div
@@ -378,6 +380,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({ isOpen, onClos
           </motion.div>
         </>
       )}
-    </AnimatePresence>
+      </AnimatePresence>
+    </PortalHost>
   );
 };

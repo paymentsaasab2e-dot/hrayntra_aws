@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { updateRole } from '../../lib/api/teamApi';
 import type { SystemRole, Permission } from '../../types/team';
 import { buildFallbackPermissionsMap, mergePermissionMaps } from './permissionCatalog';
+import { PortalHost } from './PortalHost';
 
 interface EditRoleDrawerProps {
   isOpen: boolean;
@@ -209,7 +210,8 @@ export const EditRoleDrawer: React.FC<EditRoleDrawerProps> = ({ isOpen, role, pe
   }, [isOpen]);
 
   return (
-    <AnimatePresence>
+    <PortalHost open={isOpen}>
+      <AnimatePresence>
       {isOpen && (
         <>
           {/* Backdrop */}
@@ -396,6 +398,7 @@ export const EditRoleDrawer: React.FC<EditRoleDrawerProps> = ({ isOpen, role, pe
           </motion.div>
         </>
       )}
-    </AnimatePresence>
+      </AnimatePresence>
+    </PortalHost>
   );
 };

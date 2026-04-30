@@ -16,6 +16,7 @@ import {
 } from '../../lib/api/teamApi';
 import type { TeamMemberDetail, UserActivity, TeamTask } from '../../types/team';
 import { LoginHistoryDrawer } from './LoginHistoryDrawer';
+import { PortalHost } from './PortalHost';
 
 interface MemberProfileDrawerProps {
   isOpen: boolean;
@@ -205,8 +206,9 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
     })();
 
   return (
-    <>
-      <AnimatePresence>
+    <PortalHost open={isOpen}>
+      <>
+        <AnimatePresence>
         {isOpen && (
           <>
             {/* Backdrop */}
@@ -615,7 +617,7 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
             </motion.div>
           </>
         )}
-      </AnimatePresence>
+        </AnimatePresence>
 
       {/* Login History Drawer */}
       {member && (
@@ -625,6 +627,7 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
           onClose={() => setShowLoginHistory(false)}
         />
       )}
-    </>
+      </>
+    </PortalHost>
   );
 };

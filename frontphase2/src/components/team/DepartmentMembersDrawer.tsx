@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { getDepartmentById, getDepartments, updateTeamMember } from '../../lib/api/teamApi';
 import type { Department, TeamMember } from '../../types/team';
+import { PortalHost } from './PortalHost';
 
 interface DepartmentMembersDrawerProps {
   isOpen: boolean;
@@ -133,7 +134,8 @@ export const DepartmentMembersDrawer: React.FC<DepartmentMembersDrawerProps> = (
   }, [isOpen, onClose]);
 
   return (
-    <AnimatePresence>
+    <PortalHost open={isOpen}>
+      <AnimatePresence>
       {isOpen && (
         <>
           {/* Backdrop */}
@@ -257,6 +259,7 @@ export const DepartmentMembersDrawer: React.FC<DepartmentMembersDrawerProps> = (
           </motion.div>
         </>
       )}
-    </AnimatePresence>
+      </AnimatePresence>
+    </PortalHost>
   );
 };
