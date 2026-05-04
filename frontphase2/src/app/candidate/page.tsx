@@ -41,7 +41,6 @@ import {
   apiGetCandidates,
   apiGetJobs,
   apiGetPipelineStages,
-  apiGetUsers,
   apiMoveCandidateStage,
   apiPinCandidateNote,
   apiRejectCandidate,
@@ -52,8 +51,8 @@ import {
   apiUpdateCandidateNote,
   type BackendCandidate,
   type BackendJob,
-  type BackendUser,
 } from '../../lib/api';
+import { getAllTeamMembersForAssign } from '../../lib/api/teamApi';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { usePermissions } from '../../hooks/usePermissions';
 
@@ -804,14 +803,13 @@ function CandidatesPageContent() {
 
     async function loadPipelineOptions() {
       try {
-        const [jobsRes, usersRes] = await Promise.all([
+        const [jobsRes, members] = await Promise.all([
           apiGetJobs(MY_JOBS_LIST_PARAMS),
-          apiGetUsers({ limit: 100 }),
+          getAllTeamMembersForAssign(),
         ]);
         if (cancelled) return;
 
         const jobsPayload = jobsRes.data;
-        const usersPayload = usersRes.data;
 
         const jobsData: BackendJob[] = Array.isArray(jobsPayload)
           ? jobsPayload
@@ -821,11 +819,9 @@ function CandidatesPageContent() {
               ? (jobsPayload as any).items
               : [];
 
-        const usersData: BackendUser[] = Array.isArray(usersPayload)
-          ? usersPayload
-          : Array.isArray((usersPayload as any)?.data)
-            ? (usersPayload as any).data
-            : [];
+        const memberName = (m: (typeof members)[number]) =>
+          [m.firstName, m.lastName].filter(Boolean).join(' ').trim() || m.email;
+        const memberAvatar = (m: (typeof members)[number]) => (m as { avatar?: string | null }).avatar || null;
 
         setPipelineJobs(
           jobsData.map((job) => ({
@@ -836,25 +832,21 @@ function CandidatesPageContent() {
         );
 
         setPipelineRecruiters(
-          usersData
-            .filter((user) => user.isActive)
-            .map((user) => ({
-              id: user.id,
-              name: user.name,
-              avatar: user.avatar || null,
-            }))
+          members.map((m) => ({
+            id: m.id,
+            name: memberName(m),
+            avatar: memberAvatar(m),
+          }))
         );
 
         setInterviewPanelMembers(
-          usersData
-            .filter((user) => user.isActive)
-            .map((user) => ({
-              id: user.id,
-              name: user.name,
-              role: user.role,
-              department: user.department || '',
-              avatar: user.avatar || null,
-            }))
+          members.map((m) => ({
+            id: m.id,
+            name: memberName(m),
+            role: m.role?.roleName || '',
+            department: m.department?.name || '',
+            avatar: memberAvatar(m),
+          }))
         );
       } catch (optionError) {
         console.error('Failed to load pipeline options:', optionError);

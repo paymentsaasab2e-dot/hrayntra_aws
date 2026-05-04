@@ -32,15 +32,18 @@ import {
   apiUpdateLead,
   apiDeleteLead,
   apiConvertLeadToClient,
-  apiGetUsers,
   type BackendLead,
   type BackendUser,
 } from '../../lib/api';
+import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Toaster, toast } from 'sonner';
 import { splitDateTimeForDisplay } from '../../utils/formatLeadDateTime';
 import { usePermissions } from '../../hooks/usePermissions';
 import { requestError } from '../../lib/appDialog';
+
+const LEADS_FILTER_SELECT =
+  'rounded-xl border border-indigo-100/90 bg-white/95 px-3 py-2 text-sm font-medium text-slate-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 cursor-pointer hover:border-indigo-200/90 hover:bg-indigo-50/40';
 
 /** Last / next follow-up column: date + time on separate lines (not raw ISO). */
 function LeadFollowUpTableCell({
@@ -53,24 +56,21 @@ function LeadFollowUpTableCell({
   const last = splitDateTimeForDisplay(lastFollowUp);
   const next = splitDateTimeForDisplay(nextFollowUp);
   return (
-    <div className="flex flex-col gap-1.5 min-w-[9rem]">
+    <div className="flex flex-col gap-2 min-w-[9rem]">
       {last ? (
-        <div>
-          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Date</p>
-          <p className="text-xs font-medium text-slate-800 leading-tight">{last.date}</p>
-          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide mt-1">Time</p>
-          <p className="text-[10px] text-slate-600 leading-tight">{last.time}</p>
+        <div className="rounded-xl bg-indigo-500/[0.06] px-2.5 py-2 ring-1 ring-indigo-500/10">
+          <p className="text-[9px] font-bold text-indigo-600/90 uppercase tracking-[0.12em]">Last</p>
+          <p className="text-xs font-semibold text-slate-800 leading-snug mt-0.5">{last.date}</p>
+          <p className="text-[10px] text-slate-500 mt-1 tabular-nums">{last.time}</p>
         </div>
       ) : (
-        <span className="text-xs text-slate-400">—</span>
+        <span className="inline-flex rounded-lg bg-slate-100/80 px-2 py-1 text-[11px] font-medium text-slate-400">—</span>
       )}
       {next && (
-        <div className="pt-1.5 mt-0.5 border-t border-slate-100">
-          <p className="text-[9px] font-bold text-blue-600 uppercase tracking-wide mb-0.5">Next</p>
-          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Date</p>
-          <p className="text-xs font-medium text-blue-700 leading-tight">{next.date}</p>
-          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide mt-1">Time</p>
-          <p className="text-[10px] text-blue-600 leading-tight">{next.time}</p>
+        <div className="rounded-xl bg-gradient-to-br from-blue-500/10 to-indigo-500/10 px-2.5 py-2 ring-1 ring-blue-400/15">
+          <p className="text-[9px] font-bold text-blue-700 uppercase tracking-[0.12em]">Next</p>
+          <p className="text-xs font-semibold text-blue-900 leading-snug mt-0.5">{next.date}</p>
+          <p className="text-[10px] text-blue-700/90 mt-1 tabular-nums">{next.time}</p>
         </div>
       )}
     </div>
@@ -207,15 +207,15 @@ const INITIAL_LEADS: Lead[] = [
 
 const StatusTag = ({ status }: { status: LeadStatus }) => {
   const styles = {
-    New: 'bg-blue-50 text-blue-700 border-blue-100',
-    Contacted: 'bg-yellow-50 text-yellow-700 border-yellow-100',
-    Qualified: 'bg-purple-50 text-purple-700 border-purple-100',
-    Converted: 'bg-green-50 text-green-700 border-green-100',
-    Lost: 'bg-gray-50 text-gray-700 border-gray-100',
+    New: 'bg-blue-500/10 text-blue-800 ring-1 ring-blue-500/20 shadow-sm shadow-blue-500/5',
+    Contacted: 'bg-amber-500/10 text-amber-900 ring-1 ring-amber-500/20 shadow-sm',
+    Qualified: 'bg-violet-500/10 text-violet-800 ring-1 ring-violet-500/20 shadow-sm',
+    Converted: 'bg-emerald-500/10 text-emerald-800 ring-1 ring-emerald-500/20 shadow-sm',
+    Lost: 'bg-slate-500/10 text-slate-700 ring-1 ring-slate-400/25',
   };
 
   return (
-    <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium border ${styles[status]}`}>
+    <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-semibold tracking-wide ${styles[status]}`}>
       {status}
     </span>
   );
@@ -246,11 +246,13 @@ const SelectionCheckbox = ({
     onClick={onChange}
     role="checkbox"
     aria-checked={checked}
-    className={`flex h-4 w-4 cursor-pointer items-center justify-center rounded border transition-colors ${
-      checked ? 'border-blue-600 bg-blue-600' : 'border-slate-300 bg-white'
+    className={`flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded-md border-2 transition-all duration-200 ${
+      checked
+        ? 'border-indigo-600 bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-sm shadow-indigo-500/25'
+        : 'border-slate-300/90 bg-white hover:border-indigo-400/60 hover:bg-indigo-50/50'
     }`}
   >
-    {checked ? <Check className="h-3 w-3 text-white" strokeWidth={4} /> : null}
+    {checked ? <Check className="h-3 w-3 text-white" strokeWidth={3} /> : null}
   </div>
 );
 
@@ -426,14 +428,8 @@ export default function RecruitmentAgencyDashboard() {
       try {
         const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
         if (!token) return;
-        const response = await apiGetUsers({ isActive: true, limit: 200, role: 'RECRUITER' });
-        const payload = response.data;
-        const users = Array.isArray(payload)
-          ? payload
-          : Array.isArray(payload?.data)
-            ? payload.data
-            : [];
-        setTeamMembers(users);
+        const members = await getAllTeamMembersForAssign();
+        setTeamMembers(teamMembersToBackendUsers(members));
       } catch (err) {
         console.error('Failed to fetch users for bulk lead assignment:', err);
       }
@@ -1068,7 +1064,7 @@ export default function RecruitmentAgencyDashboard() {
   }, []);
 
   return (
-    <div className="w-full min-h-screen bg-[#F8FAFC] overflow-hidden text-slate-900">
+    <div className="w-full min-h-screen overflow-hidden text-slate-900">
       <Toaster
         position="top-right"
         richColors
@@ -1077,10 +1073,15 @@ export default function RecruitmentAgencyDashboard() {
       {/* Main Content */}
       <main className="flex flex-col overflow-hidden relative">
         {/* Header */}
-        <header className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900 leading-tight">Leads</h1>
-            <p className="text-sm text-slate-500">Track, manage, and convert potential clients into active hiring partners</p>
+        <header className="min-h-[5.25rem] flex flex-wrap items-center justify-between gap-4 px-6 sm:px-8 py-4 shrink-0 border-b border-indigo-100/50 bg-white/80 backdrop-blur-md shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)]">
+          <div className="flex items-start gap-3 sm:gap-4">
+            <div className="mt-0.5 flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-rose-500 via-orange-500 to-amber-500 text-white shadow-lg shadow-rose-500/30 ring-1 ring-white/20">
+              <Target className="h-6 w-6" strokeWidth={2.2} />
+            </div>
+            <div>
+              <h1 className="text-2xl sm:text-[1.65rem] font-bold tracking-tight text-slate-900 leading-tight">Leads</h1>
+              <p className="text-sm text-slate-500 max-w-xl">Track, manage, and convert potential clients into active hiring partners</p>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             {isAuthenticated === false && (
@@ -1095,9 +1096,9 @@ export default function RecruitmentAgencyDashboard() {
               <button
                 type="button"
                 onClick={() => setImportDrawerOpen(true)}
-                className="bg-white hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-all shadow-sm border border-slate-200 active:scale-95"
+                className="bg-white hover:bg-indigo-50/90 text-indigo-900 px-4 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2 transition-all shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] border border-indigo-200/70 hover:border-indigo-300 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
               >
-                <Upload size={18} />
+                <Upload size={18} className="text-indigo-600" strokeWidth={2.25} />
                 <span>Import</span>
               </button>
             )}
@@ -1105,9 +1106,9 @@ export default function RecruitmentAgencyDashboard() {
               <button
                 type="button"
                 onClick={() => setAddLeadDrawerOpen(true)}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-all shadow-sm active:scale-95"
+                className="bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 text-white px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2 transition-all shadow-lg shadow-indigo-500/30 active:scale-[0.98]"
               >
-                <Plus size={18} />
+                <Plus size={18} className="text-white" strokeWidth={2.5} />
                 <span>Add Lead</span>
               </button>
             )}
@@ -1115,14 +1116,14 @@ export default function RecruitmentAgencyDashboard() {
         </header>
 
         {/* Scrollable Area */}
-        <div className="flex-1 overflow-y-auto p-8">
+        <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
           {/* Summary Cards */}
-          <div className="grid grid-cols-5 gap-6 mb-8">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 sm:grid-cols-3 lg:grid-cols-5 mb-8">
             <SummaryCard
               label="NEW LEADS"
               count={metrics.NEW_LEADS}
               color="blue"
-              icon={<Plus size={16} />}
+              icon={<Plus size={18} strokeWidth={2.35} />}
               active={statusFilter === 'New'}
               onClick={() => handleStatusCardClick('New')}
             />
@@ -1130,7 +1131,7 @@ export default function RecruitmentAgencyDashboard() {
               label="CONTACTED"
               count={metrics.CONTACTED}
               color="yellow"
-              icon={<Phone size={16} />}
+              icon={<Phone size={18} strokeWidth={2.35} />}
               active={statusFilter === 'Contacted'}
               onClick={() => handleStatusCardClick('Contacted')}
             />
@@ -1138,7 +1139,7 @@ export default function RecruitmentAgencyDashboard() {
               label="QUALIFIED"
               count={metrics.QUALIFIED}
               color="purple"
-              icon={<Target size={16} />}
+              icon={<Target size={18} strokeWidth={2.35} />}
               active={statusFilter === 'Qualified'}
               onClick={() => handleStatusCardClick('Qualified')}
             />
@@ -1146,7 +1147,7 @@ export default function RecruitmentAgencyDashboard() {
               label="CONVERTED"
               count={metrics.CONVERTED}
               color="green"
-              icon={<CheckCircle size={16} />}
+              icon={<CheckCircle size={18} strokeWidth={2.35} />}
               active={statusFilter === 'Converted'}
               onClick={() => handleStatusCardClick('Converted')}
             />
@@ -1154,21 +1155,21 @@ export default function RecruitmentAgencyDashboard() {
               label="LOST"
               count={metrics.LOST}
               color="gray"
-              icon={<XCircle size={16} />}
+              icon={<XCircle size={18} strokeWidth={2.35} />}
               active={statusFilter === 'Lost'}
               onClick={() => handleStatusCardClick('Lost')}
             />
           </div>
 
           {/* Table Controls */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-6">
-            <div className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100">
-              <div className="relative w-full md:w-96">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <div className="mb-6 overflow-hidden rounded-2xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm transition-shadow hover:shadow-[0_16px_48px_-14px_rgba(79,70,229,0.16)]">
+            <div className="p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20">
+              <div className="relative w-full lg:max-w-md lg:flex-1">
+                <Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-indigo-400" size={18} strokeWidth={2.25} />
                 <input 
                   type="text" 
                   placeholder="Search company, email, or contact..." 
-                  className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                  className="w-full h-11 pl-11 pr-4 bg-white/95 border border-indigo-100/90 rounded-2xl text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-300 transition-all [box-shadow:inset_0_1px_2px_rgba(15,23,42,0.04)]"
                   value={searchQuery}
                   onChange={(e) => {
                     setCurrentPage(1);
@@ -1177,15 +1178,15 @@ export default function RecruitmentAgencyDashboard() {
                 />
               </div>
               
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg">
-                  <Filter size={14} className="text-slate-400" />
-                  <span className="text-xs font-bold text-slate-500 uppercase">Filters:</span>
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                <div className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-indigo-500/[0.07] ring-1 ring-indigo-500/10">
+                  <Filter size={15} className="text-indigo-600 shrink-0" strokeWidth={2.35} />
+                  <span className="text-[11px] font-bold text-indigo-900/75 uppercase tracking-wide">Filters</span>
                 </div>
                 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <select 
-                    className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer hover:border-blue-300 transition-colors"
+                    className={LEADS_FILTER_SELECT}
                     value={statusFilter}
                     onChange={(e) => {
                       setCurrentPage(1);
@@ -1201,7 +1202,7 @@ export default function RecruitmentAgencyDashboard() {
                   </select>
 
                   <select
-                    className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer hover:border-blue-300 transition-colors"
+                    className={LEADS_FILTER_SELECT}
                     value={sourceFilter}
                     onChange={(e) => {
                       setCurrentPage(1);
@@ -1217,7 +1218,7 @@ export default function RecruitmentAgencyDashboard() {
                   </select>
 
                   <select
-                    className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer hover:border-blue-300 transition-colors"
+                    className={LEADS_FILTER_SELECT}
                     value={recruiterFilter}
                     onChange={(e) => {
                       setCurrentPage(1);
@@ -1233,7 +1234,8 @@ export default function RecruitmentAgencyDashboard() {
                   </select>
 
                   <button 
-                    className="text-sm text-slate-500 hover:text-red-600 font-medium px-2 py-1 flex items-center gap-1 transition-colors"
+                    type="button"
+                    className="text-sm text-rose-600 hover:text-rose-700 font-semibold px-3 py-2 rounded-xl hover:bg-rose-50 flex items-center gap-1.5 transition-colors"
                     onClick={() => {
                     setCurrentPage(1);
                     setSearchQuery('');
@@ -1242,7 +1244,7 @@ export default function RecruitmentAgencyDashboard() {
                     setRecruiterFilter('');
                   }}
                   >
-                    <XCircle size={14} />
+                    <XCircle size={15} className="text-rose-500 shrink-0" strokeWidth={2.35} />
                     Clear
                   </button>
                 </div>
@@ -1250,65 +1252,73 @@ export default function RecruitmentAgencyDashboard() {
             </div>
 
             {/* Leads Table */}
-            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+            <div className="overflow-hidden">
               <div className="no-scrollbar overflow-x-auto">
                 {loading && (
-                  <div className="p-8 text-center text-slate-500">Loading leads...</div>
+                  <div className="flex flex-col items-center justify-center gap-3 p-12 text-slate-500">
+                    <div className="h-9 w-9 rounded-full border-2 border-indigo-200 border-t-indigo-600 animate-spin" />
+                    <p className="text-sm font-medium">Loading leads…</p>
+                  </div>
                 )}
                 {error && !loading && (
-                  <div className="p-8 text-center text-red-500">Error: {error}</div>
+                  <div className="p-10 text-center text-sm text-rose-600 font-medium">Error: {error}</div>
                 )}
                 {!loading && !error && (
-                  <table className="w-full text-left">
+                  <table className="w-full min-w-[860px] text-left">
                     <thead>
-                      <tr className="bg-slate-50 border-y border-slate-200 text-slate-500 uppercase text-[11px] font-bold tracking-wider">
-                        <th className="px-6 py-4 w-12">
+                      <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/45 uppercase text-[10px] font-bold tracking-[0.14em]">
+                        <th className="px-5 sm:px-6 py-3.5 w-12 first:pl-6">
                           <SelectionCheckbox
                             checked={allVisibleSelected}
                             onChange={toggleSelectAll}
                           />
                         </th>
-                        <th className="px-6 py-4">Lead / Company</th>
-                        <th className="px-6 py-4">Source</th>
-                        <th className="px-6 py-4">Contact</th>
-                        <th className="px-6 py-4">Status</th>
-                        <th className="px-6 py-4">Assigned To</th>
-                        <th className="px-6 py-4">Last Follow-up</th>
-                        <th className="px-6 py-4 text-right">Actions</th>
+                        <th className="px-5 sm:px-6 py-3.5">Lead / Company</th>
+                        <th className="px-5 sm:px-6 py-3.5">Source</th>
+                        <th className="px-5 sm:px-6 py-3.5">Contact</th>
+                        <th className="px-5 sm:px-6 py-3.5">Status</th>
+                        <th className="px-5 sm:px-6 py-3.5">Assigned To</th>
+                        <th className="px-5 sm:px-6 py-3.5">Last Follow-up</th>
+                        <th className="px-5 sm:px-6 py-3.5 text-right">Actions</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody className="divide-y divide-slate-100/80">
                       {filteredLeads.length === 0 ? (
                         <tr>
-                          <td colSpan={8} className="px-6 py-8 text-center text-slate-500">
-                            No leads found
+                          <td colSpan={8} className="px-6 py-16 text-center">
+                            <p className="text-sm font-medium text-slate-500">No leads match your filters</p>
+                            <p className="mt-1 text-xs text-slate-400">Try adjusting search or clear filters</p>
                           </td>
                         </tr>
                       ) : (
                         filteredLeads.map((lead) => (
                           <tr
                             key={lead.id}
-                            className={`group transition-colors ${
+                            className={`group transition-colors duration-200 ${
                               highlightedRows.includes(lead.id)
-                                ? 'bg-yellow-50 hover:bg-yellow-50'
+                                ? 'bg-amber-50/90 hover:bg-amber-50'
                                 : selectedLeadIds.includes(lead.id)
-                                  ? 'bg-blue-50/80 hover:bg-blue-50/80'
+                                  ? 'bg-indigo-50/90 hover:bg-indigo-50/95'
                                   : selectedLeadId === lead.id
-                                    ? 'bg-blue-50/50 hover:bg-blue-50/60'
-                                    : 'hover:bg-blue-50/50'
+                                    ? 'bg-blue-50/70 hover:bg-blue-50/85'
+                                    : 'even:bg-slate-50/35 hover:bg-indigo-50/45'
                             }`}
                           >
-                            <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                            <td className="px-5 sm:px-6 py-3.5" onClick={(e) => e.stopPropagation()}>
                               <SelectionCheckbox
                                 checked={selectedLeadIds.includes(lead.id)}
                                 onChange={() => toggleLeadSelection(lead.id)}
                               />
                             </td>
-                            <td className="px-6 py-4">
-                              <div className="flex flex-col">
+                            <td className="px-5 sm:px-6 py-3.5">
+                              <div className="flex items-start gap-2.5">
+                                <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-slate-100 to-slate-50 ring-1 ring-slate-200/80 text-slate-500">
+                                  <Building2 size={15} strokeWidth={2.25} />
+                                </span>
+                                <div className="min-w-0 flex flex-col gap-0.5">
                                 <button
                                   type="button"
-                                  className="text-left text-sm font-semibold text-slate-900 hover:text-blue-700 hover:underline"
+                                  className="text-left text-sm font-semibold text-slate-900 hover:text-indigo-700 transition-colors line-clamp-1"
                                   onClick={() => {
                                     setSelectedLeadDrawerMode('view');
                                     setSelectedLeadId(lead.id);
@@ -1316,26 +1326,27 @@ export default function RecruitmentAgencyDashboard() {
                                 >
                                   {lead.companyName}
                                 </button>
-                                <span className="text-xs text-slate-500">{lead.type}</span>
+                                <span className="text-[11px] font-medium text-slate-500">{lead.type}</span>
+                                </div>
                               </div>
                             </td>
-                            <td className="px-6 py-4">
-                              <div className="flex items-center gap-1.5 text-xs text-slate-600 bg-slate-100 w-fit px-2 py-1 rounded-md">
-                                <ExternalLink size={12} />
+                            <td className="px-5 sm:px-6 py-3.5">
+                              <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-violet-800 bg-gradient-to-r from-violet-50 to-fuchsia-50/80 border border-violet-100/90 w-fit px-2.5 py-1.5 rounded-xl shadow-sm shadow-violet-500/5">
+                                <ExternalLink size={13} className="text-violet-600 shrink-0" strokeWidth={2.35} />
                                 {lead.source}
                               </div>
                             </td>
-                            <td className="px-6 py-4">
-                              <div className="flex flex-col">
-                                <span className="text-sm text-slate-700">{lead.contactPerson}</span>
-                                <span className="text-xs text-slate-500">{lead.email}</span>
+                            <td className="px-5 sm:px-6 py-3.5">
+                              <div className="flex flex-col gap-0.5">
+                                <span className="text-sm font-medium text-slate-800">{lead.contactPerson}</span>
+                                <span className="text-[11px] text-slate-500">{lead.email}</span>
                               </div>
                             </td>
-                            <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                            <td className="px-5 sm:px-6 py-3.5" onClick={(e) => e.stopPropagation()}>
                               <div className="flex flex-col gap-2">
                                 {canUpdateLead ? (
                                   <select
-                                    className="px-3 py-1 rounded-full border border-slate-300 bg-white text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
+                                    className="max-w-[11rem] rounded-full border-0 bg-slate-100/80 px-3 py-1.5 text-xs font-semibold text-slate-800 ring-1 ring-slate-200/90 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer hover:bg-slate-100"
                                     value={lead.status}
                                     onChange={(e) =>
                                       handleInlineStatusChange(lead.id, e.target.value as LeadStatus)
@@ -1383,56 +1394,60 @@ export default function RecruitmentAgencyDashboard() {
                                 )}
                               </div>
                             </td>
-                            <td className="px-6 py-4">
-                              <div className="flex items-center gap-2">
+                            <td className="px-5 sm:px-6 py-3.5">
+                              <div className="flex items-center gap-2.5 min-w-0">
                                 <ImageWithFallback
                                   src={lead.assignedTo.avatar}
                                   alt={lead.assignedTo.name}
-                                  className="w-7 h-7 rounded-full"
+                                  className="h-8 w-8 shrink-0 rounded-full object-cover ring-2 ring-white shadow-md shadow-slate-300/30"
                                 />
-                                <span className="text-sm text-slate-700">{lead.assignedTo.name}</span>
+                                <span className="text-sm font-medium text-slate-800 truncate">{lead.assignedTo.name}</span>
                               </div>
                             </td>
-                            <td className="px-6 py-4">
+                            <td className="px-5 sm:px-6 py-3.5">
                               <LeadFollowUpTableCell
                                 lastFollowUp={lead.lastFollowUp}
                                 nextFollowUp={lead.nextFollowUp}
                               />
                             </td>
-                            <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
-                              <div className="flex items-center justify-end gap-1">
+                            <td className="px-5 sm:px-6 py-3.5 text-right" onClick={(e) => e.stopPropagation()}>
+                              <div className="inline-flex items-center justify-end gap-0.5 rounded-2xl bg-slate-100/70 p-1 ring-1 ring-slate-200/60">
                                 <button
-                                  className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md"
+                                  type="button"
+                                  className="flex h-8 w-8 items-center justify-center rounded-xl text-blue-600 hover:bg-white hover:text-blue-700 hover:shadow-sm transition-all"
                                   title="View Details"
                                   onClick={() => {
                                     setSelectedLeadDrawerMode('view');
                                     setSelectedLeadId(lead.id);
                                   }}
                                 >
-                                  <Eye size={18} />
+                                  <Eye size={17} strokeWidth={2.35} />
                                 </button>
                                 <button
-                                  className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-md"
+                                  type="button"
+                                  className="flex h-8 w-8 items-center justify-center rounded-xl text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
                                   title="Edit Lead"
                                   onClick={() => {
                                     setSelectedLeadDrawerMode('edit');
                                     setSelectedLeadId(lead.id);
                                   }}
                                 >
-                                  <Pencil size={18} />
+                                  <Pencil size={17} strokeWidth={2.35} />
                                 </button>
                                 {canConvertLead && (
                                   <button
-                                    className="p-1.5 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-md"
+                                    type="button"
+                                    className="flex h-8 w-8 items-center justify-center rounded-xl text-emerald-600 hover:bg-white hover:text-emerald-800 hover:shadow-sm transition-all"
                                     title="Convert to Client"
                                     onClick={() => handleConvert(lead.id)}
                                   >
-                                    <UserPlus size={18} />
+                                    <UserPlus size={17} strokeWidth={2.35} />
                                   </button>
                                 )}
                                 {canDeleteLead && (
                                   <button
-                                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md"
+                                    type="button"
+                                    className="flex h-8 w-8 items-center justify-center rounded-xl text-rose-500 hover:bg-white hover:text-rose-800 hover:shadow-sm transition-all"
                                     title="Delete Lead"
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -1443,7 +1458,7 @@ export default function RecruitmentAgencyDashboard() {
                                       });
                                     }}
                                   >
-                                    <Trash2 size={18} />
+                                    <Trash2 size={17} strokeWidth={2.35} />
                                   </button>
                                 )}
                               </div>
@@ -1457,7 +1472,7 @@ export default function RecruitmentAgencyDashboard() {
               </div>
             </div>
             {!loading && !error && (
-              <div className="mt-4 w-full">
+              <div className="mt-0 w-full border-t border-indigo-100/50 bg-gradient-to-r from-slate-50/40 via-white to-indigo-50/25 px-4 py-3 sm:px-5">
                 <PaginationAll
                   initialPage={currentPage}
                   totalPages={Math.ceil(totalEntries / PAGE_SIZE)}
@@ -1563,14 +1578,14 @@ export default function RecruitmentAgencyDashboard() {
                   <p className="text-sm font-semibold text-white">
                     {selectedLeadIds.length} lead{selectedLeadIds.length > 1 ? 's' : ''} selected
                   </p>
-                  <p className="truncate text-xs text-slate-400">Use bulk actions to update or remove the selected leads.</p>
+                  <p className="truncate text-xs text-slate-300/95">Use bulk actions to update or remove the selected leads.</p>
                 </div>
               </div>
 
               <div className="flex flex-shrink-0 items-center gap-2">
                 {canUpdateLead && (
                   <div className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2">
-                    <UserPlus className="w-4 h-4 text-slate-400" />
+                    <UserPlus className="w-4 h-4 text-blue-500/85" />
                     <select
                       value={bulkAssignedTo}
                       onChange={(e) => handleBulkLeadAssignChange(e.target.value)}
@@ -1590,7 +1605,7 @@ export default function RecruitmentAgencyDashboard() {
 
                 {canUpdateLead && (
                   <div className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2">
-                    <BadgeCheck className="w-4 h-4 text-slate-400" />
+                    <BadgeCheck className="w-4 h-4 text-emerald-500/85" />
                     <select
                       value={bulkStatus}
                       onChange={(e) => handleBulkLeadStatusChange(e.target.value)}
@@ -1696,30 +1711,74 @@ const SummaryCard = ({
   active?: boolean;
   onClick?: () => void;
 }) => {
-  const styles: any = {
-    blue: { bg: 'bg-blue-50', text: 'text-blue-700', iconBg: 'bg-blue-100', border: 'border-blue-100' },
-    yellow: { bg: 'bg-yellow-50', text: 'text-yellow-700', iconBg: 'bg-yellow-100', border: 'border-yellow-100' },
-    purple: { bg: 'bg-purple-50', text: 'text-purple-700', iconBg: 'bg-purple-100', border: 'border-purple-100' },
-    green: { bg: 'bg-green-50', text: 'text-green-700', iconBg: 'bg-green-100', border: 'border-green-100' },
-    gray: { bg: 'bg-gray-50', text: 'text-gray-700', iconBg: 'bg-gray-100', border: 'border-gray-100' },
+  const styles: Record<
+    string,
+    { panel: string; text: string; iconWrap: string; ring: string; activeRing: string }
+  > = {
+    blue: {
+      panel: 'bg-gradient-to-br from-blue-50 via-white to-indigo-50/90',
+      text: 'text-blue-800',
+      iconWrap: 'bg-blue-500/15 text-blue-600 ring-1 ring-blue-200/80 shadow-inner',
+      ring: 'border-blue-200/90',
+      activeRing: 'ring-2 ring-blue-400/35 shadow-ph2-card-hover',
+    },
+    yellow: {
+      panel: 'bg-gradient-to-br from-amber-50 via-white to-yellow-50/80',
+      text: 'text-amber-800',
+      iconWrap: 'bg-amber-400/20 text-amber-700 ring-1 ring-amber-200/90 shadow-inner',
+      ring: 'border-amber-200/90',
+      activeRing: 'ring-2 ring-amber-400/40 shadow-ph2-card-hover',
+    },
+    purple: {
+      panel: 'bg-gradient-to-br from-violet-50 via-white to-purple-50/80',
+      text: 'text-violet-800',
+      iconWrap: 'bg-violet-500/15 text-violet-700 ring-1 ring-violet-200/80 shadow-inner',
+      ring: 'border-violet-200/90',
+      activeRing: 'ring-2 ring-violet-400/35 shadow-ph2-card-hover',
+    },
+    green: {
+      panel: 'bg-gradient-to-br from-emerald-50 via-white to-teal-50/70',
+      text: 'text-emerald-800',
+      iconWrap: 'bg-emerald-500/15 text-emerald-700 ring-1 ring-emerald-200/80 shadow-inner',
+      ring: 'border-emerald-200/90',
+      activeRing: 'ring-2 ring-emerald-400/35 shadow-ph2-card-hover',
+    },
+    gray: {
+      panel: 'bg-gradient-to-br from-slate-50 via-white to-slate-100/70',
+      text: 'text-slate-700',
+      iconWrap: 'bg-slate-500/12 text-slate-600 ring-1 ring-slate-200 shadow-inner',
+      ring: 'border-slate-200/95',
+      activeRing: 'ring-2 ring-slate-400/30 shadow-ph2-card-hover',
+    },
   };
-  const s = styles[color] || styles.gray;
+  const s = styles[color] ?? styles.gray;
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`group w-full p-4 rounded-xl border shadow-sm text-left transition-all hover:shadow-md hover:-translate-y-0.5 cursor-pointer ${
-        active ? `${s.bg} ${s.border} ring-2 ring-blue-500/20 shadow-md` : `${s.bg} ${s.border}`
-      }`}
+      className={`group relative w-full overflow-hidden rounded-2xl border p-4 sm:p-5 text-left shadow-[0_8px_30px_-12px_rgba(15,23,42,0.12)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_16px_40px_-12px_rgba(59,130,246,0.22)] cursor-pointer ${
+        s.panel
+      } ${s.ring} ${active ? s.activeRing : ''}`}
       aria-pressed={active}
     >
-      <div className="flex items-center justify-between mb-2">
-        <div className={`p-2 rounded-lg ${s.iconBg} ${s.text}`}>{icon}</div>
-        <span className={`text-2xl font-bold ${s.text}`}>{count}</span>
+      <div className="pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full bg-white/40 blur-2xl" aria-hidden />
+      <div className="relative flex items-start justify-between gap-3">
+        <div
+          className={`flex h-11 w-11 items-center justify-center rounded-2xl transition-transform duration-300 group-hover:scale-105 ${s.iconWrap}`}
+        >
+          {icon}
+        </div>
+        <span className={`text-3xl font-semibold tabular-nums tracking-tight ${s.text}`}>{count}</span>
       </div>
-      <div className="flex items-center justify-between gap-2">
-        <p className={`text-xs font-bold uppercase tracking-wider opacity-70 ${s.text}`}>{label}</p>
-        {active ? <span className={`text-[10px] font-bold uppercase tracking-[0.18em] ${s.text}`}>Active</span> : null}
+      <div className="relative mt-4 flex items-end justify-between gap-2">
+        <p className={`text-[11px] font-bold uppercase tracking-[0.14em] leading-snug opacity-85 ${s.text}`}>{label}</p>
+        {active ? (
+          <span
+            className={`shrink-0 rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider shadow-sm ring-1 ring-black/5 ${s.text}`}
+          >
+            Active
+          </span>
+        ) : null}
       </div>
     </button>
   );

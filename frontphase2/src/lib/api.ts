@@ -63,7 +63,8 @@ function getTenantDbName() {
   }
 }
 
-function syncTenantDbName(value: string | null | undefined) {
+/** Persist workspace DB name so API calls (including login) send `x-tenant-db-name`. */
+export function syncTenantDbName(value: string | null | undefined) {
   if (typeof window === 'undefined') return;
 
   const normalized = String(value || '').trim();
@@ -415,6 +416,13 @@ interface AuthPayload {
 }
 
 export async function apiLogin(email: string, password: string) {
+  // Invite links include ?tenantDbName= — apply right before login so first attempt works.
+  if (typeof window !== 'undefined') {
+    const fromUrl = new URLSearchParams(window.location.search).get('tenantDbName');
+    if (fromUrl) {
+      syncTenantDbName(fromUrl);
+    }
+  }
   const tenantDbNameHint = getTenantDbName();
   const res = await apiFetch<AuthPayload>('/auth/login', {
     method: 'POST',

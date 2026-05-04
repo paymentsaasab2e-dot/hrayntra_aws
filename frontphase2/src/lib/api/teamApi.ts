@@ -1,4 +1,4 @@
-import { apiFetch } from '../api';
+import { apiFetch, type BackendUser } from '../api';
 import type {
   TeamMember,
   TeamMemberDetail,
@@ -108,9 +108,10 @@ function writeCache<T>(key: string, value: T) {
 }
 
 /**
- * Get all team members with filters
+ * List team members. Use `assignmentDirectory: true` for “Assigned to” pickers (GET /team/assignable, auth only).
+ * Default uses GET /team (extra permissions may be required).
  */
-export async function getTeamMembers(filters: TeamMemberFilters = {}) {
+export async function getTeamMembers(filters: TeamMemberFilters = {}, opts?: { assignmentDirectory?: boolean }) {
   const query = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== '' && value !== 'all') {
@@ -118,20 +119,13 @@ export async function getTeamMembers(filters: TeamMemberFilters = {}) {
     }
   });
   const qs = query.toString();
-  const path = buildPath(`/team${qs ? `?${qs}` : ''}`);
-  
-  // Use direct fetch for new API routes
-  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-  
+  const basePath = opts?.assignmentDirectory ? '/team/assignable' : '/team';
+  const path = buildPath(`${basePath}${qs ? `?${qs}` : ''}`);
+
   const res = await fetch(`${API_BASE_NEW}${path}`, {
     method: 'GET',
-    headers,
+    headers: getTeamAuthHeaders(),
+    cache: 'no-store',
   });
   
   const json = await res.json();
@@ -144,6 +138,47 @@ export async function getTeamMembers(filters: TeamMemberFilters = {}) {
     pagination: json.pagination,
     success: json.success,
   };
+}
+
+/** GET /team supports at most this page size (backend cap). */
+const TEAM_LIST_MAX_PAGE_SIZE = 100;
+
+/**
+ * Maps tenant team members to the legacy `BackendUser` shape used by assignment dropdowns.
+ */
+export function teamMembersToBackendUsers(members: TeamMember[]): BackendUser[] {
+  return members.map((m) => {
+    const name = [m.firstName, m.lastName].filter(Boolean).join(' ').trim() || m.email;
+    return {
+      id: m.id,
+      name,
+      email: m.email,
+      role: m.role?.roleName || '',
+      department: m.department?.name,
+      isActive: m.status === 'ACTIVE',
+      createdAt: m.createdAt,
+    };
+  });
+}
+
+/**
+ * Load every team member for “Assigned to” / owner pickers (follows pagination until complete).
+ */
+export async function getAllTeamMembersForAssign(): Promise<TeamMember[]> {
+  const limit = TEAM_LIST_MAX_PAGE_SIZE;
+  const all: TeamMember[] = [];
+  let page = 1;
+  for (;;) {
+    const res = await getTeamMembers({ limit, page }, { assignmentDirectory: true });
+    const batch = res.data || [];
+    all.push(...batch);
+    const total = res.pagination?.total;
+    if (batch.length < limit) break;
+    if (total != null && all.length >= total) break;
+    page += 1;
+    if (page > 50) break;
+  }
+  return all;
 }
 
 /**

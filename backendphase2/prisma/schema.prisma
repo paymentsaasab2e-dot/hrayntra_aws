@@ -79,6 +79,7 @@ model User {
   createdJobs        Job[]               @relation("JobCreator")
   assignedLeads      Lead[]
   assignedClientsRel Client[]            @relation("ClientAssignee")
+  createdClients     Client[]            @relation("ClientCreator")
   assignedTasks      Task[]              @relation("TaskAssignee")
   createdTasks       Task[]              @relation("TaskCreator")
   createdActivities  Activity[]
@@ -177,6 +178,7 @@ model Client {
   location     String? // Company location/address
   status       ClientStatus @default(PROSPECT) // ACTIVE, PROSPECT, ON_HOLD, INACTIVE
   assignedToId String?      @db.ObjectId // User ID of assigned account manager/recruiter
+  createdById  String?      @db.ObjectId // CRM user who created / sourced the client (still visible to them after reassignment)
 
   // Extended fields from frontend (Company Snapshot section)
   companySize     String? // Company size (e.g., "1-50", "51-200", "201-500")
@@ -218,6 +220,7 @@ model Client {
 
   // Relations
   assignedTo     User?           @relation("ClientAssignee", fields: [assignedToId], references: [id])
+  createdBy      User?           @relation("ClientCreator", fields: [createdById], references: [id], onDelete: SetNull)
   contacts       Contact[] // Client contacts
   jobs           Job[] // Jobs posted by client
   leads          Lead[] // Leads converted to this client
@@ -231,6 +234,7 @@ model Client {
 
   @@index([status])
   @@index([assignedToId])
+  @@index([createdById])
   @@map("clients")
 }
 

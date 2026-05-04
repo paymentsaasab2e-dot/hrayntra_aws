@@ -73,6 +73,5 @@ export async function ensureSuperAdminHasAllPermissions() {
       roleId: superAdminRole.id,
       permissionId,
     })),
-    skipDuplicates: true,
   });
 }

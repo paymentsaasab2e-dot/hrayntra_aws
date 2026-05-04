@@ -289,6 +289,49 @@ const mapJobs = (jobs: BackendJob[]) =>
     clientId: job.client?.id,
   }));
 
+/** Jobs/candidates API may be forbidden for INTERVIEWERS; merge options from list payload. */
+function mergeJobOptionsFromInterviews(
+  existing: Interview['job'][],
+  list: Interview[]
+): Interview['job'][] {
+  const map = new Map<string, Interview['job']>();
+  existing.forEach((j) => map.set(j.id, j));
+  list.forEach((inv) => {
+    if (!map.has(inv.job.id)) map.set(inv.job.id, inv.job);
+  });
+  return Array.from(map.values());
+}
+
+function mergeCandidateOptionsFromInterviews(
+  existing: Interview['candidate'][],
+  list: Interview[]
+): Interview['candidate'][] {
+  const map = new Map<string, Interview['candidate']>();
+  existing.forEach((c) => map.set(c.id, c));
+  list.forEach((inv) => {
+    if (!map.has(inv.candidate.id)) map.set(inv.candidate.id, inv.candidate);
+  });
+  return Array.from(map.values());
+}
+
+function mergeInterviewerOptionsFromInterviews(
+  existing: InterviewPanelMember[],
+  list: Interview[]
+): InterviewPanelMember[] {
+  const map = new Map<string, InterviewPanelMember>();
+  existing.forEach((m) => {
+    const key = m.userId || m.id;
+    if (key) map.set(key, m);
+  });
+  list.forEach((inv) => {
+    inv.panel.forEach((m) => {
+      const key = m.userId || m.id;
+      if (key && !map.has(key)) map.set(key, m);
+    });
+  });
+  return Array.from(map.values());
+}
+
 const DELETED_INTERVIEWS_STORAGE_KEY = 'interviews.deletedIds.v1';
 
 const readPersistedDeletedInterviewIds = (): string[] => {
@@ -331,18 +374,31 @@ export function useInterviews() {
   }, [deletedInterviewIds]);
 
   const fetchMeta = useCallback(async () => {
-    try {
-      const [candidatesRes, jobsRes, usersRes] = await Promise.all([
-        apiGetCandidates({ limit: 100 }),
-        apiGetJobs({ page: 1, ...MY_JOBS_LIST_PARAMS }),
-        apiGetUsers({ isActive: true, limit: 100 }),
-      ]);
+    // Optional dropdown data — failures must NOT block the interview list (e.g. INTERVIEWERS lack jobs_read / candidates_read).
+    const settled = await Promise.allSettled([
+      apiGetCandidates({ limit: 100 }),
+      apiGetJobs({ page: 1, ...MY_JOBS_LIST_PARAMS }),
+      apiGetUsers({ isActive: true, limit: 100 }),
+    ]);
 
-      setCandidateOptions(mapCandidates(unwrapCollection(candidatesRes.data)));
-      setJobOptions(mapJobs(unwrapCollection(jobsRes.data)));
-      setInterviewerOptions(mapUsersToPanel(unwrapCollection(usersRes.data)));
-    } catch (fetchError: any) {
-      setError(fetchError.message || 'Unable to load interview metadata');
+    const [candidatesRes, jobsRes, usersRes] = settled;
+
+    if (candidatesRes.status === 'fulfilled') {
+      setCandidateOptions(mapCandidates(unwrapCollection(candidatesRes.value.data)));
+    } else {
+      setCandidateOptions([]);
+    }
+
+    if (jobsRes.status === 'fulfilled') {
+      setJobOptions(mapJobs(unwrapCollection(jobsRes.value.data)));
+    } else {
+      setJobOptions([]);
+    }
+
+    if (usersRes.status === 'fulfilled') {
+      setInterviewerOptions(mapUsersToPanel(unwrapCollection(usersRes.value.data)));
+    } else {
+      setInterviewerOptions([]);
     }
   }, []);
 
@@ -682,8 +738,9 @@ export function useInterviews() {
   }, []);
 
   const retryLoad = useCallback(() => {
+    void fetchMeta();
     void fetchInterviews();
-  }, [fetchInterviews]);
+  }, [fetchMeta, fetchInterviews]);
 
   return {
     interviews,

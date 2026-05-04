@@ -93,10 +93,14 @@ export const clientController = {
 
   async update(req, res) {
     try {
-      const client = await clientService.update(req.params.id, {
-        ...req.body,
-        performedById: req.user?.id,
-      });
+      const client = await clientService.update(
+        req.params.id,
+        {
+          ...req.body,
+          performedById: req.user?.id,
+        },
+        req
+      );
       sendResponse(res, 200, 'Client updated successfully', client);
     } catch (error) {
       sendError(res, 400, error.message, error);
@@ -105,7 +109,7 @@ export const clientController = {
 
   async delete(req, res) {
     try {
-      const result = await clientService.delete(req.params.id, req.user?.id);
+      const result = await clientService.delete(req.params.id, req.user?.id, req);
       sendResponse(res, 200, result.message);
     } catch (error) {
       sendError(res, 500, error.message, error);

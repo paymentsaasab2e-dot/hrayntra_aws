@@ -13,7 +13,7 @@ export default function ClientLayout({
 
   return (
     <PasswordResetGuard>
-      <div className="min-h-screen bg-slate-50 font-['Arimo',sans-serif]">
+      <div className="min-h-screen font-['Arimo',sans-serif]">
         <Sidenav 
           avatarUrl={avatarUrl}
           userProfile={{

@@ -3,11 +3,13 @@ export const DEFAULT_PERMISSIONS = [
   { permissionName: 'leads_read', module: 'Leads', description: 'Read leads' },
   { permissionName: 'leads_update', module: 'Leads', description: 'Update leads' },
   { permissionName: 'leads_delete', module: 'Leads', description: 'Delete leads' },
+  { permissionName: 'view_all_leads', module: 'Leads', description: 'View all leads (tenant)' },
 
   { permissionName: 'clients_create', module: 'Clients', description: 'Create clients' },
   { permissionName: 'clients_read', module: 'Clients', description: 'Read clients' },
   { permissionName: 'clients_update', module: 'Clients', description: 'Update clients' },
   { permissionName: 'clients_delete', module: 'Clients', description: 'Delete clients' },
+  { permissionName: 'view_all_clients', module: 'Clients', description: 'View all clients (tenant)' },
 
   { permissionName: 'jobs_create', module: 'Jobs', description: 'Create jobs' },
   { permissionName: 'jobs_read', module: 'Jobs', description: 'Read jobs' },

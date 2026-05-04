@@ -16,7 +16,16 @@ export function hasAnyPermission(req, permissionNames = []) {
   return permissionNames.some((permissionName) => permissions.includes(permissionName));
 }
 
+/** Tenant-wide CRM lists: Super Admin, system_select_all, manage_settings — not assign_roles (use view_all_* instead). */
 export function canViewAllAssignments(req) {
   if (isSuperAdminUser(req) || req?.userWithPermissions?.isSuperAdmin) return true;
-  return hasAnyPermission(req, ['system_select_all', 'manage_settings', 'assign_roles']);
+  return hasAnyPermission(req, ['system_select_all', 'manage_settings']);
+}
+
+export function canViewAllClients(req) {
+  return canViewAllAssignments(req) || hasAnyPermission(req, ['view_all_clients']);
+}
+
+export function canViewAllLeads(req) {
+  return canViewAllAssignments(req) || hasAnyPermission(req, ['view_all_leads']);
 }

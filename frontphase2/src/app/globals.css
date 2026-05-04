@@ -2,6 +2,57 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Phase 2 theme tokens & shared surfaces ─────────────────────────────── */
+@layer base {
+  :root {
+    --ph2-accent-primary: 37 99 235;
+    --ph2-accent-teal: 13 148 136;
+    --ph2-radius-card: 1rem;
+  }
+}
+
+@layer components {
+  /** Standard elevated panel — use on dashboards, lists, drawers */
+  .ph2-card {
+    @apply rounded-2xl border border-slate-200/95 bg-white shadow-ph2-card transition-all duration-200;
+  }
+  .ph2-card:hover {
+    @apply border-blue-200/90 shadow-ph2-card-hover;
+  }
+
+  /** Compact variant */
+  .ph2-card-sm {
+    @apply rounded-xl border border-slate-200/95 bg-white shadow-ph2-card transition-all duration-200;
+  }
+  .ph2-card-sm:hover {
+    @apply border-blue-200/80 shadow-md;
+  }
+
+  /** Icon badge for KPI / stat rows */
+  .ph2-icon-badge {
+    @apply inline-flex items-center justify-center rounded-xl p-2.5 transition-transform duration-200;
+  }
+
+  /** Main content shell — subtle cool gradient behind all portal pages */
+  .ph2-main-surface {
+    background: linear-gradient(165deg, #f8fafc 0%, #f1f5f9 45%, #eef2ff 100%);
+  }
+
+  /**
+   * Default white stat/list cards: slight blue rim so panels feel tinted site-wide.
+   * Skips elements that already use ph2-card (duplicate shadows avoided via ring opacity).
+   */
+  .ph2-main-surface .rounded-2xl.border.border-slate-200.bg-white:not(.ph2-card):not(.ph2-card-sm) {
+    box-shadow:
+      0 1px 2px rgb(15 23 42 / 0.05),
+      0 0 0 1px rgb(59 130 246 / 0.05);
+  }
+  .ph2-main-surface .rounded-2xl.border.border-slate-200.bg-white:not(.ph2-card):not(.ph2-card-sm):hover {
+    border-color: rgb(191 219 254 / 0.9);
+    box-shadow: 0 8px 24px -8px rgb(37 99 235 / 0.12);
+  }
+}
+
 /* Custom scrollbar */
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;

@@ -42,6 +42,7 @@ async function ensureWorkspaceClientForTenant(tenantDbName, user, fallbackWorksp
         website: `tenant://${normalizedTenant}`,
         status: 'ACTIVE',
         assignedToId: user?.id || null,
+        createdById: user?.id || null,
       },
       select: { id: true },
     });

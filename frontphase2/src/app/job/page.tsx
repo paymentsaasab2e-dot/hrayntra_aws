@@ -41,15 +41,14 @@ import {
   apiGetJobs,
   apiGetJob,
   apiGetJobMetrics,
-  apiGetUsers,
   apiDeleteJob,
   apiUpdateJob,
   type BackendClient,
   type BackendJob,
   type BackendCandidate,
-  type BackendUser,
   type JobMetrics,
 } from '../../lib/api';
+import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { usePermissions } from '../../hooks/usePermissions';
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 10;
@@ -740,9 +739,9 @@ export default function JobsPage() {
 
     const loadFilterOptions = async () => {
       try {
-        const [clientsRes, usersRes] = await Promise.all([
+        const [clientsRes, members] = await Promise.all([
           apiGetClients({ page: 1, limit: 500 }),
-          apiGetUsers({ isActive: true, limit: 200 }),
+          getAllTeamMembersForAssign(),
         ]);
         if (cancelled) return;
 
@@ -755,18 +754,13 @@ export default function JobsPage() {
               ? clientsPayload.items
               : [];
 
-        const usersPayload = (usersRes as any)?.data;
-        const usersList: BackendUser[] = Array.isArray(usersPayload)
-          ? usersPayload
-          : Array.isArray(usersPayload?.data)
-            ? usersPayload.data
-            : [];
+        const usersList = teamMembersToBackendUsers(members);
 
         const nextClients = clientsList
           .map((client) => ({ id: String(client.id), name: client.companyName || 'Unnamed client' }))
           .sort((a, b) => a.name.localeCompare(b.name));
         const nextRecruiters = usersList
-          .map((user) => ({ id: String(user.id), name: user.name || user.email || 'Unnamed recruiter' }))
+          .map((user) => ({ id: String(user.id), name: user.name || user.email || 'Unnamed member' }))
           .sort((a, b) => a.name.localeCompare(b.name));
 
         setClientOptions(nextClients);

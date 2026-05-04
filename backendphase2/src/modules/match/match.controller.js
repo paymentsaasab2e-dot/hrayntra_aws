@@ -13,7 +13,7 @@ export const matchController = {
 
   async getById(req, res) {
     try {
-      const match = await matchService.getById(req.params.id);
+      const match = await matchService.getById(req.params.id, req);
       if (!match) {
         return sendError(res, 404, 'Match not found');
       }

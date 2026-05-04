@@ -10,10 +10,10 @@ const iconMap = {
 };
 
 const accentMap = {
-  blue: 'bg-blue-50 text-[#2563EB]',
-  orange: 'bg-orange-50 text-[#F59E0B]',
-  purple: 'bg-purple-50 text-purple-600',
-  green: 'bg-green-50 text-[#16A34A]',
+  blue: 'bg-blue-50 text-blue-600 ring-1 ring-blue-100',
+  orange: 'bg-orange-50 text-orange-600 ring-1 ring-orange-100',
+  purple: 'bg-purple-50 text-purple-600 ring-1 ring-purple-100',
+  green: 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100',
 };
 
 interface InterviewKPICardsProps {
@@ -28,7 +28,7 @@ export function InterviewKPICards({ items }: InterviewKPICardsProps) {
         const accentClass = accentMap[item.accent as keyof typeof accentMap] || accentMap.blue;
 
         return (
-          <div key={item.title} className="rounded-2xl border border-[#E5E7EB] bg-white p-5 shadow-sm">
+          <div key={item.title} className="ph2-card p-5">
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-[13px] font-medium text-[#6B7280]">{item.title}</p>
