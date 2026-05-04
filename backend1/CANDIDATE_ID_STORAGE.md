@@ -2,7 +2,7 @@
 
 ## ✅ YES - Candidate ID IS Stored in Database
 
-The candidate ID **IS being stored** in the database. Here's how it works:
+The candidate ID **IS being stored** in the database. Here's how it works:sdfgh
 
 ## How Candidate ID is Stored
 

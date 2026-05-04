@@ -50,6 +50,7 @@ import twilioTestRoutes from './modules/twilio-test/twilio-test.routes.js';
 import pdfProxyRoutes from './routes/pdfProxy.routes.js';
 import hqRoutes from './modules/hq/hq.routes.js';
 import ariaRoutes from './routes/ariaRoutes.js';
+import portalSyncRoutes from './modules/internal/portal-sync.routes.js';
 
 const app = express();
 
@@ -200,6 +201,7 @@ app.use('/api/v1/settings', settingRoutes);
 app.use('/api/v1/ai/aria', ariaRoutes);
 app.use('/api/v1/ai', aiRoutes);
 app.use('/api/v1/hq', hqRoutes);
+app.use('/api/v1/internal', portalSyncRoutes);
 // Removing re-mounts from here as they are now at the top
 
 // 404 handler
