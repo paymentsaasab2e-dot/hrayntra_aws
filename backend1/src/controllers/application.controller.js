@@ -67,6 +67,11 @@ function formatMatchStatus(status) {
 }
 
 function resolveApplicationDisplayStatus({ appStatus, matchStatus, candidateStage, pipelineStageName }) {
+  const strongApp = new Set(['INTERVIEW', 'FINAL_DECISION', 'SELECTED', 'REJECTED', 'SHORTLISTED', 'ASSESSMENT']);
+  if (appStatus && strongApp.has(String(appStatus).toUpperCase())) {
+    return formatApplicationStatus(appStatus);
+  }
+
   const pipelineStageText = String(pipelineStageName || '').trim();
   if (pipelineStageText) return pipelineStageText;
 
@@ -77,6 +82,45 @@ function resolveApplicationDisplayStatus({ appStatus, matchStatus, candidateStag
   if (stageText) return stageText;
 
   return formatApplicationStatus(appStatus);
+}
+
+/**
+ * Parse portal timeline description for interview rows (Phase 2 syncApplicationState stores lines here).
+ */
+function parseInterviewDetailsFromDescription(description, title) {
+  const text = `${String(description || '')}\n${String(title || '')}`;
+  const linkMatch = text.match(/https?:\/\/[^\s]+/i);
+  const meetingLink = linkMatch ? linkMatch[0].replace(/[),.;]+$/, '') : null;
+  let location = null;
+  const locLine = text.split(/\r?\n/).find((l) => /^location\s*:/i.test(l.trim()));
+  if (locLine) location = locLine.replace(/^location\s*:/i, '').trim();
+  const whenLine = text.split(/\r?\n/).find((l) => /^when\s*:/i.test(l.trim()));
+  let scheduledAt = null;
+  if (whenLine) {
+    const raw = whenLine.replace(/^when\s*:/i, '').trim();
+    const d = new Date(raw);
+    if (!Number.isNaN(d.getTime())) scheduledAt = d.toISOString();
+  }
+  return { meetingLink, location, scheduledAt };
+}
+
+function buildInterviewRoundsFromTimeline(rawTimeline) {
+  const rows = (rawTimeline || [])
+    .filter((item) => String(item?.status || '').toUpperCase() === 'INTERVIEW')
+    .sort((a, b) => new Date(a.occurredAt) - new Date(b.occurredAt));
+  return rows.map((item, index) => {
+    const parsed = parseInterviewDetailsFromDescription(item.description, item.title);
+    return {
+      timelineId: item.id,
+      timelineTitle: item.title || 'Interview',
+      scheduledAt: parsed.scheduledAt || (item.occurredAt ? new Date(item.occurredAt).toISOString() : null),
+      roundLabel: rows.length > 1 ? `Round ${index + 1} of ${rows.length}` : 'Interview',
+      format: null,
+      meetingLink: parsed.meetingLink,
+      location: parsed.location,
+      notes: item.description || null,
+    };
+  });
 }
 
 function formatSalaryText(job) {
@@ -340,6 +384,63 @@ async function syncApplicationToRecruiterView(candidateId, job) {
 }
 
 /**
+ * Mirror the portal apply into the Phase 2 tenant DB (assignedJobs merge, match, pipeline, stage engine).
+ * Requires PHASE2_INTERNAL_API_URL, PHASE2_PORTAL_SYNC_SECRET, and PHASE2_TENANT_DB_NAME.
+ */
+async function syncPhase2TenantAfterPortalApply(candidateId, jobId) {
+  const base =
+    process.env.PHASE2_INTERNAL_API_URL ||
+    process.env.PHASE2_API_URL ||
+    process.env.PHASE2_BASE_URL;
+  const secret = process.env.PHASE2_PORTAL_SYNC_SECRET;
+  const tenantDbName = process.env.PHASE2_TENANT_DB_NAME;
+
+  if (!base || !secret || !tenantDbName) {
+    return;
+  }
+
+  let assignedJobsSnapshot = [];
+  try {
+    const c = await prisma.candidate.findUnique({
+      where: { id: candidateId },
+      select: { assignedJobs: true },
+    });
+    if (Array.isArray(c?.assignedJobs)) {
+      assignedJobsSnapshot = c.assignedJobs;
+    }
+  } catch (e) {
+    console.warn('[Application] Could not load candidate for Phase2 sync:', e?.message || e);
+  }
+
+  const url = `${String(base).replace(/\/$/, '')}/api/v1/internal/sync-portal-application`;
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-phase2-portal-sync-secret': secret,
+      },
+      body: JSON.stringify({
+        tenantDbName,
+        candidateId,
+        jobId,
+        assignedJobsSnapshot,
+      }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      console.warn('[Application] Phase2 tenant sync HTTP error:', res.status, text);
+    } else {
+      console.log(`✅ Phase2 tenant sync ok | candidateId=${candidateId} jobId=${jobId}`);
+    }
+  } catch (e) {
+    console.warn('[Application] Phase2 tenant sync failed:', e?.message || e);
+  }
+}
+
+/**
  * Create a new job application
  * POST /api/applications
  */
@@ -425,6 +526,7 @@ async function createApplication(req, res) {
     console.log(`✅ Application created: ${application.id} for job ${jobId} by candidate ${candidateId}`);
 
     await syncApplicationToRecruiterView(candidateId, job);
+    await syncPhase2TenantAfterPortalApply(candidateId, job.id);
 
     res.json({
       success: true,
@@ -717,7 +819,11 @@ async function getApplicationById(req, res) {
       candidateStage: application.candidate?.stage,
       pipelineStageName: latestPipelineEntry?.stage?.name,
     });
-    const timeline = (application.timeline || []).map((item) => ({
+    const rawTimeline = application.timeline || [];
+    const interviewRounds = buildInterviewRoundsFromTimeline(rawTimeline);
+    const latestInterview = interviewRounds.length ? interviewRounds[interviewRounds.length - 1] : null;
+
+    const timeline = rawTimeline.map((item) => ({
       id: item.id,
       status: formatApplicationStatus(item.status),
       title: item.title || formatApplicationStatus(item.status),
@@ -754,6 +860,8 @@ async function getApplicationById(req, res) {
         whatsappUpdates: application.whatsappUpdates,
         offerDetails: application.offerDetails || null,
         screeningAnswers: application.screeningAnswers || null,
+        interviewRounds,
+        interviewDetails: latestInterview,
         job: {
           id: application.job.id,
           title: application.job.title,

@@ -255,3 +255,17 @@ export const prisma = new Proxy(defaultClient, {
 export function getDefaultPrismaClient() {
   return defaultClient;
 }
+
+/** Prisma client for the job portal DB (applications timeline, portal-side candidate stage). */
+let jobPortalClient = null;
+
+export function getJobPortalPrismaClient() {
+  const url = String(env.JOB_PORTAL_DATABASE_URL || env.DATABASE_URL || '').trim();
+  if (!url) {
+    return getDefaultPrismaClient();
+  }
+  if (!jobPortalClient) {
+    jobPortalClient = getClientForUrl(url);
+  }
+  return jobPortalClient;
+}

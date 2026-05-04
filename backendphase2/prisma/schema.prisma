@@ -404,6 +404,18 @@ model ContactCommunication {
 // ── CANDIDATE ──
 // Serves: candidate, matches, pipeline
 
+// Job portal (shared DB / JOB_PORTAL_DATABASE_URL) — same collection names as backend1
+enum ApplicationStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  SHORTLISTED
+  ASSESSMENT
+  INTERVIEW
+  FINAL_DECISION
+  SELECTED
+  REJECTED
+}
+
 enum CandidateStatus {
   NEW
   ACTIVE
@@ -482,6 +494,7 @@ model Candidate {
   matches         Match[]
   pipelineEntries PipelineEntry[]
   files           CandidateFile[]
+  applications    Application[]
 
   @@index([status])
   @@index([assignedToId])
@@ -589,6 +602,7 @@ model Job {
   placements     Placement[]
   notes          JobNote[]
   files          JobFile[]
+  applications   Application[]
 
   @@index([status])
   @@index([clientId])
@@ -843,6 +857,43 @@ model Match {
   @@index([jobId])
   @@index([status])
   @@map("matches")
+}
+
+model Application {
+  id               String            @id @default(auto()) @map("_id") @db.ObjectId
+  candidateId      String            @db.ObjectId
+  jobId            String            @db.ObjectId
+  status           ApplicationStatus @default(SUBMITTED)
+  matchScore       Int?
+  appliedAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  emailUpdates     Boolean           @default(true)
+  whatsappUpdates  Boolean           @default(true)
+  offerDetails     String?
+  screeningAnswers Json?
+
+  candidate Candidate              @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  job       Job                    @relation(fields: [jobId], references: [id])
+  timeline  ApplicationTimeline[]
+
+  @@unique([candidateId, jobId])
+  @@index([candidateId])
+  @@index([status])
+  @@index([appliedAt])
+  @@map("applications")
+}
+
+model ApplicationTimeline {
+  id            String            @id @default(auto()) @map("_id") @db.ObjectId
+  applicationId String            @db.ObjectId
+  status        ApplicationStatus
+  title         String
+  description   String?
+  occurredAt    DateTime          @default(now())
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@map("application_timelines")
 }
 
 // ── INTERVIEW ──

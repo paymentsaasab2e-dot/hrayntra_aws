@@ -1,5 +1,6 @@
 import { prisma } from '../../config/prisma.js';
 import { sendPlacementEmail } from '../../emails/email.service.js';
+import { PIPELINE_STAGES, updateCandidateStage } from '../stage/candidateStage.service.js';
 
 const OBJECT_ID_REGEX = /^[a-f\d]{24}$/i;
 const DEFAULT_LIMIT = 20;
@@ -491,15 +492,6 @@ export const placementService = {
       },
     });
 
-      // Candidate moved into placement pipeline: reflect as Offer stage in UI.
-      // (UI renders "Offer letter sent" for Offer/Offered stages.)
-      await tx.candidate.update({
-        where: { id: candidate.id },
-        data: {
-          stage: 'Offer',
-        },
-      });
-
       await tx.placementCommission.create({
         data: {
           placementId: createdPlacement.id,
@@ -560,6 +552,15 @@ export const placementService = {
         client.companyName
       );
     }
+
+    await updateCandidateStage({
+      candidateId: candidate.id,
+      jobId: job.id,
+      stage: PIPELINE_STAGES.HIRED,
+      metadata: { placementId: placement.id, jobTitle: job.title, offerDate: offerDate?.toISOString?.() || String(offerDate) },
+      performedById: userId,
+      skipStageActivity: true,
+    });
 
     // Placement was just created successfully; return it directly instead of
     // re-fetching, which was occasionally throwing "Placement not found".

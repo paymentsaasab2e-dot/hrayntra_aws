@@ -13,6 +13,10 @@ export const env = {
   PORT: parseInt(process.env.PORT || '5001', 10),
   DATABASE_URL: process.env.DATABASE_URL,
   HEADQUARTERS_DATABASE_URL: process.env.HEADQUARTERS_DATABASE_URL,
+  /** Job portal Mongo URL (applications + portal candidates). Falls back to DATABASE_URL when unset. */
+  JOB_PORTAL_DATABASE_URL: process.env.JOB_PORTAL_DATABASE_URL,
+  /** Shared secret for POST /api/v1/internal/sync-portal-application */
+  PHASE2_PORTAL_SYNC_SECRET: process.env.PHASE2_PORTAL_SYNC_SECRET,
   
   // JWT
   JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET,

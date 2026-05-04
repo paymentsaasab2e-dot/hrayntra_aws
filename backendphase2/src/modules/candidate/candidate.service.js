@@ -1,4 +1,5 @@
-import { prisma, getActiveTenantDbName, getDefaultPrismaClient } from '../../config/prisma.js';
+import { prisma, getActiveTenantDbName, getJobPortalPrismaClient } from '../../config/prisma.js';
+import { PIPELINE_STAGES, updateCandidateStage } from '../stage/candidateStage.service.js';
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
 import { dbLogger } from '../../utils/db-logger.js';
 import { generateMeetingLink } from '../../services/meetingService.js';
@@ -71,9 +72,34 @@ const candidateListInclude = {
       },
     },
     orderBy: { createdAt: 'desc' },
-    take: 1,
+    take: 40,
   },
 };
+
+function mergePortalAndTenantCandidateRow(portalRow, tenantRow) {
+  if (!tenantRow) return portalRow;
+  if (!portalRow) return tenantRow;
+  const jobSet = new Set([
+    ...(Array.isArray(portalRow.assignedJobs) ? portalRow.assignedJobs : []),
+    ...(Array.isArray(tenantRow.assignedJobs) ? tenantRow.assignedJobs : []),
+  ].map(String).filter(Boolean));
+  return {
+    ...portalRow,
+    ...tenantRow,
+    assignedJobs: Array.from(jobSet),
+  };
+}
+
+async function resolveJobIdForStageSync(candidateId, data) {
+  const explicit = String(data?.jobId || '').trim();
+  if (explicit) return explicit;
+  const m = await prisma.match.findFirst({
+    where: { candidateId },
+    orderBy: { updatedAt: 'desc' },
+    select: { jobId: true },
+  });
+  return m?.jobId ? String(m.jobId) : null;
+}
 
 function getActivityMetadata(activity) {
   return activity?.metadata && typeof activity.metadata === 'object' ? activity.metadata : {};
@@ -397,16 +423,96 @@ async function getCandidateActivities(candidateId, client = prisma) {
   });
 }
 
+/**
+ * Copy a portal-only candidate into the active tenant DB so mutations (interview, reject, etc.) succeed.
+ * List view merges portal + tenant rows; without this, POST .../interviews fails with "Candidate not found".
+ */
+async function materializePortalCandidateIntoTenant(portalRow) {
+  const assignedJobs = Array.isArray(portalRow.assignedJobs) ? portalRow.assignedJobs : [];
+  const skills =
+    Array.isArray(portalRow.recruiterSkills) && portalRow.recruiterSkills.length
+      ? portalRow.recruiterSkills
+      : Array.isArray(portalRow.skills)
+        ? portalRow.skills
+        : [];
+  const languages = Array.isArray(portalRow.languages) ? portalRow.languages : [];
+  const recruiterLanguages = Array.isArray(portalRow.recruiterLanguages) ? portalRow.recruiterLanguages : [];
+
+  const baseData = {
+    firstName: portalRow.firstName ?? null,
+    lastName: portalRow.lastName ?? null,
+    email: portalRow.email ?? null,
+    phone: portalRow.phone ?? null,
+    linkedIn: portalRow.linkedIn ?? null,
+    resume: portalRow.resume ?? portalRow.resumeUrl ?? null,
+    resumeUrl: portalRow.resumeUrl ?? null,
+    skills,
+    recruiterSkills: Array.isArray(portalRow.recruiterSkills) ? portalRow.recruiterSkills : [],
+    experience: portalRow.experience ?? portalRow.experienceYears ?? null,
+    experienceYears: portalRow.experienceYears ?? null,
+    currentTitle: portalRow.currentTitle ?? null,
+    currentCompany: portalRow.currentCompany ?? null,
+    location: portalRow.location ?? null,
+    address: portalRow.address ?? portalRow.addressLine ?? null,
+    addressLine: portalRow.addressLine ?? null,
+    city: portalRow.city ?? null,
+    country: portalRow.country ?? null,
+    status: 'ACTIVE',
+    recruiterStatus: portalRow.recruiterStatus ?? null,
+    source: portalRow.source ?? 'Job portal',
+    assignedJobs,
+    stage: portalRow.stage ?? 'Applied',
+    lastActivity: portalRow.lastActivity ?? new Date(),
+    languages,
+    recruiterLanguages,
+    notes: portalRow.notes ?? portalRow.recruiterNotes ?? null,
+    recruiterNotes: portalRow.recruiterNotes ?? null,
+    education: portalRow.education ?? portalRow.recruiterEducation ?? null,
+    recruiterEducation: portalRow.recruiterEducation ?? null,
+    certifications: Array.isArray(portalRow.certifications) ? portalRow.certifications : [],
+    certificationsList: Array.isArray(portalRow.certificationsList) ? portalRow.certificationsList : [],
+    portfolio: portalRow.portfolio ?? null,
+    website: portalRow.website ?? null,
+    preferredLocation: portalRow.preferredLocation ?? null,
+  };
+
+  return prisma.candidate.upsert({
+    where: { id: portalRow.id },
+    create: {
+      id: portalRow.id,
+      ...baseData,
+    },
+    update: {
+      stage: baseData.stage,
+      assignedJobs: baseData.assignedJobs,
+      lastActivity: baseData.lastActivity,
+    },
+  });
+}
+
 async function getCandidateOrThrow(id) {
   const candidate = await prisma.candidate.findUnique({
     where: { id },
   });
 
-  if (!candidate) {
+  if (candidate) {
+    return candidate;
+  }
+
+  if (!isTenantScopedRequest()) {
     throw new Error('Candidate not found');
   }
 
-  return candidate;
+  const portalPrisma = getJobPortalPrismaClient();
+  const portalRow = await portalPrisma.candidate.findUnique({
+    where: { id },
+  });
+
+  if (!portalRow) {
+    throw new Error('Candidate not found');
+  }
+
+  return materializePortalCandidateIntoTenant(portalRow);
 }
 
 async function buildCandidateResponse(candidate, activityClient = prisma) {
@@ -492,7 +598,7 @@ async function getVisibleTenantJobIds(req, mine) {
 async function fetchPortalCandidatesForTenant(req, { status, stage, assignedToId, search, mine }) {
   if (!isTenantScopedRequest()) return [];
 
-  const portalPrisma = getDefaultPrismaClient();
+  const portalPrisma = getJobPortalPrismaClient();
   const tenantJobIds = await getVisibleTenantJobIds(req, mine);
   if (!tenantJobIds.length) return [];
 
@@ -613,7 +719,11 @@ export const candidateService = {
         mergedById.set(candidate.id, candidate);
       }
       for (const candidate of tenantCandidates) {
-        mergedById.set(candidate.id, candidate);
+        const prior = mergedById.get(candidate.id);
+        mergedById.set(
+          candidate.id,
+          prior ? mergePortalAndTenantCandidateRow(prior, candidate) : candidate
+        );
       }
 
       const merged = Array.from(mergedById.values()).sort((a, b) => {
@@ -713,7 +823,7 @@ export const candidateService = {
     });
 
     if (!candidate && isTenantScopedRequest()) {
-      const portalPrisma = getDefaultPrismaClient();
+      const portalPrisma = getJobPortalPrismaClient();
       candidate = await portalPrisma.candidate.findFirst({
         where: accessScope ? { AND: [{ id }, accessScope] } : { id },
         include: candidateDetailInclude,
@@ -1220,39 +1330,42 @@ export const candidateService = {
       throw new Error('Reject reason is required');
     }
 
-    await prisma.$transaction(async (tx) => {
-      await tx.candidate.update({
-        where: { id: candidateId },
-        data: {
-          stage: 'Rejected',
-          lastActivity: new Date(),
-          status: 'INACTIVE',
-        },
-      });
+    const jobId = await resolveJobIdForStageSync(candidateId, data);
 
-      await tx.activity.create({
-        data: {
-          action: 'Candidate rejected',
-          description: `${candidate.firstName} ${candidate.lastName}`.trim()
-            ? `${candidate.firstName} ${candidate.lastName} was rejected due to ${reason.toLowerCase()}.`
-            : `Candidate was rejected due to ${reason.toLowerCase()}.`,
-          performedById: userId,
-          entityType: CANDIDATE_ACTIVITY_ENTITY,
-          entityId: candidateId,
-          category: 'Candidates',
-          relatedType: 'candidate',
-          relatedId: candidateId,
-          relatedLabel: `${candidate.firstName} ${candidate.lastName}`.trim() || candidate.email,
-          metadata: {
-            kind: REJECTION_ACTIVITY_KIND,
-            reason,
-            feedback,
-            sendEmail: Boolean(data?.sendEmail),
-          },
-        },
-      });
+    await updateCandidateStage({
+      candidateId,
+      jobId,
+      stage: PIPELINE_STAGES.REJECTED,
+      reason,
+      feedback,
+      performedById: userId,
+      skipStageActivity: true,
+    });
 
-      await tx.activity.create({
+    await prisma.activity.create({
+      data: {
+        action: 'Candidate rejected',
+        description: `${candidate.firstName} ${candidate.lastName}`.trim()
+          ? `${candidate.firstName} ${candidate.lastName} was rejected due to ${reason.toLowerCase()}.`
+          : `Candidate was rejected due to ${reason.toLowerCase()}.`,
+        performedById: userId,
+        entityType: CANDIDATE_ACTIVITY_ENTITY,
+        entityId: candidateId,
+        category: 'Candidates',
+        relatedType: 'candidate',
+        relatedId: candidateId,
+        relatedLabel: `${candidate.firstName} ${candidate.lastName}`.trim() || candidate.email,
+        metadata: {
+          kind: REJECTION_ACTIVITY_KIND,
+          reason,
+          feedback,
+          sendEmail: Boolean(data?.sendEmail),
+        },
+      },
+    });
+
+    if (feedback) {
+      await prisma.activity.create({
         data: {
           action: 'Internal note added',
           description: feedback,
@@ -1271,7 +1384,7 @@ export const candidateService = {
           },
         },
       });
-    });
+    }
 
     return this.getById(candidateId);
   },
@@ -1371,15 +1484,6 @@ export const candidateService = {
           })),
         });
       }
-
-      await tx.candidate.update({
-        where: { id: candidateId },
-        data: {
-          stage: 'Interviewing',
-          lastActivity: new Date(),
-          status: 'ACTIVE',
-        },
-      });
 
       await tx.activity.create({
         data: {
@@ -1483,6 +1587,23 @@ export const candidateService = {
         });
       }
     }
+
+    const locationLine =
+      String(data?.mode || '').toLowerCase() === 'in-person' ? String(data?.location || '').trim() || null : null;
+    await updateCandidateStage({
+      candidateId,
+      jobId,
+      stage: PIPELINE_STAGES.INTERVIEW,
+      metadata: {
+        scheduledAt: interview.scheduledAt,
+        interviewTitle: String(data?.type || '').trim() || null,
+        meetingLink: generatedMeetingLink,
+        locationLine,
+        mode: String(data?.mode || '').trim() || null,
+      },
+      performedById: userId,
+      skipStageActivity: true,
+    });
 
     return interview;
   },
