@@ -127,8 +127,12 @@ async function sendEmail({ senderUserId, toEmail, subject, html }) {
  */
 export async function sendInviteEmail(payload) {
   try {
-    const { toEmail, toName, loginId, tempPassword, roleName, inviteToken, senderUserId } = payload;
-    const loginLink = `${FRONTEND_URL}/login?token=${inviteToken}`;
+    const { toEmail, toName, loginId, tempPassword, roleName, inviteToken, senderUserId, tenantDbName } = payload;
+    const tenantQ =
+      tenantDbName && String(tenantDbName).trim()
+        ? `&tenantDbName=${encodeURIComponent(String(tenantDbName).trim())}`
+        : '';
+    const loginLink = `${FRONTEND_URL}/login?token=${inviteToken}${tenantQ}`;
     const resetPasswordLink = `${FRONTEND_URL}/reset-password`;
 
     const html = `

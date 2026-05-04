@@ -15,28 +15,40 @@ export function ContactsKPICards({ stats }: ContactsKPICardsProps) {
       label: 'Total Contacts',
       value: stats.total,
       icon: Users,
-      color: 'bg-blue-100 text-blue-600',
+      panel: 'bg-gradient-to-br from-blue-50 via-white to-indigo-50/80',
+      text: 'text-blue-900',
+      iconWrap: 'bg-blue-500/15 text-blue-600 ring-1 ring-blue-200/80 shadow-inner',
+      ring: 'border-blue-200/90',
     },
     {
       id: 'candidates',
       label: 'Candidates',
       value: stats.candidates,
       icon: UserCheck,
-      color: 'bg-green-100 text-green-600',
+      panel: 'bg-gradient-to-br from-emerald-50 via-white to-teal-50/70',
+      text: 'text-emerald-900',
+      iconWrap: 'bg-emerald-500/15 text-emerald-700 ring-1 ring-emerald-200/80 shadow-inner',
+      ring: 'border-emerald-200/90',
     },
     {
       id: 'clientContacts',
       label: 'Client Contacts',
       value: stats.clientContacts,
       icon: Building2,
-      color: 'bg-purple-100 text-purple-600',
+      panel: 'bg-gradient-to-br from-violet-50 via-white to-purple-50/75',
+      text: 'text-violet-900',
+      iconWrap: 'bg-violet-500/15 text-violet-700 ring-1 ring-violet-200/80 shadow-inner',
+      ring: 'border-violet-200/90',
     },
     {
       id: 'hiringManagers',
       label: 'Hiring Managers',
       value: stats.hiringManagers,
       icon: Briefcase,
-      color: 'bg-orange-100 text-orange-600',
+      panel: 'bg-gradient-to-br from-amber-50 via-white to-orange-50/70',
+      text: 'text-amber-900',
+      iconWrap: 'bg-amber-400/22 text-amber-800 ring-1 ring-amber-200/90 shadow-inner',
+      ring: 'border-amber-200/90',
     },
   ];
 
@@ -47,15 +59,15 @@ export function ContactsKPICards({ stats }: ContactsKPICardsProps) {
         return (
           <div
             key={card.id}
-            className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow"
+            className={`rounded-xl border p-5 shadow-ph2-card transition-all duration-200 hover:-translate-y-0.5 hover:shadow-ph2-card-hover ${card.panel} ${card.ring}`}
           >
             <div className="flex items-center gap-4">
-              <div className={`w-12 h-12 rounded-lg ${card.color} flex items-center justify-center`}>
-                <Icon size={24} />
+              <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${card.iconWrap}`}>
+                <Icon size={22} strokeWidth={2.1} />
               </div>
-              <div>
-                <div className="text-2xl font-bold text-gray-900">{card.value}</div>
-                <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mt-0.5">
+              <div className="min-w-0">
+                <div className={`text-2xl font-bold tabular-nums ${card.text}`}>{card.value}</div>
+                <div className={`text-xs font-semibold uppercase tracking-wider mt-0.5 opacity-80 ${card.text}`}>
                   {card.label}
                 </div>
               </div>

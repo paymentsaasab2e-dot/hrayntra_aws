@@ -5,11 +5,12 @@ import type { Client, ClientStage } from '@/app/client/types';
 import { apiUpdateClient, filesApiUpload } from '../lib/api';
 import { requestError, requestWarning } from '../lib/appDialog';
 
+/** Interviews-style pills: light fill + stronger text */
 const stageColors: Record<ClientStage, string> = {
-  Active: 'bg-emerald-100 text-emerald-700',
-  'On Hold': 'bg-amber-100 text-amber-700',
-  Inactive: 'bg-slate-100 text-slate-700',
-  'Hot Clients 🔥': 'bg-red-100 text-red-700',
+  Active: 'bg-emerald-500/15 text-emerald-800',
+  'On Hold': 'bg-amber-500/15 text-amber-800',
+  Inactive: 'bg-slate-500/15 text-slate-700',
+  'Hot Clients 🔥': 'bg-rose-500/15 text-rose-800',
 };
 
 interface ClientTableProps {
@@ -26,14 +27,16 @@ interface ClientTableProps {
 }
 
 // Custom Checkbox Component for better design tool compatibility
-const CustomCheckbox = ({ checked, onChange }: { checked: boolean, onChange: () => void }) => (
-  <div 
+const CustomCheckbox = ({ checked, onChange }: { checked: boolean; onChange: () => void }) => (
+  <div
     onClick={onChange}
-    className={`w-4 h-4 rounded border flex items-center justify-center cursor-pointer transition-colors ${
-      checked ? 'bg-blue-600 border-blue-600' : 'bg-white border-slate-300'
+    role="checkbox"
+    aria-checked={checked}
+    className={`flex h-4 w-4 cursor-pointer items-center justify-center rounded border-2 transition-colors ${
+      checked ? 'border-blue-600 bg-blue-600' : 'border-slate-300 bg-white hover:border-blue-400'
     }`}
   >
-    {checked && <Check className="w-3 h-3 text-white" strokeWidth={4} />}
+    {checked ? <Check className="h-3 w-3 text-white" strokeWidth={3} /> : null}
   </div>
 );
 
@@ -109,7 +112,7 @@ export function ClientTable({
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
       <input
         ref={fileInputRef}
         type="file"
@@ -118,43 +121,43 @@ export function ClientTable({
         className="hidden"
       />
       <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse">
+        <table className="w-full border-collapse text-left">
           <thead>
-            <tr className="bg-slate-50 border-b border-slate-200">
-              <th className="px-4 py-3 w-10">
-                <CustomCheckbox 
+            <tr className="border-b border-slate-200 bg-slate-100/50">
+              <th className="w-10 px-4 py-4">
+                <CustomCheckbox
                   checked={selectedIds.length === clients.length && clients.length > 0}
                   onChange={toggleSelectAll}
                 />
               </th>
-              <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+              <th className="px-4 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">
                 <button
                   type="button"
                   onClick={onToggleClientNameSortOrder}
-                  className="flex items-center gap-1 cursor-pointer hover:text-slate-700 transition-colors"
+                  className="flex cursor-pointer items-center gap-1 transition-colors hover:text-slate-800"
                   title={`Sort client names ${clientNameSortOrder === 'asc' ? 'descending' : 'ascending'}`}
                 >
                   <span>Client Name</span>
                   {clientNameSortOrder === 'asc' ? (
-                    <ArrowUp className="w-3.5 h-3.5" />
+                    <ArrowUp className="h-3.5 w-3.5 text-slate-400" strokeWidth={2.5} />
                   ) : (
-                    <ArrowDown className="w-3.5 h-3.5" />
+                    <ArrowDown className="h-3.5 w-3.5 text-slate-400" strokeWidth={2.5} />
                   )}
                 </button>
               </th>
-              <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Industry</th>
-              <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Location</th>
-              <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Stage</th>
-              <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Recruiter</th>
-              <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Last Activity</th>
-              <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+              <th className="px-4 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">Industry</th>
+              <th className="px-4 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">Location</th>
+              <th className="px-4 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">Stage</th>
+              <th className="px-4 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">Recruiter</th>
+              <th className="px-4 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">Last Activity</th>
+              <th className="px-4 py-4 text-right text-xs font-bold uppercase tracking-wider text-slate-500">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {clients.map((client) => (
               <tr
                 key={client.id}
-                className={`hover:bg-blue-50/50 transition-colors group ${selectedIds.includes(client.id) ? 'bg-blue-50/80' : ''}`}
+                className={`group transition-colors hover:bg-slate-50/90 ${selectedIds.includes(client.id) ? 'bg-blue-50/70' : ''}`}
               >
                 <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
                   <CustomCheckbox
@@ -164,8 +167,8 @@ export function ClientTable({
                 </td>
                 <td className="px-4 py-4">
                   <div className="flex items-center gap-3">
-                    <div className="relative w-10 h-10 rounded-lg overflow-hidden border border-slate-100 flex-shrink-0 bg-white group/logo">
-                      <ImageWithFallback src={client.logo} alt={client.name} className="w-full h-full object-cover" />
+                    <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-blue-500/10 group/logo">
+                      <ImageWithFallback src={client.logo} alt={client.name} className="h-full w-full object-cover" />
                       <button
                         type="button"
                         onClick={(e) => {
@@ -178,15 +181,15 @@ export function ClientTable({
                         {uploadingClientId === client.id ? (
                           <span className="text-[10px] font-semibold">...</span>
                         ) : (
-                          <Upload className="w-4 h-4" />
+                          <Upload className="h-4 w-4" strokeWidth={2} />
                         )}
                       </button>
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <button
                         type="button"
                         onClick={() => onSelectClient?.(client)}
-                        className="font-semibold text-slate-900 text-left hover:text-blue-600 transition-colors"
+                        className="block truncate text-left text-sm font-semibold text-slate-900 transition-colors hover:text-blue-600"
                         title="View client details"
                       >
                         {client.name}
@@ -197,51 +200,57 @@ export function ClientTable({
                 <td className="px-4 py-4 text-sm text-slate-600">{client.industry}</td>
                 <td className="px-4 py-4 text-sm text-slate-600">{client.location}</td>
                 <td className="px-4 py-4">
-                  <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${stageColors[client.stage] ?? 'bg-slate-100 text-slate-600'}`}>
+                  <span
+                    className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${stageColors[client.stage] ?? 'bg-slate-500/15 text-slate-700'}`}
+                  >
                     {client.stage}
                   </span>
                 </td>
                 <td className="px-4 py-4">
                   <div className="flex items-center gap-2">
-                    <ImageWithFallback src={client.owner.avatar} alt={client.owner.name} className="w-6 h-6 rounded-full border border-slate-200" />
+                    <ImageWithFallback
+                      src={client.owner.avatar}
+                      alt={client.owner.name}
+                      className="h-7 w-7 shrink-0 rounded-full border border-slate-200 object-cover"
+                    />
                     <span className="text-xs font-medium text-slate-700">{client.owner.name}</span>
                   </div>
                 </td>
                 <td className="px-4 py-4 text-xs text-slate-500">{client.lastActivity}</td>
                 <td className="px-4 py-4 text-right" onClick={(e) => e.stopPropagation()}>
-                  <div className="flex items-center justify-end gap-1 opacity-100">
+                  <div className="inline-flex items-center justify-end gap-1 rounded-lg border border-slate-200 bg-slate-50/80 p-1">
                     <button
                       type="button"
                       onClick={() => onSelectClient?.(client)}
-                      className="p-1.5 bg-white shadow-sm border border-slate-100 rounded-md text-slate-400 hover:text-blue-600 transition-all"
+                      className="flex h-8 w-8 items-center justify-center rounded-md border border-transparent bg-white text-blue-600 shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50"
                       title="View Details"
                     >
-                      <Eye className="w-4 h-4" />
+                      <Eye className="h-4 w-4" strokeWidth={2.25} />
                     </button>
                     <button
                       type="button"
                       onClick={() => onEditClient?.(client)}
-                      className="p-1.5 bg-white shadow-sm border border-slate-100 rounded-md text-slate-400 hover:text-amber-600 transition-all"
+                      className="flex h-8 w-8 items-center justify-center rounded-md border border-transparent bg-white text-emerald-600 shadow-sm transition-colors hover:border-emerald-200 hover:bg-emerald-50"
                       title="Edit Client"
                     >
-                      <Pencil className="w-4 h-4" />
+                      <Pencil className="h-4 w-4" strokeWidth={2.25} />
                     </button>
                     <button
                       type="button"
                       onClick={() => onCreateJob?.(client)}
-                      className="p-1.5 bg-white shadow-sm border border-slate-100 rounded-md text-slate-400 hover:text-emerald-600 transition-all"
+                      className="flex h-8 w-8 items-center justify-center rounded-md border border-transparent bg-white text-orange-500 shadow-sm transition-colors hover:border-orange-200 hover:bg-orange-50"
                       title="Create Job for Client"
                     >
-                      <Briefcase className="w-4 h-4" />
+                      <Briefcase className="h-4 w-4" strokeWidth={2.25} />
                     </button>
                     {onDeleteClient && (
                       <button
                         type="button"
                         onClick={() => onDeleteClient(client.id)}
-                        className="p-1.5 bg-white shadow-sm border border-slate-100 rounded-md text-slate-400 hover:text-red-600 transition-all"
+                        className="flex h-8 w-8 items-center justify-center rounded-md border border-transparent bg-white text-red-600 shadow-sm transition-colors hover:border-red-200 hover:bg-red-50"
                         title="Delete Client"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="h-4 w-4" strokeWidth={2.25} />
                       </button>
                     )}
                   </div>

@@ -11,6 +11,9 @@ interface InviteEmailPayload {
   tempPassword: string;
   roleName: string;
   inviteToken: string;
+  senderUserId?: string | null;
+  /** Mongo workspace DB name — required for multi-tenant login (x-tenant-db-name). */
+  tenantDbName?: string;
 }
 
 interface PasswordResetEmailPayload {
@@ -27,8 +30,12 @@ export async function sendInviteEmail(
   payload: InviteEmailPayload
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const { toEmail, toName, loginId, tempPassword, roleName, inviteToken } = payload;
-    const loginLink = `${FRONTEND_URL}/login?token=${inviteToken}`;
+    const { toEmail, toName, loginId, tempPassword, roleName, inviteToken, tenantDbName } = payload;
+    const tenantQ =
+      tenantDbName && String(tenantDbName).trim()
+        ? `&tenantDbName=${encodeURIComponent(String(tenantDbName).trim())}`
+        : '';
+    const loginLink = `${FRONTEND_URL}/login?token=${inviteToken}${tenantQ}`;
 
     const html = `
 <!DOCTYPE html>

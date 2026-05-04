@@ -25,7 +25,6 @@ import {
   apiUpdateJob,
   apiGetJob,
   apiGetClients,
-  apiGetUsers,
   apiGenerateJobDescription,
   apiUploadJobFile,
   filesApiUpload,
@@ -35,6 +34,7 @@ import {
   type BackendClient,
   type BackendUser,
 } from '../../lib/api';
+import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { LinkedInConnect } from '../LinkedInConnect';
 import { LinkedInPostPreview } from '../LinkedInPostPreview';
 import { useLinkedIn } from '../../hooks/useLinkedIn';
@@ -702,11 +702,8 @@ export function CreateJobDrawer({
   const loadUsers = async () => {
     try {
       setLoadingUsers(true);
-      const response = await apiGetUsers({ isActive: true, limit: 200 });
-      const usersList = Array.isArray(response.data)
-        ? response.data
-        : (response.data as { data?: BackendUser[] })?.data || [];
-      setUsers(usersList);
+      const members = await getAllTeamMembersForAssign();
+      setUsers(teamMembersToBackendUsers(members));
     } catch (err) {
       console.error('Failed to load users:', err);
       setUsers([]);

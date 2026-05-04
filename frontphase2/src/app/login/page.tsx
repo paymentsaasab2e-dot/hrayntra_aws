@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Mail, Lock, User, LogIn, UserPlus } from 'lucide-react';
-import { apiLogin, apiRegister } from '../../lib/api';
+import { apiLogin, apiRegister, syncTenantDbName } from '../../lib/api';
 
 type Mode = 'login' | 'signup';
 
@@ -23,6 +23,16 @@ export default function LoginPage() {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
+
+  // Team invite emails link to /login?token=...&tenantDbName=... — store tenant before any API call.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const tenant = params.get('tenantDbName');
+    if (tenant) {
+      syncTenantDbName(tenant);
+    }
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

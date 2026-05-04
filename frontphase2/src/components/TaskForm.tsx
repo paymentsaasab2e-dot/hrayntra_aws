@@ -19,7 +19,8 @@ import {
   MOCK_JOBS,
   MOCK_CLIENTS,
 } from '../app/Task&Activites/types';
-import { apiGetUsers, apiGetCandidates, apiGetJobs, apiGetClients, apiGetInterviews, type BackendUser, type BackendCandidate, type BackendJob, type BackendClient, type BackendInterviewListItem } from '../lib/api';
+import { apiGetCandidates, apiGetJobs, apiGetClients, apiGetInterviews, type BackendCandidate, type BackendJob, type BackendClient, type BackendInterviewListItem } from '../lib/api';
+import { getAllTeamMembersForAssign } from '../lib/api/teamApi';
 
 const DEFAULT_FORM_VALUES: TaskFormValues = {
   title: '',
@@ -111,17 +112,16 @@ export function TaskForm({
         
         // Fetch users/assignees
         try {
-          const usersResponse = await apiGetUsers({ isActive: true, limit: 100 });
-          const usersList = Array.isArray(usersResponse.data) 
-            ? usersResponse.data 
-            : (usersResponse.data as any)?.data || [];
-          const mappedAssignees: TaskAssignee[] = usersList.map((u: BackendUser) => ({
-            id: u.id,
-            name: u.name,
-            email: u.email,
-            avatar: u.avatar,
-            role: u.role,
-          }));
+          const members = await getAllTeamMembersForAssign();
+          const mappedAssignees: TaskAssignee[] = members.map((m) => {
+            const name = [m.firstName, m.lastName].filter(Boolean).join(' ').trim() || m.email;
+            return {
+              id: m.id,
+              name,
+              avatar: (m as { avatar?: string }).avatar,
+              role: m.role?.roleName,
+            };
+          });
           setAssignees(mappedAssignees);
         } catch (err) {
           console.error('Failed to fetch users:', err);

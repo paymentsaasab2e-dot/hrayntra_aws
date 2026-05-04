@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
@@ -61,7 +61,8 @@ import { ImageWithFallback } from '../ImageWithFallback';
 import { useFiles } from '../../hooks/useFiles';
 import { ScheduleMeetingForm } from '../ScheduleMeetingForm';
 import { NotesService } from '../NotesService';
-import { apiUpdateClient, apiCreateClient, apiGetUsers, apiGetJobs, apiGetContacts, apiCreateContact, apiUpdateContact, apiDeleteContact, apiFetch, apiGetClientActivities, apiGetClientScheduledMeetings, apiCreateScheduledMeeting, apiUpdateScheduledMeeting, apiDeleteScheduledMeeting, filesApiUpload, apiGetJob, apiUpdateJob, type BackendUser, type BackendJob, type BackendContact, type CreateContactData, type BackendClient, type ScheduledMeeting } from '../../lib/api';
+import { apiUpdateClient, apiCreateClient, apiGetJobs, apiGetContacts, apiCreateContact, apiUpdateContact, apiDeleteContact, apiFetch, apiGetClientActivities, apiGetClientScheduledMeetings, apiCreateScheduledMeeting, apiUpdateScheduledMeeting, apiDeleteScheduledMeeting, filesApiUpload, apiGetJob, apiUpdateJob, type BackendUser, type BackendJob, type BackendContact, type CreateContactData, type BackendClient, type ScheduledMeeting } from '../../lib/api';
+import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { requestConfirm, requestError, requestSuccess, requestWarning } from '../../lib/appDialog';
 import { CreateJobDrawer } from './CreateJobDrawer';
 import { JobDetailsDrawer, type JobForDrawer } from './JobDetailsDrawer';
@@ -1102,11 +1103,8 @@ export function ClientDetailsDrawer({
     const fetchUsers = async () => {
       setLoadingUsers(true);
       try {
-        const response = await apiGetUsers({ isActive: true, limit: 100 });
-        const usersList = Array.isArray(response.data) 
-          ? response.data 
-          : (response.data as any)?.data || [];
-        setUsers(usersList);
+        const members = await getAllTeamMembersForAssign();
+        setUsers(teamMembersToBackendUsers(members));
       } catch (error) {
         console.error('Failed to fetch users:', error);
         setUsers([]);

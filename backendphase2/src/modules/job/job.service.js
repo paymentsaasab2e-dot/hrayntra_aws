@@ -1,4 +1,9 @@
-import { prisma, getActiveTenantDbName, getDefaultPrismaClient } from '../../config/prisma.js';
+import {
+  prisma,
+  getActiveTenantDbName,
+  getDefaultPrismaClient,
+  getJobPortalPrismaClient,
+} from '../../config/prisma.js';
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
 import { dbLogger } from '../../utils/db-logger.js';
 import activityService from '../../services/activityService.js';
@@ -130,6 +135,67 @@ async function syncJobToJobPortalDb(job, payload = {}) {
       ...jobPortalData,
     },
     update: jobPortalData,
+  });
+}
+
+/**
+ * Remove portal / Phase 1 job mirror so backend1 & public listings stay in sync with tenant deletes.
+ * Jobs are upserted to `getDefaultPrismaClient()` (DATABASE_URL); applications may live on
+ * JOB_PORTAL_DATABASE_URL when it differs from DATABASE_URL.
+ */
+async function deleteAppsForJob(client, jobId) {
+  const applications = await client.application.findMany({
+    where: { jobId },
+    select: { id: true },
+  });
+  const applicationIds = applications.map((a) => a.id);
+  if (applicationIds.length) {
+    await client.applicationTimeline.deleteMany({
+      where: { applicationId: { in: applicationIds } },
+    });
+  }
+  await client.application.deleteMany({ where: { jobId } });
+}
+
+async function safeDeleteJobRow(client, jobId) {
+  try {
+    await client.job.delete({ where: { id: jobId } });
+  } catch (e) {
+    const code = e?.code;
+    const msg = String(e?.message || '');
+    if (
+      code === 'P2025' ||
+      msg.includes('Record to delete does not exist') ||
+      msg.includes('No record was found')
+    ) {
+      return;
+    }
+    throw e;
+  }
+}
+
+async function deleteMirroredJobForPhase1(jobId) {
+  if (!getActiveTenantDbName()) return;
+
+  const defaultDb = getDefaultPrismaClient();
+  const portalDb = getJobPortalPrismaClient();
+
+  if (defaultDb === portalDb) {
+    await defaultDb.$transaction(async (tx) => {
+      await deleteAppsForJob(tx, jobId);
+      await safeDeleteJobRow(tx, jobId);
+    });
+    return;
+  }
+
+  await portalDb.$transaction(async (tx) => {
+    await deleteAppsForJob(tx, jobId);
+    await safeDeleteJobRow(tx, jobId);
+  });
+
+  await defaultDb.$transaction(async (tx) => {
+    await deleteAppsForJob(tx, jobId);
+    await safeDeleteJobRow(tx, jobId);
   });
 }
 
@@ -850,6 +916,18 @@ export const jobService = {
 
     if (!currentJob) {
       throw new Error('Job not found');
+    }
+
+    // Phase 1 / job-portal mirror (same job id) — remove first so public listings never outlive CRM delete
+    try {
+      await deleteMirroredJobForPhase1(id);
+    } catch (syncErr) {
+      console.error(`deleteMirroredJobForPhase1 failed for job ${id}:`, syncErr?.message || syncErr);
+      throw new Error(
+        syncErr?.message
+          ? `Could not remove job from shared portal database: ${syncErr.message}`
+          : 'Could not remove job from shared portal database'
+      );
     }
 
     await prisma.job.delete({ where: { id } });

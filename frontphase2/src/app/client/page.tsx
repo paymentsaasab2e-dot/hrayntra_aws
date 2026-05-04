@@ -32,7 +32,8 @@ import { CreateJobDrawer } from '../../components/drawers/CreateJobDrawer';
 import PaginationAll from '../../components/PaginationAll';
 import { INITIAL_CLIENTS } from './types';
 import type { Client } from './types';
-import { apiGetClients, apiGetClient, apiDeleteClient, apiGetUsers, apiUpdateClient, type BackendClient, type BackendUser, type UpdateClientData } from '../../lib/api';
+import { apiGetClients, apiGetClient, apiDeleteClient, apiUpdateClient, type BackendClient, type BackendUser, type UpdateClientData } from '../../lib/api';
+import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { requestConfirm } from '../../lib/appDialog';
 
 function filterClientsByTab(clients: Client[], activeTab: string): Client[] {
@@ -51,7 +52,7 @@ function filterClientsByTab(clients: Client[], activeTab: string): Client[] {
   }
 }
 
-// Status Card Component
+/** KPI strip — Interviews-style: white cards, icon ~20% tint left, metric + label */
 const StatusCards = ({
   activeTab,
   onTabChange,
@@ -62,15 +63,55 @@ const StatusCards = ({
   counts: { all: number; active: number; 'on-hold': number; inactive: number; hot: number };
 }) => {
   const cards = [
-    { id: 'all', label: 'All Clients', count: counts.all, icon: FolderOpen, accent: 'bg-slate-50 text-slate-600' },
-    { id: 'active', label: 'Active Clients', count: counts.active, icon: Users, accent: 'bg-blue-50 text-blue-600' },
-    { id: 'on-hold', label: 'On Hold', count: counts['on-hold'], icon: Briefcase, accent: 'bg-amber-50 text-amber-600' },
-    { id: 'inactive', label: 'Inactive', count: counts.inactive, icon: BadgeInfo, accent: 'bg-slate-50 text-slate-500' },
-    { id: 'hot', label: 'Hot Clients', count: counts.hot, icon: Flame, accent: 'bg-rose-50 text-rose-600' },
+    {
+      id: 'all',
+      label: 'All Clients',
+      count: counts.all,
+      icon: FolderOpen,
+      iconBg: 'bg-slate-500/20',
+      iconColor: 'text-slate-700',
+      activeRing: 'ring-2 ring-slate-400 ring-offset-2 ring-offset-slate-50',
+    },
+    {
+      id: 'active',
+      label: 'Active',
+      count: counts.active,
+      icon: Users,
+      iconBg: 'bg-blue-500/20',
+      iconColor: 'text-blue-600',
+      activeRing: 'ring-2 ring-blue-600 ring-offset-2 ring-offset-slate-50',
+    },
+    {
+      id: 'on-hold',
+      label: 'On Hold',
+      count: counts['on-hold'],
+      icon: Briefcase,
+      iconBg: 'bg-orange-500/20',
+      iconColor: 'text-orange-600',
+      activeRing: 'ring-2 ring-orange-400 ring-offset-2 ring-offset-slate-50',
+    },
+    {
+      id: 'inactive',
+      label: 'Inactive',
+      count: counts.inactive,
+      icon: BadgeInfo,
+      iconBg: 'bg-slate-400/20',
+      iconColor: 'text-slate-600',
+      activeRing: 'ring-2 ring-slate-400 ring-offset-2 ring-offset-slate-50',
+    },
+    {
+      id: 'hot',
+      label: 'Hot',
+      count: counts.hot,
+      icon: Flame,
+      iconBg: 'bg-purple-500/20',
+      iconColor: 'text-purple-600',
+      activeRing: 'ring-2 ring-purple-500 ring-offset-2 ring-offset-slate-50',
+    },
   ];
 
   return (
-    <div className="grid grid-cols-1 gap-4 mb-6 sm:grid-cols-2 xl:grid-cols-5">
+    <div className="grid grid-cols-2 gap-3 mb-6 sm:grid-cols-3 lg:grid-cols-5 lg:gap-4">
       {cards.map((card) => {
         const isActive = activeTab === card.id;
         const Icon = card.icon;
@@ -78,18 +119,20 @@ const StatusCards = ({
           <button
             key={card.id}
             onClick={() => onTabChange(card.id)}
-            className={`rounded-xl border bg-white p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${
-              isActive ? 'border-blue-200 ring-2 ring-blue-100' : 'border-slate-200'
+            type="button"
+            className={`flex w-full items-center gap-3 rounded-xl border bg-white p-3.5 text-left shadow-sm transition-all duration-200 hover:shadow-md sm:gap-4 sm:p-4 ${
+              isActive ? `border-transparent ${card.activeRing} shadow-md` : 'border-slate-200 hover:border-slate-300'
             }`}
           >
-            <div className="flex items-start justify-between gap-3">
-              <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${card.accent}`}>
-                <Icon className="h-5 w-5" />
-              </div>
-              {isActive ? <div className="mt-1 h-2 w-2 rounded-full bg-blue-600" /> : null}
+            <div
+              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl sm:h-12 sm:w-12 ${card.iconBg} ${card.iconColor}`}
+            >
+              <Icon className="h-5 w-5 sm:h-6 sm:w-6" strokeWidth={2.25} />
             </div>
-            <div className="mt-3 text-2xl font-bold text-slate-900">{card.count}</div>
-            <div className="mt-1 text-xs font-semibold uppercase tracking-wider text-slate-500">{card.label}</div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xl font-bold tabular-nums text-slate-900 sm:text-2xl">{card.count}</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 sm:text-xs">{card.label}</p>
+            </div>
           </button>
         );
       })}
@@ -98,24 +141,35 @@ const StatusCards = ({
 };
 
 // Empty State Component
-const EmptyState = ({ onImportClick }: { onImportClick?: () => void }) => (
-  <div className="bg-white rounded-xl border border-dashed border-slate-300 p-20 flex flex-col items-center justify-center text-center shadow-sm">
-    <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mb-6">
-      <Building2 className="w-10 h-10 text-blue-500" />
+const EmptyState = ({
+  onImportClick,
+  onCreateClick,
+}: {
+  onImportClick?: () => void;
+  onCreateClick?: () => void;
+}) => (
+  <div className="rounded-xl border border-dashed border-slate-200 bg-white p-16 sm:p-20 flex flex-col items-center justify-center text-center shadow-sm">
+    <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-blue-500/20 text-blue-600">
+      <Building2 className="h-10 w-10" strokeWidth={2} />
     </div>
     <h3 className="text-xl font-bold text-slate-900 mb-2">No clients added yet</h3>
-    <p className="text-slate-500 max-w-sm mb-8">
+    <p className="text-slate-500 max-w-sm mb-8 text-sm">
       Start building your agency pipeline by adding your first client or importing them from a CSV file.
     </p>
-    <div className="flex items-center gap-3">
-      <button className="px-5 py-2.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all flex items-center gap-2">
-        <Plus className="w-4 h-4" /> Create Client
+    <div className="flex flex-wrap items-center justify-center gap-3">
+      <button
+        type="button"
+        onClick={onCreateClick}
+        className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
+      >
+        <Plus className="h-4 w-4" strokeWidth={2.5} /> Create Client
       </button>
       <button
+        type="button"
         onClick={onImportClick}
-        className="px-5 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-lg font-semibold hover:bg-slate-50 transition-all flex items-center gap-2"
+        className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
       >
-        <Upload className="w-4 h-4" /> Import Clients
+        <Upload className="h-4 w-4 text-slate-600" strokeWidth={2} /> Import Clients
       </button>
     </div>
   </div>
@@ -277,14 +331,8 @@ export default function App() {
       try {
         const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
         if (!token) return;
-        const response = await apiGetUsers({ isActive: true, limit: 200 });
-        const payload = response.data;
-        const users = Array.isArray(payload)
-          ? payload
-          : Array.isArray(payload?.data)
-            ? payload.data
-            : [];
-        setTeamMembers(users);
+        const members = await getAllTeamMembersForAssign();
+        setTeamMembers(teamMembersToBackendUsers(members));
       } catch (err) {
         console.error('Failed to fetch users for bulk assignment:', err);
       }
@@ -456,51 +504,92 @@ export default function App() {
 
   return (
     <div className="w-full min-h-screen bg-slate-50">
-      <div className="p-8 max-w-7xl mx-auto w-full">
-        <div className="flex flex-col md:flex-row md:items-start justify-between mb-8 gap-4">
-          <div>
-            <div className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">
-              Recruitment Hub / CRM
+      <div className="mx-auto w-full max-w-7xl p-6 sm:p-8">
+        <div className="mb-8 flex flex-col justify-between gap-4 md:flex-row md:items-start">
+          <div className="flex items-start gap-3 sm:gap-4">
+            <div className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-500/20 text-blue-600 sm:h-12 sm:w-12">
+              <Building2 className="h-6 w-6" strokeWidth={2.25} />
             </div>
-            <h1 className="text-3xl font-bold text-slate-900">Clients</h1>
+            <div>
+              <p className="mb-0.5 text-xs font-bold uppercase tracking-wider text-slate-400">Recruitment Hub / CRM</p>
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Clients</h1>
+              <p className="mt-1 max-w-lg text-sm text-slate-500">
+                Manage your client relationships, track stages, and open roles in one place.
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-2 md:gap-3 flex-wrap">
-            <button onClick={handleRefresh} disabled={loading} className="p-2.5 bg-white border border-slate-200 rounded-lg text-slate-500 hover:bg-slate-50 transition-all shadow-sm">
-              <RefreshCcw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+          <div className="flex flex-wrap items-center gap-2 md:gap-3">
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={loading}
+              className="rounded-lg border border-slate-200 bg-white p-2.5 text-slate-600 shadow-sm transition-colors hover:bg-slate-50 disabled:opacity-60"
+              title="Refresh"
+            >
+              <RefreshCcw className={`h-5 w-5 ${loading ? 'animate-spin' : ''}`} strokeWidth={2} />
             </button>
-            <button onClick={() => setShowImportDrawer(true)} className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-lg text-slate-600 font-semibold hover:bg-slate-50 shadow-sm">
-              <Upload className="w-4 h-4" /> Import
+            <button
+              type="button"
+              onClick={() => setShowImportDrawer(true)}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+            >
+              <Upload className="h-4 w-4 text-slate-600" strokeWidth={2} /> Import
             </button>
-            <button onClick={() => { setSelectedClient(null); setShowAddClientDrawer(true); }} className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all">
-              <Plus className="w-5 h-5" /> Add Client
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedClient(null);
+                setShowAddClientDrawer(true);
+              }}
+              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
+            >
+              <Plus className="h-5 w-5" strokeWidth={2.5} /> Add Client
             </button>
           </div>
         </div>
 
-        <div className="flex flex-col lg:flex-row lg:items-center gap-4 mb-8">
-          <div className="flex-1 relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-            <input 
-              type="text" 
-              placeholder="Search by client name..." 
+        <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" strokeWidth={2} />
+            <input
+              type="text"
+              placeholder="Search by client name..."
               value={searchQuery}
               onChange={(e) => {
                 setCurrentPage(1);
                 setSearchQuery(e.target.value);
               }}
-              className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-slate-700 shadow-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+              className="h-11 w-full rounded-lg border border-slate-200 bg-white pl-10 pr-4 text-sm text-slate-800 shadow-sm placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
             />
           </div>
+          <button
+            type="button"
+            onClick={() => setIsFilterOpen(true)}
+            className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+          >
+            <Filter className="h-4 w-4 text-slate-600" strokeWidth={2} />
+            Filter
+          </button>
         </div>
 
         <StatusCards activeTab={activeTab} onTabChange={setActiveTab} counts={tabCounts} />
 
         {loading ? (
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 text-center text-slate-500">Loading...</div>
+          <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-sm font-medium text-slate-500 shadow-sm">
+            Loading clients…
+          </div>
         ) : error && !loading ? (
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 text-center text-red-500">Error: {error}</div>
+          <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-sm font-medium text-red-600 shadow-sm">
+            Error: {error}
+          </div>
         ) : isEmpty ? (
-          <EmptyState onImportClick={() => setShowImportDrawer(true)} />
+          <EmptyState
+            onImportClick={() => setShowImportDrawer(true)}
+            onCreateClick={() => {
+              setSelectedClient(null);
+              setShowAddClientDrawer(true);
+            }}
+          />
         ) : (
           <>
            
@@ -529,7 +618,7 @@ export default function App() {
               }}
             />
 
-            <div className="mt-4 w-full">
+            <div className="mt-4 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
               <PaginationAll
                 initialPage={currentPage}
                 totalPages={Math.max(1, Math.ceil(sortedClients.length / DISPLAY_PAGE_SIZE))}

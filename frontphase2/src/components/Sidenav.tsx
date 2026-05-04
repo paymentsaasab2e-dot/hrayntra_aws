@@ -92,10 +92,10 @@ const UserDropdown = ({ avatarUrl, userName, userRole }: { avatarUrl: string; us
   }, []);
 
   const menuItems = [
-    { icon: User,     label: 'My Profile' },
-    { icon: Repeat,   label: 'Switch Workspace' },
-    { icon: Settings, label: 'Settings' },
-    { icon: LogOut,   label: 'Logout', color: 'text-red-500 hover:bg-red-50' },
+    { icon: User, label: 'My Profile', iconClass: 'text-violet-500' },
+    { icon: Repeat, label: 'Switch Workspace', iconClass: 'text-cyan-500' },
+    { icon: Settings, label: 'Settings', iconClass: 'text-blue-500' },
+    { icon: LogOut, label: 'Logout', color: 'text-red-500 hover:bg-red-50', iconClass: 'text-red-500' },
   ];
 
   async function handleMenuClick(label: string) {
@@ -156,7 +156,7 @@ const UserDropdown = ({ avatarUrl, userName, userRole }: { avatarUrl: string; us
                   item.color || 'text-slate-600 hover:bg-slate-50'
                 } ${item.label === 'Logout' && isLoggingOut ? 'opacity-70 cursor-not-allowed' : ''}`}
               >
-                <item.icon className="w-4 h-4" />
+                <item.icon className={`w-4 h-4 ${'iconClass' in item && item.iconClass ? item.iconClass : ''}`} />
                 <span>{item.label}</span>
               </button>
             ))}
@@ -180,6 +180,83 @@ const Tooltip = ({ children, content }: { children: React.ReactNode; content: st
   </div>
 );
 
+/** Sidebar nav icon tint — idle vs active row */
+const NAV_ICON_ACCENTS: Record<
+  string,
+  { idle: string; activeWrap: string; activeIcon: string }
+> = {
+  sky: {
+    idle: 'text-sky-400',
+    activeWrap: 'bg-sky-500/25 shadow-inner shadow-sky-900/20',
+    activeIcon: 'text-white',
+  },
+  rose: {
+    idle: 'text-rose-400',
+    activeWrap: 'bg-rose-500/25 shadow-inner shadow-rose-900/20',
+    activeIcon: 'text-white',
+  },
+  blue: {
+    idle: 'text-blue-400',
+    activeWrap: 'bg-blue-500/25 shadow-inner shadow-blue-900/20',
+    activeIcon: 'text-white',
+  },
+  amber: {
+    idle: 'text-amber-400',
+    activeWrap: 'bg-amber-500/25 shadow-inner shadow-amber-900/20',
+    activeIcon: 'text-white',
+  },
+  violet: {
+    idle: 'text-violet-400',
+    activeWrap: 'bg-violet-500/25 shadow-inner shadow-violet-900/20',
+    activeIcon: 'text-white',
+  },
+  cyan: {
+    idle: 'text-cyan-400',
+    activeWrap: 'bg-cyan-500/25 shadow-inner shadow-cyan-900/20',
+    activeIcon: 'text-white',
+  },
+  emerald: {
+    idle: 'text-emerald-400',
+    activeWrap: 'bg-emerald-500/25 shadow-inner shadow-emerald-900/20',
+    activeIcon: 'text-white',
+  },
+  indigo: {
+    idle: 'text-indigo-400',
+    activeWrap: 'bg-indigo-500/25 shadow-inner shadow-indigo-900/20',
+    activeIcon: 'text-white',
+  },
+  orange: {
+    idle: 'text-orange-400',
+    activeWrap: 'bg-orange-500/25 shadow-inner shadow-orange-900/20',
+    activeIcon: 'text-white',
+  },
+  fuchsia: {
+    idle: 'text-fuchsia-400',
+    activeWrap: 'bg-fuchsia-500/25 shadow-inner shadow-fuchsia-900/20',
+    activeIcon: 'text-white',
+  },
+  lime: {
+    idle: 'text-lime-400',
+    activeWrap: 'bg-lime-500/25 shadow-inner shadow-lime-900/20',
+    activeIcon: 'text-white',
+  },
+  teal: {
+    idle: 'text-teal-400',
+    activeWrap: 'bg-teal-500/25 shadow-inner shadow-teal-900/20',
+    activeIcon: 'text-white',
+  },
+  pink: {
+    idle: 'text-pink-400',
+    activeWrap: 'bg-pink-500/25 shadow-inner shadow-pink-900/20',
+    activeIcon: 'text-white',
+  },
+  slate: {
+    idle: 'text-slate-400',
+    activeWrap: 'bg-slate-500/25',
+    activeIcon: 'text-white',
+  },
+};
+
 // ─── Nav Item ─────────────────────────────────────────────────────────────────
 interface NavItemProps {
   icon: React.ElementType;
@@ -189,12 +266,15 @@ interface NavItemProps {
   collapsed: boolean;
   badge?: number;
   onNavigate?: () => void;
+  /** Colored icon treatment in the dark sidebar */
+  accent?: keyof typeof NAV_ICON_ACCENTS;
 }
 
-const NavItem = ({ icon: Icon, label, href, active, collapsed, badge, onNavigate }: NavItemProps) => {
+const NavItem = ({ icon: Icon, label, href, active, collapsed, badge, onNavigate, accent = 'sky' }: NavItemProps) => {
   const pathname = usePathname();
   const isActive = active || (href && pathname === href);
-  
+  const tone = NAV_ICON_ACCENTS[accent] || NAV_ICON_ACCENTS.sky;
+
   const content = (
     <div
       data-sidenav-nav-item="true"
@@ -209,8 +289,16 @@ const NavItem = ({ icon: Icon, label, href, active, collapsed, badge, onNavigate
         <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-teal-400 rounded-r-full" />
       )}
 
-      <div className={`flex items-center justify-center shrink-0 ${collapsed ? 'w-full' : 'mr-2.5'}`}>
-        <Icon size={16} strokeWidth={isActive ? 2 : 1.5} />
+      <div
+        className={`flex items-center justify-center shrink-0 rounded-lg transition-colors duration-150 ${collapsed ? 'w-full p-0.5' : 'mr-2.5 p-0.5'} ${
+          isActive ? `${tone.activeWrap}` : ''
+        }`}
+      >
+        <Icon
+          size={16}
+          strokeWidth={isActive ? 2 : 1.5}
+          className={isActive ? tone.activeIcon : `${tone.idle} group-hover:text-white`}
+        />
       </div>
 
       {!collapsed && (
@@ -546,7 +634,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
           />
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className="p-1.5 rounded-md hover:bg-white/10 text-white/60 hover:text-white transition-colors"
+            className="p-1.5 rounded-md hover:bg-white/10 text-slate-300 hover:text-white transition-colors"
           >
             {isCollapsed ? <Menu size={15} /> : <ChevronLeft size={15} />}
           </button>
@@ -554,7 +642,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
 
         <div className="flex flex-1 justify-center px-4">
           <div className="relative w-full max-w-2xl">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-sky-400 pointer-events-none" />
             <input
               type="text"
               value={navSearch}
@@ -613,7 +701,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
         <div className="flex items-center gap-4 shrink-0">
           <div className="flex items-center gap-4 pr-4 border-r border-white/10">
             <Tooltip content="Calendar">
-              <Link href="/calendar" className="text-white/60 hover:text-white transition-colors">
+              <Link href="/calendar" className="text-amber-400/90 hover:text-amber-300 transition-colors">
                 <Calendar className="w-5 h-5" />
               </Link>
             </Tooltip>
@@ -621,7 +709,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
               <button
                 type="button"
                 onClick={() => setNotificationDrawerOpen(true)}
-                className="relative text-white/60 hover:text-white transition-colors"
+                className="relative text-rose-400/90 hover:text-rose-300 transition-colors"
               >
                 <Bell className="w-5 h-5" />
                 {notificationCount > 0 ? (
@@ -632,7 +720,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
               </button>
             </Tooltip>
             <Tooltip content="What's New">
-              <button className="text-white/60 hover:text-white transition-colors">
+              <button className="text-violet-400/90 hover:text-violet-300 transition-colors">
                 <Gift className="w-5 h-5" />
               </button>
             </Tooltip>
@@ -641,7 +729,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
                 href="/help-center"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-white/60 hover:text-white transition-colors"
+                className="text-cyan-400/90 hover:text-cyan-300 transition-colors"
                 aria-label="Open Help Center"
               >
                 <HelpCircle className="w-5 h-5" />
@@ -677,74 +765,74 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
           style={{ scrollbarWidth: 'none' }}
         >
           {/* Dashboard - always show */}
-          <NavItem icon={LayoutDashboard} label="Dashboard" href="/dashboard" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
+          <NavItem icon={LayoutDashboard} label="Dashboard" href="/dashboard" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="sky" />
           
           {/* Leads */}
           {(mounted && (showAll || hasAnyPermission(['leads_read', 'leads_create', 'leads_update', 'leads_delete']))) && (
-            <NavItem icon={Target} label="Leads" href="/leads" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
+            <NavItem icon={Target} label="Leads" href="/leads" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="rose" />
           )}
           
           {/* Clients */}
           {(mounted && (showAll || hasAnyPermission(['clients_read', 'clients_create', 'clients_update', 'clients_delete']))) && (
-            <NavItem icon={Users} label="Clients" href="/client" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
+            <NavItem icon={Users} label="Clients" href="/client" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="blue" />
           )}
           
           {/* Jobs */}
           {(mounted && (showAll || hasAnyPermission(['jobs_read', 'jobs_create', 'jobs_update', 'jobs_delete', 'view_jobs', 'create_job', 'edit_job', 'delete_job', 'assign_job']))) && (
-            <NavItem icon={Briefcase} label="Jobs" href="/job" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
+            <NavItem icon={Briefcase} label="Jobs" href="/job" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="amber" />
           )}
           
           {/* Candidates */}
           {(mounted && (showAll || hasAnyPermission(['candidates_read', 'candidates_create', 'candidates_update', 'candidates_delete', 'view_assigned_candidates', 'view_all_candidates', 'add_candidate', 'edit_candidate', 'delete_candidate']))) && (
-            <NavItem icon={UserRound} label="Candidates" href="/candidate" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
+            <NavItem icon={UserRound} label="Candidates" href="/candidate" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="violet" />
           )}
 
           {/* Interviews */}
           {(mounted && (showAll || hasAnyPermission(['interviews_read', 'interviews_create', 'interviews_update', 'interviews_delete']))) && (
-            <NavItem icon={Calendar} label="Interviews" href="/interviews" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
+            <NavItem icon={Calendar} label="Interviews" href="/interviews" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="cyan" />
           )}
 
           {/* Placements */}
           {(mounted && (showAll || hasAnyPermission(['placements_read', 'placements_create', 'placements_update', 'placements_delete']))) && (
-            <NavItem icon={Award} label="Placements" href="/placement" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
+            <NavItem icon={Award} label="Placements" href="/placement" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="emerald" />
           )}
           
           {/* Pipeline */}
           {(mounted && (showAll || hasPermission('move_pipeline'))) && (
             <>
               <SectionLabel label="Recruitment Hub" collapsed={isCollapsed} />
-              <NavItem icon={GitBranch} label="Pipeline" href="/pipeline" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
+              <NavItem icon={GitBranch} label="Pipeline" href="/pipeline" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="indigo" />
             </>
           )}
           
           {/* Matches */}
           {(mounted && (showAll || hasAnyPermission(['jobs_read', 'view_jobs', 'candidates_read', 'view_all_candidates', 'view_assigned_candidates']))) && (
-            <NavItem icon={Zap} label="Matches" href="/matches" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
+            <NavItem icon={Zap} label="Matches" href="/matches" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="orange" />
           )}
 
           <Divider />
 
           {/* Tasks & Activities - always show */}
-          <NavItem icon={CheckSquare} label="Tasks & Activities" href="/Task&Activites" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
+          <NavItem icon={CheckSquare} label="Tasks & Activities" href="/Task&Activites" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="lime" />
           
           {/* Inbox - always show */}
-          <NavItem icon={Mail} label="Inbox" href="/inbox" collapsed={isCollapsed} badge={3} onNavigate={persistScrollPosition} />
+          <NavItem icon={Mail} label="Inbox" href="/inbox" collapsed={isCollapsed} badge={3} onNavigate={persistScrollPosition} accent="fuchsia" />
           
           {/* Contacts */}
           {(mounted && (showAll || hasAnyPermission(['clients_read', 'leads_read', 'candidates_read', 'view_all_candidates', 'view_assigned_candidates']))) && (
-            <NavItem icon={Contact} label="Contacts" href="/contacts" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
+            <NavItem icon={Contact} label="Contacts" href="/contacts" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="teal" />
           )}
 
           <Divider />
 
           {/* Reports */}
           {(mounted && (showAll || hasAnyPermission(['reports_read', 'reports_create', 'reports_update', 'reports_delete']))) && (
-            <NavItem icon={BarChart3} label="Reports" href="/reports" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
+            <NavItem icon={BarChart3} label="Reports" href="/reports" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="pink" />
           )}
           
           {/* Billing - show if Super Admin or has access_billing */}
           {(mounted && (showAll || hasPermission('access_billing'))) && (
-            <NavItem icon={CreditCard} label="Billing" href="/billing" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
+            <NavItem icon={CreditCard} label="Billing" href="/billing" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="amber" />
           )}
 
           <div className="h-4" />
@@ -753,13 +841,13 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
           {(mounted && (showAll || hasAnyPermission(['add_team_member', 'assign_roles', 'edit_team_member', 'generate_credentials', 'manage_targets', 'manage_commission']))) && (
             <>
               <SectionLabel label="Team Management" collapsed={isCollapsed} />
-              <NavItem icon={UserPlus} label="Team" href="/team" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
+              <NavItem icon={UserPlus} label="Team" href="/team" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="blue" />
             </>
           )}
 
           {/* Settings - show if Super Admin or has manage_settings */}
           {(mounted && (showAll || hasPermission('manage_settings'))) && (
-            <NavItem icon={Settings} label="Settings" href="/setting" collapsed={isCollapsed} onNavigate={persistScrollPosition} />
+            <NavItem icon={Settings} label="Settings" href="/setting" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="slate" />
           )}
           
         </div>
@@ -807,7 +895,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
       <motion.main
         animate={{ marginLeft: SIDEBAR_W }}
         transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
-        className="min-h-screen bg-slate-50 pt-14 overflow-y-auto"
+        className="ph2-main-surface min-h-screen pt-14 overflow-y-auto"
       >
         {children || (
           <div className="p-6">

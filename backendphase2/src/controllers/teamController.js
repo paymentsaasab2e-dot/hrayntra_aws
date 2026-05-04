@@ -85,7 +85,7 @@ export async function getAllTeamMembers(req, res) {
     const cached = await getCache(cacheKey);
     if (cached) {
       const parsed = JSON.parse(cached);
-      res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+      res.setHeader('Cache-Control', 'private, no-store');
       return res.status(200).json(parsed);
     }
 
@@ -207,7 +207,7 @@ export async function getAllTeamMembers(req, res) {
       },
     };
     await setCache(cacheKey, JSON.stringify(responsePayload), 300);
-    res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+    res.setHeader('Cache-Control', 'private, no-store');
     return res.status(200).json(responsePayload);
   } catch (error) {
     logger.error({ route: req.originalUrl || req.url, message: error?.message || 'Failed to fetch team members' });
@@ -427,6 +427,7 @@ export async function createTeamMember(req, res) {
             roleName: role?.roleName || 'Team Member',
             inviteToken,
             senderUserId: req.user?.id || null,
+            tenantDbName: getActiveTenantDbName() || undefined,
           });
         } catch (emailError) {
           logger.error({
@@ -792,6 +793,50 @@ export async function deleteTeamMember(req, res) {
       where: { createdById: id },
     });
 
+    // Files uploaded by this user (required uploadedById — blocks user delete, e.g. ClientFileToUser)
+    await prisma.clientFile.deleteMany({
+      where: { uploadedById: id },
+    });
+    await prisma.jobFile.deleteMany({
+      where: { uploadedById: id },
+    });
+    await prisma.leadFile.deleteMany({
+      where: { uploadedById: id },
+    });
+    await prisma.candidateFile.deleteMany({
+      where: { uploadedById: id },
+    });
+    await prisma.interviewFile.deleteMany({
+      where: { uploadedById: id },
+    });
+    await prisma.taskFile.deleteMany({
+      where: { uploadedById: id },
+    });
+
+    // Scheduled meetings (required scheduledById)
+    await prisma.scheduledMeeting.updateMany({
+      where: { cancelledBy: id },
+      data: { cancelledBy: null },
+    });
+    await prisma.scheduledMeeting.deleteMany({
+      where: { scheduledById: id },
+    });
+
+    // Inbox / messaging (senderId & participant userId are required)
+    await prisma.message.deleteMany({
+      where: { senderId: id },
+    });
+    await prisma.threadParticipant.deleteMany({
+      where: { userId: id },
+    });
+
+    await prisma.assistantPageHistory.deleteMany({
+      where: { userId: id },
+    });
+    await prisma.undo.deleteMany({
+      where: { userId: id },
+    });
+
     // Delete or update Interview-related records
     // Delete interview panels with this user
     await prisma.interviewPanel.deleteMany({
@@ -867,6 +912,19 @@ export async function deleteTeamMember(req, res) {
     await prisma.match.updateMany({
       where: { createdById: id },
       data: { createdById: null },
+    });
+
+    // CRM activity feed — performedById is required on Activity (blocks user delete if not removed)
+    await prisma.activity.deleteMany({
+      where: { performedById: id },
+    });
+
+    await prisma.contactActivity.deleteMany({
+      where: { userId: id },
+    });
+
+    await prisma.report.deleteMany({
+      where: { generatedById: id },
     });
 
     // Finally, delete the user
@@ -1195,6 +1253,7 @@ export async function resendMemberInvite(req, res) {
       tempPassword,
       roleName: member.systemRole?.roleName || 'Team Member',
       inviteToken,
+      tenantDbName: getActiveTenantDbName() || undefined,
     });
 
     return res.status(200).json({

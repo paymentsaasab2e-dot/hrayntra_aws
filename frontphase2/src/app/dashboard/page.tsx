@@ -562,7 +562,7 @@ export default function DashboardPage() {
             key={i}
             href={kpi.href}
             aria-label={`${kpi.title}: ${kpi.count}. Go to related page.`}
-            className="group block rounded-2xl border border-slate-200 bg-white p-5 shadow-sm outline-none ring-offset-2 transition-all hover:border-blue-200 hover:shadow-md focus-visible:ring-2 focus-visible:ring-blue-500"
+            className="ph2-card group block p-5 outline-none ring-offset-2 focus-visible:ring-2 focus-visible:ring-blue-500"
           >
             <div className="mb-4 flex items-start justify-between">
               <div className={`rounded-xl p-2.5 ${kpi.bg} ${kpi.color} transition-transform group-hover:scale-110`}>
@@ -596,7 +596,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Pipeline */}
-      <div className="block overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm outline-none ring-offset-2 transition-all hover:border-blue-200 hover:shadow-md focus-visible:ring-2 focus-visible:ring-blue-500">
+      <div className="ph2-card block overflow-hidden outline-none ring-offset-2 focus-visible:ring-2 focus-visible:ring-blue-500">
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <h3 className="text-xs font-bold uppercase tracking-widest text-slate-500">Candidate pipeline (stages)</h3>
           <Link href="/candidate" className="text-[10px] font-bold text-slate-400 hover:text-blue-600">
@@ -630,7 +630,7 @@ export default function DashboardPage() {
         <Link
           href="/job"
           aria-label="Open jobs list"
-          className="block rounded-2xl border border-slate-200 bg-white p-6 shadow-sm outline-none ring-offset-2 transition-all hover:border-blue-200 hover:shadow-md focus-visible:ring-2 focus-visible:ring-blue-500 lg:col-span-7"
+          className="ph2-card block p-6 outline-none ring-offset-2 focus-visible:ring-2 focus-visible:ring-blue-500 lg:col-span-7"
         >
           <h3 className="mb-6 text-xs font-bold uppercase tracking-widest text-slate-500">Open jobs by client</h3>
           <div className="h-[300px] w-full">
@@ -656,7 +656,7 @@ export default function DashboardPage() {
         <Link
           href="/job"
           aria-label="Open jobs — job status"
-          className="block rounded-2xl border border-slate-200 bg-white p-6 shadow-sm outline-none ring-offset-2 transition-all hover:border-blue-200 hover:shadow-md focus-visible:ring-2 focus-visible:ring-blue-500 lg:col-span-5"
+          className="ph2-card block p-6 outline-none ring-offset-2 focus-visible:ring-2 focus-visible:ring-blue-500 lg:col-span-5"
         >
           <div className="mb-6 flex items-start justify-between">
             <h3 className="text-xs font-bold uppercase tracking-widest text-slate-500">Job status</h3>
@@ -708,7 +708,7 @@ export default function DashboardPage() {
         <Link
           href="/Task&Activites"
           aria-label="Open tasks and activities"
-          className="block overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm outline-none ring-offset-2 transition-all hover:border-blue-200 hover:shadow-md focus-visible:ring-2 focus-visible:ring-blue-500"
+          className="ph2-card block overflow-hidden outline-none ring-offset-2 focus-visible:ring-2 focus-visible:ring-blue-500"
         >
           <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
             <h3 className="text-xs font-bold uppercase tracking-widest text-slate-500">My pending tasks</h3>
@@ -753,7 +753,7 @@ export default function DashboardPage() {
         <Link
           href="/team"
           aria-label="Open team page"
-          className="block overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm outline-none ring-offset-2 transition-all hover:border-blue-200 hover:shadow-md focus-visible:ring-2 focus-visible:ring-blue-500"
+          className="ph2-card block overflow-hidden outline-none ring-offset-2 focus-visible:ring-2 focus-visible:ring-blue-500"
         >
           <div className="border-b border-slate-100 px-6 py-4">
             <h3 className="text-xs font-bold uppercase tracking-widest text-slate-500">Team · placements (sample)</h3>
@@ -804,7 +804,7 @@ export default function DashboardPage() {
       <Link
         href="/interviews"
         aria-label="Open interviews page"
-        className="block overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm outline-none ring-offset-2 transition-all hover:border-blue-200 hover:shadow-md focus-visible:ring-2 focus-visible:ring-blue-500"
+        className="ph2-card block overflow-hidden outline-none ring-offset-2 focus-visible:ring-2 focus-visible:ring-blue-500"
       >
         <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/30 px-6 py-4">
           <h3 className="text-xs font-bold uppercase tracking-widest text-slate-500">Today&apos;s interviews</h3>
@@ -901,7 +901,7 @@ export default function DashboardPage() {
         <Link
           href="/reports"
           aria-label="Open reports"
-          className="block rounded-2xl border border-slate-200 bg-white p-6 shadow-sm outline-none ring-offset-2 transition-all hover:border-blue-200 hover:shadow-md focus-visible:ring-2 focus-visible:ring-blue-500"
+          className="ph2-card block p-6 outline-none ring-offset-2 focus-visible:ring-2 focus-visible:ring-blue-500"
         >
           <h3 className="mb-6 text-xs font-bold uppercase tracking-widest text-slate-500">Recent activity</h3>
           <div className="relative space-y-6 before:absolute before:bottom-2 before:left-[9px] before:top-2 before:w-px before:bg-slate-100">
@@ -937,7 +937,7 @@ export default function DashboardPage() {
         <Link
           href="/billing"
           aria-label="Open billing"
-          className="block rounded-2xl border border-slate-200 bg-white p-6 shadow-sm outline-none ring-offset-2 transition-all hover:border-blue-200 hover:shadow-md focus-visible:ring-2 focus-visible:ring-blue-500"
+          className="ph2-card block p-6 outline-none ring-offset-2 focus-visible:ring-2 focus-visible:ring-blue-500"
         >
           <h3 className="mb-6 text-xs font-bold uppercase tracking-widest text-slate-500">Revenue snapshot</h3>
           <div className="space-y-6">

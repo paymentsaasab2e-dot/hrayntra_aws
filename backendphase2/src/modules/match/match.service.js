@@ -1,5 +1,6 @@
 import { prisma } from '../../config/prisma.js';
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
+import { canViewAllAssignments, hasAnyPermission } from '../../utils/permissionScope.js';
 import { candidateService } from '../candidate/candidate.service.js';
 import { sendMatchSubmissionEmail } from '../../emails/email.service.js';
 import { env } from '../../config/env.js';
@@ -17,6 +18,21 @@ function getActivityMetadata(activity) {
 
 function buildInitials(firstName = '', lastName = '') {
   return `${String(firstName || '').trim()[0] || ''}${String(lastName || '').trim()[0] || ''}`.toUpperCase() || 'NA';
+}
+
+/** Matches visible when tied to the user's jobs/candidates or created by them (unless tenant-wide access). */
+function buildMatchListScope(req) {
+  if (!req?.user?.id) return null;
+  if (canViewAllAssignments(req)) return null;
+  if (hasAnyPermission(req, ['view_all_candidates'])) return null;
+  const uid = req.user.id;
+  return {
+    OR: [
+      { createdById: uid },
+      { job: { is: { OR: [{ createdById: uid }, { assignedToId: uid }] } } },
+      { candidate: { is: { OR: [{ createdById: uid }, { assignedToId: uid }] } } },
+    ],
+  };
 }
 
 function parseSalary(salary) {
@@ -246,9 +262,15 @@ export const matchService = {
       };
     }
 
+    const visibilityScope = buildMatchListScope(req);
+    const mergedWhere =
+      visibilityScope && Object.keys(where).length > 0
+        ? { AND: [where, visibilityScope] }
+        : visibilityScope || where;
+
     const [matches, total] = await Promise.all([
       prisma.match.findMany({
-        where,
+        where: mergedWhere,
         skip,
         take: limit,
         include: {
@@ -294,7 +316,7 @@ export const matchService = {
         },
         orderBy: { score: 'desc' },
       }),
-      prisma.match.count({ where }),
+      prisma.match.count({ where: mergedWhere }),
     ]);
 
     const activities = await getCandidateActivities([...new Set(matches.map((match) => match.candidate.id))]);
@@ -310,9 +332,11 @@ export const matchService = {
     return formatPaginationResponse(enrichedMatches, page, limit, total);
   },
 
-  async getById(id) {
-    const match = await prisma.match.findUnique({
-      where: { id },
+  async getById(id, req = null) {
+    const visibilityScope = buildMatchListScope(req);
+    const whereClause = visibilityScope ? { AND: [{ id }, visibilityScope] } : { id };
+    const match = await prisma.match.findFirst({
+      where: whereClause,
       include: {
         candidate: {
           select: {

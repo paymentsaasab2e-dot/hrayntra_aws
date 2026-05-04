@@ -22,13 +22,41 @@ import {
 
 const router = express.Router();
 
+/** Lets CRM users (Sales, HR, etc.) load the tenant member list for Assigned-to pickers — not only Team admins. */
+const PERMISSIONS_TEAM_DIRECTORY_READ = [
+  'add_team_member',
+  'edit_team_member',
+  'assign_roles',
+  'clients_read',
+  'clients_update',
+  'leads_read',
+  'leads_update',
+  'jobs_read',
+  'jobs_update',
+  'assign_job',
+  'view_jobs',
+  'create_job',
+  'edit_job',
+  'candidates_read',
+  'candidates_update',
+  'view_assigned_candidates',
+  'view_all_candidates',
+  'interviews_read',
+  'interviews_update',
+  'placements_read',
+  'placements_update',
+];
+
 // Apply auth middleware to all routes
 router.use(authMiddleware);
 
-// Team member routes
-router.get('/', requireAnyPermission(['add_team_member', 'edit_team_member', 'assign_roles']), getAllTeamMembers);
+// Tenant member list for assignment pickers — any authenticated user (no extra RBAC).
+router.get('/assignable', getAllTeamMembers);
+
+// Team member routes (admin / CRM screens that read full directory with explicit permissions)
+router.get('/', requireAnyPermission(PERMISSIONS_TEAM_DIRECTORY_READ), getAllTeamMembers);
 router.post('/', requirePermission('add_team_member'), createTeamMember);
-router.get('/:id', requireAnyPermission(['add_team_member', 'edit_team_member', 'assign_roles']), getTeamMemberById);
+router.get('/:id', requireAnyPermission(PERMISSIONS_TEAM_DIRECTORY_READ), getTeamMemberById);
 router.patch('/:id', requirePermission('edit_team_member'), updateTeamMember);
 router.delete('/:id', requirePermission('edit_team_member'), deleteTeamMember);
 router.post('/:id/deactivate', requirePermission('edit_team_member'), deactivateTeamMember);

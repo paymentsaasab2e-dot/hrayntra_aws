@@ -4,7 +4,7 @@ import { dbLogger } from '../../utils/db-logger.js';
 import { sendLeadFollowUpEmail } from '../../emails/email.service.js';
 import activityService from '../../services/activityService.js';
 import { sendLeadAssignmentEmail } from '../../services/emailService.js';
-import { canViewAllAssignments } from '../../utils/permissionScope.js';
+import { canViewAllLeads } from '../../utils/permissionScope.js';
 
 function isValidObjectId(value) {
   return typeof value === 'string' && /^[a-fA-F0-9]{24}$/.test(value.trim());
@@ -21,6 +21,18 @@ function normalizeOtherDetails(value) {
     .filter((item) => item.label && item.value);
 
   return normalized.length ? normalized : null;
+}
+
+function buildLeadAccessWhere(id, req) {
+  if (canViewAllLeads(req) || !req?.user?.id) {
+    return { id };
+  }
+  return {
+    AND: [
+      { id },
+      { OR: [{ assignedToId: req.user.id }, { createdBy: req.user.id }] },
+    ],
+  };
 }
 
 async function resolveAssignedToId(value) {
@@ -58,24 +70,37 @@ export const leadService = {
     const skip = (page - 1) * limit;
     const { status, source, assignedToId, search, type, priority } = req.query;
 
-    const where = {};
-    if (status) where.status = status;
-    if (source) where.source = source;
-    if (type) where.type = type;
-    if (priority) where.priority = priority;
-    if (assignedToId) where.assignedToId = assignedToId;
+    const baseFilters = {};
+    if (status) baseFilters.status = status;
+    if (source) baseFilters.source = source;
+    if (type) baseFilters.type = type;
+    if (priority) baseFilters.priority = priority;
+    if (assignedToId) baseFilters.assignedToId = assignedToId;
+
+    const andParts = [{ ...baseFilters }];
     if (search) {
-      where.OR = [
-        { companyName: { contains: search, mode: 'insensitive' } },
-        { contactPerson: { contains: search, mode: 'insensitive' } },
-        { email: { contains: search, mode: 'insensitive' } },
-        { phone: { contains: search, mode: 'insensitive' } },
-      ];
+      andParts.push({
+        OR: [
+          { companyName: { contains: search, mode: 'insensitive' } },
+          { contactPerson: { contains: search, mode: 'insensitive' } },
+          { email: { contains: search, mode: 'insensitive' } },
+          { phone: { contains: search, mode: 'insensitive' } },
+        ],
+      });
+    }
+    if (!canViewAllLeads(req) && req.user?.id) {
+      andParts.push({
+        OR: [{ assignedToId: req.user.id }, { createdBy: req.user.id }],
+      });
     }
 
-    if (!canViewAllAssignments(req) && req.user?.id) {
-      where.assignedToId = req.user.id;
-    }
+    const filteredParts = andParts.filter((part) => part && Object.keys(part).length > 0);
+    const where =
+      filteredParts.length === 0
+        ? {}
+        : filteredParts.length === 1
+          ? filteredParts[0]
+          : { AND: filteredParts };
 
     const [leads, total] = await Promise.all([
       prisma.lead.findMany({
@@ -99,10 +124,7 @@ export const leadService = {
   },
 
   async getById(id, req = null) {
-    const where = { id };
-    if (!canViewAllAssignments(req) && req?.user?.id) {
-      where.assignedToId = req.user.id;
-    }
+    const where = buildLeadAccessWhere(id, req);
 
     return prisma.lead.findFirst({
       where,
@@ -188,6 +210,7 @@ export const leadService = {
       assignedToId:
         resolvedAssignedToId ||
         (data.performedByRole === 'SUPER_ADMIN' && data.performedById ? data.performedById : null),
+      createdBy: data.performedById ? String(data.performedById) : null,
     };
 
     // Log the received data in JSON format
@@ -232,9 +255,7 @@ export const leadService = {
   async update(id, data, req = null) {
     // Get the current lead to track changes
     const currentLead = await prisma.lead.findFirst({
-      where: !canViewAllAssignments(req) && req?.user?.id
-        ? { id, assignedToId: req.user.id }
-        : { id },
+      where: buildLeadAccessWhere(id, req),
       include: {
         assignedTo: {
           select: { id: true, name: true, email: true },
@@ -496,13 +517,22 @@ export const leadService = {
       nextFollowUp: lead.nextFollowUp,
     }, null, 2));
 
+    // Owner for RBAC client lists: lead assignee, else explicit payload, else the user who converts
+    // (unassigned leads would otherwise create clients with no assignee — Sales would not see them.)
+    const resolvedAssignedToId =
+      clientData.assignedToId ||
+      lead.assignedToId ||
+      clientData.performedById ||
+      null;
+
     // Map all lead fields to client
     const clientCreateData = {
       companyName: clientData.companyName || lead.companyName,
       industry: clientData.industry || lead.industry,
       website: clientData.website || lead.website,
       status: 'PROSPECT',
-      assignedToId: lead.assignedToId,
+      assignedToId: resolvedAssignedToId,
+      createdById: clientData.performedById || null,
       location: clientData.location || lead.location || lead.city || lead.country || null,
       address: clientData.address || lead.location || (lead.city && lead.country ? `${lead.city}, ${lead.country}` : lead.city || lead.country || null),
       companySize: clientData.companySize || lead.teamName || lead.companySize || null,
@@ -571,7 +601,7 @@ export const leadService = {
             linkedinUrl: lead.linkedIn || null,
             contactType: 'CLIENT',
             status: 'ACTIVE',
-            ownerId: lead.assignedToId || null,
+            ownerId: resolvedAssignedToId || null,
           },
         });
       } catch (error) {
@@ -605,9 +635,7 @@ export const leadService = {
 
   async delete(id, performedById, req = null) {
     const lead = await prisma.lead.findFirst({
-      where: !canViewAllAssignments(req) && req?.user?.id
-        ? { id, assignedToId: req.user.id }
-        : { id },
+      where: buildLeadAccessWhere(id, req),
     });
     if (!lead) {
       throw new Error('Lead not found');

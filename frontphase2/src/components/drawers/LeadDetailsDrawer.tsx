@@ -46,7 +46,7 @@ import { ImageWithFallback } from '../ImageWithFallback';
 import { ScheduleMeetingForm } from '../ScheduleMeetingForm';
 import { NotesService } from '../NotesService';
 import { apiCreateLead, apiUpdateLead, apiGetLead, apiGetLeadActivities, apiGenerateLeadDetails, type CreateLeadData, type BackendActivity, type BackendLead } from '../../lib/api';
-import { getTeamMembers } from '../../lib/api/teamApi';
+import { getAllTeamMembersForAssign } from '../../lib/api/teamApi';
 import { useFiles } from '../../hooks/useFiles';
 import type { TeamMember } from '../../types/team';
 
@@ -397,36 +397,16 @@ export function LeadDetailsDrawer({
       
       setLoadingRecruiters(true);
       try {
-        const response = await getTeamMembers({ 
-          status: 'ACTIVE',
-        });
-        
-        // Debug: Log the response to see the structure
-        console.log('Recruiters API Response:', response.data);
-        
-        // Filter to only show users with Recruiter or Senior Recruiter roles
-        const recruiterRoles = ['Recruiter', 'Senior Recruiter'];
-        const recruiterMembers = (response.data || []).map((member: any) => {
-          // Normalize: ensure 'role' field exists (backend returns 'systemRole')
-          if (member.systemRole && !member.role) {
-            member.role = member.systemRole;
-          }
-          return member;
-        }).filter((member: any) => {
-          const role = member.role || member.systemRole;
-          if (!role) {
-            console.warn('Member has no role:', member.firstName, member.lastName);
-            return false;
-          }
-          const isRecruiter = recruiterRoles.includes(role.roleName);
-          if (isRecruiter) {
-            console.log('Found recruiter:', member.firstName, member.lastName, 'Role:', role.roleName);
-          }
-          return isRecruiter;
-        });
-        
-        console.log('Filtered Recruiters:', recruiterMembers);
-        setRecruiters(recruiterMembers);
+        const members = await getAllTeamMembersForAssign();
+        setRecruiters(
+          members.map((member) => {
+            const m = member as TeamMember & { systemRole?: TeamMember['role'] };
+            if (!m.role && m.systemRole) {
+              return { ...member, role: m.systemRole };
+            }
+            return member;
+          })
+        );
       } catch (error: any) {
         console.error('Failed to fetch recruiters:', error);
         setRecruiters([]);
