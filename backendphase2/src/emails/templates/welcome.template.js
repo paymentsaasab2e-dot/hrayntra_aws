@@ -1,4 +1,7 @@
+import { env } from '../../config/env.js';
+
 export const welcomeTemplate = (name, email) => {
+  const loginHref = `${env.FRONTEND_URL}/login`;
   return `
     <!DOCTYPE html>
     <html>
@@ -17,7 +20,7 @@ export const welcomeTemplate = (name, email) => {
         <p><strong>Email:</strong> ${email}</p>
         <p>You can now log in and start managing your recruitment pipeline.</p>
         <div style="margin: 30px 0;">
-          <a href="${process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:3000'}/login" style="background: #667eea; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Login Now</a>
+          <a href="${loginHref}" style="background: #667eea; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Login Now</a>
         </div>
         <p style="color: #6b7280; font-size: 14px; margin-top: 30px;">If you have any questions, feel free to contact our support team.</p>
       </div>

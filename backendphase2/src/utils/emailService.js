@@ -1,20 +1,28 @@
 import { Resend } from 'resend';
+import { env } from '../config/env.js';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
-const FRONTEND_URL = process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:3001';
 
 /**
  * Send credential invite email to a new team member
  */
+function tenantQuerySuffix(tenantDbName) {
+  const t = tenantDbName && String(tenantDbName).trim();
+  return t ? `&tenantDbName=${encodeURIComponent(t)}` : '';
+}
+
 export async function sendCredentialInvite({
   email,
   loginId,
   tempPassword,
   roleName,
   inviteToken,
+  tenantDbName,
 }) {
-  const loginLink = `${FRONTEND_URL}/login?token=${inviteToken}`;
-  const resetPasswordLink = `${FRONTEND_URL}/reset-password`;
+  const base = env.FRONTEND_URL;
+  const tenantQ = tenantQuerySuffix(tenantDbName);
+  const loginLink = `${base}/login?token=${inviteToken}${tenantQ}`;
+  const resetPasswordLink = `${base}/reset-password${tenantQ ? `?${tenantQ.slice(1)}` : ''}`;
 
   const html = `
 <!DOCTYPE html>
@@ -103,8 +111,10 @@ export async function sendPasswordResetEmail({
   email,
   tempPassword,
   inviteToken,
+  tenantDbName,
 }) {
-  const loginLink = `${FRONTEND_URL}/login?token=${inviteToken}`;
+  const tenantQ = tenantQuerySuffix(tenantDbName);
+  const loginLink = `${env.FRONTEND_URL}/login?token=${inviteToken}${tenantQ}`;
 
   const html = `
 <!DOCTYPE html>

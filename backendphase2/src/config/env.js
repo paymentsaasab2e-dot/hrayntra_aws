@@ -8,6 +8,31 @@ const projectRoot = path.resolve(__dirname, '../..');
 
 dotenv.config({ path: path.join(projectRoot, '.env') });
 
+/**
+ * Base URL for the employers SPA (emails, invite links). Reads several env aliases used in deployment.
+ * Production must set one of: FRONTEND_URL, CLIENT_URL, NEXT_PUBLIC_APP_URL, APP_PUBLIC_URL, EMPLOYERS_APP_URL.
+ */
+export function resolvePublicFrontendUrl() {
+  const keys = [
+    'FRONTEND_URL',
+    'CLIENT_URL',
+    'NEXT_PUBLIC_APP_URL',
+    'APP_PUBLIC_URL',
+    'PUBLIC_APP_URL',
+    'EMPLOYERS_APP_URL',
+    'PHASE2_FRONTEND_URL',
+  ];
+  for (const key of keys) {
+    const v = process.env[key];
+    if (v != null && String(v).trim()) {
+      return String(v).trim().replace(/\/+$/, '');
+    }
+  }
+  return 'http://localhost:3001';
+}
+
+const publicFrontendUrl = resolvePublicFrontendUrl();
+
 export const env = {
   NODE_ENV: process.env.NODE_ENV || 'development',
   PORT: parseInt(process.env.PORT || '5001', 10),
@@ -37,9 +62,9 @@ export const env = {
   RESEND_TEMPLATE_AUTH_OTP: process.env.RESEND_TEMPLATE_AUTH_OTP,
   EMAIL_FROM: process.env.RESEND_FROM_EMAIL || process.env.EMAIL_FROM || 'onboarding@resend.dev',
   
-  // Frontend
-  FRONTEND_URL: process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:3001',
-  CLIENT_URL: process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:3001',
+  // Frontend (invite emails, OAuth UI redirects — must match deployed employers app URL in production)
+  FRONTEND_URL: publicFrontendUrl,
+  CLIENT_URL: publicFrontendUrl,
   BACKEND_PUBLIC_URL:
     process.env.BACKEND_PUBLIC_URL ||
     `http://localhost:${parseInt(process.env.PORT || '5001', 10)}`,
