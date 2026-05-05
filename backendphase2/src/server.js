@@ -31,6 +31,15 @@ function startServer() {
     console.log(`Server running on port ${PORT}`);
     console.log(`Environment: ${env.NODE_ENV}`);
     console.log(`Health check: http://localhost:${PORT}/health`);
+    console.log(`Invite/email login links use FRONTEND_URL: ${env.FRONTEND_URL}`);
+    if (
+      env.NODE_ENV === 'production' &&
+      /localhost|127\.0\.0\.1/i.test(env.FRONTEND_URL)
+    ) {
+      console.error(
+        '[config] FRONTEND_URL still points to localhost in production. Team invite emails will contain broken links. Set FRONTEND_URL=https://employers.hryantra.com (or APP_PUBLIC_URL) on this API server.'
+      );
+    }
   });
 
   server.on('error', (error) => {

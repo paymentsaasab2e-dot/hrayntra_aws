@@ -1,4 +1,4 @@
-﻿import { prisma } from '../../config/prisma.js';
+﻿import { prisma, getActiveTenantDbName } from '../../config/prisma.js';
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
 import {
   generateLoginId,
@@ -348,6 +348,7 @@ export const teamMemberService = {
             tempPassword,
             roleName: role?.roleName || 'Team Member',
             inviteToken,
+            tenantDbName: getActiveTenantDbName() || undefined,
           });
         } catch (emailError) {
           console.error('Failed to send invite email:', emailError);
@@ -575,6 +576,7 @@ export const teamMemberService = {
           tempPassword,
           roleName: user.systemRole?.roleName || 'Team Member',
           inviteToken,
+          tenantDbName: getActiveTenantDbName() || undefined,
         });
       } catch (emailError) {
         console.error('Failed to send invite email:', emailError);
@@ -640,6 +642,7 @@ export const teamMemberService = {
         email: user.email,
         tempPassword,
         inviteToken,
+        tenantDbName: getActiveTenantDbName() || undefined,
       });
     } catch (emailError) {
       console.error('Failed to send password reset email:', emailError);
@@ -703,6 +706,7 @@ export const teamMemberService = {
         tempPassword,
         roleName: user.systemRole?.roleName || 'Team Member',
         inviteToken,
+        tenantDbName: getActiveTenantDbName() || undefined,
       });
     } catch (emailError) {
       console.error('Failed to send invite email:', emailError);

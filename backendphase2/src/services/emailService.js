@@ -1,12 +1,21 @@
 import { Resend } from 'resend';
 import { prisma } from '../config/prisma.js';
+import { env } from '../config/env.js';
 import { oauthTokenService } from '../modules/oauth/oauth-token.service.js';
 import { interviewScheduledTemplate } from '../utils/emailTemplates.js';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 // Use the Resend configured from address; fallback to a generic placeholder.
 const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || process.env.FROM_EMAIL || 'noreply@saasa.com';
-const FRONTEND_URL = process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:3001';
+
+function warnIfInviteLinksPointToLocalhostInProduction() {
+  if (env.NODE_ENV !== 'production') return;
+  const base = env.FRONTEND_URL || '';
+  if (!/localhost|127\.0\.0\.1/i.test(base)) return;
+  console.error(
+    '[email] Invite/login links use localhost. Set FRONTEND_URL=https://employers.hryantra.com (or APP_PUBLIC_URL / NEXT_PUBLIC_APP_URL) on the Phase 2 API server.'
+  );
+}
 
 function logEmailSent({ provider, fromEmail, toEmail, subject, html }) {
   console.log('\n=== EMAIL SENT ===');
@@ -127,13 +136,15 @@ async function sendEmail({ senderUserId, toEmail, subject, html }) {
  */
 export async function sendInviteEmail(payload) {
   try {
+    warnIfInviteLinksPointToLocalhostInProduction();
     const { toEmail, toName, loginId, tempPassword, roleName, inviteToken, senderUserId, tenantDbName } = payload;
     const tenantQ =
       tenantDbName && String(tenantDbName).trim()
         ? `&tenantDbName=${encodeURIComponent(String(tenantDbName).trim())}`
         : '';
-    const loginLink = `${FRONTEND_URL}/login?token=${inviteToken}${tenantQ}`;
-    const resetPasswordLink = `${FRONTEND_URL}/reset-password`;
+    const base = env.FRONTEND_URL;
+    const loginLink = `${base}/login?token=${inviteToken}${tenantQ}`;
+    const resetPasswordLink = `${base}/reset-password`;
 
     const html = `
 <!DOCTYPE html>

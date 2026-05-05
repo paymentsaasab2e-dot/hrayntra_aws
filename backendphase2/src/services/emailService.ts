@@ -1,8 +1,8 @@
 import { Resend } from 'resend';
+import { env } from '../config/env.js';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@saasa.com';
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 
 interface InviteEmailPayload {
   toEmail: string;
@@ -35,7 +35,7 @@ export async function sendInviteEmail(
       tenantDbName && String(tenantDbName).trim()
         ? `&tenantDbName=${encodeURIComponent(String(tenantDbName).trim())}`
         : '';
-    const loginLink = `${FRONTEND_URL}/login?token=${inviteToken}${tenantQ}`;
+    const loginLink = `${env.FRONTEND_URL}/login?token=${inviteToken}${tenantQ}`;
 
     const html = `
 <!DOCTYPE html>
