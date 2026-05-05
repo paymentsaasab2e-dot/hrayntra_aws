@@ -1,5 +1,25 @@
 const { prisma } = require('../lib/prisma');
 
+/** MongoDB (replica set) can surface Prisma P2034 on conflicting writes — retry with backoff per Prisma docs. */
+async function withMongoWriteConflictRetry(fn, maxAttempts = 6) {
+  let lastErr;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      if (e.code === 'ALREADY_APPLIED') throw e;
+      if (e.code === 'P2034' && attempt < maxAttempts - 1) {
+        const backoff = 25 * 2 ** attempt + Math.floor(Math.random() * 60);
+        await new Promise((r) => setTimeout(r, backoff));
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr;
+}
+
 function splitFullName(fullName) {
   const value = String(fullName || '').trim();
   if (!value) return { firstName: null, lastName: null };
@@ -87,6 +107,39 @@ function resolveApplicationDisplayStatus({ appStatus, matchStatus, candidateStag
 /**
  * Parse portal timeline description for interview rows (Phase 2 syncApplicationState stores lines here).
  */
+/** Map Phase 2 / Prisma InterviewType-like tokens to candidate-friendly labels */
+const INTERVIEW_TYPE_DISPLAY = new Map([
+  ['PHONE', 'Phone screening'],
+  ['VIDEO', 'Video interview'],
+  ['IN_PERSON', 'In-person interview'],
+  ['TECHNICAL_TEST', 'Technical test'],
+  ['ASSESSMENT', 'Assessment'],
+  ['GROUP_DISCUSSION', 'Group discussion'],
+  ['ONSITE', 'On-site interview'],
+  ['TECHNICAL', 'Technical round'],
+  ['FINAL', 'Final interview'],
+  ['SCREENING', 'HR screening'],
+  ['HR_SCREENING', 'HR screening'],
+]);
+
+function humanizeInterviewTypeLabel(raw) {
+  const s = String(raw || '')
+    .trim()
+    .replace(/\s+/g, ' ');
+  if (!s) return null;
+  const upper = s.replace(/[\s_-]+/g, '_').toUpperCase();
+  if (INTERVIEW_TYPE_DISPLAY.has(upper)) return INTERVIEW_TYPE_DISPLAY.get(upper);
+  const compact = upper.replace(/_/g, '');
+  for (const [k, v] of INTERVIEW_TYPE_DISPLAY) {
+    if (k.replace(/_/g, '') === compact) return v;
+  }
+  const looksLikeEnum = /^[A-Z][A-Z0-9_]*$/i.test(s.replace(/\s+/g, '')) && /^[A-Z0-9 _-]+$/i.test(s);
+  if (looksLikeEnum) {
+    return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+  return s;
+}
+
 function parseInterviewDetailsFromDescription(description, title) {
   const text = `${String(description || '')}\n${String(title || '')}`;
   const linkMatch = text.match(/https?:\/\/[^\s]+/i);
@@ -101,20 +154,48 @@ function parseInterviewDetailsFromDescription(description, title) {
     const d = new Date(raw);
     if (!Number.isNaN(d.getTime())) scheduledAt = d.toISOString();
   }
-  return { meetingLink, location, scheduledAt };
+
+  let typeFromLine = null;
+  const typeLine = text.split(/\r?\n/).find((l) => /^type\s*:/i.test(l.trim()));
+  if (typeLine) typeFromLine = typeLine.replace(/^type\s*:/i, '').trim() || null;
+
+  let recruiterRound = null;
+  const desc = String(description || '');
+  const recruiterMatch = desc.match(/Recruiter scheduled\s+([^.]+\.?)/i);
+  if (recruiterMatch) recruiterRound = recruiterMatch[1].replace(/\.$/, '').trim();
+
+  return {
+    meetingLink,
+    location,
+    scheduledAt,
+    interviewType: typeFromLine,
+    recruiterRound,
+  };
 }
 
 function buildInterviewRoundsFromTimeline(rawTimeline) {
   const rows = (rawTimeline || [])
     .filter((item) => String(item?.status || '').toUpperCase() === 'INTERVIEW')
     .sort((a, b) => new Date(a.occurredAt) - new Date(b.occurredAt));
+  const total = rows.length;
   return rows.map((item, index) => {
     const parsed = parseInterviewDetailsFromDescription(item.description, item.title);
+    const fromType = humanizeInterviewTypeLabel(parsed.interviewType);
+    const fromRecruiter = humanizeInterviewTypeLabel(parsed.recruiterRound);
+    const titleRaw = String(item.title || '').trim();
+    const titleOK = titleRaw && !/^interview$/i.test(titleRaw);
+
+    let roundLabel = fromType || fromRecruiter || (titleOK ? humanizeInterviewTypeLabel(titleRaw) : null);
+
+    if (!roundLabel && total > 1) {
+      roundLabel = `Round ${index + 1} of ${total}`;
+    }
+
     return {
       timelineId: item.id,
       timelineTitle: item.title || 'Interview',
       scheduledAt: parsed.scheduledAt || (item.occurredAt ? new Date(item.occurredAt).toISOString() : null),
-      roundLabel: rows.length > 1 ? `Round ${index + 1} of ${rows.length}` : 'Interview',
+      roundLabel: roundLabel || null,
       format: null,
       meetingLink: parsed.meetingLink,
       location: parsed.location,
@@ -495,33 +576,67 @@ async function createApplication(req, res) {
       });
     }
 
-    // Create application
-    const application = await prisma.application.create({
-      data: {
-        candidateId,
-        jobId,
-        status: 'SUBMITTED',
-        screeningAnswers: screeningAnswers || {},
-      },
-      include: {
-        job: {
-          include: {
-            company: true,
-            client: true,
-          },
-        },
-      },
-    });
+    let application;
 
-    // Create timeline entry
-    await prisma.applicationTimeline.create({
-      data: {
-        applicationId: application.id,
-        status: 'SUBMITTED',
-        title: 'Application Submitted',
-        description: 'Your application has been successfully submitted',
-      },
-    });
+    try {
+      application = await withMongoWriteConflictRetry(() =>
+        prisma.$transaction(async (tx) => {
+          const raced = await tx.application.findUnique({
+            where: {
+              candidateId_jobId: { candidateId, jobId },
+            },
+          });
+
+          if (raced) {
+            const dup = new Error('Already applied');
+            dup.code = 'ALREADY_APPLIED';
+            throw dup;
+          }
+
+          const app = await tx.application.create({
+            data: {
+              candidateId,
+              jobId,
+              status: 'SUBMITTED',
+              screeningAnswers: screeningAnswers || {},
+            },
+            include: {
+              job: {
+                include: {
+                  company: true,
+                  client: true,
+                },
+              },
+            },
+          });
+
+          await tx.applicationTimeline.create({
+            data: {
+              applicationId: app.id,
+              status: 'SUBMITTED',
+              title: 'Application Submitted',
+              description: 'Your application has been successfully submitted',
+            },
+          });
+
+          return app;
+        })
+      );
+    } catch (e) {
+      if (e.code === 'ALREADY_APPLIED') {
+        return res.status(400).json({
+          success: false,
+          message: 'You have already applied to this job',
+        });
+      }
+      if (e.code === 'P2002') {
+        return res.status(400).json({
+          success: false,
+          message: 'You have already applied to this job',
+        });
+      }
+      throw e;
+    }
 
     console.log(`✅ Application created: ${application.id} for job ${jobId} by candidate ${candidateId}`);
 
