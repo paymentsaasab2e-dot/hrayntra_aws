@@ -191,3 +191,17 @@ export const calendarQuerySchema = z.object({
   month: z.coerce.number().int().min(1).max(12),
   year: z.coerce.number().int().min(2000).max(2100),
 });
+
+export const submitToClientSchema = z.object({
+  toEmail: z.string().email().optional(),
+  message: z.string().optional(),
+});
+
+export const reviewTokenParamSchema = z.object({
+  token: z.string().min(10),
+});
+
+export const publicClientTagSchema = z.object({
+  tag: z.string().min(1),
+  comments: z.string().optional(),
+});

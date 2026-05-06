@@ -5,6 +5,11 @@ import jwt from 'jsonwebtoken';
 
 export const authMiddleware = async (req, res, next) => {
   try {
+    // Public client-review links must be accessible without auth token.
+    if (req.path.startsWith('/public/review/') || req.originalUrl.includes('/interviews/public/review/')) {
+      return next();
+    }
+
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return sendError(res, 401, 'No token provided');

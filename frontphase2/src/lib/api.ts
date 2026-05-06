@@ -1789,6 +1789,20 @@ export const apiDeleteInterview = async (id: string) => {
   });
 };
 
+export const apiSubmitInterviewToClient = async (
+  id: string,
+  payload: { toEmail?: string; message?: string }
+) => {
+  return apiFetch<{ success: boolean; recipients: string[]; reviewUrl: string }>(
+    `/interviews/${id}/submit-client`,
+    {
+      method: 'POST',
+      body: payload,
+      auth: true,
+    }
+  );
+};
+
 export const apiMarkInterviewNoShow = async (id: string, payload: { reason: string; notes: string }) => {
   return apiFetch<BackendInterviewListItem>(`/interviews/${id}/no-show`, {
     method: 'POST',

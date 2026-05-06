@@ -20,11 +20,25 @@ import {
   noteParamSchema,
   panelParamSchema,
   regenerateMeetingLinkSchema,
+  reviewTokenParamSchema,
   rescheduleInterviewSchema,
+  submitToClientSchema,
   updateInterviewSchema,
+  publicClientTagSchema,
 } from '../../validators/interview.validator.js';
 
 const router = express.Router();
+
+router.get(
+  '/public/review/:token',
+  validateRequest({ params: reviewTokenParamSchema }),
+  interviewController.getPublicClientReview
+);
+router.post(
+  '/public/review/:token/tag',
+  validateRequest({ params: reviewTokenParamSchema, body: publicClientTagSchema }),
+  interviewController.submitPublicClientTag
+);
 
 router.use(authMiddleware);
 
@@ -60,6 +74,12 @@ router.post(
   requireAnyPermission(['interviews_update']),
   validateRequest({ params: idParamSchema, body: regenerateMeetingLinkSchema }),
   interviewController.regenerateMeetingLink
+);
+router.post(
+  '/:id/submit-client',
+  requireAnyPermission(['interviews_update']),
+  validateRequest({ params: idParamSchema, body: submitToClientSchema }),
+  interviewController.submitToClient
 );
 
 router.get('/:id/feedback', requireAnyPermission(['interviews_read']), validateRequest({ params: idParamSchema }), interviewFeedbackController.list);

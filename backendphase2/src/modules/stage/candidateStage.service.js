@@ -54,6 +54,38 @@ export function mapPipelineStageToCrmCandidateLabel(stage) {
   }
 }
 
+/** Human-ready title for portal ApplicationTimeline (avoid generic "Interview"). */
+function interviewTypeToPortalTimelineTitle(metadata) {
+  if (!metadata || typeof metadata !== 'object') return null;
+  const raw = String(metadata.interviewTitle || metadata.type || '').trim();
+  if (!raw) return null;
+  const upper = raw.replace(/[\s-]+/g, '_').toUpperCase();
+  const map = {
+    PHONE: 'Phone screening',
+    VIDEO: 'Video interview',
+    IN_PERSON: 'In-person interview',
+    TECHNICAL_TEST: 'Technical test',
+    ASSESSMENT: 'Assessment',
+    GROUP_DISCUSSION: 'Group discussion',
+    ONSITE: 'On-site interview',
+    TECHNICAL: 'Technical round',
+    FINAL: 'Final interview',
+    SCREENING: 'HR screening',
+    HR_SCREENING: 'HR screening',
+  };
+  if (map[upper]) return map[upper];
+  const collapsed = upper.replace(/_/g, '');
+  const key = Object.keys(map).find((k) => k.replace(/_/g, '') === collapsed);
+  if (key) return map[key];
+  if (/^[A-Z][A-Z0-9_]*$/.test(upper)) {
+    return upper
+      .split('_')
+      .map((w) => w.charAt(0) + w.slice(1).toLowerCase())
+      .join(' ');
+  }
+  return raw;
+}
+
 function buildTimelineCopy(portalStatus, options = {}) {
   if (options.timelineTitle) {
     return {
@@ -182,8 +214,12 @@ export async function updateCandidateStage({
   });
 
   if (jobId) {
+    const interviewTimelineTitle =
+      upper === PIPELINE_STAGES.INTERVIEW ? interviewTypeToPortalTimelineTitle(metadata) : null;
+
     const portalExtra = {
       stage,
+      ...(interviewTimelineTitle ? { timelineTitle: interviewTimelineTitle } : {}),
       timelineDescription:
         upper === PIPELINE_STAGES.INTERVIEW
           ? buildInterviewTimelineDescription(metadata)

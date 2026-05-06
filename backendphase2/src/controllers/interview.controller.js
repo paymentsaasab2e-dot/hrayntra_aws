@@ -100,4 +100,31 @@ export const interviewController = {
       sendError(res, 500, error.message, error);
     }
   },
+
+  async submitToClient(req, res) {
+    try {
+      const result = await interviewService.submitToClient(req.params.id, req.body, req.user);
+      sendResponse(res, 200, 'Interview candidate submitted to client successfully', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async getPublicClientReview(req, res) {
+    try {
+      const result = await interviewService.getPublicClientReview(req.params.token);
+      sendResponse(res, 200, 'Client review data retrieved successfully', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async submitPublicClientTag(req, res) {
+    try {
+      const result = await interviewService.submitPublicClientTag(req.params.token, req.body);
+      sendResponse(res, 200, 'Client tag submitted successfully', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
 };

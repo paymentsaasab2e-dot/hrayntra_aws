@@ -14,15 +14,59 @@ import { PanelAssignmentModal } from '../../components/interviews/PanelAssignmen
 import { RejectCandidateModal } from '../../components/interviews/RejectCandidateModal';
 import { RescheduleModal } from '../../components/interviews/RescheduleModal';
 import { ScheduleInterviewModal } from '../../components/interviews/ScheduleInterviewModal';
+import { SubmitToClientDrawer } from '../../components/interviews/SubmitToClientDrawer';
 import { UploadRecordingModal } from '../../components/interviews/UploadRecordingModal';
 import { useInterviewDrawer } from '../../hooks/useInterviewDrawer';
 import { useInterviews } from '../../hooks/useInterviews';
 import { useInterviewModals } from '../../hooks/useInterviewModals';
-import type { Interview } from '../../types/interview.types';
+import type { Interview, UpdateInterviewPayload } from '../../types/interview.types';
 import type { InterviewAction } from '../../components/interviews/ActionsDropdown';
 import { usePermissions } from '../../hooks/usePermissions';
 import { requestConfirm } from '../../lib/appDialog';
 import { apiRejectCandidate } from '../../lib/api';
+
+/** Full PATCH payload required by `updateInterview` so status-only updates preserve schedule fields. */
+function fullUpdatePayloadFromInterview(
+  interview: Interview,
+  overrides: Partial<Pick<UpdateInterviewPayload, 'status'>>
+): UpdateInterviewPayload {
+  const dateIso =
+    interview.scheduledAt ||
+    (() => {
+      const parsed = new Date(`${interview.date} ${interview.time}`);
+      return Number.isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
+    })();
+
+  const panelUserIds = interview.panel.map((m) => String(m.userId || m.id)).filter(Boolean);
+  const panelRoles = Object.fromEntries(
+    interview.panel.filter((m) => m.userId).map((m) => [String(m.userId), m.role])
+  ) as NonNullable<UpdateInterviewPayload['panelRoles']>;
+
+  return {
+    candidateId: interview.candidate.id,
+    jobId: interview.job.id,
+    clientId: interview.job.clientId,
+    round: interview.round,
+    type: interview.type,
+    mode: interview.mode,
+    date: dateIso,
+    duration: interview.duration,
+    timezone: interview.timezone,
+    meetingPlatform:
+      interview.mode === 'Online'
+        ? interview.meetingPlatform === 'Google Meet'
+          ? 'Google Meet'
+          : interview.meetingPlatform === 'MS Teams'
+          ? 'MS Teams'
+          : 'Zoom'
+        : null,
+    location: interview.mode === 'Offline' ? interview.location ?? null : null,
+    notes: interview.notes || null,
+    panelUserIds,
+    panelRoles,
+    ...overrides,
+  };
+}
 
 export default function InterviewsPage() {
   const { hasPermission } = usePermissions();
@@ -31,6 +75,7 @@ export default function InterviewsPage() {
   const canDeleteInterview = hasPermission('interviews_delete');
   const [view, setView] = useState<'list' | 'calendar'>('list');
   const [panelModalOpen, setPanelModalOpen] = useState(false);
+  const [submitToClientOpen, setSubmitToClientOpen] = useState(false);
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [rejectInterview, setRejectInterview] = useState<Interview | null>(null);
   const [editInterview, setEditInterview] = useState<Interview | null>(null);
@@ -222,6 +267,22 @@ export default function InterviewsPage() {
           openInterview(interview);
           modals.open('noShow');
         }}
+        onMarkInterviewCompleted={
+          canUpdateInterview
+            ? async (interview) => {
+                const confirmed = await requestConfirm('Mark this interview round as completed?');
+                if (!confirmed) return;
+                try {
+                  await updateInterview(
+                    interview.id,
+                    fullUpdatePayloadFromInterview(interview, { status: 'Completed' })
+                  );
+                } catch {
+                  // Toast handled in useInterviews
+                }
+              }
+            : undefined
+        }
         onRejectCandidate={(interview) => openRejectFlow(interview)}
         onPageChange={(page) => setPagination((current) => ({ ...current, page }))}
       />
@@ -312,6 +373,13 @@ export default function InterviewsPage() {
         onOpenUploadRecording={canUpdateInterview ? () => modals.open('uploadRecording') : undefined}
         onOpenPanelAssignment={canUpdateInterview ? () => setPanelModalOpen(true) : undefined}
         onOpenReject={canUpdateInterview && selectedInterview ? () => openRejectFlow(selectedInterview) : undefined}
+        onOpenSubmitToClient={
+          canUpdateInterview && selectedInterview
+            ? () => {
+                setSubmitToClientOpen(true);
+              }
+            : undefined
+        }
         onAction={selectedInterview ? (action) => handleAction(action, selectedInterview) : undefined}
         onAddNote={canUpdateInterview ? async (text) => {
           if (!selectedInterview) return;
@@ -319,6 +387,13 @@ export default function InterviewsPage() {
             await addNote(selectedInterview.id, text);
           } catch {}
         } : undefined}
+      />
+
+      <SubmitToClientDrawer
+        isOpen={canUpdateInterview && submitToClientOpen}
+        interview={selectedInterview}
+        onClose={() => setSubmitToClientOpen(false)}
+        onToast={setToast}
       />
 
       <RejectCandidateModal
