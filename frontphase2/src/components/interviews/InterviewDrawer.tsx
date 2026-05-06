@@ -6,6 +6,7 @@ import type { InterviewAction } from './ActionsDropdown';
 import { DrawerActivityLog } from './DrawerActivityLog';
 import { DrawerFeedbackTab } from './DrawerFeedbackTab';
 import { DrawerFilesTab } from './DrawerFilesTab';
+import { DrawerClientTab } from './DrawerClientTab';
 import { DrawerNotesTab } from './DrawerNotesTab';
 import { DrawerOverviewTab } from './DrawerOverviewTab';
 import { DrawerPanelTab } from './DrawerPanelTab';
@@ -22,6 +23,7 @@ interface InterviewDrawerProps {
   onOpenUploadRecording?: () => void;
   onOpenPanelAssignment?: () => void;
   onOpenReject?: () => void;
+  onOpenSubmitToClient?: () => void;
   onAddNote?: (text: string) => Promise<void>;
   onAction?: (action: InterviewAction) => void;
 }
@@ -30,6 +32,7 @@ const tabs: Array<{ id: DrawerTab; label: string }> = [
   { id: 'overview', label: 'Overview' },
   { id: 'panel', label: 'Panel' },
   { id: 'feedback', label: 'Feedback' },
+  { id: 'client', label: 'Client' },
   { id: 'notes', label: 'Notes' },
   { id: 'activity', label: 'Activity Log' },
   { id: 'files', label: 'Files' },
@@ -45,6 +48,7 @@ export function InterviewDrawer({
   onOpenUploadRecording,
   onOpenPanelAssignment,
   onOpenReject,
+  onOpenSubmitToClient,
   onAddNote,
   onAction,
 }: InterviewDrawerProps) {
@@ -134,6 +138,15 @@ export function InterviewDrawer({
                 >
                   Placed
                 </button>
+                {onOpenSubmitToClient && (
+                  <button
+                    type="button"
+                    onClick={onOpenSubmitToClient}
+                    className="inline-flex w-full items-center justify-center rounded-md bg-[#7C3AED] px-2 py-1.5 text-[11px] font-semibold text-white hover:bg-[#6D28D9]"
+                  >
+                    Submit to Client
+                  </button>
+                )}
                 {onOpenReschedule && (
                   <button type="button" onClick={onOpenReschedule} className="inline-flex w-full items-center justify-center rounded-md border border-[#E5E7EB] px-2 py-1.5 text-[11px] font-semibold text-[#111827]">
                     <span className="inline-flex items-center gap-1"><RotateCcw className="size-3" />Reschedule</span>
@@ -222,6 +235,9 @@ export function InterviewDrawer({
               ) : null}
               {activeTab === 'feedback' && onOpenFeedback ? (
                 <DrawerFeedbackTab feedbackEntries={interview.feedbackEntries} onOpenFeedback={onOpenFeedback} />
+              ) : null}
+              {activeTab === 'client' ? (
+                <DrawerClientTab notes={interview.notes} feedbackEntries={interview.feedbackEntries} />
               ) : null}
               {activeTab === 'notes' && onAddNote ? <DrawerNotesTab notes={interview.internalNotes} onAddNote={onAddNote} /> : null}
               {activeTab === 'activity' ? <DrawerActivityLog items={interview.activityLog} /> : null}

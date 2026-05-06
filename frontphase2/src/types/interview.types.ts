@@ -10,7 +10,7 @@ export type InterviewRound =
 export type InterviewType = 'Video' | 'Phone' | 'In-Person' | 'Technical Test' | 'Assessment' | 'Group Discussion';
 export type InterviewMode = 'Online' | 'Offline';
 export type Recommendation = 'Pass' | 'Reject' | 'Hold';
-export type DrawerTab = 'overview' | 'panel' | 'feedback' | 'notes' | 'activity' | 'files';
+export type DrawerTab = 'overview' | 'panel' | 'feedback' | 'client' | 'notes' | 'activity' | 'files';
 
 export interface InterviewCandidate {
   id: string;

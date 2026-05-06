@@ -1,5 +1,8 @@
-import { prisma } from '../config/prisma.js';
+import { prisma, getActiveTenantDbName, getDefaultPrismaClient, runWithTenantContext } from '../config/prisma.js';
 import { generateMeetingLink } from './meetingService.js';
+import jwt from 'jsonwebtoken';
+import { env } from '../config/env.js';
+import { sendMatchSubmissionEmail } from '../emails/email.service.js';
 import {
   sendInterviewCancelled,
   sendInterviewRescheduled,
@@ -27,6 +30,13 @@ const interviewInclude = {
       noticePeriod: true,
       linkedIn: true,
       avatar: true,
+      cvSummary: true,
+      education: true,
+      languages: true,
+      certifications: true,
+      address: true,
+      city: true,
+      country: true,
     },
   },
   job: {
@@ -236,6 +246,91 @@ const getPanelUsers = async (panelUserIds) =>
       phone: true,
     },
   });
+
+const getClientRecipients = async (clientId) => {
+  const contacts = await prisma.contact.findMany({
+    where: {
+      companyId: clientId,
+      contactType: 'CLIENT',
+      email: { not: null },
+    },
+    select: { email: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  return Array.from(new Set(contacts.map((c) => String(c.email || '').trim()).filter(Boolean)));
+};
+
+const mapInterviewCandidateForEmail = (candidate) => ({
+  name: `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() || 'Candidate',
+  email: candidate.email || '',
+  phone: candidate.phone || '',
+  currentTitle: candidate.designation || '',
+  currentCompany: candidate.currentCompany || '',
+  experience: candidate.experience ?? '',
+  location: candidate.location || '',
+  skills: Array.isArray(candidate.skills) ? candidate.skills : [],
+  noticePeriod: candidate.noticePeriod || '',
+  resumeName: candidate.resume || '',
+});
+
+const createClientReviewToken = (interview) =>
+  jwt.sign(
+    {
+      interviewId: interview.id,
+      candidateId: interview.candidateId,
+      clientId: interview.clientId,
+      tenantDbName: getActiveTenantDbName() || undefined,
+      type: 'INTERVIEW_CLIENT_REVIEW',
+    },
+    env.JWT_SECRET,
+    { expiresIn: '14d' }
+  );
+
+const verifyClientReviewToken = (token) => {
+  try {
+    const decoded = jwt.verify(token, env.JWT_SECRET);
+    if (!decoded || decoded.type !== 'INTERVIEW_CLIENT_REVIEW') return null;
+    return decoded;
+  } catch {
+    return null;
+  }
+};
+
+const findTenantForInterview = async (interviewId) => {
+  const defaultPrisma = getDefaultPrismaClient();
+  const tenantRows = await defaultPrisma.user.findMany({
+    where: { tenantDbName: { not: null } },
+    select: { tenantDbName: true },
+  });
+  const tenantNames = Array.from(
+    new Set(
+      tenantRows
+        .map((row) => String(row.tenantDbName || '').trim())
+        .filter(Boolean)
+    )
+  );
+
+  for (const tenantDbName of tenantNames) {
+    const found = await runWithTenantContext(tenantDbName, async () =>
+      prisma.interview.findUnique({
+        where: { id: interviewId },
+        select: { id: true },
+      })
+    );
+    if (found?.id) return tenantDbName;
+  }
+
+  return '';
+};
+
+const resolveReviewTenant = async (decoded) => {
+  const tokenTenant = String(decoded?.tenantDbName || '').trim();
+  if (tokenTenant) return tokenTenant;
+  const activeTenant = getActiveTenantDbName();
+  if (activeTenant) return activeTenant;
+  if (!decoded?.interviewId) return '';
+  return findTenantForInterview(decoded.interviewId);
+};
 
 const attachMeetingLink = async (interview, platformOverride) => {
   const platform = platformOverride || interview.platform;
@@ -811,6 +906,115 @@ export const interviewService = {
     return {
       meetingLink: result.interview.meetingLink,
       error: result.meetingLinkError,
+    };
+  },
+
+  async submitToClient(interviewId, payload, user) {
+    const interview = await getInterviewOrThrow(interviewId);
+    const recipients = payload?.toEmail
+      ? [String(payload.toEmail).trim()].filter(Boolean)
+      : await getClientRecipients(interview.clientId);
+
+    if (!recipients.length) {
+      throw new Error('No client email found for this interview/client');
+    }
+
+    const token = createClientReviewToken(interview);
+    const reviewUrl = `${env.FRONTEND_URL}/client-review/${encodeURIComponent(token)}`;
+
+    const emailResult = await sendMatchSubmissionEmail({
+      to: recipients,
+      clientName: interview.client?.companyName || 'Client',
+      jobTitle: interview.job?.title || 'Job',
+      recruiterName: user?.name || user?.email || 'Recruitment Team',
+      message: payload?.message || `Please review this candidate using the secure link: ${reviewUrl}`,
+      candidates: [mapInterviewCandidateForEmail(interview.candidate)],
+      portalUrl: reviewUrl,
+      subject: `Interview Candidate Submission: ${interview.job?.title || 'Job'}`,
+    });
+
+    if (!emailResult?.success) {
+      throw new Error(emailResult?.error || 'Failed to send client submission email');
+    }
+
+    return {
+      success: true,
+      recipients,
+      reviewUrl,
+    };
+  },
+
+  async getPublicClientReview(token) {
+    const decoded = verifyClientReviewToken(token);
+    if (!decoded?.interviewId) throw new Error('Invalid or expired review link');
+    const tenantDbName = await resolveReviewTenant(decoded);
+    const interview = await runWithTenantContext(tenantDbName, async () =>
+      getInterviewOrThrow(decoded.interviewId)
+    );
+    return {
+      interviewId: interview.id,
+      candidate: {
+        name: `${interview.candidate.firstName || ''} ${interview.candidate.lastName || ''}`.trim(),
+        email: interview.candidate.email || '',
+        phone: interview.candidate.phone || '',
+        currentCompany: interview.candidate.currentCompany || '',
+        designation: interview.candidate.designation || '',
+        experience: interview.candidate.experience ?? null,
+        skills: interview.candidate.skills || [],
+        languages: interview.candidate.languages || [],
+        education: interview.candidate.education || '',
+        certifications: interview.candidate.certifications || [],
+        cvSummary: interview.candidate.cvSummary || '',
+        address: interview.candidate.address || '',
+        city: interview.candidate.city || '',
+        country: interview.candidate.country || '',
+        linkedIn: interview.candidate.linkedIn || '',
+        resume: interview.candidate.resume || '',
+      },
+      job: {
+        title: interview.job.title || '',
+      },
+      client: {
+        companyName: interview.client.companyName || '',
+      },
+      interviewFeedback: (interview.feedbackEntries || []).map((entry) => ({
+        id: entry.id,
+        interviewerName: entry.interviewer?.name || 'Interviewer',
+        submittedAt: entry.createdAt,
+        recommendation: entry.recommendation || '',
+        comments: entry.comments || '',
+        strengths: entry.strengths || '',
+        weakness: entry.weakness || '',
+        overallScore: entry.overallScore ?? null,
+      })),
+    };
+  },
+
+  async submitPublicClientTag(token, payload) {
+    const decoded = verifyClientReviewToken(token);
+    if (!decoded?.interviewId) throw new Error('Invalid or expired review link');
+
+    const tag = String(payload?.tag || '').trim();
+    if (!tag) throw new Error('Tag is required');
+    const comments = String(payload?.comments || '').trim();
+
+    const tenantDbName = await resolveReviewTenant(decoded);
+    const updated = await runWithTenantContext(tenantDbName, async () => {
+      const interview = await getInterviewOrThrow(decoded.interviewId);
+      const noteAppend = `\n[Client Tag] ${tag}${comments ? ` - ${comments}` : ''}`;
+      return prisma.interview.update({
+        where: { id: interview.id },
+        data: {
+          notes: `${interview.notes || ''}${noteAppend}`.trim(),
+        },
+        include: interviewInclude,
+      });
+    });
+
+    return {
+      success: true,
+      tag,
+      interviewId: updated.id,
     };
   },
 
