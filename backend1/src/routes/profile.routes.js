@@ -1,5 +1,6 @@
 const { Router } = require('express');
 const multer = require('multer');
+const { protect } = require('../middleware/auth.middleware');
 const {
   getProfileData,
   getProfileCompleteness,
@@ -105,8 +106,8 @@ const profilePhotoUpload = multer({
 });
 
 // Get all profile data
-router.get('/completeness/:candidateId', getProfileCompleteness);
-router.get('/:candidateId', getProfileData);
+router.get('/completeness/:candidateId', protect, getProfileCompleteness);
+router.get('/:candidateId', protect, getProfileData);
 
 // Personal Information
 router.put('/personal-info/:candidateId', updatePersonalInfo);

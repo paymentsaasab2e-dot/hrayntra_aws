@@ -99,7 +99,7 @@ async function sendOTP(req, res) {
     // Clean phone number (remove any non-digit characters)
     const cleanNumber = whatsappNumber.replace(/\D/g, '');
 
-    if (cleanNumber.length < 10) {
+    if (cleanNumber.length < 6) {
       return res.status(400).json({
         success: false,
         message: 'Invalid WhatsApp number',
@@ -486,6 +486,24 @@ async function verifyOTP(req, res) {
       process.env.JWT_SECRET || 'saasa_jwt_secret_key_2024',
       { expiresIn: '30d' }
     );
+
+    // Create a session in the database for tracking multiple devices/tabs
+    try {
+      await prisma.session.create({
+        data: {
+          candidateId: candidate.id,
+          token: token,
+          userAgent: req.headers['user-agent'] || 'unknown',
+          ipAddress: req.ip || req.connection.remoteAddress || 'unknown',
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+        }
+      });
+      console.log('✅ Session record created for:', candidate.id);
+    } catch (sessionError) {
+      console.error('⚠️ Failed to create session record:', sessionError.message);
+      // We continue even if session creation fails to not block login, 
+      // but logout-all won't track this specific session.
+    }
 
     // Sync WhatsApp login number to CandidateProfile to satisfy "show exact number in /profile"
     try {

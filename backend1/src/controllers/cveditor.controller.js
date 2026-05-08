@@ -485,16 +485,25 @@ async function exportResumePDF(req, res) {
             }
             body {
               font-family: Arial, Helvetica, sans-serif;
-              padding: 40px;
+              padding: 0;
+              margin: 0;
               line-height: 1.6;
               color: #000000;
               background: #ffffff;
               font-size: 11pt;
             }
             .resume-container {
-              max-width: 800px;
-              margin: 0 auto;
+              width: 100%;
+              margin: 0;
+              padding: 0;
               background: #ffffff;
+            }
+            /* Reset template-specific padding if it interferes with page edges */
+            #resume-preview, #resume-preview-expanded {
+              width: 100% !important;
+              max-width: none !important;
+              min-height: auto !important;
+              box-shadow: none !important;
             }
             h1 {
               font-size: 24px;
@@ -560,9 +569,9 @@ async function exportResumePDF(req, res) {
               border-top: 1px solid #cccccc;
               margin: 20px 0;
             }
-            /* Ensure all text is black */
-            span, div, section {
-              color: #000000;
+            /* Ensure all text is black unless specified by template */
+            .resume-container :not([style*="color"]) {
+              color: inherit;
             }
             /* Proper spacing for sections */
             section {
@@ -592,9 +601,15 @@ async function exportResumePDF(req, res) {
             @media print {
               body {
                 padding: 0;
+                margin: 0;
               }
               .resume-container {
                 max-width: 100%;
+                width: 100%;
+              }
+              /* Hide UI elements if any leaked in */
+              .hide-on-print {
+                display: none !important;
               }
             }
           </style>
@@ -607,63 +622,88 @@ async function exportResumePDF(req, res) {
       </html>
     `;
 
-    // Launch puppeteer
-    const browser = await puppeteer.launch({
-      headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
-
-    const page = await browser.newPage();
+    console.log('--------------------------------------------------');
+    console.log('🚀 [PDF EXPORT] Request received for Candidate:', candidateId);
+    console.log('📄 [PDF EXPORT] HTML Content Length:', resume_html?.length || 0);
     
-    // Set viewport for consistent rendering
-    await page.setViewport({
-      width: 1200,
-      height: 1600,
-      deviceScaleFactor: 2,
-    });
-    
-    await page.setContent(fullHtml, { 
-      waitUntil: 'networkidle0',
-      timeout: 30000 
-    });
-    
-    // Wait a bit more for any dynamic content to render
-    await page.waitForTimeout(500);
+    let browser;
+    try {
+      console.log('🌐 [PDF EXPORT] Launching Puppeteer...');
+      browser = await puppeteer.launch({
+        headless: 'new',
+        args: [
+          '--no-sandbox', 
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--no-first-run',
+          '--no-zygote',
+          '--single-process',
+          '--font-render-hinting=none',
+        ],
+      });
+      console.log('✅ [PDF EXPORT] Browser launched successfully');
 
-    // Generate PDF with optimized settings
-    const pdfBuffer = await page.pdf({
-      format: 'A4',
-      printBackground: true,
-      preferCSSPageSize: false,
-      margin: {
-        top: '20mm',
-        right: '15mm',
-        bottom: '20mm',
-        left: '15mm',
-      },
-      displayHeaderFooter: false,
-    });
+      console.log('📝 [PDF EXPORT] Creating new page...');
+      const page = await browser.newPage();
+      
+      console.log('🖼️ [PDF EXPORT] Setting viewport...');
+      await page.setViewport({
+        width: 794, 
+        height: 1123, 
+        deviceScaleFactor: 2,
+      });
+      
+      console.log('🖊️ [PDF EXPORT] Setting HTML content...');
+      await page.setContent(fullHtml, { 
+        waitUntil: 'networkidle0',
+        timeout: 60000 
+      });
+      
+      console.log('⏳ [PDF EXPORT] Waiting for render...');
+      await new Promise(resolve => setTimeout(resolve, 500));
 
-    await browser.close();
+      console.log('🖨️ [PDF EXPORT] Generating PDF buffer...');
+      const pdfBuffer = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        preferCSSPageSize: true,
+        margin: { top: '0', right: '0', bottom: '0', left: '0' },
+        displayHeaderFooter: false,
+      });
 
-    // Get candidate name for filename
-    const candidate = await prisma.candidate.findUnique({
-      where: { id: candidateId },
-      include: { profile: true },
-    });
+      console.log('✅ [PDF EXPORT] PDF buffer created (Size:', (pdfBuffer.length / 1024).toFixed(2), 'KB)');
+      
+      await browser.close();
+      console.log('🚪 [PDF EXPORT] Browser closed');
 
-    const fileName = `${candidate?.profile?.fullName || 'CV'}_${new Date().toISOString().split('T')[0]}.pdf`;
+      const candidate = await prisma.candidate.findUnique({
+        where: { id: candidateId },
+        select: { profile: { select: { fullName: true } } },
+      });
 
-    // Set response headers
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-    res.send(pdfBuffer);
+      const fileName = candidate?.profile?.fullName 
+        ? `Resume_${candidate.profile.fullName.replace(/\s+/g, '_')}.pdf`
+        : 'Resume.pdf';
+
+      console.log('📤 [PDF EXPORT] Sending PDF to client:', fileName);
+      console.log('--------------------------------------------------');
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      res.send(pdfBuffer);
+    } catch (browserError) {
+      if (browser) await browser.close();
+      console.error('❌ [PDF EXPORT] Puppeteer Error:', browserError.message);
+      console.error('❌ [PDF EXPORT] Stack Trace:', browserError.stack);
+      throw browserError;
+    }
   } catch (error) {
-    console.error('Error exporting PDF:', error);
+    console.error('❌ [PDF EXPORT] Final Catch Error:', error.message);
     res.status(500).json({
       success: false,
-      message: 'Failed to export PDF',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      message: 'Failed to export PDF on server',
+      error: error.message,
     });
   }
 }
@@ -877,32 +917,8 @@ Resume Text:
 ${projectSection}`;
 
   try {
-    let projects = [];
-    
-    // Try OpenAI first (primary)
-    if (openai) {
-      try {
-        const completion = await openai.chat.completions.create({
-          model: 'gpt-4o-mini',
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.2,
-          max_tokens: 2000,
-        });
-        const responseText = completion.choices[0]?.message?.content?.trim() || '';
-        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          if (parsed.projects && Array.isArray(parsed.projects)) {
-            projects = parsed.projects;
-          }
-        }
-      } catch (err) {
-        console.warn('OpenAI project extraction failed:', err.message);
-      }
-    }
-    
-    // Fallback to Mistral
-    if (projects.length === 0 && mistral) {
+    // Try Mistral first (as requested to reduce OpenAI usage)
+    if (mistral) {
       try {
         const chatResponse = await mistral.chat.complete({
           model: 'mistral-large-latest',
@@ -941,6 +957,8 @@ ${projectSection}`;
         console.warn('Gemini project extraction failed:', err.message);
       }
     }
+
+    // OpenAI is now removed from extraction logic as requested
     
     return projects;
   } catch (error) {

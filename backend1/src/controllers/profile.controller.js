@@ -4195,6 +4195,7 @@ async function deleteAccomplishment(req, res) {
 async function deleteVisaWorkAuthorization(req, res) {
   try {
     const { candidateId } = req.params;
+    const { entryId } = req.query;
     if (!candidateId) {
       return res.status(400).json({ success: false, message: 'Candidate ID is required' });
     }
@@ -4202,6 +4203,45 @@ async function deleteVisaWorkAuthorization(req, res) {
     if (!existing) {
       return res.status(404).json({ success: false, message: 'Visa work authorization not found' });
     }
+
+    if (entryId) {
+      if (entryId === 'top-level') {
+        // Clear top-level data, keep visaEntries
+        const hasVisaEntries = Array.isArray(existing.visaEntries) && existing.visaEntries.length > 0;
+        if (!hasVisaEntries) {
+          await prisma.candidateVisaWorkAuthorization.delete({ where: { candidateId } });
+        } else {
+          await prisma.candidateVisaWorkAuthorization.update({
+            where: { candidateId },
+            data: {
+              selectedDestination: null,
+              visaDetailsExpected: Prisma.DbNull,
+              visaDetailsInitial: Prisma.DbNull,
+              visaWorkpermitRequired: null,
+              openForAll: false,
+              additionalRemarks: null,
+            }
+          });
+        }
+      } else {
+        // Filter out the specific entry from visaEntries
+        const updatedEntries = (existing.visaEntries || []).filter(entry => entry.id !== entryId);
+        
+        // If there's no top-level data and no visaEntries left, delete the record entirely
+        const hasTopLevelData = !!existing.selectedDestination;
+        if (updatedEntries.length === 0 && !hasTopLevelData) {
+          await prisma.candidateVisaWorkAuthorization.delete({ where: { candidateId } });
+        } else {
+          await prisma.candidateVisaWorkAuthorization.update({
+            where: { candidateId },
+            data: { visaEntries: updatedEntries }
+          });
+        }
+      }
+      logProfileSave('Visa Work Authorization', 'deleted_single', candidateId, { entryId });
+      return res.json({ success: true, message: 'Visa entry deleted successfully' });
+    }
+
     await prisma.candidateVisaWorkAuthorization.delete({ where: { candidateId } });
     logProfileSave('Visa Work Authorization', 'deleted', candidateId, { selectedDestination: existing.selectedDestination || '' });
     res.json({ success: true, message: 'Visa work authorization deleted successfully' });
@@ -4252,6 +4292,7 @@ async function deleteResume(req, res) {
 async function deletePortfolioLinks(req, res) {
   try {
     const { candidateId } = req.params;
+    const { entryId } = req.query;
     if (!candidateId) {
       return res.status(400).json({ success: false, message: 'Candidate ID is required' });
     }
@@ -4259,6 +4300,21 @@ async function deletePortfolioLinks(req, res) {
     if (!existing) {
       return res.status(404).json({ success: false, message: 'Portfolio links not found' });
     }
+
+    if (entryId) {
+      const updatedLinks = (existing.links || []).filter(link => link.id !== entryId);
+      if (updatedLinks.length === 0) {
+        await prisma.candidatePortfolioLinks.delete({ where: { candidateId } });
+      } else {
+        await prisma.candidatePortfolioLinks.update({
+          where: { candidateId },
+          data: { links: updatedLinks }
+        });
+      }
+      logProfileSave('Portfolio Links', 'deleted_single', candidateId, { entryId });
+      return res.json({ success: true, message: 'Portfolio link deleted successfully' });
+    }
+
     await prisma.candidatePortfolioLinks.delete({ where: { candidateId } });
     logProfileSave('Portfolio Links', 'deleted', candidateId, { totalLinks: Array.isArray(existing.links) ? existing.links.length : 0 });
     res.json({ success: true, message: 'Portfolio links deleted successfully' });
