@@ -2,10 +2,12 @@ import React, { useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Plus, X } from 'lucide-react';
 import { PanelAssignmentModal } from './PanelAssignmentModal';
+import { combineInterviewDateAndTimeToIso } from '../../lib/interview-schedule-helpers';
 import type {
   Interview,
   InterviewCandidate,
   InterviewJob,
+  InterviewMode,
   InterviewPanelMember,
   InterviewRound,
   InterviewType,
@@ -25,14 +27,43 @@ interface ScheduleInterviewModalProps {
 }
 
 const rounds: InterviewRound[] = ['Screening', 'Technical', 'HR', 'Managerial', 'Client', 'Final'];
-const types: InterviewType[] = ['Video', 'Phone', 'In-Person', 'Technical Test', 'Assessment', 'Group Discussion'];
+/** Interview type options exposed when the recruiter picks an Online mode. Excludes In-Person. */
+const onlineTypes: InterviewType[] = ['Video', 'Phone', 'Technical Test', 'Assessment', 'Group Discussion'];
+/** Interview type options exposed when the recruiter picks an Offline mode. Excludes Video / Phone. */
+const offlineTypes: InterviewType[] = ['In-Person', 'Technical Test', 'Assessment', 'Group Discussion'];
 const platforms = ['Zoom', 'Google Meet', 'MS Teams'] as const;
+const durationOptions: Array<{ label: string; value: number }> = [
+  { label: '30 mins', value: 30 },
+  { label: '45 mins', value: 45 },
+  { label: '1 hour', value: 60 },
+  { label: '1.5 hours', value: 90 },
+  { label: '2 hours', value: 120 },
+];
 const timezoneOptions = [
   { label: 'IST (GMT+5:30)', value: 'Asia/Kolkata' },
   { label: 'GMT+1:00', value: 'Etc/GMT-1' },
   { label: 'GMT+0:00', value: 'UTC' },
   { label: 'GMT-5:00', value: 'Etc/GMT+5' },
 ] as const;
+
+/** Build human-friendly slots (9:00 AM, 9:30 AM, ...) so the time field matches the candidates drawer modal. */
+function generateTimeSlots(): string[] {
+  const slots: string[] = [];
+  for (let hour = 9; hour <= 17; hour += 1) {
+    for (const minute of [0, 30]) {
+      const date = new Date();
+      date.setHours(hour, minute, 0, 0);
+      slots.push(date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }));
+    }
+  }
+  return slots;
+}
+const timeSlots = generateTimeSlots();
+
+/** ISO `YYYY-MM-DD` for today, used as `min` on the date picker. */
+function todayDate(): string {
+  return new Date().toISOString().split('T')[0];
+}
 
 export function ScheduleInterviewModal({
   isOpen,
@@ -48,18 +79,19 @@ export function ScheduleInterviewModal({
   const [query, setQuery] = useState('');
   const [showPanelModal, setShowPanelModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  /** New schedules start fully empty so the recruiter doesn't think a previous interview leaked through. */
   const buildDefaultForm = (): ScheduleInterviewPayload => ({
-    candidateId: candidates[0]?.id || '',
-    jobId: jobs[0]?.id || '',
+    candidateId: '',
+    jobId: '',
     clientId: undefined,
-    round: 'Screening',
-    type: 'Video',
+    round: '' as InterviewRound,
+    type: '' as InterviewType,
     mode: 'Online',
-    date: 'Feb 20, 2026',
-    time: '10:00 AM',
+    date: '',
+    time: '',
     duration: 60,
     timezone: 'Asia/Kolkata',
-    panelIds: interviewers.slice(0, 2).map((item) => item.id),
+    panelIds: [],
     meetingPlatform: 'Zoom',
     panelRoles: {},
     location: '',
@@ -116,6 +148,44 @@ export function ScheduleInterviewModal({
   const selectedTimezoneLabel =
     timezoneOptions.find((timezone) => timezone.value === form.timezone)?.label || form.timezone;
 
+  /** Type options depend on the chosen mode — Online hides In-Person, Offline hides Video / Phone. */
+  const typeOptionsForMode = useMemo<InterviewType[]>(
+    () => (form.mode === 'Online' ? onlineTypes : offlineTypes),
+    [form.mode]
+  );
+
+  /** When mode flips, drop the previously selected type if it doesn't apply to the new mode. */
+  const handleModeChange = (newMode: InterviewMode) => {
+    setForm((current) => {
+      const validTypes = newMode === 'Online' ? onlineTypes : offlineTypes;
+      const isCurrentTypeValid =
+        current.type && (validTypes as InterviewType[]).includes(current.type as InterviewType);
+      return {
+        ...current,
+        mode: newMode,
+        type: isCurrentTypeValid ? current.type : ('' as InterviewType),
+        meetingPlatform: newMode === 'Online' ? current.meetingPlatform || 'Zoom' : current.meetingPlatform,
+        location: newMode === 'Offline' ? current.location || '' : current.location,
+      };
+    });
+  };
+
+  /** Block submission until the recruiter has filled the minimum required fields. */
+  const isFormValid = Boolean(
+    form.candidateId &&
+      form.jobId &&
+      form.round &&
+      form.type &&
+      form.date &&
+      form.time &&
+      form.mode &&
+      form.duration > 0 &&
+      form.panelIds.length > 0 &&
+      (form.mode === 'Online'
+        ? Boolean(form.meetingPlatform)
+        : Boolean((form.location || '').trim()))
+  );
+
   React.useEffect(() => {
     if (selectedJob?.clientId) {
       setForm((current) => ({ ...current, clientId: selectedJob.clientId }));
@@ -164,6 +234,9 @@ export function ScheduleInterviewModal({
                   }}
                   className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-sm outline-none focus:border-[#2563EB]"
                 >
+                  <option value="" disabled>
+                    Select candidate
+                  </option>
                   {filteredCandidates.map((candidate) => (
                     <option key={candidate.id} value={candidate.id}>
                       {candidate.name} • {candidate.email}
@@ -188,6 +261,9 @@ export function ScheduleInterviewModal({
                     }}
                     className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-sm outline-none focus:border-[#2563EB]"
                   >
+                    <option value="" disabled>
+                      Select job role
+                    </option>
                     {jobs.map((job) => (
                       <option key={job.id} value={job.id}>
                         {job.title}
@@ -205,21 +281,6 @@ export function ScheduleInterviewModal({
                 </div>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="mb-2 block text-sm font-semibold text-[#111827]">Interview Round</label>
-                  <select value={form.round} onChange={(event) => setForm((current) => ({ ...current, round: event.target.value as InterviewRound }))} className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-sm outline-none focus:border-[#2563EB]">
-                    {rounds.map((round) => <option key={round}>{round}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="mb-2 block text-sm font-semibold text-[#111827]">Interview Type</label>
-                  <select value={form.type} onChange={(event) => setForm((current) => ({ ...current, type: event.target.value as InterviewType }))} className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-sm outline-none focus:border-[#2563EB]">
-                    {types.map((type) => <option key={type}>{type}</option>)}
-                  </select>
-                </div>
-              </div>
-
               <div>
                 <label className="mb-2 block text-sm font-semibold text-[#111827]">Interview Mode</label>
                 <div className="flex gap-2">
@@ -227,7 +288,7 @@ export function ScheduleInterviewModal({
                     <button
                       key={mode}
                       type="button"
-                      onClick={() => setForm((current) => ({ ...current, mode }))}
+                      onClick={() => handleModeChange(mode)}
                       className={`rounded-xl px-4 py-2 text-sm font-semibold ${
                         form.mode === mode ? 'bg-[#2563EB] text-white' : 'border border-[#E5E7EB] text-[#374151]'
                       }`}
@@ -236,23 +297,102 @@ export function ScheduleInterviewModal({
                     </button>
                   ))}
                 </div>
+                <p className="mt-2 text-xs text-[#6B7280]">
+                  {form.mode === 'Online'
+                    ? 'Online interviews use a meeting platform like Zoom, Google Meet, or MS Teams.'
+                    : 'Offline interviews are held at a physical location you provide below.'}
+                </p>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-[#111827]">Interview Round</label>
+                  <select
+                    value={form.round}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, round: event.target.value as InterviewRound }))
+                    }
+                    className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-sm outline-none focus:border-[#2563EB]"
+                  >
+                    <option value="" disabled>
+                      Select round
+                    </option>
+                    {rounds.map((round) => (
+                      <option key={round} value={round}>
+                        {round}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-[#111827]">Interview Type</label>
+                  <select
+                    value={form.type}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, type: event.target.value as InterviewType }))
+                    }
+                    className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-sm outline-none focus:border-[#2563EB]"
+                  >
+                    <option value="" disabled>
+                      Select type
+                    </option>
+                    {typeOptionsForMode.map((type) => (
+                      <option key={type} value={type}>
+                        {type}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <label className="mb-2 block text-sm font-semibold text-[#111827]">Date</label>
-                  <input value={form.date} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-sm outline-none focus:border-[#2563EB]" />
+                  <input
+                    type="date"
+                    min={todayDate()}
+                    value={form.date}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, date: event.target.value }))
+                    }
+                    className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-sm outline-none focus:border-[#2563EB]"
+                  />
                 </div>
                 <div>
                   <label className="mb-2 block text-sm font-semibold text-[#111827]">Start Time</label>
-                  <input value={form.time} onChange={(event) => setForm((current) => ({ ...current, time: event.target.value }))} className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-sm outline-none focus:border-[#2563EB]" />
+                  <select
+                    value={form.time}
+                    onChange={(event) => setForm((current) => ({ ...current, time: event.target.value }))}
+                    className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-sm outline-none focus:border-[#2563EB]"
+                  >
+                    <option value="" disabled>
+                      Select time
+                    </option>
+                    {timeSlots.map((slot) => (
+                      <option key={slot} value={slot}>
+                        {slot}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="mb-2 block text-sm font-semibold text-[#111827]">Duration (minutes)</label>
-                  <input type="number" value={form.duration} onChange={(event) => setForm((current) => ({ ...current, duration: Number(event.target.value) }))} className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-sm outline-none focus:border-[#2563EB]" />
+                  <label className="mb-2 block text-sm font-semibold text-[#111827]">Duration</label>
+                  <select
+                    value={form.duration}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, duration: Number(event.target.value) }))
+                    }
+                    className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-sm outline-none focus:border-[#2563EB]"
+                  >
+                    {durationOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="mb-2 block text-sm font-semibold text-[#111827]">Timezone</label>
@@ -290,6 +430,9 @@ export function ScheduleInterviewModal({
                         {item.name} • {item.role}
                       </span>
                     ))}
+                  {form.panelIds.length === 0 ? (
+                    <p className="text-sm text-[#6B7280]">Add at least one panel member — required to schedule.</p>
+                  ) : null}
                 </div>
               </div>
 
@@ -364,7 +507,7 @@ export function ScheduleInterviewModal({
                         round: form.round,
                         type: form.type,
                         mode: form.mode,
-                        date: new Date(form.date).toISOString(),
+                        date: combineInterviewDateAndTimeToIso(form.date, form.time),
                         duration: form.duration,
                         timezone: form.timezone,
                         meetingPlatform: form.mode === 'Online'
@@ -387,7 +530,7 @@ export function ScheduleInterviewModal({
                     setIsSubmitting(false);
                   }
                 }}
-                disabled={isSubmitting}
+                disabled={isSubmitting || !isFormValid}
                 className="rounded-xl bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isSubmitting ? (isEditMode ? 'Saving...' : 'Scheduling...') : isEditMode ? 'Save Changes' : 'Schedule Interview'}

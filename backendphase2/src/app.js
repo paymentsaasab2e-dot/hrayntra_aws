@@ -109,6 +109,13 @@ app.use('/uploads', express.static(uploadsPath, {
       res.setHeader('Content-Type', 'image/gif');
     } else if (filePath.endsWith('.webp')) {
       res.setHeader('Content-Type', 'image/webp');
+    } else if (filePath.endsWith('.pdf')) {
+      // Default `application/octet-stream` forces a download — the
+      // recruiter wants to *view* the offer letter inline, so let the
+      // browser's PDF viewer pick it up. `inline` keeps the filename
+      // sane if the user does choose to save it.
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'inline');
     }
   },
 }));
@@ -161,6 +168,15 @@ app.get('/api/v1/auth/test', (req, res) => {
 });
 
 // API Routes
+//
+// IMPORTANT: `/api/v1/internal/*` MUST be mounted BEFORE any `/api/v1`
+// router that calls `router.use(authMiddleware)` at the router level
+// (e.g. `addCandidateRouter`, `scheduledMeetingsRoutes`). Otherwise
+// Express runs those routers' router-level JWT auth on every
+// `/api/v1/*` request — including the unauthenticated portal-sync
+// webhook from backend1 — and rejects with 401 "No token provided"
+// before our shared-secret middleware ever sees the request.
+app.use('/api/v1/internal', portalSyncRoutes);
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/linkedin', linkedinRoutes);
@@ -201,7 +217,8 @@ app.use('/api/v1/settings', settingRoutes);
 app.use('/api/v1/ai/aria', ariaRoutes);
 app.use('/api/v1/ai', aiRoutes);
 app.use('/api/v1/hq', hqRoutes);
-app.use('/api/v1/internal', portalSyncRoutes);
+// (portalSyncRoutes is mounted near the top — before any
+// router-level-auth `/api/v1` handlers — see comment above.)
 // Removing re-mounts from here as they are now at the top
 
 // 404 handler

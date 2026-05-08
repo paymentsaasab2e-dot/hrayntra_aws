@@ -4,6 +4,34 @@ import { canViewAllAssignments, hasAnyPermission } from '../../utils/permissionS
 import { candidateService } from '../candidate/candidate.service.js';
 import { sendMatchSubmissionEmail } from '../../emails/email.service.js';
 import { env } from '../../config/env.js';
+import { createRequire } from 'module';
+import {
+  createClientReviewToken,
+  normalizeSubmissionType,
+} from '../../services/interview.service.js';
+
+// Mirror of the interview drawer's purpose codes. Keeping the resolution
+// logic here means a match-submitted-to-client carries the same UX (tag
+// options + offer-letter upload) on the public review page.
+const MATCH_SUBMISSION_PURPOSES = {
+  INITIAL_REVIEW: 'Initial review — please confirm the candidate is a fit before scheduling.',
+  INTERIM_REVIEW: 'Mid-cycle review — please confirm next steps.',
+  OFFER_CONFIRMATION: 'Final clarification — please attach the signed offer letter.',
+  GENERAL: 'Please review this candidate.',
+};
+
+const buildClientReviewUrl = (match, submissionType) => {
+  const token = createClientReviewToken({
+    matchId: match.id,
+    candidateId: match.candidateId,
+    jobId: match.jobId,
+    clientId: match.job?.clientId || match.job?.client?.id || null,
+    submissionType,
+  });
+  return `${env.FRONTEND_URL}/client-review/${encodeURIComponent(token)}`;
+};
+
+const require = createRequire(import.meta.url);
 
 const CANDIDATE_ACTIVITY_ENTITY = 'CANDIDATE';
 const NOTE_ACTIVITY_KIND = 'candidate-note';
@@ -163,6 +191,40 @@ function mapSubmittedHistory(activities, jobId) {
       year: 'numeric',
     }),
     status: getActivityMetadata(activity).notifyClient ? 'Submitted to client' : 'Drafted for client',
+  };
+}
+
+/** Merge portal-style AI+deterministic job match engine output into list row (same blend as backend1). */
+function mergeRecruiterAiEngineIntoRow(row, engine, jobEngine) {
+  const jobSkillCount = Array.isArray(jobEngine?.skills) ? jobEngine.skills.length : 0;
+  const half = Math.max(1, Math.ceil(jobSkillCount / 2));
+  const matched = engine.matchedSkills || row.explanation?.matchedSkills || [];
+  const missing = engine.missingSkills || row.explanation?.missingSkills || [];
+  const text =
+    engine.explanationSummary ||
+    (engine.aiAnalysis && typeof engine.aiAnalysis.summary === 'string' ? engine.aiAnalysis.summary : '') ||
+    row.explanation?.text;
+
+  return {
+    ...row,
+    score: Math.round(Number(engine.finalScore ?? row.score)),
+    matchSource: 'ai',
+    explanation: {
+      ...row.explanation,
+      skills: matched.length >= half ? true : matched.length ? 'partial' : false,
+      text: text || row.explanation?.text,
+      matchedSkills: matched.slice(0, 10),
+      missingSkills: missing.slice(0, 10),
+      roleRequirement: engine.verdict || row.explanation?.roleRequirement,
+      aiEngine: {
+        deterministicScore: engine.deterministicScore,
+        aiScore: engine.aiScore,
+        verdict: engine.verdict,
+        confidenceLevel: engine.confidenceLevel,
+        confidenceScore: engine.confidenceScore,
+        breakdown: engine.breakdown,
+      },
+    },
   };
 }
 
@@ -327,7 +389,101 @@ export const matchService = {
       activitiesByCandidateId.set(activity.entityId, candidateActivities);
     }
 
-    const enrichedMatches = matches.map((match) => mapMatchRecord(match, activitiesByCandidateId));
+    let enrichedMatches = matches.map((match) => mapMatchRecord(match, activitiesByCandidateId));
+
+    if (String(source) === 'ai' && jobId && matches.length) {
+      try {
+        const jobEngine = await prisma.job.findUnique({
+          where: { id: String(jobId) },
+          include: { client: { select: { companyName: true, logo: true } } },
+        });
+        if (jobEngine) {
+          const jobPayload = {
+            id: jobEngine.id,
+            title: jobEngine.title,
+            description: jobEngine.description || '',
+            overview: jobEngine.overview || '',
+            aboutRole: '',
+            responsibilities: '',
+            keyResponsibilities: jobEngine.keyResponsibilities || [],
+            skills: jobEngine.skills || [],
+            preferredSkills: jobEngine.preferredSkills || [],
+            requirements: jobEngine.requirements || [],
+            location: jobEngine.location || 'unknown',
+            workMode: jobEngine.workMode || jobEngine.jobLocationType || null,
+            jobLocationType: jobEngine.jobLocationType || jobEngine.workMode || null,
+            experienceRequired: jobEngine.experienceRequired || '',
+            education: jobEngine.education || null,
+            client: jobEngine.client,
+            source: 'db',
+          };
+
+          const candidateIds = [...new Set(matches.map((m) => m.candidate.id))];
+          const fullCandidates = await prisma.candidate.findMany({
+            where: { id: { in: candidateIds } },
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              skills: true,
+              recruiterSkills: true,
+              experience: true,
+              experienceYears: true,
+              currentTitle: true,
+              designation: true,
+              location: true,
+              city: true,
+              country: true,
+              linkedIn: true,
+              portfolio: true,
+              cvSummary: true,
+              notes: true,
+              recruiterNotes: true,
+              cvWorkExperienceEntries: true,
+              cvEducationEntries: true,
+              certificationsList: true,
+              preferredLocation: true,
+              expectedSalary: true,
+              currentSalary: true,
+              noticePeriod: true,
+              availability: true,
+            },
+          });
+          const byId = new Map(fullCandidates.map((c) => [c.id, c]));
+
+          const { scoreRecruiterCandidateAgainstJob } = require('../../services/jobMatchEngine/pipeline.cjs');
+          const { mapPhase2CandidateForPortalEngine } = require('../../services/jobMatchEngine/mapPhase2Candidate.cjs');
+
+          const CONCURRENCY = 4;
+          const scoreRow = async (row) => {
+            const cand = byId.get(row.candidateId);
+            if (!cand) return row;
+            const portalShaped = mapPhase2CandidateForPortalEngine(cand);
+            if (!portalShaped) return row;
+            const resumeText = String(cand.cvSummary || cand.notes || cand.recruiterNotes || '').slice(0, 6000);
+            const engine = await scoreRecruiterCandidateAgainstJob({
+              job: jobPayload,
+              candidate: portalShaped,
+              cleanedResumeText: resumeText,
+            });
+            if (!engine) return row;
+            return mergeRecruiterAiEngineIntoRow(row, engine, jobEngine);
+          };
+
+          const out = [];
+          for (let i = 0; i < enrichedMatches.length; i += CONCURRENCY) {
+            const batch = enrichedMatches.slice(i, i + CONCURRENCY);
+            const part = await Promise.all(batch.map(scoreRow));
+            out.push(...part);
+          }
+          out.sort((a, b) => b.score - a.score);
+          enrichedMatches = out;
+        }
+      } catch (e) {
+        console.error('[matchService] AI job-match scoring failed:', e?.message || e);
+      }
+    }
 
     return formatPaginationResponse(enrichedMatches, page, limit, total);
   },
@@ -501,6 +657,13 @@ export const matchService = {
       throw new Error('No client contact email found for this job');
     }
 
+    // Mirror the interview drawer: the recruiter must commit to a purpose.
+    // We default to GENERAL if the caller didn't pass one (older client),
+    // but still log it on the activity so the row carries the intent.
+    const submissionType =
+      normalizeSubmissionType(data?.submissionType) || 'GENERAL';
+    const reviewUrl = notifyClient ? buildClientReviewUrl(match, submissionType) : null;
+
     await prisma.$transaction(async (tx) => {
       await tx.match.update({
         where: { id },
@@ -535,20 +698,33 @@ export const matchService = {
             clientName: match.job.client?.companyName || null,
             notifyClient,
             message,
+            submissionType,
+            reviewUrl,
           },
         },
       });
     });
 
     if (notifyClient) {
+      const purposeLine = MATCH_SUBMISSION_PURPOSES[submissionType] || MATCH_SUBMISSION_PURPOSES.GENERAL;
+      const finalMessage = [
+        message,
+        message ? '' : null,
+        purposeLine,
+        reviewUrl ? `Review link: ${reviewUrl}` : null,
+      ]
+        .filter((part) => part !== null)
+        .join('\n')
+        .trim();
+
       const emailResult = await sendMatchSubmissionEmail({
         to: recipients,
         clientName: match.job.client?.companyName || 'Team',
         jobTitle: match.job.title,
         recruiterName: match.createdBy?.name || 'Recruitment Team',
-        message,
+        message: finalMessage,
         candidates: [mapEmailCandidate(match.candidate)],
-        portalUrl: `${env.FRONTEND_URL}/matches`,
+        portalUrl: reviewUrl || `${env.FRONTEND_URL}/matches`,
       });
 
       if (!emailResult.success) {
@@ -744,15 +920,36 @@ export const matchService = {
       throw new Error('No client contact email found for this job');
     }
 
+    // One review token per match — the bulk email lists all candidates and
+    // includes a per-candidate "review" link so the client can drill into any
+    // one of them. We pick the first link as `portalUrl` so older email
+    // templates still have a meaningful CTA target.
+    const submissionType = normalizeSubmissionType(data?.submissionType) || 'GENERAL';
+    const reviewLinks = matches.map((item) => ({
+      candidateId: item.candidateId,
+      candidateName: `${item.candidate?.firstName || ''} ${item.candidate?.lastName || ''}`.trim() || 'Candidate',
+      url: buildClientReviewUrl(item, submissionType),
+    }));
+
+    const purposeLine =
+      MATCH_SUBMISSION_PURPOSES[submissionType] || MATCH_SUBMISSION_PURPOSES.GENERAL;
+    const linkBlock = reviewLinks
+      .map((entry) => `• ${entry.candidateName}: ${entry.url}`)
+      .join('\n');
+    const finalMessage = [message, message ? '' : null, purposeLine, linkBlock]
+      .filter((part) => part !== null)
+      .join('\n')
+      .trim();
+
     const emailResult = await sendMatchSubmissionEmail({
       to: recipients,
       clientName: firstJob.client?.companyName || 'Team',
       jobTitle: firstJob.title,
       recruiterName: user?.name || 'Recruitment Team',
-      message,
+      message: finalMessage,
       subject: subject || `Candidate Submission: ${firstJob.title}`,
       candidates: matches.map((item) => mapEmailCandidate(item.candidate)),
-      portalUrl: `${env.FRONTEND_URL}/matches`,
+      portalUrl: reviewLinks[0]?.url || `${env.FRONTEND_URL}/matches`,
     });
 
     if (!emailResult.success) {
@@ -779,6 +976,8 @@ export const matchService = {
           message,
           subject: subject || `Candidate Submission: ${firstJob.title}`,
           bulk: true,
+          submissionType,
+          reviewUrl: reviewLinks.find((entry) => entry.candidateId === match.candidateId)?.url || null,
         },
       })),
     });

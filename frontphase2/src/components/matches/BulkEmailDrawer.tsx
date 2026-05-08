@@ -2,13 +2,20 @@ import React, { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Mail, X } from 'lucide-react';
 import type { MatchJob } from './types';
+import { SUBMISSION_TYPES } from '../interviews/SubmitToClientDrawer';
+
+type SubmissionTypeValue = (typeof SUBMISSION_TYPES)[number]['value'];
 
 interface BulkEmailDrawerProps {
   isOpen: boolean;
   selectedCount: number;
   selectedJob: MatchJob | null;
   onClose: () => void;
-  onSubmit: (payload: { subject: string; message: string }) => Promise<void>;
+  onSubmit: (payload: {
+    subject: string;
+    message: string;
+    submissionType: SubmissionTypeValue;
+  }) => Promise<void>;
 }
 
 export default function BulkEmailDrawer({
@@ -21,6 +28,8 @@ export default function BulkEmailDrawer({
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionType, setSubmissionType] = useState<SubmissionTypeValue | ''>('');
+  const [submissionTypeError, setSubmissionTypeError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -30,6 +39,11 @@ export default function BulkEmailDrawer({
         ? `Hello team,\n\nPlease review the selected candidate profiles for ${selectedJob.title}. I have included the shortlist for your feedback.\n\nRegards`
         : 'Hello team,\n\nPlease review the selected candidate profiles.\n\nRegards'
     );
+    // Bulk-emails are typically the first hello to a client, so we default
+    // to INITIAL_REVIEW. The recruiter can still change it (e.g., a batch of
+    // offers going out).
+    setSubmissionType('INITIAL_REVIEW');
+    setSubmissionTypeError(null);
   }, [isOpen, selectedJob]);
 
   return (
@@ -80,6 +94,42 @@ export default function BulkEmailDrawer({
                 </div>
               </div>
 
+              <div
+                className={`rounded-xl border p-3 ${
+                  submissionTypeError ? 'border-red-300 bg-red-50' : 'border-slate-200 bg-slate-50'
+                }`}
+              >
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Submission Purpose*
+                </label>
+                <select
+                  value={submissionType}
+                  onChange={(event) => {
+                    const next = event.target.value as SubmissionTypeValue | '';
+                    setSubmissionType(next);
+                    if (next) setSubmissionTypeError(null);
+                  }}
+                  className={`mt-2 w-full rounded-lg border bg-white px-3 py-2 text-sm font-medium text-slate-900 ${
+                    submissionTypeError ? 'border-red-400' : 'border-slate-200'
+                  }`}
+                >
+                  <option value="">Select why you're submitting these candidates…</option>
+                  {SUBMISSION_TYPES.map((entry) => (
+                    <option key={entry.value} value={entry.value}>
+                      {entry.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-2 text-xs text-slate-500">
+                  {submissionType
+                    ? SUBMISSION_TYPES.find((entry) => entry.value === submissionType)?.description
+                    : 'Each candidate gets a per-person review link tailored to this purpose.'}
+                </p>
+                {submissionTypeError ? (
+                  <p className="mt-1 text-xs font-medium text-red-600">{submissionTypeError}</p>
+                ) : null}
+              </div>
+
               <div>
                 <label className="mb-1.5 block text-xs font-semibold text-slate-700">Email Subject</label>
                 <input
@@ -121,9 +171,13 @@ export default function BulkEmailDrawer({
               <button
                 type="button"
                 onClick={async () => {
+                  if (!submissionType) {
+                    setSubmissionTypeError('Pick what this batch is for');
+                    return;
+                  }
                   setIsSubmitting(true);
                   try {
-                    await onSubmit({ subject, message });
+                    await onSubmit({ subject, message, submissionType });
                   } finally {
                     setIsSubmitting(false);
                   }

@@ -486,8 +486,34 @@ export const leadService = {
     return updated;
   },
 
+  /** Best image URL from lead uploads (newest first) — reused as client logo after conversion so jobs show the same art. */
+  inferLogoUrlFromLeadFiles(files) {
+    if (!Array.isArray(files) || !files.length) return null;
+    const imgExt = /\.(png|jpe?g|gif|webp|svg)$/i;
+    const sorted = [...files].sort(
+      (a, b) => new Date(b.uploadDate || b.createdAt || 0) - new Date(a.uploadDate || a.createdAt || 0)
+    );
+    for (const f of sorted) {
+      const url = String(f.fileUrl || '').trim();
+      const name = String(f.fileName || '');
+      if (!/^https?:\/\//i.test(url)) continue;
+      if (imgExt.test(name) || /\/image\/upload|res\.cloudinary\.com[^/]*\/image\//i.test(url)) {
+        return url;
+      }
+    }
+    return null;
+  },
+
   async convertToClient(id, clientData) {
-    const lead = await prisma.lead.findUnique({ where: { id } });
+    const lead = await prisma.lead.findUnique({
+      where: { id },
+      include: {
+        files: {
+          orderBy: { uploadDate: 'desc' },
+          select: { fileName: true, fileUrl: true, uploadDate: true, createdAt: true },
+        },
+      },
+    });
     if (!lead) {
       throw new Error('Lead not found');
     }
@@ -526,10 +552,16 @@ export const leadService = {
       null;
 
     // Map all lead fields to client
+    const leadInferredLogo =
+      typeof clientData.logo === 'string' && clientData.logo.trim()
+        ? clientData.logo.trim()
+        : this.inferLogoUrlFromLeadFiles(lead.files || []);
+
     const clientCreateData = {
       companyName: clientData.companyName || lead.companyName,
       industry: clientData.industry || lead.industry,
       website: clientData.website || lead.website,
+      logo: leadInferredLogo || null,
       status: 'PROSPECT',
       assignedToId: resolvedAssignedToId,
       createdById: clientData.performedById || null,

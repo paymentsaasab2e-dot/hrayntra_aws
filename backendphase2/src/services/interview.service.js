@@ -1,4 +1,10 @@
 import { prisma, getActiveTenantDbName, getDefaultPrismaClient, runWithTenantContext } from '../config/prisma.js';
+import { getCandidateOrThrow } from '../modules/candidate/candidate.service.js';
+import {
+  PIPELINE_STAGES,
+  syncApplicationOfferLetter,
+  updateCandidateStage,
+} from '../modules/stage/candidateStage.service.js';
 import { generateMeetingLink } from './meetingService.js';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
@@ -273,13 +279,57 @@ const mapInterviewCandidateForEmail = (candidate) => ({
   resumeName: candidate.resume || '',
 });
 
-const createClientReviewToken = (interview) =>
+export const SUBMISSION_TYPES = [
+  'INITIAL_REVIEW',
+  'INTERIM_REVIEW',
+  'OFFER_CONFIRMATION',
+  'GENERAL',
+];
+
+// Best-effort guess so the recruiter doesn't have to pick the purpose every
+// single time. The drawer also infers a default, but we re-run the logic here
+// so older clients (or any caller that doesn't pass `submissionType`) still
+// land on a sensible value.
+const inferSubmissionType = (interview) => {
+  const feedbacks = (interview.feedbackEntries || []).filter(
+    (entry) => entry?.recommendation && String(entry.recommendation).trim()
+  );
+  if (interview.status === 'COMPLETED' && feedbacks.length) {
+    const last = feedbacks[feedbacks.length - 1];
+    if (last?.recommendation === 'PASS' || last?.recommendation === 'Pass') {
+      return 'OFFER_CONFIRMATION';
+    }
+    return 'INTERIM_REVIEW';
+  }
+  if (interview.status === 'SCHEDULED' && !feedbacks.length) return 'INITIAL_REVIEW';
+  return '';
+};
+
+export const normalizeSubmissionType = (value) => {
+  const upper = String(value || '').trim().toUpperCase();
+  return SUBMISSION_TYPES.includes(upper) ? upper : '';
+};
+
+// Token works for either an interview submission or a match submission. We
+// keep the JWT `type` constant so the existing public route handles both —
+// the resolver branches on whichever ID is present in the payload.
+export const createClientReviewToken = ({
+  interviewId = null,
+  matchId = null,
+  candidateId = null,
+  jobId = null,
+  clientId = null,
+  submissionType = 'GENERAL',
+} = {}) =>
   jwt.sign(
     {
-      interviewId: interview.id,
-      candidateId: interview.candidateId,
-      clientId: interview.clientId,
+      interviewId,
+      matchId,
+      candidateId,
+      jobId,
+      clientId,
       tenantDbName: getActiveTenantDbName() || undefined,
+      submissionType: submissionType || 'GENERAL',
       type: 'INTERVIEW_CLIENT_REVIEW',
     },
     env.JWT_SECRET,
@@ -296,7 +346,13 @@ const verifyClientReviewToken = (token) => {
   }
 };
 
-const findTenantForInterview = async (interviewId) => {
+// Walk the list of known tenant DBs and return the first one that owns the
+// given record. Used as a fallback when the JWT didn't capture a tenant
+// (older tokens, or service-to-service calls that minted tokens outside a
+// tenant context). The lookup is keyed off whichever id is present —
+// interviewId for the interview path, matchId for the match path.
+const findTenantForRecord = async ({ interviewId = null, matchId = null }) => {
+  if (!interviewId && !matchId) return '';
   const defaultPrisma = getDefaultPrismaClient();
   const tenantRows = await defaultPrisma.user.findMany({
     where: { tenantDbName: { not: null } },
@@ -311,12 +367,18 @@ const findTenantForInterview = async (interviewId) => {
   );
 
   for (const tenantDbName of tenantNames) {
-    const found = await runWithTenantContext(tenantDbName, async () =>
-      prisma.interview.findUnique({
-        where: { id: interviewId },
+    const found = await runWithTenantContext(tenantDbName, async () => {
+      if (interviewId) {
+        return prisma.interview.findUnique({
+          where: { id: interviewId },
+          select: { id: true },
+        });
+      }
+      return prisma.match.findUnique({
+        where: { id: matchId },
         select: { id: true },
-      })
-    );
+      });
+    });
     if (found?.id) return tenantDbName;
   }
 
@@ -328,8 +390,11 @@ const resolveReviewTenant = async (decoded) => {
   if (tokenTenant) return tokenTenant;
   const activeTenant = getActiveTenantDbName();
   if (activeTenant) return activeTenant;
-  if (!decoded?.interviewId) return '';
-  return findTenantForInterview(decoded.interviewId);
+  if (!decoded?.interviewId && !decoded?.matchId) return '';
+  return findTenantForRecord({
+    interviewId: decoded.interviewId || null,
+    matchId: decoded.matchId || null,
+  });
 };
 
 const attachMeetingLink = async (interview, platformOverride) => {
@@ -468,8 +533,11 @@ export const interviewService = {
 
   async create(payload, user) {
     const clientId = payload.clientId || payload.companyId;
+    // The candidate picker on the CRM merges portal + tenant rows. If the chosen candidate
+    // only exists on the portal side, `getCandidateOrThrow` will materialize it into the
+    // tenant on demand (same path used by candidate routes) instead of failing with 400.
     const [candidate, job, client, panelUsers] = await Promise.all([
-      prisma.candidate.findUnique({ where: { id: payload.candidateId } }),
+      getCandidateOrThrow(payload.candidateId).catch(() => null),
       prisma.job.findUnique({ where: { id: payload.jobId } }),
       prisma.client.findUnique({ where: { id: clientId } }),
       getPanelUsers(payload.panelUserIds),
@@ -542,6 +610,48 @@ export const interviewService = {
       meetingLinkError = meetingResult.meetingLinkError;
     }
 
+    // Move the candidate to the Interviewing stage on the CRM tenant AND mirror the change
+    // to the job-portal application (status → INTERVIEW) and portal candidate row. Without
+    // this the candidate keeps showing "Applied" on /candidate and `/applications` even
+    // though an interview has been scheduled. updateCandidateStage handles both DBs.
+    try {
+      const interviewerNames = Array.isArray(result.panel)
+        ? result.panel
+            .map((member) => {
+              const u = member?.user || {};
+              return [u.firstName, u.lastName].filter(Boolean).join(' ').trim();
+            })
+            .filter(Boolean)
+        : [];
+      await updateCandidateStage({
+        candidateId: candidate.id,
+        jobId: job.id,
+        stage: PIPELINE_STAGES.INTERVIEW,
+        performedById: user.id,
+        skipStageActivity: true,
+        metadata: {
+          scheduledAt: scheduledAt.toISOString(),
+          type: payload.type,
+          mode: payload.mode,
+          locationLine: payload.mode === 'OFFLINE' ? payload.location || null : null,
+          meetingLink: result.meetingLink || null,
+          interviewerNames,
+          recruiterName: [user.firstName, user.lastName].filter(Boolean).join(' ').trim() || null,
+        },
+      });
+      const refreshedAfterStage = await getInterviewWithInclude(result.id);
+      if (refreshedAfterStage) {
+        result = refreshedAfterStage;
+      }
+    } catch (stageError) {
+      // Stage sync should never block the interview creation. Log and continue so the
+      // recruiter still gets the success response and the meeting/email flow runs.
+      console.warn(
+        '[interview.create] candidate stage sync failed:',
+        stageError?.message || stageError,
+      );
+    }
+
     if (payload.sendEmailNotification) {
       await sendInterviewScheduled(result.candidate, result, result.panel);
     }
@@ -558,8 +668,12 @@ export const interviewService = {
     const nextCandidateId = payload.candidateId || current.candidate.id;
     const nextJobId = payload.jobId || current.job.id;
 
+    // Same portal→tenant fallback as create() — needed when the recruiter swaps the candidate
+    // on an existing interview to one that came from the job portal merged list.
     const [candidate, job, explicitClient, panelUsers] = await Promise.all([
-      payload.candidateId ? prisma.candidate.findUnique({ where: { id: nextCandidateId } }) : Promise.resolve(current.candidate),
+      payload.candidateId
+        ? getCandidateOrThrow(nextCandidateId).catch(() => null)
+        : Promise.resolve(current.candidate),
       payload.jobId ? prisma.job.findUnique({ where: { id: nextJobId } }) : Promise.resolve(current.job),
       payload.clientId ? prisma.client.findUnique({ where: { id: payload.clientId } }) : Promise.resolve(null),
       payload.panelUserIds ? getPanelUsers(payload.panelUserIds) : Promise.resolve(current.panel.map((member) => member.user)),
@@ -919,15 +1033,44 @@ export const interviewService = {
       throw new Error('No client email found for this interview/client');
     }
 
-    const token = createClientReviewToken(interview);
+    // Force the recruiter to pick a purpose if we can't reasonably infer one.
+    // Without this we'd silently default to GENERAL and the public review page
+    // would never know to ask for an offer letter.
+    const requested = normalizeSubmissionType(payload?.submissionType);
+    const inferred = requested ? '' : inferSubmissionType(interview);
+    const submissionType = requested || inferred;
+    if (!submissionType) {
+      throw new Error(
+        'Submission purpose is required. Pick one of: INITIAL_REVIEW, INTERIM_REVIEW, OFFER_CONFIRMATION.'
+      );
+    }
+
+    const token = createClientReviewToken({
+      interviewId: interview.id,
+      candidateId: interview.candidateId,
+      jobId: interview.jobId,
+      clientId: interview.clientId,
+      submissionType,
+    });
     const reviewUrl = `${env.FRONTEND_URL}/client-review/${encodeURIComponent(token)}`;
+
+    const purposeLabel =
+      submissionType === 'OFFER_CONFIRMATION'
+        ? 'Final clarification — please attach the signed offer letter.'
+        : submissionType === 'INTERIM_REVIEW'
+          ? 'Mid-cycle review — please confirm next steps.'
+          : submissionType === 'INITIAL_REVIEW'
+            ? 'Initial review — please confirm the candidate is a fit before scheduling.'
+            : 'Please review this candidate.';
 
     const emailResult = await sendMatchSubmissionEmail({
       to: recipients,
       clientName: interview.client?.companyName || 'Client',
       jobTitle: interview.job?.title || 'Job',
       recruiterName: user?.name || user?.email || 'Recruitment Team',
-      message: payload?.message || `Please review this candidate using the secure link: ${reviewUrl}`,
+      message:
+        payload?.message ||
+        `${purposeLabel} Open the secure review link to respond: ${reviewUrl}`,
       candidates: [mapInterviewCandidateForEmail(interview.candidate)],
       portalUrl: reviewUrl,
       subject: `Interview Candidate Submission: ${interview.job?.title || 'Job'}`,
@@ -937,22 +1080,134 @@ export const interviewService = {
       throw new Error(emailResult?.error || 'Failed to send client submission email');
     }
 
+    // Note the submission on the interview so the activity log + notes section
+    // shows what each "Submit to Client" was for. We don't update candidate
+    // stage here; that happens once the client actually responds via the
+    // public review page.
+    try {
+      await prisma.interview.update({
+        where: { id: interview.id },
+        data: {
+          notes: `${interview.notes || ''}\n[Submitted to client] ${submissionType.replace(
+            /_/g,
+            ' '
+          )} → ${recipients.join(', ')}`.trim(),
+        },
+      });
+      await logActivity(prisma, {
+        interviewId: interview.id,
+        action: INTERVIEW_ACTIVITY_ACTIONS.NOTE_ADDED || 'NOTE_ADDED',
+        userId: user?.id,
+        metadata: {
+          channel: 'submit-to-client',
+          submissionType,
+          recipients,
+        },
+      });
+    } catch (logError) {
+      console.warn(
+        '[interview.submitToClient] failed to log submission note:',
+        logError?.message || logError
+      );
+    }
+
     return {
       success: true,
       recipients,
       reviewUrl,
+      submissionType,
     };
   },
 
   async getPublicClientReview(token) {
     const decoded = verifyClientReviewToken(token);
-    if (!decoded?.interviewId) throw new Error('Invalid or expired review link');
+    if (!decoded?.interviewId && !decoded?.matchId) {
+      throw new Error('Invalid or expired review link');
+    }
     const tenantDbName = await resolveReviewTenant(decoded);
-    const interview = await runWithTenantContext(tenantDbName, async () =>
-      getInterviewOrThrow(decoded.interviewId)
+    const submissionType = normalizeSubmissionType(decoded?.submissionType) || 'GENERAL';
+
+    // The two entry points (interview / match) share a response shape so the
+    // public review page doesn't need to know which one it came from.
+    const { interview, offerLetterFile } = await runWithTenantContext(
+      tenantDbName,
+      async () => {
+        let iv = null;
+        if (decoded.interviewId) {
+          iv = await getInterviewOrThrow(decoded.interviewId);
+        } else {
+          // Match-only path: build a synthetic "interview" that the rest of
+          // this method can serialize without changing the wire format. We
+          // attach any interviews that already exist for the same candidate
+          // + job so the client still sees prior feedback on the link.
+          const match = await prisma.match.findUnique({
+            where: { id: decoded.matchId },
+            include: {
+              candidate: { select: interviewInclude.candidate.select },
+              // Match has no `client` relation — client hangs off `Job`.
+              job: {
+                select: {
+                  ...interviewInclude.job.select,
+                  client: { select: interviewInclude.client.select },
+                },
+              },
+            },
+          });
+          if (!match) throw new Error('Match not found');
+          const jobIdForFeedback = match.jobId || match.job?.id || null;
+          const priorFeedback = jobIdForFeedback
+            ? await prisma.interviewFeedback.findMany({
+                where: {
+                  interview: {
+                    candidateId: match.candidateId,
+                    jobId: jobIdForFeedback,
+                  },
+                },
+                include: {
+                  interviewer: { select: { id: true, name: true } },
+                },
+                orderBy: { createdAt: 'desc' },
+                take: 5,
+              })
+            : [];
+          const jobRow = match.job;
+          const clientRow = jobRow?.client || {
+            id: '',
+            companyName: '',
+            website: '',
+            location: '',
+            industry: '',
+          };
+          iv = {
+            id: match.id,
+            candidateId: match.candidateId,
+            candidate: match.candidate,
+            job: jobRow
+              ? {
+                  id: jobRow.id,
+                  title: jobRow.title,
+                  department: jobRow.department,
+                  location: jobRow.location,
+                  clientId: jobRow.clientId,
+                }
+              : { id: '', title: '', department: null, location: null, clientId: null },
+            client: clientRow,
+            feedbackEntries: priorFeedback,
+            notes: '',
+          };
+        }
+
+        const offerFile = await prisma.candidateFile.findFirst({
+          where: { candidateId: iv.candidateId, fileType: 'Offer' },
+          orderBy: { uploadDate: 'desc' },
+        });
+        return { interview: iv, offerLetterFile: offerFile };
+      }
     );
     return {
       interviewId: interview.id,
+      submissionType,
+      offerLetterUrl: offerLetterFile?.fileUrl || null,
       candidate: {
         name: `${interview.candidate.firstName || ''} ${interview.candidate.lastName || ''}`.trim(),
         email: interview.candidate.email || '',
@@ -990,31 +1245,258 @@ export const interviewService = {
     };
   },
 
-  async submitPublicClientTag(token, payload) {
+  async submitPublicClientTag(token, payload, file = null) {
     const decoded = verifyClientReviewToken(token);
-    if (!decoded?.interviewId) throw new Error('Invalid or expired review link');
+    if (!decoded?.interviewId && !decoded?.matchId) {
+      throw new Error('Invalid or expired review link');
+    }
 
     const tag = String(payload?.tag || '').trim();
-    if (!tag) throw new Error('Tag is required');
     const comments = String(payload?.comments || '').trim();
+    const submissionType = normalizeSubmissionType(decoded?.submissionType) || 'GENERAL';
+
+    // For OFFER_CONFIRMATION the only meaningful action from the client is the
+    // signed offer letter, so we let them submit just the file (no tag). For
+    // every other purpose we still require a tag — the recruiter explicitly
+    // asked for a decision.
+    if (!tag && !file) {
+      throw new Error(
+        submissionType === 'OFFER_CONFIRMATION'
+          ? 'Please attach the offer letter or pick a decision'
+          : 'Tag is required'
+      );
+    }
 
     const tenantDbName = await resolveReviewTenant(decoded);
-    const updated = await runWithTenantContext(tenantDbName, async () => {
-      const interview = await getInterviewOrThrow(decoded.interviewId);
-      const noteAppend = `\n[Client Tag] ${tag}${comments ? ` - ${comments}` : ''}`;
-      return prisma.interview.update({
-        where: { id: interview.id },
-        data: {
-          notes: `${interview.notes || ''}${noteAppend}`.trim(),
-        },
-        include: interviewInclude,
-      });
+    const result = await runWithTenantContext(tenantDbName, async () => {
+      // Resolve whichever entity owns this token. The match path has no
+      // interview row to update, so we keep the activity trail on the match
+      // record + candidate file instead.
+      let interview = null;
+      let match = null;
+      let candidateId;
+      let jobId;
+      let uploaderId = null;
+      if (decoded.interviewId) {
+        interview = await getInterviewOrThrow(decoded.interviewId);
+        candidateId = interview.candidateId;
+        jobId = interview.jobId;
+        uploaderId = interview.createdById || interview.interviewerId || null;
+      } else {
+        match = await prisma.match.findUnique({
+          where: { id: decoded.matchId },
+          select: { id: true, candidateId: true, jobId: true, createdById: true },
+        });
+        if (!match) throw new Error('Match not found');
+        candidateId = match.candidateId;
+        jobId = match.jobId;
+        uploaderId = match.createdById || null;
+      }
+
+      let offerLetterUrl = null;
+      let placementOfferAttached = false;
+      if (file) {
+        const fileUrl = `/uploads/interview-client-review/${file.filename}`;
+        // Tag the candidate file based on what stage of the funnel produced
+        // it. Offer-confirmation uploads go in as 'Offer' so the Placements
+        // tab can pick them up; everything else lands as a generic 'Other'
+        // attachment that still appears on the candidate Documents tab.
+        const candidateFileType =
+          submissionType === 'OFFER_CONFIRMATION' ? 'Offer' : 'Other';
+
+        // CandidateFile.uploadedById is required by the schema. The public
+        // endpoint has no auth context, so we fall back through a few
+        // reasonable owners before giving up. We never want a missing user
+        // FK to swallow the upload silently — the activity log + placement
+        // attach still need to run, but the file itself is the most useful
+        // artefact, so we try hard to persist it.
+        let candidateFileUploaderId = uploaderId;
+        if (!candidateFileUploaderId) {
+          try {
+            const candidate = await prisma.candidate.findUnique({
+              where: { id: candidateId },
+              select: { assignedToId: true, createdById: true },
+            });
+            candidateFileUploaderId =
+              candidate?.assignedToId || candidate?.createdById || null;
+          } catch (lookupError) {
+            console.warn(
+              '[interview.submitPublicClientTag] candidate uploader lookup failed:',
+              lookupError?.message || lookupError
+            );
+          }
+        }
+        if (candidateFileUploaderId) {
+          try {
+            await prisma.candidateFile.create({
+              data: {
+                candidateId,
+                fileName: file.originalname || file.filename,
+                fileType: candidateFileType,
+                fileUrl,
+                uploadedById: candidateFileUploaderId,
+              },
+            });
+          } catch (candidateFileError) {
+            console.warn(
+              '[interview.submitPublicClientTag] candidate file persist failed:',
+              candidateFileError?.message || candidateFileError
+            );
+          }
+        }
+        offerLetterUrl = fileUrl;
+
+        // Only OFFER_CONFIRMATION uploads should attach to a placement —
+        // earlier-stage submissions are review attachments, not the signed
+        // offer. We still keep the candidate-file row so recruiters can see
+        // the document on the candidate Documents tab regardless.
+        if (submissionType === 'OFFER_CONFIRMATION') {
+          try {
+            const placement = await prisma.placement.findFirst({
+              where: {
+                candidateId,
+                jobId,
+                deletedAt: null,
+              },
+              orderBy: { createdAt: 'desc' },
+              select: { id: true },
+            });
+            if (placement?.id) {
+              // No native unique on (placementId, documentType); emulate
+              // "replace" so the most recent client upload wins and the
+              // Placements list reads exactly one OFFER_LETTER row.
+              await prisma.placementDocument.deleteMany({
+                where: { placementId: placement.id, documentType: 'OFFER_LETTER' },
+              });
+              await prisma.placementDocument.create({
+                data: {
+                  placementId: placement.id,
+                  documentType: 'OFFER_LETTER',
+                  fileUrl,
+                  fileName: file.originalname || file.filename,
+                  uploadedBy: candidateFileUploaderId || undefined,
+                },
+              });
+              placementOfferAttached = true;
+            }
+          } catch (placementError) {
+            console.warn(
+              '[interview.submitPublicClientTag] placement document attach failed:',
+              placementError?.message || placementError
+            );
+          }
+        }
+      }
+
+      const noteParts = [];
+      if (tag) noteParts.push(`[Client Tag] ${tag}${comments ? ` - ${comments}` : ''}`);
+      if (file) {
+        const uploadLabel =
+          submissionType === 'OFFER_CONFIRMATION' ? 'Offer letter received' : 'Document received';
+        noteParts.push(`[Client Upload] ${uploadLabel}: ${file.originalname || file.filename}`);
+      }
+      const noteAppend = noteParts.length ? `\n${noteParts.join('\n')}` : '';
+
+      let updatedRecordId = null;
+      if (interview) {
+        const updated = await prisma.interview.update({
+          where: { id: interview.id },
+          data: {
+            notes: `${interview.notes || ''}${noteAppend}`.trim(),
+          },
+          include: interviewInclude,
+        });
+        updatedRecordId = updated.id;
+      } else if (match) {
+        // Match-only flow: log the client's response as a candidate activity
+        // so it surfaces in the matches view + candidate timeline.
+        try {
+          await prisma.activity.create({
+            data: {
+              action: file
+                ? submissionType === 'OFFER_CONFIRMATION'
+                  ? 'Client uploaded offer letter'
+                  : 'Client uploaded review document'
+                : 'Client review submitted',
+              description: noteParts.join(' | ') || `Tag: ${tag}`,
+              performedById: uploaderId || undefined,
+              entityType: 'CANDIDATE',
+              entityId: candidateId,
+              category: 'Candidates',
+              relatedType: 'job',
+              relatedId: jobId,
+              metadata: {
+                kind: 'match-client-review',
+                matchId: match.id,
+                submissionType,
+                tag,
+                comments: comments || null,
+                offerLetterUrl,
+              },
+            },
+          });
+        } catch (activityError) {
+          console.warn(
+            '[interview.submitPublicClientTag] match activity log failed:',
+            activityError?.message || activityError
+          );
+        }
+        updatedRecordId = match.id;
+      }
+
+      // For final-offer submissions we also push the candidate to the OFFER
+      // pipeline bucket so the CRM + portal stay in sync without a second
+      // manual click. We swallow errors so a flaky portal call never blocks
+      // the client-side response.
+      if (submissionType === 'OFFER_CONFIRMATION' && file) {
+        try {
+          await updateCandidateStage({
+            candidateId,
+            jobId,
+            stage: PIPELINE_STAGES.OFFER,
+            performedById: uploaderId,
+            skipStageActivity: true,
+            metadata: {
+              source: 'client-review',
+              tag: tag || null,
+              offerLetterUrl,
+              matchId: match?.id || null,
+              interviewId: interview?.id || null,
+            },
+          });
+        } catch (stageError) {
+          console.warn(
+            '[interview.submitPublicClientTag] candidate stage sync failed:',
+            stageError?.message || stageError
+          );
+        }
+        // Mirror the offer letter onto the candidate's portal Application so
+        // they get a "View / Download offer letter" button on the
+        // job-portal `/applications/[id]` page right after the client
+        // submits the signed PDF — even before the recruiter creates the
+        // Placement record on the CRM side.
+        try {
+          await syncApplicationOfferLetter(candidateId, jobId, {
+            fileUrl: offerLetterUrl,
+            fileName: file.originalname || file.filename,
+          });
+        } catch (offerSyncError) {
+          console.warn(
+            '[interview.submitPublicClientTag] portal offer letter sync failed:',
+            offerSyncError?.message || offerSyncError
+          );
+        }
+      }
+
+      return { updatedRecordId, offerLetterUrl, placementOfferAttached };
     });
 
     return {
       success: true,
       tag,
-      interviewId: updated.id,
+      interviewId: result.updatedRecordId,
+      offerLetterUrl: result.offerLetterUrl,
+      placementOfferAttached: result.placementOfferAttached,
     };
   },
 

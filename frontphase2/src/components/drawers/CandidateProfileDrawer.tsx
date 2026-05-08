@@ -116,6 +116,17 @@ export interface CandidateProfileDrawerData {
   noticePeriod?: string | null;
   assignedJob?: string | null;
   assignedJobId?: string | null;
+  /**
+   * Every job the candidate is currently associated with. Populated from
+   * portal `Application` rows + CRM `Match` rows so the drawer can show ALL
+   * applications (not just the latest match).
+   */
+  assignedJobs?: Array<{
+    id?: string | null;
+    title: string;
+    status?: string | null;
+    appliedAt?: string | null;
+  }>;
   recruiter?: string | null;
   recruiterId?: string | null;
   source?: string | null;
@@ -242,7 +253,12 @@ interface CandidateProfileDrawerProps {
     priority: 'High' | 'Medium' | 'Low';
     notes?: string;
   }) => void | Promise<void>;
-  onRejectCandidate?: (reason: string, feedback: string, sendEmail: boolean) => void | Promise<void>;
+  onRejectCandidate?: (
+    reason: string,
+    feedback: string,
+    sendEmail: boolean,
+    showFeedbackToCandidate: boolean
+  ) => void | Promise<void>;
   onScheduleInterview?: (interviewData: CandidateScheduledInterview) => void | Promise<void>;
   onUpdateCandidate?: (candidateId: string, payload: UpdateCandidatePayload) => void | Promise<void>;
 }
@@ -2292,12 +2308,46 @@ interface RejectCandidateModalProps {
   candidate: CandidateProfileDrawerData | null;
   isOpen: boolean;
   onClose: () => void;
-  onReject?: (reason: string, feedback: string, sendEmail: boolean) => void | Promise<void>;
+  onReject?: (
+    reason: string,
+    feedback: string,
+    sendEmail: boolean,
+    showFeedbackToCandidate: boolean
+  ) => void | Promise<void>;
 }
 
 type RejectModalStep = 'form' | 'confirm' | 'progress' | 'done';
 
 const REJECT_FEEDBACK_MAX_LENGTH = 100;
+
+function ProfileRejectFormSwitch({
+  checked,
+  onCheckedChange,
+  activeTrackClass,
+}: {
+  checked: boolean;
+  onCheckedChange: (next: boolean) => void;
+  activeTrackClass: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onCheckedChange(!checked)}
+      className={`relative h-6 w-11 shrink-0 cursor-pointer rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 ${
+        checked ? `${activeTrackClass} border-transparent` : 'border-slate-300 bg-slate-200'
+      }`}
+    >
+      <span
+        className={`pointer-events-none absolute left-[3px] top-[3px] block h-[18px] w-[18px] rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform duration-200 ease-out ${
+          checked ? 'translate-x-5' : 'translate-x-0'
+        }`}
+        aria-hidden
+      />
+    </button>
+  );
+}
 
 function RejectCandidateModal({
   candidate,
@@ -2308,6 +2358,7 @@ function RejectCandidateModal({
   const [reason, setReason] = useState('');
   const [feedback, setFeedback] = useState('');
   const [sendEmail, setSendEmail] = useState(true);
+  const [showFeedbackToCandidate, setShowFeedbackToCandidate] = useState(true);
   const [errors, setErrors] = useState<{ reason?: string }>({});
   const [step, setStep] = useState<RejectModalStep>('form');
   const [progressStep, setProgressStep] = useState(0);
@@ -2318,6 +2369,7 @@ function RejectCandidateModal({
       setReason('');
       setFeedback('');
       setSendEmail(true);
+      setShowFeedbackToCandidate(true);
       setErrors({});
       setStep('form');
       setProgressStep(0);
@@ -2352,7 +2404,7 @@ function RejectCandidateModal({
         setProgressStep(i);
         await new Promise((resolve) => window.setTimeout(resolve, 350));
       }
-      await Promise.resolve(onReject?.(reason, feedback.trim(), sendEmail));
+      await Promise.resolve(onReject?.(reason, feedback.trim(), sendEmail, showFeedbackToCandidate));
       setStep('done');
     } finally {
       setSubmitting(false);
@@ -2436,24 +2488,26 @@ function RejectCandidateModal({
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                      <div>
-                        <p className="text-sm font-medium text-slate-800">Send rejection email</p>
-                        <p className="text-xs text-slate-500">Notify the candidate automatically after rejection.</p>
+                    <div className="flex items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                      <div className="min-w-0 pr-2">
+                        <p className="text-sm font-medium text-slate-800">Share feedback with candidate</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          When on, the feedback above appears on the candidate's job-portal application timeline. Internal records are kept either way.
+                        </p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setSendEmail((prev) => !prev)}
-                        className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${
-                          sendEmail ? 'bg-red-500' : 'bg-slate-300'
-                        }`}
-                      >
-                        <span
-                          className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
-                            sendEmail ? 'translate-x-6' : 'translate-x-1'
-                          }`}
-                        />
-                      </button>
+                      <ProfileRejectFormSwitch
+                        checked={showFeedbackToCandidate}
+                        onCheckedChange={setShowFeedbackToCandidate}
+                        activeTrackClass="bg-emerald-500"
+                      />
+                    </div>
+
+                    <div className="flex items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                      <div className="min-w-0 pr-2">
+                        <p className="text-sm font-medium text-slate-800">Send rejection email</p>
+                        <p className="mt-1 text-xs text-slate-500">Notify the candidate automatically after rejection.</p>
+                      </div>
+                      <ProfileRejectFormSwitch checked={sendEmail} onCheckedChange={setSendEmail} activeTrackClass="bg-red-500" />
                     </div>
                   </div>
 
@@ -2488,6 +2542,11 @@ function RejectCandidateModal({
                         <li>Feedback stored</li>
                         <li>Candidate stage updated</li>
                         <li>AI Courses suggestions sent</li>
+                        <li>
+                          {showFeedbackToCandidate
+                            ? 'Feedback shared with candidate'
+                            : 'Feedback kept internal — candidate will not see it'}
+                        </li>
                         <li>{sendEmail ? 'Rejection email sent' : 'Rejection email skipped'}</li>
                       </ul>
                     </div>
@@ -3593,6 +3652,41 @@ export function CandidateProfileDrawer({
                       </h3>
                       <div className="space-y-3">
                         <InfoRow icon={Briefcase} label="Assigned Job" value={linkedJobLabel || candidate.assignedJob} />
+                        {Array.isArray(candidate.assignedJobs) && candidate.assignedJobs.length > 1 ? (
+                          <div className="rounded-xl border border-slate-200 bg-white p-3">
+                            <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                              All applications ({candidate.assignedJobs.length})
+                            </p>
+                            <ul className="mt-2 space-y-2">
+                              {candidate.assignedJobs.map((row, idx) => {
+                                const key = row.id || `${row.title}-${idx}`;
+                                const status = String(row.status || '').trim();
+                                const lower = status.toLowerCase();
+                                const tone = lower.includes('reject')
+                                  ? 'bg-rose-50 text-rose-700 ring-1 ring-rose-200'
+                                  : lower.includes('hire') || lower.includes('placed') || lower.includes('selected')
+                                    ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
+                                    : lower.includes('interview')
+                                      ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'
+                                      : 'bg-slate-100 text-slate-700 ring-1 ring-slate-200';
+                                return (
+                                  <li key={key} className="flex items-center justify-between gap-2">
+                                    <span className="truncate text-sm font-medium text-slate-800">
+                                      {row.title || 'Untitled job'}
+                                    </span>
+                                    {status ? (
+                                      <span
+                                        className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${tone}`}
+                                      >
+                                        {status}
+                                      </span>
+                                    ) : null}
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          </div>
+                        ) : null}
                         <InfoRow icon={UserCircle2} label="Recruiter" value={candidate.recruiter} />
                         <InfoRow icon={Tag} label="Stage" value={candidate.stage} />
                         <InfoRow icon={Send} label="Source" value={candidate.source} />

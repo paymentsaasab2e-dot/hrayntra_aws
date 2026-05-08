@@ -84,15 +84,10 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
   onEditCandidate,
   onDeleteCandidate,
   deletingCandidateId,
-  stageOptionsByJobId = {},
-  stageOptionsLoadingJobId = null,
-  movingCandidateId = null,
-  onLoadStageOptions,
-  onChangeCandidateStage,
+  // Inline-stage props are still accepted (kept on the interface for parent compatibility)
+  // but no longer wired to the cell — the stage column is read-only from the table now.
 }) => {
   const allSelected = candidates.length > 0 && selectedIds.length === candidates.length;
-  const normalizeStage = (value: string) =>
-    String(value || '').toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
 
   return (
     <div className="bg-white overflow-hidden">
@@ -187,39 +182,14 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                   </div>
                 </td>
                 <td className="px-4 py-4">
-                  {onChangeCandidateStage && candidate.pipelineJobId ? (
-                    <select
-                      value={
-                        (stageOptionsByJobId[candidate.pipelineJobId] || []).find(
-                          (option) => normalizeStage(option.name) === normalizeStage(candidate.stage)
-                        )?.id || ''
-                      }
-                      onFocus={() => void onLoadStageOptions?.(candidate)}
-                      onClick={() => void onLoadStageOptions?.(candidate)}
-                      onChange={(e) => {
-                        const nextStageId = e.target.value;
-                        if (!nextStageId) return;
-                        void onChangeCandidateStage(candidate, nextStageId);
-                      }}
-                      disabled={movingCandidateId === candidate.id}
-                      className="min-w-[150px] rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 disabled:opacity-60"
-                    >
-                      <option value="">
-                        {stageOptionsLoadingJobId === candidate.pipelineJobId
-                          ? 'Loading stages...'
-                          : getCandidateStageLabel(candidate.stage)}
-                      </option>
-                      {(stageOptionsByJobId[candidate.pipelineJobId] || []).map((option) => (
-                        <option key={option.id} value={option.id}>
-                          {option.name}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border ${getStageColor(candidate.stage)}`}>
-                      {getCandidateStageLabel(candidate.stage)}
-                    </span>
-                  )}
+                  {/* Stage is read-only on the list — recruiters change it from the candidate
+                      edit drawer / profile drawer instead of inline. Keeping it as a chip avoids
+                      accidental moves and matches the rest of the row's look-and-feel. */}
+                  <span
+                    className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border ${getStageColor(candidate.stage)}`}
+                  >
+                    {getCandidateStageLabel(candidate.stage)}
+                  </span>
                 </td>
                 <td className="px-4 py-4">
                   <div className="flex items-center gap-2">

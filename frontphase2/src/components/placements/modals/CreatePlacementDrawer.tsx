@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { Upload, X } from 'lucide-react';
 import type { CreatePlacementPayload, EmploymentType } from '../../../types/placement';
 import { calculatePlacementFee } from '../../../utils/placements';
+import { SUPPORTED_CURRENCIES, formatCurrencyAmount } from '../../../utils/currency';
 
 interface CreatePlacementDrawerProps {
   isOpen: boolean;
@@ -27,6 +28,7 @@ const initialState = {
   offerSalary: '',
   placementFee: '',
   commissionPercentage: '20',
+  currency: 'USD',
   offerDate: '',
   expectedJoiningDate: '',
   employmentType: 'PERMANENT' as EmploymentType,
@@ -69,13 +71,14 @@ export function CreatePlacementDrawer({
 
   useEffect(() => {
     const salary = Number(form.offerSalary || 0);
-    if (salary > 0 && !feeEditedManually) {
+    const pct = Number(form.commissionPercentage || 0);
+    if (salary > 0 && pct > 0 && !feeEditedManually) {
       setForm((current) => ({
         ...current,
-        placementFee: String(Math.round(calculatePlacementFee(salary, 10))),
+        placementFee: String(Math.round(calculatePlacementFee(salary, pct))),
       }));
     }
-  }, [form.offerSalary, feeEditedManually]);
+  }, [form.offerSalary, form.commissionPercentage, feeEditedManually]);
 
   const validate = () => {
     const nextErrors: Record<string, string> = {};
@@ -179,6 +182,21 @@ export function CreatePlacementDrawer({
               </div>
 
               <div>
+                <label className="mb-1.5 block text-sm font-medium text-[#111827]">Currency</label>
+                <select
+                  value={form.currency}
+                  onChange={(event) => setForm((current) => ({ ...current, currency: event.target.value }))}
+                  className="h-11 w-full rounded-xl border border-[#D1D5DB] px-3 text-sm outline-none focus:border-[#2563EB]"
+                >
+                  {SUPPORTED_CURRENCIES.map((code) => (
+                    <option key={code} value={code}>
+                      {code}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
                 <label className="mb-1.5 block text-sm font-medium text-[#111827]">Offer Salary*</label>
                 <input
                   type="number"
@@ -186,7 +204,26 @@ export function CreatePlacementDrawer({
                   onChange={(event) => setForm((current) => ({ ...current, offerSalary: event.target.value }))}
                   className="h-11 w-full rounded-xl border border-[#D1D5DB] px-3 text-sm outline-none focus:border-[#2563EB]"
                 />
+                {Number(form.offerSalary) > 0 ? (
+                  <p className="mt-1 text-xs text-[#6B7280]">{formatCurrencyAmount(Number(form.offerSalary), form.currency)}</p>
+                ) : null}
                 {errors.offerSalary ? <p className="mt-1 text-xs text-red-600">{errors.offerSalary}</p> : null}
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-[#111827]">Commission %</label>
+                <input
+                  type="number"
+                  value={form.commissionPercentage}
+                  onChange={(event) => {
+                    setFeeEditedManually(false);
+                    setForm((current) => ({ ...current, commissionPercentage: event.target.value }));
+                  }}
+                  className="h-11 w-full rounded-xl border border-[#D1D5DB] px-3 text-sm outline-none focus:border-[#2563EB]"
+                />
+                <p className="mt-1 text-xs text-[#6B7280]">
+                  Drives placement fee. Edit fee directly to override.
+                </p>
               </div>
 
               <div>
@@ -200,17 +237,15 @@ export function CreatePlacementDrawer({
                   }}
                   className="h-11 w-full rounded-xl border border-[#D1D5DB] px-3 text-sm outline-none focus:border-[#2563EB]"
                 />
+                {Number(form.placementFee) > 0 ? (
+                  <p className="mt-1 text-xs text-[#6B7280]">
+                    {formatCurrencyAmount(Number(form.placementFee), form.currency)}
+                    {!feeEditedManually && Number(form.offerSalary) > 0 && Number(form.commissionPercentage) > 0
+                      ? ` (${form.commissionPercentage}% of salary)`
+                      : ''}
+                  </p>
+                ) : null}
                 {errors.placementFee ? <p className="mt-1 text-xs text-red-600">{errors.placementFee}</p> : null}
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-[#111827]">Commission %</label>
-                <input
-                  type="number"
-                  value={form.commissionPercentage}
-                  onChange={(event) => setForm((current) => ({ ...current, commissionPercentage: event.target.value }))}
-                  className="h-11 w-full rounded-xl border border-[#D1D5DB] px-3 text-sm outline-none focus:border-[#2563EB]"
-                />
               </div>
 
               <div>
@@ -304,6 +339,7 @@ export function CreatePlacementDrawer({
                       offerSalary: form.offerSalary,
                       placementFee: form.placementFee,
                       commissionPercentage: form.commissionPercentage,
+                      currency: form.currency,
                       offerDate: form.offerDate,
                       expectedJoiningDate: form.expectedJoiningDate || undefined,
                       employmentType: form.employmentType,

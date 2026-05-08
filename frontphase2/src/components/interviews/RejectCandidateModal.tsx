@@ -7,7 +7,12 @@ interface RejectCandidateModalProps {
   isOpen: boolean;
   interview: Interview | null;
   onClose: () => void;
-  onReject: (payload: { reason: string; feedback: string; sendEmail: boolean }) => Promise<void> | void;
+  onReject: (payload: {
+    reason: string;
+    feedback: string;
+    sendEmail: boolean;
+    showFeedbackToCandidate: boolean;
+  }) => Promise<void> | void;
 }
 
 const REJECT_REASONS = [
@@ -23,10 +28,43 @@ const FEEDBACK_MAX_LENGTH = 100;
 
 type Step = 'form' | 'confirm' | 'progress' | 'done';
 
+/** Accessible pill switch: track + sliding thumb (avoids broken flex + translate layouts). */
+function FormSwitch({
+  checked,
+  onCheckedChange,
+  activeTrackClass,
+}: {
+  checked: boolean;
+  onCheckedChange: (next: boolean) => void;
+  activeTrackClass: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onCheckedChange(!checked)}
+      className={`relative h-6 w-11 shrink-0 cursor-pointer rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 ${
+        checked ? `${activeTrackClass} border-transparent` : 'border-slate-300 bg-slate-200'
+      }`}
+    >
+      <span
+        className={`pointer-events-none absolute left-[3px] top-[3px] block h-[18px] w-[18px] rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform duration-200 ease-out ${
+          checked ? 'translate-x-5' : 'translate-x-0'
+        }`}
+        aria-hidden
+      />
+    </button>
+  );
+}
+
 export function RejectCandidateModal({ isOpen, interview, onClose, onReject }: RejectCandidateModalProps) {
   const [reason, setReason] = useState('');
   const [feedback, setFeedback] = useState('');
   const [sendEmail, setSendEmail] = useState(true);
+  // Default ON so the existing portal behaviour (candidate sees the
+  // rejection feedback) is preserved unless HR explicitly opts out.
+  const [showFeedbackToCandidate, setShowFeedbackToCandidate] = useState(true);
   const [errors, setErrors] = useState<{ reason?: string }>({});
   const [step, setStep] = useState<Step>('form');
   const [progressStep, setProgressStep] = useState(0);
@@ -37,6 +75,7 @@ export function RejectCandidateModal({ isOpen, interview, onClose, onReject }: R
       setReason('');
       setFeedback('');
       setSendEmail(true);
+      setShowFeedbackToCandidate(true);
       setErrors({});
       setStep('form');
       setProgressStep(0);
@@ -67,7 +106,14 @@ export function RejectCandidateModal({ isOpen, interview, onClose, onReject }: R
         setProgressStep(i);
         await new Promise((resolve) => window.setTimeout(resolve, 300));
       }
-      await Promise.resolve(onReject({ reason, feedback: feedback.trim(), sendEmail }));
+      await Promise.resolve(
+        onReject({
+          reason,
+          feedback: feedback.trim(),
+          sendEmail,
+          showFeedbackToCandidate,
+        })
+      );
       setStep('done');
     } finally {
       setSubmitting(false);
@@ -152,24 +198,26 @@ export function RejectCandidateModal({ isOpen, interview, onClose, onReject }: R
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                      <div>
-                        <p className="text-sm font-medium text-slate-800">Send rejection email</p>
-                        <p className="text-xs text-slate-500">Notify the candidate automatically after rejection.</p>
+                    <div className="flex items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                      <div className="min-w-0 pr-2">
+                        <p className="text-sm font-medium text-slate-800">Share feedback with candidate</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          When on, the feedback above appears on the candidate's job-portal application timeline. Internal records are kept either way.
+                        </p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setSendEmail((prev) => !prev)}
-                        className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${
-                          sendEmail ? 'bg-red-500' : 'bg-slate-300'
-                        }`}
-                      >
-                        <span
-                          className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
-                            sendEmail ? 'translate-x-6' : 'translate-x-1'
-                          }`}
-                        />
-                      </button>
+                      <FormSwitch
+                        checked={showFeedbackToCandidate}
+                        onCheckedChange={setShowFeedbackToCandidate}
+                        activeTrackClass="bg-emerald-500"
+                      />
+                    </div>
+
+                    <div className="flex items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                      <div className="min-w-0 pr-2">
+                        <p className="text-sm font-medium text-slate-800">Send rejection email</p>
+                        <p className="mt-1 text-xs text-slate-500">Notify the candidate automatically after rejection.</p>
+                      </div>
+                      <FormSwitch checked={sendEmail} onCheckedChange={setSendEmail} activeTrackClass="bg-red-500" />
                     </div>
                   </div>
 
@@ -205,6 +253,11 @@ export function RejectCandidateModal({ isOpen, interview, onClose, onReject }: R
                         <li>Feedback stored</li>
                         <li>Candidate stage updated</li>
                         <li>AI Courses suggestions sent</li>
+                        <li>
+                          {showFeedbackToCandidate
+                            ? 'Feedback shared with candidate'
+                            : 'Feedback kept internal — candidate will not see it'}
+                        </li>
                         <li>{sendEmail ? 'Rejection email sent' : 'Rejection email skipped'}</li>
                       </ul>
                     </div>

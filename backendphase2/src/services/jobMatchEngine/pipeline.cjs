@@ -1,15 +1,14 @@
 const OpenAI = require('openai');
-const { prisma } = require('../lib/prisma');
 const {
   normalizeSkill,
   tokenizeText,
   summarizeCandidate,
   summarizeJob,
-} = require('./job-normalization.service');
+} = require('./job-normalization.cjs');
 const {
   buildCandidateFeatures,
   buildJobFeatures,
-} = require('./feature-extraction.service');
+} = require('./feature-extraction.cjs');
 
 const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
@@ -427,21 +426,13 @@ function normalizeExternalJob(job) {
   };
 }
 
+/** Portal pipeline loads all jobs from Prisma; recruiter CRM uses `scoreRecruiterCandidateAgainstJob` instead. */
 async function getJobs() {
-  const dbJobs = await prisma.job.findMany({
-    where: {},
-    include: {
-      company: { select: { name: true, logoUrl: true } },
-      client: { select: { companyName: true, logo: true } },
-    },
-  });
+  return [];
+}
 
-  const externalJobs = [];
-
-  return [
-    ...dbJobs.map((job) => ({ ...job, source: 'db' })),
-    ...externalJobs.map(normalizeExternalJob),
-  ];
+function expandSkillTokens(skills = []) {
+  return sanitizeSkillList(skills);
 }
 
 function preFilterJobs(candidateFeatures, jobsWithFeatures) {
@@ -1032,18 +1023,6 @@ function formatJobResponse(scoredJob) {
   const salaryType = rawJob.salaryType ?? salaryJson?.type ?? null;
   const expectedSalary = rawJob.expectedSalary ?? salaryJson?.amount ?? null;
 
-  // Surface the same scoring vocabulary the candidate UI uses for the legacy AI pipeline:
-  // - `matchScore` is the percentage badge ("AI Fit XX% Match")
-  // - `confidenceTag` drives the secondary chip (Excellent/Strong/Good/Partial)
-  // - `shortReason` / `whyNotMatched` populate the low-score helper text
-  const matchScoreValue = Math.round(Math.max(0, Math.min(100, Number(scoredJob.finalScore) || 0)));
-  const confidenceTag =
-    matchScoreValue >= 85 ? 'Excellent Match'
-    : matchScoreValue >= 70 ? 'Strong Match'
-    : matchScoreValue >= 55 ? 'Good Match'
-    : matchScoreValue >= 35 ? 'Partial Match'
-    : 'Gap Identified';
-
   return {
     jobId: scoredJob.jobId,
     id: scoredJob.jobId,
@@ -1053,19 +1032,14 @@ function formatJobResponse(scoredJob) {
     companyLogo: rawJob.company?.logoUrl || rawJob.client?.logo || null,
     openings: rawJob.openings ?? 1,
     finalScore: scoredJob.finalScore,
-    matchScore: matchScoreValue,
-    normalizedScore: matchScoreValue,
     breakdown: scoredJob.breakdown,
     matchedSkills: scoredJob.matchedSkills,
     missingSkills: scoredJob.missingSkills,
     topMatchedSkills: scoredJob.matchedSkills.slice(0, 3),
     topMissingSkills: scoredJob.missingSkills.slice(0, 3),
     explanation: scoredJob.explanation,
-    reasoning: scoredJob.explanation,
-    shortReason: scoredJob.whyNotMatched || scoredJob.explanation || null,
     confidenceLevel: scoredJob.confidenceLevel,
     confidenceScore: scoredJob.confidenceScore,
-    confidenceTag,
     matchLabel: finalLabel,
     scoreColorHint: computeScoreColorHint(scoredJob.finalScore),
     location: scoredJob.location,
@@ -1103,27 +1077,7 @@ function formatJobResponse(scoredJob) {
     compensationBenefits: rawJob.compensationBenefits || null,
     benefits,
     companyOverview: rawJob.companyOverview || rawJob.overview || null,
-    // Jobs are written by both backend1 and backendphase2; fall back through every
-    // timestamp variant (postedDate, postedAt, createdAt, updatedAt) so the candidate UI
-    // always has a real created-at value instead of defaulting to "Just now".
-    postedDate:
-      rawJob.postedDate ||
-      rawJob.postedAt ||
-      rawJob.createdAt ||
-      rawJob.updatedAt ||
-      null,
-    postedAt:
-      rawJob.postedAt ||
-      rawJob.postedDate ||
-      rawJob.createdAt ||
-      rawJob.updatedAt ||
-      null,
-    createdAt:
-      rawJob.createdAt ||
-      rawJob.postedAt ||
-      rawJob.postedDate ||
-      rawJob.updatedAt ||
-      null,
+    postedDate: rawJob.postedDate || rawJob.postedAt || rawJob.createdAt || null,
     jobLocationType: rawJob.jobLocationType || rawJob.workMode || null,
   };
 }
@@ -1232,11 +1186,7 @@ async function runJobMatchingPipeline({ candidate, cleanedResumeText, limit }) {
     console.log(`Top ${index + 1}: ${job.title} | ${job.company} | ${job.deterministicScore}`);
   });
 
-  // The candidate explore page needs every job scored, not just the AI-elite top-N.
-  // Caching the AI pass at AI_TOP_LIMIT (cost guard) but returning all scored jobs.
-  const requestedLimit = Number(limit);
-  const hasExplicitLimit = Number.isFinite(requestedLimit) && requestedLimit > 0;
-  const safeLimit = hasExplicitLimit ? Math.min(Math.max(requestedLimit, 5), 500) : 500;
+  const safeLimit = clamp(Number(limit) || 5, 5, 10);
   const topJobs = scoredJobs.slice(0, AI_TOP_LIMIT);
 
   let aiApplied = false;
@@ -1306,15 +1256,13 @@ async function runJobMatchingPipeline({ candidate, cleanedResumeText, limit }) {
   );
   const aiDurationMs = Date.now() - aiStartedAt;
 
-  // Return every scored job so brand-new roles are not hidden when their deterministic
-  // score is still low. The candidate UI now shows real "missing skills" and "low score
-  // reason" badges for every entry instead of falling back to "Not scored yet".
   const finalRanked = [...scoredJobs]
+    .filter((job) => job.finalScore >= MIN_VISIBLE_SCORE)
     .sort((a, b) => {
       if (b.finalScore !== a.finalScore) return b.finalScore - a.finalScore;
       return b.deterministicScore - a.deterministicScore;
     })
-    .slice(0, safeLimit);
+    .slice(0, Math.max(5, Math.min(safeLimit, Math.max(scoredJobs.length, 1))));
 
   console.log('[PERFORMANCE]');
   console.log(`total pipeline time: ${Date.now() - pipelineStartedAt}ms`);
@@ -1343,6 +1291,72 @@ async function runJobMatchingPipeline({ candidate, cleanedResumeText, limit }) {
   };
 }
 
+/**
+ * Same deterministic + GPT-4o-mini AI blend as job portal personalized matching
+ * (deterministic * 0.6 + AI * 0.4), but for one CRM job vs one candidate row.
+ */
+async function scoreRecruiterCandidateAgainstJob({ job, candidate, cleanedResumeText = '' }) {
+  if (!job || !candidate) return null;
+  const mappedJob = normalizeExternalJob({ ...job, source: job.source || 'db' });
+  const [validatedJob] = await validateAndNormalizeJobs([mappedJob]);
+  if (!validatedJob) return null;
+
+  const normalizedCandidate = summarizeCandidate(candidate);
+  const candidateFeatures = buildCandidateFeatures(normalizedCandidate);
+  const deterministic = scoreDeterministic(candidateFeatures, validatedJob.jobFeatures);
+
+  let aiData = null;
+  try {
+    aiData = await getAIMatchScore(normalizedCandidate, validatedJob.rawJob);
+  } catch (err) {
+    console.error('[scoreRecruiterCandidateAgainstJob] AI match error:', err?.message || err);
+  }
+
+  let finalScore = deterministic.deterministicScore;
+  if (aiData && Number.isFinite(Number(aiData.finalScore))) {
+    finalScore = Math.min(
+      100,
+      deterministic.deterministicScore * 0.6 + Number(aiData.finalScore) * 0.4
+    );
+  }
+
+  const aiMatchedSkills = sanitizeSkillList(aiData?.matchedSkills || []);
+  const aiMissingSkills = sanitizeSkillList(aiData?.missingCriticalSkills || []);
+  let matchedSkills = deterministic.matchedSkills;
+  let missingSkills = deterministic.missingSkills;
+  if (aiMatchedSkills.length) matchedSkills = aiMatchedSkills;
+  if (aiMissingSkills.length) missingSkills = aiMissingSkills;
+
+  const confidence = computeConfidence(
+    {
+      deterministicScore: deterministic.deterministicScore,
+      breakdown: {
+        ...deterministic.breakdown,
+        aiScore: aiData?.finalScore ?? 0,
+        semanticBoost: 0,
+      },
+      diagnostics: deterministic.diagnostics,
+    },
+    aiData?.finalScore ?? null
+  );
+
+  return {
+    finalScore: Math.round(finalScore * 100) / 100,
+    deterministicScore: deterministic.deterministicScore,
+    aiScore: aiData?.finalScore ?? null,
+    verdict: aiData?.verdict || 'Closest Match',
+    matchedSkills,
+    missingSkills,
+    breakdown: deterministic.breakdown,
+    aiAnalysis: aiData?.analysis || null,
+    explanationSummary: aiData?.analysis?.summary || null,
+    confidenceScore: confidence.confidenceScore,
+    confidenceLevel: confidence.confidenceLevel,
+    aiEnhanced: Boolean(aiData),
+  };
+}
+
 module.exports = {
   runJobMatchingPipeline,
+  scoreRecruiterCandidateAgainstJob,
 };

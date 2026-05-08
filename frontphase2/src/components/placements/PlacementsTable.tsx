@@ -1,13 +1,13 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ArrowUpDown,
   Check,
   Eye,
   FileText,
   MoreHorizontal,
-  NotebookTabs,
 } from 'lucide-react';
 import { ImageWithFallback } from '../ImageWithFallback';
 import type { Placement } from '../../types/placement';
@@ -17,6 +17,7 @@ import {
   getPlacementStatusLabel,
   getStatusBadgeStyle,
 } from '../../utils/placements';
+import { buildFileHref } from '../../utils/cloudinaryUrls';
 import PaginationAll from '../PaginationAll';
 
 interface PlacementsTableProps {
@@ -63,6 +64,9 @@ function SortableHeader({
   );
 }
 
+const MENU_WIDTH = 208; // matches w-52 / 13rem
+const MENU_GAP = 6; // small offset from trigger
+
 function RowMenu({
   placement,
   onMarkFailed,
@@ -75,78 +79,145 @@ function RowMenu({
   onDelete?: (placement: Placement) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const hasMenuActions = Boolean(onMarkFailed || onRequestReplacement || onDelete);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Anchor the dropdown to the trigger using viewport coordinates so it
+  // renders above any `overflow:hidden`/`overflow-x-auto` ancestor (the
+  // table wrapper has both, which is why the menu was being clipped). We
+  // also flip up if there isn't enough room below.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const updatePosition = () => {
+      const trigger = triggerRef.current;
+      if (!trigger) return;
+      const rect = trigger.getBoundingClientRect();
+      const menuHeight = menuRef.current?.offsetHeight ?? 200;
+      const viewportH = window.innerHeight;
+      const viewportW = window.innerWidth;
+
+      let top = rect.bottom + MENU_GAP;
+      if (top + menuHeight > viewportH - 8) {
+        top = Math.max(8, rect.top - MENU_GAP - menuHeight);
+      }
+      let left = rect.right - MENU_WIDTH;
+      left = Math.max(8, Math.min(left, viewportW - MENU_WIDTH - 8));
+      setPosition({ top, left });
+    };
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [open]);
+
+  // Outside-click + Escape close. We listen on `mousedown` so the menu
+  // closes before any click handler on the underlying element fires.
+  useEffect(() => {
+    if (!open) return;
+    const handlePointer = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (menuRef.current?.contains(target)) return;
+      if (triggerRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', handlePointer);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handlePointer);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [open]);
 
   if (!hasMenuActions) {
     return null;
   }
 
+  const closeAnd = (fn?: () => void) => () => {
+    setOpen(false);
+    fn?.();
+  };
+
   return (
-    <div className="relative">
+    <>
       <button
+        ref={triggerRef}
         type="button"
         onClick={(event) => {
           event.stopPropagation();
           setOpen((current) => !current);
         }}
         className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="More actions"
       >
         <MoreHorizontal className="h-4 w-4" />
       </button>
 
-      {open ? (
-        <div className="absolute right-0 top-11 z-20 w-52 rounded-xl border border-[#E5E7EB] bg-white p-2 shadow-xl">
-          {onMarkFailed && (
-            <button
-              type="button"
-              onClick={() => {
-                setOpen(false);
-                onMarkFailed(placement, 'FAILED');
-              }}
-              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#111827] hover:bg-slate-50"
+      {mounted && open && position
+        ? createPortal(
+            <div
+              ref={menuRef}
+              role="menu"
+              style={{ top: position.top, left: position.left, width: MENU_WIDTH }}
+              className="fixed z-[1000] rounded-xl border border-[#E5E7EB] bg-white p-2 shadow-xl"
+              onClick={(event) => event.stopPropagation()}
             >
-              Mark as Failed
-            </button>
-          )}
-          {onMarkFailed && (
-            <button
-              type="button"
-              onClick={() => {
-                setOpen(false);
-                onMarkFailed(placement, 'NO_SHOW');
-              }}
-              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#111827] hover:bg-slate-50"
-            >
-              Mark as No Show
-            </button>
-          )}
-          {onRequestReplacement && (
-            <button
-              type="button"
-              onClick={() => {
-                setOpen(false);
-                onRequestReplacement(placement);
-              }}
-              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#111827] hover:bg-slate-50"
-            >
-              Request Replacement
-            </button>
-          )}
-          {onDelete && (
-            <button
-              type="button"
-              onClick={() => {
-                setOpen(false);
-                onDelete(placement);
-              }}
-              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#DC2626] hover:bg-red-50"
-            >
-              Delete Placement
-            </button>
-          )}
-        </div>
-      ) : null}
-    </div>
+              {onMarkFailed && (
+                <button
+                  type="button"
+                  onClick={closeAnd(() => onMarkFailed(placement, 'FAILED'))}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#111827] hover:bg-slate-50"
+                >
+                  Mark as Failed
+                </button>
+              )}
+              {onMarkFailed && (
+                <button
+                  type="button"
+                  onClick={closeAnd(() => onMarkFailed(placement, 'NO_SHOW'))}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#111827] hover:bg-slate-50"
+                >
+                  Mark as No Show
+                </button>
+              )}
+              {onRequestReplacement && (
+                <button
+                  type="button"
+                  onClick={closeAnd(() => onRequestReplacement(placement))}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#111827] hover:bg-slate-50"
+                >
+                  Request Replacement
+                </button>
+              )}
+              {onDelete && (
+                <button
+                  type="button"
+                  onClick={closeAnd(() => onDelete(placement))}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#DC2626] hover:bg-red-50"
+                >
+                  Delete Placement
+                </button>
+              )}
+            </div>,
+            document.body
+          )
+        : null}
+    </>
   );
 }
 
@@ -163,6 +234,19 @@ export function PlacementsTable({
   onDelete,
   onPageChange,
 }: PlacementsTableProps) {
+  // Offer-letter URLs returned by the backend look like `/uploads/...` —
+  // they're served from the API host, not the Next.js dev origin. Resolve
+  // the API base once so the "View offer letter" button opens via the
+  // backend's static route instead of 404'ing on :3001.
+  const uploadsBase = useMemo(
+    () =>
+      (typeof window !== 'undefined'
+        ? process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1'
+        : 'http://localhost:5001/api/v1'
+      ).replace(/\/api\/v1\/?$/, ''),
+    []
+  );
+
   if (isLoading) {
     return (
       <div className="overflow-hidden rounded-xl bg-white shadow-sm">
@@ -284,7 +368,11 @@ export function PlacementsTable({
                       <button
                         type="button"
                         disabled={!placement.offerLetterUrl}
-                        onClick={() => placement.offerLetterUrl && window.open(placement.offerLetterUrl, '_blank')}
+                        onClick={() => {
+                          if (!placement.offerLetterUrl) return;
+                          const href = buildFileHref(placement.offerLetterUrl, uploadsBase);
+                          window.open(href, '_blank', 'noopener');
+                        }}
                         className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
                         title="View offer letter"
                       >
@@ -302,16 +390,6 @@ export function PlacementsTable({
                           <Check className="h-4 w-4" />
                         </button>
                       )}
-
-                      <button
-                        type="button"
-                        onClick={() => onView(placement)}
-                        className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                        title="Activity"
-                        aria-label="Open placement activity"
-                      >
-                        <NotebookTabs className="h-4 w-4" />
-                      </button>
 
                       <RowMenu
                         placement={placement}

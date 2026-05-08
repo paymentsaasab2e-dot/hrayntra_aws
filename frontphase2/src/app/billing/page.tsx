@@ -21,6 +21,11 @@ import {
 import { apiFetch } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
 import PaginationAll from '../../components/PaginationAll';
+import {
+  SUPPORTED_CURRENCIES,
+  convertAmount,
+  formatCurrencyAmount,
+} from '../../utils/currency';
 
 type BillingTab =
   | 'Invoices'
@@ -131,12 +136,16 @@ const DEFAULT_COLUMNS: Record<Exclude<BillingTab, 'Taxes & Compliance' | 'Billin
 };
 
 function formatCurrency(value: number, currency = 'USD') {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency,
-    maximumFractionDigits: 0,
-  }).format(Number(value || 0));
+  return formatCurrencyAmount(Number(value || 0), currency);
 }
+
+const MONETARY_COLUMNS_BY_TAB: Record<string, Set<string>> = {
+  Invoices: new Set(['Amount', 'Total']),
+  Payments: new Set(['Amount']),
+  'Placements Billing': new Set(['Fee']),
+  'Clients & Contracts': new Set(['Billed', 'Outstanding']),
+  'Commission & Payouts': new Set(['Amount']),
+};
 
 function buildQuery(filters: FiltersState) {
   const params = new URLSearchParams();
@@ -175,7 +184,58 @@ function Card({ children, className = '' }: { children: React.ReactNode; classNa
   return <div className={`rounded-2xl border border-slate-200 bg-white shadow-sm ${className}`}>{children}</div>;
 }
 
-function Table({ columns, rows }: { columns: string[]; rows: Array<Record<string, any>> }) {
+function CurrencyCell({
+  amount,
+  baseCurrency,
+  currency,
+  onCurrencyChange,
+}: {
+  amount: number;
+  baseCurrency: string;
+  currency: string;
+  onCurrencyChange: (next: string) => void;
+}) {
+  const converted = convertAmount(amount, baseCurrency, currency);
+  return (
+    <div className="flex items-center gap-2">
+      <span className="font-semibold text-slate-900 tabular-nums">
+        {formatCurrencyAmount(converted, currency)}
+      </span>
+      <select
+        value={currency}
+        onChange={(event) => onCurrencyChange(event.target.value)}
+        onClick={(event) => event.stopPropagation()}
+        className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] font-semibold text-slate-600 outline-none focus:border-blue-500"
+        title="Display this row in another currency (does not change saved values)"
+      >
+        {SUPPORTED_CURRENCIES.map((code) => (
+          <option key={code} value={code}>
+            {code}
+          </option>
+        ))}
+      </select>
+      {currency !== baseCurrency ? (
+        <span className="text-[10px] text-slate-400">~ {baseCurrency} {Math.round(amount).toLocaleString()}</span>
+      ) : null}
+    </div>
+  );
+}
+
+function Table({
+  columns,
+  rows,
+  monetaryColumns,
+  baseCurrency,
+  rowCurrency,
+  onRowCurrencyChange,
+}: {
+  columns: string[];
+  rows: Array<Record<string, any>>;
+  monetaryColumns: Set<string>;
+  baseCurrency: string;
+  rowCurrency: (rowId: string) => string;
+  onRowCurrencyChange: (rowId: string, currency: string) => void;
+}) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[900px] border-collapse">
@@ -190,15 +250,34 @@ function Table({ columns, rows }: { columns: string[]; rows: Array<Record<string
         </thead>
         <tbody>
           {rows.length ? (
-            rows.map((row, index) => (
-              <tr key={row.id || index} className="border-b border-slate-50 last:border-b-0">
-                {columns.map((column) => (
-                  <td key={column} className="px-4 py-3 text-sm text-slate-700">
-                    {String(column).toLowerCase().includes('status') ? <Badge value={String(row[column] ?? '-')} /> : row[column] ?? '-'}
-                  </td>
-                ))}
-              </tr>
-            ))
+            rows.map((row, index) => {
+              const rowId = String(row.id ?? index);
+              return (
+                <tr key={rowId} className="border-b border-slate-50 last:border-b-0">
+                  {columns.map((column) => {
+                    const value = row[column];
+                    const isStatus = String(column).toLowerCase().includes('status');
+                    const isMonetary = monetaryColumns.has(column) && typeof value === 'number';
+                    return (
+                      <td key={column} className="px-4 py-3 text-sm text-slate-700">
+                        {isStatus ? (
+                          <Badge value={String(value ?? '-')} />
+                        ) : isMonetary ? (
+                          <CurrencyCell
+                            amount={value as number}
+                            baseCurrency={baseCurrency}
+                            currency={rowCurrency(rowId)}
+                            onCurrencyChange={(next) => onRowCurrencyChange(rowId, next)}
+                          />
+                        ) : (
+                          (value ?? '-') as React.ReactNode
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })
           ) : (
             <tr>
               <td colSpan={columns.length} className="px-4 py-10 text-center text-sm text-slate-500">
@@ -257,23 +336,25 @@ export default function BillingPage() {
     if (!data) return [];
     if (activeTab === 'Invoices') {
       return data.invoices.map((row) => ({
+        id: row.id ?? row.invoiceNumber,
         'Invoice #': row.invoiceNumber,
         Client: row.clientName,
         Candidate: row.candidateName,
         Job: row.jobTitle,
         Date: row.date,
         'Due Date': row.dueDate,
-        Amount: formatCurrency(row.amount, currency),
-        Total: formatCurrency(row.total, currency),
+        Amount: Number(row.amount || 0),
+        Total: Number(row.total || 0),
         Status: row.status,
       }));
     }
     if (activeTab === 'Payments') {
       return data.payments.map((row) => ({
+        id: row.id ?? `${row.invoiceNumber}-${row.transactionId}`,
         Source: row.source,
         Client: row.clientName,
         'Invoice #': row.invoiceNumber,
-        Amount: formatCurrency(row.amount, currency),
+        Amount: Number(row.amount || 0),
         Mode: row.mode,
         Transaction: row.transactionId,
         Date: row.date,
@@ -283,19 +364,21 @@ export default function BillingPage() {
     }
     if (activeTab === 'Placements Billing') {
       return data.placements.map((row) => ({
+        id: row.id ?? `${row.candidate}-${row.jobTitle}`,
         Candidate: row.candidate,
         Job: row.jobTitle,
         Client: row.client,
         Recruiter: row.recruiter,
         'Joining Date': row.joiningDate,
         'Billing Type': row.billingType,
-        Fee: formatCurrency(row.fee, currency),
+        Fee: Number(row.fee || 0),
         'Invoice Generated': row.invoiceGenerated ? 'Yes' : 'No',
         Status: row.status,
       }));
     }
     if (activeTab === 'Clients & Contracts') {
       return data.clients.map((row) => ({
+        id: row.id ?? row.name,
         Client: row.name,
         Status: row.status,
         Industry: row.industry,
@@ -303,26 +386,39 @@ export default function BillingPage() {
         Owner: row.owner,
         Placements: row.placements,
         Invoices: row.invoices,
-        Billed: formatCurrency(row.totalBilled, currency),
-        Outstanding: formatCurrency(row.outstanding, currency),
+        Billed: Number(row.totalBilled || 0),
+        Outstanding: Number(row.outstanding || 0),
         SLA: row.sla,
       }));
     }
     if (activeTab === 'Commission & Payouts') {
       return data.commissions.map((row) => ({
+        id: row.id ?? `${row.recruiter}-${row.placement}-${row.date}`,
         Recruiter: row.recruiter,
         Placement: row.placement,
         'Commission %': `${row.percentage}%`,
-        Amount: formatCurrency(row.amount, currency),
+        Amount: Number(row.amount || 0),
         Status: row.status,
         'Payout Date': row.date,
       }));
     }
     return [];
-  }, [activeTab, currency, data]);
+  }, [activeTab, data]);
+
+  // Per-row currency override. Keyed by tab + row id so each tab keeps independent state.
+  const [rowCurrencies, setRowCurrencies] = useState<Record<string, string>>({});
+
+  const monetaryColumns = useMemo(() => {
+    return MONETARY_COLUMNS_BY_TAB[activeTab] || new Set<string>();
+  }, [activeTab]);
+
+  const rowCurrencyKey = (rowId: string) => `${activeTab}::${rowId}`;
+  const getRowCurrency = (rowId: string) => rowCurrencies[rowCurrencyKey(rowId)] || currency;
+  const setRowCurrency = (rowId: string, next: string) =>
+    setRowCurrencies((current) => ({ ...current, [rowCurrencyKey(rowId)]: next }));
 
   const columns = tableRows[0]
-    ? Object.keys(tableRows[0])
+    ? Object.keys(tableRows[0]).filter((column) => column !== 'id')
     : activeTab === 'Taxes & Compliance' || activeTab === 'Billing Settings'
       ? []
       : DEFAULT_COLUMNS[activeTab];
@@ -519,7 +615,14 @@ export default function BillingPage() {
           </Card>
         ) : (
           <Card>
-            <Table columns={columns} rows={visibleRows} />
+            <Table
+              columns={columns}
+              rows={visibleRows}
+              monetaryColumns={monetaryColumns}
+              baseCurrency={currency}
+              rowCurrency={getRowCurrency}
+              onRowCurrencyChange={setRowCurrency}
+            />
             {columns.length ? (
               <div className="flex items-center justify-between gap-4 border-t border-[#E5E7EB] px-5 py-4">
                 <PaginationAll

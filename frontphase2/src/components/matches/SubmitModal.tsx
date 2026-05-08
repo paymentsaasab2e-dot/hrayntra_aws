@@ -11,13 +11,20 @@ import {
   type UpdateClientData,
   type UpdateJobData,
 } from '../../lib/api';
+import { SUBMISSION_TYPES } from '../interviews/SubmitToClientDrawer';
+
+type SubmissionTypeValue = (typeof SUBMISSION_TYPES)[number]['value'];
 
 interface SubmitModalProps {
   isOpen: boolean;
   candidate: MatchCandidate | null;
   selectedJob: MatchJob;
   onClose: () => void;
-  onSubmit: (payload: { message: string; notifyClient: boolean }) => Promise<void>;
+  onSubmit: (payload: {
+    message: string;
+    notifyClient: boolean;
+    submissionType: SubmissionTypeValue;
+  }) => Promise<void>;
   onUpdated?: () => Promise<void> | void;
 }
 
@@ -95,6 +102,8 @@ export default function SubmitModal({
   const [noteText, setNoteText] = useState('');
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [noteSaving, setNoteSaving] = useState(false);
+  const [submissionType, setSubmissionType] = useState<SubmissionTypeValue | ''>('');
+  const [submissionTypeError, setSubmissionTypeError] = useState<string | null>(null);
 
   const clientEmail = selectedJob.clientContactId
     ? clientDraft.email || selectedJob.clientEmail || ''
@@ -138,6 +147,13 @@ export default function SubmitModal({
     const experience = `Experience: ${candidate.experience} years.`;
     setMessage([intro, '', summary, strengths, experience, '', 'Regards'].join('\n'));
     resetDrafts();
+    // The default match flow shows the recruiter submitting a brand-new
+    // candidate to the client for a first look, so we pre-pick the same
+    // bucket the interview drawer uses on a freshly scheduled interview.
+    // The recruiter can still flip it to OFFER_CONFIRMATION when the
+    // submission is for the offer letter.
+    setSubmissionType('INITIAL_REVIEW');
+    setSubmissionTypeError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [candidate, isOpen, selectedJob.client, selectedJob.title]);
 
@@ -219,6 +235,15 @@ export default function SubmitModal({
       return;
     }
 
+    if (!submissionType) {
+      // The public review page renders different controls per purpose
+      // (offer-letter upload for OFFER_CONFIRMATION, etc.), so we force the
+      // recruiter to be explicit here just like in the interview drawer.
+      setSubmissionTypeError('Pick what this submission is for');
+      window.alert('Please choose a submission purpose before sending.');
+      return;
+    }
+
     try {
       setErrorText('');
       setIsSubmitting(true);
@@ -227,7 +252,7 @@ export default function SubmitModal({
       if (editingSections.client) await saveClient();
       notifyDataChanged();
       await Promise.resolve(onUpdated?.());
-      await onSubmit({ message, notifyClient: true });
+      await onSubmit({ message, notifyClient: true, submissionType });
     } catch (sendError: any) {
       const message = sendError?.message || 'Unable to send client email.';
       setErrorText(message);
@@ -852,6 +877,42 @@ export default function SubmitModal({
                   >
                     {canSendClientEmail ? 'Enabled' : 'Missing Email'}
                   </span>
+                </div>
+
+                <div
+                  className={`mt-4 rounded-xl border p-3 ${
+                    submissionTypeError ? 'border-red-300 bg-red-50' : 'border-slate-200 bg-slate-50'
+                  }`}
+                >
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    Submission Purpose*
+                  </label>
+                  <select
+                    value={submissionType}
+                    onChange={(event) => {
+                      const next = event.target.value as SubmissionTypeValue | '';
+                      setSubmissionType(next);
+                      if (next) setSubmissionTypeError(null);
+                    }}
+                    className={`mt-2 w-full rounded-lg border bg-white px-3 py-2 text-sm font-medium text-slate-900 ${
+                      submissionTypeError ? 'border-red-400' : 'border-slate-200'
+                    }`}
+                  >
+                    <option value="">Select why you're submitting to the client…</option>
+                    {SUBMISSION_TYPES.map((entry) => (
+                      <option key={entry.value} value={entry.value}>
+                        {entry.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-2 text-xs text-slate-500">
+                    {submissionType
+                      ? SUBMISSION_TYPES.find((entry) => entry.value === submissionType)?.description
+                      : 'The client review page renders different controls per purpose (e.g., offer-letter upload for the offer flow).'}
+                  </p>
+                  {submissionTypeError ? (
+                    <p className="mt-1 text-xs font-medium text-red-600">{submissionTypeError}</p>
+                  ) : null}
                 </div>
 
                 <div className="mt-4">

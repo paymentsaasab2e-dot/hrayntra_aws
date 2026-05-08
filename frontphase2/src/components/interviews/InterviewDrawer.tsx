@@ -104,7 +104,7 @@ export function InterviewDrawer({
                     >
                       {interview.status}
                     </span>
-                    {interview.candidate.stage && getCandidateStageLabel(interview.candidate.stage) !== 'Interviewing' ? (
+                    {interview.candidate.stage ? (
                       <span
                         className={`mt-2 inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${getCandidateStageBadgeClasses(
                           interview.candidate.stage

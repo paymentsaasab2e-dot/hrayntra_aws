@@ -1,4 +1,8 @@
 import express from 'express';
+import multer from 'multer';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { authMiddleware } from '../../middleware/auth.middleware.js';
 import { validateRequest } from '../../middleware/validate.middleware.js';
 import { requireAnyPermission } from '../../middleware/permission.middleware.js';
@@ -29,6 +33,46 @@ import {
 
 const router = express.Router();
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Files arrive on the public review endpoint (no auth) — keep this storage
+// isolated so we can wipe / quota it without touching authenticated uploads.
+const clientReviewUploadsDir = path.join(
+  __dirname,
+  '..',
+  '..',
+  '..',
+  'uploads',
+  'interview-client-review'
+);
+if (!fs.existsSync(clientReviewUploadsDir)) {
+  fs.mkdirSync(clientReviewUploadsDir, { recursive: true });
+}
+
+const clientReviewStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, clientReviewUploadsDir),
+  filename: (req, file, cb) => {
+    const timestamp = Date.now();
+    const sanitized = String(file.originalname || 'offer.pdf').replace(/[^a-zA-Z0-9.-]/g, '_');
+    cb(null, `${timestamp}_${sanitized}`);
+  },
+});
+
+const clientReviewUpload = multer({
+  storage: clientReviewStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    // Tightening to PDF here matches the placement flow and stops accidental
+    // images / executables from a public upload surface.
+    if (!/^application\/pdf$/i.test(file.mimetype || '')) {
+      cb(new Error('Only PDF files are allowed'));
+      return;
+    }
+    cb(null, true);
+  },
+});
+
 router.get(
   '/public/review/:token',
   validateRequest({ params: reviewTokenParamSchema }),
@@ -36,6 +80,11 @@ router.get(
 );
 router.post(
   '/public/review/:token/tag',
+  // Multer parses multipart first so `req.body` has plain text fields by the
+  // time validateRequest runs. The `offerLetter` field is optional; the body
+  // schema still requires `tag` (controller relaxes this when a file is
+  // present + submissionType is OFFER_CONFIRMATION).
+  clientReviewUpload.single('offerLetter'),
   validateRequest({ params: reviewTokenParamSchema, body: publicClientTagSchema }),
   interviewController.submitPublicClientTag
 );

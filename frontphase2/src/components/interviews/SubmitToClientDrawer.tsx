@@ -24,6 +24,48 @@ interface SubmitToClientDrawerProps {
   onToast: (message: string) => void;
 }
 
+// Each option maps a recruiter-friendly purpose to a stable code we send to the
+// backend. We intentionally keep the list small so it's easy to extend later
+// without breaking saved tokens / emails.
+export const SUBMISSION_TYPES = [
+  {
+    value: 'INITIAL_REVIEW',
+    label: 'Initial review – ask client to screen the candidate',
+    description: "Use right after applying / before scheduling — let the client confirm they want to interview.",
+  },
+  {
+    value: 'INTERIM_REVIEW',
+    label: 'Mid-cycle review – between interview rounds',
+    description: 'Share interim feedback so the client can decide on next steps before the next round.',
+  },
+  {
+    value: 'OFFER_CONFIRMATION',
+    label: 'Offer / final clarification – upload offer letter',
+    description: 'Final hand-off before placement. Client will be asked to attach the signed offer letter.',
+  },
+] as const;
+
+type SubmissionTypeValue = (typeof SUBMISSION_TYPES)[number]['value'];
+
+// Best-guess mapping from interview state → purpose, used as a starting value
+// and to flag when we can't infer it confidently (we then force the recruiter
+// to pick).
+function inferSubmissionType(interview: Interview | null): SubmissionTypeValue | '' {
+  if (!interview) return '';
+  const completedFeedback = (interview.feedbackEntries || []).filter(
+    (entry) => entry?.recommendation && String(entry.recommendation).trim().length > 0
+  );
+  if (interview.status === 'Completed' && completedFeedback.length > 0) {
+    const last = completedFeedback[completedFeedback.length - 1];
+    if (last?.recommendation === 'Pass') return 'OFFER_CONFIRMATION';
+    return 'INTERIM_REVIEW';
+  }
+  if (interview.status === 'Scheduled' && completedFeedback.length === 0) {
+    return 'INITIAL_REVIEW';
+  }
+  return '';
+}
+
 interface CandidateFormState {
   firstName: string;
   lastName: string;
@@ -217,6 +259,8 @@ export function SubmitToClientDrawer({
   const [clientContactsForm, setClientContactsForm] = useState<ClientContactFormState[]>([]);
   const [candidateStepSaved, setCandidateStepSaved] = useState(false);
   const [clientStepSaved, setClientStepSaved] = useState(false);
+  const [submissionType, setSubmissionType] = useState<SubmissionTypeValue | ''>('');
+  const [submissionTypeError, setSubmissionTypeError] = useState<string | null>(null);
 
   const loadClientContacts = async (clientId: string) => {
     const raw = await apiGetContacts({ clientId, limit: 100 });
@@ -236,6 +280,11 @@ export function SubmitToClientDrawer({
     setActiveTab('candidate');
     setCandidateStepSaved(false);
     setClientStepSaved(false);
+    // Pre-fill the purpose from the interview state so the common case ("just
+    // scheduled, share with client first") needs no extra clicks. We only
+    // commit the inferred value here — the recruiter can still override.
+    setSubmissionType(inferSubmissionType(interview));
+    setSubmissionTypeError(null);
     setLoading(true);
     setCandidate((current) => current ?? ({ id: interview.candidate.id } as BackendCandidate));
     setForm(toFormFromInterview(interview));
@@ -398,6 +447,14 @@ export function SubmitToClientDrawer({
       onToast('Please save client details first');
       return;
     }
+    if (!submissionType) {
+      // Purpose is required so the public review page knows whether to ask the
+      // client for an offer letter, just a tag, etc. We surface the error both
+      // inline and as a toast since the field lives in the candidate tab.
+      setSubmissionTypeError('Select what this submission is for');
+      onToast('Please choose a submission purpose');
+      return;
+    }
     const recipient = clientContactsForm.find((contact) => contact.email.trim())?.email.trim() || '';
     if (!recipient) {
       onToast('Client contact email is missing');
@@ -406,9 +463,11 @@ export function SubmitToClientDrawer({
 
     setSubmitting(true);
     try {
+      const purpose = SUBMISSION_TYPES.find((entry) => entry.value === submissionType)?.label || 'review';
       const response = await apiSubmitInterviewToClient(interview.id, {
         toEmail: recipient,
-        message: `Please review the submitted candidate details for ${interview.job.title}.`,
+        message: `Please review the submitted candidate details for ${interview.job.title}. Purpose: ${purpose}.`,
+        submissionType,
       });
       const reviewUrl =
         (response as any)?.reviewUrl ||
@@ -455,6 +514,44 @@ export function SubmitToClientDrawer({
             </div>
 
             <div className="flex-1 overflow-y-auto px-6 py-5">
+              <section
+                className={`mb-4 rounded-xl border p-4 ${
+                  submissionTypeError
+                    ? 'border-red-300 bg-red-50'
+                    : 'border-[#E5E7EB] bg-[#F9FAFB]'
+                }`}
+              >
+                <label className="block text-xs font-semibold uppercase tracking-wide text-[#6B7280]">
+                  Submission Purpose*
+                </label>
+                <select
+                  value={submissionType}
+                  onChange={(event) => {
+                    const next = event.target.value as SubmissionTypeValue | '';
+                    setSubmissionType(next);
+                    if (next) setSubmissionTypeError(null);
+                  }}
+                  className={`mt-2 w-full rounded-lg border bg-white px-3 py-2 text-sm font-medium text-[#111827] ${
+                    submissionTypeError ? 'border-red-400' : 'border-[#D1D5DB]'
+                  }`}
+                >
+                  <option value="">Select why you're submitting to the client…</option>
+                  {SUBMISSION_TYPES.map((entry) => (
+                    <option key={entry.value} value={entry.value}>
+                      {entry.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-2 text-xs text-[#6B7280]">
+                  {submissionType
+                    ? SUBMISSION_TYPES.find((entry) => entry.value === submissionType)?.description
+                    : 'The client form changes based on this — pick the closest match.'}
+                </p>
+                {submissionTypeError ? (
+                  <p className="mt-1 text-xs font-medium text-red-600">{submissionTypeError}</p>
+                ) : null}
+              </section>
+
               <div className="mb-4 flex items-center gap-2 border-b border-[#E5E7EB] pb-3">
                 <button
                   type="button"

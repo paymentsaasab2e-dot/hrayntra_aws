@@ -1163,6 +1163,26 @@ export default function JobsPage() {
       applicationFormLogo: backendJob.applicationFormLogo || undefined,
       applicationFormQuestions: backendJob.applicationFormQuestions || [],
       applicationFormNote: backendJob.applicationFormNote || undefined,
+        applications: Array.isArray(backendJob.applications)
+          ? backendJob.applications.map((app: any) => ({
+              id: String(app.id || ''),
+              candidateId: String(app.candidateId || ''),
+              status: app.status || undefined,
+              appliedAt: app.appliedAt || undefined,
+              screeningAnswers:
+                app.screeningAnswers && typeof app.screeningAnswers === 'object'
+                  ? app.screeningAnswers
+                  : null,
+              candidate: app.candidate
+                ? {
+                    id: app.candidate.id ? String(app.candidate.id) : undefined,
+                    firstName: app.candidate.firstName || null,
+                    lastName: app.candidate.lastName || null,
+                    email: app.candidate.email || null,
+                  }
+                : null,
+            }))
+          : [],
         overview: backendJob.overview || undefined,
         keyResponsibilities: backendJob.keyResponsibilities || undefined,
         requiredSkills: backendJob.skills || undefined,

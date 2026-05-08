@@ -7,7 +7,85 @@ const cache = {
   jobs: null,
   lastFetched: 0,
   TTL: 300000, // 5 minutes
+  /** Bump when job list payload shape changes so old cache entries cannot hide new fields (e.g. screening questions). */
+  version: 3,
 };
+
+/** When recruiters upload a job / apply-form image, Phase 2 stores HTTPS URL here — use for portal job cards */
+function listingImageUrlFromJob(job) {
+  const raw = job?.applicationFormLogo;
+  if (typeof raw !== 'string') return null;
+  const t = raw.trim();
+  return /^https?:\/\//i.test(t) ? t : null;
+}
+
+/** Job-specific image wins; else CRM client logo (Lead→Client or Client drawer), then legacy Company.logoUrl */
+function jobListingThumbnail(job) {
+  const custom = listingImageUrlFromJob(job);
+  if (custom) return custom;
+  if (typeof job.client?.logo === 'string' && job.client.logo.trim()) return job.client.logo.trim();
+  if (typeof job.company?.logoUrl === 'string' && job.company.logoUrl.trim()) return job.company.logoUrl.trim();
+  return null;
+}
+
+/**
+ * The portal/CRM may send a `workMode` filter as any of: "Remote", "REMOTE", "remote",
+ * "On-site", "On_Site", "ON_SITE", "Hybrid", etc. Phase 2 also writes free-form
+ * display strings into the shared Mongo collection, so the stored value can take
+ * any of those forms. We return the full list of variants to OR-match in Prisma.
+ * Returns null when the value can't be classified (so we skip the filter instead
+ * of crashing the listing).
+ */
+function workModeFilterVariants(value) {
+  if (typeof value !== 'string') return null;
+  const key = value.toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!key) return null;
+  if (key.includes('remote') || key === 'wfh' || key.includes('work from home')) {
+    return ['REMOTE', 'Remote', 'remote'];
+  }
+  if (key.includes('hybrid')) {
+    return ['HYBRID', 'Hybrid', 'hybrid'];
+  }
+  if (
+    key.includes('on site') ||
+    key.includes('onsite') ||
+    key.includes('office') ||
+    key === 'on premise' ||
+    key === 'on premises'
+  ) {
+    return ['ON_SITE', 'On-site', 'On_Site', 'on site', 'on_site', 'onsite', 'On site', 'Onsite', 'onSite'];
+  }
+  return null;
+}
+
+/**
+ * Same idea for `employmentType` — collect all reasonable variants of FULL_TIME / PART_TIME /
+ * CONTRACT / INTERNSHIP / FREELANCE so an OR-match works regardless of how Phase 2 stored it.
+ */
+function employmentTypeFilterVariants(value) {
+  if (typeof value !== 'string') return null;
+  const key = value.toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!key) return null;
+  if (key.includes('full')) return ['FULL_TIME', 'Full-time', 'Full Time', 'full time', 'full_time', 'fullTime'];
+  if (key.includes('part')) return ['PART_TIME', 'Part-time', 'Part Time', 'part time', 'part_time', 'partTime'];
+  if (key.includes('contract')) return ['CONTRACT', 'Contract', 'contract'];
+  if (key.includes('intern')) return ['INTERNSHIP', 'Internship', 'internship'];
+  if (key.includes('freelance') || key.includes('temp')) return ['FREELANCE', 'Freelance', 'freelance'];
+  return null;
+}
+
+/**
+ * Raised when prisma/schema.prisma was updated (Job.workMode as String) but
+ * `prisma generate` was not rerun while the backend still holds the Prisma DLL open (Windows EPERM).
+ */
+function prismaStaleWorkModeHint(error) {
+  const message = String(error?.message || '');
+  if (!/not found in enum/i.test(message) || !/WorkMode/i.test(message)) return null;
+  return (
+    'Regenerate Prisma Client: stop this backend (all `node`/watch processes using backend1), ' +
+    'then in `backend1` run `npx prisma generate` (Windows EPERM = engine DLL still locked until Node exits). '
+  );
+}
 
 function isDbUnavailableError(error) {
   const message = String(error?.message || '');
@@ -34,7 +112,12 @@ async function getAllJobs(req, res) {
     
     // Check cache for default query (page 1, limit 10, no filters)
     const isDefaultQuery = page == 1 && limit == 10 && !location && !industry && !workMode && !employmentType;
-    if (isDefaultQuery && cache.jobs && (Date.now() - cache.lastFetched < cache.TTL)) {
+    if (
+      isDefaultQuery &&
+      cache.jobs &&
+      cache.storedVersion === cache.version &&
+      Date.now() - cache.lastFetched < cache.TTL
+    ) {
       console.log('⚡ Serving jobs list from cache');
       return res.json(cache.jobs);
     }
@@ -61,16 +144,25 @@ async function getAllJobs(req, res) {
       };
     }
 
-    if (workMode) {
-      where.workMode = workMode;
+    const workModeVariants = workModeFilterVariants(workMode);
+    if (workModeVariants) {
+      where.OR = (where.OR || []).concat([
+        { workMode: { in: workModeVariants } },
+        { jobLocationType: { in: workModeVariants } },
+      ]);
+    } else if (workMode) {
+      console.warn(`⚠️ Ignoring unrecognized workMode filter "${workMode}" — falling back to no work-mode filter`);
     }
 
-    if (employmentType) {
-      where.employmentType = employmentType;
+    const employmentTypeVariants = employmentTypeFilterVariants(employmentType);
+    if (employmentTypeVariants) {
+      where.employmentType = { in: employmentTypeVariants };
+    } else if (employmentType) {
+      console.warn(`⚠️ Ignoring unrecognized employmentType filter "${employmentType}" — falling back to no employment-type filter`);
     }
 
     console.log(
-      `📥 DB fetch requested: jobs-list | page=${page} | limit=${limit} | location=${location || '-'} | industry=${industry || '-'} | workMode=${workMode || '-'} | employmentType=${employmentType || '-'}`
+      `📥 DB fetch requested: jobs-list | page=${page} | limit=${limit} | location=${location || '-'} | industry=${industry || '-'} | workMode=${workMode || '-'}${workModeVariants ? '→[' + workModeVariants.join(',') + ']' : ''} | employmentType=${employmentType || '-'}${employmentTypeVariants ? '→[' + employmentTypeVariants.join(',') + ']' : ''}`
     );
 
     // Fetch jobs with retry support to survive transient DB/connectivity failures.
@@ -106,9 +198,11 @@ async function getAllJobs(req, res) {
 
     // Format jobs for frontend
     const formattedJobs = jobs.map((job) => {
-      // Calculate a mock match score (75-95) for demo purposes
-      // In production, this would be calculated based on candidate profile and job requirements
-      const matchScore = Math.floor(Math.random() * 21) + 75;
+      // The general listing intentionally returns no AI match score. Real scoring happens in
+      // /jobs/personalized where the candidate context is available; the candidate UI overlays
+      // those scores on top of this listing. Returning null here prevents random scores from
+      // leaking through for jobs the personalized pipeline hasn't scored yet.
+      const matchScore = null;
 
       const salaryJson = job.salary || undefined;
       const salaryMin = job.salaryMin ?? salaryJson?.min ?? null;
@@ -123,12 +217,17 @@ async function getAllJobs(req, res) {
         job.responsibilities ||
         (responsibilitiesArray.length ? responsibilitiesArray.join(' ') : undefined);
       
+      const thumb = jobListingThumbnail(job);
       return {
         id: job.id,
         title: job.title,
         company: job.company?.name || job.client?.companyName || null,
         companyId: job.company?.id || job.client?.id || null,
-        companyLogo: job.company?.logoUrl || job.client?.logo || null,
+        companyLogo: thumb,
+        applicationFormLogo: job.applicationFormLogo ?? undefined,
+        applicationFormEnabled: !!job.applicationFormEnabled,
+        applicationFormQuestions: Array.isArray(job.applicationFormQuestions) ? job.applicationFormQuestions : [],
+        applicationFormNote: job.applicationFormNote ?? null,
         location: job.location,
         openings: job.openings ?? 1,
         salaryMin,
@@ -138,7 +237,7 @@ async function getAllJobs(req, res) {
         experienceLevel: job.experienceRequired ?? job.experienceLevel,
         employmentType: job.type || job.employmentType,
         type: job.type ?? undefined,
-        workMode: job.workMode ?? job.jobLocationType ?? null,
+        workMode: job.jobLocationType ?? job.workMode ?? null,
         industry: job.industry ?? job.department ?? job.jobCategory ?? null,
         aboutRole: job.aboutRole ?? job.overview ?? job.description ?? null,
         overview: job.overview ?? null,
@@ -179,13 +278,18 @@ async function getAllJobs(req, res) {
     if (isDefaultQuery) {
       cache.jobs = responsePayload;
       cache.lastFetched = Date.now();
+      cache.storedVersion = cache.version;
     }
 
     res.json(responsePayload);
   } catch (error) {
     if (isDbUnavailableError(error)) {
       console.warn('DB unavailable in getAllJobs:', error?.message || error);
-      if (cache.jobs && (Date.now() - cache.lastFetched < cache.TTL)) {
+      if (
+        cache.jobs &&
+        cache.storedVersion === cache.version &&
+        Date.now() - cache.lastFetched < cache.TTL
+      ) {
         console.log('Serving stale cached jobs due to DB outage');
         return res.json(cache.jobs);
       }
@@ -195,11 +299,18 @@ async function getAllJobs(req, res) {
       });
     }
 
-    console.error('Error fetching jobs:', error);
+    const hint = prismaStaleWorkModeHint(error);
+    if (hint) {
+      console.error('Error fetching jobs (stale Prisma client suspected):', error?.message || error);
+      console.error(hint);
+    } else {
+      console.error('Error fetching jobs:', error);
+    }
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch jobs',
+      message: hint || 'Failed to fetch jobs',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      hint: hint || undefined,
     });
   }
 }
@@ -254,12 +365,17 @@ async function getJobById(req, res) {
       job.responsibilities ||
       (responsibilitiesArray.length ? responsibilitiesArray.join(' ') : undefined);
 
+    const thumb = jobListingThumbnail(job);
     const formattedJob = {
       id: job.id,
       title: job.title,
       company: job.company?.name || job.client?.companyName || null,
       companyId: job.company?.id || job.client?.id || null,
-      companyLogo: job.company?.logoUrl || job.client?.logo || null,
+      companyLogo: thumb,
+      applicationFormLogo: job.applicationFormLogo ?? undefined,
+      applicationFormEnabled: !!job.applicationFormEnabled,
+      applicationFormQuestions: Array.isArray(job.applicationFormQuestions) ? job.applicationFormQuestions : [],
+      applicationFormNote: job.applicationFormNote ?? null,
       location: job.location,
       openings: job.openings ?? 1,
       salaryMin,
@@ -269,7 +385,7 @@ async function getJobById(req, res) {
       experienceLevel: job.experienceRequired ?? job.experienceLevel,
       employmentType: job.type || job.employmentType,
       type: job.type ?? undefined,
-      workMode: job.workMode ?? job.jobLocationType ?? null,
+      workMode: job.jobLocationType ?? job.workMode ?? null,
       industry: job.industry ?? job.department ?? job.jobCategory ?? null,
       aboutRole: job.aboutRole ?? job.overview ?? job.description ?? null,
       overview: job.overview ?? null,
@@ -601,7 +717,7 @@ async function recommendJobs(req, res) {
       company: job.company?.name || job.client?.companyName || 'Hiring Partner',
       location: job.location,
       type: job.type || job.employmentType || 'Full-time',
-      logo: job.company?.logoUrl || job.client?.logo || '',
+      logo: jobListingThumbnail(job) || '',
       matchScore: Math.floor(Math.random() * 10) + 88,
     }));
 
@@ -869,17 +985,22 @@ async function getPersonalizedJobs(req, res) {
       else if (normalizedScore >= 75) confidenceTag = 'Strong Match';
       else if (normalizedScore >= 60) confidenceTag = 'Good Match';
 
+      const thumb = jobListingThumbnail(job);
       return {
         jobId: job.id,
         id: job.id,
         jobTitle: job.title,
         title: job.title,
         company: job.company?.name || job.client?.companyName || 'Multiple Hiring partners',
-        companyLogo: job.company?.logoUrl || job.client?.logo || '',
+        companyLogo: thumb || '',
         location: job.location,
         type: job.type || job.employmentType || 'Full-time',
-        workMode: job.workMode ?? job.jobLocationType ?? null,
-        logo: job.company?.logoUrl || job.client?.logo || '',
+        workMode: job.jobLocationType ?? job.workMode ?? null,
+        logo: thumb || '',
+        applicationFormLogo: job.applicationFormLogo ?? undefined,
+        applicationFormEnabled: !!job.applicationFormEnabled,
+        applicationFormQuestions: Array.isArray(job.applicationFormQuestions) ? job.applicationFormQuestions : [],
+        applicationFormNote: job.applicationFormNote ?? null,
         openings: job.openings ?? 1,
         salary: job.salary ?? undefined,
         salaryMin,
@@ -908,6 +1029,8 @@ async function getPersonalizedJobs(req, res) {
         missingSkills: job.missingSkills,
         penaltiesApplied: job.penalties > 0,
         reasoning: job.insights?.reasoning || 'Experience and Skills analyzed',
+        shortReason: job.shortReason || null,
+        whyNotMatched: typeof job.whyNotMatched === 'string' ? job.whyNotMatched : null,
         totalJobsScanned: activeJobs.length,
         ruleScore: job.ruleScore,
         embeddingScore: job.embeddingScore,
@@ -960,19 +1083,27 @@ async function getPersonalizedJobs(req, res) {
       return (b.normalizedScore || 0) - (a.normalizedScore || 0);
     });
     const filteredMatches = sortedNormalized.filter((job) => matchingService.qualifiesForPersonalizedMatch(job));
+    const qualifiedIdSet = new Set(filteredMatches.map((job) => String(job.id)));
+    // Return every scored job so the candidate UI can show real AI scores + matched/missing skills
+    // for newly created jobs too. The qualified subset is exposed via flags for any caller that
+    // wants to highlight just the strongest matches.
+    const responseMatches = sortedNormalized.map((job) => ({
+      ...job,
+      isQualifiedMatch: qualifiedIdSet.has(String(job.id)),
+    }));
     const totalJobsScanned = activeJobs.length;
     const totalQualifiedMatches = filteredMatches.length;
     console.log(`TOTAL JOBS FOUND IN DATABASE: ${totalJobsScanned}`);
     console.log(`TOTAL MATCH JOBS FOUND FOR CANDIDATE: ${totalQualifiedMatches}`);
-    console.log(`TOTAL SCORED JOBS RETURNED: ${filteredMatches.length}`);
+    console.log(`TOTAL SCORED JOBS RETURNED: ${responseMatches.length}`);
 
-    filteredMatches.slice(0, 20).forEach((job, i) => {
+    responseMatches.slice(0, 20).forEach((job, i) => {
       console.log(
-        `${i + 1}. ${job.jobTitle} | company=${job.company} | aiFitScore=${job.matchScore}% | normalized=${job.normalizedScore}% | confidence=${job.confidenceTag} | matchedSkills=${(job.matchedSkills || []).join(', ') || '-'} | missingSkills=${(job.missingSkills || []).join(', ') || '-'}`
+        `${i + 1}. ${job.jobTitle} | company=${job.company} | aiFitScore=${job.matchScore}% | normalized=${job.normalizedScore}% | confidence=${job.confidenceTag} | qualified=${job.isQualifiedMatch} | matchedSkills=${(job.matchedSkills || []).join(', ') || '-'} | missingSkills=${(job.missingSkills || []).join(', ') || '-'}`
       );
     });
-    if (filteredMatches.length > 0) {
-      console.log('Top matched job extracted data:', JSON.stringify(filteredMatches[0].extractedJobSnapshot, null, 2));
+    if (responseMatches.length > 0) {
+      console.log('Top matched job extracted data:', JSON.stringify(responseMatches[0].extractedJobSnapshot, null, 2));
     } else {
       console.log('No scored jobs returned by the matching pipeline.');
     }
@@ -982,6 +1113,7 @@ async function getPersonalizedJobs(req, res) {
     res.json({
       success: true,
       totalMatches: totalQualifiedMatches,
+      totalScored: responseMatches.length,
       totalJobsScanned,
       candidateProfile: {
         id: candidateSnapshot.id,
@@ -1004,7 +1136,7 @@ async function getPersonalizedJobs(req, res) {
         structuredProfile: candidateSnapshot.structuredProfile,
         summaryText: candidateSnapshot.summaryText,
       },
-      data: filteredMatches
+      data: responseMatches
     });
 
   } catch (error) {
@@ -1070,8 +1202,19 @@ async function getPersonalizedJobs(req, res) {
       data: pipelineResult.data,
     });
   } catch (error) {
-    console.error('Deterministic Matching Engine Failed:', error);
-    return res.status(500).json({ success: false, message: 'Job matching pipeline failure' });
+    const hint = prismaStaleWorkModeHint(error);
+    if (hint) {
+      console.error('Deterministic Matching Engine Failed (stale Prisma client suspected):', error?.message || error);
+      console.error(hint);
+    } else {
+      console.error('Deterministic Matching Engine Failed:', error);
+    }
+    return res.status(500).json({
+      success: false,
+      message: hint || 'Job matching pipeline failure',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      hint: hint || undefined,
+    });
   }
 }
 

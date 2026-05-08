@@ -589,6 +589,12 @@ model Job {
   applicationFormLogo String? // Logo option: account, company, none
   applicationFormQuestions String[] @default([]) // Array of custom application form questions
   applicationFormNote String? // Note for candidates
+  // Origin tenant identifier — written when the CRM mirrors a job to the portal DB.
+  // The job-portal backend (backend1) reads this on every apply so it knows which
+  // tenant DB (`rus01`, `agency2`, ...) to mirror the new Application/Match into.
+  // Multi-agency safe: each portal Job carries its own origin and the apply
+  // webhook routes into the correct tenant.
+  tenantDbName        String?
   // Legacy documents may contain null timestamps; make optional to avoid Prisma conversion crashes.
   createdAt           DateTime? @default(now())
   updatedAt           DateTime? @updatedAt

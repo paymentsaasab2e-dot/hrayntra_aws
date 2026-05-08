@@ -1,6 +1,10 @@
 import { prisma } from '../../config/prisma.js';
 import { sendPlacementEmail } from '../../emails/email.service.js';
-import { PIPELINE_STAGES, updateCandidateStage } from '../stage/candidateStage.service.js';
+import {
+  PIPELINE_STAGES,
+  syncApplicationOfferLetter,
+  updateCandidateStage,
+} from '../stage/candidateStage.service.js';
 
 const OBJECT_ID_REGEX = /^[a-f\d]{24}$/i;
 const DEFAULT_LIMIT = 20;
@@ -123,7 +127,11 @@ function getPublicFileUrl(filePath) {
 
 function formatPlacementListItem(placement) {
   const latestBilling = placement.billing?.[0] || null;
-  const offerLetter = (placement.documents || []).find((document) => document.documentType === 'OFFER_LETTER') || null;
+  // The list query already filters `documents` to documentType OFFER_LETTER
+  // (and doesn't `select: { documentType: true }`), so a `.find()` by
+  // documentType here would always miss. Just take the first row — at most
+  // one is fetched.
+  const offerLetter = (placement.documents || [])[0] || null;
 
   return {
     ...placement,
@@ -404,6 +412,7 @@ export const placementService = {
     const salaryOffered = parseNumber(data.salaryOffered ?? data.offerSalary ?? data.salary, 'Offer salary', { required: true, min: 0 });
     const placementFee = parseNumber(data.placementFee ?? data.fee, 'Placement fee', { required: true, min: 0 });
     const commissionPercentage = parseNumber(data.commissionPercentage, 'Commission percentage', { min: 0 }) ?? 20;
+    const currency = String(data.currency || 'USD').trim().toUpperCase() || 'USD';
     const offerDate = parseDate(data.offerDate, 'Offer date', { required: true });
     const joiningDate = parseDate(data.expectedJoiningDate ?? data.joiningDate, 'Expected joining date');
     const employmentType = normalizeEmploymentType(data.employmentType);
@@ -484,7 +493,7 @@ export const placementService = {
           clientId: client.id,
           placementId: createdPlacement.id,
           amount: placementFee,
-          currency: 'USD',
+          currency,
           status: 'DRAFT',
           invoiceNumber,
           invoiceDate: new Date(),
@@ -502,16 +511,50 @@ export const placementService = {
         },
       });
 
+      let offerLetterSync = null;
       if (file?.path) {
+        const fileUrl = getPublicFileUrl(file.path);
         await tx.placementDocument.create({
           data: {
             placementId: createdPlacement.id,
             documentType: 'OFFER_LETTER',
-            fileUrl: getPublicFileUrl(file.path),
+            fileUrl,
             fileName: file.originalname,
             uploadedBy: userId,
           },
         });
+        offerLetterSync = { fileUrl, fileName: file.originalname };
+      } else {
+        // Recruiter didn't attach a fresh offer letter at placement time.
+        // The client may have already uploaded one through the public
+        // submit-to-client review link — that gets stored as a
+        // CandidateFile of type 'Offer'. Pull the most recent one for this
+        // candidate and attach it as the placement's OFFER_LETTER so the
+        // Placements tab "View offer letter" button enables immediately.
+        const existingOffer = await tx.candidateFile.findFirst({
+          where: {
+            candidateId: candidate.id,
+            fileType: 'Offer',
+            fileUrl: { not: null },
+          },
+          orderBy: { createdAt: 'desc' },
+          select: { fileUrl: true, fileName: true, uploadedById: true },
+        });
+        if (existingOffer?.fileUrl) {
+          await tx.placementDocument.create({
+            data: {
+              placementId: createdPlacement.id,
+              documentType: 'OFFER_LETTER',
+              fileUrl: existingOffer.fileUrl,
+              fileName: existingOffer.fileName,
+              uploadedBy: existingOffer.uploadedById || userId,
+            },
+          });
+          offerLetterSync = {
+            fileUrl: existingOffer.fileUrl,
+            fileName: existingOffer.fileName,
+          };
+        }
       }
 
       await createPlacementActivity(tx, createdPlacement.id, 'Placement created', userId, {
@@ -540,8 +583,27 @@ export const placementService = {
       },
     });
 
-      return createdPlacement;
+      return { createdPlacement, offerLetterSync };
     });
+
+    const placementResult = placement?.createdPlacement || placement;
+    const offerLetterToMirror = placement?.offerLetterSync || null;
+
+    // Push the offer letter to the candidate's portal Application so it
+    // appears on the job-portal `/applications/[id]` page with View +
+    // Download. Out-of-transaction because the portal lives on a separate
+    // Prisma client; we never want a portal-write failure to roll back the
+    // CRM placement.
+    if (offerLetterToMirror?.fileUrl) {
+      try {
+        await syncApplicationOfferLetter(candidate.id, job.id, offerLetterToMirror);
+      } catch (offerSyncError) {
+        console.warn(
+          '[placement.create] portal offer letter sync failed:',
+          offerSyncError?.message || offerSyncError
+        );
+      }
+    }
 
     if (candidate.email) {
       await sendPlacementEmail(
@@ -557,14 +619,14 @@ export const placementService = {
       candidateId: candidate.id,
       jobId: job.id,
       stage: PIPELINE_STAGES.HIRED,
-      metadata: { placementId: placement.id, jobTitle: job.title, offerDate: offerDate?.toISOString?.() || String(offerDate) },
+      metadata: { placementId: placementResult.id, jobTitle: job.title, offerDate: offerDate?.toISOString?.() || String(offerDate) },
       performedById: userId,
       skipStageActivity: true,
     });
 
     // Placement was just created successfully; return it directly instead of
     // re-fetching, which was occasionally throwing "Placement not found".
-    return placement;
+    return placementResult;
   },
 
   async update(id, data, userId) {

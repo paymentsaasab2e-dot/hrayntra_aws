@@ -1,4 +1,8 @@
 import { prisma, getActiveTenantDbName, getDefaultPrismaClient } from '../../config/prisma.js';
+import {
+  mapStageNameToPipelineBucket,
+  updateCandidateStage,
+} from '../stage/candidateStage.service.js';
 
 const PIPELINE_ACTIVITY_KIND = 'candidate-pipeline';
 const CANDIDATE_ACTIVITY_ENTITY = 'CANDIDATE';
@@ -184,6 +188,32 @@ export const pipelineService = {
         assignedToId: candidate.assignedToId || undefined,
       },
     });
+
+    // Canonicalize the stage chip and mirror to the job portal.
+    // Custom pipeline names ("Tech Round 1", "Offer Sent", etc.) get bucketed into the
+    // standard PIPELINE_STAGES (APPLIED/SCREENING/INTERVIEW/OFFER/HIRED/REJECTED) so
+    // every list view (Candidates, Interviews, Job drawer, Job Portal /applications)
+    // shows the same canonical tag instead of the raw column name.
+    if (candidateClient === prisma) {
+      try {
+        await updateCandidateStage({
+          candidateId,
+          jobId,
+          stage: mapStageNameToPipelineBucket(stage.name),
+          performedById: movedById,
+          skipStageActivity: true,
+          metadata: {
+            customStageName: stage.name,
+            pipelineNotes: pipelineNotes || null,
+          },
+        });
+      } catch (stageError) {
+        console.warn(
+          '[pipeline.moveCandidate] candidate stage sync failed:',
+          stageError?.message || stageError,
+        );
+      }
+    }
 
     // If candidate lives in portal/default DB (Phase 1), mirror pipeline + match there
     // so candidate-portal applications page reflects latest stage updates from Phase 2.

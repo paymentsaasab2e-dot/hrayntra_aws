@@ -173,6 +173,7 @@ export interface CreatePlacementPayload {
   offerSalary: number | string;
   placementFee: number | string;
   commissionPercentage: number | string;
+  currency?: string;
   offerDate: string;
   expectedJoiningDate?: string;
   employmentType: EmploymentType;

@@ -7,8 +7,10 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
+
     "prestart": "sh ./scripts/install-deps.sh || true",
-    "postinstall": "sh ./scripts/install-deps.sh || true",
+    "postinstall": "sh ./scripts/install-deps.sh || true; prisma generate" ,
+
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
