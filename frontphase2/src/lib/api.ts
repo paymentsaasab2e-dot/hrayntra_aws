@@ -289,11 +289,33 @@ export async function apiFetch<T>(
       }
       throw new Error('Authentication required. Please log in.');
     }
-    const msg = json?.message || `Request failed with status ${res.status}`;
-    const error: any = new Error(msg);
+    // When the backend returns Zod validation errors as `data.errors[]`, surface
+    // the per-field details in the thrown message so existing toasts/UI strings
+    // become actionable instead of showing a generic "Validation failed".
+    const baseMsg = json?.message || `Request failed with status ${res.status}`;
+    const validationIssues = Array.isArray(json?.data?.errors)
+      ? (json.data.errors as Array<{ path?: string | string[]; message?: string } | string>)
+          .map((entry) => {
+            if (typeof entry === 'string') return entry;
+            const path = Array.isArray(entry?.path)
+              ? entry.path.join('.')
+              : entry?.path || '';
+            const message = entry?.message || 'Invalid value';
+            return path ? `${path}: ${message}` : message;
+          })
+          .filter(Boolean)
+      : [];
+    const detailedMsg = validationIssues.length
+      ? `${baseMsg} — ${validationIssues.join('; ')}`
+      : baseMsg;
+    if (debugApiLogs && validationIssues.length) {
+      console.warn('[apiFetch] validation issues', validationIssues);
+    }
+    const error: any = new Error(detailedMsg);
     error.status = res.status;
     error.data = json?.data;
     error.raw = json;
+    error.validationIssues = validationIssues;
     throw error;
   }
 
@@ -311,7 +333,7 @@ export async function apiFetch<T>(
   return json as ApiResponse<T>;
 }
 
-async function apiFetchFormData<T>(
+export async function apiFetchFormData<T>(
   path: string,
   formData: FormData,
   options: {
@@ -655,6 +677,19 @@ export interface BackendJob {
     order: number;
     color?: string;
   }>;
+  applications?: Array<{
+    id: string;
+    candidateId: string;
+    status?: string;
+    appliedAt?: string;
+    screeningAnswers?: Record<string, unknown> | null;
+    candidate?: {
+      id?: string;
+      firstName?: string | null;
+      lastName?: string | null;
+      email?: string | null;
+    } | null;
+  }>;
 }
 
 export interface PaginatedJobs {
@@ -710,6 +745,7 @@ export interface CreateJobData {
   department?: string;
   jobCategory?: string;
   jobLocationType?: string;
+  workMode?: string;
   expectedClosureDate?: string;
   jdFileName?: string;
   hot?: boolean;
@@ -837,6 +873,32 @@ export interface BackendCandidate {
     min?: number;
     max?: number;
     currency?: string;
+  } | null;
+  /**
+   * Candidate-self-entered career preferences from the job portal.
+   * Backend merges this in from the portal `career_preferences` collection.
+   */
+  careerPreferences?: {
+    preferredRoles?: string[];
+    preferredIndustry?: string | null;
+    functionalArea?: string | null;
+    jobTypes?: string[];
+    preferredWorkMode?: string | null;
+    preferredLocations?: string[];
+    relocationPreference?: string | null;
+    preferredCurrency?: string | null;
+    preferredSalary?: number | null;
+    preferredSalaryType?: string | null;
+    preferredBenefits?: string[];
+    availabilityToStart?: string | null;
+    noticePeriod?: string | null;
+    noticePeriodDays?: number | null;
+    openToRelocation?: boolean;
+    currentLocation?: string | null;
+    currentSalary?: number | null;
+    currentCurrency?: string | null;
+    currentSalaryType?: string | null;
+    currentBenefits?: string[];
   } | null;
   assignedTo?: {
     id: string;
@@ -1422,7 +1484,15 @@ export const apiMoveCandidateStage = async (
 
 export const apiRejectCandidate = async (
   candidateId: string,
-  payload: { reason: string; feedback: string; sendEmail: boolean }
+  payload: {
+    reason: string;
+    feedback: string;
+    sendEmail: boolean;
+    /** When true, the rejection feedback is shown on the candidate's job-portal application timeline. */
+    showFeedbackToCandidate?: boolean;
+    /** Required for correct portal sync when multiple jobs exist — e.g. pass the interview's job id. */
+    jobId?: string;
+  }
 ) => {
   return apiFetch<BackendCandidate>(`/candidates/${candidateId}/reject`, {
     method: 'POST',
@@ -1791,16 +1861,86 @@ export const apiDeleteInterview = async (id: string) => {
 
 export const apiSubmitInterviewToClient = async (
   id: string,
-  payload: { toEmail?: string; message?: string }
+  payload: { toEmail?: string; message?: string; submissionType?: string }
 ) => {
-  return apiFetch<{ success: boolean; recipients: string[]; reviewUrl: string }>(
-    `/interviews/${id}/submit-client`,
+  return apiFetch<{
+    success: boolean;
+    recipients: string[];
+    reviewUrl: string;
+    submissionType?: string;
+  }>(`/interviews/${id}/submit-client`, {
+    method: 'POST',
+    body: payload,
+    auth: true,
+  });
+};
+
+export interface PublicClientReviewPayload {
+  interviewId: string;
+  submissionType: 'INITIAL_REVIEW' | 'INTERIM_REVIEW' | 'OFFER_CONFIRMATION' | 'GENERAL';
+  candidate: {
+    name: string;
+    email: string;
+    phone: string;
+    currentCompany: string;
+    designation: string;
+    experience: number | null;
+    skills: string[];
+    languages: string[];
+    education: string;
+    certifications: string[];
+    cvSummary: string;
+    address: string;
+    city: string;
+    country: string;
+    linkedIn: string;
+    resume: string;
+  };
+  job: { title: string };
+  client: { companyName: string };
+  interviewFeedback: Array<{
+    id: string;
+    interviewerName: string;
+    submittedAt: string;
+    recommendation: string;
+    comments: string;
+    strengths: string;
+    weakness: string;
+    overallScore: number | null;
+  }>;
+  offerLetterUrl?: string | null;
+}
+
+export const apiGetPublicClientReview = async (token: string) => {
+  return apiFetch<PublicClientReviewPayload>(
+    `/interviews/public/review/${encodeURIComponent(token)}`,
     {
-      method: 'POST',
-      body: payload,
-      auth: true,
+      method: 'GET',
+      auth: false,
     }
   );
+};
+
+export const apiSubmitPublicClientTag = async (
+  token: string,
+  data: { tag: string; comments?: string; offerLetter?: File | null }
+) => {
+  // We always send multipart so the same endpoint handles both the
+  // tag-only case (initial / interim review) and the offer-letter upload
+  // case without forking into two routes on the backend.
+  const formData = new FormData();
+  formData.append('tag', data.tag);
+  if (data.comments) formData.append('comments', data.comments);
+  if (data.offerLetter) formData.append('offerLetter', data.offerLetter);
+  return apiFetchFormData<{
+    success: boolean;
+    tag: string;
+    interviewId: string;
+    offerLetterUrl?: string | null;
+  }>(`/interviews/public/review/${encodeURIComponent(token)}/tag`, formData, {
+    method: 'POST',
+    auth: false,
+  });
 };
 
 export const apiMarkInterviewNoShow = async (id: string, payload: { reason: string; notes: string }) => {
@@ -2044,6 +2184,15 @@ export interface BackendMatch {
     matchedSkills: string[];
     missingSkills: string[];
     roleRequirement: string;
+    /** Present when AI tab uses backend1-style job match engine (deterministic + GPT blend). */
+    aiEngine?: {
+      deterministicScore: number;
+      aiScore: number | null;
+      verdict: string;
+      confidenceLevel: string;
+      confidenceScore: number;
+      breakdown?: Record<string, number>;
+    };
   };
   currentTitle: string;
   currentCompany: string;
@@ -2104,7 +2253,11 @@ export const apiToggleSavedMatch = async (matchId: string, saved: boolean) => {
 
 export const apiSubmitMatch = async (
   matchId: string,
-  payload: { message: string; notifyClient: boolean }
+  payload: {
+    message: string;
+    notifyClient: boolean;
+    submissionType?: string;
+  }
 ) => {
   return apiFetch<BackendMatch>(`/matches/${matchId}/submit`, {
     method: 'POST',
@@ -2155,6 +2308,7 @@ export const apiBulkEmailMatches = async (payload: {
   matchIds: string[];
   subject: string;
   message: string;
+  submissionType?: string;
 }) => {
   return apiFetch<{ count: number; recipients: string[] }>('/matches/bulk/email', {
     method: 'POST',

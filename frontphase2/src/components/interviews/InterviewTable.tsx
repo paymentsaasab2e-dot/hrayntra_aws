@@ -240,7 +240,7 @@ export function InterviewTable({
                       title={
                         interview.status === 'Completed'
                           ? 'Already completed'
-                          : `Mark round ${index + 1} as completed`
+                          : `Complete round ${index + 1} (submit feedback)`
                       }
                       onClick={() => {
                         if (
@@ -418,7 +418,7 @@ export function InterviewTable({
                         </div>
                       ))}
                     </div>
-                    {primary.candidate.stage && getCandidateStageLabel(primary.candidate.stage) !== 'Interviewing' ? (
+                    {primary.candidate.stage ? (
                       <div className="mt-1.5">
                         <span
                           className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getCandidateStageBadgeClasses(

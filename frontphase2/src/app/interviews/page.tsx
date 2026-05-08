@@ -23,6 +23,7 @@ import type { Interview, UpdateInterviewPayload } from '../../types/interview.ty
 import type { InterviewAction } from '../../components/interviews/ActionsDropdown';
 import { usePermissions } from '../../hooks/usePermissions';
 import { requestConfirm } from '../../lib/appDialog';
+import { combineInterviewDateAndTimeToIso } from '../../lib/interview-schedule-helpers';
 import { apiRejectCandidate } from '../../lib/api';
 
 /** Full PATCH payload required by `updateInterview` so status-only updates preserve schedule fields. */
@@ -269,17 +270,9 @@ export default function InterviewsPage() {
         }}
         onMarkInterviewCompleted={
           canUpdateInterview
-            ? async (interview) => {
-                const confirmed = await requestConfirm('Mark this interview round as completed?');
-                if (!confirmed) return;
-                try {
-                  await updateInterview(
-                    interview.id,
-                    fullUpdatePayloadFromInterview(interview, { status: 'Completed' })
-                  );
-                } catch {
-                  // Toast handled in useInterviews
-                }
+            ? (interview) => {
+                openInterview(interview);
+                modals.open('feedback');
               }
             : undefined
         }
@@ -403,9 +396,15 @@ export default function InterviewsPage() {
           setRejectModalOpen(false);
           setRejectInterview(null);
         }}
-        onReject={async ({ reason, feedback, sendEmail }) => {
+        onReject={async ({ reason, feedback, sendEmail, showFeedbackToCandidate }) => {
           if (!rejectInterview) return;
-          await apiRejectCandidate(rejectInterview.candidate.id, { reason, feedback, sendEmail });
+          await apiRejectCandidate(rejectInterview.candidate.id, {
+            reason,
+            feedback,
+            sendEmail,
+            showFeedbackToCandidate,
+            jobId: rejectInterview.job?.id,
+          });
           setToast(`${rejectInterview.candidate.name} rejected`);
           setRejectModalOpen(false);
           setRejectInterview(null);
@@ -430,7 +429,7 @@ export default function InterviewsPage() {
                 round: payload.round,
                 type: payload.type,
                 mode: payload.mode,
-                date: new Date(payload.date).toISOString(),
+                date: combineInterviewDateAndTimeToIso(payload.date, payload.time),
                 duration: payload.duration,
                 timezone: payload.timezone,
                 meetingPlatform:

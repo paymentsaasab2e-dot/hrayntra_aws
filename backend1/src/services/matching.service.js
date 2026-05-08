@@ -32,7 +32,10 @@ const RELATED_ROLE_CATEGORY_GROUPS = [
 ];
 
 function calculateKeywordOverlap(candidateKeywords, jobKeywords) {
-  if (!jobKeywords.length) return { score: 60, matches: [] };
+  // A job that supplies no comparable keywords cannot be confirmed as a fit; use a
+  // neutral-low value instead of the previous 60 so under-specified jobs don't end up
+  // looking like a strong keyword match by default.
+  if (!jobKeywords.length) return { score: 35, matches: [] };
   const candidateSet = new Set(candidateKeywords.map(normalizeSkill).filter(Boolean));
   const matched = jobKeywords.filter((item) => candidateSet.has(normalizeSkill(item)));
   return {
@@ -127,7 +130,10 @@ function calculateDomainScore(candidateSummary, jobSummary) {
  * Weighted Skill Scoring
  */
 function calculateWeightedSkillScore(candidateSkillSet, requiredSkills, preferredSkills) {
-  if (!requiredSkills.length) return { score: 100, matched: [], missing: [], penalties: 0 };
+  // When the job lists no required skills there is nothing to verify the candidate against,
+  // so awarding 100 (perfect match) inflates every blank job to ~85%. Award a neutral 40 to
+  // signal "uncertain" and rely on the keyword/title/domain components for actual ranking.
+  if (!requiredSkills.length) return { score: 40, matched: [], missing: [], penalty: 0 };
   
   // Weight Map logic (simplified for now, can be expanded)
   // Core (1.0), Secondary (0.7) - We treat first 3 required as CORE
@@ -160,6 +166,12 @@ function calculateWeightedSkillScore(candidateSkillSet, requiredSkills, preferre
  * Calculate Experience Check with Gear/Role Progression Logic
  */
 function calculateExperienceScore(candidateExp, requiredExp, level) {
+  // If the job didn't specify a required experience, we can't actually match on it. Use a
+  // neutral-mid score instead of the prior implicit 100 so blank jobs don't inflate.
+  if (!Number.isFinite(requiredExp) || requiredExp <= 0) {
+    return { score: 55, penalty: 0 };
+  }
+
   let score = 100;
   let penalty = 0;
 
@@ -170,7 +182,6 @@ function calculateExperienceScore(candidateExp, requiredExp, level) {
     score = (candidateExp / requiredExp) * 100;
   }
 
-  // Role Progression Penalty (Intern -> Senior)
   if (requiredExp - candidateExp > 4) {
     score = Math.max(10, score - 30);
   }

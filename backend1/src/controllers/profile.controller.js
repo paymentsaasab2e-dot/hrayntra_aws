@@ -1589,6 +1589,32 @@ async function updateCareerPreferences(req, res) {
 
     logProfileSave('Career Preferences', 'upserted', candidateId, logData);
 
+    // Mirror the candidate-facing values onto the Candidate row itself so that
+    // recruiter-side views (frontphase2 candidate drawer) can read them directly
+    // without joining career_preferences. We only update fields that exist on
+    // the Candidate model; salary fields are stored as Float.
+    try {
+      const expectedSalaryNum = preferences.salaryAmount && !Number.isNaN(parseFloat(preferences.salaryAmount))
+        ? parseFloat(preferences.salaryAmount)
+        : null;
+      const firstPreferredLocation = Array.isArray(preferences.preferredLocations) && preferences.preferredLocations.length
+        ? String(preferences.preferredLocations[0]).trim() || null
+        : null;
+
+      await prisma.candidate.update({
+        where: { id: candidateId },
+        data: {
+          noticePeriod: preferences.noticePeriod || null,
+          availability: preferences.availabilityToStart || null,
+          expectedSalary: expectedSalaryNum,
+          preferredLocation: firstPreferredLocation,
+        },
+      });
+    } catch (mirrorErr) {
+      // Do not fail the request if mirror update fails (e.g. candidate row missing fields).
+      console.warn('[profile] failed to mirror career preferences to candidate row:', mirrorErr?.message || mirrorErr);
+    }
+
     res.json({
       success: true,
       message: 'Career preferences updated successfully',

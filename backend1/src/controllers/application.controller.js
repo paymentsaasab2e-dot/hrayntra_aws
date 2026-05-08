@@ -1,7 +1,16 @@
 const { prisma } = require('../lib/prisma');
 
+/** True for Prisma Mongo write conflicts / transient transaction failures (case + message fallbacks). */
+function isMongoTransientWriteConflict(e) {
+  if (!e) return false;
+  const code = e.code;
+  if (code === 'P2034' || code === 2034) return true;
+  const msg = String(e.message || '').toLowerCase();
+  return msg.includes('write conflict') || msg.includes('deadlock') || msg.includes('please retry your transaction');
+}
+
 /** MongoDB (replica set) can surface Prisma P2034 on conflicting writes — retry with backoff per Prisma docs. */
-async function withMongoWriteConflictRetry(fn, maxAttempts = 6) {
+async function withMongoWriteConflictRetry(fn, maxAttempts = 12) {
   let lastErr;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {
@@ -9,8 +18,8 @@ async function withMongoWriteConflictRetry(fn, maxAttempts = 6) {
     } catch (e) {
       lastErr = e;
       if (e.code === 'ALREADY_APPLIED') throw e;
-      if (e.code === 'P2034' && attempt < maxAttempts - 1) {
-        const backoff = 25 * 2 ** attempt + Math.floor(Math.random() * 60);
+      if (isMongoTransientWriteConflict(e) && attempt < maxAttempts - 1) {
+        const backoff = Math.min(2000, 40 * 2 ** attempt + Math.floor(Math.random() * 80));
         await new Promise((r) => setTimeout(r, backoff));
         continue;
       }
@@ -70,6 +79,56 @@ function formatApplicationStatus(status) {
   return statusMap[status] || status || 'Submitted';
 }
 
+/**
+ * Derive the per-application "current pipeline stage" label using ONLY
+ * per-application signals — never the global `candidate.stage`, which can
+ * be stale or inherited from an unrelated job. Used by both
+ * `getApplications` (list) and `getApplicationById` (detail) so the portal
+ * card and the detail view always agree, and a freshly submitted Job B
+ * never inherits "Rejected" from a previously-rejected Job A.
+ */
+function deriveApplicationPipelineStage({
+  pipelineStageName,
+  appStatus,
+  matchStatus,
+  timelineStatuses,
+}) {
+  const pipelineText = String(pipelineStageName || '').trim();
+  if (pipelineText) return pipelineText;
+
+  const appU = String(appStatus || '').toUpperCase();
+  if (appU === 'REJECTED') return 'Rejected';
+
+  if (Array.isArray(timelineStatuses)) {
+    const latest = [...timelineStatuses]
+      .map((s) => String(s || '').toUpperCase())
+      .filter(Boolean);
+    if (latest.includes('REJECTED')) return 'Rejected';
+    const lastStrong = [...latest]
+      .reverse()
+      .find((s) =>
+        ['INTERVIEW', 'SHORTLISTED', 'ASSESSMENT', 'FINAL_DECISION', 'SELECTED'].includes(s)
+      );
+    if (lastStrong) return formatApplicationStatus(lastStrong);
+  }
+
+  if (appStatus) return formatApplicationStatus(appStatus);
+
+  const matchU = String(matchStatus || '').toUpperCase();
+  if (matchU) {
+    if (matchU === 'REJECTED') return 'Rejected';
+    if (matchU === 'HIRED' || matchU === 'PLACED') return 'Hired';
+    if (matchU === 'OFFER' || matchU === 'OFFERED') return 'Offer';
+    if (matchU === 'INTERVIEW' || matchU === 'INTERVIEWING' || matchU === 'INTERVIEW_SCHEDULED') {
+      return 'Interview';
+    }
+    if (matchU === 'SHORTLISTED') return 'Shortlisted';
+    if (matchU === 'REVIEWED') return 'Under Review';
+  }
+
+  return 'Submitted';
+}
+
 function formatMatchStatus(status) {
   const statusMap = {
     REVIEWED: 'Under Review',
@@ -86,9 +145,59 @@ function formatMatchStatus(status) {
   return statusMap[String(status || '').toUpperCase()] || null;
 }
 
-function resolveApplicationDisplayStatus({ appStatus, matchStatus, candidateStage, pipelineStageName }) {
+/**
+ * Compute the chip + progress label for ONE application row on the candidate
+ * portal. Designed to be resilient to multi-job candidates and stale
+ * application enums.
+ *
+ * Priority order:
+ *   1. Application.status === REJECTED                      (per-application terminal)
+ *   2. Any ApplicationTimeline entry with status REJECTED   (covers older CRM
+ *      rejects that flipped the timeline but never the enum, and any reject
+ *      flow without a `jobId`)
+ *   3. Match.status === REJECTED                            (recruiter view)
+ *   4. Per-job pipeline stage name containing "reject"
+ *   5. Strong Application enum (INTERVIEW / FINAL_DECISION / etc.)
+ *   6. Pipeline stage name / match text / candidate.stage   (display fallbacks)
+ *
+ * IMPORTANT: `candidate.stage` is a SINGLE field on the candidate row and gets
+ * overwritten by the apply flow every time the candidate applies to a new job.
+ * It therefore CANNOT be trusted to detect rejection on a specific older
+ * application — only the per-application signals (1-4) are.
+ */
+function resolveApplicationDisplayStatus({
+  appStatus,
+  matchStatus,
+  candidateStage,
+  pipelineStageName,
+  timelineStatuses,
+}) {
+  const appU = String(appStatus || '').toUpperCase();
+  if (appU === 'REJECTED') {
+    return formatApplicationStatus('REJECTED');
+  }
+
+  if (Array.isArray(timelineStatuses)) {
+    const rejectedInTimeline = timelineStatuses.some(
+      (s) => String(s || '').toUpperCase() === 'REJECTED'
+    );
+    if (rejectedInTimeline) {
+      return formatApplicationStatus('REJECTED');
+    }
+  }
+
+  const matchU = String(matchStatus || '').toUpperCase();
+  if (matchU === 'REJECTED') {
+    return formatMatchStatus(matchStatus) || 'Rejected';
+  }
+
+  const pipeLower = String(pipelineStageName || '').trim().toLowerCase();
+  if (pipeLower.includes('reject')) {
+    return pipelineStageName.trim();
+  }
+
   const strongApp = new Set(['INTERVIEW', 'FINAL_DECISION', 'SELECTED', 'REJECTED', 'SHORTLISTED', 'ASSESSMENT']);
-  if (appStatus && strongApp.has(String(appStatus).toUpperCase())) {
+  if (appStatus && strongApp.has(appU)) {
     return formatApplicationStatus(appStatus);
   }
 
@@ -164,12 +273,32 @@ function parseInterviewDetailsFromDescription(description, title) {
   const recruiterMatch = desc.match(/Recruiter scheduled\s+([^.]+\.?)/i);
   if (recruiterMatch) recruiterRound = recruiterMatch[1].replace(/\.$/, '').trim();
 
+  // Names of the assigned interviewer(s) and recruiter who scheduled — written by
+  // backendphase2 `buildInterviewTimelineDescription` as `Interviewer: A, B` and `Recruiter: C`.
+  let interviewerNames = [];
+  const interviewerLine = text.split(/\r?\n/).find((l) => /^interviewer(s)?\s*:/i.test(l.trim()));
+  if (interviewerLine) {
+    interviewerNames = interviewerLine
+      .replace(/^interviewer(s)?\s*:/i, '')
+      .split(/[,;|]/)
+      .map((name) => name.trim())
+      .filter(Boolean);
+  }
+
+  let recruiterName = null;
+  const recruiterLine = text.split(/\r?\n/).find((l) => /^recruiter\s*:/i.test(l.trim()));
+  if (recruiterLine) {
+    recruiterName = recruiterLine.replace(/^recruiter\s*:/i, '').trim() || null;
+  }
+
   return {
     meetingLink,
     location,
     scheduledAt,
     interviewType: typeFromLine,
     recruiterRound,
+    interviewerNames,
+    recruiterName,
   };
 }
 
@@ -200,6 +329,8 @@ function buildInterviewRoundsFromTimeline(rawTimeline) {
       meetingLink: parsed.meetingLink,
       location: parsed.location,
       notes: item.description || null,
+      interviewerNames: Array.isArray(parsed.interviewerNames) ? parsed.interviewerNames : [],
+      recruiterName: parsed.recruiterName || null,
     };
   });
 }
@@ -370,6 +501,23 @@ async function syncApplicationToRecruiterView(candidateId, job) {
     .map((item) => (typeof item === 'string' ? item.trim() : String(item?.name || item?.title || '').trim()))
     .filter(Boolean);
 
+  // Stage-flip policy on a fresh portal apply (mirrors backendphase2
+  // applyPortalApplicationSync — keep the two backends in agreement):
+  //  • Rejected → Applied  ✅ (re-activate the candidate; lifetime activity
+  //    log stays intact because Activity rows are append-only on entityId).
+  //  • Hired / Placed / Joined / Onboarded → keep terminal (positive
+  //    outcomes must NOT silently regress just because the candidate
+  //    browsed a new posting; per-application status chips remain correct
+  //    via the per-Application enum and per-app pipelineStage anyway).
+  //  • Anything else → Applied.
+  const previousStageLower = String(candidate.stage || '').trim().toLowerCase();
+  const stageIsPositiveTerminal =
+    previousStageLower.includes('hire') ||
+    previousStageLower === 'placed' ||
+    previousStageLower === 'joined' ||
+    previousStageLower === 'onboarded';
+  const nextStage = stageIsPositiveTerminal ? candidate.stage : 'Applied';
+
   await prisma.candidate.update({
     where: { id: candidateId },
     data: {
@@ -415,7 +563,7 @@ async function syncApplicationToRecruiterView(candidateId, job) {
         candidate.preferredLocation ||
         null,
       assignedJobs,
-      stage: 'Applied',
+      stage: nextStage,
       lastActivity: new Date(),
     },
   });
@@ -465,22 +613,55 @@ async function syncApplicationToRecruiterView(candidateId, job) {
 }
 
 /**
- * Mirror the portal apply into the Phase 2 tenant DB (assignedJobs merge, match, pipeline, stage engine).
- * Requires PHASE2_INTERNAL_API_URL, PHASE2_PORTAL_SYNC_SECRET, and PHASE2_TENANT_DB_NAME.
+ * Mirror the portal apply into the Phase 2 tenant DB (assignedJobs merge, match,
+ * pipeline, stage engine, activity feed).
+ *
+ * Multi-agency design:
+ *  - Each portal Job document now carries `tenantDbName` (written by the CRM at
+ *    job-mirror time) — read it from the Job here and pass to the webhook so the
+ *    apply lands in the correct tenant DB no matter how many agencies share the
+ *    portal. No per-deployment env-var configuration is required for routing.
+ *  - `PHASE2_DEFAULT_TENANT_DB_NAME` is only used as a fallback for legacy jobs
+ *    that were mirrored before this field existed.
+ *  - `PHASE2_INTERNAL_API_URL` defaults to the typical local CRM dev port.
+ *  - `PHASE2_PORTAL_SYNC_SECRET` is the shared secret for the webhook auth; both
+ *    backends ship a sane local default so dev environments work out of the box.
  */
 async function syncPhase2TenantAfterPortalApply(candidateId, jobId) {
   const base =
     process.env.PHASE2_INTERNAL_API_URL ||
     process.env.PHASE2_API_URL ||
-    process.env.PHASE2_BASE_URL;
-  const secret = process.env.PHASE2_PORTAL_SYNC_SECRET;
-  const tenantDbName = process.env.PHASE2_TENANT_DB_NAME;
+    process.env.PHASE2_BASE_URL ||
+    'http://localhost:5001';
+  const secret =
+    process.env.PHASE2_PORTAL_SYNC_SECRET || 'phase2-portal-sync-2026-shared-secret';
 
-  if (!base || !secret || !tenantDbName) {
+  // Resolve which tenant DB this job belongs to.
+  // 1. Read from the portal Job's `tenantDbName` (preferred — multi-agency safe).
+  // 2. Fall back to `PHASE2_DEFAULT_TENANT_DB_NAME` env var for legacy jobs.
+  let tenantDbName = null;
+  let assignedJobsSnapshot = [];
+  try {
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      select: { tenantDbName: true },
+    });
+    tenantDbName = String(job?.tenantDbName || '').trim() || null;
+  } catch (e) {
+    console.warn('[Application] Could not read job.tenantDbName:', e?.message || e);
+  }
+  if (!tenantDbName) {
+    tenantDbName = String(process.env.PHASE2_DEFAULT_TENANT_DB_NAME || '').trim() || null;
+  }
+
+  if (!tenantDbName) {
+    console.warn(
+      `[Application] Phase2 tenant sync skipped — no tenantDbName on Job ${jobId} and no PHASE2_DEFAULT_TENANT_DB_NAME env fallback. ` +
+        `Set tenantDbName on the portal Job (CRM job-mirror writes it now) or configure the env default.`
+    );
     return;
   }
 
-  let assignedJobsSnapshot = [];
   try {
     const c = await prisma.candidate.findUnique({
       where: { id: candidateId },
@@ -514,7 +695,9 @@ async function syncPhase2TenantAfterPortalApply(candidateId, jobId) {
       const text = await res.text().catch(() => '');
       console.warn('[Application] Phase2 tenant sync HTTP error:', res.status, text);
     } else {
-      console.log(`✅ Phase2 tenant sync ok | candidateId=${candidateId} jobId=${jobId}`);
+      console.log(
+        `✅ Phase2 tenant sync ok | candidateId=${candidateId} jobId=${jobId} tenantDbName=${tenantDbName}`
+      );
     }
   } catch (e) {
     console.warn('[Application] Phase2 tenant sync failed:', e?.message || e);
@@ -579,21 +762,11 @@ async function createApplication(req, res) {
     let application;
 
     try {
-      application = await withMongoWriteConflictRetry(() =>
-        prisma.$transaction(async (tx) => {
-          const raced = await tx.application.findUnique({
-            where: {
-              candidateId_jobId: { candidateId, jobId },
-            },
-          });
-
-          if (raced) {
-            const dup = new Error('Already applied');
-            dup.code = 'ALREADY_APPLIED';
-            throw dup;
-          }
-
-          const app = await tx.application.create({
+      // Avoid interactive multi-write transactions: they trigger P2034 on Mongo far more often than
+      // two separate writes. Duplicate applies are still blocked by @@unique([candidateId, jobId]).
+      application = await withMongoWriteConflictRetry(
+        () =>
+          prisma.application.create({
             data: {
               candidateId,
               jobId,
@@ -608,20 +781,22 @@ async function createApplication(req, res) {
                 },
               },
             },
-          });
-
-          await tx.applicationTimeline.create({
-            data: {
-              applicationId: app.id,
-              status: 'SUBMITTED',
-              title: 'Application Submitted',
-              description: 'Your application has been successfully submitted',
-            },
-          });
-
-          return app;
-        })
+          }),
+        12
       );
+
+      await prisma.applicationTimeline
+        .create({
+          data: {
+            applicationId: application.id,
+            status: 'SUBMITTED',
+            title: 'Application Submitted',
+            description: 'Your application has been successfully submitted',
+          },
+        })
+        .catch((timelineErr) => {
+          console.warn('[Application] Timeline create failed (non-fatal):', timelineErr?.message || timelineErr);
+        });
     } catch (e) {
       if (e.code === 'ALREADY_APPLIED') {
         return res.status(400).json({
@@ -640,10 +815,7 @@ async function createApplication(req, res) {
 
     console.log(`✅ Application created: ${application.id} for job ${jobId} by candidate ${candidateId}`);
 
-    await syncApplicationToRecruiterView(candidateId, job);
-    await syncPhase2TenantAfterPortalApply(candidateId, job.id);
-
-    res.json({
+    const responsePayload = {
       success: true,
       message: 'Application submitted successfully',
       data: {
@@ -659,6 +831,20 @@ async function createApplication(req, res) {
             'Unknown Company',
         },
       },
+    };
+
+    res.json(responsePayload);
+
+    // Heavy / outbound sync must not block or fail the HTTP response (avoids client "Failed to fetch" on hangs / crashes).
+    Promise.allSettled([
+      syncApplicationToRecruiterView(candidateId, job),
+      syncPhase2TenantAfterPortalApply(candidateId, job.id),
+    ]).then((results) => {
+      results.forEach((r, idx) => {
+        if (r.status === 'rejected') {
+          console.error(`[Application] Post-commit sync slot ${idx} failed:`, r.reason);
+        }
+      });
     });
   } catch (error) {
     console.error('Error creating application:', error);
@@ -698,6 +884,12 @@ async function getApplications(req, res) {
         },
         candidate: {
           select: { stage: true },
+        },
+        // Pull each app's full timeline so the chip can detect rejections that
+        // were written to the timeline (by CRM Phase 2 stage sync) even when
+        // the `Application.status` enum is stale (older reject without jobId).
+        timeline: {
+          select: { status: true },
         },
       },
       orderBy: {
@@ -778,11 +970,21 @@ async function getApplications(req, res) {
 
       const recruiterMatch = matchByJobId.get(app.jobId) || null;
       const pipelineStageName = pipelineStageByJobId.get(app.jobId) || null;
+      const timelineStatuses = Array.isArray(app.timeline)
+        ? app.timeline.map((t) => t?.status).filter(Boolean)
+        : [];
       const displayStatus = resolveApplicationDisplayStatus({
         appStatus: app.status,
         matchStatus: recruiterMatch?.status,
         candidateStage: app.candidate?.stage,
         pipelineStageName,
+        timelineStatuses,
+      });
+      const perAppPipelineStage = deriveApplicationPipelineStage({
+        pipelineStageName,
+        appStatus: app.status,
+        matchStatus: recruiterMatch?.status,
+        timelineStatuses,
       });
 
       return {
@@ -793,7 +995,12 @@ async function getApplications(req, res) {
         status: displayStatus,
         applicationStatus: statusMap[app.status] || app.status,
         pipelineStatusCode: recruiterMatch?.status || null,
-        pipelineStage: pipelineStageName || app.candidate?.stage || null,
+        // Per-application pipeline label. We deliberately do NOT fall back
+        // to `app.candidate?.stage` here — that single global field bleeds
+        // across all of a candidate's applications, so a previously
+        // rejected candidate would otherwise see "Rejected" on a brand
+        // new Job B's card just because Job A was rejected.
+        pipelineStage: perAppPipelineStage,
         appliedDate: app.appliedAt.toISOString().split('T')[0],
         matchScore: app.matchScore || 0,
         salary,
@@ -920,8 +1127,20 @@ async function getApplicationById(req, res) {
         .map((stage) => String(stage?.name || '').trim().toLowerCase())
         .filter(Boolean)
     );
-    const currentPipelineStageName =
-      latestPipelineEntry?.stage?.name || application.candidate?.stage || null;
+    const detailTimelineStatuses = Array.isArray(application.timeline)
+      ? application.timeline.map((t) => t?.status).filter(Boolean)
+      : [];
+    // Per-application current stage. We deliberately do NOT fall back to
+    // `application.candidate?.stage` (the global candidate field) — that
+    // value persists across a candidate's other jobs and would, for
+    // example, paint a brand-new Job B's "Pipeline Stage" card as
+    // "Rejected" the moment a previous Job A was rejected.
+    const currentPipelineStageName = deriveApplicationPipelineStage({
+      pipelineStageName: latestPipelineEntry?.stage?.name,
+      appStatus: application.status,
+      matchStatus: recruiterMatch?.status,
+      timelineStatuses: detailTimelineStatuses,
+    });
     const currentStageNormalized = String(currentPipelineStageName || '').trim().toLowerCase();
     const pipelineStages = orderedPipelineStages.map((stage) => String(stage.name || '').trim()).filter(Boolean);
     if (currentPipelineStageName && currentStageNormalized && !normalizedStageNames.has(currentStageNormalized)) {
@@ -933,7 +1152,17 @@ async function getApplicationById(req, res) {
       matchStatus: recruiterMatch?.status,
       candidateStage: application.candidate?.stage,
       pipelineStageName: latestPipelineEntry?.stage?.name,
+      timelineStatuses: detailTimelineStatuses,
     });
+    // Keep `statusCode` aligned with the human-facing label when the resolver
+    // infers rejection from match / portal-candidate stage (stale
+    // `Application.status` can still read `INTERVIEW` after older CRM rejects
+    // that omitted `jobId`).
+    const displayLooksRejected = String(statusLabel || '').toLowerCase().includes('reject');
+    const responseStatusCode =
+      String(application.status || '').toUpperCase() === 'REJECTED' || displayLooksRejected
+        ? 'REJECTED'
+        : application.status;
     const rawTimeline = application.timeline || [];
     const interviewRounds = buildInterviewRoundsFromTimeline(rawTimeline);
     const latestInterview = interviewRounds.length ? interviewRounds[interviewRounds.length - 1] : null;
@@ -958,6 +1187,29 @@ async function getApplicationById(req, res) {
       `📦 DB fetch result: application-detail | applicationId=${applicationId} | status=${application.status} | timeline=${timeline.length} | communications=${communications.length} | elapsedMs=${Date.now() - startedAt}`
     );
 
+    // `offerDetails` is a String? column reused as a JSON blob to carry both
+    // legacy free-text *and* structured fields written by the CRM
+    // (e.g. offer-letter URL pushed from the recruiter's "Submit to Client"
+    // / Placement creation flow). Parse defensively so older free-text
+    // rows still render.
+    let offerLetterUrl = null;
+    let offerLetterFileName = null;
+    let offerLetterUploadedAt = null;
+    let offerDetailsText = application.offerDetails || null;
+    if (application.offerDetails) {
+      try {
+        const parsed = JSON.parse(application.offerDetails);
+        if (parsed && typeof parsed === 'object') {
+          offerLetterUrl = parsed.offerLetterUrl || null;
+          offerLetterFileName = parsed.offerLetterFileName || null;
+          offerLetterUploadedAt = parsed.offerLetterUploadedAt || null;
+          offerDetailsText = parsed.legacyOfferText || null;
+        }
+      } catch {
+        offerDetailsText = application.offerDetails;
+      }
+    }
+
     return res.json({
       success: true,
       data: {
@@ -965,7 +1217,7 @@ async function getApplicationById(req, res) {
         candidateId: application.candidateId,
         jobId: application.jobId,
         status: statusLabel,
-        statusCode: application.status,
+        statusCode: responseStatusCode,
         pipelineStatusCode: recruiterMatch?.status || null,
         pipelineStage: currentPipelineStageName,
         pipelineStages,
@@ -973,7 +1225,10 @@ async function getApplicationById(req, res) {
         updatedAt: application.updatedAt,
         emailUpdates: application.emailUpdates,
         whatsappUpdates: application.whatsappUpdates,
-        offerDetails: application.offerDetails || null,
+        offerDetails: offerDetailsText,
+        offerLetterUrl,
+        offerLetterFileName,
+        offerLetterUploadedAt,
         screeningAnswers: application.screeningAnswers || null,
         interviewRounds,
         interviewDetails: latestInterview,
@@ -1070,9 +1325,97 @@ async function checkApplication(req, res) {
   }
 }
 
+/**
+ * Withdraw (delete) an existing application.
+ * DELETE /api/applications/detail/:applicationId?candidateId=...
+ */
+async function withdrawApplication(req, res) {
+  try {
+    const { applicationId } = req.params;
+    const candidateId = String(req.query?.candidateId || req.body?.candidateId || '').trim();
+
+    if (!applicationId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Application ID is required',
+      });
+    }
+
+    if (!candidateId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Candidate ID is required',
+      });
+    }
+
+    const app = await prisma.application.findUnique({
+      where: { id: applicationId },
+      select: { id: true, candidateId: true, jobId: true },
+    });
+
+    // Idempotent success: if already deleted, treat as withdrawn.
+    if (!app) {
+      return res.json({
+        success: true,
+        message: 'Application already withdrawn',
+      });
+    }
+
+    if (app.candidateId !== candidateId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only withdraw your own application',
+      });
+    }
+
+    await withMongoWriteConflictRetry(async () => {
+      await prisma.application.delete({ where: { id: app.id } });
+
+      // Clean recruiter-side mirror records created during apply flow.
+      await Promise.all([
+        prisma.match.deleteMany({ where: { candidateId, jobId: app.jobId } }),
+        prisma.pipelineEntry.deleteMany({ where: { candidateId, jobId: app.jobId } }),
+      ]);
+
+      // Remove this job from candidate.assignedJobs so Explore Jobs can show it again as not-applied.
+      const candidate = await prisma.candidate.findUnique({
+        where: { id: candidateId },
+        select: { assignedJobs: true },
+      });
+      if (candidate && Array.isArray(candidate.assignedJobs)) {
+        const nextAssignedJobs = candidate.assignedJobs.filter((j) => String(j) !== String(app.jobId));
+        if (nextAssignedJobs.length !== candidate.assignedJobs.length) {
+          await prisma.candidate.update({
+            where: { id: candidateId },
+            data: { assignedJobs: nextAssignedJobs },
+          });
+        }
+      }
+    }, 10);
+
+    return res.json({
+      success: true,
+      message: 'Application withdrawn successfully',
+      data: {
+        applicationId: app.id,
+        jobId: app.jobId,
+        candidateId: app.candidateId,
+      },
+    });
+  } catch (error) {
+    console.error('Error withdrawing application:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to withdraw application',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+}
+
 module.exports = {
   createApplication,
   getApplications,
   getApplicationById,
+  withdrawApplication,
   checkApplication,
 };

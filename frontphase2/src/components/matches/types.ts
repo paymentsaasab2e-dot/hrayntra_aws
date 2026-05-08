@@ -79,6 +79,14 @@ export interface MatchCandidate {
     matchedSkills: string[];
     missingSkills: string[];
     roleRequirement: string;
+    aiEngine?: {
+      deterministicScore: number;
+      aiScore: number | null;
+      verdict: string;
+      confidenceLevel: string;
+      confidenceScore: number;
+      breakdown?: Record<string, number>;
+    };
   };
   currentTitle: string;
   currentCompany: string;

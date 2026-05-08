@@ -23,6 +23,7 @@ import {
   type BackendUser,
 } from '../lib/api';
 import { MY_JOBS_LIST_PARAMS } from '../lib/myJobsListParams';
+import { combineInterviewDateAndTimeToIso, mapInterviewUiTypeToBackend } from '../lib/interview-schedule-helpers';
 import type {
     CancelInterviewPayload,
     FeedbackPayload,
@@ -462,15 +463,9 @@ export function useInterviews() {
           jobId: payload.jobId,
           clientId: job.clientId,
           round: payload.round.toUpperCase(),
-          type: payload.type.toUpperCase().replace(/ /g, '_') as
-            | 'VIDEO'
-            | 'PHONE'
-            | 'IN_PERSON'
-            | 'TECHNICAL_TEST'
-            | 'ASSESSMENT'
-            | 'GROUP_DISCUSSION',
+          type: mapInterviewUiTypeToBackend(payload.type),
           mode: payload.mode === 'Online' ? 'ONLINE' : 'OFFLINE',
-          date: new Date(payload.date).toISOString(),
+          date: combineInterviewDateAndTimeToIso(payload.date, payload.time),
           duration: payload.duration,
           timezone: payload.timezone,
           meetingPlatform:
@@ -545,7 +540,7 @@ export function useInterviews() {
           jobId: payload.jobId,
           clientId: payload.clientId,
           round: payload.round,
-          type: payload.type.toUpperCase().replace(/ /g, '_'),
+          type: payload.type ? mapInterviewUiTypeToBackend(String(payload.type)) : undefined,
           mode: payload.mode === 'Online' ? 'ONLINE' : 'OFFLINE',
           date: payload.date,
           duration: payload.duration,

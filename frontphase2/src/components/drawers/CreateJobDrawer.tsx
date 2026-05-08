@@ -42,6 +42,101 @@ import { requestError, requestInfo, requestWarning } from '../../lib/appDialog';
 
 type ApplicationLogoOption = 'account' | 'company' | 'none' | 'custom';
 
+export type ScreeningQuestionType = 'short_text' | 'yes_no' | 'single_choice' | 'slider';
+
+export interface ScreeningQuestion {
+  id: string;
+  type: ScreeningQuestionType;
+  label: string;
+  required?: boolean;
+  options?: string[];
+  min?: number;
+  max?: number;
+  step?: number;
+  minLabel?: string;
+  maxLabel?: string;
+}
+
+const SCREENING_TYPE_OPTIONS: { value: ScreeningQuestionType; label: string; hint: string }[] = [
+  { value: 'short_text', label: 'Short text', hint: 'Open answer (single line)' },
+  { value: 'yes_no', label: 'Yes / No', hint: 'Two-option toggle' },
+  { value: 'single_choice', label: 'Multiple choice', hint: 'Pick one from your options' },
+  { value: 'slider', label: 'Proficiency slider', hint: 'Slider scale (e.g. Beginner → Expert)' },
+];
+
+function generateScreeningQuestionId() {
+  return `q_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+}
+
+/** Parse a stored question. Legacy plain strings become a `short_text` question. */
+function parseScreeningQuestion(raw: string | ScreeningQuestion | null | undefined): ScreeningQuestion | null {
+  if (!raw) return null;
+  if (typeof raw === 'object' && raw !== null && typeof (raw as ScreeningQuestion).label === 'string') {
+    const obj = raw as ScreeningQuestion;
+    return {
+      id: obj.id || generateScreeningQuestionId(),
+      type: (obj.type as ScreeningQuestionType) || 'short_text',
+      label: obj.label,
+      required: !!obj.required,
+      options: Array.isArray(obj.options) ? obj.options.map((s) => String(s)) : undefined,
+      min: typeof obj.min === 'number' ? obj.min : undefined,
+      max: typeof obj.max === 'number' ? obj.max : undefined,
+      step: typeof obj.step === 'number' ? obj.step : undefined,
+      minLabel: typeof obj.minLabel === 'string' ? obj.minLabel : undefined,
+      maxLabel: typeof obj.maxLabel === 'string' ? obj.maxLabel : undefined,
+    };
+  }
+  const text = String(raw).trim();
+  if (!text) return null;
+  if (text.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed === 'object' && typeof parsed.label === 'string') {
+        return parseScreeningQuestion(parsed);
+      }
+    } catch {
+      /* fall through to plain-text */
+    }
+  }
+  return { id: generateScreeningQuestionId(), type: 'short_text', label: text };
+}
+
+function parseScreeningQuestionList(raw: unknown): ScreeningQuestion[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((entry) => parseScreeningQuestion(entry as string | ScreeningQuestion))
+    .filter((q): q is ScreeningQuestion => Boolean(q && q.label));
+}
+
+/** Convert an editor question to the on-disk JSON-string form expected by the backend `String[]` column. */
+function serializeScreeningQuestion(q: ScreeningQuestion): string {
+  const payload: ScreeningQuestion = {
+    id: q.id || generateScreeningQuestionId(),
+    type: q.type,
+    label: q.label.trim(),
+    required: !!q.required,
+  };
+  if (q.type === 'single_choice') {
+    payload.options = (q.options || []).map((s) => s.trim()).filter(Boolean);
+  } else if (q.type === 'slider') {
+    payload.min = typeof q.min === 'number' ? q.min : 0;
+    payload.max = typeof q.max === 'number' ? q.max : 100;
+    payload.step = typeof q.step === 'number' && q.step > 0 ? q.step : 1;
+    payload.minLabel = (q.minLabel || 'Beginner').trim();
+    payload.maxLabel = (q.maxLabel || 'Expert').trim();
+  }
+  return JSON.stringify(payload);
+}
+
+function makeShortTextScreeningQuestion(label: string): ScreeningQuestion {
+  return {
+    id: generateScreeningQuestionId(),
+    type: 'short_text',
+    label: label.trim(),
+    required: false,
+  };
+}
+
 export interface CreateJobDrawerProps {
   isOpen: boolean;
   onClose: () => void;
@@ -54,7 +149,7 @@ export interface CreateJobDrawerProps {
 }
 
 interface AccordionSection {
-  id: 'details' | 'publish';
+  id: 'details' | 'application' | 'publish';
   label: string;
   isOpen: boolean;
 }
@@ -131,6 +226,7 @@ export function CreateJobDrawer({
   // Accordion state
   const [accordions, setAccordions] = useState<AccordionSection[]>([
     { id: 'details', label: 'Job Details', isOpen: true },
+    { id: 'application', label: 'Job Application Form', isOpen: false },
     { id: 'publish', label: 'Publish & Share', isOpen: false },
   ]);
 
@@ -173,7 +269,7 @@ export function CreateJobDrawer({
     enableApplicationForm: false,
     logoOption: 'account' as ApplicationLogoOption,
     applicationLogoUrl: '',
-    applicationQuestions: [] as string[],
+    applicationQuestions: [] as ScreeningQuestion[],
     noteForCandidates: '',
     
     // Publish & Share
@@ -210,8 +306,6 @@ export function CreateJobDrawer({
   });
 
   const [skillInput, setSkillInput] = useState('');
-  const [newQuestionInput, setNewQuestionInput] = useState('');
-  const [editingQuestionIndex, setEditingQuestionIndex] = useState<number | null>(null);
   // JD file upload state
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
@@ -304,8 +398,6 @@ export function CreateJobDrawer({
         whatsappRecipients: [],
       });
       setSkillInput('');
-      setNewQuestionInput('');
-      setEditingQuestionIndex(null);
       setUploadedFile(null);
       setExistingJdFileName('');
       setShowAiPromptBox(false);
@@ -658,7 +750,7 @@ export function CreateJobDrawer({
         enableApplicationForm: job.applicationFormEnabled || false,
         logoOption: parsedLogoOption,
         applicationLogoUrl: parsedApplicationLogoUrl,
-        applicationQuestions: job.applicationFormQuestions || [],
+        applicationQuestions: parseScreeningQuestionList(job.applicationFormQuestions),
         noteForCandidates: job.applicationFormNote || '',
         assignedToId:
           (job as { assignedToId?: string }).assignedToId || (job as { assignedTo?: { id: string } }).assignedTo?.id || '',
@@ -1028,7 +1120,9 @@ export function CreateJobDrawer({
         educationalSpecialization: specialization || prev.educationalSpecialization,
         skills: generatedSkills.length ? generatedSkills : prev.skills,
         enableApplicationForm: generatedQuestions.length ? true : prev.enableApplicationForm,
-        applicationQuestions: generatedQuestions.length ? generatedQuestions : prev.applicationQuestions,
+        applicationQuestions: generatedQuestions.length
+          ? generatedQuestions.map((label: string) => makeShortTextScreeningQuestion(label))
+          : prev.applicationQuestions,
       }));
     } catch (error: any) {
       console.error('AI Assist failed:', error);
@@ -1236,6 +1330,15 @@ export function CreateJobDrawer({
         .filter(Boolean)
         .join('');
 
+      const applicationFormLogoStored =
+        formData.logoOption === 'custom' && formData.applicationLogoUrl.trim()
+          ? formData.applicationLogoUrl.trim()
+          : ['account', 'company', 'none'].includes(formData.logoOption)
+            ? formData.logoOption
+            : formData.logoOption === 'custom'
+              ? 'none'
+              : 'account';
+
       const jobData: CreateJobData = {
         title: formData.jobTitle,
         description: composedDescription || formData.jobDescriptionHtml,
@@ -1268,8 +1371,13 @@ export function CreateJobDrawer({
           : undefined,
         benefits,
         jobLocationType: formData.jobLocationType || undefined,
-        applicationFormEnabled: formData.applicationQuestions.length > 0,
-        applicationFormQuestions: formData.applicationQuestions,
+        workMode: formData.jobLocationType || undefined,
+        applicationFormEnabled: formData.enableApplicationForm,
+        applicationFormLogo: applicationFormLogoStored,
+        applicationFormQuestions: formData.applicationQuestions
+          .filter((q) => q.label.trim().length > 0)
+          .map((q) => serializeScreeningQuestion(q)),
+        applicationFormNote: formData.noteForCandidates.trim() ? formData.noteForCandidates.trim() : undefined,
         // Store JD file name if file was uploaded
         jdFileName: uploadedFile?.name || undefined,
         assignedToId: isEditMode
@@ -2120,14 +2228,13 @@ export function CreateJobDrawer({
               </div>
               )}
 
-              {false && (
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
                 <button
                   type="button"
                   onClick={() => toggleAccordion('application')}
                   className="w-full px-5 py-4 flex items-center justify-between border-b border-slate-100 hover:bg-slate-50/50 transition-colors"
                 >
-                  <span className="text-sm font-bold text-slate-900">3. Job Application Form</span>
+                  <span className="text-sm font-bold text-slate-900">2. Job Application Form</span>
                   {accordions.find(a => a.id === 'application')?.isOpen ? (
                     <ChevronUp size={18} className="text-slate-400" />
                   ) : (
@@ -2282,121 +2389,224 @@ export function CreateJobDrawer({
                         </div>
 
                         <div>
-                          <label className="block text-sm font-medium text-slate-700 mb-2">Job Application Form Questions</label>
-                          
-                          {/* Add New Question */}
-                          <div className="mb-3 flex gap-2">
-                            <input
-                              type="text"
-                              value={newQuestionInput}
-                              onChange={(e) => setNewQuestionInput(e.target.value)}
-                              onKeyPress={(e) => {
-                                if (e.key === 'Enter' && newQuestionInput.trim()) {
-                                  e.preventDefault();
-                                  setFormData(prev => ({
-                                    ...prev,
-                                    applicationQuestions: [...prev.applicationQuestions, newQuestionInput.trim()],
-                                  }));
-                                  setNewQuestionInput('');
-                                }
-                              }}
-                              placeholder="Type a new question and press Enter"
-                              className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (newQuestionInput.trim()) {
-                                  setFormData(prev => ({
-                                    ...prev,
-                                    applicationQuestions: [...prev.applicationQuestions, newQuestionInput.trim()],
-                                  }));
-                                  setNewQuestionInput('');
-                                }
-                              }}
-                              className="px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors text-sm font-medium flex items-center gap-1"
-                            >
-                              <Plus size={16} />
-                              Add
-                            </button>
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="block text-sm font-medium text-slate-700">Job Application Form Questions</label>
+                            <span className="text-xs text-slate-500">Shown to candidates when they click Apply</span>
                           </div>
 
-                          {/* List of Questions */}
-                          {formData.applicationQuestions.length > 0 && (
-                            <div className="space-y-2 border border-slate-200 rounded-xl p-3 bg-slate-50/50">
-                              {formData.applicationQuestions.map((question, index) => (
-                                <div
-                                  key={index}
-                                  className="flex items-center gap-2 p-2 bg-white rounded-lg border border-slate-200 hover:border-slate-300 transition-colors"
-                                >
-                                  {editingQuestionIndex === index ? (
-                                    <>
-                                      <input
-                                        type="text"
-                                        value={question}
+                          {formData.applicationQuestions.length > 0 ? (
+                            <div className="space-y-3">
+                              {formData.applicationQuestions.map((question, index) => {
+                                const updateQuestion = (patch: Partial<ScreeningQuestion>) => {
+                                  setFormData((prev) => ({
+                                    ...prev,
+                                    applicationQuestions: prev.applicationQuestions.map((q, i) =>
+                                      i === index ? { ...q, ...patch } : q
+                                    ),
+                                  }));
+                                };
+                                const removeQuestion = () => {
+                                  setFormData((prev) => ({
+                                    ...prev,
+                                    applicationQuestions: prev.applicationQuestions.filter((_, i) => i !== index),
+                                  }));
+                                };
+                                const setOption = (optionIndex: number, value: string) => {
+                                  const next = [...(question.options || [])];
+                                  next[optionIndex] = value;
+                                  updateQuestion({ options: next });
+                                };
+                                const addOption = () => {
+                                  updateQuestion({ options: [...(question.options || []), ''] });
+                                };
+                                const removeOption = (optionIndex: number) => {
+                                  updateQuestion({
+                                    options: (question.options || []).filter((_, i) => i !== optionIndex),
+                                  });
+                                };
+                                return (
+                                  <div
+                                    key={question.id}
+                                    className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
+                                  >
+                                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                                      <span className="text-xs font-semibold text-slate-500">#{index + 1}</span>
+                                      <select
+                                        value={question.type}
                                         onChange={(e) => {
-                                          const updated = [...formData.applicationQuestions];
-                                          updated[index] = e.target.value;
-                                          setFormData(prev => ({ ...prev, applicationQuestions: updated }));
-                                        }}
-                                        onBlur={() => setEditingQuestionIndex(null)}
-                                        onKeyPress={(e) => {
-                                          if (e.key === 'Enter') {
-                                            setEditingQuestionIndex(null);
+                                          const nextType = e.target.value as ScreeningQuestionType;
+                                          const patch: Partial<ScreeningQuestion> = { type: nextType };
+                                          if (nextType === 'single_choice' && !(question.options && question.options.length)) {
+                                            patch.options = ['', ''];
                                           }
-                                        }}
-                                        className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                        autoFocus
-                                      />
-                                      <button
-                                        type="button"
-                                        onClick={() => setEditingQuestionIndex(null)}
-                                        className="p-1.5 text-green-600 hover:bg-green-50 rounded transition-colors"
-                                        title="Save"
-                                      >
-                                        <Check size={16} />
-                                      </button>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <span className="flex-1 text-sm text-slate-700">{question}</span>
-                                      <button
-                                        type="button"
-                                        onClick={() => setEditingQuestionIndex(index)}
-                                        className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                                        title="Edit"
-                                      >
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                        </svg>
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setFormData(prev => ({
-                                            ...prev,
-                                            applicationQuestions: prev.applicationQuestions.filter((_, i) => i !== index),
-                                          }));
-                                          if (editingQuestionIndex === index) {
-                                            setEditingQuestionIndex(null);
+                                          if (nextType === 'slider') {
+                                            if (typeof question.min !== 'number') patch.min = 0;
+                                            if (typeof question.max !== 'number') patch.max = 100;
+                                            if (typeof question.step !== 'number') patch.step = 1;
+                                            if (!question.minLabel) patch.minLabel = 'Beginner';
+                                            if (!question.maxLabel) patch.maxLabel = 'Expert';
                                           }
+                                          updateQuestion(patch);
                                         }}
+                                        className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                      >
+                                        {SCREENING_TYPE_OPTIONS.map((opt) => (
+                                          <option key={opt.value} value={opt.value}>
+                                            {opt.label}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <label className="ml-auto inline-flex items-center gap-1.5 text-xs text-slate-600">
+                                        <input
+                                          type="checkbox"
+                                          checked={!!question.required}
+                                          onChange={(e) => updateQuestion({ required: e.target.checked })}
+                                          className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                        />
+                                        Required
+                                      </label>
+                                      <button
+                                        type="button"
+                                        onClick={removeQuestion}
                                         className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
-                                        title="Delete"
+                                        title="Delete question"
                                       >
                                         <X size={16} />
                                       </button>
-                                    </>
-                                  )}
-                                </div>
-                              ))}
+                                    </div>
+
+                                    <input
+                                      type="text"
+                                      value={question.label}
+                                      onChange={(e) => updateQuestion({ label: e.target.value })}
+                                      placeholder="Type your question here…"
+                                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                    />
+
+                                    <p className="mt-1 text-[11px] text-slate-500">
+                                      {SCREENING_TYPE_OPTIONS.find((o) => o.value === question.type)?.hint}
+                                    </p>
+
+                                    {question.type === 'single_choice' && (
+                                      <div className="mt-3 space-y-2">
+                                        <p className="text-xs font-medium text-slate-600">Options</p>
+                                        {(question.options || []).map((opt, optionIndex) => (
+                                          <div key={optionIndex} className="flex items-center gap-2">
+                                            <input
+                                              type="text"
+                                              value={opt}
+                                              onChange={(e) => setOption(optionIndex, e.target.value)}
+                                              placeholder={`Option ${optionIndex + 1}`}
+                                              className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                            />
+                                            <button
+                                              type="button"
+                                              onClick={() => removeOption(optionIndex)}
+                                              className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                              title="Remove option"
+                                            >
+                                              <X size={14} />
+                                            </button>
+                                          </div>
+                                        ))}
+                                        <button
+                                          type="button"
+                                          onClick={addOption}
+                                          className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
+                                        >
+                                          <Plus size={14} /> Add option
+                                        </button>
+                                      </div>
+                                    )}
+
+                                    {question.type === 'slider' && (
+                                      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                                        <div>
+                                          <label className="block text-[11px] font-medium text-slate-600 mb-1">Min value</label>
+                                          <input
+                                            type="number"
+                                            value={typeof question.min === 'number' ? question.min : 0}
+                                            onChange={(e) => updateQuestion({ min: Number(e.target.value) })}
+                                            className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="block text-[11px] font-medium text-slate-600 mb-1">Max value</label>
+                                          <input
+                                            type="number"
+                                            value={typeof question.max === 'number' ? question.max : 100}
+                                            onChange={(e) => updateQuestion({ max: Number(e.target.value) })}
+                                            className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="block text-[11px] font-medium text-slate-600 mb-1">Min label</label>
+                                          <input
+                                            type="text"
+                                            value={question.minLabel || ''}
+                                            onChange={(e) => updateQuestion({ minLabel: e.target.value })}
+                                            placeholder="Beginner"
+                                            className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="block text-[11px] font-medium text-slate-600 mb-1">Max label</label>
+                                          <input
+                                            type="text"
+                                            value={question.maxLabel || ''}
+                                            onChange={(e) => updateQuestion({ maxLabel: e.target.value })}
+                                            placeholder="Expert"
+                                            className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                          />
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {question.type === 'yes_no' && (
+                                      <p className="mt-2 text-[11px] text-slate-500">
+                                        Candidates will see two buttons: <span className="font-medium">Yes</span> and{' '}
+                                        <span className="font-medium">No</span>.
+                                      </p>
+                                    )}
+                                  </div>
+                                );
+                              })}
                             </div>
+                          ) : (
+                            <p className="text-sm text-slate-500 italic">No questions added yet.</p>
                           )}
 
-                          {formData.applicationQuestions.length === 0 && (
-                            <p className="text-sm text-slate-500 italic">No questions added yet. Add questions above.</p>
-                          )}
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {SCREENING_TYPE_OPTIONS.map((opt) => (
+                              <button
+                                key={opt.value}
+                                type="button"
+                                onClick={() => {
+                                  const base: ScreeningQuestion = {
+                                    id: generateScreeningQuestionId(),
+                                    type: opt.value,
+                                    label: '',
+                                    required: false,
+                                  };
+                                  if (opt.value === 'single_choice') base.options = ['', ''];
+                                  if (opt.value === 'slider') {
+                                    base.min = 0;
+                                    base.max = 100;
+                                    base.step = 1;
+                                    base.minLabel = 'Beginner';
+                                    base.maxLabel = 'Expert';
+                                  }
+                                  setFormData((prev) => ({
+                                    ...prev,
+                                    applicationQuestions: [...prev.applicationQuestions, base],
+                                  }));
+                                }}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:border-blue-500 hover:text-blue-600 transition-colors"
+                              >
+                                <Plus size={14} /> {opt.label}
+                              </button>
+                            ))}
+                          </div>
                         </div>
 
                         <div>
@@ -2417,7 +2627,6 @@ export function CreateJobDrawer({
                   </div>
                 )}
               </div>
-              )}
 
               {/* Section 4: Publish & Share */}
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
@@ -2426,7 +2635,7 @@ export function CreateJobDrawer({
                   onClick={() => toggleAccordion('publish')}
                   className="w-full px-5 py-4 flex items-center justify-between border-b border-slate-100 hover:bg-slate-50/50 transition-colors"
                 >
-                  <span className="text-sm font-bold text-slate-900">4. Publish & Share</span>
+                  <span className="text-sm font-bold text-slate-900">3. Publish & Share</span>
                   {accordions.find(a => a.id === 'publish')?.isOpen ? (
                     <ChevronUp size={18} className="text-slate-400" />
                   ) : (

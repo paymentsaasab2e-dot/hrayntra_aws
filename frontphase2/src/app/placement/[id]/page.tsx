@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { ArrowLeft, Download, FileText } from 'lucide-react';
+import { ArrowLeft, Download, Eye, FileText } from 'lucide-react';
 import { apiGetPlacement } from '../../../lib/api';
 import type { Placement } from '../../../types/placement';
+import { buildFileHref } from '../../../utils/cloudinaryUrls';
 import {
   formatCurrency,
   formatPlacementDate,
@@ -19,6 +20,20 @@ export default function PlacementDetailPage() {
   const [placement, setPlacement] = useState<Placement | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Uploaded files come back as relative paths like `/uploads/...` which the
+  // backend serves on its own port. Hitting them on the Next.js origin shows
+  // only the file name (404). Resolve the API base once so links open via the
+  // backend's static file route.
+  const uploadsBase = useMemo(
+    () =>
+      (typeof window !== 'undefined'
+        ? process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1'
+        : 'http://localhost:5001/api/v1'
+      ).replace(/\/api\/v1\/?$/, ''),
+    []
+  );
+  const toFileHref = (fileUrl?: string | null) => buildFileHref(fileUrl, uploadsBase);
 
   useEffect(() => {
     async function loadPlacement() {
@@ -166,26 +181,59 @@ export default function PlacementDetailPage() {
               <h2 className="text-lg font-semibold text-[#111827]">Documents</h2>
               <div className="mt-4 space-y-3">
                 {(placement.documents || []).length ? (
-                  placement.documents?.map((document) => (
-                    <a
-                      key={document.id}
-                      href={document.fileUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center justify-between rounded-xl border border-[#E5E7EB] p-4 hover:bg-[#F9FAFB]"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-[#2563EB]">
-                          <FileText className="h-4 w-4" />
+                  placement.documents?.map((document) => {
+                    const href = toFileHref(document.fileUrl);
+                    const hasFile = Boolean(document.fileUrl);
+                    return (
+                      <div
+                        key={document.id}
+                        className="flex items-center justify-between gap-3 rounded-xl border border-[#E5E7EB] p-4 hover:bg-[#F9FAFB]"
+                      >
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-50 text-[#2563EB]">
+                            <FileText className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate font-medium text-[#111827]">
+                              {document.fileName || document.documentType}
+                            </p>
+                            <p className="text-sm text-[#6B7280]">{document.documentType}</p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-medium text-[#111827]">{document.fileName || document.documentType}</p>
-                          <p className="text-sm text-[#6B7280]">{document.documentType}</p>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <a
+                            href={hasFile ? href : undefined}
+                            target={hasFile ? '_blank' : undefined}
+                            rel={hasFile ? 'noreferrer' : undefined}
+                            aria-disabled={!hasFile}
+                            title="View"
+                            className={`rounded-lg p-2 ${
+                              hasFile
+                                ? 'text-slate-500 hover:bg-emerald-50 hover:text-emerald-600'
+                                : 'cursor-not-allowed text-slate-300'
+                            }`}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </a>
+                          <a
+                            href={hasFile ? href : undefined}
+                            download={document.fileName || undefined}
+                            target={hasFile ? '_blank' : undefined}
+                            rel={hasFile ? 'noreferrer' : undefined}
+                            aria-disabled={!hasFile}
+                            title="Download"
+                            className={`rounded-lg p-2 ${
+                              hasFile
+                                ? 'text-slate-500 hover:bg-blue-50 hover:text-[#2563EB]'
+                                : 'cursor-not-allowed text-slate-300'
+                            }`}
+                          >
+                            <Download className="h-4 w-4" />
+                          </a>
                         </div>
                       </div>
-                      <Download className="h-4 w-4 text-[#6B7280]" />
-                    </a>
-                  ))
+                    );
+                  })
                 ) : (
                   <p className="text-sm text-[#6B7280]">No documents uploaded.</p>
                 )}

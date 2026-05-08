@@ -745,14 +745,24 @@ model Job {
   salaryCurrency   String?        @default("USD")
   salaryType       SalaryType?    @default(ANNUAL)
   experienceLevel  String?        // e.g. "Entry-Mid", "Senior", "5+ Years"
-  employmentType   EmploymentType @default(FULL_TIME)
-  workMode         WorkMode       @default(ON_SITE)
+  // The Job collection is shared with Phase 2, which writes free-form display
+  // strings (e.g. "Remote", "On-site", "Full-Time") rather than the strict enum
+  // tokens. Keep these as nullable Strings so Prisma never fails to deserialize
+  // a record from the shared collection. The portal/controller normalizes
+  // incoming filter values before matching.
+  employmentType   String?        @default("FULL_TIME")
+  workMode         String?        @default("ON_SITE")
   industry         String?
   aboutRole        String?
   responsibilities String?
   visaSponsorship  Boolean        @default(false)
   isActive         Boolean        @default(true)
   postedAt         DateTime?      @default(now())
+  // backendphase2 (CRM) writes `createdAt` on every new job. Surfacing the field in
+  // backend1's Prisma client lets the candidate-side pipeline read the real creation
+  // timestamp for jobs that don't carry `postedAt`.
+  createdAt         DateTime?
+  postedDate        DateTime?
   updatedAt         DateTime       @updatedAt
 
   company          Company?       @relation(fields: [companyId], references: [id])
@@ -764,6 +774,17 @@ model Job {
   // backendphase2 stores skills as a string array on the job document.
   // backend1 originally used a JobSkill join table; we add a compatible scalar field.
   skills           String[]      @default([])
+
+  // Mirrored from backendphase2 / job portal sync (custom apply-form logo stored as HTTPS URL or preset tokens)
+  applicationFormEnabled  Boolean?
+  applicationFormLogo     String?
+  applicationFormQuestions String[] @default([])
+  applicationFormNote      String?
+
+  // Origin tenant DB this job belongs to (e.g. "rus01", "agency-acme"). Written by
+  // backendphase2 when the CRM mirrors a job to the portal DB. Multi-agency safe:
+  // the apply webhook routes the new Application/Match into the correct tenant DB.
+  tenantDbName             String?
 
   applications     Application[]
   savedJobs        SavedJob[]

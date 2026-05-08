@@ -127,8 +127,8 @@ function mapBackendCandidate(c: BackendCandidate): Candidate {
     id: c.id,
     name,
     avatar: (c.avatar && String(c.avatar).trim()) || '',
-    designation: c.currentTitle || c.status,
-    company: c.currentCompany || c.source || '—',
+    designation: c.currentTitle || '',
+    company: c.currentCompany || '',
     experience: c.experience ?? 0,
     location: c.location || '—',
     assignedJobs:
@@ -172,6 +172,40 @@ function formatSalary(
     current: '',
     expected: [min, max].filter(Boolean).join(' - '),
   };
+}
+
+function formatSalaryFrequency(type?: string | null): string {
+  const value = String(type || '').trim().toUpperCase();
+  switch (value) {
+    case 'ANNUAL':
+    case 'ANNUALLY':
+    case 'YEARLY':
+      return 'Annually';
+    case 'MONTHLY':
+      return 'Monthly';
+    case 'HOURLY':
+      return 'Hourly';
+    case 'DAILY':
+      return 'Daily';
+    case 'WEEKLY':
+      return 'Weekly';
+    default:
+      return '';
+  }
+}
+
+function formatCandidateSalaryDisplay(
+  amount: number | null | undefined,
+  currency?: string | null,
+  frequency?: string | null
+): string {
+  if (amount == null || !Number.isFinite(Number(amount))) return '';
+  const num = Number(amount);
+  const currencyCode = String(currency || '').trim();
+  const freqLabel = formatSalaryFrequency(frequency);
+  const formattedNumber = num.toLocaleString();
+  const head = currencyCode ? `${currencyCode} ${formattedNumber}` : formattedNumber;
+  return freqLabel ? `${head} / ${freqLabel}` : head;
 }
 
 function extractApiData<T>(response: { data?: T | { data?: T } } | T): T {
@@ -369,32 +403,82 @@ function mapCandidateProfile(c: BackendCandidate): CandidateProfileDrawerData {
     color: getTagColor(tag),
   }));
 
+  const careerPrefs = c.careerPreferences || null;
+  const expectedSalaryFromPrefs = formatCandidateSalaryDisplay(
+    c.expectedSalary ?? careerPrefs?.preferredSalary ?? null,
+    careerPrefs?.preferredCurrency || c.salary?.currency || null,
+    careerPrefs?.preferredSalaryType || null
+  );
+  const expectedSalaryDisplay =
+    expectedSalaryFromPrefs ||
+    salary.expected ||
+    (c.expectedSalary != null && Number.isFinite(Number(c.expectedSalary))
+      ? `${c.salary?.currency || ''} ${Number(c.expectedSalary).toLocaleString()}`.trim()
+      : '');
+
   return {
     id: c.id,
     name: fullName,
     firstName: c.firstName || null,
     lastName: c.lastName || null,
-    currentTitle: c.currentTitle || c.status,
-    currentCompany: c.currentCompany || c.source || '—',
+    currentTitle: c.currentTitle || null,
+    currentCompany: c.currentCompany || null,
     stage,
     experience: c.experience ?? 0,
     location: c.location || '—',
     email: c.email,
     phone: c.phone || '—',
     linkedIn: c.linkedIn || null,
-    designation: c.currentTitle || c.status,
-    expectedSalary: salary.expected || '—',
-    expectedSalaryValue: c.expectedSalary ?? null,
-    currentSalaryValue: c.currentSalary ?? null,
-    salaryCurrency: c.salary?.currency || 'INR',
-    noticePeriod: c.noticePeriod || '—',
+    designation: c.currentTitle || null,
+    expectedSalary: expectedSalaryDisplay || '—',
+    expectedSalaryValue: c.expectedSalary ?? careerPrefs?.preferredSalary ?? null,
+    currentSalaryValue: c.currentSalary ?? careerPrefs?.currentSalary ?? null,
+    salaryCurrency: careerPrefs?.preferredCurrency || c.salary?.currency || 'INR',
+    noticePeriod: c.noticePeriod || careerPrefs?.noticePeriod || '—',
     assignedJob: latestMatch?.job?.title || '—',
     assignedJobId: latestMatch?.job?.id || c.assignedJobs?.[0] || null,
+    assignedJobs: (() => {
+      const seen = new Set<string>();
+      const out: NonNullable<CandidateProfileDrawerData['assignedJobs']> = [];
+      for (const match of c.matches || []) {
+        const id = match.job?.id ? String(match.job.id) : '';
+        const title = String(match.job?.title || '').trim();
+        if (!id && !title) continue;
+        const key = id || title;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({
+          id: id || null,
+          title: title || 'Untitled job',
+          status: match.status || null,
+        });
+      }
+      const titleArr = Array.isArray(c.assignedJobTitles) ? c.assignedJobTitles : [];
+      const idArr = Array.isArray(c.assignedJobs) ? c.assignedJobs : [];
+      const max = Math.max(titleArr.length, idArr.length);
+      for (let i = 0; i < max; i += 1) {
+        const id = idArr[i] ? String(idArr[i]) : '';
+        const title = String(titleArr[i] || '').trim();
+        if (!id && !title) continue;
+        const key = id || title;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({
+          id: id || null,
+          title: title || 'Untitled job',
+          status: null,
+        });
+      }
+      return out;
+    })(),
     recruiter: c.assignedTo?.name || 'Unassigned',
     recruiterId: c.assignedTo?.id || null,
     source: c.source || '—',
     status: c.status || 'NEW',
-    availability: c.availability || (c.status === 'ACTIVE' ? 'available' : c.status === 'PLACED' ? 'unavailable' : 'limited'),
+    availability:
+      c.availability ||
+      careerPrefs?.availabilityToStart ||
+      (c.status === 'ACTIVE' ? 'available' : c.status === 'PLACED' ? 'unavailable' : 'limited'),
     resumeUrl: c.resume || c.resumeUrl || null,
     summary:
       c.notes?.trim() ||
@@ -403,12 +487,19 @@ function mapCandidateProfile(c: BackendCandidate): CandidateProfileDrawerData {
     cvAddress: c.address || null,
     cvCity: c.city || null,
     cvCountry: c.country || null,
-    cvAvailability: c.availability || null,
+    cvAvailability: c.availability || careerPrefs?.availabilityToStart || null,
     cvExpectedSalary:
-      c.expectedSalary != null
-        ? `${c.salary?.currency || 'INR'} ${c.expectedSalary}`
-        : salary.expected || null,
-    cvCurrentSalary: c.currentSalary != null ? `${c.salary?.currency || 'INR'} ${c.currentSalary}` : null,
+      formatCandidateSalaryDisplay(
+        c.expectedSalary ?? careerPrefs?.preferredSalary ?? null,
+        careerPrefs?.preferredCurrency || c.salary?.currency || null,
+        careerPrefs?.preferredSalaryType || null
+      ) || salary.expected || null,
+    cvCurrentSalary:
+      formatCandidateSalaryDisplay(
+        c.currentSalary ?? careerPrefs?.currentSalary ?? null,
+        careerPrefs?.currentCurrency || careerPrefs?.preferredCurrency || c.salary?.currency || null,
+        careerPrefs?.currentSalaryType || null
+      ) || null,
     cvEducation: c.education || null,
     cvEducationEntries: Array.isArray(c.cvEducationEntries) ? c.cvEducationEntries : [],
     cvWorkExperienceEntries: Array.isArray(c.cvWorkExperienceEntries) ? c.cvWorkExperienceEntries : [],
@@ -428,7 +519,13 @@ function mapCandidateProfile(c: BackendCandidate): CandidateProfileDrawerData {
     cvPortfolio: c.portfolio || null,
     cvWebsite: c.website || null,
     cvNotes: c.cvSummary || c.notes || null,
-    cvPreferredLocation: c.preferredLocation || null,
+    cvPreferredLocation:
+      c.preferredLocation ||
+      (Array.isArray(careerPrefs?.preferredLocations) && careerPrefs?.preferredLocations.length
+        ? careerPrefs.preferredLocations[0]
+        : null) ||
+      careerPrefs?.currentLocation ||
+      null,
     cvSkills:
       (Array.isArray(c.skills) && c.skills.length
         ? c.skills
@@ -622,7 +719,7 @@ function CandidatesPageContent() {
                   ? [profile.assignedJob]
                   : candidate.assignedJobs,
               designation: profile.designation || candidate.designation,
-              company: profile.currentCompany || profile.source || candidate.company,
+              company: profile.currentCompany || candidate.company,
               experience: profile.experience ?? candidate.experience,
               location: profile.location || candidate.location,
               phone: profile.phone || candidate.phone,
@@ -691,9 +788,6 @@ function CandidatesPageContent() {
         page: currentPage,
         limit: pageSize,
       };
-      if (isSuperAdminRole(currentUser?.role)) {
-        queryParams.mine = true;
-      }
 
       if (filters.search) queryParams.search = filters.search;
       if (filters.assignedToId) queryParams.assignedToId = filters.assignedToId;
@@ -768,7 +862,7 @@ function CandidatesPageContent() {
     } finally {
       if (requestId === loadCandidatesRequestIdRef.current && !silent) setLoading(false);
     }
-  }, [filters, activeStage, currentUser?.role, currentPage, pageSize]);
+  }, [filters, activeStage, currentPage, pageSize]);
 
   useEffect(() => {
     loadCandidates();
@@ -1248,7 +1342,7 @@ function CandidatesPageContent() {
           {/* Pipeline Tabs */}
           <StageTabs
             activeStage={activeStage}
-            statsMine
+            statsMine={!isSuperAdminRole(currentUser?.role)}
             onStageChange={(stage) => {
               setActiveStage(stage);
               setFilters((prev) => ({ ...prev, status: stage === 'all' ? '' : stage }));
@@ -1744,9 +1838,15 @@ function CandidatesPageContent() {
         onAction={(action, candidate) => {
           console.log('Candidate drawer action:', action, candidate.id);
         }}
-        onRejectCandidate={canUpdateCandidate ? async (reason, feedback, sendEmail) => {
+        onRejectCandidate={canUpdateCandidate ? async (reason, feedback, sendEmail, showFeedbackToCandidate) => {
           if (!selectedCandidateProfile) return;
-          await apiRejectCandidate(selectedCandidateProfile.id, { reason, feedback, sendEmail });
+          await apiRejectCandidate(selectedCandidateProfile.id, {
+            reason,
+            feedback,
+            sendEmail,
+            showFeedbackToCandidate,
+            jobId: selectedCandidateProfile.assignedJobId || undefined,
+          });
           await loadCandidateProfile(selectedCandidateProfile.id);
         } : undefined}
         onScheduleInterview={canUpdateCandidate ? async (interviewData) => {

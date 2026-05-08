@@ -1032,6 +1032,18 @@ function formatJobResponse(scoredJob) {
   const salaryType = rawJob.salaryType ?? salaryJson?.type ?? null;
   const expectedSalary = rawJob.expectedSalary ?? salaryJson?.amount ?? null;
 
+  // Surface the same scoring vocabulary the candidate UI uses for the legacy AI pipeline:
+  // - `matchScore` is the percentage badge ("AI Fit XX% Match")
+  // - `confidenceTag` drives the secondary chip (Excellent/Strong/Good/Partial)
+  // - `shortReason` / `whyNotMatched` populate the low-score helper text
+  const matchScoreValue = Math.round(Math.max(0, Math.min(100, Number(scoredJob.finalScore) || 0)));
+  const confidenceTag =
+    matchScoreValue >= 85 ? 'Excellent Match'
+    : matchScoreValue >= 70 ? 'Strong Match'
+    : matchScoreValue >= 55 ? 'Good Match'
+    : matchScoreValue >= 35 ? 'Partial Match'
+    : 'Gap Identified';
+
   return {
     jobId: scoredJob.jobId,
     id: scoredJob.jobId,
@@ -1041,14 +1053,19 @@ function formatJobResponse(scoredJob) {
     companyLogo: rawJob.company?.logoUrl || rawJob.client?.logo || null,
     openings: rawJob.openings ?? 1,
     finalScore: scoredJob.finalScore,
+    matchScore: matchScoreValue,
+    normalizedScore: matchScoreValue,
     breakdown: scoredJob.breakdown,
     matchedSkills: scoredJob.matchedSkills,
     missingSkills: scoredJob.missingSkills,
     topMatchedSkills: scoredJob.matchedSkills.slice(0, 3),
     topMissingSkills: scoredJob.missingSkills.slice(0, 3),
     explanation: scoredJob.explanation,
+    reasoning: scoredJob.explanation,
+    shortReason: scoredJob.whyNotMatched || scoredJob.explanation || null,
     confidenceLevel: scoredJob.confidenceLevel,
     confidenceScore: scoredJob.confidenceScore,
+    confidenceTag,
     matchLabel: finalLabel,
     scoreColorHint: computeScoreColorHint(scoredJob.finalScore),
     location: scoredJob.location,
@@ -1086,7 +1103,27 @@ function formatJobResponse(scoredJob) {
     compensationBenefits: rawJob.compensationBenefits || null,
     benefits,
     companyOverview: rawJob.companyOverview || rawJob.overview || null,
-    postedDate: rawJob.postedDate || rawJob.postedAt || rawJob.createdAt || null,
+    // Jobs are written by both backend1 and backendphase2; fall back through every
+    // timestamp variant (postedDate, postedAt, createdAt, updatedAt) so the candidate UI
+    // always has a real created-at value instead of defaulting to "Just now".
+    postedDate:
+      rawJob.postedDate ||
+      rawJob.postedAt ||
+      rawJob.createdAt ||
+      rawJob.updatedAt ||
+      null,
+    postedAt:
+      rawJob.postedAt ||
+      rawJob.postedDate ||
+      rawJob.createdAt ||
+      rawJob.updatedAt ||
+      null,
+    createdAt:
+      rawJob.createdAt ||
+      rawJob.postedAt ||
+      rawJob.postedDate ||
+      rawJob.updatedAt ||
+      null,
     jobLocationType: rawJob.jobLocationType || rawJob.workMode || null,
   };
 }
@@ -1195,7 +1232,11 @@ async function runJobMatchingPipeline({ candidate, cleanedResumeText, limit }) {
     console.log(`Top ${index + 1}: ${job.title} | ${job.company} | ${job.deterministicScore}`);
   });
 
-  const safeLimit = clamp(Number(limit) || 5, 5, 10);
+  // The candidate explore page needs every job scored, not just the AI-elite top-N.
+  // Caching the AI pass at AI_TOP_LIMIT (cost guard) but returning all scored jobs.
+  const requestedLimit = Number(limit);
+  const hasExplicitLimit = Number.isFinite(requestedLimit) && requestedLimit > 0;
+  const safeLimit = hasExplicitLimit ? Math.min(Math.max(requestedLimit, 5), 500) : 500;
   const topJobs = scoredJobs.slice(0, AI_TOP_LIMIT);
 
   let aiApplied = false;
@@ -1265,13 +1306,15 @@ async function runJobMatchingPipeline({ candidate, cleanedResumeText, limit }) {
   );
   const aiDurationMs = Date.now() - aiStartedAt;
 
+  // Return every scored job so brand-new roles are not hidden when their deterministic
+  // score is still low. The candidate UI now shows real "missing skills" and "low score
+  // reason" badges for every entry instead of falling back to "Not scored yet".
   const finalRanked = [...scoredJobs]
-    .filter((job) => job.finalScore >= MIN_VISIBLE_SCORE)
     .sort((a, b) => {
       if (b.finalScore !== a.finalScore) return b.finalScore - a.finalScore;
       return b.deterministicScore - a.deterministicScore;
     })
-    .slice(0, Math.max(5, Math.min(safeLimit, Math.max(scoredJobs.length, 1))));
+    .slice(0, safeLimit);
 
   console.log('[PERFORMANCE]');
   console.log(`total pipeline time: ${Date.now() - pipelineStartedAt}ms`);

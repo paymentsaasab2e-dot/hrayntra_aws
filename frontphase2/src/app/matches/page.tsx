@@ -41,10 +41,13 @@ import {
   type BackendUser,
 } from '../../lib/api';
 
+// Show every match candidate by default (AI and manual). Recruiters can
+// tighten filters via the FilterBar; the legacy 75% / 5-10 yrs preset hid
+// most candidates on first load.
 const INITIAL_FILTERS: MatchFilters = {
-  skillMatch: 75,
-  expMin: 5,
-  expMax: 10,
+  skillMatch: 0,
+  expMin: 0,
+  expMax: 50,
   location: '',
   salaryMin: null,
   salaryMax: null,
@@ -542,7 +545,11 @@ export default function MatchesPage() {
     }
   };
 
-  const handleBulkEmail = async (payload: { subject: string; message: string }) => {
+  const handleBulkEmail = async (payload: {
+    subject: string;
+    message: string;
+    submissionType: string;
+  }) => {
     if (!selectedMatchIds.length) return;
 
     setBulkEmailLoading(true);
@@ -551,6 +558,7 @@ export default function MatchesPage() {
         matchIds: selectedMatchIds,
         subject: payload.subject,
         message: payload.message,
+        submissionType: payload.submissionType,
       });
       await refreshMatches();
       setBulkEmailOpen(false);
@@ -746,14 +754,18 @@ export default function MatchesPage() {
         selectedJob={selectedJob || jobs[0] || { id: '', title: 'Select Job', client: 'No Client', status: 'Open' }}
         onClose={() => setOpenModal(null)}
         onUpdated={handleMatchDataUpdated}
-        onSubmit={async ({ message }) => {
+        onSubmit={async ({ message, submissionType }) => {
           if (!activeCandidate?.matchId) {
             setError('This candidate is not linked to a match record for the selected job.');
             setToast('Unable to submit candidate without a match record');
             return;
           }
           try {
-            await apiSubmitMatch(activeCandidate.matchId, { message, notifyClient: true });
+            await apiSubmitMatch(activeCandidate.matchId, {
+              message,
+              notifyClient: true,
+              submissionType,
+            });
             await refreshMatches();
             setOpenModal(null);
             setToast('Candidate submitted and email sent to client');

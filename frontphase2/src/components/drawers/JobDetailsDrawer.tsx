@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { motion, AnimatePresence } from 'motion/react';
 import { requestError } from '../../lib/appDialog';
@@ -84,6 +85,7 @@ export interface JobForDrawer {
    applicationFormLogo?: string;
    applicationFormQuestions?: string[];
    applicationFormNote?: string;
+  applications?: JobApplicationSubmission[];
   overview?: string;
   keyResponsibilities?: string[];
   requiredSkills?: string[];
@@ -91,6 +93,20 @@ export interface JobForDrawer {
   experienceRequired?: string;
   education?: string;
   benefits?: string[];
+}
+
+export interface JobApplicationSubmission {
+  id: string;
+  candidateId: string;
+  status?: string;
+  appliedAt?: string;
+  screeningAnswers?: Record<string, unknown> | null;
+  candidate?: {
+    id?: string;
+    firstName?: string | null;
+    lastName?: string | null;
+    email?: string | null;
+  } | null;
 }
 
 /** Pipeline stage for Job Pipeline Configuration */
@@ -327,9 +343,57 @@ export function JobDetailsDrawer({
 
   const [activeTab, setActiveTab] = useState<(typeof TAB_CONFIG)[number]['id']>('overview');
   const [candidateMenuOpen, setCandidateMenuOpen] = useState<string | null>(null);
+  const [candidateMenuPlacement, setCandidateMenuPlacement] = useState<{ top: number; right: number } | null>(null);
+  const candidateMenuAnchorRef = useRef<HTMLButtonElement | null>(null);
+
+  const closeCandidateMenu = () => {
+    candidateMenuAnchorRef.current = null;
+    setCandidateMenuOpen(null);
+    setCandidateMenuPlacement(null);
+  };
+
+  useLayoutEffect(() => {
+    if (!candidateMenuOpen) {
+      setCandidateMenuPlacement(null);
+      return undefined;
+    }
+    const updatePlacement = () => {
+      const btn = candidateMenuAnchorRef.current;
+      if (!btn) {
+        setCandidateMenuPlacement(null);
+        return;
+      }
+      const rect = btn.getBoundingClientRect();
+      setCandidateMenuPlacement({
+        top: rect.bottom + 4,
+        right: window.innerWidth - rect.right,
+      });
+    };
+    updatePlacement();
+    window.addEventListener('scroll', updatePlacement, true);
+    window.addEventListener('resize', updatePlacement);
+    return () => {
+      window.removeEventListener('scroll', updatePlacement, true);
+      window.removeEventListener('resize', updatePlacement);
+    };
+  }, [candidateMenuOpen]);
+
+  useEffect(() => {
+    if (!candidateMenuOpen) return undefined;
+    const onDocMouseDown = (event: MouseEvent) => {
+      const node = event.target;
+      if (!(node instanceof Element)) return;
+      if (node.closest('[data-job-candidate-actions-root]')) return;
+      if (node.closest('[data-job-candidate-actions-portal]')) return;
+      closeCandidateMenu();
+    };
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  }, [candidateMenuOpen]);
   const [notesTagFilter, setNotesTagFilter] = useState<JobNoteTag | 'All'>('All');
   const [pinnedNoteIds, setPinnedNoteIds] = useState<Set<string>>(new Set());
   const [filesTypeFilter, setFilesTypeFilter] = useState<JobFileType | 'All'>('All');
+  const [expandedApplicationIds, setExpandedApplicationIds] = useState<Set<string>>(new Set());
   const [jobActivities, setJobActivities] = useState<BackendActivity[]>([]);
   const [loadingActivities, setLoadingActivities] = useState(false);
   const [activityFilter, setActivityFilter] = useState<'All' | 'Jobs' | 'Candidates' | 'Interviews' | 'Notes' | 'Files'>('All');
@@ -420,6 +484,33 @@ export function JobDetailsDrawer({
   };
 
   const isDefaultPipelineStage = (stage: JobPipelineStage) => DEFAULT_PIPELINE_STAGE_ID_SET.has(String(stage.id || ''));
+  const formatApplicationCandidateName = (app: JobApplicationSubmission) => {
+    const first = String(app?.candidate?.firstName || '').trim();
+    const last = String(app?.candidate?.lastName || '').trim();
+    const full = [first, last].filter(Boolean).join(' ').trim();
+    if (full) return full;
+    return String(app?.candidate?.email || '').trim() || app.candidateId || 'Candidate';
+  };
+  const applicationAnswerRows = (answers?: Record<string, unknown> | null) => {
+    const input = answers && typeof answers === 'object' ? answers : {};
+    const rows: Array<{ key: string; label: string; value: string }> = [];
+    for (const [key, raw] of Object.entries(input)) {
+      if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        const r = raw as Record<string, unknown>;
+        const label = String(r.label || key).trim() || key;
+        const valueRaw = r.value;
+        let value = '';
+        if (Array.isArray(valueRaw)) value = valueRaw.map((v) => String(v)).join(', ');
+        else if (valueRaw === null || valueRaw === undefined) value = '';
+        else value = String(valueRaw);
+        rows.push({ key, label, value: value.trim() || '—' });
+      } else {
+        const value = raw === null || raw === undefined ? '—' : String(raw);
+        rows.push({ key, label: key, value: value.trim() || '—' });
+      }
+    }
+    return rows;
+  };
   const pipelineStageCountCards = useMemo(() => {
     const stageList = Array.isArray(pipelineStages) ? pipelineStages : [];
     const countsByStageId = new Map<string, number>();
@@ -471,6 +562,7 @@ export function JobDetailsDrawer({
   if (!isOpen) return null;
 
   return (
+    <>
     <AnimatePresence>
       <motion.div
         key="backdrop"
@@ -712,6 +804,67 @@ export function JobDetailsDrawer({
                           {job.benefits?.length ? job.benefits.join('\n') : '—'}
                         </div>
                       </div>
+
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">Job Applications</p>
+                        {Array.isArray(job.applications) && job.applications.length > 0 ? (
+                          <div className="space-y-2">
+                            {job.applications.map((app) => {
+                              const answers = applicationAnswerRows(app.screeningAnswers || null);
+                              const open = expandedApplicationIds.has(app.id);
+                              return (
+                                <div key={app.id} className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setExpandedApplicationIds((prev) => {
+                                        const next = new Set(prev);
+                                        if (next.has(app.id)) next.delete(app.id);
+                                        else next.add(app.id);
+                                        return next;
+                                      });
+                                    }}
+                                    className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-slate-50/70 transition-colors"
+                                  >
+                                    <div>
+                                      <p className="text-sm font-semibold text-slate-900">{formatApplicationCandidateName(app)}</p>
+                                      <p className="text-xs text-slate-500 mt-0.5">
+                                        {app.appliedAt ? new Date(app.appliedAt).toLocaleString() : 'Applied'}
+                                        {app.status ? ` • ${app.status}` : ''}
+                                      </p>
+                                    </div>
+                                    {open ? (
+                                      <ChevronDown size={16} className="text-slate-400 shrink-0" />
+                                    ) : (
+                                      <ChevronRight size={16} className="text-slate-400 shrink-0" />
+                                    )}
+                                  </button>
+                                  {open && (
+                                    <div className="border-t border-slate-100 bg-slate-50/40 px-4 py-3">
+                                      {answers.length > 0 ? (
+                                        <div className="space-y-2">
+                                          {answers.map((row) => (
+                                            <div key={`${app.id}-${row.key}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                                              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{row.label}</p>
+                                              <p className="text-sm text-slate-800 mt-1 whitespace-pre-wrap">{row.value}</p>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <p className="text-sm text-slate-500">No screening answers submitted.</p>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                            No applications yet for this job.
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </section>
 
@@ -804,9 +957,35 @@ export function JobDetailsDrawer({
                           <div>
                             <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Questions</p>
                             <ul className="list-disc list-inside text-slate-800 space-y-0.5">
-                              {job.applicationFormQuestions.map((q, idx) => (
-                                <li key={idx}>{q}</li>
-                              ))}
+                              {job.applicationFormQuestions.map((q, idx) => {
+                                let label = String(q || '').trim();
+                                let typeBadge: string | null = null;
+                                if (label.startsWith('{')) {
+                                  try {
+                                    const parsed = JSON.parse(label);
+                                    if (parsed && typeof parsed === 'object' && typeof parsed.label === 'string') {
+                                      label = parsed.label;
+                                      const t = String(parsed.type || '');
+                                      if (t === 'yes_no') typeBadge = 'Yes / No';
+                                      else if (t === 'single_choice') typeBadge = 'Multiple choice';
+                                      else if (t === 'slider') typeBadge = 'Proficiency slider';
+                                      else if (t === 'short_text') typeBadge = 'Short text';
+                                    }
+                                  } catch {
+                                    /* leave as plain text */
+                                  }
+                                }
+                                return (
+                                  <li key={idx}>
+                                    {label}
+                                    {typeBadge ? (
+                                      <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                                        ({typeBadge})
+                                      </span>
+                                    ) : null}
+                                  </li>
+                                );
+                              })}
                             </ul>
                           </div>
                         )}
@@ -1074,42 +1253,27 @@ export function JobDetailsDrawer({
                               </td>
                               <td className="px-4 py-3 text-right">
                                 {(onMoveStage || onScheduleInterview || onRejectCandidate || onViewCandidateProfile) ? (
-                                  <div className="relative inline-block">
+                                  <div className="relative inline-block" data-job-candidate-actions-root>
                                     <button
                                       type="button"
-                                      onClick={() => setCandidateMenuOpen(candidateMenuOpen === c.id ? null : c.id)}
+                                      onClick={(event) => {
+                                        const btn = event.currentTarget;
+                                        setCandidateMenuOpen((current) => {
+                                          if (current === c.id) {
+                                            candidateMenuAnchorRef.current = null;
+                                            return null;
+                                          }
+                                          candidateMenuAnchorRef.current = btn;
+                                          return c.id;
+                                        });
+                                      }}
                                       className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
                                       aria-label="Actions"
+                                      aria-haspopup="true"
+                                      aria-expanded={candidateMenuOpen === c.id}
                                     >
                                       <MoreVertical size={16} />
                                     </button>
-                                    {candidateMenuOpen === c.id && (
-                                      <>
-                                        <div className="fixed inset-0 z-10" onClick={() => setCandidateMenuOpen(null)} aria-hidden />
-                                        <div className="absolute right-0 top-full mt-1 py-1 w-52 bg-white rounded-xl border border-slate-200 shadow-lg z-20">
-                                          {onMoveStage && (
-                                            <button type="button" onClick={() => { onMoveStage(c.id, job.id); setCandidateMenuOpen(null); }} className="w-full px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2">
-                                              <ArrowRightLeft size={14} /> Move stage
-                                            </button>
-                                          )}
-                                          {onScheduleInterview && (
-                                            <button type="button" onClick={() => { onScheduleInterview(c.id, job.id); setCandidateMenuOpen(null); }} className="w-full px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2">
-                                              <CalendarPlus size={14} /> Schedule interview
-                                            </button>
-                                          )}
-                                          {onRejectCandidate && (
-                                            <button type="button" onClick={() => { onRejectCandidate(c.id, job.id); setCandidateMenuOpen(null); }} className="w-full px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2">
-                                              <UserX size={14} /> Reject candidate
-                                            </button>
-                                          )}
-                                          {onViewCandidateProfile && (
-                                            <button type="button" onClick={() => { onViewCandidateProfile(c.id); setCandidateMenuOpen(null); }} className="w-full px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2">
-                                              <Eye size={14} /> View profile
-                                            </button>
-                                          )}
-                                        </div>
-                                      </>
-                                    )}
                                   </div>
                                 ) : null}
                               </td>
@@ -1723,6 +1887,71 @@ export function JobDetailsDrawer({
         )}
       </motion.div>
     </AnimatePresence>
+    {candidateMenuOpen &&
+      candidateMenuPlacement &&
+      typeof document !== 'undefined' &&
+      (() => {
+        const target = jobCandidates.find((cand) => cand.id === candidateMenuOpen);
+        if (!target || !job) return null;
+        return createPortal(
+          <div
+            data-job-candidate-actions-portal
+            className="fixed z-[200] min-w-[12rem] max-w-[16rem] rounded-xl border border-slate-200 bg-white py-1 text-left shadow-lg"
+            style={{ top: candidateMenuPlacement.top, right: candidateMenuPlacement.right }}
+          >
+            {onMoveStage && (
+              <button
+                type="button"
+                onClick={() => {
+                  onMoveStage(target.id, job.id);
+                  closeCandidateMenu();
+                }}
+                className="w-full px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+              >
+                <ArrowRightLeft size={14} /> Move stage
+              </button>
+            )}
+            {onScheduleInterview && (
+              <button
+                type="button"
+                onClick={() => {
+                  onScheduleInterview(target.id, job.id);
+                  closeCandidateMenu();
+                }}
+                className="w-full px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+              >
+                <CalendarPlus size={14} /> Schedule interview
+              </button>
+            )}
+            {onRejectCandidate && (
+              <button
+                type="button"
+                onClick={() => {
+                  onRejectCandidate(target.id, job.id);
+                  closeCandidateMenu();
+                }}
+                className="w-full px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+              >
+                <UserX size={14} /> Reject candidate
+              </button>
+            )}
+            {onViewCandidateProfile && (
+              <button
+                type="button"
+                onClick={() => {
+                  onViewCandidateProfile(target.id);
+                  closeCandidateMenu();
+                }}
+                className="w-full px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+              >
+                <Eye size={14} /> View profile
+              </button>
+            )}
+          </div>,
+          document.body
+        );
+      })()}
+    </>
   );
 }
 
