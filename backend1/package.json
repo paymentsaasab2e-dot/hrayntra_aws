@@ -6,11 +6,9 @@
   "type": "commonjs",
   "scripts": {
     "dev": "node --watch src/server.js",
+    "prestart": "prisma generate",
     "start": "node src/server.js",
-
-    "prestart": "sh ./scripts/install-deps.sh || true",
-    "postinstall": "sh ./scripts/install-deps.sh || true; prisma generate" ,
-
+    "postinstall": "prisma generate || true",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
