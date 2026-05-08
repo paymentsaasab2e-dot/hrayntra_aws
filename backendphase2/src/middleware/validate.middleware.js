@@ -31,13 +31,24 @@ export const validate = (schema, target = 'body') => {
   };
 };
 
+const logValidationIssues = (req, source, issues) => {
+  // Print the route + per-field issues to the terminal so we can debug 400s without
+  // hunting through the response body in the browser.
+  const lines = issues
+    .map((issue) => `  - ${issue.path}: ${issue.message}`)
+    .join('\n');
+  console.warn(
+    `[validate] ${req.method} ${req.originalUrl || req.url} — ${source} failed:\n${lines}`,
+  );
+};
+
 export const validateRequest = ({ body, params, query }) => (req, res, next) => {
   if (body) {
     const result = body.safeParse(req.body);
     if (!result.success) {
-      return sendError(res, 400, 'Validation failed', {
-        errors: formatZodErrors(result.error.issues),
-      });
+      const errors = formatZodErrors(result.error.issues);
+      logValidationIssues(req, 'body', errors);
+      return sendError(res, 400, 'Validation failed', { errors });
     }
     req.body = result.data;
   }
@@ -45,9 +56,9 @@ export const validateRequest = ({ body, params, query }) => (req, res, next) => 
   if (params) {
     const result = params.safeParse(req.params);
     if (!result.success) {
-      return sendError(res, 400, 'Validation failed', {
-        errors: formatZodErrors(result.error.issues),
-      });
+      const errors = formatZodErrors(result.error.issues);
+      logValidationIssues(req, 'params', errors);
+      return sendError(res, 400, 'Validation failed', { errors });
     }
     req.params = result.data;
   }
@@ -55,9 +66,9 @@ export const validateRequest = ({ body, params, query }) => (req, res, next) => 
   if (query) {
     const result = query.safeParse(req.query);
     if (!result.success) {
-      return sendError(res, 400, 'Validation failed', {
-        errors: formatZodErrors(result.error.issues),
-      });
+      const errors = formatZodErrors(result.error.issues);
+      logValidationIssues(req, 'query', errors);
+      return sendError(res, 400, 'Validation failed', { errors });
     }
     req.query = result.data;
   }

@@ -54,33 +54,51 @@ function normalizeSalaryData(salary) {
   return normalized;
 }
 
+/**
+ * Resolved client row (logo included) — portal listings use client.logo when no job-specific image URL exists.
+ */
+async function loadClientMirrorForPortalSync(job) {
+  const clientId = job?.clientId;
+  if (!clientId) return null;
+  return prisma.client.findUnique({
+    where: { id: clientId },
+    select: { id: true, companyName: true, industry: true, logo: true, location: true },
+  });
+}
+
 async function syncJobToJobPortalDb(job, payload = {}) {
   const tenantDbName = getActiveTenantDbName();
   if (!tenantDbName) return;
 
-  const portalPrisma = getDefaultPrismaClient();
+  // Mirror into the shared job-portal DB (JOB_PORTAL_DATABASE_URL), not tenant/default DATABASE_URL.
+  // backend1 `/api/jobs` reads this DB — screening questions must land here or Apply shows no modal.
+  const portalPrisma = getJobPortalPrismaClient();
 
-  // Mirror tenant client into the jobportal DB so backend1 can resolve client.companyName.
-  if (job?.client?.id && job?.client?.companyName) {
+  // Mirror tenant client into the portal DB — company name, industry, location, **and logo**
+  // — so Explore Jobs shows the same image as Clients / converted Leads.
+  const mirrorClient = await loadClientMirrorForPortalSync(job);
+  if (mirrorClient?.id && mirrorClient.companyName) {
     try {
       await portalPrisma.client.upsert({
-        where: { id: job.client.id },
+        where: { id: mirrorClient.id },
         create: {
-          id: job.client.id,
-          companyName: job.client.companyName,
-          industry: job.client.industry || null,
-          location: job.location || null,
+          id: mirrorClient.id,
+          companyName: mirrorClient.companyName,
+          industry: mirrorClient.industry || null,
+          logo: mirrorClient.logo || null,
+          location: mirrorClient.location || job.location || null,
           status: 'ACTIVE',
         },
         update: {
-          companyName: job.client.companyName,
-          industry: job.client.industry || null,
-          location: job.location || null,
+          companyName: mirrorClient.companyName,
+          industry: mirrorClient.industry || null,
+          logo: mirrorClient.logo ?? null,
+          location: mirrorClient.location || job.location || null,
         },
       });
     } catch (clientSyncError) {
       console.error(
-        `Job portal sync: failed to mirror client ${job.client.id}, proceeding with job sync.`,
+        `Job portal sync: failed to mirror client ${mirrorClient.id}, proceeding with job sync.`,
         clientSyncError?.message || clientSyncError
       );
     }
@@ -97,6 +115,11 @@ async function syncJobToJobPortalDb(job, payload = {}) {
     keyResponsibilities: Array.isArray(job.keyResponsibilities) ? job.keyResponsibilities : [],
     type: job.type ? String(job.type) : 'FULL_TIME',
     status: ['CLOSED', 'FILLED'].includes(String(job.status || '').toUpperCase()) ? 'CLOSED' : 'OPEN',
+    // Origin tenant — backend1 reads this on every apply to route the new
+    // Application / Match / pipeline write into the correct tenant DB.
+    // Carrying it on every Job means the system supports as many agencies /
+    // tenants as needed without any per-deployment env config.
+    tenantDbName,
     clientId: job.clientId || null,
     assignedToId: job.assignedToId || null,
     createdById: job.createdById || null,
@@ -136,6 +159,62 @@ async function syncJobToJobPortalDb(job, payload = {}) {
     },
     update: jobPortalData,
   });
+
+  // Mirror this job's pipeline stages into the portal DB so the
+  // candidate-portal application-detail view can resolve the per-job
+  // stage flow ("Applied → Screening → Interview → Offer …") AND so
+  // backend1's `syncApplicationToRecruiterView` can create a per-job
+  // PipelineEntry on every apply. Without this, freshly-created portal
+  // jobs have no pipeline_stages rows, the apply-time pipeline-entry
+  // create bails on "no first stage", and the application detail page
+  // is forced to fall back on the global `candidate.stage` (which then
+  // bleeds previous-job rejections into brand-new applications).
+  try {
+    const tenantStages = await prisma.pipelineStage.findMany({
+      where: { jobId: job.id },
+      orderBy: { order: 'asc' },
+      select: { id: true, name: true, order: true, color: true },
+    });
+    if (tenantStages.length) {
+      // Replace-and-rewrite is safer than per-row diff: stage IDs are
+      // referenced by `pipeline_entries`, so we delete in two steps to
+      // keep referential integrity in the portal DB.
+      await portalPrisma.pipelineEntry.deleteMany({
+        where: { jobId: job.id, NOT: { stageId: { in: tenantStages.map((s) => s.id) } } },
+      });
+      for (const stage of tenantStages) {
+        await portalPrisma.pipelineStage.upsert({
+          where: { id: stage.id },
+          create: {
+            id: stage.id,
+            jobId: job.id,
+            name: stage.name,
+            order: stage.order,
+            color: stage.color || null,
+          },
+          update: {
+            name: stage.name,
+            order: stage.order,
+            color: stage.color || null,
+          },
+        });
+      }
+      // Drop any portal pipeline_stages for this job that no longer exist
+      // on the tenant side (e.g. recruiter customised the pipeline and
+      // removed a stage).
+      await portalPrisma.pipelineStage.deleteMany({
+        where: {
+          jobId: job.id,
+          NOT: { id: { in: tenantStages.map((s) => s.id) } },
+        },
+      });
+    }
+  } catch (pipelineMirrorError) {
+    console.warn(
+      `[syncJobToJobPortalDb] pipeline-stages mirror failed for job ${job.id} (non-fatal):`,
+      pipelineMirrorError?.message || pipelineMirrorError
+    );
+  }
 }
 
 /**
@@ -233,6 +312,23 @@ function mergeJobMatches(tenantMatches = [], portalMatches = []) {
     mergedByKey.set(key, match);
   }
   return Array.from(mergedByKey.values());
+}
+
+function mergeJobApplications(tenantApplications = [], portalApplications = []) {
+  const mergedByKey = new Map();
+  for (const app of portalApplications) {
+    const key = app?.id || `${app?.candidateId || 'candidate'}:${app?.jobId || 'job'}`;
+    mergedByKey.set(key, app);
+  }
+  for (const app of tenantApplications) {
+    const key = app?.id || `${app?.candidateId || 'candidate'}:${app?.jobId || 'job'}`;
+    mergedByKey.set(key, app);
+  }
+  return Array.from(mergedByKey.values()).sort((a, b) => {
+    const aTs = a?.appliedAt ? new Date(a.appliedAt).getTime() : 0;
+    const bTs = b?.appliedAt ? new Date(b.appliedAt).getTime() : 0;
+    return bTs - aTs;
+  });
 }
 
 export const jobService = {
@@ -432,6 +528,19 @@ export const jobService = {
             candidate: true,
           },
         },
+        applications: {
+          include: {
+            candidate: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+              },
+            },
+          },
+          orderBy: { appliedAt: 'desc' },
+        },
         interviews: {
           include: {
             candidate: {
@@ -462,7 +571,7 @@ export const jobService = {
       return job;
     }
 
-    const portalPrisma = getDefaultPrismaClient();
+    const portalPrisma = getJobPortalPrismaClient();
     const portalJob = await portalPrisma.job.findUnique({
       where: { id },
       include: {
@@ -471,18 +580,33 @@ export const jobService = {
             candidate: true,
           },
         },
+        applications: {
+          include: {
+            candidate: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+              },
+            },
+          },
+          orderBy: { appliedAt: 'desc' },
+        },
       },
     });
 
-    if (!portalJob?.matches?.length) {
+    if (!portalJob?.matches?.length && !portalJob?.applications?.length) {
       return job;
     }
 
     const mergedMatches = mergeJobMatches(job.matches || [], portalJob.matches || []);
+    const mergedApplications = mergeJobApplications(job.applications || [], portalJob.applications || []);
 
     return {
       ...job,
       matches: mergedMatches,
+      applications: mergedApplications,
       _count: {
         matches: mergedMatches.length,
         interviews: Array.isArray(job.interviews) ? job.interviews.length : 0,
@@ -521,6 +645,7 @@ export const jobService = {
       department: data.department,
       jobCategory: data.jobCategory,
       jobLocationType: data.jobLocationType,
+      workMode: data.workMode || data.jobLocationType,
       expectedClosureDate: data.expectedClosureDate ? new Date(data.expectedClosureDate) : null,
       jdFileName: data.jdFileName,
       hot: data.hot || false,
@@ -553,7 +678,7 @@ export const jobService = {
       data: jobData,
       include: {
         client: {
-          select: { id: true, companyName: true, industry: true },
+          select: { id: true, companyName: true, industry: true, logo: true },
         },
         assignedTo: {
           select: { id: true, name: true, email: true },
@@ -723,7 +848,7 @@ export const jobService = {
         data: updateData,
         include: {
           client: {
-            select: { id: true, companyName: true },
+            select: { id: true, companyName: true, industry: true, logo: true },
           },
           assignedTo: {
             select: { id: true, name: true, email: true },
@@ -750,6 +875,12 @@ export const jobService = {
         await this.notifyAssignment(updatedJob, data.performedById);
       }
 
+      try {
+        await syncJobToJobPortalDb(updatedJob, data);
+      } catch (syncError) {
+        console.error(`Failed to sync job ${id} to job portal DB:`, syncError?.message || syncError);
+      }
+
       return updatedJob;
     }
 
@@ -759,7 +890,7 @@ export const jobService = {
         data: updateData,
         include: {
           client: {
-            select: { id: true, companyName: true },
+            select: { id: true, companyName: true, industry: true, logo: true },
           },
           assignedTo: {
             select: { id: true, name: true, email: true },
@@ -903,6 +1034,12 @@ export const jobService = {
       data.assignedToId !== currentJob.assignedToId
     ) {
       await this.notifyAssignment(updated, data.performedById);
+    }
+
+    try {
+      await syncJobToJobPortalDb(updated, data);
+    } catch (syncError) {
+      console.error(`Failed to sync job ${id} to job portal DB:`, syncError?.message || syncError);
     }
 
     return updated;

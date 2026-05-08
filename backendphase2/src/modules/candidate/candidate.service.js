@@ -1,5 +1,9 @@
 import { prisma, getActiveTenantDbName, getJobPortalPrismaClient } from '../../config/prisma.js';
-import { PIPELINE_STAGES, updateCandidateStage } from '../stage/candidateStage.service.js';
+import {
+  PIPELINE_STAGES,
+  mapStageNameToPipelineBucket,
+  updateCandidateStage,
+} from '../stage/candidateStage.service.js';
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
 import { dbLogger } from '../../utils/db-logger.js';
 import { generateMeetingLink } from '../../services/meetingService.js';
@@ -98,7 +102,19 @@ async function resolveJobIdForStageSync(candidateId, data) {
     orderBy: { updatedAt: 'desc' },
     select: { jobId: true },
   });
-  return m?.jobId ? String(m.jobId) : null;
+  if (m?.jobId) return String(m.jobId);
+  // Fallback: many flows (especially reject from the Candidates tab) never
+  // send `jobId`, but the tenant candidate still carries `assignedJobs[]`.
+  // Without a jobId the portal `Application` row + pipeline never sync —
+  // the job portal keeps showing "Interview" forever.
+  const cand = await prisma.candidate.findUnique({
+    where: { id: candidateId },
+    select: { assignedJobs: true },
+  });
+  const fromAssigned = Array.isArray(cand?.assignedJobs)
+    ? cand.assignedJobs.map((id) => String(id || '').trim()).find((id) => /^[a-f\d]{24}$/i.test(id))
+    : null;
+  return fromAssigned || null;
 }
 
 function getActivityMetadata(activity) {
@@ -490,6 +506,13 @@ async function materializePortalCandidateIntoTenant(portalRow) {
   });
 }
 
+/**
+ * Resolve a candidate by id from the tenant DB, falling back to the job-portal DB and
+ * materializing the row into the tenant on demand. The merged candidate list view shows
+ * portal-only rows in the picker, so callers that mutate (interview create, reject, etc.)
+ * must use this helper instead of `prisma.candidate.findUnique` to avoid a "Candidate not
+ * found" 400 for candidates that exist on the portal side but not in the tenant yet.
+ */
 async function getCandidateOrThrow(id) {
   const candidate = await prisma.candidate.findUnique({
     where: { id },
@@ -513,6 +536,166 @@ async function getCandidateOrThrow(id) {
   }
 
   return materializePortalCandidateIntoTenant(portalRow);
+}
+
+// Exposed for cross-module callers (e.g. services/interview.service.js) so they can
+// rely on the same portal→tenant materialization as the candidate module routes.
+export { getCandidateOrThrow };
+
+function pickFirstNonEmpty(...values) {
+  for (const value of values) {
+    if (value === null || value === undefined) continue;
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed) return trimmed;
+      continue;
+    }
+    if (typeof value === 'number') {
+      if (Number.isFinite(value)) return value;
+      continue;
+    }
+    if (Array.isArray(value)) {
+      if (value.length) return value;
+      continue;
+    }
+    return value;
+  }
+  return null;
+}
+
+function normalizePortalWorkMode(value) {
+  const raw = String(value || '').trim().toUpperCase();
+  if (!raw) return null;
+  if (raw === 'REMOTE') return 'Remote';
+  if (raw === 'ON_SITE' || raw === 'ONSITE' || raw === 'ON-SITE') return 'On-site';
+  if (raw === 'HYBRID') return 'Hybrid';
+  return value;
+}
+
+/**
+ * The job-portal "career_preferences" collection lives in the portal MongoDB
+ * but is not part of the backendphase2 Prisma schema. We read it via raw command
+ * so we can surface candidate-self-updated values (notice period, expected
+ * salary, availability, preferred location, etc.) inside the recruiter drawer.
+ */
+async function fetchCareerPreferencesForCandidates(candidateIds) {
+  const map = new Map();
+  if (!Array.isArray(candidateIds) || !candidateIds.length) return map;
+
+  let portalClient = null;
+  try { portalClient = getJobPortalPrismaClient(); } catch { portalClient = null; }
+  if (!portalClient) return map;
+
+  const ids = Array.from(new Set(candidateIds.map((id) => String(id)).filter(Boolean)));
+  const objectIdHexes = ids.filter((id) => /^[a-fA-F0-9]{24}$/.test(id));
+  const stringIds = ids;
+
+  try {
+    const result = await portalClient.$runCommandRaw({
+      find: 'career_preferences',
+      filter: {
+        $or: [
+          ...(objectIdHexes.length
+            ? [{ candidateId: { $in: objectIdHexes.map((hex) => ({ $oid: hex })) } }]
+            : []),
+          { candidateId: { $in: stringIds } },
+        ],
+      },
+      limit: ids.length,
+    });
+    const docs = result?.cursor?.firstBatch || [];
+    for (const doc of docs) {
+      const rawId = doc?.candidateId;
+      const idStr = rawId && typeof rawId === 'object' && rawId.$oid
+        ? String(rawId.$oid)
+        : String(rawId || '');
+      if (idStr) map.set(idStr, doc);
+    }
+  } catch (err) {
+    console.warn('[candidate.service] bulk career_preferences fetch failed:', err?.message || err);
+  }
+
+  return map;
+}
+
+async function fetchPortalCareerPreferencesRaw(client, candidateId) {
+  if (!candidateId) return null;
+  const targetClient = client || (() => {
+    try { return getJobPortalPrismaClient(); } catch { return null; }
+  })();
+  if (!targetClient) return null;
+
+  const idStr = String(candidateId);
+  const isObjectIdHex = /^[a-fA-F0-9]{24}$/.test(idStr);
+
+  try {
+    const filters = isObjectIdHex
+      ? [{ candidateId: { $oid: idStr } }, { candidateId: idStr }]
+      : [{ candidateId: idStr }];
+
+    for (const filter of filters) {
+      const result = await targetClient.$runCommandRaw({
+        find: 'career_preferences',
+        filter,
+        limit: 1,
+      });
+      const doc = result?.cursor?.firstBatch?.[0];
+      if (doc) return doc;
+    }
+  } catch (err) {
+    console.warn('[candidate.service] failed to fetch career_preferences:', err?.message || err);
+  }
+
+  return null;
+}
+
+function mergeCareerPreferencesIntoCandidate(candidate, careerPrefs) {
+  if (!candidate || !careerPrefs) return candidate;
+
+  const cp = careerPrefs;
+  const noticeFromDays = cp.noticePeriodDays != null
+    ? `${cp.noticePeriodDays} day${Number(cp.noticePeriodDays) === 1 ? '' : 's'}`
+    : null;
+
+  const preferredLocations = Array.isArray(cp.preferredLocations) ? cp.preferredLocations : [];
+  const expectedSalaryNum = cp.preferredSalary != null && Number.isFinite(Number(cp.preferredSalary))
+    ? Number(cp.preferredSalary)
+    : null;
+  const currentSalaryNum = cp.currentSalary != null && Number.isFinite(Number(cp.currentSalary))
+    ? Number(cp.currentSalary)
+    : null;
+
+  candidate.noticePeriod = pickFirstNonEmpty(candidate.noticePeriod, cp.noticePeriod, noticeFromDays);
+  candidate.availability = pickFirstNonEmpty(candidate.availability, cp.availabilityToStart);
+  candidate.expectedSalary = candidate.expectedSalary != null ? candidate.expectedSalary : expectedSalaryNum;
+  candidate.currentSalary = candidate.currentSalary != null ? candidate.currentSalary : currentSalaryNum;
+  candidate.preferredLocation = pickFirstNonEmpty(candidate.preferredLocation, preferredLocations[0]);
+
+  candidate.careerPreferences = {
+    preferredRoles: Array.isArray(cp.preferredRoles) ? cp.preferredRoles : [],
+    preferredIndustry: cp.preferredIndustry || null,
+    functionalArea: cp.functionalArea || null,
+    jobTypes: Array.isArray(cp.jobTypes) ? cp.jobTypes : [],
+    preferredWorkMode: normalizePortalWorkMode(cp.preferredWorkMode),
+    preferredLocations,
+    relocationPreference: cp.relocationPreference || null,
+    preferredCurrency: cp.preferredCurrency || null,
+    preferredSalary: expectedSalaryNum,
+    preferredSalaryType: cp.preferredSalaryType || null,
+    preferredBenefits: Array.isArray(cp.preferredBenefits) ? cp.preferredBenefits : [],
+    availabilityToStart: cp.availabilityToStart || null,
+    noticePeriod: cp.noticePeriod || noticeFromDays,
+    noticePeriodDays: cp.noticePeriodDays != null ? Number(cp.noticePeriodDays) : null,
+    openToRelocation: Boolean(cp.openToRelocation),
+    currentLocation: cp.currentLocation || null,
+    currentSalary: currentSalaryNum,
+    currentCurrency: cp.currentCurrency || null,
+    currentSalaryType: cp.currentSalaryType || null,
+    currentBenefits: Array.isArray(cp.currentBenefits) ? cp.currentBenefits : [],
+    passportNumbersByLocation: cp.passportNumbersByLocation ?? null,
+  };
+
+  return candidate;
 }
 
 async function buildCandidateResponse(candidate, activityClient = prisma) {
@@ -600,20 +783,27 @@ async function fetchPortalCandidatesForTenant(req, { status, stage, assignedToId
 
   const portalPrisma = getJobPortalPrismaClient();
   const tenantJobIds = await getVisibleTenantJobIds(req, mine);
-  if (!tenantJobIds.length) return [];
+  const canViewAllPortal =
+    isSuperAdminUser(req) ||
+    canViewAllAssignments(req) ||
+    hasAnyPermissionScope(req, ['view_all_candidates']);
 
   const where = {};
   if (stage) where.stage = stage;
   if (assignedToId) where.assignedToId = assignedToId;
 
-  const andParts = [
-    {
+  const andParts = [];
+  // Super admin / view-all with mine=false: show all portal rows (no CRM job link gate).
+  // Regular users or explicit mine=true: require link to an allowed CRM job.
+  if (!canViewAllPortal || mine) {
+    if (!tenantJobIds.length) return [];
+    andParts.push({
       OR: [
         { matches: { some: { jobId: { in: tenantJobIds } } } },
         { assignedJobs: { hasSome: tenantJobIds } },
       ],
-    },
-  ];
+    });
+  }
 
   if (status) {
     andParts.push({
@@ -767,7 +957,16 @@ export const candidateService = {
       for (const job of jobs) jobsById.set(job.id, job.title);
     }
 
+    // Fetch career preferences from portal DB for the visible page so that
+    // candidate-self-updated values (notice period, expected salary, availability,
+    // preferred location) appear in the list response too.
+    const careerPrefsByCandidate = await fetchCareerPreferencesForCandidates(
+      candidates.map((c) => c.id).filter(Boolean)
+    );
+
     const enriched = candidates.map((candidate) => {
+      const careerPrefs = careerPrefsByCandidate.get(String(candidate.id));
+      if (careerPrefs) mergeCareerPreferencesIntoCandidate(candidate, careerPrefs);
       const titles = (Array.isArray(candidate.assignedJobs) ? candidate.assignedJobs : [])
         .map((jobId) => jobsById.get(jobId))
         .filter(Boolean);
@@ -829,11 +1028,20 @@ export const candidateService = {
         include: candidateDetailInclude,
       });
       if (candidate) {
+        const careerPrefs = await fetchPortalCareerPreferencesRaw(portalPrisma, candidate.id);
+        mergeCareerPreferencesIntoCandidate(candidate, careerPrefs);
         return buildCandidateResponse(candidate, portalPrisma);
       }
     }
 
     if (!candidate) return null;
+
+    // Career preferences live in the job-portal DB (where candidates self-update).
+    // Always look there so recruiter drawer reflects candidate-side updates.
+    let portalClientForPrefs = null;
+    try { portalClientForPrefs = getJobPortalPrismaClient(); } catch { portalClientForPrefs = null; }
+    const careerPrefs = await fetchPortalCareerPreferencesRaw(portalClientForPrefs, candidate.id);
+    mergeCareerPreferencesIntoCandidate(candidate, careerPrefs);
 
     return buildCandidateResponse(candidate);
   },
@@ -1318,6 +1526,30 @@ export const candidateService = {
       data: activityPayload,
     });
 
+    // Bucket the (possibly custom) stage name into a canonical PIPELINE_STAGES value
+    // and mirror to the job-portal Application + ApplicationTimeline. Without this the
+    // candidate keeps showing the previous tag (e.g. "Interviewing") in other tabs and
+    // /applications even though the recruiter moved them to "Offer" in the custom
+    // per-job pipeline.
+    try {
+      await updateCandidateStage({
+        candidateId,
+        jobId,
+        stage: mapStageNameToPipelineBucket(stageName),
+        performedById: userId,
+        skipStageActivity: true,
+        metadata: {
+          customStageName: stageName,
+          pipelineNotes,
+        },
+      });
+    } catch (stageError) {
+      console.warn(
+        '[candidate.addToPipeline] candidate stage sync failed:',
+        stageError?.message || stageError,
+      );
+    }
+
     return this.getById(candidateId);
   },
 
@@ -1325,6 +1557,13 @@ export const candidateService = {
     const candidate = await getCandidateOrThrow(candidateId);
     const reason = String(data?.reason || '').trim();
     const feedback = String(data?.feedback || '').trim();
+    // Default to true so callers that don't pass the flag (older clients,
+    // bulk operations) keep the existing "feedback visible to candidate"
+    // behaviour. New rejection modals send this explicitly.
+    const showFeedbackToCandidate =
+      data?.showFeedbackToCandidate === undefined
+        ? true
+        : Boolean(data.showFeedbackToCandidate);
 
     if (!reason) {
       throw new Error('Reject reason is required');
@@ -1340,7 +1579,52 @@ export const candidateService = {
       feedback,
       performedById: userId,
       skipStageActivity: true,
+      showFeedbackToCandidate,
     });
+
+    // Sweep ALL of the candidate's other in-progress portal applications and
+    // flip them to REJECTED too. This is what the recruiter means when they
+    // press "Reject" without picking a specific job (Candidates tab) — the
+    // candidate is no longer in consideration on any open requisition. It also
+    // remediates older applications whose `Application.status` enum is stale
+    // because an earlier reject ran without `jobId`. The per-job reject above
+    // already covered `jobId`; here we cover every other open one.
+    try {
+      const portal = getJobPortalPrismaClient();
+      const otherOpen = await portal.application.findMany({
+        where: {
+          candidateId,
+          status: { notIn: ['REJECTED', 'SELECTED'] },
+          ...(jobId ? { NOT: { jobId } } : {}),
+        },
+        select: { id: true, jobId: true },
+      });
+      for (const app of otherOpen) {
+        try {
+          await updateCandidateStage({
+            candidateId,
+            jobId: app.jobId,
+            stage: PIPELINE_STAGES.REJECTED,
+            reason,
+            feedback,
+            performedById: userId,
+            skipStageActivity: true,
+            showFeedbackToCandidate,
+          });
+        } catch (perAppErr) {
+          console.warn(
+            '[candidate.rejectCandidate] secondary application reject failed:',
+            { applicationId: app.id, jobId: app.jobId },
+            perAppErr?.message || perAppErr
+          );
+        }
+      }
+    } catch (sweepErr) {
+      console.warn(
+        '[candidate.rejectCandidate] open-applications sweep failed:',
+        sweepErr?.message || sweepErr
+      );
+    }
 
     await prisma.activity.create({
       data: {
@@ -1360,6 +1644,7 @@ export const candidateService = {
           reason,
           feedback,
           sendEmail: Boolean(data?.sendEmail),
+          showFeedbackToCandidate,
         },
       },
     });
@@ -1590,6 +1875,21 @@ export const candidateService = {
 
     const locationLine =
       String(data?.mode || '').toLowerCase() === 'in-person' ? String(data?.location || '').trim() || null : null;
+
+    // Names shown to the candidate on the job portal interview card.
+    const interviewerNames = [
+      ...interviewers.map((item) => item.name).filter(Boolean),
+      ...panelMembers.map((item) => item.name).filter(Boolean),
+    ];
+    const dedupedInterviewerNames = Array.from(new Set(interviewerNames.map((n) => String(n).trim()).filter(Boolean)));
+    const scheduler = userId
+      ? await prisma.user.findUnique({
+          where: { id: userId },
+          select: { name: true, email: true },
+        }).catch(() => null)
+      : null;
+    const schedulerLabel = scheduler?.name || scheduler?.email || null;
+
     await updateCandidateStage({
       candidateId,
       jobId,
@@ -1600,6 +1900,8 @@ export const candidateService = {
         meetingLink: generatedMeetingLink,
         locationLine,
         mode: String(data?.mode || '').trim() || null,
+        interviewerNames: dedupedInterviewerNames,
+        recruiterName: schedulerLabel,
       },
       performedById: userId,
       skipStageActivity: true,

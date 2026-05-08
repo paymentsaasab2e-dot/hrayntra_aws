@@ -121,7 +121,11 @@ export const interviewController = {
 
   async submitPublicClientTag(req, res) {
     try {
-      const result = await interviewService.submitPublicClientTag(req.params.token, req.body);
+      const result = await interviewService.submitPublicClientTag(
+        req.params.token,
+        req.body,
+        req.file || null
+      );
       sendResponse(res, 200, 'Client tag submitted successfully', result);
     } catch (error) {
       sendError(res, 400, error.message, error);

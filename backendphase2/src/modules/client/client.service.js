@@ -1,4 +1,4 @@
-import { prisma } from '../../config/prisma.js';
+import { prisma, getActiveTenantDbName, getJobPortalPrismaClient } from '../../config/prisma.js';
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
 import { dbLogger } from '../../utils/db-logger.js';
 import activityService from '../../services/activityService.js';
@@ -17,6 +17,34 @@ function applyMemberClientScope(scopedWhere, req) {
   return mergeWhereWithScope(scopedWhere, {
     OR: [{ assignedToId: req.user.id }, { createdById: req.user.id }],
   });
+}
+
+/** Keep shared portal `clients` row in sync when CRM client name/logo changes (job cards use this). */
+async function mirrorClientRowToJobPortalDb(client) {
+  const tenantDbName = getActiveTenantDbName();
+  if (!tenantDbName || !client?.id || !client.companyName) return;
+  try {
+    const portalPrisma = getJobPortalPrismaClient();
+    await portalPrisma.client.upsert({
+      where: { id: client.id },
+      create: {
+        id: client.id,
+        companyName: client.companyName,
+        industry: client.industry ?? null,
+        logo: client.logo ?? null,
+        location: client.location ?? null,
+        status: 'ACTIVE',
+      },
+      update: {
+        companyName: client.companyName,
+        industry: client.industry ?? undefined,
+        logo: client.logo ?? undefined,
+        location: client.location ?? undefined,
+      },
+    });
+  } catch (err) {
+    console.error('mirrorClientRowToJobPortalDb failed:', err?.message || err);
+  }
 }
 
 function applySystemWorkspaceExclusion(where = {}, includeSystem = false) {
@@ -378,6 +406,8 @@ export const clientService = {
       await this.notifyAssignment(client, data.performedById);
     }
 
+    await mirrorClientRowToJobPortalDb(client);
+
     return client;
   },
 
@@ -508,6 +538,8 @@ export const clientService = {
     ) {
       await this.notifyAssignment(updated, data.performedById);
     }
+
+    await mirrorClientRowToJobPortalDb(updated);
 
     return updated;
   },

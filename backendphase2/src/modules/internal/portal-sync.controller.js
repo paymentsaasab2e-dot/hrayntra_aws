@@ -1,4 +1,7 @@
-import { applyPortalApplicationSync } from './portal-sync.service.js';
+import {
+  applyPortalApplicationSync,
+  backfillPortalJobTenantDbNames,
+} from './portal-sync.service.js';
 
 export async function postSyncPortalApplication(req, res) {
   try {
@@ -21,5 +24,23 @@ export async function postSyncPortalApplication(req, res) {
       success: false,
       message,
     });
+  }
+}
+
+/**
+ * One-shot admin endpoint: backfill `tenantDbName` on every portal Job mirror
+ * that originated from this tenant. Idempotent — re-running it is safe and
+ * cheap (only updates rows where the field is missing or wrong).
+ *
+ * Body: { tenantDbName: string }
+ */
+export async function postBackfillPortalJobTenants(req, res) {
+  try {
+    const { tenantDbName } = req.body || {};
+    const result = await backfillPortalJobTenantDbNames({ tenantDbName });
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    const message = String(error?.message || 'Backfill failed');
+    return res.status(400).json({ success: false, message });
   }
 }

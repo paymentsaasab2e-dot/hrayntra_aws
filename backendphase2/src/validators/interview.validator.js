@@ -192,16 +192,30 @@ export const calendarQuerySchema = z.object({
   year: z.coerce.number().int().min(2000).max(2100),
 });
 
+// Stable codes that drive how the public review page renders. Keep this list
+// small and additive — once tokens are in flight any rename becomes a breaking
+// change. The frontend mirrors these in `SubmitToClientDrawer.tsx`.
+export const submissionTypeEnum = z.enum([
+  'INITIAL_REVIEW',
+  'INTERIM_REVIEW',
+  'OFFER_CONFIRMATION',
+  'GENERAL',
+]);
+
 export const submitToClientSchema = z.object({
   toEmail: z.string().email().optional(),
   message: z.string().optional(),
+  submissionType: submissionTypeEnum.optional(),
 });
 
 export const reviewTokenParamSchema = z.object({
   token: z.string().min(10),
 });
 
+// `tag` is technically optional at the schema layer because OFFER_CONFIRMATION
+// submissions can come in as a file-only payload. The service still enforces
+// "tag OR file required" for the non-offer paths.
 export const publicClientTagSchema = z.object({
-  tag: z.string().min(1),
+  tag: z.string().optional(),
   comments: z.string().optional(),
 });

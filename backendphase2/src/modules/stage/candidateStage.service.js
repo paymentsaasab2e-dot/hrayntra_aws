@@ -33,6 +33,38 @@ export function mapPipelineStageToPortalApplicationStatus(stage) {
   }
 }
 
+/**
+ * Infer the canonical pipeline bucket from a free-form custom stage name.
+ *
+ * Recruiters can rename per-job pipeline columns (e.g. "Tech Round 1", "Final Onsite",
+ * "Offer Sent"). For UI tags + portal `Application.status` we still need to bucket
+ * each stage into one of the canonical PIPELINE_STAGES so the chip everywhere
+ * (Candidates, Interviews, Job drawer, Job Portal /applications) stays consistent.
+ *
+ * Rules (first match wins):
+ *   reject        → REJECTED
+ *   hired/joined/placed/onboard → HIRED
+ *   offer         → OFFER
+ *   interview     → INTERVIEW
+ *   screen/review/assess → SCREENING
+ *   shortlist     → SCREENING (closest canonical bucket)
+ *   anything else → APPLIED
+ */
+export function mapStageNameToPipelineBucket(stageName) {
+  const n = String(stageName || '').trim().toLowerCase();
+  if (!n) return PIPELINE_STAGES.APPLIED;
+  if (n.includes('reject')) return PIPELINE_STAGES.REJECTED;
+  if (n.includes('hire') || n.includes('joined') || n.includes('placed') || n.includes('onboard')) {
+    return PIPELINE_STAGES.HIRED;
+  }
+  if (n.includes('offer')) return PIPELINE_STAGES.OFFER;
+  if (n.includes('interview')) return PIPELINE_STAGES.INTERVIEW;
+  if (n.includes('screen') || n.includes('review') || n.includes('assess') || n.includes('shortlist')) {
+    return PIPELINE_STAGES.SCREENING;
+  }
+  return PIPELINE_STAGES.APPLIED;
+}
+
 /** CRM / list `candidate.stage` string (tenant + portal profile). */
 export function mapPipelineStageToCrmCandidateLabel(stage) {
   const s = String(stage || '').toUpperCase();
@@ -110,6 +142,61 @@ function buildTimelineCopy(portalStatus, options = {}) {
     return { title: 'Final decision', description: options.timelineDescription || 'Status updated' };
   }
   return { title: 'Status update', description: options.timelineDescription || 'Application updated' };
+}
+
+/**
+ * Public absolute URL for files served by this CRM backend's `/uploads/...`
+ * static handler. Stored alongside the relative path so the portal frontend
+ * (different origin) can open the file without rewriting URLs at view time.
+ */
+function buildAbsoluteUploadsUrl(relativeUrl) {
+  if (!relativeUrl) return null;
+  const url = String(relativeUrl).trim();
+  if (!url) return null;
+  if (/^https?:\/\//i.test(url)) return url;
+  const base = String(
+    process.env.BACKEND_PUBLIC_URL ||
+      process.env.PUBLIC_BACKEND_URL ||
+      `http://localhost:${process.env.PORT || '5001'}`
+  ).replace(/\/+$/, '');
+  const path = url.startsWith('/') ? url : `/${url}`;
+  return `${base}${path}`;
+}
+
+/**
+ * Mirror an offer-letter URL to the candidate's portal Application so the
+ * job-portal `/applications/[id]` page can show "View / Download offer letter".
+ *
+ * We piggy-back on the existing `Application.offerDetails` String? column —
+ * stored as JSON so we can carry both the path (for any future relative
+ * resolver) and an absolute URL (for the portal frontend to open directly
+ * across origins).
+ */
+export async function syncApplicationOfferLetter(candidateId, jobId, { fileUrl, fileName }) {
+  if (!candidateId || !jobId || !fileUrl) return;
+  const portal = getJobPortalPrismaClient();
+  const app = await portal.application.findUnique({
+    where: { candidateId_jobId: { candidateId, jobId } },
+    select: { id: true, offerDetails: true },
+  });
+  if (!app) return;
+  let parsed = {};
+  if (app.offerDetails) {
+    try {
+      const maybe = JSON.parse(app.offerDetails);
+      parsed = maybe && typeof maybe === 'object' ? maybe : { legacyOfferText: app.offerDetails };
+    } catch {
+      parsed = { legacyOfferText: app.offerDetails };
+    }
+  }
+  parsed.offerLetterUrl = buildAbsoluteUploadsUrl(fileUrl) || fileUrl;
+  parsed.offerLetterRelativeUrl = fileUrl;
+  parsed.offerLetterFileName = fileName || null;
+  parsed.offerLetterUploadedAt = new Date().toISOString();
+  await portal.application.update({
+    where: { id: app.id },
+    data: { offerDetails: JSON.stringify(parsed) },
+  });
 }
 
 /**
@@ -191,6 +278,10 @@ export async function updateCandidateStage({
   feedback,
   performedById,
   skipStageActivity = false,
+  // HR-controlled flag: only when true do we surface the rejection feedback
+  // on the candidate-facing portal timeline. The full feedback is always
+  // kept on the CRM (Activity + internal note) for recruiter records.
+  showFeedbackToCandidate = true,
 }) {
   const label = mapPipelineStageToCrmCandidateLabel(stage);
   const upper = String(stage || '').toUpperCase();
@@ -224,11 +315,36 @@ export async function updateCandidateStage({
         upper === PIPELINE_STAGES.INTERVIEW
           ? buildInterviewTimelineDescription(metadata)
           : upper === PIPELINE_STAGES.REJECTED
-            ? [reason, feedback].filter(Boolean).join(' — ') || null
+            ? showFeedbackToCandidate
+              ? [reason, feedback].filter(Boolean).join(' — ') || null
+              // HR opted out of sharing — keep portal description empty so
+              // the candidate's "View feedback" button stays hidden and the
+              // generic "No additional notes for this step." renders.
+              : null
             : null,
     };
 
     await syncApplicationState(candidateId, jobId, portalExtra);
+  } else if (upper === PIPELINE_STAGES.REJECTED) {
+    // Job-scoped portal sync could not run (no `jobId` on the reject payload).
+    // Still push the terminal label onto the portal candidate profile so
+    // list/detail UIs that read `candidate.stage` flip to "Rejected" even
+    // when the `Application` row is temporarily stale.
+    try {
+      const portal = getJobPortalPrismaClient();
+      await portal.candidate.update({
+        where: { id: candidateId },
+        data: {
+          stage: label,
+          lastActivity: new Date(),
+        },
+      });
+    } catch (portalCandErr) {
+      console.warn(
+        '[updateCandidateStage] portal candidate stage (reject, no jobId) failed:',
+        portalCandErr?.message || portalCandErr
+      );
+    }
   }
 
   if (upper === PIPELINE_STAGES.HIRED && jobId) {
@@ -275,5 +391,18 @@ function buildInterviewTimelineDescription(metadata) {
   if (metadata.meetingLink) lines.push(`Link: ${metadata.meetingLink}`);
   if (metadata.locationLine) lines.push(`Location: ${metadata.locationLine}`);
   if (metadata.mode) lines.push(`Mode: ${metadata.mode}`);
+  // Surface assigned panel + scheduler so candidate-side portal can show "Interviewer: ..." / "Recruiter: ..."
+  const interviewers = Array.isArray(metadata.interviewerNames)
+    ? metadata.interviewerNames.map((n) => String(n || '').trim()).filter(Boolean)
+    : typeof metadata.interviewerNames === 'string'
+      ? [metadata.interviewerNames.trim()].filter(Boolean)
+      : [];
+  if (interviewers.length) {
+    lines.push(`Interviewer: ${interviewers.join(', ')}`);
+  }
+  const recruiterName = String(metadata.recruiterName || '').trim();
+  if (recruiterName) {
+    lines.push(`Recruiter: ${recruiterName}`);
+  }
   return lines.length ? lines.join('\n') : null;
 }
