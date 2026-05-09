@@ -1099,43 +1099,45 @@ export default function App() {
                           <span className="text-[13px] font-medium text-gray-600">{task.owner.name.split(' ')[0]}</span>
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
+                      <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                        {/* Colored action icons — same design language as
+                            Leads / Clients / Candidates / Contacts. */}
+                        <div className="inline-flex items-center justify-end gap-0.5 rounded-2xl bg-slate-100/70 p-1 ring-1 ring-slate-200/60">
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               void handleMarkTaskCompleted(task.id);
                             }}
-                            className="p-1.5 hover:bg-white border border-gray-200 rounded-lg text-gray-400 hover:text-emerald-600 transition-all cursor-pointer"
+                            className="flex h-8 w-8 items-center justify-center rounded-xl text-emerald-600 hover:bg-white hover:text-emerald-800 hover:shadow-sm transition-all"
                             title="Mark completed"
                           >
-                            <CheckSquare size={16} />
+                            <CheckSquare size={16} strokeWidth={2.25} />
                           </button>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               handleRowClick(task);
                             }}
-                            className="p-1.5 hover:bg-white border border-transparent hover:border-gray-200 rounded-lg text-gray-400 hover:text-blue-600 transition-all cursor-pointer"
+                            className="flex h-8 w-8 items-center justify-center rounded-xl text-blue-600 hover:bg-white hover:text-blue-700 hover:shadow-sm transition-all"
                             title="View task"
                           >
-                            <Eye size={16} />
+                            <Eye size={16} strokeWidth={2.25} />
                           </button>
                           <button
                             onClick={(e) => handleEditTask(task, e)}
-                            className="p-1.5 hover:bg-white border border-transparent hover:border-gray-200 rounded-lg text-gray-400 hover:text-blue-600 transition-all cursor-pointer"
+                            className="flex h-8 w-8 items-center justify-center rounded-xl text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
                             title="Edit task"
                           >
-                            <Pencil size={16} />
+                            <Pencil size={16} strokeWidth={2.25} />
                           </button>
                           <button
                             onClick={async (e) => {
                               handleRequestTaskDelete(task, e);
                             }}
-                            className="p-1.5 hover:bg-white border border-transparent hover:border-gray-200 rounded-lg text-gray-400 hover:text-red-600 transition-all cursor-pointer"
+                            className="flex h-8 w-8 items-center justify-center rounded-xl text-rose-500 hover:bg-white hover:text-rose-700 hover:shadow-sm transition-all"
                             title="Delete task"
                           >
-                            <Trash2 size={16} />
+                            <Trash2 size={16} strokeWidth={2.25} />
                           </button>
                         </div>
                       </td>

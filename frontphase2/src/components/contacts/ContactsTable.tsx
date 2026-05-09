@@ -229,33 +229,35 @@ export function ContactsTable({
                     </div>
                   </td>
                   <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
-                    <div className="inline-flex items-center gap-1">
+                    {/* Colored action icons — keeps the row actions visually
+                        identical to the Leads / Clients / Candidates tables. */}
+                    <div className="inline-flex items-center justify-end gap-0.5 rounded-2xl bg-slate-100/70 p-1 ring-1 ring-slate-200/60">
                       <button
                         type="button"
                         onClick={() => onEdit(contact)}
-                        className="p-2 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                        className="flex h-8 w-8 items-center justify-center rounded-xl text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
                         aria-label="Edit contact"
                         title="Edit"
                       >
-                        <Pencil size={16} />
+                        <Pencil size={16} strokeWidth={2.25} />
                       </button>
                       <button
                         type="button"
                         onClick={() => openWhatsApp(contact)}
-                        className="p-2 rounded-lg text-blue-500 hover:text-blue-700 hover:bg-blue-50 transition-colors"
+                        className="flex h-8 w-8 items-center justify-center rounded-xl text-emerald-600 hover:bg-white hover:text-emerald-800 hover:shadow-sm transition-all"
                         aria-label="Send message"
                         title="Send Message"
                       >
-                        <MessageSquare size={16} />
+                        <MessageSquare size={16} strokeWidth={2.25} />
                       </button>
                       <button
                         type="button"
                         onClick={() => onDelete(contact.id)}
-                        className="p-2 rounded-lg text-red-500 hover:text-red-700 hover:bg-red-50 transition-colors"
+                        className="flex h-8 w-8 items-center justify-center rounded-xl text-rose-500 hover:bg-white hover:text-rose-700 hover:shadow-sm transition-all"
                         aria-label="Delete contact"
                         title="Delete"
                       >
-                        <Trash2 size={16} />
+                        <Trash2 size={16} strokeWidth={2.25} />
                       </button>
                     </div>
                   </td>

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, useRef, Suspense } from 'react';
-import { StageTabs } from './components/StageTabs';
+import { StageTabs, type CandidateStageStats } from './components/StageTabs';
 import { CandidateTable, Candidate } from './components/CandidateTable';
 import { CandidateGrid } from './components/CandidateGrid';
 import { FilterDrawer } from './components/FilterDrawer';
@@ -25,6 +25,11 @@ import {
   FileSpreadsheet,
   FileText,
   Download,
+  Send,
+  Search,
+  CalendarClock,
+  CheckCircle2,
+  Trophy,
 } from 'lucide-react';
 import { downloadCsv } from '../../utils/csv';
 import { CreateTaskModal } from '../../components/CreateTaskModal';
@@ -41,6 +46,7 @@ import {
   apiDeleteCandidateNote,
   apiGetCandidate,
   apiGetCandidates,
+  apiGetCandidateStats,
   apiGetJobs,
   apiGetPipelineStages,
   apiMoveCandidateStage,
@@ -59,7 +65,7 @@ import { usePathname, useSearchParams, useRouter } from 'next/navigation';
 import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { TableSkeleton } from '../../components/ui/Skeleton';
-import { SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
+import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
 
 export const dynamic = 'force-dynamic';
 
@@ -668,6 +674,10 @@ function CandidatesPageContent() {
   const [pageSize, setPageSize] = useState(10);
   const [totalEntries, setTotalEntries] = useState(0);
   const [stageStatsRefreshTick, setStageStatsRefreshTick] = useState(0);
+  // Hoisted stats: drives both the stage tab strip and the KPI card row above
+  // the table so they share one round-trip and stay in sync.
+  const [stageStats, setStageStats] = useState<CandidateStageStats | null>(null);
+  const [stageStatsLoading, setStageStatsLoading] = useState(true);
 
   const [inlineStageOptionsByJobId, setInlineStageOptionsByJobId] = useState<
     Record<string, Array<{ id: string; name: string }>>
@@ -877,10 +887,48 @@ function CandidatesPageContent() {
     loadCandidates();
   }, [loadCandidates]);
 
+  // Fetch stage stats once at page level — feeds the StageTabs and the KPI
+  // card row. Refreshes when `stageStatsRefreshTick` bumps after a mutation.
+  const statsMine = useMemo(
+    () => !isSuperAdminRole(currentUser?.role),
+    [currentUser?.role]
+  );
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        setStageStatsLoading(true);
+        const res = await apiGetCandidateStats(statsMine ? { mine: true } : undefined);
+        const raw = res.data as CandidateStageStats | { data?: CandidateStageStats } | undefined;
+        const statsData =
+          raw && typeof raw === 'object' && 'data' in raw && raw.data && typeof raw.data === 'object'
+            ? (raw.data as CandidateStageStats)
+            : (raw as CandidateStageStats);
+        if (!cancelled) setStageStats(statsData);
+      } catch (err) {
+        console.error('Failed to fetch candidate stats:', err);
+        if (!cancelled) {
+          setStageStats({
+            all: 0, applied: 0, longlist: 0, shortlist: 0, screening: 0,
+            submitted: 0, interviewing: 0, offered: 0, hired: 0, rejected: 0,
+          });
+        }
+      } finally {
+        if (!cancelled) setStageStatsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [statsMine, stageStatsRefreshTick]);
+
   // Reusable auto-refresh: polls while visible, refreshes on tab focus and on
   // candidate / job-pipeline change events.
   const candidatesAutoLoad = useCallback(
-    ({ silent }: { silent: boolean }) => loadCandidates({ silent }),
+    ({ silent }: { silent: boolean }) => {
+      // Bumping the tick re-fetches stats alongside the candidates list so
+      // both stay in lockstep.
+      setStageStatsRefreshTick((t) => t + 1);
+      return loadCandidates({ silent });
+    },
     [loadCandidates]
   );
   usePageAutoRefresh(candidatesAutoLoad, {
@@ -1352,14 +1400,88 @@ function CandidatesPageContent() {
           {/* Pipeline Tabs */}
           <StageTabs
             activeStage={activeStage}
-            statsMine={!isSuperAdminRole(currentUser?.role)}
+            stats={stageStats}
+            loading={stageStatsLoading}
             onStageChange={(stage) => {
               setActiveStage(stage);
               setFilters((prev) => ({ ...prev, status: stage === 'all' ? '' : stage }));
               setStageStatsRefreshTick((current) => current + 1);
             }}
-            refreshTrigger={stageStatsRefreshTick}
           />
+
+          {/* KPI cards — same Leads-style colored cards used across the
+              other list pages so the candidate tab feels consistent. Each
+              card is clickable and toggles the matching stage filter. */}
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 sm:grid-cols-3 lg:grid-cols-5">
+            {stageStatsLoading || !stageStats ? (
+              (['blue', 'yellow', 'purple', 'green', 'cyan'] as SummaryCardColor[]).map((c, i) => (
+                <SummaryCardSkeleton key={i} color={c} />
+              ))
+            ) : (
+              <>
+                <SummaryCard
+                  label="APPLIED"
+                  count={stageStats.applied}
+                  color="blue"
+                  icon={<Send size={18} strokeWidth={2.35} />}
+                  active={activeStage === 'applied'}
+                  onClick={() => {
+                    const next = activeStage === 'applied' ? 'all' : 'applied';
+                    setActiveStage(next);
+                    setFilters((prev) => ({ ...prev, status: next === 'all' ? '' : next }));
+                  }}
+                />
+                <SummaryCard
+                  label="SCREENING"
+                  count={stageStats.screening}
+                  color="yellow"
+                  icon={<Search size={18} strokeWidth={2.35} />}
+                  active={activeStage === 'screening'}
+                  onClick={() => {
+                    const next = activeStage === 'screening' ? 'all' : 'screening';
+                    setActiveStage(next);
+                    setFilters((prev) => ({ ...prev, status: next === 'all' ? '' : next }));
+                  }}
+                />
+                <SummaryCard
+                  label="INTERVIEWING"
+                  count={stageStats.interviewing}
+                  color="purple"
+                  icon={<CalendarClock size={18} strokeWidth={2.35} />}
+                  active={activeStage === 'interviewing'}
+                  onClick={() => {
+                    const next = activeStage === 'interviewing' ? 'all' : 'interviewing';
+                    setActiveStage(next);
+                    setFilters((prev) => ({ ...prev, status: next === 'all' ? '' : next }));
+                  }}
+                />
+                <SummaryCard
+                  label="OFFERED"
+                  count={stageStats.offered}
+                  color="green"
+                  icon={<CheckCircle2 size={18} strokeWidth={2.35} />}
+                  active={activeStage === 'offered'}
+                  onClick={() => {
+                    const next = activeStage === 'offered' ? 'all' : 'offered';
+                    setActiveStage(next);
+                    setFilters((prev) => ({ ...prev, status: next === 'all' ? '' : next }));
+                  }}
+                />
+                <SummaryCard
+                  label="HIRED"
+                  count={stageStats.hired}
+                  color="cyan"
+                  icon={<Trophy size={18} strokeWidth={2.35} />}
+                  active={activeStage === 'hired'}
+                  onClick={() => {
+                    const next = activeStage === 'hired' ? 'all' : 'hired';
+                    setActiveStage(next);
+                    setFilters((prev) => ({ ...prev, status: next === 'all' ? '' : next }));
+                  }}
+                />
+              </>
+            )}
+          </div>
 
           {/* Content Body */}
           <div className="flex-1 flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -1504,12 +1626,7 @@ function CandidatesPageContent() {
               </div>
             )}
             {loading ? (
-              <div className="space-y-4 p-4">
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-                  {(['blue', 'purple', 'cyan', 'green', 'orange'] as SummaryCardColor[]).map((c, i) => (
-                    <SummaryCardSkeleton key={i} color={c} />
-                  ))}
-                </div>
+              <div className="p-4">
                 <TableSkeleton rows={8} columns={7} />
               </div>
             ) : viewMode === 'list' ? (

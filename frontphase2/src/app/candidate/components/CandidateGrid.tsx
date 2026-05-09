@@ -119,30 +119,42 @@ export const CandidateGrid: React.FC<CandidateGridProps> = ({
             </div>
           </div>
 
-          {/* Footer Actions - Static as requested */}
+          {/* Footer Actions — colored per-action like the Leads / Clients table. */}
           <div className="border-t border-slate-100 p-3 bg-slate-50/50 rounded-b-2xl flex items-center justify-between">
-            <div className="flex items-center gap-1">
+            <div className="inline-flex items-center gap-0.5 rounded-2xl bg-white/80 p-1 ring-1 ring-slate-200/60">
               <button
-                className="p-2 text-slate-500 hover:text-blue-600 hover:bg-white rounded-lg transition-all shadow-sm border border-transparent hover:border-slate-200"
+                className="flex h-8 w-8 items-center justify-center rounded-xl text-blue-600 hover:bg-white hover:text-blue-700 hover:shadow-sm transition-all"
                 title="View Profile"
                 onClick={() => onViewProfile?.(candidate)}
               >
-                <Eye size={16} />
+                <Eye size={16} strokeWidth={2.25} />
               </button>
-              <button className="p-2 text-slate-500 hover:text-blue-600 hover:bg-white rounded-lg transition-all shadow-sm border border-transparent hover:border-slate-200" title="View Resume">
-                <FileText size={16} />
+              <button
+                className="flex h-8 w-8 items-center justify-center rounded-xl text-indigo-600 hover:bg-white hover:text-indigo-700 hover:shadow-sm transition-all"
+                title="View Resume"
+              >
+                <FileText size={16} strokeWidth={2.25} />
               </button>
             </div>
-            
-            <div className="flex items-center gap-1">
-              <button className="p-2 text-slate-500 hover:text-green-600 hover:bg-white rounded-lg transition-all shadow-sm border border-transparent hover:border-slate-200" title="WhatsApp">
-                <MessageSquare size={16} />
+
+            <div className="inline-flex items-center gap-0.5 rounded-2xl bg-white/80 p-1 ring-1 ring-slate-200/60">
+              <button
+                className="flex h-8 w-8 items-center justify-center rounded-xl text-emerald-600 hover:bg-white hover:text-emerald-800 hover:shadow-sm transition-all"
+                title="WhatsApp"
+              >
+                <MessageSquare size={16} strokeWidth={2.25} />
               </button>
-              <button className="p-2 text-slate-500 hover:text-blue-600 hover:bg-white rounded-lg transition-all shadow-sm border border-transparent hover:border-slate-200" title="Email">
-                <Mail size={16} />
+              <button
+                className="flex h-8 w-8 items-center justify-center rounded-xl text-cyan-600 hover:bg-white hover:text-cyan-700 hover:shadow-sm transition-all"
+                title="Email"
+              >
+                <Mail size={16} strokeWidth={2.25} />
               </button>
-              <button className="p-2 text-slate-400 hover:bg-white rounded-lg transition-all shadow-sm border border-transparent hover:border-slate-200">
-                <MoreVertical size={16} />
+              <button
+                className="flex h-8 w-8 items-center justify-center rounded-xl text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-sm transition-all"
+                title="More"
+              >
+                <MoreVertical size={16} strokeWidth={2.25} />
               </button>
             </div>
           </div>
