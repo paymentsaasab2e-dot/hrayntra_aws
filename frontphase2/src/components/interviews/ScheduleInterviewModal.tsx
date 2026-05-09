@@ -24,6 +24,11 @@ interface ScheduleInterviewModalProps {
   onSchedule: (payload: ScheduleInterviewPayload) => Promise<void>;
   editInterview?: Interview | null;
   onUpdate?: (interviewId: string, payload: UpdateInterviewPayload) => Promise<void>;
+  /** Pre-fill when opening from job drawer (create flow only). */
+  prefillCandidateId?: string | null;
+  prefillJobId?: string | null;
+  /** When true, job cannot be changed (single-job context). */
+  lockJob?: boolean;
 }
 
 const rounds: InterviewRound[] = ['Screening', 'Technical', 'HR', 'Managerial', 'Client', 'Final'];
@@ -74,9 +79,11 @@ export function ScheduleInterviewModal({
   onSchedule,
   editInterview = null,
   onUpdate,
+  prefillCandidateId = null,
+  prefillJobId = null,
+  lockJob = false,
 }: ScheduleInterviewModalProps) {
   const isEditMode = Boolean(editInterview && onUpdate);
-  const [query, setQuery] = useState('');
   const [showPanelModal, setShowPanelModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   /** New schedules start fully empty so the recruiter doesn't think a previous interview leaked through. */
@@ -127,23 +134,21 @@ export function ScheduleInterviewModal({
   const [form, setForm] = useState<ScheduleInterviewPayload>(buildDefaultForm());
 
   React.useEffect(() => {
-    if (isOpen) {
-      setQuery('');
-      setForm(editInterview ? buildEditForm(editInterview) : buildDefaultForm());
+    if (!isOpen) return;
+    if (editInterview) {
+      setForm(buildEditForm(editInterview));
+      return;
     }
-  }, [candidates, editInterview, interviewers, isOpen, jobs]);
+    const base = buildDefaultForm();
+    if (prefillCandidateId) base.candidateId = prefillCandidateId;
+    if (prefillJobId) {
+      base.jobId = prefillJobId;
+      const job = jobs.find((j) => j.id === prefillJobId);
+      if (job?.clientId) base.clientId = job.clientId;
+    }
+    setForm(base);
+  }, [isOpen, editInterview, prefillCandidateId, prefillJobId, jobs, candidates, interviewers]);
 
-  const filteredCandidates = useMemo(
-    () =>
-      candidates.filter(
-        (candidate) =>
-          candidate.name.toLowerCase().includes(query.toLowerCase()) ||
-          candidate.email.toLowerCase().includes(query.toLowerCase())
-      ),
-    [candidates, query]
-  );
-
-  const selectedCandidate = candidates.find((candidate) => candidate.id === form.candidateId);
   const selectedJob = jobs.find((job) => job.id === form.jobId);
   const selectedTimezoneLabel =
     timezoneOptions.find((timezone) => timezone.value === form.timezone)?.label || form.timezone;
@@ -219,12 +224,6 @@ export function ScheduleInterviewModal({
             <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
               <div>
                 <label className="mb-2 block text-sm font-semibold text-[#111827]">Candidate</label>
-                <input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search by candidate name or email"
-                  className="mb-2 w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-sm outline-none focus:border-[#2563EB]"
-                />
                 <select
                   value={form.candidateId}
                   onChange={(event) => {
@@ -237,7 +236,7 @@ export function ScheduleInterviewModal({
                   <option value="" disabled>
                     Select candidate
                   </option>
-                  {filteredCandidates.map((candidate) => (
+                  {candidates.map((candidate) => (
                     <option key={candidate.id} value={candidate.id}>
                       {candidate.name} • {candidate.email}
                     </option>
@@ -250,6 +249,7 @@ export function ScheduleInterviewModal({
                   <label className="mb-2 block text-sm font-semibold text-[#111827]">Job Role</label>
                   <select
                     value={form.jobId}
+                    disabled={lockJob}
                     onChange={(event) => {
                       const nextJobId = event.target.value;
                       const nextJob = jobs.find((job) => job.id === nextJobId);

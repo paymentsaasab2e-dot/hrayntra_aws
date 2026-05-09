@@ -110,6 +110,11 @@ function extractItems(payload) {
   return [];
 }
 
+/** Only trust parse-time URLs that can be stored on the candidate (Cloudinary / remote). */
+function isPersistableRemoteResumeUrl(value) {
+  return typeof value === 'string' && /^https?:\/\//i.test(String(value).trim());
+}
+
 function normalizeAutoFilledFields(parsedData) {
   const fields = {};
   Object.entries(parsedData || {}).forEach(([key, value]) => {
@@ -583,7 +588,24 @@ export default function AddCandidateDrawer({
   const [bulkResumeResults, setBulkResumeResults] = useState([]);
   const fieldRefs = useRef({});
   const importProgressRef = useRef(null);
+  /** Last chosen resume File (manual step or parse); survives edge cases around save. */
+  const resumeFileRef = useRef(null);
+  const formScrollRef = useRef(null);
   const normalizedDefaultJobId = String(defaultJobId || '').trim();
+
+  // Reset the scroll position whenever the active wizard step changes.
+  // Without this, navigating from a tall step (Step 2) to Step 3 leaves the
+  // scrollable form container at the previous offset, so the user can't see
+  // the start of the new step.
+  useEffect(() => {
+    const node = formScrollRef.current;
+    if (!node || typeof node.scrollTo !== 'function') return;
+    node.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [currentStep, activeTab]);
+
+  useEffect(() => {
+    resumeFileRef.current = manualResumeFile || parsedResumeFile;
+  }, [manualResumeFile, parsedResumeFile]);
 
   const selectedJob = useMemo(() => jobs.find((job) => job.id === formData.jobId) || null, [jobs, formData.jobId]);
   const selectedRecruiter = useMemo(
@@ -667,6 +689,7 @@ export default function AddCandidateDrawer({
     setErrors({});
     setParsedResumeFile(null);
     setManualResumeFile(null);
+    resumeFileRef.current = null;
     setParsedData(null);
     setResumeAnalysis(null);
     setAutoFilledFields({});
@@ -894,7 +917,10 @@ export default function AddCandidateDrawer({
     setParsedData(data);
     setResumeAnalysis(data.score || null);
     setAutoFilledFields(normalizeAutoFilledFields(nextData));
-    if (file) setParsedResumeFile(file);
+    if (file) {
+      resumeFileRef.current = file;
+      setParsedResumeFile(file);
+    }
   };
 
   const handleResumeFile = async (file) => {
@@ -1077,9 +1103,10 @@ export default function AddCandidateDrawer({
         const createResponse = await apiCreateCandidateFromDrawer(buildBulkResumePayload(parsedCandidate));
         const candidate = createResponse.data;
 
-        if (file && !parsedCandidate?.resumeUrl) {
+        const bulkCandidateId = candidate.id || candidate._id;
+        if (file && bulkCandidateId && !isPersistableRemoteResumeUrl(parsedCandidate?.resumeUrl)) {
           backgroundUploads.push(
-            apiUploadCandidateResumeFile(candidate.id, file).catch((uploadError) => {
+            apiUploadCandidateResumeFile(bulkCandidateId, file).catch((uploadError) => {
               console.error('Resume upload failed after candidate creation:', uploadError);
             })
           );
@@ -1188,8 +1215,46 @@ export default function AddCandidateDrawer({
       const payload = buildCandidatePayload(duplicateAction);
 
       const response = await apiCreateCandidateFromDrawer(payload);
-      const candidate = response.data;
-      const uploadFile = parsedResumeFile || manualResumeFile;
+      let candidate = response?.data || {};
+      // Prisma + Mongo always projects `id`, but tolerate `_id` from any future
+      // serializer change so the resume upload doesn't silently fail and the
+      // user doesn't see "Candidate not found" after a successful create.
+      const candidateId = candidate.id || candidate._id || null;
+      // Prefer manual attachment (step 3) over parsed file; ref mirrors state
+      // so the File is still available at save time.
+      const uploadFile = resumeFileRef.current || manualResumeFile || parsedResumeFile;
+      const parsedResumeRemote = isPersistableRemoteResumeUrl(parsedData?.resumeUrl);
+      // Upload when we have a file and either (a) user picked a manual file, or
+      // (b) parse did not yield a storable remote URL (Cloudinary failed, temp path, etc.).
+      // Skip only when parse already produced https/http and the file came from that parse.
+      const shouldUploadResume =
+        Boolean(candidateId && uploadFile) &&
+        (Boolean(manualResumeFile) || !parsedResumeRemote);
+
+      // Await the resume upload BEFORE we close the drawer / refresh the
+      // parent list so the candidate row reflects the resume in the same
+      // refresh cycle (otherwise the parent fetched the row before `resume`
+      // was set on the backend and the file appeared "missing").
+      let resumeUploadFailed = false;
+      if (shouldUploadResume) {
+        if (!candidateId) {
+          resumeUploadFailed = true;
+          console.error('Cannot upload resume: created candidate is missing an id', candidate);
+          toast.error('Candidate saved, but resume upload could not start (missing candidate id).');
+        } else {
+          try {
+            const uploadResponse = await apiUploadCandidateResumeFile(candidateId, uploadFile);
+            const updated = uploadResponse?.data;
+            if (updated && typeof updated === 'object') {
+              candidate = { ...candidate, ...updated };
+            }
+          } catch (uploadError) {
+            resumeUploadFailed = true;
+            console.error('Resume upload failed after candidate creation:', uploadError);
+            toast.error(uploadError?.message || 'Candidate saved, but resume upload failed');
+          }
+        }
+      }
 
       toast.success(
         duplicateAction === 'updateExisting'
@@ -1199,21 +1264,16 @@ export default function AddCandidateDrawer({
 
       if (mode === 'saveAndAddAnother') {
         resetForNext(activeTab);
-        setInlineSuccess('Candidate saved! Fill in the next one.');
+        setInlineSuccess(
+          resumeUploadFailed
+            ? 'Candidate saved (resume upload failed). Fill in the next one.'
+            : 'Candidate saved! Fill in the next one.'
+        );
       } else {
         onSuccess?.(candidate);
         notifyCandidatesChanged();
         resetForNext(activeTab);
         onClose();
-      }
-
-      if (uploadFile && !parsedData?.resumeUrl) {
-        void apiUploadCandidateResumeFile(candidate.id, uploadFile)
-          .then(() => notifyCandidatesChanged())
-          .catch((uploadError) => {
-            console.error('Resume upload failed after candidate creation:', uploadError);
-            toast.error(uploadError?.message || 'Candidate saved, but resume upload failed');
-          });
       }
     } catch (error) {
       if (String(error.message || '').toLowerCase().includes('already exists')) {
@@ -1371,7 +1431,7 @@ export default function AddCandidateDrawer({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-5">
+        <div ref={formScrollRef} className="flex-1 overflow-y-auto px-6 py-5">
           {showMethodTabs ? (
             <div className="mb-5 flex flex-wrap gap-2">
               {METHOD_TABS.map((tab) => (
@@ -2348,7 +2408,11 @@ export default function AddCandidateDrawer({
                             type="file"
                             accept=".pdf,.doc,.docx"
                             className="hidden"
-                            onChange={(event) => setManualResumeFile(event.target.files?.[0] || null)}
+                            onChange={(event) => {
+                              const f = event.target.files?.[0] || null;
+                              resumeFileRef.current = f;
+                              setManualResumeFile(f);
+                            }}
                           />
                         </label>
                       ) : (
@@ -2357,7 +2421,14 @@ export default function AddCandidateDrawer({
                             <FileText size={16} />
                             {manualResumeFile.name}
                           </span>
-                          <button type="button" onClick={() => setManualResumeFile(null)} className="text-xs font-semibold">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              resumeFileRef.current = parsedResumeFile;
+                              setManualResumeFile(null);
+                            }}
+                            className="text-xs font-semibold"
+                          >
                             Remove
                           </button>
                         </div>

@@ -1,4 +1,4 @@
-const { prisma } = require('../lib/prisma');
+const { prisma, retryQuery } = require('../lib/prisma');
 
 const SECTION_KEYS = {
   BASIC_INFORMATION: 'basicInformation',
@@ -404,7 +404,16 @@ async function getMissingProfileSections(candidateId, options = {}) {
   const percentage = Math.round((completedSections.length / sections.length) * 100);
 
   if (options.persist) {
-    await persistCompletion(candidateId, percentage);
+    try {
+      await persistCompletion(candidateId, percentage);
+    } catch (persistError) {
+      // Never fail the read path: UI needs accurate sections/percentage from
+      // the graph we already loaded; cached profileCompleteness may lag one refresh.
+      console.warn(
+        '[profile-completeness] persistCompletion failed after retries (non-fatal):',
+        persistError?.message || persistError
+      );
+    }
   }
 
   return {

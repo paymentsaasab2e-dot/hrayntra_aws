@@ -1427,6 +1427,45 @@ model Activity {
   @@map("activities")
 }
 
+// ── NOTIFICATIONS ──
+// Per-user CRM bell notifications: events the recruiter or admin should be
+// aware of (candidate applied, interview scheduled, candidate placed, etc.).
+// Unlike `Activity` (an audit log) these are user-facing, dismissable, and
+// have a simple read/unread state for the bell badge.
+
+enum NotificationCategory {
+  CANDIDATE
+  JOB
+  INTERVIEW
+  PLACEMENT
+  CLIENT
+  LEAD
+  BILLING
+  TASK
+  SYSTEM
+}
+
+model Notification {
+  id           String               @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String               @db.ObjectId
+  category     NotificationCategory @default(SYSTEM)
+  title        String
+  description  String?
+  actionLabel  String?
+  actionPath   String?
+  entityType   String?
+  entityId     String?
+  metadata     Json?
+  isRead       Boolean              @default(false)
+  readAt       DateTime?
+  createdAt    DateTime             @default(now())
+
+  @@index([userId])
+  @@index([userId, isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
 // ── INBOX / MESSAGES ──
 // Serves: inbox
 

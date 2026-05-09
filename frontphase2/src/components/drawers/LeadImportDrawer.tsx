@@ -5,11 +5,13 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
   Upload,
+  Download,
   ChevronRight,
   CheckCircle,
   AlertCircle,
 } from 'lucide-react';
 import { apiImportLeads, apiPreviewLeadImport } from '../../lib/api';
+import { downloadSampleCsv } from '../../utils/csv';
 
 export interface LeadImportDrawerProps {
   isOpen: boolean;
@@ -94,6 +96,38 @@ export function LeadImportDrawer({
   const handleClose = () => {
     reset();
     onClose();
+  };
+
+  /**
+   * Sample CSV uses the same field ids the parser maps so users can fill rows
+   * and re-upload without manual mapping.
+   */
+  const handleDownloadSample = () => {
+    downloadSampleCsv('leads-import-sample.csv', CRM_FIELDS, {
+      sample: {
+        companyName: 'Acme Corporation',
+        contactPerson: 'Jane Doe',
+        email: 'jane.doe@acme.com',
+        phone: '+1 415 555 0100',
+        type: 'Inbound',
+        source: 'Website',
+        status: 'New',
+        priority: 'High',
+        industry: 'Technology',
+        companySize: '201-500',
+        website: 'https://acme.com',
+        linkedIn: 'https://linkedin.com/company/acme',
+        location: 'San Francisco, CA',
+        city: 'San Francisco',
+        country: 'USA',
+        designation: 'VP of Talent',
+        interestedNeeds: 'Permanent placement',
+        campaignName: 'Q4 Outreach',
+        nextFollowUpDue: new Date().toISOString().slice(0, 10),
+        notes: 'Estimated business value: $25k',
+      },
+      blankRows: 2,
+    });
   };
 
   const handleImport = async () => {
@@ -200,6 +234,41 @@ export function LeadImportDrawer({
         <div className="flex-1 overflow-y-auto bg-slate-50/30 p-5">
           {step === 1 && (
             <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={handleDownloadSample}
+                  className="flex flex-col items-start gap-2 rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm transition-colors hover:border-blue-300 hover:bg-blue-50/40"
+                >
+                  <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                    <Download size={18} />
+                  </span>
+                  <span className="text-sm font-bold text-slate-900">Download sample CSV</span>
+                  <span className="text-xs text-slate-500">
+                    Pre-built template with the exact column names the importer expects.
+                  </span>
+                </button>
+                <label
+                  htmlFor="lead-import-file"
+                  className="flex flex-col items-start gap-2 rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm transition-colors hover:border-blue-300 hover:bg-blue-50/40 cursor-pointer"
+                >
+                  <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+                    <Upload size={18} />
+                  </span>
+                  <span className="text-sm font-bold text-slate-900">Upload CSV / XLSX</span>
+                  <span className="text-xs text-slate-500">
+                    Pick a file from your computer; we&rsquo;ll parse it and let you map columns.
+                  </span>
+                  <input
+                    id="lead-import-file"
+                    type="file"
+                    accept=".csv,.xlsx,.xls"
+                    className="sr-only"
+                    onChange={(e) => handleFileChange(e.target.files?.[0])}
+                  />
+                </label>
+              </div>
+
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
                 <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Upload file</h4>
                 <p className="text-sm text-slate-600 mb-4">Upload a CSV or Excel file containing your lead data.</p>

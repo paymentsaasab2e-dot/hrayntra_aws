@@ -3,6 +3,7 @@ const { generateOTP, getOTPExpiration, isOTPExpired } = require('../utils/otp.ut
 const { generateCandidateId } = require('../utils/candidate.util');
 const { sendOTPEmail } = require('../services/email.service');
 const { OtpStatus } = require('@prisma/client');
+const { isPortalPlaceholderFullName } = require('../utils/portal-profile-placeholder.util');
 const jwt = require('jsonwebtoken');
 
 async function getOrCreateCandidateByWhatsApp({ candidateId, fullWhatsAppNumber, countryCode }) {
@@ -508,18 +509,28 @@ async function verifyOTP(req, res) {
     // Sync WhatsApp login number to CandidateProfile to satisfy "show exact number in /profile"
     try {
       const cleanPhone = candidate.whatsappNumber.replace(candidate.countryCode, '');
+      const existingProfile = await prisma.candidateProfile.findUnique({
+        where: { candidateId: candidate.id },
+        select: { fullName: true },
+      });
+
+      const profileUpdate = {
+        phoneNumber: cleanPhone,
+      };
+      if (existingProfile && isPortalPlaceholderFullName(existingProfile.fullName)) {
+        // Clear legacy bootstrap label so the portal UI can greet by phone / real name only
+        profileUpdate.fullName = '';
+      }
+
       await prisma.candidateProfile.upsert({
         where: { candidateId: candidate.id },
-        update: {
-          phoneNumber: cleanPhone,
-          // We update it to ensure the "exact" number from login is what's shown
-        },
+        update: profileUpdate,
         create: {
           candidateId: candidate.id,
-          fullName: 'New Candidate',
-          email: '', // to be filled later
+          fullName: '',
+          email: String(candidate.email || '').trim(),
           phoneNumber: cleanPhone,
-        }
+        },
       });
       console.log('✅ Synchronized login number to CandidateProfile for:', candidate.id);
     } catch (profileSyncError) {

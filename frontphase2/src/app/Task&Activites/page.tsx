@@ -17,7 +17,10 @@ import {
   List as ListIcon,
   Pencil,
   AlertTriangle,
+  Download,
 } from 'lucide-react';
+import { toast } from 'sonner';
+import { downloadCsv, csvDate } from '../../utils/csv';
 import { motion, AnimatePresence } from 'motion/react';
 import { ImageWithFallback } from '../../components/ImageWithFallback';
 import PaginationAll from '../../components/PaginationAll';
@@ -907,22 +910,54 @@ export default function App() {
               <h1 className="text-2xl font-bold text-gray-900">Tasks & Activities</h1>
               <p className="text-sm text-gray-500">Manage your daily recruitment workflow and follow-ups.</p>
             </div>
-            
-            <div className="flex items-center bg-white p-1 rounded-xl border border-gray-200 shadow-sm">
-              <button 
-                onClick={() => setView('list')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${view === 'list' ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20' : 'text-gray-500 hover:text-gray-700'}`}
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  if (filteredTasks.length === 0) {
+                    toast.message('No tasks to export with current filters.');
+                    return;
+                  }
+                  downloadCsv<Task>(
+                    `tasks-${new Date().toISOString().slice(0, 10)}.csv`,
+                    [
+                      { id: 'title', accessor: (t) => t.title },
+                      { id: 'type', accessor: (t) => t.type },
+                      { id: 'relatedTo', accessor: (t) => `${t.relatedTo?.type || ''}: ${t.relatedTo?.name || ''}`.replace(/^:\s*/, '') },
+                      { id: 'dueDate', accessor: (t) => csvDate(t.dueDate) },
+                      { id: 'time', accessor: (t) => t.time || '' },
+                      { id: 'priority', accessor: (t) => t.priority },
+                      { id: 'status', accessor: (t) => t.status },
+                      { id: 'owner', accessor: (t) => t.owner?.name || '' },
+                    ],
+                    filteredTasks,
+                  );
+                  toast.success(`Exported ${filteredTasks.length} task${filteredTasks.length === 1 ? '' : 's'} to CSV`);
+                }}
+                className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+                title="Export visible tasks to CSV"
               >
-                <ListIcon size={18} />
-                List View
+                <Download size={16} />
+                Export
               </button>
-              <button 
-                onClick={() => setView('calendar')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${view === 'calendar' ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20' : 'text-gray-500 hover:text-gray-700'}`}
-              >
-                <CalendarIcon size={18} />
-                Calendar
-              </button>
+
+              <div className="flex items-center bg-white p-1 rounded-xl border border-gray-200 shadow-sm">
+                <button
+                  onClick={() => setView('list')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${view === 'list' ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  <ListIcon size={18} />
+                  List View
+                </button>
+                <button
+                  onClick={() => setView('calendar')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${view === 'calendar' ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  <CalendarIcon size={18} />
+                  Calendar
+                </button>
+              </div>
             </div>
           </div>
 

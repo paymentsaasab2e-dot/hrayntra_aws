@@ -394,6 +394,34 @@ export async function resetPassword(id: string) {
 }
 
 /**
+ * Super Admin only: set a team member's login password to a chosen value.
+ * The existing password cannot be retrieved from the server (stored as a hash).
+ */
+export async function setTeamMemberPassword(id: string, newPassword: string) {
+  const path = buildPath(`/team/${id}/set-password`);
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_BASE_NEW}${path}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ newPassword }),
+  });
+
+  const json = await res.json();
+  if (!res.ok || json?.success === false) {
+    throw new Error(json?.message || `Request failed with status ${res.status}`);
+  }
+
+  return { data: json.data, success: json.success };
+}
+
+/**
  * Resend invite email
  */
 export async function resendInvite(id: string) {

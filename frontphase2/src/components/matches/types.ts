@@ -17,6 +17,7 @@ export interface MatchFilters {
   salaryMin: number | null;
   salaryMax: number | null;
   noticePeriod: 'Immediate' | '15d' | '30d' | null;
+  savedOnly: boolean;
 }
 
 export interface MatchJob {
@@ -29,6 +30,12 @@ export interface MatchJob {
   location?: string;
   clientLocation?: string;
   status: 'Open' | 'Urgent' | 'On Hold';
+  /** Required skills from the job, used to score manual/applied candidates client-side. */
+  skills?: string[];
+  /** Preferred (nice-to-have) skills — half weight when scoring. */
+  preferredSkills?: string[];
+  /** Free-form experience requirement string from the job (e.g. "3-5 years"). */
+  experienceRequired?: string | null;
 }
 
 export interface MatchNote {

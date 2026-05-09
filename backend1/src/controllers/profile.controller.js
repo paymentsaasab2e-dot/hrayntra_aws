@@ -184,6 +184,10 @@ async function getProfileData(req, res) {
 
     // Format data for frontend
     const profileData = {
+      // Used by AuthContext / headers — was missing so WhatsApp + display name never hydrated from /profile alone
+      candidateId: candidate.id,
+      whatsappNumber: candidate.whatsappNumber || '',
+      countryCode: candidate.countryCode || '+91',
       personalInfo: candidate.profile ? {
         // Prefer Candidate model firstName/lastName (updated by user), fallback to split fullName
         firstName: candidate.firstName || fallbackFirstName,

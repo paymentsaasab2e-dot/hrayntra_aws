@@ -10,10 +10,12 @@ import {
   activateTeamMember,
   generateCredentials,
   resetPassword,
+  setTeamMemberPassword,
   resendInvite,
   lockAccount,
   unlockAccount,
 } from '../../lib/api/teamApi';
+import { usePermissions } from '../../hooks/usePermissions';
 import type { TeamMemberDetail, UserActivity, TeamTask } from '../../types/team';
 import { LoginHistoryDrawer } from './LoginHistoryDrawer';
 import { PortalHost } from './PortalHost';
@@ -71,6 +73,12 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
   const [showLoginHistory, setShowLoginHistory] = useState(false);
   const [sessionTempPassword, setSessionTempPassword] = useState(initialTempPassword || '');
   const [showTempPassword, setShowTempPassword] = useState(true);
+  const [customPassword, setCustomPassword] = useState('');
+  const [customPasswordConfirm, setCustomPasswordConfirm] = useState('');
+  const [settingCustomPassword, setSettingCustomPassword] = useState(false);
+
+  const { isSuperAdmin } = usePermissions();
+  const userIsSuperAdmin = isSuperAdmin();
 
   useEffect(() => {
     if (isOpen && memberId) {
@@ -192,18 +200,8 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
 
   if (!isOpen) return null;
 
-  const canRevealPassword =
-    typeof window !== 'undefined' &&
-    (() => {
-      try {
-        const currentUser = localStorage.getItem('currentUser');
-        if (!currentUser) return false;
-        const parsed = JSON.parse(currentUser);
-        return parsed?.roleName === 'Super Admin';
-      } catch {
-        return false;
-      }
-    })();
+  /** Only Super Admins may reveal a password that exists in this browser session (after reset / generate / set). */
+  const canRevealPassword = userIsSuperAdmin && Boolean(sessionTempPassword);
 
   return (
     <PortalHost open={isOpen}>
@@ -368,9 +366,11 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
                                 ? (showTempPassword ? sessionTempPassword : '••••••••••••')
                                 : !member.credential
                                   ? 'Not generated'
-                                  : member.credential.tempPasswordFlag
-                                    ? 'Temporary password issued'
-                                    : 'Hidden for security'}
+                                  : userIsSuperAdmin
+                                    ? 'Not retrievable (one-way hash)'
+                                    : member.credential.tempPasswordFlag
+                                      ? 'Temporary password issued'
+                                      : 'Hidden for security'}
                             </span>
                             {sessionTempPassword && canRevealPassword && (
                               <button
@@ -422,8 +422,47 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
                           )}
                         </div>
                         <p className="text-xs text-slate-500">
-                          Passwords are not stored in plain text. Use Reset Password to issue a fresh temporary password.
+                          {userIsSuperAdmin
+                            ? 'The current login password cannot be read from the database (it is stored as a secure hash). After you reset credentials, reset password, or set a new password below, the value for this session appears above with show/copy.'
+                            : 'Passwords are not stored in plain text. Ask a Super Admin or use Reset Password where available.'}
                         </p>
+                        {userIsSuperAdmin && member.credential && (
+                          <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-4 space-y-3">
+                            <p className="text-xs font-semibold text-blue-900">Super Admin — set login password</p>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <div className="sm:col-span-1">
+                                <label className="text-[11px] font-medium text-slate-600 uppercase tracking-wide">New password</label>
+                                <input
+                                  type="password"
+                                  autoComplete="new-password"
+                                  value={customPassword}
+                                  onChange={(e) => setCustomPassword(e.target.value)}
+                                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                  placeholder="Min. 8 characters"
+                                />
+                              </div>
+                              <div className="sm:col-span-1">
+                                <label className="text-[11px] font-medium text-slate-600 uppercase tracking-wide">Confirm</label>
+                                <input
+                                  type="password"
+                                  autoComplete="new-password"
+                                  value={customPasswordConfirm}
+                                  onChange={(e) => setCustomPasswordConfirm(e.target.value)}
+                                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                  placeholder="Repeat password"
+                                />
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={settingCustomPassword}
+                              onClick={() => void handleSetCustomPassword()}
+                              className="w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 disabled:pointer-events-none"
+                            >
+                              {settingCustomPassword ? 'Updating…' : 'Set password'}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </section>
 

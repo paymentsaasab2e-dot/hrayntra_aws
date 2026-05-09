@@ -24,7 +24,9 @@ import {
   Upload,
   FileSpreadsheet,
   FileText,
+  Download,
 } from 'lucide-react';
+import { downloadCsv } from '../../utils/csv';
 import { CreateTaskModal } from '../../components/CreateTaskModal';
 import { Toaster, toast } from 'sonner';
 import PaginationAll from '../../components/PaginationAll';
@@ -1430,6 +1432,46 @@ function CandidatesPageContent() {
                   Add Candidate
                 </button>
               )}
+              <button
+                onClick={() => {
+                  if (filteredCandidates.length === 0) {
+                    toast.message('No candidates to export with current filters.');
+                    return;
+                  }
+                  downloadCsv<Candidate>(
+                    `candidates-${new Date().toISOString().slice(0, 10)}.csv`,
+                    [
+                      { id: 'name', accessor: (c) => c.name },
+                      { id: 'email', accessor: (c) => c.email || '' },
+                      { id: 'phone', accessor: (c) => c.phone || '' },
+                      { id: 'designation', accessor: (c) => c.designation || '' },
+                      { id: 'company', accessor: (c) => c.company || '' },
+                      { id: 'experience', accessor: (c) => c.experience ?? '' },
+                      { id: 'location', accessor: (c) => c.location || '' },
+                      { id: 'stage', accessor: (c) => c.stage || '' },
+                      { id: 'owner', accessor: (c) => c.owner || '' },
+                      { id: 'lastActivity', accessor: (c) => c.lastActivity || '' },
+                      { id: 'hotlist', accessor: (c) => (c.hotlist ? 'true' : 'false') },
+                      { id: 'noticePeriod', accessor: (c) => c.noticePeriod || '' },
+                      { id: 'currentSalary', accessor: (c) => c.salary?.current || '' },
+                      { id: 'expectedSalary', accessor: (c) => c.salary?.expected || '' },
+                      { id: 'source', accessor: (c) => c.source || '' },
+                      { id: 'rating', accessor: (c) => c.rating ?? '' },
+                      { id: 'skills', accessor: (c) => (c.skills || []).join('; ') },
+                      { id: 'assignedJobs', accessor: (c) => (c.assignedJobs || []).join('; ') },
+                    ],
+                    filteredCandidates,
+                  );
+                  toast.success(
+                    `Exported ${filteredCandidates.length} candidate${filteredCandidates.length === 1 ? '' : 's'} to CSV`
+                  );
+                }}
+                className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+                title="Export candidates to CSV"
+              >
+                <Download size={16} />
+                Export
+              </button>
               <button 
                 onClick={() => setIsFilterOpen(true)}
                 className={`flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border transition-all ${

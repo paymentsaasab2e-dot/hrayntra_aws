@@ -1,5 +1,6 @@
 import { prisma, runWithTenantContext, getJobPortalPrismaClient } from '../../config/prisma.js';
 import { PIPELINE_STAGES, updateCandidateStage } from '../stage/candidateStage.service.js';
+import { createUserNotification } from '../notification/notification.service.js';
 
 /**
  * When a candidate applies on the job portal, mirror the application into the tenant DB
@@ -198,13 +199,23 @@ export async function applyPortalApplicationSync({
     // terminal stage on a different job — otherwise we'd cascade an APPLIED
     // label onto a hired candidate's profile.
     if (!stageIsPositiveTerminal) {
-      await updateCandidateStage({
-        candidateId: candId,
-        jobId: jId,
-        stage: PIPELINE_STAGES.APPLIED,
-        performedById: performedById || undefined,
-        skipStageActivity: true,
-      });
+      try {
+        await updateCandidateStage({
+          candidateId: candId,
+          jobId: jId,
+          stage: PIPELINE_STAGES.APPLIED,
+          performedById: performedById || undefined,
+          skipStageActivity: true,
+        });
+      } catch (stageErr) {
+        // CRM candidate / match / pipeline rows above must not be lost if the
+        // stage engine or portal timeline write fails — backend1 still needs a
+        // 200 so recruiters see the apply in FrontPhase2.
+        console.warn(
+          '[applyPortalApplicationSync] updateCandidateStage failed (non-fatal):',
+          stageErr?.message || stageErr
+        );
+      }
     }
 
     // If this apply re-activated a previously-rejected candidate, surface a
@@ -278,6 +289,35 @@ export async function applyPortalApplicationSync({
         console.warn(
           '[applyPortalApplicationSync] activity log failed (non-fatal):',
           activityError?.message || activityError
+        );
+      }
+
+      // Bell notification for the recruiter who owns the job: candidate applied.
+      try {
+        const fullNameForBell =
+          `${existing.firstName || ''} ${existing.lastName || ''}`.trim() ||
+          existing.email ||
+          'A candidate';
+        await createUserNotification(activityActor, {
+          category: 'CANDIDATE',
+          title: previouslyRejected ? 'Candidate re-applied' : 'Candidate applied for job',
+          description: `${fullNameForBell} applied to ${job.title || 'a job'}${
+            previouslyRejected ? ' (previously rejected — moved back to Applied)' : ''
+          }.`,
+          actionLabel: 'View candidate',
+          actionPath: `/candidate?candidateId=${candId}`,
+          entityType: 'CANDIDATE',
+          entityId: candId,
+          metadata: {
+            kind: previouslyRejected ? 'portal-reapply-after-reject' : 'portal-apply',
+            jobId: jId,
+            jobTitle: job.title || null,
+          },
+        });
+      } catch (bellErr) {
+        console.warn(
+          '[applyPortalApplicationSync] notification failed (non-fatal):',
+          bellErr?.message || bellErr
         );
       }
     }

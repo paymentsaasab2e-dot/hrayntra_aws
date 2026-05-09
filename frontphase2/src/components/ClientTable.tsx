@@ -22,6 +22,8 @@ interface ClientTableProps {
   onDeleteClient?: (id: string) => void;
   onLogoUpdated?: () => void;
   onCreateJob?: (client: Client) => void;
+  /** When false, the "Create job" button is rendered disabled with a permission tooltip. */
+  canCreateJob?: boolean;
   clientNameSortOrder: 'asc' | 'desc';
   onToggleClientNameSortOrder: () => void;
 }
@@ -49,6 +51,7 @@ export function ClientTable({
   onDeleteClient,
   onLogoUpdated,
   onCreateJob,
+  canCreateJob = true,
   clientNameSortOrder,
   onToggleClientNameSortOrder,
 }: ClientTableProps) {
@@ -237,9 +240,18 @@ export function ClientTable({
                     </button>
                     <button
                       type="button"
-                      onClick={() => onCreateJob?.(client)}
-                      className="flex h-8 w-8 items-center justify-center rounded-md border border-transparent bg-white text-orange-500 shadow-sm transition-colors hover:border-orange-200 hover:bg-orange-50"
-                      title="Create Job for Client"
+                      onClick={() => {
+                        if (!canCreateJob) return;
+                        onCreateJob?.(client);
+                      }}
+                      disabled={!canCreateJob}
+                      className={`flex h-8 w-8 items-center justify-center rounded-md border border-transparent bg-white shadow-sm transition-colors ${
+                        canCreateJob
+                          ? 'text-orange-500 hover:border-orange-200 hover:bg-orange-50'
+                          : 'cursor-not-allowed text-slate-300'
+                      }`}
+                      title={canCreateJob ? 'Create Job for Client' : "You don't have permission to create jobs"}
+                      aria-disabled={!canCreateJob}
                     >
                       <Briefcase className="h-4 w-4" strokeWidth={2.25} />
                     </button>

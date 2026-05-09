@@ -2,8 +2,14 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
-import { splitDateTimeForDisplay } from '../../utils/formatLeadDateTime';
+import {
+  splitDateTimeForDisplay,
+  toDateTimeLocalInput,
+  fromDateTimeLocalInput,
+} from '../../utils/formatLeadDateTime';
+import { exportLeadAsPdf } from '../../utils/exportLeadPdf';
 import { motion, AnimatePresence } from 'motion/react';
+import { toast } from 'sonner';
 import { requestError } from '../../lib/appDialog';
 import {
   Edit2,
@@ -270,6 +276,8 @@ interface LeadDetailsDrawerProps {
   onMarkLost?: (id: string, formData?: MarkLostFormData) => void;
   onAssignLead?: (id: string, formData: AssignLeadFormData) => void;
   onDeleteLead?: (id: string) => void;
+  /** Optional: parent-level handler invoked after a successful duplicate. */
+  onDuplicateLead?: (newLead: BackendLead) => void;
 }
 
 const FieldRow = ({
@@ -329,6 +337,7 @@ export function LeadDetailsDrawer({
   onMarkLost,
   onAssignLead,
   onDeleteLead,
+  onDuplicateLead,
 }: LeadDetailsDrawerProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'activities' | 'notes' | 'files' | 'add'>(
     'overview'
@@ -839,6 +848,77 @@ export function LeadDetailsDrawer({
     return () => clearTimeout(t);
   }, [showDuplicateNotification]);
 
+  // ── 3-dot menu actions ─────────────────────────────────────────────
+  const handleExportLead = () => {
+    if (!lead) {
+      toast.error('No lead selected to export');
+      return;
+    }
+    try {
+      exportLeadAsPdf(lead);
+      toast.success('Opening Print dialog – choose “Save as PDF” to export.');
+    } catch (err: any) {
+      console.error('Failed to export lead:', err);
+      toast.error(err?.message || 'Failed to export lead');
+    }
+  };
+
+  /**
+   * Duplicate the current lead by re-posting its core fields as a new
+   * record. Tagged in the company name so users can tell the copy apart.
+   */
+  const handleDuplicateLead = async () => {
+    if (!lead) return;
+    try {
+      const payload: CreateLeadData = {
+        companyName: `${lead.companyName || 'Lead'} (Copy)`,
+        type: lead.type,
+        source: lead.source,
+        contactPerson: lead.contactPerson,
+        directorName: lead.directorName,
+        email: lead.email,
+        phone: lead.phone,
+        status: 'New',
+        priority: lead.priority,
+        interestedNeeds: lead.interestedNeeds,
+        servicesNeeded: lead.servicesNeeded,
+        notes: lead.notes,
+        expectedBusinessValue: lead.expectedBusinessValue,
+        industry: lead.industry,
+        sector: lead.sector,
+        companySize: lead.companySize,
+        teamName: lead.teamName,
+        website: lead.website,
+        linkedIn: lead.linkedIn,
+        location: lead.location,
+        designation: lead.designation,
+        country: lead.country,
+        city: lead.city,
+        campaignName: lead.campaignName,
+        campaignLink: lead.campaignLink,
+        referralName: lead.referralName,
+        sourceWebsiteUrl: lead.sourceWebsiteUrl,
+        sourceLinkedInUrl: lead.sourceLinkedInUrl,
+        sourceEmail: lead.sourceEmail,
+        otherDetails: lead.otherDetails,
+        assignedToId: lead.assignedToId,
+      } as CreateLeadData;
+
+      const response = await apiCreateLead(payload);
+      const newLead = response?.data;
+      toast.success(`Duplicated as “${newLead?.companyName || payload.companyName}”`);
+      if (newLead) {
+        onDuplicateLead?.(newLead);
+      }
+      // Refresh the parent list so the copy shows up immediately.
+      onUpdateLead?.();
+      setMoreMenuOpen(false);
+    } catch (err: any) {
+      console.error('Failed to duplicate lead:', err);
+      toast.error(err?.message || 'Failed to duplicate lead');
+    }
+  };
+
   // Fetch activities when lead changes or activities tab is opened
   useEffect(() => {
     const fetchActivities = async () => {
@@ -1222,10 +1302,18 @@ export function LeadDetailsDrawer({
                       aria-hidden
                     />
                     <div className="absolute right-0 top-full mt-1 w-48 py-2 bg-white rounded-xl border border-slate-200 shadow-lg z-20">
-                      <button className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50">
-                        Export
+                      <button
+                        type="button"
+                        onClick={() => { setMoreMenuOpen(false); handleExportLead(); }}
+                        className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                      >
+                        Export PDF
                       </button>
-                      <button className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50">
+                      <button
+                        type="button"
+                        onClick={() => { setMoreMenuOpen(false); void handleDuplicateLead(); }}
+                        className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                      >
                         Duplicate
                       </button>
                       <button
@@ -1569,12 +1657,12 @@ export function LeadDetailsDrawer({
                       />
                     </div>
                     <div>
-                      <label htmlFor="log-call-next" className="block text-sm font-medium text-slate-700 mb-2">Next Follow-up</label>
+                      <label htmlFor="log-call-next" className="block text-sm font-medium text-slate-700 mb-2">Next Follow-up Date &amp; Time</label>
                       <input
                         id="log-call-next"
-                        type="date"
-                        value={logCallForm.nextFollowUp}
-                        onChange={(e) => setLogCallForm((p) => ({ ...p, nextFollowUp: e.target.value }))}
+                        type="datetime-local"
+                        value={toDateTimeLocalInput(logCallForm.nextFollowUp)}
+                        onChange={(e) => setLogCallForm((p) => ({ ...p, nextFollowUp: fromDateTimeLocalInput(e.target.value) }))}
                         className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                       />
                     </div>
@@ -2253,8 +2341,13 @@ export function LeadDetailsDrawer({
                           </select>
                         </div>
                         <div>
-                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Next Follow-up Date</label>
-                          <input type="date" value={addLeadForm.nextFollowUp ?? ''} onChange={(e) => setAddLeadForm((p) => ({ ...p, nextFollowUp: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Next Follow-up Date &amp; Time</label>
+                          <input
+                            type="datetime-local"
+                            value={toDateTimeLocalInput(addLeadForm.nextFollowUp ?? '')}
+                            onChange={(e) => setAddLeadForm((p) => ({ ...p, nextFollowUp: fromDateTimeLocalInput(e.target.value) }))}
+                            className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                          />
                         </div>
                         <div>
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Assigned To</label>
@@ -2496,11 +2589,11 @@ export function LeadDetailsDrawer({
                           />
                         </div>
                         <div>
-                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Next Follow-up Date</label>
+                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Next Follow-up Date &amp; Time</label>
                           <input
-                            type="date"
-                            value={addLeadForm.nextFollowUp ?? ''}
-                            onChange={(e) => setAddLeadForm((p) => ({ ...p, nextFollowUp: e.target.value }))}
+                            type="datetime-local"
+                            value={toDateTimeLocalInput(addLeadForm.nextFollowUp ?? '')}
+                            onChange={(e) => setAddLeadForm((p) => ({ ...p, nextFollowUp: fromDateTimeLocalInput(e.target.value) }))}
                             className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                           />
                         </div>
@@ -2820,8 +2913,13 @@ export function LeadDetailsDrawer({
                               </select>
                             </div>
                             <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Next Follow-up Date</label>
-                              <input value={overviewEditForm.nextFollowUp} onChange={(e) => setOverviewEditForm((p) => ({ ...p, nextFollowUp: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Next Follow-up Date &amp; Time</label>
+                              <input
+                                type="datetime-local"
+                                value={toDateTimeLocalInput(overviewEditForm.nextFollowUp)}
+                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, nextFollowUp: fromDateTimeLocalInput(e.target.value) }))}
+                                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                              />
                             </div>
                             <div>
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Assigned To</label>
@@ -3257,24 +3355,27 @@ export function LeadDetailsDrawer({
                             <div>
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Created Date</label>
                               <input
-                                value={overviewEditForm.createdDate}
-                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, createdDate: e.target.value }))}
+                                type="datetime-local"
+                                value={toDateTimeLocalInput(overviewEditForm.createdDate)}
+                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, createdDate: fromDateTimeLocalInput(e.target.value) }))}
                                 className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                               />
                             </div>
                             <div>
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Last Contacted</label>
                               <input
-                                value={overviewEditForm.lastFollowUp}
-                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, lastFollowUp: e.target.value }))}
+                                type="datetime-local"
+                                value={toDateTimeLocalInput(overviewEditForm.lastFollowUp)}
+                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, lastFollowUp: fromDateTimeLocalInput(e.target.value) }))}
                                 className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                               />
                             </div>
                             <div>
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Next Follow-up</label>
                               <input
-                                value={overviewEditForm.nextFollowUp}
-                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, nextFollowUp: e.target.value }))}
+                                type="datetime-local"
+                                value={toDateTimeLocalInput(overviewEditForm.nextFollowUp)}
+                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, nextFollowUp: fromDateTimeLocalInput(e.target.value) }))}
                                 className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                               />
                             </div>

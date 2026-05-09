@@ -21,8 +21,10 @@ import {
   Flame,
   MoreHorizontal,
   CheckSquare,
+  Download,
   Trash2
 } from 'lucide-react';
+import { downloadCsv, csvDate } from '../../utils/csv';
 import { useSearchParams } from 'next/navigation';
 import PaginationAll from '../../components/PaginationAll';
 import { requestConfirm, requestError } from '../../lib/appDialog';
@@ -31,6 +33,7 @@ import { Toaster, toast } from 'sonner';
 import { CreateTaskModal } from '../../components/CreateTaskModal';
 import AddCandidateDrawer from '../../components/candidates/AddCandidateDrawer';
 import { JobDetailsDrawer, type JobForDrawer, type JobCandidateItem } from '../../components/drawers/JobDetailsDrawer';
+import { ScheduleInterviewModal } from '../../components/interviews/ScheduleInterviewModal';
 import { CreateJobDrawer } from '../../components/drawers/CreateJobDrawer';
 import { StatusChangeService } from '../../components/StatusChangeService';
 import {
@@ -43,11 +46,21 @@ import {
   apiGetJobMetrics,
   apiDeleteJob,
   apiUpdateJob,
+  apiCreateInterview,
+  apiGetUsers,
   type BackendClient,
   type BackendJob,
   type BackendCandidate,
+  type BackendUser,
   type JobMetrics,
 } from '../../lib/api';
+import { combineInterviewDateAndTimeToIso, mapInterviewUiTypeToBackend } from '../../lib/interview-schedule-helpers';
+import type {
+  InterviewCandidate,
+  InterviewJob,
+  InterviewPanelMember,
+  ScheduleInterviewPayload,
+} from '../../types/interview.types';
 import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { usePermissions } from '../../hooks/usePermissions';
 const DEFAULT_PAGE = 1;
@@ -546,11 +559,16 @@ function buildAssignedCandidateCountByJob(candidates: BackendCandidate[]): Map<s
 }
 
 function toJobCandidateItemFromApplied(match: any, fallbackRecruiter = '-'): JobCandidateItem {
+  const emailFromMatch =
+    (match.candidate?.email && String(match.candidate.email).trim()) ||
+    (match.email && String(match.email).trim()) ||
+    undefined;
   return {
     id: match.candidateId || match.candidate?.id || match.id,
     candidateName: match.candidate
       ? `${match.candidate.firstName || ''} ${match.candidate.lastName || ''}`.trim() || '-'
       : '-',
+    email: emailFromMatch,
     currentStage: match.status || 'Applied',
     score: typeof match.score === 'number' ? `${Math.round(match.score)}%` : '-',
     recruiter: match.createdBy?.name || fallbackRecruiter,
@@ -571,6 +589,7 @@ function toJobCandidateItemFromAssigned(candidate: BackendCandidate): JobCandida
   return {
     id: candidate.id,
     candidateName: `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() || '-',
+    email: candidate.email ? String(candidate.email).trim() : undefined,
     currentStage: candidate.stage || 'Applied',
     score: '-',
     recruiter: candidate.assignedTo?.name || '-',
@@ -595,6 +614,54 @@ function toJobCandidateItemFromAssigned(candidate: BackendCandidate): JobCandida
   };
 }
 
+function unwrapCollection<T>(value: T[] | { data?: T[] } | undefined | null): T[] {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === 'object' && Array.isArray((value as { data?: T[] }).data)) {
+    return (value as { data: T[] }).data;
+  }
+  return [];
+}
+
+const isLikelyUrl = (value?: string | null) => /^https?:\/\//i.test(String(value || '').trim());
+
+function safeDisplayText(value?: string | null, fallback = '') {
+  const text = String(value || '').trim();
+  if (!text || isLikelyUrl(text)) return fallback;
+  return text;
+}
+
+function initialsFromScheduleName(value?: string | null, fallback = 'NA') {
+  const text = safeDisplayText(value, '').trim();
+  if (!text) return fallback;
+  const initials = text
+    .split(/\s+/)
+    .map((part) => part[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+  return initials || fallback;
+}
+
+function sanitizeScheduleEmail(value?: string | null) {
+  const email = String(value || '').trim();
+  if (!email || isLikelyUrl(email) || !email.includes('@')) return '';
+  return email;
+}
+
+function mapUsersToInterviewPanel(users: BackendUser[]): InterviewPanelMember[] {
+  return users.map((user) => ({
+    id: user.id,
+    userId: user.id,
+    name: safeDisplayText(user.name, 'Unknown User'),
+    role: 'Technical',
+    department: safeDisplayText(user.department, 'General'),
+    email: sanitizeScheduleEmail(user.email) || 'No email available',
+    phone: '-',
+    avatar: initialsFromScheduleName(user.name, 'NA'),
+  }));
+}
+
 export default function JobsPage() {
   const searchParams = useSearchParams();
   const { hasPermission, hasAnyPermission } = usePermissions();
@@ -603,6 +670,7 @@ export default function JobsPage() {
   const canDeleteJob = hasAnyPermission(['jobs_delete', 'delete_job']);
   const canAssignJob = hasPermission('assign_job');
   const canAddCandidate = hasPermission('add_candidate');
+  const canCreateInterview = hasPermission('interviews_create');
   const [view, setView] = useState<'list' | 'board'>('list');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [searchFilter, setSearchFilter] = useState('');
@@ -615,6 +683,15 @@ export default function JobsPage() {
   const [createJobDrawerOpen, setCreateJobDrawerOpen] = useState(false);
   const [duplicateFromJobId, setDuplicateFromJobId] = useState<string | null>(null);
   const [addCandidateDrawerOpen, setAddCandidateDrawerOpen] = useState(false);
+  /** Chooser shown before the Add Candidate drawer asking the recruiter
+   *  whether they want to pick from the existing pool or create a new
+   *  candidate from scratch. The selected job is parked in `selectedJobForCandidate`. */
+  const [addCandidateChooserOpen, setAddCandidateChooserOpen] = useState(false);
+  const [poolPickerOpen, setPoolPickerOpen] = useState(false);
+  const [poolCandidates, setPoolCandidates] = useState<BackendCandidate[]>([]);
+  const [poolLoading, setPoolLoading] = useState(false);
+  const [poolSearch, setPoolSearch] = useState('');
+  const [poolAddingId, setPoolAddingId] = useState<string | null>(null);
   const [selectedJobForCandidate, setSelectedJobForCandidate] = useState<Job | null>(null);
   const [currentUserForCandidateDrawer, setCurrentUserForCandidateDrawer] = useState<any>(null);
   const [jobDrawerOpen, setJobDrawerOpen] = useState(false);
@@ -644,6 +721,9 @@ export default function JobsPage() {
   const [loading, setLoading] = useState(() => jobs.length === 0);
   const [error, setError] = useState<string | null>(null);
   const [jobCandidates, setJobCandidates] = useState<JobCandidateItem[]>([]);
+  const [scheduleInterviewOpen, setScheduleInterviewOpen] = useState(false);
+  const [schedulePrefill, setSchedulePrefill] = useState<{ candidateId: string; jobId: string } | null>(null);
+  const [scheduleInterviewers, setScheduleInterviewers] = useState<InterviewPanelMember[]>([]);
   const [statusEdit, setStatusEdit] = useState<{
     jobId: string | null;
     newStatus: JobStatus | null;
@@ -675,6 +755,37 @@ export default function JobsPage() {
   const hasVisibleJobsRef = useRef(jobs.length > 0);
   const cloneDrawerTimerRef = useRef<number | null>(null);
   const hasActiveFilters = Boolean(searchFilter || statusFilter || clientFilterId || recruiterFilterId);
+
+  /** Export current page of jobs to CSV. */
+  const handleExportJobsCsv = useCallback(() => {
+    if (jobs.length === 0) {
+      toast.message('No jobs to export.');
+      return;
+    }
+    downloadCsv<Job>(
+      `jobs-${new Date().toISOString().slice(0, 10)}.csv`,
+      [
+        { id: 'title', accessor: (j) => j.title },
+        { id: 'client', accessor: (j) => j.client },
+        { id: 'location', accessor: (j) => j.location },
+        { id: 'jobLocationType', accessor: (j) => j.jobLocationType || '' },
+        { id: 'status', accessor: (j) => j.status },
+        { id: 'openings', accessor: (j) => j.openings ?? 0 },
+        { id: 'applied', accessor: (j) => j.applied ?? 0 },
+        { id: 'interviewed', accessor: (j) => j.interviewed ?? 0 },
+        { id: 'offered', accessor: (j) => j.offered ?? 0 },
+        { id: 'joined', accessor: (j) => j.joined ?? 0 },
+        { id: 'owner', accessor: (j) => j.owner },
+        { id: 'createdDate', accessor: (j) => csvDate(j.createdDate) },
+        { id: 'hot', accessor: (j) => (j.hot ? 'true' : 'false') },
+        { id: 'aiMatch', accessor: (j) => (j.aiMatch ? 'true' : 'false') },
+        { id: 'noCandidates', accessor: (j) => (j.noCandidates ? 'true' : 'false') },
+        { id: 'slaRisk', accessor: (j) => (j.slaRisk ? 'true' : 'false') },
+      ],
+      jobs,
+    );
+    toast.success(`Exported ${jobs.length} job${jobs.length === 1 ? '' : 's'} to CSV`);
+  }, [jobs]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1137,6 +1248,7 @@ export default function JobsPage() {
         id: backendJob.id,
         title: backendJob.title,
         client: backendJob.client?.companyName || job.client,
+        clientId: backendJob.client?.id,
         location: backendJob.location || job.location,
         status: mapBackendStatus(backendJob.status) as JobForDrawer['status'],
         employmentType: formatEmploymentType(backendJob.type) || undefined,
@@ -1292,6 +1404,86 @@ export default function JobsPage() {
     [fetchJobCandidates]
   );
 
+  const scheduleModalCandidates = useMemo<InterviewCandidate[]>(
+    () =>
+      jobCandidates.map((c) => ({
+        id: c.id,
+        name: c.candidateName,
+        email: (c.email && c.email.trim()) || '—',
+      })),
+    [jobCandidates]
+  );
+
+  const scheduleModalJobs = useMemo<InterviewJob[]>(() => {
+    const j = jobDetails || (selectedJob ? toJobForDrawer(selectedJob) : null);
+    if (!j?.id) return [];
+    return [{ id: j.id, title: j.title, client: j.client, clientId: j.clientId }];
+  }, [jobDetails, selectedJob]);
+
+  const openScheduleInterviewFromJob = useCallback(
+    async (candidateId: string, jobId: string) => {
+      if (!canCreateInterview) return;
+      try {
+        const response = await apiGetUsers({ isActive: true, limit: 100 });
+        const raw = (response as any).data;
+        const users = unwrapCollection<BackendUser>(raw);
+        setScheduleInterviewers(mapUsersToInterviewPanel(users));
+      } catch {
+        toast.error('Could not load interviewers');
+        setScheduleInterviewers([]);
+      }
+      setSchedulePrefill({ candidateId, jobId });
+      setScheduleInterviewOpen(true);
+    },
+    [canCreateInterview]
+  );
+
+  const handleJobDrawerScheduleInterview = useCallback(
+    async (payload: ScheduleInterviewPayload) => {
+      const jobRow = scheduleModalJobs.find((item) => item.id === payload.jobId);
+      const clientId = jobRow?.clientId || payload.clientId;
+      if (!clientId) {
+        toast.error('This job is not linked to a client in the CRM.');
+        throw new Error('Missing client');
+      }
+      try {
+        await apiCreateInterview({
+          candidateId: payload.candidateId,
+          jobId: payload.jobId,
+          clientId,
+          round: payload.round.toUpperCase(),
+          type: mapInterviewUiTypeToBackend(payload.type),
+          mode: payload.mode === 'Online' ? 'ONLINE' : 'OFFLINE',
+          date: combineInterviewDateAndTimeToIso(payload.date, payload.time),
+          duration: payload.duration,
+          timezone: payload.timezone,
+          meetingPlatform:
+            payload.mode === 'Online'
+              ? payload.meetingPlatform === 'Google Meet'
+                ? 'GOOGLE_MEET'
+                : payload.meetingPlatform === 'MS Teams'
+                ? 'MS_TEAMS'
+                : 'ZOOM'
+              : null,
+          location: payload.mode === 'Offline' ? payload.location : undefined,
+          panelUserIds: payload.panelIds,
+          panelRoles: Object.fromEntries(payload.panelIds.map((id) => [id, 'TECHNICAL'])),
+          notes: payload.notes,
+          sendCalendarInvite: payload.sendCalendarInvite,
+          sendEmailNotification: payload.sendEmailNotification,
+          sendWhatsappReminder: payload.sendWhatsAppReminder,
+        });
+      } catch (error: any) {
+        toast.error(error?.message || 'Unable to schedule interview');
+        throw error;
+      }
+      toast.success('Interview scheduled successfully');
+      const jid = jobDetails?.id || selectedJob?.id;
+      if (jid) await refreshJobCandidates(jid);
+    },
+    [scheduleModalJobs, jobDetails?.id, selectedJob?.id, refreshJobCandidates]
+  );
+
   const openMoveStage = useCallback(
     async (candidateId: string, jobId: string) => {
       let stages = Array.isArray(jobPipelineStages) ? jobPipelineStages : [];
@@ -1386,8 +1578,53 @@ export default function JobsPage() {
 
   const handleAddCandidateForJob = (job: Job) => {
     setSelectedJobForCandidate(job);
-    setAddCandidateDrawerOpen(true);
+    setAddCandidateChooserOpen(true);
   };
+
+  const loadPoolCandidates = useCallback(async (search: string) => {
+    setPoolLoading(true);
+    try {
+      const response = await apiGetCandidates({ limit: 50, search: search || undefined });
+      const raw = (response as any).data;
+      const items: BackendCandidate[] = Array.isArray(raw)
+        ? raw
+        : raw?.data || raw?.items || [];
+      setPoolCandidates(items);
+    } catch (error) {
+      console.error('Failed to load candidate pool:', error);
+      setPoolCandidates([]);
+    } finally {
+      setPoolLoading(false);
+    }
+  }, []);
+
+  const handleSelectFromPool = useCallback(
+    async (candidate: BackendCandidate) => {
+      const job = selectedJobForCandidate;
+      if (!job?.id) return;
+      setPoolAddingId(candidate.id);
+      try {
+        await apiAddCandidateToPipeline(candidate.id, {
+          jobId: job.id,
+          stage: 'Applied',
+          priority: 'Medium',
+        });
+        toast.success(
+          `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() ||
+            'Candidate added to job'
+        );
+        setPoolPickerOpen(false);
+        setSelectedJobForCandidate(null);
+        await refreshJobCandidates(job.id);
+        await reloadMyJobsAndMetrics();
+      } catch (error: any) {
+        toast.error(error?.message || 'Failed to add candidate to job');
+      } finally {
+        setPoolAddingId(null);
+      }
+    },
+    [selectedJobForCandidate]
+  );
 
   const handleCloneJob = (job: JobForDrawer) => {
     if (cloneDrawerTimerRef.current) {
@@ -1469,7 +1706,17 @@ export default function JobsPage() {
                 >
                   <RefreshCcw size={15} className="shrink-0" />
                 </button>
-                
+
+                <button
+                  type="button"
+                  onClick={handleExportJobsCsv}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-lg text-xs font-semibold whitespace-nowrap hover:bg-gray-50 transition-all shadow-sm"
+                  title="Export visible jobs to CSV"
+                >
+                  <Download size={14} className="shrink-0" />
+                  Export
+                </button>
+
                 {canCreateJob && (
                   <button
                     type="button"
@@ -1710,12 +1957,14 @@ export default function JobsPage() {
 
       <JobDetailsDrawer
         isOpen={jobDrawerOpen}
-        onClose={() => { 
-          setJobDrawerOpen(false); 
+        onClose={() => {
+          setJobDrawerOpen(false);
           setSelectedJob(null);
           setJobDetails(null);
           setJobPipelineStages([]);
           setJobCandidates([]);
+          setScheduleInterviewOpen(false);
+          setSchedulePrefill(null);
         }}
         job={jobDetails || (selectedJob ? toJobForDrawer(selectedJob) : null)}
         jobCandidates={jobCandidates}
@@ -1735,9 +1984,24 @@ export default function JobsPage() {
         onClone={canCreateJob ? handleCloneJob : undefined}
         onCloseJob={canUpdateJob ? handleCloseJob : undefined}
         onMoveStage={canUpdateJob ? (candidateId, jobId) => openMoveStage(candidateId, jobId) : undefined}
-        onScheduleInterview={canUpdateJob ? (candidateId, jobId) => { /* TODO: schedule interview */ } : undefined}
+        onScheduleInterview={canCreateInterview ? openScheduleInterviewFromJob : undefined}
         onRejectCandidate={canUpdateJob ? (candidateId, jobId) => { /* TODO: reject candidate */ } : undefined}
         onViewCandidateProfile={(candidateId) => { /* TODO: navigate to candidate profile */ }}
+      />
+
+      <ScheduleInterviewModal
+        isOpen={scheduleInterviewOpen}
+        candidates={scheduleModalCandidates}
+        jobs={scheduleModalJobs}
+        interviewers={scheduleInterviewers}
+        prefillCandidateId={schedulePrefill?.candidateId ?? null}
+        prefillJobId={schedulePrefill?.jobId ?? null}
+        lockJob
+        onClose={() => {
+          setScheduleInterviewOpen(false);
+          setSchedulePrefill(null);
+        }}
+        onSchedule={handleJobDrawerScheduleInterview}
       />
 
       {/* Move Stage Modal */}
@@ -1837,6 +2101,196 @@ export default function JobsPage() {
         onSuccess={() => setCreateTaskOpen(false)}
         initialRelatedTo="Job"
       />
+
+      {/* Step 1 — chooser asking how the recruiter wants to add a candidate. */}
+      {canAddCandidate && addCandidateChooserOpen && selectedJobForCandidate ? (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center px-4">
+          <div
+            className="absolute inset-0 bg-slate-900/40"
+            onClick={() => {
+              setAddCandidateChooserOpen(false);
+              setSelectedJobForCandidate(null);
+            }}
+          />
+          <div className="relative w-full max-w-md rounded-2xl bg-white shadow-2xl border border-slate-200">
+            <div className="p-5 border-b border-slate-100">
+              <div className="text-lg font-bold text-slate-900">Add candidate to job</div>
+              <div className="text-xs text-slate-500 mt-1">
+                Choose how to add a candidate to{' '}
+                <span className="font-semibold text-slate-700">{selectedJobForCandidate.title}</span>.
+              </div>
+            </div>
+            <div className="p-5 space-y-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setAddCandidateChooserOpen(false);
+                  setPoolSearch('');
+                  setPoolPickerOpen(true);
+                  void loadPoolCandidates('');
+                }}
+                className="w-full flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-4 text-left transition-colors hover:bg-blue-50 hover:border-blue-300"
+              >
+                <div className="rounded-lg bg-blue-50 p-2 text-blue-600">
+                  <Users size={18} />
+                </div>
+                <div>
+                  <div className="font-semibold text-slate-900">From candidate pool</div>
+                  <div className="text-xs text-slate-500 mt-0.5">
+                    Pick an existing candidate and place them in this job's pipeline.
+                  </div>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAddCandidateChooserOpen(false);
+                  setAddCandidateDrawerOpen(true);
+                }}
+                className="w-full flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-4 text-left transition-colors hover:bg-blue-50 hover:border-blue-300"
+              >
+                <div className="rounded-lg bg-emerald-50 p-2 text-emerald-600">
+                  <UserPlus size={18} />
+                </div>
+                <div>
+                  <div className="font-semibold text-slate-900">Create new candidate</div>
+                  <div className="text-xs text-slate-500 mt-0.5">
+                    Add a brand new candidate (manual entry or resume upload).
+                  </div>
+                </div>
+              </button>
+            </div>
+            <div className="p-5 border-t border-slate-100 flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setAddCandidateChooserOpen(false);
+                  setSelectedJobForCandidate(null);
+                }}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-sm font-bold text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Step 2a — pool picker shown when the recruiter chose "From pool". */}
+      {canAddCandidate && poolPickerOpen && selectedJobForCandidate ? (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center px-4">
+          <div
+            className="absolute inset-0 bg-slate-900/40"
+            onClick={() => {
+              if (poolAddingId) return;
+              setPoolPickerOpen(false);
+              setSelectedJobForCandidate(null);
+            }}
+          />
+          <div className="relative w-full max-w-2xl rounded-2xl bg-white shadow-2xl border border-slate-200 flex flex-col max-h-[80vh]">
+            <div className="p-5 border-b border-slate-100">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-lg font-bold text-slate-900">Pick from candidate pool</div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    Select a candidate to add to{' '}
+                    <span className="font-semibold text-slate-700">{selectedJobForCandidate.title}</span>'s pipeline.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="px-3 py-1.5 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50 border border-slate-200"
+                  onClick={() => {
+                    if (poolAddingId) return;
+                    setPoolPickerOpen(false);
+                    setSelectedJobForCandidate(null);
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+              <div className="mt-3">
+                <input
+                  type="text"
+                  value={poolSearch}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setPoolSearch(next);
+                    void loadPoolCandidates(next);
+                  }}
+                  placeholder="Search by name, email, or skill"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-3">
+              {poolLoading ? (
+                <div className="p-6 text-center text-sm text-slate-500">Loading candidates…</div>
+              ) : poolCandidates.length === 0 ? (
+                <div className="p-6 text-center text-sm text-slate-500">
+                  No candidates found{poolSearch ? ` for "${poolSearch}"` : ''}. Try another search or
+                  create a new candidate instead.
+                </div>
+              ) : (
+                <ul className="divide-y divide-slate-100">
+                  {poolCandidates.map((candidate) => {
+                    const fullName =
+                      `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() || 'Candidate';
+                    const adding = poolAddingId === candidate.id;
+                    return (
+                      <li key={candidate.id} className="flex items-center justify-between gap-4 px-3 py-3">
+                        <div className="min-w-0">
+                          <div className="font-semibold text-slate-900 truncate">{fullName}</div>
+                          <div className="text-xs text-slate-500 truncate">
+                            {candidate.email || '—'}
+                            {candidate.currentTitle ? ` · ${candidate.currentTitle}` : ''}
+                            {candidate.currentCompany ? ` @ ${candidate.currentCompany}` : ''}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={adding || Boolean(poolAddingId)}
+                          onClick={() => handleSelectFromPool(candidate)}
+                          className="shrink-0 inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                        >
+                          {adding ? 'Adding…' : 'Add'}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-slate-100 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => {
+                  if (poolAddingId) return;
+                  setPoolPickerOpen(false);
+                  setAddCandidateChooserOpen(true);
+                }}
+                className="px-3 py-1.5 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50 border border-slate-200"
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (poolAddingId) return;
+                  setPoolPickerOpen(false);
+                  setAddCandidateDrawerOpen(true);
+                }}
+                className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700"
+              >
+                <UserPlus size={14} />
+                Create new instead
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <AddCandidateDrawer
         isOpen={canAddCandidate && addCandidateDrawerOpen}

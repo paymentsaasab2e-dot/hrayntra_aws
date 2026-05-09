@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronDown, Clock3, DollarSign, Filter, MapPin } from 'lucide-react';
+import { Bookmark, ChevronDown, Clock3, DollarSign, Filter, MapPin } from 'lucide-react';
 import type { MatchFilters } from './types';
 
 interface FilterBarProps {
@@ -193,6 +193,20 @@ export default function FilterBar({ filters, onChange, onReset }: FilterBarProps
             </button>
           ))}
         </div>
+
+        <button
+          type="button"
+          onClick={() => onChange({ ...filters, savedOnly: !filters.savedOnly })}
+          className={`flex items-center gap-1.5 rounded-full border px-3 py-2 text-xs font-semibold transition ${
+            filters.savedOnly
+              ? 'border-amber-400 bg-amber-50 text-amber-700'
+              : 'border-[#E5E7EB] bg-white text-slate-600 hover:bg-slate-50'
+          }`}
+          title={filters.savedOnly ? 'Showing saved only' : 'Show only saved matches'}
+        >
+          <Bookmark size={14} className={filters.savedOnly ? 'fill-current' : ''} />
+          Saved only
+        </button>
 
         <button
           type="button"

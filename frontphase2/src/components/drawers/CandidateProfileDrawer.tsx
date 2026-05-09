@@ -3885,6 +3885,51 @@ export function CandidateProfileDrawer({
 
                 {activeTab === 'Extracted CV' && (
                   <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+                    {candidate.resumeUrl ? (
+                      <section className="rounded-2xl border border-blue-100 bg-blue-50/50 p-4 lg:col-span-2">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <div className="rounded-xl bg-white p-2 text-blue-600 shadow-sm">
+                              <FileText size={18} />
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-slate-900">Resume on file</p>
+                              <p className="text-xs text-slate-500">
+                                Source for the parsed information shown below.
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <a
+                              href={candidate.resumeUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                            >
+                              Open Resume
+                            </a>
+                            <a
+                              href={candidate.resumeUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              download
+                              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                            >
+                              <Download size={14} />
+                              Download
+                            </a>
+                          </div>
+                        </div>
+                        {canPreviewResumeInline(candidate.resumeUrl) ? (
+                          <iframe
+                            title={`${candidate.name} resume`}
+                            src={buildResumeViewerUrl(candidate.resumeUrl)}
+                            className="mt-4 h-[420px] w-full rounded-xl border border-slate-200 bg-white"
+                          />
+                        ) : null}
+                      </section>
+                    ) : null}
+
                     <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                       <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
                         Personal Information

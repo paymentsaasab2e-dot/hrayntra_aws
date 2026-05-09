@@ -42,6 +42,17 @@ export const env = {
   JOB_PORTAL_DATABASE_URL: process.env.JOB_PORTAL_DATABASE_URL,
   /** Shared secret for POST /api/v1/internal/sync-portal-application */
   PHASE2_PORTAL_SYNC_SECRET: process.env.PHASE2_PORTAL_SYNC_SECRET,
+  /**
+   * Base URL of backend1 (the job portal API). Used to push candidate-facing
+   * bell notifications (interview scheduled, candidate rejected, etc.) back
+   * into the portal via POST /api/internal/portal-notification. Falls back
+   * to the typical local-dev port so a fresh clone "just works".
+   */
+  JOB_PORTAL_API_URL:
+    process.env.JOB_PORTAL_API_URL ||
+    process.env.BACKEND1_API_URL ||
+    process.env.PORTAL_API_URL ||
+    'http://localhost:5000',
   
   // JWT
   JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET,

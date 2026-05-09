@@ -1,7 +1,12 @@
 import React from 'react';
-import { 
-  Share2, 
-  CreditCard, Lock, Sliders, User as UserIcon
+import Link from 'next/link';
+import {
+  Share2,
+  CreditCard,
+  Lock,
+  Sliders,
+  User as UserIcon,
+  LifeBuoy,
 } from 'lucide-react';
 
 const settingsNav = [
@@ -51,7 +56,16 @@ export function SettingsSidebar({ activeSection, setActiveSection }: SettingsSid
       <div className="p-6 border-t border-slate-100">
         <div className="bg-slate-50 rounded-xl p-4">
           <p className="text-xs font-bold text-slate-400 uppercase mb-2">Support</p>
-          <button className="text-sm font-semibold text-slate-700 hover:text-[#2b7fff]">Need help?</button>
+          <Link
+            href="/help-center"
+            className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700 transition-colors hover:text-[#2b7fff]"
+          >
+            <LifeBuoy className="h-4 w-4" />
+            Need help?
+          </Link>
+          <p className="mt-1 text-[11px] text-slate-400">
+            Open the Help Center for FAQs and contact options.
+          </p>
         </div>
       </div>
     </div>

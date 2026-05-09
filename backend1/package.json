@@ -5,6 +5,7 @@
   "main": "src/server.js",
   "type": "commonjs",
   "scripts": {
+    "predev": "prisma generate",
     "dev": "node --watch src/server.js",
     "prestart": "prisma generate",
     "start": "node src/server.js",

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Copy, Edit2, Paperclip, RotateCcw, Trash2, UserRoundX, X, XCircle } from 'lucide-react';
+import { Copy, Edit2, RotateCcw, Trash2, UserRoundX, X, XCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import type { InterviewAction } from './ActionsDropdown';
 import { DrawerActivityLog } from './DrawerActivityLog';
@@ -20,7 +20,6 @@ interface InterviewDrawerProps {
   onOpenFeedback?: () => void;
   onOpenReschedule?: () => void;
   onOpenCancel?: () => void;
-  onOpenUploadRecording?: () => void;
   onOpenPanelAssignment?: () => void;
   onOpenReject?: () => void;
   onOpenSubmitToClient?: () => void;
@@ -45,7 +44,6 @@ export function InterviewDrawer({
   onOpenFeedback,
   onOpenReschedule,
   onOpenCancel,
-  onOpenUploadRecording,
   onOpenPanelAssignment,
   onOpenReject,
   onOpenSubmitToClient,
@@ -155,11 +153,6 @@ export function InterviewDrawer({
                 {onOpenCancel && (
                   <button type="button" onClick={onOpenCancel} className="inline-flex w-full items-center justify-center rounded-md border border-[#E5E7EB] px-2 py-1.5 text-[11px] font-semibold text-[#111827]">
                     <span className="inline-flex items-center gap-1"><XCircle className="size-3" />Cancel Interview</span>
-                  </button>
-                )}
-                {onOpenUploadRecording && (
-                  <button type="button" onClick={onOpenUploadRecording} className="inline-flex w-full items-center justify-center rounded-md border border-[#E5E7EB] px-2 py-1.5 text-[11px] font-semibold text-[#111827]">
-                    <span className="inline-flex items-center gap-1"><Paperclip className="size-3" />Upload Recording</span>
                   </button>
                 )}
                 {onAction ? (
