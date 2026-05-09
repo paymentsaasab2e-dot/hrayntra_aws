@@ -1,3 +1,5 @@
+'use client';
+
 import React from 'react';
 import Link from 'next/link';
 import {
@@ -7,22 +9,74 @@ import {
   Sliders,
   User as UserIcon,
   LifeBuoy,
+  GitBranch,
 } from 'lucide-react';
+import { usePermissions } from '../hooks/usePermissions';
 
-const settingsNav = [
+/**
+ * Profile + Customization are always visible to any signed-in user (basic
+ * personal preferences). The remaining sections expose org-wide configuration
+ * and are restricted to users with `manage_settings`. Billing has its own
+ * `access_billing` gate plus the org-level billing toggle.
+ */
+type SettingsNavItem = {
+  id: string;
+  label: string;
+  icon: typeof UserIcon;
+  /** When set, only users with one of these permissions see the section. */
+  anyPermissions?: string[];
+  /** When true, also requires the org-level billing toggle to be on. */
+  requiresBillingNav?: boolean;
+};
+
+const baseSettingsNav: SettingsNavItem[] = [
   { id: 'profile', label: 'Personal Profile', icon: UserIcon },
-  { id: 'communication', label: 'Communication & Integrations', icon: Share2 },
-  { id: 'billing', label: 'Billing & Commission', icon: CreditCard },
-  { id: 'security', label: 'Data & Security', icon: Lock },
+  {
+    id: 'communication',
+    label: 'Communication & Integrations',
+    icon: Share2,
+    anyPermissions: ['manage_settings', 'access_integrations'],
+  },
+  {
+    id: 'recruitment',
+    label: 'Recruitment workflow',
+    icon: GitBranch,
+    anyPermissions: ['manage_settings'],
+  },
+  {
+    id: 'billing',
+    label: 'Billing & Commission',
+    icon: CreditCard,
+    anyPermissions: ['access_billing', 'manage_settings'],
+    requiresBillingNav: true,
+  },
+  {
+    id: 'security',
+    label: 'Data & Security',
+    icon: Lock,
+    anyPermissions: ['manage_settings'],
+  },
   { id: 'customization', label: 'Customization', icon: Sliders },
 ];
 
 interface SettingsSidebarProps {
   activeSection: string;
   setActiveSection: (id: string) => void;
+  showBillingSection?: boolean;
 }
 
-export function SettingsSidebar({ activeSection, setActiveSection }: SettingsSidebarProps) {
+export function SettingsSidebar({
+  activeSection,
+  setActiveSection,
+  showBillingSection = true,
+}: SettingsSidebarProps) {
+  const { hasAnyPermission } = usePermissions();
+
+  const settingsNav = baseSettingsNav.filter((item) => {
+    if (item.requiresBillingNav && !showBillingSection) return false;
+    if (item.anyPermissions && !hasAnyPermission(item.anyPermissions)) return false;
+    return true;
+  });
   return (
     <div className="w-72 border-r border-slate-200 h-full bg-white flex flex-col shrink-0">
       <div className="p-6">

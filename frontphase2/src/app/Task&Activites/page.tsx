@@ -37,6 +37,8 @@ import { apiGetTasks, apiGetJobs, apiGetCandidates, apiGetClients, apiGetIntervi
 import { transformBackendTaskToFrontend, transformBackendTaskToDrawer } from '../../lib/taskTransform';
 import type { BackendCandidate, BackendClient, BackendInterviewListItem, BackendJob, BackendTask } from '../../lib/api';
 import { requestConfirm, requestError } from '../../lib/appDialog';
+import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
+import { TableSkeleton } from '../../components/ui/Skeleton';
 
 // --- Types ---
 
@@ -592,11 +594,13 @@ export default function App() {
   };
 
   const refreshTasksAndStats = async ({ includeStats = true }: { includeStats?: boolean } = {}) => {
-    const [tasksResponse, jobsResponse] = await Promise.all([
-      apiGetTasks({ page: 1, limit: 500 }),
+    // Tasks themselves are required; everything else is best-effort so a user
+    // without `jobs_read` (e.g. a sales role) can still open the Tasks tab.
+    // Tasks may link to leads / clients / billing or stand alone — fetching
+    // jobs is just a label lookup and must not block the page.
+    const tasksResponse = await apiGetTasks({ page: 1, limit: 500 });
+    const [jobsResult, candidatesResult, clientsResult, interviewsResult] = await Promise.allSettled([
       apiGetJobs({ limit: 500 }),
-    ]);
-    const [candidatesResult, clientsResult, interviewsResult] = await Promise.allSettled([
       apiGetCandidates({ limit: 500 }),
       apiGetClients({ limit: 500 }),
       apiGetInterviews({ limit: 100 }),
@@ -616,7 +620,7 @@ export default function App() {
       : { items: [] as BackendTask[], pagination: undefined };
 
     const typedBackendTasks = Array.isArray(taskCollection.items) ? taskCollection.items : [];
-    const typedJobs = extractBackendJobs(jobsResponse.data);
+    const typedJobs = jobsResult.status === 'fulfilled' ? extractBackendJobs(jobsResult.value.data) : [];
     const typedCandidates = candidatesResult.status === 'fulfilled' ? extractBackendCandidates(candidatesResult.value.data) : [];
     const typedClients = clientsResult.status === 'fulfilled' ? extractBackendClients(clientsResult.value.data) : [];
     const typedInterviews = interviewsResult.status === 'fulfilled' ? extractBackendInterviews(interviewsResult.value.data) : [];
@@ -706,6 +710,21 @@ export default function App() {
 
     fetchData();
   }, []);
+
+  // Reusable auto-refresh — same hook used on jobs / dashboard / leads etc.
+  usePageAutoRefresh(
+    async ({ silent }) => {
+      try {
+        if (!silent) setLoading(true);
+        await refreshTasksAndStats();
+      } catch {
+        /* keep current state on transient failure */
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    { events: ['jobportal:tasks-changed', 'jobportal:jobs-changed'] }
+  );
 
   const statusSummaryCounts = useMemo(() => {
     return backendTasks.reduce<Record<TaskStatusSummary, number>>(
@@ -1013,8 +1032,8 @@ export default function App() {
                 <tbody className="divide-y divide-gray-100">
                   {loading ? (
                     <tr>
-                      <td colSpan={8} className="px-6 py-8 text-center text-sm text-gray-500">
-                        Loading tasks...
+                      <td colSpan={8} className="p-0">
+                        <TableSkeleton rows={6} columns={8} className="border-0 shadow-none rounded-none" />
                       </td>
                     </tr>
                   ) : error ? (

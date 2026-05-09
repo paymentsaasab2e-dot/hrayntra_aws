@@ -825,6 +825,20 @@ export const placementService = {
       });
     });
 
+    const joined = await fetchPlacementOrThrow(id);
+    try {
+      await updateCandidateStage({
+        candidateId: joined.candidateId,
+        jobId: joined.jobId,
+        stage: PIPELINE_STAGES.HIRED,
+        performedById: userId,
+        skipStageActivity: true,
+        metadata: { source: 'placement-mark-joined', placementId: id },
+      });
+    } catch (stageErr) {
+      console.warn('[placement.markJoined] stage sync failed:', stageErr?.message || stageErr);
+    }
+
     return fetchPlacementOrThrow(id);
   },
 

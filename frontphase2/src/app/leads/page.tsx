@@ -38,11 +38,17 @@ import {
   type BackendUser,
 } from '../../lib/api';
 import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Toaster, toast } from 'sonner';
 import { splitDateTimeForDisplay } from '../../utils/formatLeadDateTime';
 import { usePermissions } from '../../hooks/usePermissions';
+import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
+import { TableSkeleton } from '../../components/ui/Skeleton';
+import { SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
 import { requestError } from '../../lib/appDialog';
+
+// Force CSR — every interactive bit on this tab is client-driven.
+export const dynamic = 'force-dynamic';
 
 const LEADS_FILTER_SELECT =
   'rounded-xl border border-indigo-100/90 bg-white/95 px-3 py-2 text-sm font-medium text-slate-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 cursor-pointer hover:border-indigo-200/90 hover:bg-indigo-50/40';
@@ -336,6 +342,7 @@ function buildLeadMetrics(leadList: Lead[]) {
 export default function RecruitmentAgencyDashboard() {
   const PAGE_SIZE = 10;
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const { hasPermission, hasAnyPermission } = usePermissions();
   const canCreateLead = hasPermission('leads_create');
@@ -392,7 +399,10 @@ export default function RecruitmentAgencyDashboard() {
       pendingDeepLinkLeadIdRef.current = null;
       return;
     }
-    if (pendingDeepLinkLeadIdRef.current === leadId && selectedLeadId === leadId) {
+    // Only react when the URL parameter itself changes — without this guard,
+    // closing the drawer (which clears `selectedLeadId`) used to re-fire and
+    // immediately reopen the same lead.
+    if (pendingDeepLinkLeadIdRef.current === leadId) {
       return;
     }
     pendingDeepLinkLeadIdRef.current = leadId;
@@ -423,7 +433,7 @@ export default function RecruitmentAgencyDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [leads, searchParams, selectedLeadId]);
+  }, [leads, searchParams]);
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -560,6 +570,20 @@ export default function RecruitmentAgencyDashboard() {
   useEffect(() => {
     void loadLeadMetrics();
   }, []);
+
+  // Reusable auto-refresh: polls while visible, refreshes on tab focus and on
+  // `jobportal:leads-changed` (or jobs-changed). Same pattern as jobs page.
+  const leadsAutoLoad = useCallback(
+    async ({ silent }: { silent: boolean }) => {
+      await handleRefresh({ silent });
+    },
+    // handleRefresh closure pulls latest filters via state — fine to omit deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+  usePageAutoRefresh(leadsAutoLoad, {
+    events: ['jobportal:leads-changed', 'jobportal:jobs-changed'],
+  });
 
   const filteredLeads = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -1166,48 +1190,56 @@ export default function RecruitmentAgencyDashboard() {
 
         {/* Scrollable Area */}
         <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
-          {/* Summary Cards */}
+          {/* Summary Cards — show skeleton mirrors while the first fetch resolves. */}
           <div className="grid grid-cols-2 gap-3 sm:gap-4 sm:grid-cols-3 lg:grid-cols-5 mb-8">
-            <SummaryCard
-              label="NEW LEADS"
-              count={metrics.NEW_LEADS}
-              color="blue"
-              icon={<Plus size={18} strokeWidth={2.35} />}
-              active={statusFilter === 'New'}
-              onClick={() => handleStatusCardClick('New')}
-            />
-            <SummaryCard
-              label="CONTACTED"
-              count={metrics.CONTACTED}
-              color="yellow"
-              icon={<Phone size={18} strokeWidth={2.35} />}
-              active={statusFilter === 'Contacted'}
-              onClick={() => handleStatusCardClick('Contacted')}
-            />
-            <SummaryCard
-              label="QUALIFIED"
-              count={metrics.QUALIFIED}
-              color="purple"
-              icon={<Target size={18} strokeWidth={2.35} />}
-              active={statusFilter === 'Qualified'}
-              onClick={() => handleStatusCardClick('Qualified')}
-            />
-            <SummaryCard
-              label="CONVERTED"
-              count={metrics.CONVERTED}
-              color="green"
-              icon={<CheckCircle size={18} strokeWidth={2.35} />}
-              active={statusFilter === 'Converted'}
-              onClick={() => handleStatusCardClick('Converted')}
-            />
-            <SummaryCard
-              label="LOST"
-              count={metrics.LOST}
-              color="gray"
-              icon={<XCircle size={18} strokeWidth={2.35} />}
-              active={statusFilter === 'Lost'}
-              onClick={() => handleStatusCardClick('Lost')}
-            />
+            {loading ? (
+              (['blue', 'yellow', 'purple', 'green', 'gray'] as SummaryCardColor[]).map((c, i) => (
+                <SummaryCardSkeleton key={i} color={c} />
+              ))
+            ) : (
+              <>
+                <SummaryCard
+                  label="NEW LEADS"
+                  count={metrics.NEW_LEADS}
+                  color="blue"
+                  icon={<Plus size={18} strokeWidth={2.35} />}
+                  active={statusFilter === 'New'}
+                  onClick={() => handleStatusCardClick('New')}
+                />
+                <SummaryCard
+                  label="CONTACTED"
+                  count={metrics.CONTACTED}
+                  color="yellow"
+                  icon={<Phone size={18} strokeWidth={2.35} />}
+                  active={statusFilter === 'Contacted'}
+                  onClick={() => handleStatusCardClick('Contacted')}
+                />
+                <SummaryCard
+                  label="QUALIFIED"
+                  count={metrics.QUALIFIED}
+                  color="purple"
+                  icon={<Target size={18} strokeWidth={2.35} />}
+                  active={statusFilter === 'Qualified'}
+                  onClick={() => handleStatusCardClick('Qualified')}
+                />
+                <SummaryCard
+                  label="CONVERTED"
+                  count={metrics.CONVERTED}
+                  color="green"
+                  icon={<CheckCircle size={18} strokeWidth={2.35} />}
+                  active={statusFilter === 'Converted'}
+                  onClick={() => handleStatusCardClick('Converted')}
+                />
+                <SummaryCard
+                  label="LOST"
+                  count={metrics.LOST}
+                  color="gray"
+                  icon={<XCircle size={18} strokeWidth={2.35} />}
+                  active={statusFilter === 'Lost'}
+                  onClick={() => handleStatusCardClick('Lost')}
+                />
+              </>
+            )}
           </div>
 
           {/* Table Controls */}
@@ -1303,12 +1335,7 @@ export default function RecruitmentAgencyDashboard() {
             {/* Leads Table */}
             <div className="overflow-hidden">
               <div className="no-scrollbar overflow-x-auto">
-                {loading && (
-                  <div className="flex flex-col items-center justify-center gap-3 p-12 text-slate-500">
-                    <div className="h-9 w-9 rounded-full border-2 border-indigo-200 border-t-indigo-600 animate-spin" />
-                    <p className="text-sm font-medium">Loading leads…</p>
-                  </div>
-                )}
+                {loading && <TableSkeleton rows={8} columns={6} />}
                 {error && !loading && (
                   <div className="p-10 text-center text-sm text-rose-600 font-medium">Error: {error}</div>
                 )}
@@ -1544,6 +1571,13 @@ export default function RecruitmentAgencyDashboard() {
               setSelectedLeadId(null);
               setSelectedLeadDrawerMode('view');
               setAddLeadDrawerOpen(false);
+              if (searchParams.get('leadId')) {
+                const sp = new URLSearchParams(searchParams.toString());
+                sp.delete('leadId');
+                pendingDeepLinkLeadIdRef.current = null;
+                const qs = sp.toString();
+                router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+              }
             }}
             onAddLead={async (_data, createdLead) => {
               try {

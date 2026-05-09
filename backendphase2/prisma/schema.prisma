@@ -806,6 +806,8 @@ model PipelineStage {
   name      String
   order     Int
   color     String?
+  /// Canonical bucket for automation: APPLIED | SCREENING | INTERVIEW | OFFER | HIRED | REJECTED (optional; name substring fallback if null)
+  systemRole String?
   jobId     String   @db.ObjectId
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

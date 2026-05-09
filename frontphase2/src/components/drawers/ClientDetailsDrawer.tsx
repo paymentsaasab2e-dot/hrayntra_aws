@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -61,7 +61,7 @@ import { ImageWithFallback } from '../ImageWithFallback';
 import { useFiles } from '../../hooks/useFiles';
 import { ScheduleMeetingForm } from '../ScheduleMeetingForm';
 import { NotesService } from '../NotesService';
-import { apiUpdateClient, apiCreateClient, apiGetJobs, apiGetContacts, apiCreateContact, apiUpdateContact, apiDeleteContact, apiFetch, apiGetClientActivities, apiGetClientScheduledMeetings, apiCreateScheduledMeeting, apiUpdateScheduledMeeting, apiDeleteScheduledMeeting, filesApiUpload, apiGetJob, apiUpdateJob, type BackendUser, type BackendJob, type BackendContact, type CreateContactData, type BackendClient, type ScheduledMeeting } from '../../lib/api';
+import { apiUpdateClient, apiCreateClient, apiGetJobs, apiGetContacts, apiCreateContact, apiUpdateContact, apiDeleteContact, apiFetch, apiGetClientActivities, apiGetClientScheduledMeetings, apiCreateScheduledMeeting, apiUpdateScheduledMeeting, apiDeleteScheduledMeeting, filesApiUpload, apiGetJob, apiUpdateJob, type BackendUser, type BackendJob, type BackendContact, type CreateContactData, type BackendClient, type ScheduledMeeting, isOrgBillingNavEnabled, ORG_RECRUITMENT_CACHE_EVENT } from '../../lib/api';
 import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { requestConfirm, requestError, requestSuccess, requestWarning } from '../../lib/appDialog';
 import { CreateJobDrawer } from './CreateJobDrawer';
@@ -206,6 +206,20 @@ export function ClientDetailsDrawer({
   const [activeTab, setActiveTab] = useState<
     'overview' | 'contacts' | 'jobs' | 'placements' | 'billing' | 'activity' | 'notes' | 'files' | 'schedule'
   >('overview');
+  const [orgRecruitmentUiVersion, setOrgRecruitmentUiVersion] = useState(0);
+
+  useEffect(() => {
+    const bump = () => setOrgRecruitmentUiVersion((v) => v + 1);
+    window.addEventListener(ORG_RECRUITMENT_CACHE_EVENT, bump);
+    return () => window.removeEventListener(ORG_RECRUITMENT_CACHE_EVENT, bump);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (activeTab === 'billing' && !isOrgBillingNavEnabled()) {
+      setActiveTab('overview');
+    }
+  }, [activeTab, orgRecruitmentUiVersion]);
   const [fullClientData, setFullClientData] = useState<Client | null>(client);
   
   // Fetch full client data when drawer opens to ensure all fields are available
@@ -1398,17 +1412,21 @@ export function ClientDetailsDrawer({
     setOverviewEditMode(false);
   }, [isAddMode, initialMode, client?.id]);
 
-  const tabs = [
-    { id: 'overview' as const, label: 'Overview', icon: LayoutGrid },
-    { id: 'contacts' as const, label: 'Contacts', icon: Users },
-    { id: 'jobs' as const, label: 'Jobs', icon: Briefcase },
-    { id: 'placements' as const, label: 'Placements', icon: Award },
-    { id: 'billing' as const, label: 'Billing', icon: CreditCard },
-    { id: 'activity' as const, label: 'Activity', icon: Activity },
-    { id: 'schedule' as const, label: 'Schedule', icon: CalendarPlus },
-    { id: 'notes' as const, label: 'Notes', icon: StickyNote },
-    { id: 'files' as const, label: 'Files', icon: Paperclip },
-  ];
+  const primaryTabs = useMemo(() => {
+    void orgRecruitmentUiVersion;
+    const all = [
+      { id: 'overview' as const, label: 'Overview', icon: LayoutGrid },
+      { id: 'contacts' as const, label: 'Contacts', icon: Users },
+      { id: 'jobs' as const, label: 'Jobs', icon: Briefcase },
+      { id: 'placements' as const, label: 'Placements', icon: Award },
+      { id: 'billing' as const, label: 'Billing', icon: CreditCard },
+      { id: 'activity' as const, label: 'Activity', icon: Activity },
+      { id: 'schedule' as const, label: 'Schedule', icon: CalendarPlus },
+      { id: 'notes' as const, label: 'Notes', icon: StickyNote },
+      { id: 'files' as const, label: 'Files', icon: Paperclip },
+    ];
+    return isOrgBillingNavEnabled() ? all : all.filter((t) => t.id !== 'billing');
+  }, [orgRecruitmentUiVersion]);
 
   const revenue = client?.revenue ?? `$${(Number(client?.placements ?? 0) * 3.5).toFixed(1)}k`;
   const primaryClientContact = clientContacts.find((contact) => contact.isPrimary) || clientContacts[0] || null;
@@ -1698,7 +1716,7 @@ export function ClientDetailsDrawer({
             {!isAddMode && (
             <div className="shrink-0 bg-slate-50/80 border-b border-slate-200 px-3 pt-1 pb-2">
               <div className="grid grid-cols-3 gap-1 sm:grid-cols-4 md:grid-cols-6 xl:grid-cols-9">
-                {tabs.map((tab) => {
+                {primaryTabs.map((tab) => {
                   const isActive = activeTab === tab.id;
                   const Icon = tab.icon;
                   return (

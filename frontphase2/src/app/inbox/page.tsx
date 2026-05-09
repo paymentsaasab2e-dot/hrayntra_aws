@@ -35,6 +35,7 @@ import {
   apiUpdateGmailMessageFlags,
   type GmailInboxMessage,
 } from '../../lib/api';
+import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 
 type MailTab = 'Primary' | 'Promotions' | 'Social' | 'Updates';
 type ResizeSection = 'left' | 'middle' | null;
@@ -754,6 +755,11 @@ export default function InboxPage() {
     }, 350);
     return () => window.clearTimeout(timeout);
   }, [search, loading, activeFolder]);
+
+  // Reusable auto-refresh — re-fetch the active folder while visible/on focus.
+  usePageAutoRefresh(() => {
+    if (!loading) void loadInbox(search, activeFolder);
+  }, { events: ['jobportal:inbox-changed'] });
 
   useEffect(() => {
     if (!resizing) return;

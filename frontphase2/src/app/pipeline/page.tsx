@@ -31,6 +31,7 @@ import { HTML5Backend } from "react-dnd-html5-backend";
 import { useRouter } from "next/navigation";
 import { ImageWithFallback } from "../../components/ImageWithFallback";
 import AddCandidateDrawer from "../../components/candidates/AddCandidateDrawer";
+import { usePageAutoRefresh } from "../../hooks/usePageAutoRefresh";
 import {
   apiGetCandidates,
   apiGetClients,
@@ -540,6 +541,27 @@ export default function App() {
       mounted = false;
     };
   }, [selectedOwnerId]);
+
+  // Reusable auto-refresh — re-runs candidate fetch on focus / interval / events.
+  usePageAutoRefresh(
+    async () => {
+      try {
+        const candidateParams =
+          selectedOwnerId === '__me__'
+            ? { page: 1, limit: 200, mine: true }
+            : selectedOwnerId
+              ? { page: 1, limit: 200, assignedToId: selectedOwnerId }
+              : { page: 1, limit: 200 };
+        const candidatesRes = await apiGetCandidates(candidateParams);
+        setCandidates(
+          extractItems<BackendCandidate>(candidatesRes.data).map(mapBackendCandidateToPipelineCandidate)
+        );
+      } catch {
+        /* keep current state on transient failure */
+      }
+    },
+    { events: ['jobportal:candidates-changed', 'jobportal:jobs-changed'] }
+  );
 
   const moveCandidate = (id: string, newStage: Stage) => {
     setCandidates((prev) => 

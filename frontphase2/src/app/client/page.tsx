@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import {
   Plus,
@@ -44,6 +44,13 @@ import { apiGetClients, apiGetClient, apiDeleteClient, apiUpdateClient, type Bac
 import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { requestConfirm } from '../../lib/appDialog';
 import { usePermissions } from '../../hooks/usePermissions';
+import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
+import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
+import { TableSkeleton } from '../../components/ui/Skeleton';
+
+// Force client-side render so the page hydrates skeletons before the data fetch
+// resolves — every interactive bit on this tab is client-driven anyway.
+export const dynamic = 'force-dynamic';
 
 function filterClientsByTab(clients: Client[], activeTab: string): Client[] {
   switch (activeTab) {
@@ -61,7 +68,11 @@ function filterClientsByTab(clients: Client[], activeTab: string): Client[] {
   }
 }
 
-/** KPI strip — Interviews-style: white cards, icon ~20% tint left, metric + label */
+/**
+ * KPI strip — same modern Leads-style tiles (pastel gradient panel + frosted
+ * icon chip + large number + small caps label). Reuses the shared
+ * `<SummaryCard />` so all sidebar tabs share one design language.
+ */
 const StatusCards = ({
   activeTab,
   onTabChange,
@@ -71,83 +82,45 @@ const StatusCards = ({
   onTabChange: (tab: string) => void;
   counts: { all: number; active: number; 'on-hold': number; inactive: number; hot: number };
 }) => {
-  const cards = [
-    {
-      id: 'all',
-      label: 'All Clients',
-      count: counts.all,
-      icon: FolderOpen,
-      iconBg: 'bg-slate-500/20',
-      iconColor: 'text-slate-700',
-      activeRing: 'ring-2 ring-slate-400 ring-offset-2 ring-offset-slate-50',
-    },
-    {
-      id: 'active',
-      label: 'Active',
-      count: counts.active,
-      icon: Users,
-      iconBg: 'bg-blue-500/20',
-      iconColor: 'text-blue-600',
-      activeRing: 'ring-2 ring-blue-600 ring-offset-2 ring-offset-slate-50',
-    },
-    {
-      id: 'on-hold',
-      label: 'On Hold',
-      count: counts['on-hold'],
-      icon: Briefcase,
-      iconBg: 'bg-orange-500/20',
-      iconColor: 'text-orange-600',
-      activeRing: 'ring-2 ring-orange-400 ring-offset-2 ring-offset-slate-50',
-    },
-    {
-      id: 'inactive',
-      label: 'Inactive',
-      count: counts.inactive,
-      icon: BadgeInfo,
-      iconBg: 'bg-slate-400/20',
-      iconColor: 'text-slate-600',
-      activeRing: 'ring-2 ring-slate-400 ring-offset-2 ring-offset-slate-50',
-    },
-    {
-      id: 'hot',
-      label: 'Hot',
-      count: counts.hot,
-      icon: Flame,
-      iconBg: 'bg-purple-500/20',
-      iconColor: 'text-purple-600',
-      activeRing: 'ring-2 ring-purple-500 ring-offset-2 ring-offset-slate-50',
-    },
+  const cards: Array<{
+    id: string;
+    label: string;
+    count: number;
+    color: SummaryCardColor;
+    icon: React.ReactNode;
+  }> = [
+    { id: 'all', label: 'All Clients', count: counts.all, color: 'indigo', icon: <FolderOpen size={18} strokeWidth={2.35} /> },
+    { id: 'active', label: 'Active', count: counts.active, color: 'blue', icon: <Users size={18} strokeWidth={2.35} /> },
+    { id: 'on-hold', label: 'On Hold', count: counts['on-hold'], color: 'orange', icon: <Briefcase size={18} strokeWidth={2.35} /> },
+    { id: 'inactive', label: 'Inactive', count: counts.inactive, color: 'gray', icon: <BadgeInfo size={18} strokeWidth={2.35} /> },
+    { id: 'hot', label: 'Hot', count: counts.hot, color: 'purple', icon: <Flame size={18} strokeWidth={2.35} /> },
   ];
 
   return (
     <div className="grid grid-cols-2 gap-3 mb-6 sm:grid-cols-3 lg:grid-cols-5 lg:gap-4">
-      {cards.map((card) => {
-        const isActive = activeTab === card.id;
-        const Icon = card.icon;
-        return (
-          <button
-            key={card.id}
-            onClick={() => onTabChange(card.id)}
-            type="button"
-            className={`flex w-full items-center gap-3 rounded-xl border bg-white p-3.5 text-left shadow-sm transition-all duration-200 hover:shadow-md sm:gap-4 sm:p-4 ${
-              isActive ? `border-transparent ${card.activeRing} shadow-md` : 'border-slate-200 hover:border-slate-300'
-            }`}
-          >
-            <div
-              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl sm:h-12 sm:w-12 ${card.iconBg} ${card.iconColor}`}
-            >
-              <Icon className="h-5 w-5 sm:h-6 sm:w-6" strokeWidth={2.25} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-xl font-bold tabular-nums text-slate-900 sm:text-2xl">{card.count}</p>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 sm:text-xs">{card.label}</p>
-            </div>
-          </button>
-        );
-      })}
+      {cards.map((card) => (
+        <SummaryCard
+          key={card.id}
+          label={card.label}
+          count={card.count}
+          color={card.color}
+          icon={card.icon}
+          active={activeTab === card.id}
+          onClick={() => onTabChange(card.id)}
+        />
+      ))}
     </div>
   );
 };
+
+/** Skeleton mirror of the StatusCards strip — used while clients fetch. */
+const StatusCardsSkeleton = () => (
+  <div className="grid grid-cols-2 gap-3 mb-6 sm:grid-cols-3 lg:grid-cols-5 lg:gap-4">
+    {(['indigo', 'blue', 'orange', 'gray', 'purple'] as SummaryCardColor[]).map((color, i) => (
+      <SummaryCardSkeleton key={i} color={color} />
+    ))}
+  </div>
+);
 
 // Empty State Component
 const EmptyState = ({
@@ -269,6 +242,8 @@ export default function App() {
   const DISPLAY_PAGE_SIZE = 10;
   const FETCH_LIMIT = 500;
   const SEARCH_DEBOUNCE_MS = 350;
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const { hasAnyPermission } = usePermissions();
   const canCreateJob = hasAnyPermission(['jobs_create', 'create_job']);
@@ -391,7 +366,10 @@ export default function App() {
       pendingDeepLinkClientIdRef.current = null;
       return;
     }
-    if (pendingDeepLinkClientIdRef.current === clientId && selectedClient?.id === clientId) {
+    // Only react when the URL parameter itself changes — without this guard,
+    // closing the drawer (which clears `selectedClient`) used to re-fire and
+    // immediately reopen the same client.
+    if (pendingDeepLinkClientIdRef.current === clientId) {
       return;
     }
     pendingDeepLinkClientIdRef.current = clientId;
@@ -414,7 +392,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [searchParams, selectedClient?.id]);
+  }, [searchParams]);
 
   const fetchClients = useCallback(async (overrides?: { page?: number; search?: string }) => {
     try {
@@ -472,14 +450,17 @@ export default function App() {
     fetchClients();
   }, [fetchClients]);
 
-  useEffect(() => {
-    const handleClientsChanged = () => {
+  // Reusable auto-refresh: poll while visible + refresh on focus + on
+  // `jobportal:clients-changed` / `jobportal:jobs-changed`.
+  const clientsAutoLoad = useCallback(
+    () => {
       void fetchClients();
-    };
-
-    window.addEventListener('jobportal:clients-changed', handleClientsChanged);
-    return () => window.removeEventListener('jobportal:clients-changed', handleClientsChanged);
-  }, [fetchClients]);
+    },
+    [fetchClients]
+  );
+  usePageAutoRefresh(clientsAutoLoad, {
+    events: ['jobportal:clients-changed', 'jobportal:jobs-changed'],
+  });
 
   const handleRefresh = useCallback(async () => {
     await fetchClients();
@@ -668,12 +649,12 @@ export default function App() {
           </button>
         </div>
 
-        <StatusCards activeTab={activeTab} onTabChange={setActiveTab} counts={tabCounts} />
+        {loading ? <StatusCardsSkeleton /> : (
+          <StatusCards activeTab={activeTab} onTabChange={setActiveTab} counts={tabCounts} />
+        )}
 
         {loading ? (
-          <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-sm font-medium text-slate-500 shadow-sm">
-            Loading clients…
-          </div>
+          <TableSkeleton rows={8} columns={7} />
         ) : error && !loading ? (
           <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-sm font-medium text-red-600 shadow-sm">
             Error: {error}
@@ -737,7 +718,18 @@ export default function App() {
         client={selectedClient}
         isAddMode={showAddClientDrawer}
         initialMode={selectedClientDrawerMode}
-        onClose={() => { setSelectedClient(null); setSelectedClientDrawerMode('view'); setShowAddClientDrawer(false); }}
+        onClose={() => {
+          setSelectedClient(null);
+          setSelectedClientDrawerMode('view');
+          setShowAddClientDrawer(false);
+          if (searchParams.get('clientId')) {
+            const sp = new URLSearchParams(searchParams.toString());
+            sp.delete('clientId');
+            pendingDeepLinkClientIdRef.current = null;
+            const qs = sp.toString();
+            router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+          }
+        }}
         onDelete={(id) => { setSelectedClient(null); handleDeleteClient(id); }}
         onClientCreated={() => {
           setShowAddClientDrawer(false);

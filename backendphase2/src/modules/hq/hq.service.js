@@ -1,5 +1,38 @@
 import bcrypt from 'bcryptjs';
-import { prisma } from '../../config/prisma.js';
+import { prisma, runWithTenantContext } from '../../config/prisma.js';
+import { headquartersAuthService } from '../auth/headquarters-auth.service.js';
+import { authService } from '../auth/auth.service.js';
+import { isSuperAdminUser } from '../../utils/superAdminScope.js';
+import { env } from '../../config/env.js';
+import {
+  setSubscriptionPlan,
+  SUBSCRIPTION_PLAN_OPTIONS,
+} from '../setting/recruitmentMode.service.js';
+import { sendCredentialInvite } from '../../utils/emailService.js';
+
+function normalizePlanInput(raw) {
+  if (!raw) return null;
+  const candidate = typeof raw === 'string' ? raw : raw.name || raw.id || '';
+  const s = String(candidate).trim();
+  if (!s) return null;
+  const found = SUBSCRIPTION_PLAN_OPTIONS.find(
+    (o) => o.name.toLowerCase() === s.toLowerCase() || o.id.toLowerCase() === s.toLowerCase()
+  );
+  return found ? { name: found.name } : { name: s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() };
+}
+
+function assertPlatformProvisioner(reqUser) {
+  if (!isSuperAdminUser({ user: reqUser })) {
+    throw new Error('Only super administrators can provision tenants');
+  }
+  const allow = String(env.HRAYNTRA_PLATFORM_PROVISION_EMAILS || '').trim();
+  if (!allow) return;
+  const emails = allow.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+  const email = String(reqUser?.email || '').trim().toLowerCase();
+  if (!emails.includes(email)) {
+    throw new Error('This account is not authorized for HQ tenant provisioning');
+  }
+}
 
 export const hqService = {
   async setupSuperAdmin(data) {
@@ -73,5 +106,133 @@ export const hqService = {
         role: 'SUPER_ADMIN'
       } 
     };
-  }
+  },
+
+  async provisionTenant(data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const name = String(data?.name || '').trim();
+    const email = String(data?.email || '').trim().toLowerCase();
+    const loginId = String(data?.loginId || '').trim();
+    const password = String(data?.password || '');
+    const organizationType =
+      String(data?.organizationType || 'agency').toLowerCase() === 'standalone' ? 'standalone' : 'agency';
+    const subscriptionPlan = normalizePlanInput(data?.plan ?? data?.subscriptionPlan);
+    if (!name || !email || !loginId || !password) {
+      throw new Error('name, email, loginId, and password are required');
+    }
+    if (password.length < 8) {
+      throw new Error('Password must be at least 8 characters');
+    }
+    const hqUser = await headquartersAuthService.registerWorkspaceUserAndProvisionTenant({
+      name,
+      email,
+      password,
+      loginId,
+      organizationType,
+      subscriptionPlan,
+    });
+    const localUser = await authService.provisionHeadquartersMappedTenant(hqUser);
+    await authService.finalizeHeadquartersTenantWorkspace(hqUser, localUser);
+    if (subscriptionPlan) {
+      try {
+        await runWithTenantContext(hqUser.tenantDbName, () => setSubscriptionPlan(subscriptionPlan));
+      } catch (err) {
+        console.warn('[hq] failed to seed subscription plan in tenant:', err?.message || err);
+      }
+    }
+
+    // Email the new tenant admin with their credentials. Failures are
+    // non-blocking — the tenant is provisioned regardless.
+    let credentialEmailSent = false;
+    let credentialEmailError = null;
+    if (data?.sendCredentialsEmail !== false) {
+      try {
+        await sendCredentialInvite({
+          email,
+          loginId,
+          tempPassword: password,
+          roleName: organizationType === 'standalone' ? 'Workspace Admin' : 'Agency Admin',
+          // Reuse tempPassword as the link token — auth/login flow accepts both
+          // password and direct token; this matches existing team-invite behavior.
+          inviteToken: password,
+          tenantDbName: hqUser.tenantDbName,
+        });
+        credentialEmailSent = true;
+      } catch (emailErr) {
+        credentialEmailError = emailErr?.message || String(emailErr);
+        console.warn('[hq] credential email failed:', credentialEmailError);
+      }
+    }
+
+    return {
+      tenantDbName: hqUser.tenantDbName,
+      tenantDatabaseUrl: hqUser.tenantDatabaseUrl,
+      tenantProvisioningMode: hqUser.tenantProvisioningMode,
+      organizationType,
+      subscriptionPlan,
+      user: { id: localUser.id, email: localUser.email, loginId },
+      credentialEmailSent,
+      credentialEmailError,
+    };
+  },
+
+  async listTenants(reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const tenants = await headquartersAuthService.listTenants();
+    const stats = {
+      total: tenants.length,
+      agency: tenants.filter((t) => t.organizationType === 'agency').length,
+      standalone: tenants.filter((t) => t.organizationType === 'standalone').length,
+      planCounts: SUBSCRIPTION_PLAN_OPTIONS.reduce((acc, opt) => {
+        acc[opt.name] = tenants.filter((t) => t.subscriptionPlan?.name === opt.name).length;
+        return acc;
+      }, { Unassigned: tenants.filter((t) => !t.subscriptionPlan?.name).length }),
+    };
+    return {
+      tenants: tenants.map((t) => ({
+        id: t.id,
+        name: t.name,
+        email: t.email,
+        loginId: t.loginId,
+        organizationType: t.organizationType,
+        subscriptionPlan: t.subscriptionPlan,
+        tenantDbName: t.tenantDbName,
+        tenantProvisioningMode: t.tenantProvisioningMode,
+        createdAt: t.createdAt,
+        updatedAt: t.updatedAt,
+      })),
+      stats,
+      planOptions: SUBSCRIPTION_PLAN_OPTIONS,
+    };
+  },
+
+  async assignPlan(data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const email = String(data?.email || '').trim().toLowerCase();
+    const plan = normalizePlanInput(data?.plan);
+    if (!email) throw new Error('email is required');
+    if (!plan) throw new Error('plan is required');
+    const updated = await headquartersAuthService.setSubscriptionPlanForEmail(email, plan);
+    if (!updated) throw new Error('Tenant not found');
+    if (updated.tenantDbName) {
+      try {
+        await runWithTenantContext(updated.tenantDbName, () => setSubscriptionPlan(plan));
+      } catch (err) {
+        console.warn('[hq] failed to update tenant settings plan:', err?.message || err);
+      }
+    }
+    return { email: updated.email, subscriptionPlan: updated.subscriptionPlan };
+  },
+
+  async deleteTenant(data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const email = String(data?.email || '').trim().toLowerCase();
+    if (!email) throw new Error('email is required');
+    // Operator can opt out of dropping the tenant database (e.g. retain data
+    // for forensic reasons); default is full cleanup.
+    const dropDatabase = data?.dropDatabase !== false;
+    const result = await headquartersAuthService.deleteTenantByEmail(email, { dropDatabase });
+    if (!result?.deleted) throw new Error('Tenant not found');
+    return result;
+  },
 };

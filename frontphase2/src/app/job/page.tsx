@@ -25,7 +25,7 @@ import {
   Trash2
 } from 'lucide-react';
 import { downloadCsv, csvDate } from '../../utils/csv';
-import { useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import PaginationAll from '../../components/PaginationAll';
 import { requestConfirm, requestError } from '../../lib/appDialog';
 import { motion, AnimatePresence } from 'motion/react';
@@ -63,6 +63,14 @@ import type {
 } from '../../types/interview.types';
 import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { usePermissions } from '../../hooks/usePermissions';
+import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
+import { TableSkeleton } from '../../components/ui/Skeleton';
+import { SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
+
+// Force CSR so the page hydrates skeleton placeholders before the first data
+// fetch resolves — every interactive bit on this tab is client-driven.
+export const dynamic = 'force-dynamic';
+
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 10;
 const JOBS_PAGE_CACHE_KEY = 'jobs:page-cache:v1';
@@ -96,6 +104,27 @@ function parseJobsApiPayload(res: any): JobsApiPayload {
 // Types
 type JobStatus = 'Active' | 'On Hold' | 'Closed';
 
+interface JobPipelineStageSummary {
+  id: string;
+  name: string;
+  order: number;
+  count: number;
+  color?: string;
+  systemRole?: string | null;
+}
+
+/** Drop legacy "Apply" when an Applied/APPLIED stage exists (standalone double-bucket bug). */
+function dedupeRedundantApplyPipelineStages(stages: JobPipelineStageSummary[]): JobPipelineStageSummary[] {
+  if (!Array.isArray(stages) || stages.length < 2) return stages;
+  const hasAppliedLike = stages.some(
+    (s) =>
+      String(s.systemRole || '').toUpperCase() === 'APPLIED' ||
+      /^applied$/i.test(String(s.name || '').trim())
+  );
+  if (!hasAppliedLike) return stages;
+  return stages.filter((s) => String(s.name || '').trim().toLowerCase() !== 'apply');
+}
+
 interface Job {
   id: string;
   title: string;
@@ -114,6 +143,7 @@ interface Job {
   aiMatch: boolean;
   noCandidates: boolean;
   slaRisk: boolean;
+  pipelineStages?: JobPipelineStageSummary[];
 }
 
 /** Map list Job to drawer JobForDrawer - uses only backend data, no mock data */
@@ -146,6 +176,33 @@ interface PipelineSnapshotProps {
   interviewed: number;
   offered: number;
   joined: number;
+  /** Per-stage breakdown when the job has a configured pipeline. Falls back to APP/INT/OFF/JOI buckets when absent. */
+  stages?: JobPipelineStageSummary[];
+}
+
+const SYSTEM_ROLE_TO_LEGACY_KEY: Record<string, 'applied' | 'interviewed' | 'offered' | 'joined'> = {
+  APPLIED: 'applied',
+  SCREENING: 'applied',
+  INTERVIEW: 'interviewed',
+  OFFER: 'offered',
+  HIRED: 'joined',
+};
+
+const SYSTEM_ROLE_NAME_FALLBACK: Array<{
+  match: RegExp;
+  key: 'applied' | 'interviewed' | 'offered' | 'joined';
+}> = [
+  { match: /appli|screen/i, key: 'applied' },
+  { match: /interview|review|assess/i, key: 'interviewed' },
+  { match: /offer/i, key: 'offered' },
+  { match: /hire|placed|join/i, key: 'joined' },
+];
+
+function abbreviateStage(name: string): string {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return '—';
+  const word = trimmed.split(/\s+/)[0];
+  return word.slice(0, 3).toUpperCase();
 }
 
 interface JobsListViewProps {
@@ -199,26 +256,73 @@ const JobStatusPill = ({ status }: JobStatusPillProps) => {
   );
 };
 
-const PipelineSnapshot = ({ applied, interviewed, offered, joined }: PipelineSnapshotProps) => (
-  <div className="flex items-center gap-0 bg-gray-50 rounded-lg border border-gray-100 p-1">
-    <div className="px-2 py-1 flex flex-col items-center border-r border-gray-200 last:border-0 min-w-[40px]">
-      <span className="text-[10px] text-gray-400 font-medium">APP</span>
-      <span className="text-xs font-bold text-gray-700">{applied}</span>
+const PipelineSnapshot = ({ applied, interviewed, offered, joined, stages }: PipelineSnapshotProps) => {
+  const visibleStages = Array.isArray(stages) && stages.length > 0 ? stages.slice(0, 6) : [];
+
+  if (visibleStages.length === 0) {
+    return (
+      <div className="flex items-center gap-0 bg-gray-50 rounded-lg border border-gray-100 p-1">
+        <div className="px-2 py-1 flex flex-col items-center border-r border-gray-200 last:border-0 min-w-[40px]">
+          <span className="text-[10px] text-gray-400 font-medium">APP</span>
+          <span className="text-xs font-bold text-gray-700">{applied}</span>
+        </div>
+        <div className="px-2 py-1 flex flex-col items-center border-r border-gray-200 last:border-0 min-w-[40px]">
+          <span className="text-[10px] text-gray-400 font-medium">INT</span>
+          <span className="text-xs font-bold text-gray-700">{interviewed}</span>
+        </div>
+        <div className="px-2 py-1 flex flex-col items-center border-r border-gray-200 last:border-0 min-w-[40px]">
+          <span className="text-[10px] text-gray-400 font-medium">OFF</span>
+          <span className="text-xs font-bold text-gray-700">{offered}</span>
+        </div>
+        <div className="px-2 py-1 flex flex-col items-center last:border-0 min-w-[40px]">
+          <span className="text-[10px] text-gray-400 font-medium">JOI</span>
+          <span className="text-xs font-bold text-gray-700">{joined}</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Some tenants don't yet move candidates into PipelineEntry rows (per-stage `count` will be 0
+  // even when matches/interviews/placements are non-zero). Hydrate well-known buckets from the
+  // legacy aggregate counts so the column never reads "0/0/0/0" while it's being adopted.
+  const legacyByKey: Record<'applied' | 'interviewed' | 'offered' | 'joined', number> = {
+    applied,
+    interviewed,
+    offered,
+    joined,
+  };
+
+  return (
+    <div className="flex items-center gap-0 bg-gray-50 rounded-lg border border-gray-100 p-1">
+      {visibleStages.map((stage, index) => {
+        let displayCount = stage.count;
+        if (!displayCount) {
+          const role = String(stage.systemRole || '').toUpperCase();
+          const legacyKey = SYSTEM_ROLE_TO_LEGACY_KEY[role];
+          if (legacyKey) {
+            displayCount = legacyByKey[legacyKey] || 0;
+          } else {
+            const fallback = SYSTEM_ROLE_NAME_FALLBACK.find((entry) => entry.match.test(stage.name));
+            if (fallback) displayCount = legacyByKey[fallback.key] || 0;
+          }
+        }
+        const isLast = index === visibleStages.length - 1;
+        return (
+          <div
+            key={stage.id}
+            className={`px-2 py-1 flex flex-col items-center min-w-[40px] ${
+              isLast ? '' : 'border-r border-gray-200'
+            }`}
+            title={stage.name}
+          >
+            <span className="text-[10px] text-gray-400 font-medium">{abbreviateStage(stage.name)}</span>
+            <span className="text-xs font-bold text-gray-700">{displayCount}</span>
+          </div>
+        );
+      })}
     </div>
-    <div className="px-2 py-1 flex flex-col items-center border-r border-gray-200 last:border-0 min-w-[40px]">
-      <span className="text-[10px] text-gray-400 font-medium">INT</span>
-      <span className="text-xs font-bold text-gray-700">{interviewed}</span>
-    </div>
-    <div className="px-2 py-1 flex flex-col items-center border-r border-gray-200 last:border-0 min-w-[40px]">
-      <span className="text-[10px] text-gray-400 font-medium">OFF</span>
-      <span className="text-xs font-bold text-gray-700">{offered}</span>
-    </div>
-    <div className="px-2 py-1 flex flex-col items-center last:border-0 min-w-[40px]">
-      <span className="text-[10px] text-gray-400 font-medium">JOI</span>
-      <span className="text-xs font-bold text-gray-700">{joined}</span>
-    </div>
-  </div>
-);
+  );
+};
 
 const JobsListView = ({ jobs, onJobClick, onEditJob, onAddCandidate, onDeleteJob, deletingJobId, canUpdateJob, canDeleteJob, canAddCandidate, statusEdit, onStatusChange, onRemarkChange, onSaveStatusEdit, onCancelStatusEdit }: JobsListViewProps) => (
   <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
@@ -318,11 +422,12 @@ const JobsListView = ({ jobs, onJobClick, onEditJob, onAddCandidate, onDeleteJob
               </div>
             </td>
             <td className="p-4">
-              <PipelineSnapshot 
-                applied={job.applied} 
-                interviewed={job.interviewed} 
-                offered={job.offered} 
-                joined={job.joined} 
+              <PipelineSnapshot
+                applied={job.applied}
+                interviewed={job.interviewed}
+                offered={job.offered}
+                joined={job.joined}
+                stages={job.pipelineStages}
               />
             </td>
             <td className="p-4">
@@ -522,6 +627,23 @@ function mapBackendJob(job: BackendJob, assignedCandidateCount = 0): Job {
   const interviewed = job._count?.interviews ?? 0;
   const joined = job._count?.placements ?? 0;
 
+  const stageList = Array.isArray((job as any).pipelineStages) ? (job as any).pipelineStages : [];
+  const pipelineStages: JobPipelineStageSummary[] = stageList
+    .map((stage: any, index: number) => ({
+      id: String(stage?.id || `s-${index}`),
+      name: String(stage?.name || '').trim() || `Stage ${index + 1}`,
+      order: Number.isFinite(Number(stage?.order)) ? Number(stage.order) : index + 1,
+      count: Number(stage?._count?.entries ?? stage?.entriesCount ?? 0) || 0,
+      color: typeof stage?.color === 'string' ? stage.color : undefined,
+      systemRole:
+        stage?.systemRole != null && String(stage.systemRole).trim()
+          ? String(stage.systemRole).trim()
+          : null,
+    }))
+    .sort((a: JobPipelineStageSummary, b: JobPipelineStageSummary) => a.order - b.order);
+
+  const pipelineStagesDeduped = dedupeRedundantApplyPipelineStages(pipelineStages);
+
   return {
     id: job.id,
     title: job.title,
@@ -540,6 +662,7 @@ function mapBackendJob(job: BackendJob, assignedCandidateCount = 0): Job {
     aiMatch: (job as any).aiMatch ?? false,
     noCandidates: (job as any).noCandidates ?? false,
     slaRisk: (job as any).slaRisk ?? false,
+    pipelineStages: pipelineStagesDeduped.length ? pipelineStagesDeduped : undefined,
   };
 }
 
@@ -663,6 +786,8 @@ function mapUsersToInterviewPanel(users: BackendUser[]): InterviewPanelMember[] 
 }
 
 export default function JobsPage() {
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const { hasPermission, hasAnyPermission } = usePermissions();
   const canCreateJob = hasAnyPermission(['jobs_create', 'create_job']);
@@ -889,25 +1014,27 @@ export default function JobsPage() {
     };
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadJobs() {
-      try {
+  const loadJobsPageData = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const silent = opts?.silent === true;
+      if (!silent) {
         if (!hasVisibleJobsRef.current) setLoading(true);
         setError(null);
+      }
+      try {
         const [jobsRes, candidatesRes] = await Promise.all([
           apiGetJobs(buildJobsQueryParams()),
           apiGetCandidates({ page: 1, limit: 500 }),
         ]);
-        if (cancelled) return;
 
         const parsed = parseJobsApiPayload(jobsRes);
         if (!Array.isArray(parsed.jobs)) {
-          console.error('Unexpected API response format: data is not an array.', parsed);
-          setError('Unexpected API response format.');
-          setJobs([]);
-          setTotalEntries(0);
+          if (!silent) {
+            console.error('Unexpected API response format: data is not an array.', parsed);
+            setError('Unexpected API response format.');
+            setJobs([]);
+            setTotalEntries(0);
+          }
           return;
         }
 
@@ -942,20 +1069,22 @@ export default function JobsPage() {
           }
         }
       } catch (err: any) {
-        if (cancelled) return;
-        setError(err?.message || 'Failed to load jobs from API.');
-        setJobs([]);
-        setTotalEntries(0);
+        if (!silent) {
+          setError(err?.message || 'Failed to load jobs from API.');
+          setJobs([]);
+          setTotalEntries(0);
+        } else {
+          console.warn('[jobs] background refresh failed:', err);
+        }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!silent) setLoading(false);
       }
-    }
 
-    async function loadMetrics() {
+      if (silent) return;
+
       try {
         setLoadingMetrics(true);
         const response = await apiGetJobMetrics({});
-        if (cancelled) return;
         const metrics = (response as any).data?.data || (response as any).data || response;
         setJobMetrics(metrics);
         try {
@@ -964,9 +1093,7 @@ export default function JobsPage() {
           // ignore storage errors
         }
       } catch (err: any) {
-        if (cancelled) return;
         console.error('Failed to load job metrics:', err);
-        // Set default metrics on error
         setJobMetrics({
           activeJobs: 0,
           newJobsThisWeek: 0,
@@ -976,17 +1103,20 @@ export default function JobsPage() {
           closedThisMonth: 0,
         });
       } finally {
-        if (!cancelled) setLoadingMetrics(false);
+        setLoadingMetrics(false);
       }
-    }
+    },
+    [buildJobsQueryParams, currentPage, hasActiveFilters, pageSize]
+  );
 
-    loadJobs();
-    loadMetrics();
+  useEffect(() => {
+    void loadJobsPageData({ silent: false });
+  }, [loadJobsPageData]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [buildJobsQueryParams, currentPage, hasActiveFilters, pageSize]);
+  // Reusable auto-refresh: polls while visible, refreshes on focus and on
+  // `jobportal:jobs-changed`. Same pattern is now reused on candidates / leads /
+  // clients / interviews / dashboard so they stay in sync without manual reload.
+  usePageAutoRefresh(loadJobsPageData);
 
   const [loadingJobDetails, setLoadingJobDetails] = useState(false);
   const [jobDetails, setJobDetails] = useState<JobForDrawer | null>(null);
@@ -1031,117 +1161,8 @@ export default function JobsPage() {
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
 
   const reloadMyJobsAndMetrics = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const [jobsRes, candidatesRes] = await Promise.all([
-        apiGetJobs(buildJobsQueryParams()),
-        apiGetCandidates({ page: 1, limit: 500 }),
-      ]);
-      const parsed = parseJobsApiPayload(jobsRes);
-      if (Array.isArray(parsed.jobs)) {
-        const candidatesData =
-          (candidatesRes as any)?.data?.data ||
-          (candidatesRes as any)?.data?.items ||
-          (candidatesRes as any)?.data ||
-          [];
-        const allCandidates: BackendCandidate[] = Array.isArray(candidatesData) ? candidatesData : [];
-        const assignedCandidateCountByJob = buildAssignedCandidateCountByJob(allCandidates);
-        const mapped = parsed.jobs.map((job) =>
-          mapBackendJob(job, assignedCandidateCountByJob.get(String(job.id)) || 0)
-        );
-        setJobs(mapped);
-        const total = parsed.total || mapped.length;
-        setTotalEntries(total);
-        if (!hasActiveFilters) {
-          try {
-            window.sessionStorage.setItem(
-              JOBS_PAGE_CACHE_KEY,
-              JSON.stringify({
-                page: currentPage,
-                pageSize,
-                totalEntries: total,
-                jobs: mapped,
-                cachedAt: Date.now(),
-              })
-            );
-          } catch {}
-        }
-      } else {
-        setJobs([]);
-        setTotalEntries(0);
-      }
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to load jobs';
-      setError(message);
-      setJobs([]);
-      setTotalEntries(0);
-    } finally {
-      setLoading(false);
-    }
-    try {
-      setLoadingMetrics(true);
-      const response = await apiGetJobMetrics({});
-      const metrics = (response as any).data?.data || (response as any).data || response;
-      setJobMetrics(metrics);
-      try {
-        window.sessionStorage.setItem(JOBS_METRICS_CACHE_KEY, JSON.stringify(metrics));
-      } catch {}
-    } catch {
-      setJobMetrics({
-        activeJobs: 0,
-        newJobsThisWeek: 0,
-        appliedCandidates: 0,
-        noCandidates: 0,
-        nearSla: 0,
-        closedThisMonth: 0,
-      });
-    } finally {
-      setLoadingMetrics(false);
-    }
-  }, [buildJobsQueryParams, currentPage, hasActiveFilters, pageSize]);
-
-  // When a job is created/updated elsewhere (e.g. client drawer), keep this list in sync
-  useEffect(() => {
-    const JOBS_CHANGED = 'jobportal:jobs-changed';
-    const refreshJobsList = async () => {
-      try {
-        const [jobsRes, candidatesRes] = await Promise.all([
-          apiGetJobs(buildJobsQueryParams()),
-          apiGetCandidates({ page: 1, limit: 500 }),
-        ]);
-        const parsed = parseJobsApiPayload(jobsRes);
-        if (Array.isArray(parsed.jobs)) {
-          const candidatesData =
-            (candidatesRes as any)?.data?.data ||
-            (candidatesRes as any)?.data?.items ||
-            (candidatesRes as any)?.data ||
-            [];
-          const allCandidates: BackendCandidate[] = Array.isArray(candidatesData) ? candidatesData : [];
-          const assignedCandidateCountByJob = buildAssignedCandidateCountByJob(allCandidates);
-          const mapped = parsed.jobs.map((job) =>
-            mapBackendJob(job, assignedCandidateCountByJob.get(String(job.id)) || 0)
-          );
-          setJobs(mapped);
-          setTotalEntries(parsed.total || mapped.length);
-        } else {
-          setJobs([]);
-          setTotalEntries(0);
-        }
-      } catch (e) {
-        console.error('Failed to refresh jobs after change event:', e);
-      }
-      try {
-        const response = await apiGetJobMetrics({});
-        const metrics = (response as any).data?.data || (response as any).data || response;
-        setJobMetrics(metrics);
-      } catch {
-        /* ignore metrics refresh errors */
-      }
-    };
-    window.addEventListener(JOBS_CHANGED, refreshJobsList);
-    return () => window.removeEventListener(JOBS_CHANGED, refreshJobsList);
-  }, [buildJobsQueryParams]);
+    await loadJobsPageData({ silent: false });
+  }, [loadJobsPageData]);
 
   const handleDeleteJob = async (jobId: string, jobTitle: string) => {
     if (!(await requestConfirm(`Are you sure you want to delete "${jobTitle}"? This action cannot be undone.`))) {
@@ -1311,7 +1332,8 @@ export default function JobsPage() {
         const stages = backendJob.pipelineStages.map((stage: any) => ({
           id: stage.id,
           name: stage.name,
-          sla: '', // SLA not stored in database currently
+          sla: '',
+          systemRole: stage.systemRole ?? undefined,
         }));
         setJobPipelineStages(stages);
       } else {
@@ -1336,7 +1358,10 @@ export default function JobsPage() {
       pendingDeepLinkJobIdRef.current = null;
       return;
     }
-    if (pendingDeepLinkJobIdRef.current === jobId && jobDrawerOpen && selectedJob?.id === jobId) {
+    // Only react when the URL parameter itself changes — without this guard,
+    // closing the drawer used to re-fire the effect (because drawer-open and
+    // selected-job both reset) and immediately reopen the same job.
+    if (pendingDeepLinkJobIdRef.current === jobId) {
       return;
     }
     pendingDeepLinkJobIdRef.current = jobId;
@@ -1358,9 +1383,9 @@ export default function JobsPage() {
     return () => {
       cancelled = true;
     };
-  }, [jobDrawerOpen, searchParams, selectedJob?.id]);
+  }, [searchParams]);
 
-  const persistJobPipelineStages = useCallback(async (jobId: string, stages: Array<{ id?: string; name: string; sla?: string }>) => {
+  const persistJobPipelineStages = useCallback(async (jobId: string, stages: Array<{ id?: string; name: string; sla?: string; systemRole?: string }>) => {
     if (!jobId) return;
     try {
       await apiUpdateJob(jobId, {
@@ -1369,6 +1394,7 @@ export default function JobsPage() {
           name: stage.name,
           sla: stage.sla,
           order: index + 1,
+          systemRole: stage.systemRole,
         })),
       } as any);
 
@@ -1381,6 +1407,7 @@ export default function JobsPage() {
             id: s.id,
             name: s.name,
             sla: '',
+            systemRole: s.systemRole ?? undefined,
           }))
         );
       }
@@ -1492,7 +1519,11 @@ export default function JobsPage() {
           const response = await apiGetJob(jobId);
           const backendJob = (response as any).data?.data || (response as any).data || response;
           stages = Array.isArray(backendJob?.pipelineStages)
-            ? backendJob.pipelineStages.map((stage: any) => ({ id: stage.id, name: stage.name }))
+            ? backendJob.pipelineStages.map((stage: any) => ({
+                id: stage.id,
+                name: stage.name,
+                systemRole: stage.systemRole,
+              }))
             : [];
           if (stages.length) {
             setJobPipelineStages(stages);
@@ -1897,8 +1928,13 @@ export default function JobsPage() {
                 </div>
               )}
               {loading ? (
-                <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-sm text-gray-500">
-                  Loading jobs from API...
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                    {(['blue', 'orange', 'purple', 'green', 'gray'] as SummaryCardColor[]).map((c, i) => (
+                      <SummaryCardSkeleton key={i} color={c} />
+                    ))}
+                  </div>
+                  <TableSkeleton rows={8} columns={7} />
                 </div>
               ) : view === 'list' ? (
                 <>
@@ -1965,6 +2001,13 @@ export default function JobsPage() {
           setJobCandidates([]);
           setScheduleInterviewOpen(false);
           setSchedulePrefill(null);
+          if (searchParams.get('jobId')) {
+            const sp = new URLSearchParams(searchParams.toString());
+            sp.delete('jobId');
+            pendingDeepLinkJobIdRef.current = null;
+            const qs = sp.toString();
+            router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+          }
         }}
         job={jobDetails || (selectedJob ? toJobForDrawer(selectedJob) : null)}
         jobCandidates={jobCandidates}

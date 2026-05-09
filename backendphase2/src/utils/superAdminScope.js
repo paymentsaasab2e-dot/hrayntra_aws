@@ -1,9 +1,15 @@
 export function isSuperAdminUser(reqOrUser) {
-  const role = reqOrUser?.user?.role || reqOrUser?.role || '';
-  const roleName = reqOrUser?.user?.roleName || reqOrUser?.roleName || '';
+  const u = reqOrUser?.user || reqOrUser;
+  const role = u?.role || reqOrUser?.role || '';
+  const roleName =
+    u?.roleName || u?.systemRole?.roleName || reqOrUser?.roleName || reqOrUser?.systemRole?.roleName || '';
   const normalizedRole = String(role).trim().toUpperCase().replace(/\s+/g, '_');
   const normalizedRoleName = String(roleName).trim().toUpperCase().replace(/\s+/g, '_');
-  return normalizedRole === 'SUPER_ADMIN' || normalizedRoleName === 'SUPER_ADMIN';
+  return (
+    normalizedRole === 'SUPER_ADMIN' ||
+    normalizedRoleName === 'SUPER_ADMIN' ||
+    normalizedRoleName.replace(/_/g, '') === 'SUPERADMIN'
+  );
 }
 
 export function buildSuperAdminOwnerScope(reqOrUser, ownerFields = []) {

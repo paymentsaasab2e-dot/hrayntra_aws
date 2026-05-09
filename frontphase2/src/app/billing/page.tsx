@@ -3,7 +3,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
-  Briefcase,
   Building2,
   Calendar,
   CheckCircle2,
@@ -13,14 +12,22 @@ import {
   FileCheck2,
   Filter,
   Receipt,
-  Save,
   Search,
   Settings,
   Wallet,
 } from 'lucide-react';
-import { apiFetch } from '../../lib/api';
+import {
+  apiFetch,
+  getCachedOrgDefaultCurrency,
+  isOrgBillingNavEnabled,
+  ORG_RECRUITMENT_CACHE_EVENT,
+} from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
+import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
+import { Skeleton } from '../../components/ui/Skeleton';
+import { useRouter } from 'next/navigation';
 import PaginationAll from '../../components/PaginationAll';
+import InvoiceActivityDrawer from '../../components/billing/InvoiceActivityDrawer';
 import {
   SUPPORTED_CURRENCIES,
   convertAmount,
@@ -30,7 +37,6 @@ import {
 type BillingTab =
   | 'Invoices'
   | 'Payments'
-  | 'Placements Billing'
   | 'Clients & Contracts'
   | 'Commission & Payouts'
   | 'Taxes & Compliance'
@@ -97,10 +103,12 @@ type FiltersState = {
   search: string;
 };
 
+// "Placements Billing" was a near-duplicate of the Invoices view, so it's
+// retired here. Payments now strictly shows received receipts (no pending
+// data already covered by the Invoices tab).
 const TABS: Array<{ name: BillingTab; icon: React.ComponentType<{ size?: number; className?: string }> }> = [
   { name: 'Invoices', icon: Receipt },
   { name: 'Payments', icon: CreditCard },
-  { name: 'Placements Billing', icon: Briefcase },
   { name: 'Clients & Contracts', icon: Building2 },
   { name: 'Commission & Payouts', icon: Wallet },
   { name: 'Taxes & Compliance', icon: FileCheck2 },
@@ -120,18 +128,21 @@ const BILLING_PAGE_SIZE = 10;
 const TAB_EXPORT_KEY: Record<BillingTab, string> = {
   Invoices: 'invoices',
   Payments: 'payments',
-  'Placements Billing': 'placements-billing',
   'Clients & Contracts': 'clients-contracts',
   'Commission & Payouts': 'commission-payouts',
   'Taxes & Compliance': 'taxes-compliance',
   'Billing Settings': 'billing-settings',
 };
 
+// Payments → only receipt fields; we no longer mirror invoice "amount due"
+//   here since the Invoices tab already shows pending balances.
+// Clients & Contracts → only relationship fields. "Placements / Invoices /
+//   Billed / Outstanding" were duplicates of figures already on Invoices and
+//   Payments, so they're dropped from this tab.
 const DEFAULT_COLUMNS: Record<Exclude<BillingTab, 'Taxes & Compliance' | 'Billing Settings'>, string[]> = {
   Invoices: ['Invoice #', 'Client', 'Candidate', 'Job', 'Date', 'Due Date', 'Amount', 'Total', 'Status'],
-  Payments: ['Source', 'Client', 'Invoice #', 'Amount', 'Mode', 'Transaction', 'Date', 'Received By', 'Status'],
-  'Placements Billing': ['Candidate', 'Job', 'Client', 'Recruiter', 'Joining Date', 'Billing Type', 'Fee', 'Invoice Generated', 'Status'],
-  'Clients & Contracts': ['Client', 'Status', 'Industry', 'Location', 'Owner', 'Placements', 'Invoices', 'Billed', 'Outstanding', 'SLA'],
+  Payments: ['Receipt #', 'Client', 'Amount', 'Mode', 'Date', 'Received By', 'Status'],
+  'Clients & Contracts': ['Client', 'Status', 'Industry', 'Location', 'Owner', 'SLA'],
   'Commission & Payouts': ['Recruiter', 'Placement', 'Commission %', 'Amount', 'Status', 'Payout Date'],
 };
 
@@ -142,8 +153,7 @@ function formatCurrency(value: number, currency = 'USD') {
 const MONETARY_COLUMNS_BY_TAB: Record<string, Set<string>> = {
   Invoices: new Set(['Amount', 'Total']),
   Payments: new Set(['Amount']),
-  'Placements Billing': new Set(['Fee']),
-  'Clients & Contracts': new Set(['Billed', 'Outstanding']),
+  'Clients & Contracts': new Set(),
   'Commission & Payouts': new Set(['Amount']),
 };
 
@@ -228,6 +238,7 @@ function Table({
   baseCurrency,
   rowCurrency,
   onRowCurrencyChange,
+  onRowOpen,
 }: {
   columns: string[];
   rows: Array<Record<string, any>>;
@@ -235,7 +246,14 @@ function Table({
   baseCurrency: string;
   rowCurrency: (rowId: string) => string;
   onRowCurrencyChange: (rowId: string, currency: string) => void;
+  /**
+   * When provided, an extra column with a "next" chevron is appended to each
+   * row. Clicking the chevron opens a deeper view (e.g. invoice activity).
+   */
+  onRowOpen?: (rowId: string, row: Record<string, any>) => void;
 }) {
+  const trailingActionColumn = onRowOpen ? 1 : 0;
+  const totalCols = columns.length + trailingActionColumn;
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[900px] border-collapse">
@@ -246,6 +264,7 @@ function Table({
                 {column}
               </th>
             ))}
+            {onRowOpen ? <th className="px-3 py-3" aria-label="Actions" /> : null}
           </tr>
         </thead>
         <tbody>
@@ -253,7 +272,7 @@ function Table({
             rows.map((row, index) => {
               const rowId = String(row.id ?? index);
               return (
-                <tr key={rowId} className="border-b border-slate-50 last:border-b-0">
+                <tr key={rowId} className="border-b border-slate-50 last:border-b-0 hover:bg-slate-50/60">
                   {columns.map((column) => {
                     const value = row[column];
                     const isStatus = String(column).toLowerCase().includes('status');
@@ -275,12 +294,28 @@ function Table({
                       </td>
                     );
                   })}
+                  {onRowOpen ? (
+                    <td className="px-3 py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onRowOpen(rowId, row);
+                        }}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600"
+                        aria-label="Open activity timeline"
+                        title="See full activity for this entry"
+                      >
+                        <ChevronRight size={14} />
+                      </button>
+                    </td>
+                  ) : null}
                 </tr>
               );
             })
           ) : (
             <tr>
-              <td colSpan={columns.length} className="px-4 py-10 text-center text-sm text-slate-500">
+              <td colSpan={totalCols} className="px-4 py-10 text-center text-sm text-slate-500">
                 No records found for the selected billing filters.
               </td>
             </tr>
@@ -292,7 +327,19 @@ function Table({
 }
 
 export default function BillingPage() {
+  const router = useRouter();
   const { hasPermission } = usePermissions();
+
+  useEffect(() => {
+    const enforce = () => {
+      if (!isOrgBillingNavEnabled()) {
+        router.replace('/setting?section=profile');
+      }
+    };
+    enforce();
+    window.addEventListener(ORG_RECRUITMENT_CACHE_EVENT, enforce);
+    return () => window.removeEventListener(ORG_RECRUITMENT_CACHE_EVENT, enforce);
+  }, [router]);
   const canExportData = hasPermission('export_data');
   const canManageSettings = hasPermission('manage_settings');
   const [activeTab, setActiveTab] = useState<BillingTab>('Invoices');
@@ -305,11 +352,13 @@ export default function BillingPage() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [exporting, setExporting] = useState<string | null>(null);
   const [error, setError] = useState('');
+  // ID of the invoice whose activity drawer is open, or null when closed.
+  const [activeInvoiceId, setActiveInvoiceId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
-    async function load() {
-      setLoading(true);
+    async function load(opts?: { silent?: boolean }) {
+      if (!opts?.silent) setLoading(true);
       setError('');
       try {
         const query = buildQuery(appliedFilters);
@@ -321,16 +370,31 @@ export default function BillingPage() {
         if (!active) return;
         setError(err?.message || 'Failed to load billing data.');
       } finally {
-        if (active) setLoading(false);
+        if (active && !opts?.silent) setLoading(false);
       }
     }
-    load();
+    void load();
+    // expose for the auto-refresh hook below
+    (load as any).__expose = load;
+    (window as any).__billingReload = load;
     return () => {
       active = false;
     };
   }, [appliedFilters]);
 
-  const currency = data?.settings?.defaultCurrency || 'USD';
+  // Auto-refresh on focus / interval / billing-changed events.
+  usePageAutoRefresh(
+    ({ silent }) => {
+      const fn = (window as any).__billingReload as ((o?: { silent?: boolean }) => Promise<void>) | undefined;
+      if (fn) void fn({ silent });
+    },
+    { events: ['jobportal:billing-changed', 'jobportal:placements-changed'] }
+  );
+
+  // The tenant-wide default currency (from Settings → System) is the source of
+  // truth. The legacy `data.settings.defaultCurrency` only acts as a fallback
+  // until billing settings ship; either way we always end up with a valid code.
+  const currency = (getCachedOrgDefaultCurrency() || data?.settings?.defaultCurrency || 'USD').toUpperCase();
 
   const tableRows = useMemo(() => {
     if (!data) return [];
@@ -349,34 +413,22 @@ export default function BillingPage() {
       }));
     }
     if (activeTab === 'Payments') {
+      // Payments view = receipts of money received only. Pending invoice
+      // amounts and source labels live on the Invoices tab; not duplicated.
       return data.payments.map((row) => ({
-        id: row.id ?? `${row.invoiceNumber}-${row.transactionId}`,
-        Source: row.source,
+        id: row.id ?? `${row.receiptNumber || row.invoiceNumber}-${row.transactionId}`,
+        'Receipt #': row.receiptNumber || row.invoiceNumber || '-',
         Client: row.clientName,
-        'Invoice #': row.invoiceNumber,
         Amount: Number(row.amount || 0),
         Mode: row.mode,
-        Transaction: row.transactionId,
         Date: row.date,
         'Received By': row.receivedBy,
         Status: row.status,
       }));
     }
-    if (activeTab === 'Placements Billing') {
-      return data.placements.map((row) => ({
-        id: row.id ?? `${row.candidate}-${row.jobTitle}`,
-        Candidate: row.candidate,
-        Job: row.jobTitle,
-        Client: row.client,
-        Recruiter: row.recruiter,
-        'Joining Date': row.joiningDate,
-        'Billing Type': row.billingType,
-        Fee: Number(row.fee || 0),
-        'Invoice Generated': row.invoiceGenerated ? 'Yes' : 'No',
-        Status: row.status,
-      }));
-    }
     if (activeTab === 'Clients & Contracts') {
+      // Relationship-only view — financial totals removed because they're
+      // already shown on Invoices and Payments and were duplicating the data.
       return data.clients.map((row) => ({
         id: row.id ?? row.name,
         Client: row.name,
@@ -384,10 +436,6 @@ export default function BillingPage() {
         Industry: row.industry,
         Location: row.location,
         Owner: row.owner,
-        Placements: row.placements,
-        Invoices: row.invoices,
-        Billed: Number(row.totalBilled || 0),
-        Outstanding: Number(row.outstanding || 0),
         SLA: row.sla,
       }));
     }
@@ -539,7 +587,9 @@ export default function BillingPage() {
           ].map(([label, value]) => (
             <Card key={String(label)} className="p-4">
               <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{label}</div>
-              <div className="mt-2 text-2xl font-bold text-slate-900">{loading ? '...' : value}</div>
+              <div className="mt-2 text-2xl font-bold text-slate-900">
+                {loading ? <Skeleton className="h-7 w-24 rounded-md" /> : value}
+              </div>
             </Card>
           ))}
         </div>
@@ -548,17 +598,43 @@ export default function BillingPage() {
           {TABS.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.name;
+            // Billing Settings is intentionally restricted with a "Soon" badge —
+            // the tab still navigates so users can see what's coming, but the
+            // panel is read-only.
+            const comingSoon = tab.name === 'Billing Settings';
             return (
-              <button key={tab.name} onClick={() => setActiveTab(tab.name)} className={`flex items-center gap-2 border-b-2 pb-4 text-sm font-semibold whitespace-nowrap ${isActive ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+              <button
+                key={tab.name}
+                onClick={() => setActiveTab(tab.name)}
+                className={`relative flex items-center gap-2 border-b-2 pb-4 text-sm font-semibold whitespace-nowrap ${
+                  isActive ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'
+                }`}
+              >
                 <Icon size={16} />
                 {tab.name}
+                {comingSoon ? (
+                  <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-700 ring-1 ring-amber-200">
+                    Soon
+                  </span>
+                ) : null}
               </button>
             );
           })}
         </div>
 
         {loading ? (
-          <Card className="p-10 text-center text-sm text-slate-500">Loading billing data...</Card>
+          <Card className="p-6">
+            <Skeleton className="h-4 w-1/3 rounded-md mb-6" />
+            <div className="space-y-3">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <Skeleton className="h-4 w-1/6 rounded-md" />
+                  <Skeleton className="h-3 flex-1 rounded-full" />
+                  <Skeleton className="h-4 w-24 rounded-md" />
+                </div>
+              ))}
+            </div>
+          </Card>
         ) : activeTab === 'Taxes & Compliance' && data ? (
           <div className="grid gap-6 lg:grid-cols-2">
             <Card className="p-6">
@@ -585,9 +661,14 @@ export default function BillingPage() {
               </div>
             </Card>
           </div>
-        ) : activeTab === 'Billing Settings' && settingsForm ? (
-          <Card className="p-6">
-            <div className="grid gap-4 md:grid-cols-2">
+        ) : activeTab === 'Billing Settings' ? (
+          <Card className="relative overflow-hidden p-6">
+            {/* Read-only preview of the upcoming Billing Settings panel.
+                The form fields render but every input is disabled and the
+                Save button is hidden behind a "Coming Soon" overlay. The
+                org-level default currency configured under Settings → System
+                still drives the actual portal currency. */}
+            <div className="grid gap-4 md:grid-cols-2 opacity-60 pointer-events-none select-none">
               {[
                 ['invoicePrefix', 'Invoice Prefix'],
                 ['defaultCurrency', 'Default Currency'],
@@ -599,19 +680,33 @@ export default function BillingPage() {
               ].map(([key, label]) => (
                 <div key={key}>
                   <label className="mb-2 block text-[11px] font-bold uppercase tracking-wider text-slate-500">{label}</label>
-                  <input value={(settingsForm as any)[key]} onChange={(e) => setSettingsForm((current) => current ? { ...current, [key]: e.target.value } : current)} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500" />
+                  <input
+                    value={settingsForm ? ((settingsForm as any)[key] || '') : ''}
+                    disabled
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500"
+                  />
                 </div>
               ))}
               <div>
                 <label className="mb-2 block text-[11px] font-bold uppercase tracking-wider text-slate-500">Tax Rate (%)</label>
-                <input type="number" value={settingsForm.taxRate} onChange={(e) => setSettingsForm((current) => current ? { ...current, taxRate: Number(e.target.value || 0) } : current)} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500" />
+                <input
+                  type="number"
+                  value={settingsForm?.taxRate ?? 0}
+                  disabled
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500"
+                />
               </div>
             </div>
-            {canManageSettings && (
-              <div className="mt-6">
-                <button onClick={saveSettings} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"><Save size={16} />{savingSettings ? 'Saving...' : 'Save Settings'}</button>
-              </div>
-            )}
+            <div className="mt-8 flex flex-col items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50/60 px-6 py-8 text-center">
+              <span className="rounded-full bg-amber-100 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-amber-700 ring-1 ring-amber-200">
+                Coming Soon
+              </span>
+              <p className="max-w-md text-sm text-slate-600">
+                Self-serve Billing Settings (invoice prefix, bank details, tax fields…) are getting a dedicated rewrite.
+                Until they ship, your <strong>portal currency</strong> is driven by the organization default in{' '}
+                <strong>Settings → System</strong> and applies to every invoice, placement, and report automatically.
+              </p>
+            </div>
           </Card>
         ) : (
           <Card>
@@ -622,6 +717,13 @@ export default function BillingPage() {
               baseCurrency={currency}
               rowCurrency={getRowCurrency}
               onRowCurrencyChange={setRowCurrency}
+              // Only the Invoices tab opens the activity drawer — every other
+              // tab is a flat list and the row already exposes everything.
+              onRowOpen={
+                activeTab === 'Invoices'
+                  ? (rowId) => setActiveInvoiceId(rowId)
+                  : undefined
+              }
             />
             {columns.length ? (
               <div className="flex items-center justify-between gap-4 border-t border-[#E5E7EB] px-5 py-4">
@@ -638,6 +740,22 @@ export default function BillingPage() {
           </Card>
         )}
       </div>
+
+      <InvoiceActivityDrawer
+        invoiceId={activeInvoiceId}
+        open={Boolean(activeInvoiceId)}
+        onClose={() => setActiveInvoiceId(null)}
+        onCurrencyChanged={() => {
+          // Refresh the table so the new currency is reflected immediately
+          // for this invoice and any siblings that share its placement.
+          // The page exposes its loader on the window for the auto-refresh
+          // hook; we reuse it here for a silent reload.
+          const fn = (window as any).__billingReload as
+            | ((o?: { silent?: boolean }) => Promise<void>)
+            | undefined;
+          if (fn) void fn({ silent: true });
+        }}
+      />
     </div>
   );
 }

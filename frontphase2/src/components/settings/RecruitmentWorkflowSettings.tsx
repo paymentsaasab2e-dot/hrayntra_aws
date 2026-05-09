@@ -1,0 +1,411 @@
+'use client';
+
+import React, { useEffect, useState, useCallback } from 'react';
+import { toast } from 'sonner';
+import {
+  apiFetch,
+  syncOrgRecruitmentSummaryFromApi,
+  apiApplyPipelineTemplateToEmptyJobs,
+  apiGetSubscriptionPlan,
+  apiSetSubscriptionPlan,
+  apiGetOrgDefaultCurrency,
+  apiSetOrgDefaultCurrency,
+  type SubscriptionPlanOption,
+} from '../../lib/api';
+import { usePermissions } from '../../hooks/usePermissions';
+
+type RecruitmentMode = 'agency' | 'standalone';
+
+type TemplateStage = {
+  name: string;
+  order: number;
+  color?: string;
+  systemRole?: string | null;
+};
+
+const SYSTEM_ROLE_OPTIONS = [
+  { value: '', label: '(none)' },
+  { value: 'APPLIED', label: 'Applied' },
+  { value: 'SCREENING', label: 'Screening' },
+  { value: 'INTERVIEW', label: 'Interview' },
+  { value: 'OFFER', label: 'Offer' },
+  { value: 'HIRED', label: 'Hired' },
+  { value: 'REJECTED', label: 'Rejected' },
+];
+
+export function RecruitmentWorkflowSettings() {
+  const { hasPermission } = usePermissions();
+  const canManage = hasPermission('manage_settings');
+
+  const [loading, setLoading] = useState(true);
+  const [savingMode, setSavingMode] = useState(false);
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [applyingTemplate, setApplyingTemplate] = useState(false);
+  const [mode, setMode] = useState<RecruitmentMode>('agency');
+  const [draftMode, setDraftMode] = useState<RecruitmentMode>('agency');
+  const [stages, setStages] = useState<TemplateStage[]>([]);
+  const [planName, setPlanName] = useState<string>('');
+  const [planOptions, setPlanOptions] = useState<SubscriptionPlanOption[]>([]);
+  const [savingPlan, setSavingPlan] = useState(false);
+  const [currency, setCurrency] = useState<string>('USD');
+  const [supportedCurrencies, setSupportedCurrencies] = useState<string[]>([
+    'USD', 'EUR', 'GBP', 'INR', 'AED', 'SGD', 'AUD', 'CAD', 'JPY', 'CNY',
+  ]);
+  const [savingCurrency, setSavingCurrency] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!canManage) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    try {
+      const [modeRes, tplRes, planRes, currencyRes] = await Promise.all([
+        apiFetch<{ recruitmentMode: RecruitmentMode }>('/settings/org/recruitment-mode', { auth: true }),
+        apiFetch<{ stages: TemplateStage[] }>('/settings/org/pipeline-template', { auth: true }),
+        apiGetSubscriptionPlan(),
+        apiGetOrgDefaultCurrency(),
+      ]);
+      const m = modeRes.data?.recruitmentMode === 'standalone' ? 'standalone' : 'agency';
+      setMode(m);
+      setDraftMode(m);
+      const list = Array.isArray(tplRes.data?.stages) ? tplRes.data!.stages : [];
+      setStages(
+        list.map((s, i) => ({
+          name: String(s?.name || '').trim() || `Stage ${i + 1}`,
+          order: typeof s?.order === 'number' ? s.order : i + 1,
+          color: typeof s?.color === 'string' ? s.color : '#64748b',
+          systemRole: s?.systemRole ? String(s.systemRole) : '',
+        }))
+      );
+      setPlanName(planRes.data?.plan?.name || '');
+      setPlanOptions(planRes.data?.options || []);
+      const code = String(currencyRes.data?.code || '').trim().toUpperCase();
+      if (code) setCurrency(code);
+      if (Array.isArray(currencyRes.data?.supportedCurrencies) && currencyRes.data!.supportedCurrencies.length > 0) {
+        setSupportedCurrencies(currencyRes.data!.supportedCurrencies);
+      }
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to load recruitment settings');
+    } finally {
+      setLoading(false);
+    }
+  }, [canManage]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const saveMode = async () => {
+    setSavingMode(true);
+    try {
+      await apiFetch('/settings/org/recruitment-mode', {
+        method: 'PUT',
+        auth: true,
+        body: { recruitmentMode: draftMode },
+      });
+      setMode(draftMode);
+      await syncOrgRecruitmentSummaryFromApi();
+      toast.success('Recruitment mode saved');
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to save mode');
+    } finally {
+      setSavingMode(false);
+    }
+  };
+
+  const saveTemplate = async () => {
+    if (stages.length === 0) {
+      toast.error('Add at least one pipeline stage');
+      return;
+    }
+    if (stages.some((s) => !String(s.name || '').trim())) {
+      toast.error('Each stage needs a name');
+      return;
+    }
+    setSavingTemplate(true);
+    try {
+      const payload = stages.map((s, index) => ({
+        name: String(s.name).trim(),
+        order: index + 1,
+        color: s.color || '#64748b',
+        systemRole: s.systemRole || undefined,
+      }));
+      await apiFetch('/settings/org/pipeline-template', {
+        method: 'PUT',
+        auth: true,
+        body: { stages: payload },
+      });
+      toast.success('Default pipeline template saved');
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to save template');
+    } finally {
+      setSavingTemplate(false);
+    }
+  };
+
+  const updateStage = (index: number, patch: Partial<TemplateStage>) => {
+    setStages((prev) => prev.map((s, i) => (i === index ? { ...s, ...patch } : s)));
+  };
+
+  const applyTemplateToEmptyJobs = async () => {
+    setApplyingTemplate(true);
+    try {
+      const res = await apiApplyPipelineTemplateToEmptyJobs();
+      const d = res.data as {
+        updatedJobs?: number;
+        emptySeeded?: number;
+        legacyReseeded?: number;
+        removedStages?: number;
+      };
+      const u = d?.updatedJobs ?? 0;
+      const leg = d?.legacyReseeded ?? 0;
+      const rm = d?.removedStages ?? 0;
+      const parts = [
+        u > 0 ? `${u} job pipeline(s) updated` : null,
+        leg > 0 ? `${leg} legacy 4-stage job(s) reseeded` : null,
+        rm > 0 ? `${rm} duplicate “Apply” stage(s) removed` : null,
+      ].filter(Boolean);
+      toast.success(
+        parts.length > 0
+          ? parts.join(' · ')
+          : 'Nothing to change — pipelines already match your template'
+      );
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to apply template');
+    } finally {
+      setApplyingTemplate(false);
+    }
+  };
+
+  const saveCurrency = async (code: string) => {
+    if (!code || code === currency) return;
+    setSavingCurrency(true);
+    try {
+      const res = await apiSetOrgDefaultCurrency(code);
+      const next = String(res.data?.code || code).trim().toUpperCase();
+      setCurrency(next);
+      await syncOrgRecruitmentSummaryFromApi();
+      toast.success(`Default currency set to ${next}`);
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to save currency');
+    } finally {
+      setSavingCurrency(false);
+    }
+  };
+
+  const savePlan = async (name: string) => {
+    if (!name) return;
+    setSavingPlan(true);
+    try {
+      await apiSetSubscriptionPlan({ name });
+      setPlanName(name);
+      await syncOrgRecruitmentSummaryFromApi();
+      toast.success(`Plan set to ${name}`);
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to save plan');
+    } finally {
+      setSavingPlan(false);
+    }
+  };
+
+  if (!canManage) {
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
+        You need permission to manage settings to change organization recruitment mode or the default pipeline template.
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
+        Loading organization recruitment settings…
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-8">
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div className="p-5 border-b border-slate-100">
+          <h3 className="text-sm font-bold text-slate-900">Recruitment mode</h3>
+          <p className="text-xs text-slate-500 mt-1">
+            Agency mode keeps billing and commission flows. Standalone mode hides billing and seeds new jobs from your default pipeline template below.
+          </p>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="flex flex-wrap gap-4 items-center">
+            <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="radio"
+                name="recruitmentMode"
+                checked={draftMode === 'agency'}
+                onChange={() => setDraftMode('agency')}
+              />
+              Agency (default)
+            </label>
+            <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="radio"
+                name="recruitmentMode"
+                checked={draftMode === 'standalone'}
+                onChange={() => setDraftMode('standalone')}
+              />
+              Standalone
+            </label>
+            <button
+              type="button"
+              onClick={() => void saveMode()}
+              disabled={savingMode || draftMode === mode}
+              className="ml-auto px-4 py-2 rounded-lg text-xs font-bold bg-[#2b7fff] text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-600"
+            >
+              {savingMode ? 'Saving…' : 'Save mode'}
+            </button>
+          </div>
+          {draftMode !== mode && (
+            <p className="text-[11px] text-amber-700">You have unsaved changes to recruitment mode.</p>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div className="p-5 border-b border-slate-100 flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">Default pipeline template</h3>
+            <p className="text-xs text-slate-500 mt-1">
+              Used when creating jobs in standalone mode (unless the job payload already includes custom stages). System roles help the platform map candidate lifecycle events to the right stage.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void saveTemplate()}
+            disabled={savingTemplate}
+            className="shrink-0 px-4 py-2 rounded-lg text-xs font-bold bg-emerald-600 text-white disabled:opacity-50 hover:bg-emerald-700"
+          >
+            {savingTemplate ? 'Saving…' : 'Save template'}
+          </button>
+        </div>
+        <div className="divide-y divide-slate-100">
+          {stages.map((stage, index) => (
+            <div key={`${index}-${stage.order}`} className="p-4 flex flex-wrap items-center gap-3">
+              <span className="text-xs font-bold text-slate-400 w-6">{index + 1}</span>
+              <input
+                type="text"
+                value={stage.name}
+                onChange={(e) => updateStage(index, { name: e.target.value })}
+                className="flex-1 min-w-[140px] rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                placeholder="Stage name"
+              />
+              <input
+                type="text"
+                value={stage.color || ''}
+                onChange={(e) => updateStage(index, { color: e.target.value })}
+                className="w-28 rounded-lg border border-slate-200 px-2 py-2 text-xs font-mono"
+                placeholder="#hex"
+                title="Color (hex)"
+              />
+              <select
+                value={stage.systemRole || ''}
+                onChange={(e) => updateStage(index, { systemRole: e.target.value })}
+                className="rounded-lg border border-slate-200 px-2 py-2 text-xs text-slate-800 min-w-[140px]"
+              >
+                {SYSTEM_ROLE_OPTIONS.map((o) => (
+                  <option key={o.value || 'none'} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ))}
+        </div>
+        <div className="p-4 bg-slate-50 border-t border-slate-100 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            className="text-xs font-semibold text-blue-600 hover:underline"
+            onClick={() =>
+              setStages((prev) => [
+                ...prev,
+                { name: 'New stage', order: prev.length + 1, color: '#64748b', systemRole: '' },
+              ])
+            }
+          >
+            + Add stage
+          </button>
+          <button
+            type="button"
+            onClick={() => void applyTemplateToEmptyJobs()}
+            disabled={applyingTemplate}
+            className="ml-auto px-3 py-1.5 rounded-lg text-xs font-bold border border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100 disabled:opacity-50"
+            title="Backfill the saved template into any job that currently has no pipeline. Customized jobs are left untouched."
+          >
+            {applyingTemplate ? 'Applying…' : 'Apply to jobs without a pipeline'}
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div className="p-5 border-b border-slate-100">
+          <h3 className="text-sm font-bold text-slate-900">Default currency</h3>
+          <p className="text-xs text-slate-500 mt-1">
+            This is the portal-wide currency for invoices, placements, candidate pay expectations, and dashboard charts.
+            Per-row overrides on invoices still work, but every new entry defaults to this code.
+          </p>
+        </div>
+        <div className="p-5 flex flex-wrap items-center gap-2">
+          {supportedCurrencies.map((code) => {
+            const active = currency === code;
+            return (
+              <button
+                key={code}
+                type="button"
+                onClick={() => void saveCurrency(code)}
+                disabled={savingCurrency}
+                className={`px-3.5 py-2 rounded-lg text-xs font-bold border transition-colors ${
+                  active
+                    ? 'border-emerald-500 bg-emerald-50 text-emerald-700 shadow-sm'
+                    : 'border-slate-200 bg-white text-slate-600 hover:border-emerald-300 hover:bg-emerald-50/40'
+                } disabled:opacity-50`}
+              >
+                {code}
+                {active ? ' • Active' : ''}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div className="p-5 border-b border-slate-100">
+          <h3 className="text-sm font-bold text-slate-900">Subscription plan</h3>
+          <p className="text-xs text-slate-500 mt-1">
+            Pick a plan to display in the sidebar instead of the “Free Trial” banner. Plan-based feature gates will land later — this only stores the plan name for now.
+          </p>
+        </div>
+        <div className="p-5 flex flex-wrap items-center gap-3">
+          {(planOptions.length > 0 ? planOptions : [{ id: 'basic', name: 'Basic' }, { id: 'pro', name: 'Pro' }, { id: 'enterprise', name: 'Enterprise' }]).map(
+            (opt) => {
+              const active = planName === opt.name;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => void savePlan(opt.name)}
+                  disabled={savingPlan}
+                  className={`px-4 py-2 rounded-lg text-xs font-bold border transition-colors ${
+                    active
+                      ? 'border-sky-500 bg-sky-50 text-sky-700 shadow-sm'
+                      : 'border-slate-200 bg-white text-slate-600 hover:border-sky-300 hover:bg-sky-50/40'
+                  } disabled:opacity-50`}
+                >
+                  {opt.name}
+                  {active ? ' • Active' : ''}
+                </button>
+              );
+            }
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -40,6 +40,8 @@ import {
 import { AnimatePresence, motion } from 'motion/react';
 import { apiFetch } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
+import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
+import { Skeleton, PageSkeleton } from '../../components/ui/Skeleton';
 
 type ReportTab =
   | 'Recruitment Performance'
@@ -706,8 +708,8 @@ export default function ReportsPage() {
   const [customColumns, setCustomColumns] = useState<string[]>([]);
   const [customLoading, setCustomLoading] = useState(false);
 
-  const loadSummary = async (filters: FiltersState) => {
-    setLoading(true);
+  const loadSummary = async (filters: FiltersState, opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     setError(null);
     try {
       const query = buildQueryString(filters);
@@ -716,13 +718,17 @@ export default function ReportsPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load reports');
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     void loadSummary(appliedFilters);
   }, [appliedFilters]);
+
+  usePageAutoRefresh(({ silent }) => loadSummary(appliedFilters, { silent }), {
+    events: ['jobportal:placements-changed', 'jobportal:jobs-changed'],
+  });
 
   useEffect(() => {
     setCustomDataset(null);
@@ -918,7 +924,7 @@ export default function ReportsPage() {
         ) : null}
 
         {loading ? (
-          <EmptyState text="Loading real report data..." />
+          <PageSkeleton kpiCount={6} />
         ) : (
           <AnimatePresence mode="wait">
             <motion.div

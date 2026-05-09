@@ -1,7 +1,7 @@
 'use client';
 
 import React, { Suspense, useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Plus, Upload, Download, CheckSquare, MoreVertical } from 'lucide-react';
 import { downloadCsv } from '../../utils/csv';
 import { Toaster, toast } from 'sonner';
@@ -25,11 +25,13 @@ import { ImportContactsDrawer } from '../../components/contacts/ImportContactsDr
 import { MergeContactsDrawer } from '../../components/contacts/MergeContactsDrawer';
 import { BulkActionsBar } from '../../components/contacts/BulkActionsBar';
 import { requestConfirm } from '../../lib/appDialog';
+import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 
 export const dynamic = 'force-dynamic';
 
 function ContactsPageContent() {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   
   const [contacts, setContacts] = useState<BackendContact[]>([]);
@@ -102,7 +104,10 @@ function ContactsPageContent() {
       pendingDeepLinkContactIdRef.current = null;
       return;
     }
-    if (pendingDeepLinkContactIdRef.current === contactId && selectedContact?.id === contactId) {
+    // Only react when the URL parameter itself changes. Without this guard,
+    // closing the drawer (which clears `selectedContact`) used to re-fire
+    // this effect and reopen the same drawer immediately.
+    if (pendingDeepLinkContactIdRef.current === contactId) {
       return;
     }
     pendingDeepLinkContactIdRef.current = contactId;
@@ -123,7 +128,7 @@ function ContactsPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [searchParams, selectedContact?.id]);
+  }, [searchParams]);
 
   const contactMatchesFilters = useCallback(
     (contact: BackendContact) => {
@@ -236,6 +241,12 @@ function ContactsPageContent() {
     void loadContactsData();
   }, [loadContactsData]);
 
+  // Reusable auto-refresh — same hook used across the app.
+  usePageAutoRefresh(
+    ({ silent }) => loadContactsData({ silent }),
+    { events: ['jobportal:contacts-changed', 'jobportal:clients-changed'] }
+  );
+
   const updateFilters = (newFilters: Partial<ContactFilters>) => {
     const params = new URLSearchParams(searchParams.toString());
     Object.entries(newFilters).forEach(([key, value]) => {
@@ -256,6 +267,15 @@ function ContactsPageContent() {
 
   const handleCloseDrawer = () => {
     setSelectedContact(null);
+    // If the drawer was opened via a deep-link from the global search, drop
+    // the query param so reloads don't reopen the drawer.
+    if (searchParams.get('contactId')) {
+      const sp = new URLSearchParams(searchParams.toString());
+      sp.delete('contactId');
+      pendingDeepLinkContactIdRef.current = null;
+      const qs = sp.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    }
   };
 
   const handleEdit = (contact: BackendContact) => {

@@ -10,6 +10,35 @@ import activityService from '../../services/activityService.js';
 import { sendJobAssignmentEmail } from '../../services/emailService.js';
 import { buildSuperAdminOwnerScope, mergeWhereWithScope } from '../../utils/superAdminScope.js';
 import { canViewAllAssignments } from '../../utils/permissionScope.js';
+import {
+  getRecruitmentMode,
+  getDefaultPipelineTemplate,
+  applyOrgPipelineTemplateToEmptyJobs,
+} from '../setting/recruitmentMode.service.js';
+
+/** First `getAll` per tenant awaits a one-time standalone pipeline repair (legacy → org template). */
+const standalonePipelineRepairPromiseByTenant = new Map();
+
+async function ensureStandalonePipelineTemplateRepairOnce() {
+  const tenantDbName = getActiveTenantDbName();
+  if (!tenantDbName) return;
+  if (!standalonePipelineRepairPromiseByTenant.has(tenantDbName)) {
+    standalonePipelineRepairPromiseByTenant.set(
+      tenantDbName,
+      (async () => {
+        try {
+          const mode = await getRecruitmentMode();
+          if (mode === 'standalone') {
+            await applyOrgPipelineTemplateToEmptyJobs();
+          }
+        } catch (error) {
+          console.warn('[job.service] standalone pipeline repair skipped:', error?.message || error);
+        }
+      })()
+    );
+  }
+  await standalonePipelineRepairPromiseByTenant.get(tenantDbName);
+}
 
 // Helper function to get color for pipeline stage
 function getStageColor(stageName) {
@@ -428,6 +457,8 @@ export const jobService = {
     const { page, limit, skip } = getPaginationParams(req);
     const { status, clientId, assignedToId, search, mine } = req.query;
 
+    await ensureStandalonePipelineTemplateRepairOnce();
+
     const where = {};
     if (status) where.status = status;
 
@@ -465,6 +496,20 @@ export const jobService = {
           },
           assignedTo: {
             select: { id: true, name: true, email: true, avatar: true },
+          },
+          // Per-stage data so the Jobs table can render a dynamic pipeline column
+          // (e.g. agency uses Applied/Screened/Interview/Offer/Joined while standalone
+          // uses the org template the tenant configured in Settings → Recruitment workflow).
+          pipelineStages: {
+            select: {
+              id: true,
+              name: true,
+              order: true,
+              color: true,
+              systemRole: true,
+              _count: { select: { entries: true } },
+            },
+            orderBy: { order: 'asc' },
           },
           _count: {
             select: { matches: true, interviews: true, placements: true },
@@ -686,20 +731,43 @@ export const jobService = {
       },
     });
 
-    // Create pipeline stages only when explicitly provided (no default pipeline)
-    const pipelineStages = Array.isArray(data.pipelineStages) ? data.pipelineStages : [];
+    // Create pipeline stages when provided, or when org is standalone and no stages sent (use org template).
+    let pipelineStages = Array.isArray(data.pipelineStages) ? data.pipelineStages : [];
+    if (pipelineStages.length === 0) {
+      try {
+        const mode = await getRecruitmentMode();
+        if (mode === 'standalone') {
+          pipelineStages = await getDefaultPipelineTemplate();
+        }
+      } catch (modeErr) {
+        console.warn('[job.create] recruitment mode read failed, skipping template seed:', modeErr?.message || modeErr);
+      }
+    }
     if (pipelineStages.length > 0) {
-      const stagesToCreate = pipelineStages.map((stage, index) => ({
-        name: stage.name || stage,
-        order: index + 1,
-        color: getStageColor(stage.name || stage),
-        jobId: job.id,
-      }));
+      const stagesToCreate = pipelineStages.map((stage, index) => {
+        const name = typeof stage === 'string' ? stage : stage.name || `Stage ${index + 1}`;
+        const order = typeof stage === 'object' && stage.order != null ? Number(stage.order) : index + 1;
+        const color =
+          typeof stage === 'object' && stage.color
+            ? String(stage.color)
+            : getStageColor(name);
+        const systemRoleRaw =
+          typeof stage === 'object' && stage.systemRole != null && String(stage.systemRole).trim()
+            ? String(stage.systemRole).trim().toUpperCase()
+            : null;
+        return {
+          name,
+          order,
+          color,
+          jobId: job.id,
+          systemRole: systemRoleRaw,
+        };
+      });
 
       await Promise.all(
-        stagesToCreate.map((stage) =>
+        stagesToCreate.map((row) =>
           prisma.pipelineStage.create({
-            data: stage,
+            data: row,
           })
         )
       );
@@ -904,6 +972,10 @@ export const jobService = {
             id: stage?.id ? String(stage.id) : null,
             name: String(stage?.name || '').trim(),
             order: Number(stage?.order ?? index + 1),
+            systemRole:
+              stage?.systemRole != null && String(stage.systemRole).trim()
+                ? String(stage.systemRole).trim().toUpperCase()
+                : null,
           }))
           .filter((stage) => stage.name);
 
@@ -927,7 +999,7 @@ export const jobService = {
               const previousName = existingStageNames.get(stage.id);
               await tx.pipelineStage.update({
                 where: { id: stage.id },
-                data: { name: stage.name, order, color },
+                data: { name: stage.name, order, color, systemRole: stage.systemRole },
               });
               if (previousName && previousName !== stage.name) {
                 const candidateIdsInStage = (
@@ -956,7 +1028,7 @@ export const jobService = {
               }
             } else {
               const created = await tx.pipelineStage.create({
-                data: { name: stage.name, order, color, jobId: id },
+                data: { name: stage.name, order, color, jobId: id, systemRole: stage.systemRole },
               });
               keptIds.add(created.id);
             }

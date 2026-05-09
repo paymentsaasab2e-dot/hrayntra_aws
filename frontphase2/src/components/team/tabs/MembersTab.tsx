@@ -175,8 +175,10 @@ export const MembersTab: React.FC = () => {
   }, [debouncedSearch, selectedDepartment, selectedRole, selectedStatus, currentPage]);
 
   const { data, error, isLoading, mutate } = useSWR(swrKey, fetchData, {
-    revalidateOnFocus: false,
-    dedupingInterval: 60_000,
+    revalidateOnFocus: true,
+    refreshInterval: 45_000,
+    refreshWhenHidden: false,
+    dedupingInterval: 30_000,
   });
 
   useEffect(() => {

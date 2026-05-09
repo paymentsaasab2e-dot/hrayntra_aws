@@ -1,30 +1,79 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { SettingsSidebar } from '../../components/SettingsSidebar';
 import { CommunicationSettings } from '../../components/settings/CommunicationSettings';
+import { RecruitmentWorkflowSettings } from '../../components/settings/RecruitmentWorkflowSettings';
 import { BillingSettings } from '../../components/BillingSettings';
 import { SecuritySettings } from '../../components/SecuritySettings';
 import { CustomizationSettings } from '../../components/CustomizationSettings';
 import { ProfileSettings } from '../../components/ProfileSettings';
-import { Toaster, toast } from 'sonner';
+import { Toaster } from 'sonner';
+import { isOrgBillingNavEnabled, ORG_RECRUITMENT_CACHE_EVENT } from '../../lib/api';
+import { usePermissions } from '../../hooks/usePermissions';
 
 export default function SettingsPage() {
   const [activeSection, setActiveSection] = useState('profile');
+  const [showBillingSection, setShowBillingSection] = useState(true);
+  const { hasAnyPermission } = usePermissions();
+
+  // Profile + Customization are always available; everything else needs at
+  // least one of the listed permissions. This keeps non-admin users from
+  // seeing confidential org configuration even via deep-link.
+  const canSeeSection = useMemo(
+    () => (section: string): boolean => {
+      switch (section) {
+        case 'profile':
+        case 'customization':
+          return true;
+        case 'communication':
+          return hasAnyPermission(['manage_settings', 'access_integrations']);
+        case 'recruitment':
+        case 'security':
+          return hasAnyPermission(['manage_settings']);
+        case 'billing':
+          return showBillingSection && hasAnyPermission(['access_billing', 'manage_settings']);
+        default:
+          return true;
+      }
+    },
+    [hasAnyPermission, showBillingSection]
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const refreshBilling = () => setShowBillingSection(isOrgBillingNavEnabled());
+    refreshBilling();
+    window.addEventListener(ORG_RECRUITMENT_CACHE_EVENT, refreshBilling);
+    return () => window.removeEventListener(ORG_RECRUITMENT_CACHE_EVENT, refreshBilling);
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const section = new URLSearchParams(window.location.search).get('section');
-    if (section === 'communication') setActiveSection('communication');
-    if (section === 'profile') setActiveSection('profile');
+    const allowedSections = ['profile', 'communication', 'recruitment', 'billing', 'security', 'customization'];
+    if (section && allowedSections.includes(section)) {
+      setActiveSection(section);
+    }
   }, []);
 
+  useEffect(() => {
+    if (!canSeeSection(activeSection)) {
+      setActiveSection('profile');
+    }
+  }, [activeSection, canSeeSection]);
+
   const renderContent = () => {
+    if (!canSeeSection(activeSection)) {
+      return <ProfileSettings />;
+    }
     switch (activeSection) {
       case 'profile':
         return <ProfileSettings />;
       case 'communication':
         return <CommunicationSettings />;
+      case 'recruitment':
+        return <RecruitmentWorkflowSettings />;
       case 'billing':
         return <BillingSettings />;
       case 'security':
@@ -43,9 +92,10 @@ export default function SettingsPage() {
       {/* Main Content Area */}
       <div className="flex h-full overflow-hidden">
         {/* Settings Secondary Sidebar */}
-        <SettingsSidebar 
-          activeSection={activeSection} 
-          setActiveSection={setActiveSection} 
+        <SettingsSidebar
+          activeSection={activeSection}
+          setActiveSection={setActiveSection}
+          showBillingSection={showBillingSection}
         />
 
         {/* Dynamic Settings Content */}

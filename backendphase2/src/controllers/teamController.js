@@ -10,6 +10,26 @@ import {
 } from '../utils/credentialGenerator.js';
 import { sendInviteEmail, sendPasswordResetEmail } from '../services/emailService.js';
 import { isSuperAdminUser } from '../utils/superAdminScope.js';
+import { headquartersAuthService } from '../modules/auth/headquarters-auth.service.js';
+
+/**
+ * Best-effort: register the new credential's email/loginId in the HQ directory
+ * so the user can later sign in via the plain `/login` URL (without the
+ * invite-link `tenantDbName=` query param).
+ */
+async function recordTenantUserDirectoryEntry({ email, loginId }) {
+  const tenantDbName = getActiveTenantDbName() || '';
+  if (!tenantDbName) return;
+  try {
+    await headquartersAuthService.upsertTenantUserDirectoryEntry({
+      email,
+      loginId,
+      tenantDbName,
+    });
+  } catch (error) {
+    logger.warn({ message: 'tenant-user directory upsert failed', error: error?.message });
+  }
+}
 
 function getTeamListCacheKey(req) {
   const tenant = getActiveTenantDbName() || 'default';
@@ -405,6 +425,8 @@ export async function createTeamMember(req, res) {
           createdBy: req.user?.id || null,
         },
       });
+
+      await recordTenantUserDirectoryEntry({ email: user.email, loginId });
 
       credentialData = {
         loginId,
@@ -1096,6 +1118,8 @@ export async function generateMemberCredentials(req, res) {
       });
     }
 
+    await recordTenantUserDirectoryEntry({ email: member.email, loginId });
+
     // Send invite email if requested
     if (sendInvite) {
       await sendInviteEmail({
@@ -1243,6 +1267,11 @@ export async function resendMemberInvite(req, res) {
         failedAttempts: 0,
         inviteSentAt: new Date(),
       },
+    });
+
+    await recordTenantUserDirectoryEntry({
+      email: member.email,
+      loginId: member.credential.loginId,
     });
 
     // Send invite email

@@ -276,7 +276,10 @@ export async function apiFetch<T>(
         localStorage.removeItem('accessToken');
         localStorage.removeItem('refreshToken');
         localStorage.removeItem('currentUser');
+        localStorage.removeItem('userPermissions');
         localStorage.removeItem('tenantDbName');
+        localStorage.removeItem('orgRecruitmentMode');
+        localStorage.removeItem('orgBillingEnabled');
         syncAuthCookie('accessToken', null);
         syncAuthCookie('refreshToken', null);
         syncTenantDbName(null);
@@ -331,6 +334,261 @@ export async function apiFetch<T>(
   }
 
   return json as ApiResponse<T>;
+}
+
+/** Dispatched when org recruitment / billing visibility cache changes (login, settings save, etc.). */
+export const ORG_RECRUITMENT_CACHE_EVENT = 'hrayntra:org-recruitment-cache';
+
+export function getCachedOrgRecruitmentMode(): 'agency' | 'standalone' {
+  if (typeof window === 'undefined') return 'agency';
+  return localStorage.getItem('orgRecruitmentMode') === 'standalone' ? 'standalone' : 'agency';
+}
+
+/** When unset, billing nav is shown (matches legacy agency behavior). */
+export function isOrgBillingNavEnabled(): boolean {
+  if (typeof window === 'undefined') return true;
+  return localStorage.getItem('orgBillingEnabled') !== '0';
+}
+
+export function getCachedOrgSubscriptionPlanName(): string {
+  if (typeof window === 'undefined') return '';
+  return localStorage.getItem('orgSubscriptionPlanName') || '';
+}
+
+/** Tenant-wide default currency code (ISO 4217). Falls back to USD when unset. */
+export function getCachedOrgDefaultCurrency(): string {
+  if (typeof window === 'undefined') return 'USD';
+  const v = localStorage.getItem('orgDefaultCurrency');
+  return v && v.length === 3 ? v.toUpperCase() : 'USD';
+}
+
+export function applyOrgRecruitmentSummaryPayload(
+  payload:
+    | {
+        recruitmentMode?: string;
+        billingEnabled?: boolean;
+        subscriptionPlan?: { name?: string } | null;
+        defaultCurrency?: string | null;
+      }
+    | null
+    | undefined
+): void {
+  if (typeof window === 'undefined') return;
+  const mode = payload?.recruitmentMode === 'standalone' ? 'standalone' : 'agency';
+  const billing = payload?.billingEnabled !== false;
+  localStorage.setItem('orgRecruitmentMode', mode);
+  localStorage.setItem('orgBillingEnabled', billing ? '1' : '0');
+  const planName = String(payload?.subscriptionPlan?.name || '').trim();
+  if (planName) {
+    localStorage.setItem('orgSubscriptionPlanName', planName);
+  } else {
+    localStorage.removeItem('orgSubscriptionPlanName');
+  }
+  const currency = String(payload?.defaultCurrency || '').trim().toUpperCase();
+  if (currency && currency.length === 3) {
+    localStorage.setItem('orgDefaultCurrency', currency);
+  }
+  window.dispatchEvent(new CustomEvent(ORG_RECRUITMENT_CACHE_EVENT));
+}
+
+/** Refreshes org recruitment mode + billing flags + plan after login or when settings change. */
+export async function syncOrgRecruitmentSummaryFromApi(): Promise<void> {
+  if (typeof window === 'undefined') return;
+  if (!getAccessToken()) return;
+  try {
+    const res = await apiFetch<{
+      recruitmentMode?: string;
+      billingEnabled?: boolean;
+      subscriptionPlan?: { name?: string } | null;
+      defaultCurrency?: string | null;
+    }>('/settings/org/recruitment-summary', { auth: true });
+    applyOrgRecruitmentSummaryPayload(res.data as Parameters<typeof applyOrgRecruitmentSummaryPayload>[0]);
+  } catch {
+    applyOrgRecruitmentSummaryPayload({ recruitmentMode: 'agency', billingEnabled: true, subscriptionPlan: null });
+  }
+}
+
+export async function apiGetOrgDefaultCurrency() {
+  return apiFetch<{ code: string; supportedCurrencies: string[]; fallback: string }>(
+    '/settings/org/default-currency',
+    { auth: true }
+  );
+}
+
+export async function apiSetOrgDefaultCurrency(code: string) {
+  const res = await apiFetch<{ code: string }>('/settings/org/default-currency', {
+    method: 'PUT',
+    auth: true,
+    body: { code },
+  });
+  // Push the new currency into local cache + broadcast so every open tab
+  // (Billing, Dashboard, Candidate "expected pay", etc.) refreshes its formatter.
+  if (typeof window !== 'undefined') {
+    const next = String(res.data?.code || code || '').trim().toUpperCase();
+    if (next && next.length === 3) {
+      localStorage.setItem('orgDefaultCurrency', next);
+      window.dispatchEvent(new CustomEvent(ORG_RECRUITMENT_CACHE_EVENT));
+    }
+  }
+  return res;
+}
+
+export interface SubscriptionPlanOption {
+  id: string;
+  name: string;
+}
+
+export async function apiGetSubscriptionPlan() {
+  return apiFetch<{ plan: { name: string } | null; options: SubscriptionPlanOption[] }>(
+    '/settings/org/subscription-plan',
+    { auth: true }
+  );
+}
+
+export async function apiSetSubscriptionPlan(plan: { name: string }) {
+  return apiFetch<{ plan: { name: string } }>('/settings/org/subscription-plan', {
+    method: 'PUT',
+    auth: true,
+    body: { plan },
+  });
+}
+
+export async function apiApplyPipelineTemplateToEmptyJobs() {
+  return apiFetch<{
+    updatedJobs: number;
+    emptySeeded?: number;
+    legacyReseeded?: number;
+    removedStages?: number;
+  }>('/settings/org/pipeline-template/apply-to-empty-jobs', { method: 'POST', auth: true, body: {} });
+}
+
+export async function apiResetJobPipelineToOrgTemplate(jobId: string) {
+  return apiFetch<{ stages: Array<{ id: string; name: string; order: number; color?: string | null; systemRole?: string | null }> }>(
+    `/settings/org/pipeline-template/apply-to-job/${jobId}`,
+    { method: 'POST', auth: true, body: {} }
+  );
+}
+
+export async function apiHqProvisionTenant(body: {
+  name: string;
+  email: string;
+  loginId: string;
+  password: string;
+  organizationType?: 'agency' | 'standalone';
+  plan?: { name: string };
+}) {
+  return apiFetch<{
+    tenantDbName?: string;
+    tenantDatabaseUrl?: string;
+    tenantProvisioningMode?: string;
+    organizationType?: string;
+    subscriptionPlan?: { name: string } | null;
+    user?: { id: string; email: string; loginId: string };
+  }>('/hq/provision-tenant', { method: 'POST', auth: true, body });
+}
+
+export interface HqTenantRow {
+  id: string;
+  name: string;
+  email: string;
+  loginId: string;
+  organizationType: 'agency' | 'standalone';
+  subscriptionPlan: { name: string } | null;
+  tenantDbName: string;
+  tenantProvisioningMode: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export async function apiHqListTenants() {
+  return apiFetch<{
+    tenants: HqTenantRow[];
+    stats: {
+      total: number;
+      agency: number;
+      standalone: number;
+      planCounts: Record<string, number>;
+    };
+    planOptions: SubscriptionPlanOption[];
+  }>('/hq/tenants', { auth: true });
+}
+
+export async function apiHqAssignTenantPlan(body: { email: string; plan: { name: string } }) {
+  return apiFetch<{ email: string; subscriptionPlan: { name: string } | null }>(
+    '/hq/tenants/plan',
+    { method: 'PUT', auth: true, body }
+  );
+}
+
+export interface InvoiceActivityEvent {
+  kind:
+    | 'lead'
+    | 'client'
+    | 'job'
+    | 'candidate'
+    | 'pipeline'
+    | 'interview'
+    | 'placement'
+    | 'invoice'
+    | 'payment'
+    | 'activity';
+  title: string;
+  description: string | null;
+  at: string;
+  meta?: Record<string, any>;
+}
+
+export interface InvoiceActivityResponse {
+  invoice: {
+    id: string;
+    invoiceNumber: string;
+    amount: number;
+    currency: string;
+    status: string;
+    date: string;
+    dueDate: string;
+    paidAt: string | null;
+  };
+  lead: { id: string; companyName: string | null; contactName: string | null; status: string | null; source: string | null } | null;
+  client: { id: string; companyName: string | null; status: string | null; industry: string | null } | null;
+  job: { id: string; title: string | null; status: string | null } | null;
+  candidate: { id: string; name: string; email: string | null } | null;
+  placement: {
+    id: string;
+    status: string | null;
+    joiningDate: string | null;
+    recruiter: string | null;
+    fee: number;
+  } | null;
+  events: InvoiceActivityEvent[];
+}
+
+export async function apiGetInvoiceActivity(invoiceId: string) {
+  return apiFetch<InvoiceActivityResponse>(`/billing/invoice/${encodeURIComponent(invoiceId)}/activity`, {
+    auth: true,
+  });
+}
+
+export async function apiUpdateInvoiceCurrency(invoiceId: string, currency: string) {
+  return apiFetch<{ invoiceId: string; placementId: string | null; currency: string; updatedRecords: number }>(
+    `/billing/invoice/${encodeURIComponent(invoiceId)}/currency`,
+    { method: 'PATCH', auth: true, body: { currency } }
+  );
+}
+
+export async function apiHqDeleteTenant(body: { email: string; dropDatabase?: boolean }) {
+  // Use the URL-form so the request body isn't required — this avoids
+  // proxy/library issues where DELETE bodies get stripped. The dropDatabase
+  // flag rides on the query string for the same reason.
+  const path = `/hq/tenants/${encodeURIComponent(body.email)}${
+    body.dropDatabase === false ? '?dropDatabase=false' : ''
+  }`;
+  return apiFetch<{
+    deleted: boolean;
+    email: string;
+    tenantDbName: string | null;
+    databaseDropped: boolean;
+  }>(path, { method: 'DELETE', auth: true });
 }
 
 export async function apiFetchFormData<T>(
@@ -488,6 +746,8 @@ export async function apiLogin(email: string, password: string) {
     if (res.data.requirePasswordReset) {
       localStorage.setItem('requirePasswordReset', 'true');
     }
+
+    await syncOrgRecruitmentSummaryFromApi();
   }
 
   return res;
@@ -521,6 +781,8 @@ export async function apiRegister(name: string, email: string, password: string,
       if (res.data.permissions) {
         localStorage.setItem('userPermissions', JSON.stringify(res.data.permissions));
       }
+
+      await syncOrgRecruitmentSummaryFromApi();
     }
   }
 
@@ -549,6 +811,8 @@ export async function apiRefreshToken() {
     syncAuthCookie('accessToken', res.data.accessToken);
     syncAuthCookie('refreshToken', res.data.refreshToken || null);
     syncTenantDbName(res.data?.tenantDbName || tenantDbNameHint || null);
+
+    await syncOrgRecruitmentSummaryFromApi();
   }
 
   return res;
@@ -574,6 +838,8 @@ export async function apiLogout() {
     localStorage.removeItem('userPermissions');
     localStorage.removeItem('requirePasswordReset');
     localStorage.removeItem('tenantDbName');
+    localStorage.removeItem('orgRecruitmentMode');
+    localStorage.removeItem('orgBillingEnabled');
     syncAuthCookie('accessToken', null);
     syncAuthCookie('refreshToken', null);
     syncTenantDbName(null);
@@ -682,6 +948,8 @@ export interface BackendJob {
     name: string;
     order: number;
     color?: string;
+    systemRole?: string | null;
+    _count?: { entries?: number };
   }>;
   applications?: Array<{
     id: string;
@@ -763,6 +1031,7 @@ export interface CreateJobData {
     name: string;
     sla?: string;
     order?: number;
+    systemRole?: string | null;
   }>;
   applicationFormEnabled?: boolean;
   applicationFormLogo?: string;

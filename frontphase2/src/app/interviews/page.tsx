@@ -23,9 +23,15 @@ import { useInterviewModals } from '../../hooks/useInterviewModals';
 import type { Interview, UpdateInterviewPayload } from '../../types/interview.types';
 import type { InterviewAction } from '../../components/interviews/ActionsDropdown';
 import { usePermissions } from '../../hooks/usePermissions';
+import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { requestConfirm } from '../../lib/appDialog';
 import { combineInterviewDateAndTimeToIso } from '../../lib/interview-schedule-helpers';
 import { apiRejectCandidate } from '../../lib/api';
+import { TableSkeleton } from '../../components/ui/Skeleton';
+import { SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
+
+// Force CSR — every interactive bit on this tab is client-driven.
+export const dynamic = 'force-dynamic';
 
 /** Full PATCH payload required by `updateInterview` so status-only updates preserve schedule fields. */
 function fullUpdatePayloadFromInterview(
@@ -129,6 +135,13 @@ export default function InterviewsPage() {
     return () => window.clearTimeout(timeout);
   }, [toast, setToast]);
 
+  // Reusable auto-refresh: poll while visible, refresh on tab focus and on
+  // interview/job change events. `retryLoad` is the same function the page
+  // already calls for explicit reloads.
+  usePageAutoRefresh(() => retryLoad(), {
+    events: ['jobportal:interviews-changed', 'jobportal:jobs-changed'],
+  });
+
   const openInterview = (interview: Interview) => {
     drawer.openDrawer(interview.id);
   };
@@ -209,10 +222,13 @@ export default function InterviewsPage() {
   const renderListState = () => {
     if (loading) {
       return (
-        <div className="space-y-3 rounded-2xl border border-[#E5E7EB] bg-white p-6 shadow-sm">
-          {Array.from({ length: 5 }).map((_, index) => (
-            <div key={index} className="h-14 animate-pulse rounded-xl bg-[#F3F4F6]" />
-          ))}
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            {(['blue', 'cyan', 'orange', 'purple', 'green'] as SummaryCardColor[]).map((c, i) => (
+              <SummaryCardSkeleton key={i} color={c} />
+            ))}
+          </div>
+          <TableSkeleton rows={6} columns={6} />
         </div>
       );
     }

@@ -20,6 +20,9 @@ import {
   apiGetPlacements,
   apiGetNotificationUnreadCount,
   NOTIFICATIONS_UPDATED_EVENT,
+  isOrgBillingNavEnabled,
+  getCachedOrgSubscriptionPlanName,
+  ORG_RECRUITMENT_CACHE_EVENT,
 } from '../lib/api';
 import { NotificationDrawer } from './NotificationDrawer';
 import { 
@@ -308,80 +311,88 @@ const Tooltip = ({ children, content }: { children: React.ReactNode; content: st
   </div>
 );
 
-/** Sidebar nav icon tint — idle vs active row */
+/**
+ * Sidebar nav row tint — matches the reference HRMS sidebar:
+ *   - idle: muted slate text + slate icon (no color)
+ *   - active: a glass-bordered, slightly translucent icon container with the
+ *     module's brand color showing inside.
+ *
+ * The wrapper applies `bg-white/5 border border-white/10` plus a tinted ring
+ * for the glass effect; the icon itself takes the brand color.
+ */
 const NAV_ICON_ACCENTS: Record<
   string,
   { idle: string; activeWrap: string; activeIcon: string }
 > = {
   sky: {
-    idle: 'text-sky-400',
-    activeWrap: 'bg-sky-500/25 shadow-inner shadow-sky-900/20',
-    activeIcon: 'text-white',
+    idle: 'text-slate-400',
+    activeWrap: 'bg-white/5 border border-white/15 ring-1 ring-sky-400/30 backdrop-blur',
+    activeIcon: 'text-sky-300 drop-shadow-[0_0_6px_rgba(56,189,248,0.55)]',
   },
   rose: {
-    idle: 'text-rose-400',
-    activeWrap: 'bg-rose-500/25 shadow-inner shadow-rose-900/20',
-    activeIcon: 'text-white',
+    idle: 'text-slate-400',
+    activeWrap: 'bg-white/5 border border-white/15 ring-1 ring-rose-400/30 backdrop-blur',
+    activeIcon: 'text-rose-300 drop-shadow-[0_0_6px_rgba(251,113,133,0.55)]',
   },
   blue: {
-    idle: 'text-blue-400',
-    activeWrap: 'bg-blue-500/25 shadow-inner shadow-blue-900/20',
-    activeIcon: 'text-white',
+    idle: 'text-slate-400',
+    activeWrap: 'bg-white/5 border border-white/15 ring-1 ring-blue-400/30 backdrop-blur',
+    activeIcon: 'text-blue-300 drop-shadow-[0_0_6px_rgba(96,165,250,0.55)]',
   },
   amber: {
-    idle: 'text-amber-400',
-    activeWrap: 'bg-amber-500/25 shadow-inner shadow-amber-900/20',
-    activeIcon: 'text-white',
+    idle: 'text-slate-400',
+    activeWrap: 'bg-white/5 border border-white/15 ring-1 ring-amber-400/30 backdrop-blur',
+    activeIcon: 'text-amber-300 drop-shadow-[0_0_6px_rgba(251,191,36,0.55)]',
   },
   violet: {
-    idle: 'text-violet-400',
-    activeWrap: 'bg-violet-500/25 shadow-inner shadow-violet-900/20',
-    activeIcon: 'text-white',
+    idle: 'text-slate-400',
+    activeWrap: 'bg-white/5 border border-white/15 ring-1 ring-violet-400/30 backdrop-blur',
+    activeIcon: 'text-violet-300 drop-shadow-[0_0_6px_rgba(167,139,250,0.55)]',
   },
   cyan: {
-    idle: 'text-cyan-400',
-    activeWrap: 'bg-cyan-500/25 shadow-inner shadow-cyan-900/20',
-    activeIcon: 'text-white',
+    idle: 'text-slate-400',
+    activeWrap: 'bg-white/5 border border-white/15 ring-1 ring-cyan-400/30 backdrop-blur',
+    activeIcon: 'text-cyan-300 drop-shadow-[0_0_6px_rgba(34,211,238,0.55)]',
   },
   emerald: {
-    idle: 'text-emerald-400',
-    activeWrap: 'bg-emerald-500/25 shadow-inner shadow-emerald-900/20',
-    activeIcon: 'text-white',
+    idle: 'text-slate-400',
+    activeWrap: 'bg-white/5 border border-white/15 ring-1 ring-emerald-400/30 backdrop-blur',
+    activeIcon: 'text-emerald-300 drop-shadow-[0_0_6px_rgba(52,211,153,0.55)]',
   },
   indigo: {
-    idle: 'text-indigo-400',
-    activeWrap: 'bg-indigo-500/25 shadow-inner shadow-indigo-900/20',
-    activeIcon: 'text-white',
+    idle: 'text-slate-400',
+    activeWrap: 'bg-white/5 border border-white/15 ring-1 ring-indigo-400/30 backdrop-blur',
+    activeIcon: 'text-indigo-300 drop-shadow-[0_0_6px_rgba(129,140,248,0.55)]',
   },
   orange: {
-    idle: 'text-orange-400',
-    activeWrap: 'bg-orange-500/25 shadow-inner shadow-orange-900/20',
-    activeIcon: 'text-white',
+    idle: 'text-slate-400',
+    activeWrap: 'bg-white/5 border border-white/15 ring-1 ring-orange-400/30 backdrop-blur',
+    activeIcon: 'text-orange-300 drop-shadow-[0_0_6px_rgba(251,146,60,0.55)]',
   },
   fuchsia: {
-    idle: 'text-fuchsia-400',
-    activeWrap: 'bg-fuchsia-500/25 shadow-inner shadow-fuchsia-900/20',
-    activeIcon: 'text-white',
+    idle: 'text-slate-400',
+    activeWrap: 'bg-white/5 border border-white/15 ring-1 ring-fuchsia-400/30 backdrop-blur',
+    activeIcon: 'text-fuchsia-300 drop-shadow-[0_0_6px_rgba(232,121,249,0.55)]',
   },
   lime: {
-    idle: 'text-lime-400',
-    activeWrap: 'bg-lime-500/25 shadow-inner shadow-lime-900/20',
-    activeIcon: 'text-white',
+    idle: 'text-slate-400',
+    activeWrap: 'bg-white/5 border border-white/15 ring-1 ring-lime-400/30 backdrop-blur',
+    activeIcon: 'text-lime-300 drop-shadow-[0_0_6px_rgba(190,242,100,0.55)]',
   },
   teal: {
-    idle: 'text-teal-400',
-    activeWrap: 'bg-teal-500/25 shadow-inner shadow-teal-900/20',
-    activeIcon: 'text-white',
+    idle: 'text-slate-400',
+    activeWrap: 'bg-white/5 border border-white/15 ring-1 ring-teal-400/30 backdrop-blur',
+    activeIcon: 'text-teal-300 drop-shadow-[0_0_6px_rgba(45,212,191,0.55)]',
   },
   pink: {
-    idle: 'text-pink-400',
-    activeWrap: 'bg-pink-500/25 shadow-inner shadow-pink-900/20',
-    activeIcon: 'text-white',
+    idle: 'text-slate-400',
+    activeWrap: 'bg-white/5 border border-white/15 ring-1 ring-pink-400/30 backdrop-blur',
+    activeIcon: 'text-pink-300 drop-shadow-[0_0_6px_rgba(244,114,182,0.55)]',
   },
   slate: {
     idle: 'text-slate-400',
-    activeWrap: 'bg-slate-500/25',
-    activeIcon: 'text-white',
+    activeWrap: 'bg-white/5 border border-white/15 ring-1 ring-slate-300/25 backdrop-blur',
+    activeIcon: 'text-slate-100',
   },
 };
 
@@ -407,36 +418,36 @@ const NavItem = ({ icon: Icon, label, href, active, collapsed, badge, onNavigate
     <div
       data-sidenav-nav-item="true"
       data-active={isActive ? 'true' : 'false'}
-      className={`relative flex items-center h-9 rounded-md mx-2 my-0.5 px-2.5 cursor-pointer transition-all duration-150 group
+      className={`relative flex items-center h-12 rounded-xl mx-3 my-0.5 ${collapsed ? 'px-2 justify-center' : 'pl-3 pr-3'} cursor-pointer transition-all duration-150 group
         ${isActive
-          ? 'bg-white/15 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]'
-          : 'text-[#8899AA] hover:bg-white/8 hover:text-white'
+          ? 'bg-white/[0.08] text-white border border-white/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
+          : 'text-[#8899AA] border border-transparent hover:bg-white/[0.04] hover:text-white'
         }`}
     >
       {isActive && (
-        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-teal-400 rounded-r-full" />
+        <div className="absolute -left-[3px] top-1/2 -translate-y-1/2 w-1 h-6 bg-emerald-400 rounded-r-full shadow-[0_0_10px_rgba(52,211,153,0.55)]" />
       )}
 
       <div
-        className={`flex items-center justify-center shrink-0 rounded-lg transition-colors duration-150 ${collapsed ? 'w-full p-0.5' : 'mr-2.5 p-0.5'} ${
-          isActive ? `${tone.activeWrap}` : ''
+        className={`flex items-center justify-center shrink-0 rounded-lg transition-all duration-150 ${collapsed ? 'h-9 w-9' : 'mr-3 h-9 w-9'} ${
+          isActive ? tone.activeWrap : 'border border-white/[0.05] bg-white/[0.02]'
         }`}
       >
         <Icon
-          size={16}
-          strokeWidth={isActive ? 2 : 1.5}
+          size={18}
+          strokeWidth={isActive ? 2 : 1.6}
           className={isActive ? tone.activeIcon : `${tone.idle} group-hover:text-white`}
         />
       </div>
 
       {!collapsed && (
-        <span className={`text-[13px] whitespace-nowrap overflow-hidden font-medium ${isActive ? 'text-white' : ''}`}>
+        <span className={`text-[14px] whitespace-nowrap overflow-hidden ${isActive ? 'font-semibold text-white' : 'font-medium'}`}>
           {label}
         </span>
       )}
 
       {!collapsed && badge ? (
-        <span className="ml-auto bg-teal-500/20 text-teal-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+        <span className="ml-auto bg-orange-500/15 text-orange-300 text-[10px] font-bold px-2 py-0.5 rounded-full border border-orange-400/25">
           {badge}
         </span>
       ) : null}
@@ -507,6 +518,8 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
   const [notificationDrawerOpen, setNotificationDrawerOpen] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
   const [navSearch, setNavSearch] = useState('');
+  const [billingNavEnabled, setBillingNavEnabled] = useState(true);
+  const [orgPlanName, setOrgPlanName] = useState<string>('');
   const [searchResults, setSearchResults] = useState<GlobalSearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
@@ -522,6 +535,20 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
   // Ensure client-side only rendering to prevent hydration errors
   useEffect(() => {
     setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    const sync = () => {
+      setBillingNavEnabled(isOrgBillingNavEnabled());
+      setOrgPlanName(getCachedOrgSubscriptionPlanName());
+    };
+    sync();
+    window.addEventListener(ORG_RECRUITMENT_CACHE_EVENT, sync);
+    window.addEventListener('storage', sync);
+    return () => {
+      window.removeEventListener(ORG_RECRUITMENT_CACHE_EVENT, sync);
+      window.removeEventListener('storage', sync);
+    };
   }, []);
 
   useEffect(() => {
@@ -879,7 +906,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
       {/* ── Top Navigation Bar ─────────────────────────────────────────── */}
       <nav
         className="fixed top-0 left-0 right-0 h-14 flex items-center px-5 z-50"
-        style={{ backgroundColor: '#0F2A44', borderBottom: '1px solid rgba(255,255,255,0.06)' }}
+        style={{ backgroundColor: '#0b1220', borderBottom: '1px solid rgba(255,255,255,0.06)' }}
       >
         {/* Logo area — keep the collapse/expand button in its own slot so it
             stays clickable when the sidebar is collapsed (the logo no longer
@@ -1024,7 +1051,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
         className="fixed left-0 top-14 flex flex-col z-40 overflow-hidden"
         style={{
           height: 'calc(100vh - 56px)',
-          backgroundColor: '#0F2A44',
+          backgroundColor: '#0b1220',
           borderRight: '1px solid rgba(255,255,255,0.05)',
         }}
       >
@@ -1102,7 +1129,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
           )}
           
           {/* Billing - show if Super Admin or has access_billing */}
-          {(mounted && (showAll || hasPermission('access_billing'))) && (
+          {(mounted && billingNavEnabled && (showAll || hasPermission('access_billing'))) && (
             <NavItem icon={CreditCard} label="Billing" href="/billing" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="amber" />
           )}
 
@@ -1116,8 +1143,10 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
             </>
           )}
 
-          {/* Settings - show if Super Admin or has manage_settings */}
-          {(mounted && (showAll || hasPermission('manage_settings'))) && (
+          {/* Settings — visible to every signed-in user. Profile + basic
+              preferences are always available; confidential subsections inside
+              `/setting` are gated by permission. */}
+          {mounted && (
             <NavItem icon={Settings} label="Settings" href="/setting" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="slate" />
           )}
           
@@ -1125,23 +1154,40 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
 
         {/* Footer */}
         <div className="shrink-0 px-3 pb-3 pt-2 border-t border-white/5">
-          {/* Trial banner */}
+          {/* Plan / Trial banner — once a plan is assigned (via HQ/settings) the
+              "Free Trial" banner is replaced with the active plan name. */}
           {!isCollapsed ? (
-            <div className="mb-3 rounded-lg p-2.5 bg-emerald-400/8 border border-emerald-400/15">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">Free Trial</span>
-                <span className="text-[10px] text-emerald-400/70">30 days left</span>
+            orgPlanName ? (
+              <div className="mb-3 rounded-lg p-2.5 bg-sky-400/8 border border-sky-400/15">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-sky-400">Active Plan</span>
+                  <span className="text-[10px] text-sky-400/70">Live</span>
+                </div>
+                <div className="text-sm font-bold text-sky-300 truncate">{orgPlanName}</div>
+                <div className="h-1 bg-white/10 rounded-full overflow-hidden mt-2">
+                  <div className="h-full bg-gradient-to-r from-sky-500 to-indigo-400 w-full rounded-full" />
+                </div>
               </div>
-              <div className="h-1 bg-white/10 rounded-full overflow-hidden">
-                <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 w-[70%] rounded-full" />
+            ) : (
+              <div className="mb-3 rounded-lg p-2.5 bg-emerald-400/8 border border-emerald-400/15">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">Free Trial</span>
+                  <span className="text-[10px] text-emerald-400/70">30 days left</span>
+                </div>
+                <div className="h-1 bg-white/10 rounded-full overflow-hidden">
+                  <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 w-[70%] rounded-full" />
+                </div>
+                <button className="w-full mt-2 py-1 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 text-[10px] font-semibold rounded transition-colors">
+                  Upgrade Plan
+                </button>
               </div>
-              <button className="w-full mt-2 py-1 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 text-[10px] font-semibold rounded transition-colors">
-                Upgrade Plan
-              </button>
-            </div>
+            )
           ) : (
             <div className="flex justify-center mb-3">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" title="Free Trial Active" />
+              <span
+                className={`w-2 h-2 rounded-full animate-pulse ${orgPlanName ? 'bg-sky-500' : 'bg-emerald-500'}`}
+                title={orgPlanName ? `Active plan: ${orgPlanName}` : 'Free Trial Active'}
+              />
             </div>
           )}
 

@@ -85,4 +85,23 @@ export const billingController = {
       sendError(res, 500, error.message, error);
     }
   },
+
+  async getInvoiceActivity(req, res) {
+    try {
+      const result = await billingService.getInvoiceActivity(req.params.id);
+      sendResponse(res, 200, 'Invoice activity retrieved successfully', result);
+    } catch (error) {
+      sendError(res, 404, error.message, error);
+    }
+  },
+
+  async updateInvoiceCurrency(req, res) {
+    try {
+      const code = req.body?.currency || req.body?.code;
+      const result = await billingService.updateInvoiceCurrency(req.params.id, code);
+      sendResponse(res, 200, 'Invoice currency updated', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
 };
