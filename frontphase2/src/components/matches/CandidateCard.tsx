@@ -5,7 +5,6 @@ import {
   ChevronDown,
   ChevronRight,
   Clock3,
-  Copy,
   DollarSign,
   ExternalLink,
   MapPin,
@@ -22,16 +21,13 @@ interface CandidateCardProps {
   isSelected: boolean;
   isSaved: boolean;
   isExpanded: boolean;
-  copied: boolean;
   onToggleSelect: () => void;
   onToggleSave: () => void;
-  onCopyLink: () => void;
   onToggleAnalysis: () => void;
   onViewProfile: () => void;
   onOpenPipeline: () => void;
   onOpenSubmit: () => void;
   onOpenReject: () => void;
-  onOpenHistory: () => void;
   onOpenNotes: () => void;
   onExport: () => void;
   onRateMatch: (rating: number) => void;
@@ -52,23 +48,19 @@ export default function CandidateCard({
   isSelected,
   isSaved,
   isExpanded,
-  copied,
   onToggleSelect,
   onToggleSave,
-  onCopyLink,
   onToggleAnalysis,
   onViewProfile,
   onOpenPipeline,
   onOpenSubmit,
   onOpenReject,
-  onOpenHistory,
   onOpenNotes,
   onExport,
   onRateMatch,
 }: CandidateCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuItems: Array<{ label: string; action: () => void }> = [
-    { label: 'View History', action: onOpenHistory },
     { label: 'Reject Match', action: onOpenReject },
     { label: 'Add Note', action: onOpenNotes },
     { label: 'Export Profile', action: onExport },
@@ -153,23 +145,10 @@ export default function CandidateCard({
                 className={`rounded-lg p-2 transition ${
                   isSaved ? 'bg-amber-50 text-amber-500' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'
                 }`}
-                title="Save match"
+                title={isSaved ? 'Remove from Saved' : 'Save match (filter via "Saved only" in the filter bar)'}
               >
                 <Bookmark size={18} className={isSaved ? 'fill-current' : ''} />
               </button>
-              <button
-                type="button"
-                onClick={onCopyLink}
-                className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-                title="Copy profile link"
-              >
-                <Copy size={18} />
-              </button>
-              {copied ? (
-                <div className="absolute right-12 top-full mt-1 rounded-lg bg-slate-900 px-2 py-1 text-[11px] font-medium text-white">
-                  Link copied
-                </div>
-              ) : null}
               <button
                 type="button"
                 onClick={() => setMenuOpen((prev) => !prev)}

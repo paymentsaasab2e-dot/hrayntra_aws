@@ -7,7 +7,6 @@ type ModalName =
   | 'cancel'
   | 'panel'
   | 'noShow'
-  | 'uploadRecording'
   | null;
 
 export function useInterviewModals() {

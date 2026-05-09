@@ -2,9 +2,10 @@
 
 import React, { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { X, Upload, ChevronRight, CheckCircle, AlertCircle } from 'lucide-react';
+import { X, Upload, Download, ChevronRight, CheckCircle, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiImportContacts, apiPreviewContactImport } from '../../lib/api';
+import { downloadSampleCsv } from '../../utils/csv';
 
 interface ImportContactsDrawerProps {
   isOpen: boolean;
@@ -78,22 +79,29 @@ export function ImportContactsDrawer({ isOpen, onClose, onSuccess }: ImportConta
   };
 
   const handleDownloadTemplate = () => {
-    const rows = [
-      ['firstName', 'lastName', 'email', 'phone', 'company', 'designation', 'department', 'contactType', 'status', 'location'],
-      ['Sarah', 'Jenkins', 'sarah@example.com', '+919876543210', 'Acme Corp', 'Hiring Manager', 'Sales', 'CLIENT', 'ACTIVE', 'Mumbai'],
-    ];
-
-    const csv = rows
-      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-      .join('\n');
-
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'contacts-import-template.csv';
-    link.click();
-    URL.revokeObjectURL(url);
+    downloadSampleCsv('contacts-import-sample.csv', CONTACT_FIELDS, {
+      sample: {
+        firstName: 'Sarah',
+        lastName: 'Jenkins',
+        email: 'sarah@example.com',
+        phone: '+1 415 555 0100',
+        companyId: 'Acme Corp',
+        designation: 'Hiring Manager',
+        department: 'HR',
+        location: 'San Francisco, CA',
+        linkedinUrl: 'https://linkedin.com/in/sarahjenkins',
+        contactType: 'CLIENT',
+        status: 'ACTIVE',
+        ownerId: '',
+        avatarUrl: '',
+        tags: 'priority; warm',
+        associatedJobIds: '',
+        isPrimary: 'true',
+        preferredChannel: 'Email',
+        notes: 'Met at TalentCon 2026.',
+      },
+      blankRows: 2,
+    });
   };
 
   const handleFileChange = async (file?: File) => {
@@ -206,8 +214,43 @@ export function ImportContactsDrawer({ isOpen, onClose, onSuccess }: ImportConta
         <div className="flex-1 overflow-y-auto bg-slate-50/30 p-5">
           {step === 1 && (
             <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={handleDownloadTemplate}
+                  className="flex flex-col items-start gap-2 rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm transition-colors hover:border-blue-300 hover:bg-blue-50/40"
+                >
+                  <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                    <Download size={18} />
+                  </span>
+                  <span className="text-sm font-bold text-slate-900">Download sample CSV</span>
+                  <span className="text-xs text-slate-500">
+                    Pre-built template with the exact column names the importer expects.
+                  </span>
+                </button>
+                <label
+                  htmlFor="contacts-import-file"
+                  className="flex flex-col items-start gap-2 rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm transition-colors hover:border-blue-300 hover:bg-blue-50/40 cursor-pointer"
+                >
+                  <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+                    <Upload size={18} />
+                  </span>
+                  <span className="text-sm font-bold text-slate-900">Upload CSV / XLSX</span>
+                  <span className="text-xs text-slate-500">
+                    Pick a file from your computer; we&rsquo;ll parse it and let you map columns.
+                  </span>
+                  <input
+                    id="contacts-import-file"
+                    type="file"
+                    accept=".csv,.xlsx,.xls"
+                    className="sr-only"
+                    onChange={(e) => handleFileChange(e.target.files?.[0])}
+                  />
+                </label>
+              </div>
+
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Upload file</h4>
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Or drag &amp; drop here</h4>
                 <p className="text-sm text-slate-600 mb-4">Upload a CSV or Excel file containing your contact data.</p>
                 <label className="relative flex rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-8 cursor-pointer hover:border-slate-300 hover:bg-slate-50/80 transition-colors">
                   <input
@@ -231,15 +274,6 @@ export function ImportContactsDrawer({ isOpen, onClose, onSuccess }: ImportConta
                     <span className="font-medium text-slate-700">{totalRows}</span> rows
                   </p>
                 ) : null}
-              </div>
-              <div className="text-center">
-                <button
-                  type="button"
-                  onClick={handleDownloadTemplate}
-                  className="text-sm text-blue-600 hover:underline"
-                >
-                  Download CSV template
-                </button>
               </div>
             </div>
           )}

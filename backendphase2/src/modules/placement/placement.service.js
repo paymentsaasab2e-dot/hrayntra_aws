@@ -5,6 +5,10 @@ import {
   syncApplicationOfferLetter,
   updateCandidateStage,
 } from '../stage/candidateStage.service.js';
+import {
+  createUserNotification,
+  pushPortalNotification,
+} from '../notification/notification.service.js';
 
 const OBJECT_ID_REGEX = /^[a-f\d]{24}$/i;
 const DEFAULT_LIMIT = 20;
@@ -623,6 +627,56 @@ export const placementService = {
       performedById: userId,
       skipStageActivity: true,
     });
+
+    // CRM bell + portal bell notifications. Best-effort.
+    try {
+      const candidateName = `${candidate.firstName || ''} ${candidate.lastName || ''}`
+        .trim() || 'Candidate';
+      const recipients = new Set([userId, recruiter.id].filter(Boolean));
+      await Promise.allSettled(
+        Array.from(recipients).map((uid) =>
+          createUserNotification(uid, {
+            category: 'PLACEMENT',
+            title: 'Placement created',
+            description: `${candidateName} placed at ${client.companyName} for ${job.title}.`,
+            actionLabel: 'View placement',
+            actionPath: `/placement?placementId=${placementResult.id}`,
+            entityType: 'PLACEMENT',
+            entityId: placementResult.id,
+            metadata: {
+              candidateId: candidate.id,
+              jobId: job.id,
+              clientId: client.id,
+              hasOfferLetter: !!offerLetterToMirror?.fileUrl,
+            },
+          })
+        )
+      );
+      void pushPortalNotification(candidate.id, {
+        type: 'application',
+        title: offerLetterToMirror?.fileUrl
+          ? 'Offer letter received'
+          : 'You have been placed',
+        description: `Congratulations! ${
+          offerLetterToMirror?.fileUrl
+            ? 'Your offer letter is available'
+            : `You've been placed`
+        } for ${job.title} at ${client.companyName}.`,
+        actionButton: 'View applications',
+        actionPath: '/applications',
+        metadata: {
+          status: 'PLACED',
+          jobId: job.id,
+          placementId: placementResult.id,
+          offerLetterUrl: offerLetterToMirror?.fileUrl || null,
+        },
+      });
+    } catch (bellErr) {
+      console.warn(
+        '[placement.create] notification failed (non-fatal):',
+        bellErr?.message || bellErr
+      );
+    }
 
     // Placement was just created successfully; return it directly instead of
     // re-fetching, which was occasionally throwing "Placement not found".

@@ -31,11 +31,12 @@ export default function DuplicateAlert({
             className="fixed inset-0 z-[90] bg-slate-900/40"
             onClick={onClose}
           />
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 pointer-events-none">
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 16 }}
-            className="fixed left-1/2 top-1/2 z-[100] w-[95vw] max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white shadow-2xl"
+            className="pointer-events-auto w-full max-w-lg rounded-2xl bg-white shadow-2xl"
           >
             <div className="flex items-center justify-between border-b border-[#E5E7EB] px-6 py-4">
               <div className="flex items-center gap-3">
@@ -93,6 +94,7 @@ export default function DuplicateAlert({
               </button>
             </div>
           </motion.div>
+          </div>
         </>
       ) : null}
     </AnimatePresence>

@@ -31,9 +31,15 @@ export const userService = {
         select: {
           id: true,
           name: true,
+          firstName: true,
+          lastName: true,
           email: true,
           role: true,
           department: true,
+          designation: true,
+          location: true,
+          status: true,
+          phone: true,
           avatar: true,
           isActive: true,
           lastLogin: true,
@@ -53,9 +59,15 @@ export const userService = {
       select: {
         id: true,
         name: true,
+        firstName: true,
+        lastName: true,
         email: true,
         role: true,
         department: true,
+        designation: true,
+        location: true,
+        status: true,
+        phone: true,
         avatar: true,
         isActive: true,
         lastLogin: true,
@@ -66,22 +78,45 @@ export const userService = {
   },
 
   async update(id, data) {
+    // Whitelist of profile fields the user/admin can update via this service.
+    // Important: only spread keys that the caller actually provided so we
+    // never accidentally null out fields like `designation` on partial saves.
+    const updatable = [
+      'name',
+      'firstName',
+      'lastName',
+      'email',
+      'role',
+      'department',
+      'designation',
+      'location',
+      'status',
+      'phone',
+      'avatar',
+      'isActive',
+    ];
+    const payload = {};
+    for (const key of updatable) {
+      if (Object.prototype.hasOwnProperty.call(data || {}, key)) {
+        payload[key] = data[key];
+      }
+    }
+
     return prisma.user.update({
       where: { id },
-      data: {
-        name: data.name,
-        email: data.email,
-        role: data.role,
-        department: data.department,
-        avatar: data.avatar,
-        isActive: data.isActive,
-      },
+      data: payload,
       select: {
         id: true,
         name: true,
+        firstName: true,
+        lastName: true,
         email: true,
         role: true,
         department: true,
+        designation: true,
+        location: true,
+        status: true,
+        phone: true,
         avatar: true,
         isActive: true,
       },

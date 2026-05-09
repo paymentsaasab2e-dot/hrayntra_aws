@@ -60,6 +60,8 @@ export interface JobForDrawer {
   id: string;
   title: string;
   client: string;
+  /** CRM client id — required for scheduling interviews from the job drawer */
+  clientId?: string;
   location: string;
   status: JobDrawerStatus;
   employmentType?: string;
@@ -197,6 +199,7 @@ function normalizePipelineStages(stages?: JobPipelineStage[] | null): JobPipelin
 export interface JobCandidateItem {
   id: string;
   candidateName: string;
+  email?: string;
   currentStage: string;
   score: string | number;
   recruiter: string;

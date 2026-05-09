@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import {
   Plus,
   Upload,
+  Download,
   RefreshCcw,
   MoreVertical,
   Search,
@@ -24,8 +25,15 @@ import {
   Flame,
   FolderOpen,
 } from 'lucide-react';
+import { downloadCsv, csvDate } from '../../utils/csv';
 import { ClientTable } from '../../components/ClientTable';
-import { ClientFilterDrawer } from '../../components/drawers/ClientFilterDrawer';
+import {
+  ClientFilterDrawer,
+  DEFAULT_CLIENT_FILTERS,
+  applyClientFilters,
+  isClientFilterActive,
+  type ClientFilters,
+} from '../../components/drawers/ClientFilterDrawer';
 import { ClientDetailsDrawer } from '../../components/drawers/ClientDetailsDrawer';
 import { ClientImportDrawer } from '../../components/drawers/ClientImportDrawer';
 import { CreateJobDrawer } from '../../components/drawers/CreateJobDrawer';
@@ -35,6 +43,7 @@ import type { Client } from './types';
 import { apiGetClients, apiGetClient, apiDeleteClient, apiUpdateClient, type BackendClient, type BackendUser, type UpdateClientData } from '../../lib/api';
 import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { requestConfirm } from '../../lib/appDialog';
+import { usePermissions } from '../../hooks/usePermissions';
 
 function filterClientsByTab(clients: Client[], activeTab: string): Client[] {
   switch (activeTab) {
@@ -261,9 +270,24 @@ export default function App() {
   const FETCH_LIMIT = 500;
   const SEARCH_DEBOUNCE_MS = 350;
   const searchParams = useSearchParams();
+  const { hasAnyPermission } = usePermissions();
+  const canCreateJob = hasAnyPermission(['jobs_create', 'create_job']);
   const [activeTab, setActiveTab] = useState('all');
   const [clientNameSortOrder, setClientNameSortOrder] = useState<'asc' | 'desc'>('asc');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [advancedFilters, setAdvancedFilters] = useState<ClientFilters>(DEFAULT_CLIENT_FILTERS);
+  const currentUserName = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    try {
+      const raw = localStorage.getItem('currentUser');
+      if (!raw) return '';
+      const parsed = JSON.parse(raw) as { name?: string; firstName?: string; lastName?: string };
+      const composed = [parsed.firstName, parsed.lastName].filter(Boolean).join(' ').trim();
+      return parsed.name || composed || '';
+    } catch {
+      return '';
+    }
+  }, []);
   const [selectedClients, setSelectedClients] = useState<string[]>([]);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [selectedClientDrawerMode, setSelectedClientDrawerMode] = useState<'view' | 'edit'>('view');
@@ -284,7 +308,14 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState(1);
   const pendingDeepLinkClientIdRef = useRef<string | null>(null);
 
-  const filteredClients = useMemo(() => filterClientsByTab(clients, activeTab), [clients, activeTab]);
+  const advancedFilteredClients = useMemo(
+    () => applyClientFilters(clients, advancedFilters, currentUserName),
+    [clients, advancedFilters, currentUserName]
+  );
+  const filteredClients = useMemo(
+    () => filterClientsByTab(advancedFilteredClients, activeTab),
+    [advancedFilteredClients, activeTab]
+  );
   const sortedClients = useMemo(() => {
     const list = [...filteredClients];
     list.sort((a, b) => {
@@ -299,18 +330,31 @@ export default function App() {
   }, [sortedClients, currentPage]);
   const tabCounts = useMemo(
     () => ({
-      all: clients.length,
-      active: clients.filter((c) => c.stage === 'Active').length,
-      'on-hold': clients.filter((c) => c.stage === 'On Hold').length,
-      inactive: clients.filter((c) => c.stage === 'Inactive').length,
-      hot: clients.filter((c) => c.priority === 'High').length,
+      all: advancedFilteredClients.length,
+      active: advancedFilteredClients.filter((c) => c.stage === 'Active').length,
+      'on-hold': advancedFilteredClients.filter((c) => c.stage === 'On Hold').length,
+      inactive: advancedFilteredClients.filter((c) => c.stage === 'Inactive').length,
+      hot: advancedFilteredClients.filter((c) => c.priority === 'High').length,
     }),
-    [clients]
+    [advancedFilteredClients]
   );
+  const industryOptions = useMemo(() => {
+    const set = new Set<string>();
+    clients.forEach((client) => {
+      const industry = (client.industry || '').trim();
+      if (industry && industry !== 'Not specified') set.add(industry);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [clients]);
+  const filtersActive = isClientFilterActive(advancedFilters);
 
   useEffect(() => {
     setCurrentPage(1);
   }, [activeTab]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [advancedFilters]);
 
   useEffect(() => {
     const totalPages = Math.max(1, Math.ceil(sortedClients.length / DISPLAY_PAGE_SIZE));
@@ -502,6 +546,41 @@ export default function App() {
     if (assignedToId) await handleBulkUpdate({ assignedToId });
   };
 
+  /** Export the currently filtered + sorted client list to a CSV the importer can read back. */
+  const handleExportClientsCsv = () => {
+    const rowsToExport = sortedClients;
+    if (rowsToExport.length === 0) {
+      toast.message('No clients to export with current filters.');
+      return;
+    }
+    downloadCsv<Client>(
+      `clients-${new Date().toISOString().slice(0, 10)}.csv`,
+      [
+        { id: 'name', accessor: (c) => c.name },
+        { id: 'industry', accessor: (c) => (c.industry === 'Not specified' ? '' : c.industry) },
+        { id: 'location', accessor: (c) => (c.location === 'Not specified' ? '' : c.location) },
+        { id: 'city', accessor: () => '' },
+        { id: 'country', accessor: () => '' },
+        { id: 'contactPerson', accessor: (c) => c.contacts?.find((ct) => ct.isPrimary)?.name || c.contacts?.[0]?.name || '' },
+        { id: 'email', accessor: (c) => c.contacts?.find((ct) => ct.isPrimary)?.email || c.contacts?.[0]?.email || '' },
+        { id: 'phone', accessor: (c) => c.contacts?.find((ct) => ct.isPrimary)?.phone || c.contacts?.[0]?.phone || '' },
+        { id: 'companySize', accessor: (c) => c.companySize || '' },
+        { id: 'servicesNeeded', accessor: (c) => c.servicesNeeded || '' },
+        { id: 'leadStatus', accessor: (c) => c.leadStatus || c.stage },
+        { id: 'priority', accessor: (c) => c.priority || '' },
+        { id: 'expectedBusinessValue', accessor: (c) => c.expectedBusinessValue || '' },
+        { id: 'nextFollowUpDue', accessor: (c) => csvDate(c.nextFollowUpDue) },
+        { id: 'notes', accessor: () => '' },
+        { id: 'owner', accessor: (c) => c.owner?.name || '' },
+        { id: 'openJobs', accessor: (c) => c.openJobs ?? 0 },
+        { id: 'placements', accessor: (c) => c.placements ?? 0 },
+        { id: 'lastActivity', accessor: (c) => c.lastActivity || '' },
+      ],
+      rowsToExport,
+    );
+    toast.success(`Exported ${rowsToExport.length} client${rowsToExport.length === 1 ? '' : 's'} to CSV`);
+  };
+
   return (
     <div className="w-full min-h-screen bg-slate-50">
       <div className="mx-auto w-full max-w-7xl p-6 sm:p-8">
@@ -527,6 +606,14 @@ export default function App() {
               title="Refresh"
             >
               <RefreshCcw className={`h-5 w-5 ${loading ? 'animate-spin' : ''}`} strokeWidth={2} />
+            </button>
+            <button
+              type="button"
+              onClick={handleExportClientsCsv}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+              title="Export visible clients to CSV"
+            >
+              <Download className="h-4 w-4 text-slate-600" strokeWidth={2} /> Export
             </button>
             <button
               type="button"
@@ -565,10 +652,19 @@ export default function App() {
           <button
             type="button"
             onClick={() => setIsFilterOpen(true)}
-            className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+            className={`inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-lg border px-4 text-sm font-semibold shadow-sm transition-colors ${
+              filtersActive
+                ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+            }`}
           >
-            <Filter className="h-4 w-4 text-slate-600" strokeWidth={2} />
+            <Filter className={`h-4 w-4 ${filtersActive ? 'text-blue-600' : 'text-slate-600'}`} strokeWidth={2} />
             Filter
+            {filtersActive && (
+              <span className="ml-1 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-blue-600 px-1.5 text-[10px] font-bold text-white">
+                ON
+              </span>
+            )}
           </button>
         </div>
 
@@ -608,7 +704,12 @@ export default function App() {
               }}
               onDeleteClient={handleDeleteClient}
               onLogoUpdated={handleRefresh}
+              canCreateJob={canCreateJob}
               onCreateJob={(client) => {
+                if (!canCreateJob) {
+                  toast.error("You don't have permission to create jobs.");
+                  return;
+                }
                 setClientIdForJob(client.id);
                 setShowCreateJobDrawer(true);
               }}
@@ -656,7 +757,14 @@ export default function App() {
         onJobCreated={() => { setShowCreateJobDrawer(false); setClientIdForJob(null); handleRefresh(); }}
         defaultClientId={clientIdForJob}
       />
-      <ClientFilterDrawer isOpen={isFilterOpen} onClose={() => setIsFilterOpen(false)} />
+      <ClientFilterDrawer
+        isOpen={isFilterOpen}
+        value={advancedFilters}
+        industryOptions={industryOptions}
+        currentUserName={currentUserName}
+        onApply={(next) => setAdvancedFilters(next)}
+        onClose={() => setIsFilterOpen(false)}
+      />
       <ClientImportDrawer
         isOpen={showImportDrawer}
         onClose={() => setShowImportDrawer(false)}

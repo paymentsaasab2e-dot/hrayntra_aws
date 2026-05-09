@@ -600,7 +600,7 @@ export const teamMemberService = {
     };
   },
 
-  async resetPassword(userId) {
+  async resetPassword(userId, actorUser) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: {
@@ -636,7 +636,7 @@ export const teamMemberService = {
       },
     });
 
-    // Send password reset email
+    // Send password reset email (Super Admin can still complete reset if email fails)
     try {
       await sendPasswordResetEmail({
         email: user.email,
@@ -646,7 +646,9 @@ export const teamMemberService = {
       });
     } catch (emailError) {
       console.error('Failed to send password reset email:', emailError);
-      throw new Error('Failed to send password reset email');
+      if (!isSuperAdminUser({ user: actorUser })) {
+        throw new Error('Failed to send password reset email');
+      }
     }
 
     // Log activity
@@ -661,6 +663,62 @@ export const teamMemberService = {
     return {
       message: 'Password reset successfully. Email sent to user.',
       tempPassword,
+      loginId: user.credential.loginId,
+    };
+  },
+
+  /**
+   * Super Admin only: set a member's login password to an explicit value.
+   * Existing passwords cannot be read back (one-way hash).
+   */
+  async setPassword(userId, newPassword, actorUser) {
+    if (!isSuperAdminUser({ user: actorUser })) {
+      throw new Error('Only Super Admins can set a member password directly.');
+    }
+
+    const pwd = typeof newPassword === 'string' ? newPassword.trim() : '';
+    if (pwd.length < 8) {
+      throw new Error('Password must be at least 8 characters.');
+    }
+    if (pwd.length > 128) {
+      throw new Error('Password is too long.');
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { credential: true },
+    });
+
+    if (!user) {
+      throw new Error('User not found');
+    }
+    if (!user.credential) {
+      throw new Error('User has no credentials. Generate credentials first.');
+    }
+
+    const hashedPassword = await hashPassword(pwd);
+
+    await prisma.userCredential.update({
+      where: { userId },
+      data: {
+        hashedPassword,
+        tempPasswordFlag: false,
+        failedAttempts: 0,
+        isLocked: false,
+      },
+    });
+
+    await prisma.userActivity.create({
+      data: {
+        userId,
+        action: 'Password set by Super Admin',
+        module: 'Team',
+        metadata: { performedBy: actorUser?.id || null },
+      },
+    });
+
+    return {
+      message: 'Password updated successfully.',
       loginId: user.credential.loginId,
     };
   },

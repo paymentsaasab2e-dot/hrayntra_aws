@@ -1,7 +1,9 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Search, MoreVertical, Eye, Edit, Key, Lock, Unlock, Mail, UserMinus, UserPlus, X, Target, Trash2 } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { Search, MoreVertical, Eye, Edit, Key, Lock, Unlock, Mail, UserMinus, UserPlus, X, Target, Trash2, Download } from 'lucide-react';
+import { downloadCsv, csvDateTime } from '../../../utils/csv';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import useSWR from 'swr';
@@ -73,9 +75,67 @@ export const MembersTab: React.FC = () => {
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
   const [selectedMemberTempPassword, setSelectedMemberTempPassword] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
+  const menuTriggersRef = useRef<Map<string, HTMLButtonElement>>(new Map());
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 10;
   const [totalMembers, setTotalMembers] = useState(0);
+
+  const positionMenuFromTrigger = useCallback((trigger: HTMLButtonElement | null) => {
+    if (!trigger) {
+      setMenuPos(null);
+      return;
+    }
+    const rect = trigger.getBoundingClientRect();
+    const menuWidth = 208; // w-52
+    const estimatedMenuHeight = 360;
+    const gap = 6;
+    const margin = 12;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    // Right-align to the trigger so the menu doesn't escape the page on the right.
+    let left = rect.right - menuWidth;
+    left = Math.max(margin, Math.min(left, viewportWidth - menuWidth - margin));
+
+    const spaceBelow = viewportHeight - rect.bottom - gap - margin;
+    const spaceAbove = rect.top - gap - margin;
+    let top: number;
+    if (spaceBelow >= estimatedMenuHeight) {
+      top = rect.bottom + gap;
+    } else if (spaceAbove >= estimatedMenuHeight) {
+      top = rect.top - estimatedMenuHeight - gap;
+    } else {
+      top = spaceBelow >= spaceAbove ? rect.bottom + gap : margin;
+    }
+    top = Math.max(margin, Math.min(top, viewportHeight - estimatedMenuHeight - margin));
+
+    setMenuPos({ top, left });
+  }, []);
+
+  // Reposition on scroll/resize while a menu is open.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const reposition = () => {
+      const trigger = menuTriggersRef.current.get(menuOpen);
+      if (!trigger || !document.body.contains(trigger)) {
+        setMenuOpen(null);
+        return;
+      }
+      positionMenuFromTrigger(trigger);
+    };
+    window.addEventListener('resize', reposition);
+    window.addEventListener('scroll', reposition, true);
+    return () => {
+      window.removeEventListener('resize', reposition);
+      window.removeEventListener('scroll', reposition, true);
+    };
+  }, [menuOpen, positionMenuFromTrigger]);
+
+  const closeMenu = useCallback(() => {
+    setMenuOpen(null);
+    setMenuPos(null);
+  }, []);
 
   const debouncedSearch = useDebounce(searchQuery, 300);
 
@@ -237,16 +297,17 @@ export const MembersTab: React.FC = () => {
     setSelectedMember(member);
     setSelectedMemberTempPassword(null);
     setShowProfileDrawer(true);
-    setMenuOpen(null);
+    closeMenu();
   };
 
   const handleEdit = (member: TeamMember) => {
     setSelectedMember(member);
     setShowEditDrawer(true);
-    setMenuOpen(null);
+    closeMenu();
   };
 
   const handleDeactivate = async (member: TeamMember) => {
+    closeMenu();
     try {
       await deactivateTeamMember(member.id);
       toast.success('Member deactivated');
@@ -255,10 +316,10 @@ export const MembersTab: React.FC = () => {
     } catch (error: any) {
       toast.error(error.message || 'Failed to deactivate member');
     }
-    setMenuOpen(null);
   };
 
   const handleActivate = async (member: TeamMember) => {
+    closeMenu();
     try {
       await activateTeamMember(member.id);
       toast.success('Member activated');
@@ -267,10 +328,10 @@ export const MembersTab: React.FC = () => {
     } catch (error: any) {
       toast.error(error.message || 'Failed to activate member');
     }
-    setMenuOpen(null);
   };
 
   const handleGenerateCredentials = async (member: TeamMember) => {
+    closeMenu();
     try {
       const res = await generateCredentials(member.id, { sendInvite: true });
       toast.success(`Credentials generated. Login ID: ${res.data?.loginId || 'N/A'}`);
@@ -278,10 +339,10 @@ export const MembersTab: React.FC = () => {
     } catch (error: any) {
       toast.error(error.message || 'Failed to generate credentials');
     }
-    setMenuOpen(null);
   };
 
   const handleResetPassword = async (member: TeamMember) => {
+    closeMenu();
     try {
       await resetPassword(member.id);
       toast.success('Password reset email sent');
@@ -289,10 +350,10 @@ export const MembersTab: React.FC = () => {
     } catch (error: any) {
       toast.error(error.message || 'Failed to reset password');
     }
-    setMenuOpen(null);
   };
 
   const handleResendInvite = async (member: TeamMember) => {
+    closeMenu();
     try {
       await resendInvite(member.id);
       toast.success('Invite email resent');
@@ -300,10 +361,10 @@ export const MembersTab: React.FC = () => {
     } catch (error: any) {
       toast.error(error.message || 'Failed to resend invite');
     }
-    setMenuOpen(null);
   };
 
   const handleLock = async (member: TeamMember) => {
+    closeMenu();
     try {
       await lockAccount(member.id);
       toast.success('Account locked');
@@ -311,10 +372,10 @@ export const MembersTab: React.FC = () => {
     } catch (error: any) {
       toast.error(error.message || 'Failed to lock account');
     }
-    setMenuOpen(null);
   };
 
   const handleUnlock = async (member: TeamMember) => {
+    closeMenu();
     try {
       await unlockAccount(member.id);
       toast.success('Account unlocked');
@@ -322,10 +383,10 @@ export const MembersTab: React.FC = () => {
     } catch (error: any) {
       toast.error(error.message || 'Failed to unlock account');
     }
-    setMenuOpen(null);
   };
 
   const handleDelete = async (member: TeamMember) => {
+    closeMenu();
     if (!(await requestConfirm(`Are you sure you want to permanently delete ${member.firstName} ${member.lastName}? This action cannot be undone and will remove all associated data.`))) {
       return;
     }
@@ -337,13 +398,54 @@ export const MembersTab: React.FC = () => {
     } catch (error: any) {
       toast.error(error.message || 'Failed to delete team member');
     }
-    setMenuOpen(null);
+  };
+
+  const openMember = useMemo(() => members.find((m) => m.id === menuOpen) || null, [members, menuOpen]);
+
+  /** Export the visible (already filtered server-side + by selected filters) team members. */
+  const handleExportMembersCsv = () => {
+    if (members.length === 0) {
+      toast.message('No team members to export with the current filters.');
+      return;
+    }
+    downloadCsv<TeamMember>(
+      `team-members-${new Date().toISOString().slice(0, 10)}.csv`,
+      [
+        { id: 'firstName', accessor: (m) => m.firstName || '' },
+        { id: 'lastName', accessor: (m) => m.lastName || '' },
+        { id: 'email', accessor: (m) => m.email || '' },
+        { id: 'phone', accessor: (m) => m.phone || '' },
+        { id: 'designation', accessor: (m) => m.designation || '' },
+        { id: 'location', accessor: (m) => m.location || '' },
+        { id: 'department', accessor: (m) => m.department?.name || '' },
+        { id: 'role', accessor: (m) => m.role?.roleName || '' },
+        { id: 'status', accessor: (m) => m.status || '' },
+        { id: 'loginId', accessor: (m) => m.credential?.loginId || '' },
+        { id: 'isLocked', accessor: (m) => (m.credential?.isLocked ? 'true' : 'false') },
+        { id: 'lastLoginAt', accessor: (m) => csvDateTime(m.credential?.lastLoginAt) },
+        { id: 'createdAt', accessor: (m) => csvDateTime(m.createdAt) },
+      ],
+      members,
+    );
+    toast.success(`Exported ${members.length} team member${members.length === 1 ? '' : 's'} to CSV`);
   };
 
   return (
     <div className="space-y-6">
       {/* Filter Bar */}
       <div className="bg-white rounded-xl border border-slate-200 p-4">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Filters</p>
+          <button
+            type="button"
+            onClick={handleExportMembersCsv}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+            title="Export visible team members to CSV"
+          >
+            <Download size={14} className="text-slate-500" />
+            Export CSV
+          </button>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {/* Search */}
           <div className="relative">
@@ -515,78 +617,30 @@ export const MembersTab: React.FC = () => {
                             <Edit size={16} />
                           </button>
                         )}
-                        <div className="relative">
-                          <button
-                            onClick={() => setMenuOpen(menuOpen === member.id ? null : member.id)}
-                            className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-600 hover:text-slate-900"
-                            title="More options"
-                          >
-                            <MoreVertical size={16} />
-                          </button>
-                          <AnimatePresence>
-                            {menuOpen === member.id && (
-                              <motion.div
-                                initial={{ opacity: 0, y: -10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -10 }}
-                                className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg shadow-lg border border-slate-200 z-10 py-1"
-                              >
-                                {hasPermission('generate_credentials') && (
-                                  <>
-                                    <button
-                                      onClick={() => handleGenerateCredentials(member)}
-                                      className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                                    >
-                                      <Key size={14} />
-                                      Generate Credentials
-                                    </button>
-                                    <button
-                                      onClick={() => handleResetPassword(member)}
-                                      className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                                    >
-                                      <Key size={14} />
-                                      Reset Password
-                                    </button>
-                                    <button
-                                      onClick={() => handleResendInvite(member)}
-                                      className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                                    >
-                                      <Mail size={14} />
-                                      Resend Invite
-                                    </button>
-                                    <button
-                                      onClick={() => member.credential?.isLocked ? handleUnlock(member) : handleLock(member)}
-                                      className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                                    >
-                                      {member.credential?.isLocked ? <Unlock size={14} /> : <Lock size={14} />}
-                                      {member.credential?.isLocked ? 'Unlock Account' : 'Lock Account'}
-                                    </button>
-                                  </>
-                                )}
-                                {hasPermission('deactivate_team_member') && (
-                                  <>
-                                    {hasPermission('generate_credentials') && <div className="border-t border-slate-200 my-1" />}
-                                    <button
-                                      onClick={() => member.status === 'ACTIVE' ? handleDeactivate(member) : handleActivate(member)}
-                                      className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                                    >
-                                      {member.status === 'ACTIVE' ? <UserMinus size={14} /> : <UserPlus size={14} />}
-                                      {member.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
-                                    </button>
-                                    <div className="border-t border-slate-200 my-1" />
-                                    <button
-                                      onClick={() => handleDelete(member)}
-                                      className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
-                                    >
-                                      <Trash2 size={14} />
-                                      Delete Member
-                                    </button>
-                                  </>
-                                )}
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
+                        <button
+                          ref={(node) => {
+                            if (node) {
+                              menuTriggersRef.current.set(member.id, node);
+                            } else {
+                              menuTriggersRef.current.delete(member.id);
+                            }
+                          }}
+                          onClick={(e) => {
+                            const trigger = e.currentTarget;
+                            if (menuOpen === member.id) {
+                              closeMenu();
+                              return;
+                            }
+                            setMenuOpen(member.id);
+                            positionMenuFromTrigger(trigger);
+                          }}
+                          aria-haspopup="menu"
+                          aria-expanded={menuOpen === member.id}
+                          className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-600 hover:text-slate-900"
+                          title="More options"
+                        >
+                          <MoreVertical size={16} />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -681,13 +735,98 @@ export const MembersTab: React.FC = () => {
         </>
       )}
 
-      {/* Click outside to close menu */}
-      {menuOpen && (
-        <div
-          className="fixed inset-0 z-0"
-          onClick={() => setMenuOpen(null)}
-        />
-      )}
+      {/* Portal-based action menu — escapes the table cell so it can't be
+          clipped by pagination or page overflow, and is clamped to the viewport
+          by `positionMenuFromTrigger`. */}
+      {typeof window !== 'undefined' && menuOpen && menuPos && openMember &&
+        createPortal(
+          <>
+            <div className="fixed inset-0 z-[60]" onClick={closeMenu} />
+            <AnimatePresence>
+              <motion.div
+                key={menuOpen}
+                role="menu"
+                initial={{ opacity: 0, y: -6, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -6, scale: 0.97 }}
+                transition={{ duration: 0.12 }}
+                style={{ position: 'fixed', top: menuPos.top, left: menuPos.left, width: 208, zIndex: 70 }}
+                className="max-h-[calc(100vh-24px)] overflow-y-auto bg-white rounded-lg shadow-2xl border border-slate-200 py-1"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {hasPermission('generate_credentials') && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleGenerateCredentials(openMember)}
+                      className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                    >
+                      <Key size={14} />
+                      Generate Credentials
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleResetPassword(openMember)}
+                      className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                    >
+                      <Key size={14} />
+                      Reset Password
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleResendInvite(openMember)}
+                      className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                    >
+                      <Mail size={14} />
+                      Resend Invite
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openMember.credential?.isLocked
+                          ? handleUnlock(openMember)
+                          : handleLock(openMember)
+                      }
+                      className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                    >
+                      {openMember.credential?.isLocked ? <Unlock size={14} /> : <Lock size={14} />}
+                      {openMember.credential?.isLocked ? 'Unlock Account' : 'Lock Account'}
+                    </button>
+                  </>
+                )}
+                {hasPermission('deactivate_team_member') && (
+                  <>
+                    {hasPermission('generate_credentials') && (
+                      <div className="border-t border-slate-200 my-1" />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openMember.status === 'ACTIVE'
+                          ? handleDeactivate(openMember)
+                          : handleActivate(openMember)
+                      }
+                      className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                    >
+                      {openMember.status === 'ACTIVE' ? <UserMinus size={14} /> : <UserPlus size={14} />}
+                      {openMember.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
+                    </button>
+                    <div className="border-t border-slate-200 my-1" />
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(openMember)}
+                      className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                    >
+                      <Trash2 size={14} />
+                      Delete Member
+                    </button>
+                  </>
+                )}
+              </motion.div>
+            </AnimatePresence>
+          </>,
+          document.body
+        )}
     </div>
   );
 };

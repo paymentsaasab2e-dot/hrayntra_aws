@@ -16,6 +16,10 @@ import {
 } from './notificationService.js';
 import { INTERVIEW_ACTIVITY_ACTIONS, logActivity } from '../utils/activityLogger.js';
 import { canViewAllAssignments } from '../utils/permissionScope.js';
+import {
+  createUserNotification,
+  pushPortalNotification,
+} from '../modules/notification/notification.service.js';
 
 const interviewInclude = {
   candidate: {
@@ -654,6 +658,70 @@ export const interviewService = {
 
     if (payload.sendEmailNotification) {
       await sendInterviewScheduled(result.candidate, result, result.panel);
+    }
+
+    // Bell notifications for the recruiter who scheduled it + each panel member,
+    // and a candidate-facing push into the job portal so the candidate's bell
+    // also lights up. All best-effort.
+    try {
+      const candidateName =
+        `${result.candidate?.firstName || ''} ${result.candidate?.lastName || ''}`
+          .trim() ||
+        result.candidate?.email ||
+        'Candidate';
+      const jobTitle = result.job?.title || 'a role';
+      const whenLabel = scheduledAt.toLocaleString('en-US', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      });
+
+      const recipientUserIds = new Set();
+      if (user?.id) recipientUserIds.add(user.id);
+      (result.panel || []).forEach((member) => {
+        const uid = member?.userId || member?.user?.id;
+        if (uid) recipientUserIds.add(uid);
+      });
+
+      await Promise.allSettled(
+        Array.from(recipientUserIds).map((uid) =>
+          createUserNotification(uid, {
+            category: 'INTERVIEW',
+            title: 'Interview scheduled',
+            description: `${candidateName} for ${jobTitle} on ${whenLabel}.`,
+            actionLabel: 'Open interview',
+            actionPath: `/interviews?interviewId=${result.id}`,
+            entityType: 'INTERVIEW',
+            entityId: result.id,
+            metadata: {
+              candidateId: result.candidate?.id || candidate.id,
+              jobId: result.job?.id || job.id,
+              scheduledAt: scheduledAt.toISOString(),
+              mode: payload.mode,
+              round: payload.round,
+            },
+          })
+        )
+      );
+
+      void pushPortalNotification(candidate.id, {
+        type: 'interview',
+        title: 'Interview scheduled',
+        description: `Your interview for ${jobTitle} is on ${whenLabel}.`,
+        actionButton: 'View application',
+        actionPath: '/applications',
+        metadata: {
+          interviewId: result.id,
+          jobId: result.job?.id || job.id,
+          scheduledAt: scheduledAt.toISOString(),
+          mode: payload.mode,
+          meetingLink: result.meetingLink || null,
+        },
+      });
+    } catch (notifyErr) {
+      console.warn(
+        '[interview.create] notification failed (non-fatal):',
+        notifyErr?.message || notifyErr
+      );
     }
 
     return {

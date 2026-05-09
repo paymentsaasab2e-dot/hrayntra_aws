@@ -66,6 +66,8 @@ import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib
 import { requestConfirm, requestError, requestSuccess, requestWarning } from '../../lib/appDialog';
 import { CreateJobDrawer } from './CreateJobDrawer';
 import { JobDetailsDrawer, type JobForDrawer } from './JobDetailsDrawer';
+import { usePermissions } from '../../hooks/usePermissions';
+import { toast } from 'sonner';
 
 const HEALTH_STYLES: Record<ClientHealthStatus, { bg: string; text: string; label: string }> = {
   Good: { bg: 'bg-emerald-50', text: 'text-emerald-700', label: 'Good' },
@@ -332,6 +334,11 @@ export function ClientDetailsDrawer({
   const [uploadingClientLogo, setUploadingClientLogo] = useState(false);
   const [pendingClientLogoFile, setPendingClientLogoFile] = useState<File | null>(null);
   const [pendingClientLogoPreview, setPendingClientLogoPreview] = useState('');
+  /** Tracks an explicit "Remove logo" intent so the preview hides the existing
+   *  `client.logo` / `fullClientData.logo` until the user picks a new file or
+   *  cancels the edit. Without this the preview falls back to the saved logo
+   *  and the Remove button appears to do nothing. */
+  const [logoRemoved, setLogoRemoved] = useState(false);
   const uploadsBase = (
     typeof window !== 'undefined'
       ? process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1'
@@ -500,13 +507,24 @@ export function ClientDetailsDrawer({
   const [jobCandidatesForDrawer, setJobCandidatesForDrawer] = useState<any[]>([]);
   const [jobPipelineStagesForDrawer, setJobPipelineStagesForDrawer] = useState<any[] | undefined>(undefined);
 
+  const { hasAnyPermission } = usePermissions();
+  const canCreateJob = hasAnyPermission(['jobs_create', 'create_job']);
+
   const openCreateJobDrawer = () => {
+    if (!canCreateJob) {
+      toast.error("You don't have permission to create jobs.");
+      return;
+    }
     setActiveTab('jobs');
     setDuplicateFromJobId(null);
     setCreateJobDrawerOpen(true);
   };
 
   const openDuplicateJobDrawer = (job: ClientJob) => {
+    if (!canCreateJob) {
+      toast.error("You don't have permission to create jobs.");
+      return;
+    }
     setActiveTab('jobs');
     setDuplicateFromJobId(String(job.id));
     setCreateJobDrawerOpen(true);
@@ -764,12 +782,15 @@ export function ClientDetailsDrawer({
     setOverviewOpen((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const clientLogoPreview =
-    pendingClientLogoPreview ||
-    overviewEditForm.logo ||
-    fullClientData?.logo ||
-    client?.logo ||
-    '';
+  const clientLogoPreview = pendingClientLogoPreview
+    ? pendingClientLogoPreview
+    : logoRemoved
+      ? ''
+      : overviewEditForm.logo ||
+        // Prefer fullClientData over the (potentially stale) `client` prop when
+        // it's loaded so an explicit logo removal isn't masked by the parent's
+        // cached value.
+        (fullClientData ? fullClientData.logo || '' : client?.logo || '');
 
   const getClientLogoSrc = (logoUrl: string) => {
     const trimmed = String(logoUrl || '').trim();
@@ -781,6 +802,19 @@ export function ClientDetailsDrawer({
   const resetClientLogoDraft = () => {
     setPendingClientLogoFile(null);
     setPendingClientLogoPreview('');
+    setLogoRemoved(false);
+  };
+
+  /** User clicked "Remove" on the logo preview: drop any pending upload draft
+   *  and flag the existing logo as removed so the fallback doesn't reshow it. */
+  const markClientLogoRemoved = () => {
+    if (pendingClientLogoPreview.startsWith('blob:')) {
+      URL.revokeObjectURL(pendingClientLogoPreview);
+    }
+    setPendingClientLogoFile(null);
+    setPendingClientLogoPreview('');
+    setOverviewEditForm((prev) => ({ ...prev, logo: '' }));
+    setLogoRemoved(true);
   };
 
   const syncClientLogoLocally = (logoUrl: string) => {
@@ -811,6 +845,7 @@ export function ClientDetailsDrawer({
       setPendingClientLogoFile(file);
       setPendingClientLogoPreview(previewUrl);
       setOverviewEditForm((prev) => ({ ...prev, logo: previewUrl }));
+      setLogoRemoved(false);
       return;
     }
 
@@ -824,6 +859,7 @@ export function ClientDetailsDrawer({
 
       await apiUpdateClient(client.id, { logo: logoUrl });
       syncClientLogoLocally(logoUrl);
+      setLogoRemoved(false);
       onClientCreated?.();
     } catch (error: any) {
       console.error('Failed to upload client logo:', error);
@@ -835,20 +871,36 @@ export function ClientDetailsDrawer({
 
   const startOverviewEdit = async () => {
     if (!client) return;
-    
-    // Fetch full client data from backend to get all fields including linkedin
+
+    // Fetch full client data AND latest contacts in parallel so the edit form
+    // is always seeded with the freshest values. Reading `primaryClientContact`
+    // straight from state can return stale/empty values if contacts haven't
+    // finished loading by the time the user clicks Edit (or when the drawer
+    // opens with `initialMode === 'edit'`), causing email/phone to render blank.
     let fetchedClient: BackendClient | null = null;
     let assignedToId = '';
+    let fetchedContacts: BackendContact[] = [];
     try {
-      const response = await apiFetch<BackendClient>(`/clients/${client.id}`, {
-        method: 'GET',
-        auth: true,
-      });
-      fetchedClient = response.data;
+      const [clientRes, contactsRes] = await Promise.all([
+        apiFetch<BackendClient>(`/clients/${client.id}`, {
+          method: 'GET',
+          auth: true,
+        }),
+        apiGetContacts({ clientId: client.id, type: 'CLIENT' }).catch((error) => {
+          console.error('Failed to fetch contacts for edit form:', error);
+          return null;
+        }),
+      ]);
+      fetchedClient = clientRes.data;
       assignedToId = fetchedClient?.assignedTo?.id || '';
+      if (contactsRes) {
+        const raw = contactsRes.data as any;
+        fetchedContacts = Array.isArray(raw)
+          ? raw
+          : raw?.data || raw?.items || [];
+      }
     } catch (error) {
       console.error('Failed to fetch client details:', error);
-      // Fallback: try to find user by name if available
       if (client.owner?.name && users.length > 0) {
         const matchedUser = users.find(u => u.name === client.owner?.name);
         if (matchedUser) {
@@ -856,18 +908,35 @@ export function ClientDetailsDrawer({
         }
       }
     }
-    
-    // Use fetched client data if available, otherwise fall back to prop client
-    const clientData = fetchedClient || client;
-    
+
+    // Push fresh contacts into state so view mode and Contacts tab stay in sync.
+    if (fetchedContacts.length) {
+      setClientContacts(fetchedContacts.map(mapBackendContactToClientContact));
+    }
+
+    const fetchedPrimary =
+      fetchedContacts.find((contact) => contact.isPrimary) || fetchedContacts[0] || null;
+    const fetchedPrimaryName = fetchedPrimary
+      ? `${fetchedPrimary.firstName || ''} ${fetchedPrimary.lastName || ''}`.trim()
+      : '';
+    const fetchedPrimaryEmailRaw = fetchedPrimary?.email || '';
+    const fetchedPrimaryEmail =
+      fetchedPrimaryEmailRaw && !fetchedPrimaryEmailRaw.includes('@placeholder.local')
+        ? fetchedPrimaryEmailRaw
+        : '';
+    const fetchedPrimaryPhone = fetchedPrimary?.phone || '';
+
+    const directorNameValue = fetchedPrimaryName || primaryClientContact?.name || '';
+    const contactEmailValue = fetchedPrimaryEmail || primaryClientContactEmail;
+    const contactPhoneValue = fetchedPrimaryPhone || primaryClientContactPhone;
+
     const statusMap: Record<string, 'ACTIVE' | 'ON_HOLD' | 'INACTIVE'> = {
       'Active': 'ACTIVE',
       'On Hold': 'ON_HOLD',
       'Inactive': 'INACTIVE',
-      'Hot Clients ðŸ”¥': 'ACTIVE', // Hot Clients maps to ACTIVE status
+      'Hot Clients ðŸ”¥': 'ACTIVE',
     };
-    
-    // Map backend status to frontend stage if using fetched client
+
     let clientStage = client.stage;
     if (fetchedClient) {
       const reverseStatusMap: Record<string, Client['stage']> = {
@@ -878,7 +947,7 @@ export function ClientDetailsDrawer({
       };
       clientStage = reverseStatusMap[fetchedClient.status] || 'Active';
     }
-    
+
     setOverviewEditForm({
       companyName: fetchedClient?.companyName || client.name || '',
       logo: fetchedClient?.logo || client.logo || '',
@@ -889,9 +958,9 @@ export function ClientDetailsDrawer({
       location: fetchedClient?.location || client.location || '',
       city: derivedCity,
       country: derivedCountry,
-      directorName: primaryClientContact?.name || '',
-      contactEmail: primaryClientContactEmail,
-      contactPhone: primaryClientContactPhone,
+      directorName: directorNameValue,
+      contactEmail: contactEmailValue,
+      contactPhone: contactPhoneValue,
       hiringLocations: fetchedClient?.hiringLocations || client.hiringLocations || '',
       timezone: fetchedClient?.timezone || client.timezone || '',
       priority: fetchedClient?.priority || client.priority || '',
@@ -916,6 +985,7 @@ export function ClientDetailsDrawer({
 
   const cancelOverviewEdit = () => {
     setOverviewEditMode(false);
+    resetClientLogoDraft();
   };
 
   const saveOverviewEdit = async () => {
@@ -1028,7 +1098,12 @@ export function ClientDetailsDrawer({
             contactType: 'CLIENT',
           });
         }
-        setFullClientData((prev) => (prev ? { ...prev, logo: updateData.logo ?? prev.logo } : prev));
+        setFullClientData((prev) => {
+          if (!prev) return prev;
+          if (updateData.logo === undefined) return prev;
+          return { ...prev, logo: updateData.logo ?? '' };
+        });
+        resetClientLogoDraft();
         onClientCreated?.();
         setOverviewEditMode(false);
         
@@ -1570,8 +1645,13 @@ export function ClientDetailsDrawer({
                   <button
                     type="button"
                     onClick={() => { setActiveTab('jobs'); openCreateJobDrawer(); }}
-                    className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                    title="Add Job"
+                    disabled={!canCreateJob}
+                    className={`p-2 rounded-lg transition-colors ${
+                      canCreateJob
+                        ? 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                        : 'text-slate-300 cursor-not-allowed'
+                    }`}
+                    title={canCreateJob ? 'Add Job' : "You don't have permission to create jobs"}
                   >
                     <Briefcase size={18} />
                   </button>
@@ -1700,10 +1780,7 @@ export function ClientDetailsDrawer({
                                   {clientLogoPreview && (
                                     <button
                                       type="button"
-                                      onClick={() => {
-                                        resetClientLogoDraft();
-                                        setOverviewEditForm((prev) => ({ ...prev, logo: '' }));
-                                      }}
+                                      onClick={markClientLogoRemoved}
                                       className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50"
                                     >
                                       <Trash2 size={16} />
@@ -2405,10 +2482,7 @@ export function ClientDetailsDrawer({
                                   {clientLogoPreview && (
                                     <button
                                       type="button"
-                                      onClick={() => {
-                                        resetClientLogoDraft();
-                                        setOverviewEditForm((prev) => ({ ...prev, logo: '' }));
-                                      }}
+                                      onClick={markClientLogoRemoved}
                                       className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50"
                                     >
                                       <Trash2 size={16} />
@@ -2931,9 +3005,15 @@ export function ClientDetailsDrawer({
                         <button
                           type="button"
                           onClick={() => { setActiveTab('jobs'); openCreateJobDrawer(); }}
-                          className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100 hover:border-slate-300 active:scale-[0.98] transition-all"
+                          disabled={!canCreateJob}
+                          title={canCreateJob ? 'Add Job Requirement' : "You don't have permission to create jobs"}
+                          className={`flex items-center justify-center gap-2 py-3 px-4 border rounded-xl text-sm font-medium shadow-sm active:scale-[0.98] transition-all ${
+                            canCreateJob
+                              ? 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 hover:border-slate-300'
+                              : 'bg-slate-100/60 border-slate-200 text-slate-400 cursor-not-allowed'
+                          }`}
                         >
-                          <Briefcase size={16} className="text-slate-600" />
+                          <Briefcase size={16} className={canCreateJob ? 'text-slate-600' : 'text-slate-400'} />
                           Add Job Requirement
                         </button>
                         <button type="button" className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100 hover:border-slate-300 active:scale-[0.98] transition-all">
@@ -3412,7 +3492,13 @@ export function ClientDetailsDrawer({
                         <button
                           type="button"
                           onClick={openCreateJobDrawer}
-                          className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+                          disabled={!canCreateJob}
+                          title={canCreateJob ? 'Add Job' : "You don't have permission to create jobs"}
+                          className={`flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                            canCreateJob
+                              ? 'text-white bg-blue-600 hover:bg-blue-700'
+                              : 'text-slate-400 bg-slate-100 cursor-not-allowed'
+                          }`}
                         >
                           <Briefcase size={16} />
                           Add Job

@@ -1,4 +1,5 @@
 const { prisma } = require('../lib/prisma');
+const { isPortalPlaceholderFullName } = require('../utils/portal-profile-placeholder.util');
 const { parseResumeFromBuffer } = require('../services/resume-parser.service');
 const { convertToLaTeX } = require('../services/cv-parser.service');
 const { Proficiency } = require('@prisma/client');
@@ -1242,7 +1243,11 @@ async function getCandidateDashboard(req, res) {
     // Format dashboard data
     const dashboardData = {
       profile: {
-        fullName: candidate.profile?.fullName || 'User',
+        fullName: (() => {
+          const raw = String(candidate.profile?.fullName || '').trim();
+          if (raw && !isPortalPlaceholderFullName(raw)) return raw;
+          return '';
+        })(),
         email: candidate.profile?.email || '',
         profilePhotoUrl: candidate.profile?.profilePhotoUrl || null,
         profileCompleteness: candidate.profile?.profileCompleteness || 0,

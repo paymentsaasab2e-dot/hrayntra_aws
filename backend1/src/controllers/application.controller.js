@@ -1,4 +1,5 @@
 const { prisma } = require('../lib/prisma');
+const { createCandidateNotification } = require('../services/notification.service');
 
 /** True for Prisma Mongo write conflicts / transient transaction failures (case + message fallbacks). */
 function isMongoTransientWriteConflict(e) {
@@ -837,6 +838,33 @@ async function createApplication(req, res) {
     };
 
     res.json(responsePayload);
+
+    // Persist a bell notification for the candidate ("Application submitted")
+    // so it shows up under the bell icon alongside the toast. Failures are
+    // swallowed inside the helper so they cannot affect the HTTP response.
+    void createCandidateNotification(candidateId, {
+      type: 'application',
+      title: 'Application submitted',
+      description: `Your application for ${
+        application.job.title || 'a role'
+      } at ${
+        application.job.company?.name ||
+        application.job.client?.companyName ||
+        'the company'
+      } has been received.`,
+      actionButton: 'View application',
+      actionPath: `/applications/${application.id}`,
+      metadata: {
+        applicationId: application.id,
+        jobId: job.id,
+        jobTitle: application.job.title || null,
+        companyName:
+          application.job.company?.name ||
+          application.job.client?.companyName ||
+          null,
+        status: application.status,
+      },
+    });
 
     // Heavy / outbound sync must not block or fail the HTTP response (avoids client "Failed to fetch" on hangs / crashes).
     Promise.allSettled([

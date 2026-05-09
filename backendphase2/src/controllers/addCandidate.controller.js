@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 import OpenAI from 'openai';
 import { prisma } from '../config/prisma.js';
 import { env } from '../config/env.js';
-import { uploadBufferToCloudinary } from '../utils/cloudinary.js';
+import { uploadBufferToCloudinary, cloudinaryResourceTypeForFile } from '../utils/cloudinary.js';
 import { processCandidateCv } from '../services/cvParsing.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -756,7 +756,10 @@ export const addCandidateController = {
           : undefined,
         cvPortfolioLinks: Array.isArray(req.body.cvPortfolioLinks) ? req.body.cvPortfolioLinks : undefined,
         preferredLocation: req.body.preferredLocation || null,
-        resume: req.body.resume || null,
+        // Only touch `resume` when the client sent the key. `resume: null` from
+        // `undefined || null` was wiping stored resumes on update and forcing
+        // null on create before the follow-up multipart upload (manual entry).
+        ...(req.body.resume !== undefined ? { resume: req.body.resume || null } : {}),
         assignedTo: recruiterId
           ? {
               connect: { id: recruiterId },
@@ -801,6 +804,27 @@ export const addCandidateController = {
       const candidate = await prisma.candidate.create({
         data: candidateData,
       });
+
+      // When the create payload already carries a parsed resume URL (e.g. parsed
+      // & uploaded to Cloudinary during /candidates/parse-resume), mirror it
+      // into CandidateFile so the drawer's Files tab shows it without needing
+      // a follow-up upload call.
+      const seededResume = candidate.resume || candidate.resumeUrl;
+      if (seededResume && /^https?:\/\//i.test(String(seededResume))) {
+        try {
+          await prisma.candidateFile.create({
+            data: {
+              candidateId: candidate.id,
+              fileName: 'Resume',
+              fileUrl: seededResume,
+              fileType: 'Resume',
+              uploadedById: creatorId || recruiterId,
+            },
+          });
+        } catch (fileError) {
+          console.error('Failed to seed candidate file from create payload:', fileError?.message || fileError);
+        }
+      }
 
       let relatedJob = null;
       if (req.body.jobId) {
@@ -1112,7 +1136,7 @@ export const addCandidateController = {
 
       const upload = await uploadBufferToCloudinary(file.buffer, {
         folder: `jobportal/candidates/${candidateId}/resumes`,
-        resourceType: 'raw',
+        resourceType: cloudinaryResourceTypeForFile(file.mimetype, file.originalname),
         originalFilename: file.originalname,
       });
       const resumeUrl = upload?.secure_url || upload?.url;
@@ -1120,9 +1144,27 @@ export const addCandidateController = {
         where: { id: candidateId },
         data: {
           resume: resumeUrl,
+          resumeUrl,
           lastActivity: new Date(),
         },
       });
+
+      // Mirror the resume into CandidateFile so the drawer's Files tab (which
+      // reads from /api/v1/files?entityType=candidate) shows the same file
+      // alongside the synthetic "Primary resume" row driven by candidate.resume.
+      try {
+        await prisma.candidateFile.create({
+          data: {
+            candidateId,
+            fileName: file.originalname || 'Resume',
+            fileUrl: resumeUrl,
+            fileType: 'Resume',
+            uploadedById: req.user.id,
+          },
+        });
+      } catch (fileError) {
+        console.error('Failed to mirror resume into candidate files:', fileError?.message || fileError);
+      }
 
       await logActivity({
         candidateId,

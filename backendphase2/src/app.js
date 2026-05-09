@@ -51,6 +51,7 @@ import pdfProxyRoutes from './routes/pdfProxy.routes.js';
 import hqRoutes from './modules/hq/hq.routes.js';
 import ariaRoutes from './routes/ariaRoutes.js';
 import portalSyncRoutes from './modules/internal/portal-sync.routes.js';
+import notificationRoutes from './modules/notification/notification.routes.js';
 
 const app = express();
 
@@ -199,6 +200,7 @@ app.use('/api/v1/billing', billingRoutes);
 app.use('/api/v1/tasks', taskRoutes);
 app.use('/api/v1/calendar', calendarRoutes);
 app.use('/api/v1/activities', activityRoutes);
+app.use('/api/v1/notifications', notificationRoutes);
 app.use('/api/v1/inbox', inboxRoutes);
 app.use('/api/v1/reports', reportRoutes);
 app.use('/api/v1/teams', teamRoutes);

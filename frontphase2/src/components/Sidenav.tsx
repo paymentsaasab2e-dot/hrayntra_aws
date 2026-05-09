@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { usePermissions } from '../hooks/usePermissions';
@@ -13,6 +14,12 @@ import {
   apiGetClients,
   apiGetJobs,
   apiGetContacts,
+  apiGetUsers,
+  apiGetInterviews,
+  apiGetTasks,
+  apiGetPlacements,
+  apiGetNotificationUnreadCount,
+  NOTIFICATIONS_UPDATED_EVENT,
 } from '../lib/api';
 import { NotificationDrawer } from './NotificationDrawer';
 import { 
@@ -75,21 +82,104 @@ const ImageWithFallback = ({
   return <img src={resolvedSrc} alt={alt} className={className} onError={() => setError(true)} />;
 };
 
-// ─── Quick Action Popover ─────────────────────────────────────────────────────
 // ─── User Dropdown ────────────────────────────────────────────────────────────
-const UserDropdown = ({ avatarUrl, userName, userRole }: { avatarUrl: string; userName: string; userRole: string }) => {
+// Portal-based dropdown so it escapes the sidebar's `overflow-hidden` clip when
+// collapsed. Auto-flips above/below the trigger based on viewport space, so the
+// same component works for the bottom-of-sidebar avatar AND the top-right
+// navbar avatar.
+const MENU_WIDTH = 224; // matches w-56
+const MENU_GAP = 12;
+
+const UserDropdown = ({
+  avatarUrl,
+  userName,
+  userRole,
+  placement = 'auto',
+  align = 'auto',
+}: {
+  avatarUrl: string;
+  userName: string;
+  userRole: string;
+  /** Preferred direction: 'top' opens above the trigger, 'bottom' opens below. 'auto' picks the side with more room. */
+  placement?: 'auto' | 'top' | 'bottom';
+  /** Horizontal alignment relative to the trigger: 'left' aligns the menu's left edge to the trigger, 'right' aligns the right edge. 'auto' clamps to the viewport. */
+  align?: 'auto' | 'left' | 'right';
+}) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const [isSwitching, setIsSwitching] = useState(false);
+  const [menuStyle, setMenuStyle] = useState<{ top: number; left: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
+  const computePosition = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const viewportH = window.innerHeight;
+    const viewportW = window.innerWidth;
+    // Estimate menu height (header + 4 items + paddings ≈ 220–260). Using 260 as upper bound for placement decision.
+    const estimatedMenuH = 260;
+
+    let openBelow: boolean;
+    if (placement === 'top') openBelow = false;
+    else if (placement === 'bottom') openBelow = true;
+    else openBelow = viewportH - rect.bottom > estimatedMenuH || rect.top < estimatedMenuH;
+
+    const top = openBelow
+      ? Math.min(rect.bottom + MENU_GAP, viewportH - estimatedMenuH - 8)
+      : Math.max(rect.top - estimatedMenuH - MENU_GAP, 8);
+
+    let left: number;
+    if (align === 'right') left = rect.right - MENU_WIDTH;
+    else if (align === 'left') left = rect.left;
+    else left = rect.left;
+    // Clamp horizontally to viewport with 8px padding.
+    left = Math.max(8, Math.min(left, viewportW - MENU_WIDTH - 8));
+
+    setMenuStyle({ top, left });
+  }, [placement, align]);
+
+  useLayoutEffect(() => {
+    if (!isOpen) return;
+    computePosition();
+  }, [isOpen, computePosition]);
+
   useEffect(() => {
+    if (!isOpen) return;
+    const onScrollOrResize = () => computePosition();
+    window.addEventListener('resize', onScrollOrResize);
+    window.addEventListener('scroll', onScrollOrResize, true);
+    return () => {
+      window.removeEventListener('resize', onScrollOrResize);
+      window.removeEventListener('scroll', onScrollOrResize, true);
+    };
+  }, [isOpen, computePosition]);
+
+  useEffect(() => {
+    if (!isOpen) return;
     const handle = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setIsOpen(false);
+      const target = e.target as Node;
+      if (
+        menuRef.current && !menuRef.current.contains(target) &&
+        triggerRef.current && !triggerRef.current.contains(target)
+      ) {
+        setIsOpen(false);
+      }
     };
     document.addEventListener('mousedown', handle);
     return () => document.removeEventListener('mousedown', handle);
-  }, []);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [isOpen]);
 
   const menuItems = [
     { icon: User, label: 'My Profile', iconClass: 'text-violet-500' },
@@ -109,6 +199,21 @@ const UserDropdown = ({ avatarUrl, userName, userRole }: { avatarUrl: string; us
       setIsOpen(false);
       return;
     }
+    if (label === 'Switch Workspace') {
+      if (isSwitching) return;
+      setIsSwitching(true);
+      setIsOpen(false);
+      try {
+        // apiLogout already clears the access/refresh tokens AND tenantDbName,
+        // so dropping the user on /login lets them sign into a different workspace.
+        await apiLogout();
+      } finally {
+        router.replace('/login?switchWorkspace=1');
+        router.refresh();
+        setIsSwitching(false);
+      }
+      return;
+    }
     if (label !== 'Logout' || isLoggingOut) {
       return;
     }
@@ -125,45 +230,68 @@ const UserDropdown = ({ avatarUrl, userName, userRole }: { avatarUrl: string; us
     }
   }
 
+  const menu =
+    isOpen && typeof window !== 'undefined' && menuStyle
+      ? createPortal(
+          <AnimatePresence>
+            <motion.div
+              ref={menuRef}
+              initial={{ opacity: 0, y: -6, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -6, scale: 0.97 }}
+              transition={{ duration: 0.15 }}
+              style={{ position: 'fixed', top: menuStyle.top, left: menuStyle.left, width: MENU_WIDTH, zIndex: 1000 }}
+              className="bg-white rounded-xl shadow-2xl border border-slate-100 py-2"
+              role="menu"
+            >
+              <div className="px-4 py-2 border-b border-slate-100 mb-1">
+                <p className="text-sm font-semibold text-slate-800 truncate">{userName}</p>
+                <p className="text-xs text-slate-500 truncate">{userRole}</p>
+              </div>
+              {menuItems.map((item, i) => {
+                const disabled =
+                  (item.label === 'Logout' && isLoggingOut) ||
+                  (item.label === 'Switch Workspace' && isSwitching);
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => handleMenuClick(item.label)}
+                    disabled={disabled}
+                    className={`w-full flex items-center gap-3 px-4 py-2 text-sm transition-colors ${
+                      item.color || 'text-slate-600 hover:bg-slate-50'
+                    } ${disabled ? 'opacity-70 cursor-not-allowed' : ''}`}
+                  >
+                    <item.icon className={`w-4 h-4 ${item.iconClass || ''}`} />
+                    <span>
+                      {item.label === 'Switch Workspace' && isSwitching ? 'Switching…' : item.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </motion.div>
+          </AnimatePresence>,
+          document.body
+        )
+      : null;
+
   return (
-    <div className="relative" ref={ref}>
-      <button onClick={() => setIsOpen(!isOpen)} className="flex items-center gap-2 focus:outline-none">
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        className="flex items-center gap-2 focus:outline-none"
+      >
         <div className="w-8 h-8 rounded-full overflow-hidden ring-2 ring-white/20 hover:ring-white/50 transition-all">
           <ImageWithFallback src={avatarUrl} alt="User" className="w-full h-full object-cover" />
         </div>
       </button>
-
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: -8, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -8, scale: 0.95 }}
-            transition={{ duration: 0.15 }}
-            className="absolute bottom-full mb-3 left-0 w-52 bg-white rounded-xl shadow-2xl border border-slate-100 py-2 z-50"
-          >
-            <div className="px-4 py-2 border-b border-slate-100 mb-1">
-              <p className="text-sm font-semibold text-slate-800">{userName}</p>
-              <p className="text-xs text-slate-500">{userRole}</p>
-            </div>
-            {menuItems.map((item, i) => (
-              <button
-                key={i}
-                type="button"
-                onClick={() => handleMenuClick(item.label)}
-                disabled={item.label === 'Logout' && isLoggingOut}
-                className={`w-full flex items-center gap-3 px-4 py-2 text-sm transition-colors ${
-                  item.color || 'text-slate-600 hover:bg-slate-50'
-                } ${item.label === 'Logout' && isLoggingOut ? 'opacity-70 cursor-not-allowed' : ''}`}
-              >
-                <item.icon className={`w-4 h-4 ${'iconClass' in item && item.iconClass ? item.iconClass : ''}`} />
-                <span>{item.label}</span>
-              </button>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+      {menu}
+    </>
   );
 };
 
@@ -404,6 +532,29 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
     };
   }, []);
 
+  // Bell badge: keep CRM unread count fresh. Listens to the in-app event
+  // emitted whenever a notification is created / marked read / deleted.
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const res = await apiGetNotificationUnreadCount();
+        if (!cancelled) setNotificationCount(res.count);
+      } catch {
+        /* silent — bell badge is non-critical */
+      }
+    };
+    void refresh();
+    const onUpdated = () => void refresh();
+    window.addEventListener(NOTIFICATIONS_UPDATED_EVENT, onUpdated);
+    const interval = window.setInterval(refresh, 60_000);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(NOTIFICATIONS_UPDATED_EVENT, onUpdated);
+      window.clearInterval(interval);
+    };
+  }, []);
+
   useLayoutEffect(() => {
     if (!mounted || hasRestoredScrollRef.current) {
       return;
@@ -516,9 +667,23 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
   // Super Admin sees everything - bypass permission checks
   const showAll = mounted && isSuperAdmin();
 
+  // Show the user's `designation` (e.g. "Senior Recruiter") when set so a
+  // user with role RECRUITER doesn't get labelled with the bare role string.
+  // SUPER_ADMIN keeps showing "SUPER_ADMIN" because it has no designation set.
+  const formatRoleLabel = (raw: string) => {
+    if (!raw) return '';
+    if (raw === 'SUPER_ADMIN') return 'Super Admin';
+    return raw
+      .toLowerCase()
+      .split(/[_\s]+/)
+      .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : ''))
+      .join(' ');
+  };
+  const rawRole = user?.role || userProfile?.role || '';
+  const designation = (user?.designation || '').trim();
   const profile = {
     name: user?.name || userProfile?.name || 'User',
-    role: user?.role || userProfile?.role || '',
+    role: designation || formatRoleLabel(rawRole),
     avatarUrl: resolveSidenavAvatar(user?.avatar || userProfile?.avatarUrl || avatarUrl),
   };
 
@@ -542,12 +707,32 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
     searchTimerRef.current = window.setTimeout(() => {
       void (async () => {
         try {
-          const [leadRes, candidateRes, clientRes, jobRes, contactRes] = await Promise.all([
-            apiGetLeads({ search: query, page: 1, limit: 4 }),
-            apiGetCandidates({ search: query, page: 1, limit: 4 }),
-            apiGetClients({ search: query, page: 1, limit: 4, includeContacts: false, includeLeadFields: false }),
-            apiGetJobs({ search: query, page: 1, limit: 4 }),
-            apiGetContacts({ search: query, page: 1, limit: 4 }),
+          // Universal search: query every backend list endpoint that supports
+          // a `search` param so the navbar surfaces *any* record by name.
+          // Each endpoint is wrapped so a single failure doesn't blank the
+          // whole result set; missing endpoints (e.g., user lacks permission)
+          // simply contribute zero results.
+          const safe = <T,>(p: Promise<T>): Promise<T | null> => p.catch(() => null as T | null);
+          const [
+            leadRes,
+            candidateRes,
+            clientRes,
+            jobRes,
+            contactRes,
+            userRes,
+            interviewRes,
+            taskRes,
+            placementRes,
+          ] = await Promise.all([
+            safe(apiGetLeads({ search: query, page: 1, limit: 3 })),
+            safe(apiGetCandidates({ search: query, page: 1, limit: 3 })),
+            safe(apiGetClients({ search: query, page: 1, limit: 3, includeContacts: false, includeLeadFields: false })),
+            safe(apiGetJobs({ search: query, page: 1, limit: 3 })),
+            safe(apiGetContacts({ search: query, page: 1, limit: 3 })),
+            safe(apiGetUsers({ search: query, isActive: true, limit: 3 })),
+            safe(apiGetInterviews({ search: query, page: 1, limit: 3 })),
+            safe(apiGetTasks({ page: 1, limit: 6 } as any)),
+            safe(apiGetPlacements({ page: 1, limit: 6 } as any)),
           ]);
 
           if (searchRequestSeqRef.current !== requestSeq) return;
@@ -592,7 +777,81 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
             href: `/contacts?contactId=${encodeURIComponent(String(contact.id))}`,
           }));
 
-          setSearchResults([...leadItems, ...candidateItems, ...clientItems, ...jobItems, ...contactItems].slice(0, 10));
+          const teamItems = extractListItems<any>(userRes).map((u: any) => ({
+            id: String(u.id),
+            title: String(u.name || u.email || 'Team member'),
+            subtitle: [u.role, u.email].filter(Boolean).join(' • ') || 'Team member',
+            kind: 'Team',
+            href: `/team?memberId=${encodeURIComponent(String(u.id))}`,
+          }));
+
+          const interviewItems = extractListItems<any>(interviewRes).map((iv: any) => {
+            const candidateName = [iv.candidate?.firstName, iv.candidate?.lastName].filter(Boolean).join(' ').trim();
+            const jobTitle = iv.job?.title || iv.title || 'Interview';
+            return {
+              id: String(iv.id),
+              title: candidateName ? `${candidateName} • ${jobTitle}` : String(jobTitle),
+              subtitle: [iv.round, iv.status, iv.scheduledAt ? new Date(iv.scheduledAt).toLocaleString() : null]
+                .filter(Boolean)
+                .join(' • ') || 'Interview',
+              kind: 'Interview',
+              href: `/interviews?interviewId=${encodeURIComponent(String(iv.id))}`,
+            };
+          });
+
+          // Tasks/Placements list endpoints don't accept `search`, so filter
+          // their first page client-side against the query.
+          const lower = query.toLowerCase();
+          const taskItems = extractListItems<any>(taskRes)
+            .filter((t: any) => {
+              const haystack = [t.title, t.description, t.linkedEntityType].filter(Boolean).join(' ').toLowerCase();
+              return haystack.includes(lower);
+            })
+            .slice(0, 3)
+            .map((t: any) => ({
+              id: String(t.id),
+              title: String(t.title || 'Task'),
+              subtitle: [t.status, t.priority, t.dueDate ? new Date(t.dueDate).toLocaleDateString() : null]
+                .filter(Boolean)
+                .join(' • ') || 'Task',
+              kind: 'Task',
+              href: `/Task&Activites?taskId=${encodeURIComponent(String(t.id))}`,
+            }));
+
+          const placementItems = extractListItems<any>(placementRes)
+            .filter((p: any) => {
+              const candidateName = [p.candidate?.firstName, p.candidate?.lastName].filter(Boolean).join(' ');
+              const haystack = [candidateName, p.candidate?.email, p.job?.title, p.client?.companyName, p.status]
+                .filter(Boolean)
+                .join(' ')
+                .toLowerCase();
+              return haystack.includes(lower);
+            })
+            .slice(0, 3)
+            .map((p: any) => {
+              const candidateName = [p.candidate?.firstName, p.candidate?.lastName].filter(Boolean).join(' ').trim();
+              return {
+                id: String(p.id),
+                title: candidateName || p.job?.title || 'Placement',
+                subtitle: [p.job?.title, p.client?.companyName, p.status].filter(Boolean).join(' • ') || 'Placement',
+                kind: 'Placement',
+                href: `/placement?placementId=${encodeURIComponent(String(p.id))}`,
+              };
+            });
+
+          setSearchResults(
+            [
+              ...candidateItems,
+              ...jobItems,
+              ...clientItems,
+              ...leadItems,
+              ...contactItems,
+              ...teamItems,
+              ...interviewItems,
+              ...placementItems,
+              ...taskItems,
+            ].slice(0, 12)
+          );
         } catch {
           if (searchRequestSeqRef.current === requestSeq) {
             setSearchResults([]);
@@ -622,22 +881,32 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
         className="fixed top-0 left-0 right-0 h-14 flex items-center px-5 z-50"
         style={{ backgroundColor: '#0F2A44', borderBottom: '1px solid rgba(255,255,255,0.06)' }}
       >
-        {/* Logo area — same width as sidebar so search starts after */}
+        {/* Logo area — keep the collapse/expand button in its own slot so it
+            stays clickable when the sidebar is collapsed (the logo no longer
+            shares horizontal space with it). */}
         <div
           className="flex items-center gap-2 shrink-0 transition-all duration-300"
           style={{ width: SIDEBAR_W - 20 }}
         >
-          <ImageWithFallback 
-            src="/saasa-logo.png" 
-            alt="SAASA Logo" 
-            className="h-8 w-auto object-contain"
-          />
           <button
-            onClick={() => setIsCollapsed(!isCollapsed)}
-            className="p-1.5 rounded-md hover:bg-white/10 text-slate-300 hover:text-white transition-colors"
+            type="button"
+            onClick={() => setIsCollapsed((prev) => !prev)}
+            aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-expanded={!isCollapsed}
+            title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className="relative z-10 grid h-8 w-8 shrink-0 place-items-center rounded-md bg-white/5 text-slate-200 transition-colors hover:bg-white/15 hover:text-white"
           >
-            {isCollapsed ? <Menu size={15} /> : <ChevronLeft size={15} />}
+            {isCollapsed ? <Menu size={16} /> : <ChevronLeft size={16} />}
           </button>
+          {!isCollapsed && (
+            <div className="min-w-0 flex-1 overflow-hidden">
+              <ImageWithFallback
+                src="/saasa-logo.png"
+                alt="SAASA Logo"
+                className="h-8 w-auto object-contain"
+              />
+            </div>
+          )}
         </div>
 
         <div className="flex flex-1 justify-center px-4">
@@ -661,7 +930,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
                   setSearchResults([]);
                 }
               }}
-              placeholder="Search leads, candidates, clients..."
+              placeholder="Search candidates, jobs, clients, team, tasks…"
               className="w-full rounded-full border border-white/15 bg-white py-2.5 pl-11 pr-4 text-[13px] text-slate-900 shadow-sm outline-none transition-colors placeholder:text-slate-400 focus:border-white/30 focus:ring-2 focus:ring-white/20"
             />
             {searchFocused && (searchLoading || searchResults.length > 0) && (
@@ -737,10 +1006,12 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
             </Tooltip>
           </div>
 
-          <UserDropdown 
-            avatarUrl={profile.avatarUrl} 
+          <UserDropdown
+            avatarUrl={profile.avatarUrl}
             userName={profile.name}
             userRole={profile.role}
+            placement="bottom"
+            align="right"
           />
         </div>
       </nav>
@@ -876,10 +1147,12 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
 
           {/* User row */}
           <div className="flex items-center gap-2.5">
-            <UserDropdown 
-              avatarUrl={profile.avatarUrl} 
-              userName={profile.name} 
-              userRole={profile.role} 
+            <UserDropdown
+              avatarUrl={profile.avatarUrl}
+              userName={profile.name}
+              userRole={profile.role}
+              placement="top"
+              align="left"
             />
             {!isCollapsed && (
               <div className="min-w-0 flex-1">

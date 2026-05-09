@@ -14,6 +14,10 @@ import {
 } from '../../services/emailService.js';
 import { buildSuperAdminOwnerScope, isSuperAdminUser } from '../../utils/superAdminScope.js';
 import { canViewAllAssignments, hasAnyPermission as hasAnyPermissionScope } from '../../utils/permissionScope.js';
+import {
+  createUserNotification,
+  pushPortalNotification,
+} from '../notification/notification.service.js';
 
 const CANDIDATE_ACTIVITY_ENTITY = 'CANDIDATE';
 const NOTE_ACTIVITY_KIND = 'candidate-note';
@@ -1669,6 +1673,47 @@ export const candidateService = {
           },
         },
       });
+    }
+
+    // CRM bell + portal bell notifications. Best-effort.
+    try {
+      const candidateName = `${candidate.firstName || ''} ${candidate.lastName || ''}`
+        .trim() ||
+        candidate.email ||
+        'Candidate';
+      if (userId) {
+        await createUserNotification(userId, {
+          category: 'CANDIDATE',
+          title: 'Candidate rejected',
+          description: `${candidateName} was rejected (${reason}).`,
+          actionLabel: 'View candidate',
+          actionPath: `/candidate?candidateId=${candidateId}`,
+          entityType: 'CANDIDATE',
+          entityId: candidateId,
+          metadata: { reason, jobId: jobId || null },
+        });
+      }
+      void pushPortalNotification(candidateId, {
+        type: 'application',
+        title: 'Application update',
+        description: showFeedbackToCandidate && feedback
+          ? `Your application was not selected. Feedback: ${feedback}`
+          : 'Your application was not selected this time.',
+        actionButton: 'View applications',
+        actionPath: '/applications',
+        metadata: {
+          status: 'REJECTED',
+          jobId: jobId || null,
+          reason,
+          showFeedbackToCandidate,
+          feedback: showFeedbackToCandidate ? feedback : null,
+        },
+      });
+    } catch (bellErr) {
+      console.warn(
+        '[candidate.rejectCandidate] notification failed (non-fatal):',
+        bellErr?.message || bellErr
+      );
     }
 
     return this.getById(candidateId);

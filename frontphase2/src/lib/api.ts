@@ -587,10 +587,16 @@ export async function apiLogout() {
 export interface BackendUser {
   id: string;
   name: string;
+  firstName?: string | null;
+  lastName?: string | null;
   email: string;
   role: string;
-  department?: string;
-  avatar?: string;
+  department?: string | null;
+  designation?: string | null;
+  location?: string | null;
+  status?: string | null;
+  phone?: string | null;
+  avatar?: string | null;
   isActive: boolean;
   lastLogin?: string;
   createdAt: string;
@@ -2243,6 +2249,20 @@ export async function apiGetMatches(params: {
   return apiFetch<{ data: BackendMatch[]; pagination?: any }>(path, { auth: true });
 }
 
+export const apiCreateMatch = async (payload: {
+  candidateId: string;
+  jobId: string;
+  score?: number;
+  status?: string;
+  notes?: string;
+}) => {
+  return apiFetch<BackendMatch>('/matches', {
+    method: 'POST',
+    body: payload,
+    auth: true,
+  });
+};
+
 export const apiToggleSavedMatch = async (matchId: string, saved: boolean) => {
   return apiFetch<BackendMatch>(`/matches/${matchId}/save`, {
     method: 'POST',
@@ -3322,17 +3342,8 @@ export const apiCreateClient = async (data: CreateClientData) => {
 };
 
 // User interfaces and API
-export interface BackendUser {
-  id: string;
-  name: string;
-  email: string;
-  role: string;
-  department?: string;
-  avatar?: string;
-  isActive: boolean;
-  lastLogin?: string;
-  createdAt: string;
-}
+// (Type-merged with the canonical `BackendUser` defined earlier in this file
+// — the extra fields like `designation` are declared there.)
 
 export const apiGetUsers = async (params?: {
   role?: string;
@@ -4613,4 +4624,128 @@ export function getOAuthCallbackDisplayBase(): string {
   }
   const pub = process.env.NEXT_PUBLIC_BACKEND_PUBLIC_URL?.replace(/\/+$/, '');
   return pub || '';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Notifications (CRM bell)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type AppNotificationCategory =
+  | 'CANDIDATE'
+  | 'JOB'
+  | 'INTERVIEW'
+  | 'PLACEMENT'
+  | 'CLIENT'
+  | 'LEAD'
+  | 'BILLING'
+  | 'TASK'
+  | 'SYSTEM';
+
+export interface AppNotification {
+  id: string;
+  userId: string;
+  category: AppNotificationCategory;
+  title: string;
+  description: string | null;
+  actionLabel: string | null;
+  actionPath: string | null;
+  entityType: string | null;
+  entityId: string | null;
+  metadata: Record<string, unknown> | null;
+  isRead: boolean;
+  readAt: string | null;
+  createdAt: string;
+  timestamp: string;
+}
+
+export interface NotificationsListResponse {
+  notifications: AppNotification[];
+  unreadCount: number;
+  totalCount: number;
+}
+
+export const NOTIFICATIONS_UPDATED_EVENT = 'frontphase2:notifications-updated';
+
+export function emitNotificationsUpdated() {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new Event(NOTIFICATIONS_UPDATED_EVENT));
+}
+
+export async function apiListNotifications(params?: {
+  category?: AppNotificationCategory | 'ALL';
+  onlyUnread?: boolean;
+  take?: number;
+}) {
+  const search = new URLSearchParams();
+  if (params?.category && params.category !== 'ALL') {
+    search.set('category', params.category);
+  }
+  if (params?.onlyUnread) search.set('onlyUnread', 'true');
+  if (params?.take) search.set('take', String(params.take));
+  const query = search.toString();
+  return apiFetch<NotificationsListResponse>(
+    `/notifications${query ? `?${query}` : ''}`,
+    { method: 'GET', auth: true }
+  );
+}
+
+export async function apiGetNotificationUnreadCount(): Promise<{
+  success: boolean;
+  count: number;
+}> {
+  const res = await apiFetch<undefined>('/notifications/unread-count', {
+    method: 'GET',
+    auth: true,
+  });
+  // Backend returns { success, count } at the top level (not inside `data`).
+  return {
+    success: !!(res as unknown as { success: boolean }).success,
+    count: Number((res as unknown as { count?: number }).count ?? 0),
+  };
+}
+
+export async function apiMarkNotificationRead(id: string) {
+  const res = await apiFetch<undefined>(`/notifications/${id}/read`, {
+    method: 'PUT',
+    auth: true,
+  });
+  emitNotificationsUpdated();
+  return res;
+}
+
+export async function apiMarkAllNotificationsRead() {
+  const res = await apiFetch<undefined>('/notifications/mark-all-read', {
+    method: 'PUT',
+    auth: true,
+  });
+  emitNotificationsUpdated();
+  return res;
+}
+
+export async function apiDeleteNotification(id: string) {
+  const res = await apiFetch<undefined>(`/notifications/${id}`, {
+    method: 'DELETE',
+    auth: true,
+  });
+  emitNotificationsUpdated();
+  return res;
+}
+
+export async function apiCreateNotification(payload: {
+  category?: AppNotificationCategory;
+  title: string;
+  description?: string;
+  actionLabel?: string | null;
+  actionPath?: string | null;
+  entityType?: string | null;
+  entityId?: string | null;
+  metadata?: Record<string, unknown>;
+}) {
+  const res = await apiFetch<AppNotification>('/notifications', {
+    method: 'POST',
+    body: payload,
+    auth: true,
+  });
+  emitNotificationsUpdated();
+  return res;
 }

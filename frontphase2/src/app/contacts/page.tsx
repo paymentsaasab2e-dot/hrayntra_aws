@@ -3,6 +3,7 @@
 import React, { Suspense, useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Plus, Upload, Download, CheckSquare, MoreVertical } from 'lucide-react';
+import { downloadCsv } from '../../utils/csv';
 import { Toaster, toast } from 'sonner';
 import {
   apiGetContacts,
@@ -291,30 +292,31 @@ function ContactsPageContent() {
   const handleExport = async () => {
     try {
       const response = await apiGetContacts({ ...filters, limit: 10000 });
-      const contactsData = Array.isArray(response.data) ? response.data : response.data?.data || [];
+      const contactsData: BackendContact[] = Array.isArray(response.data)
+        ? response.data
+        : response.data?.data || [];
 
-      const headers = ['Name', 'Email', 'Phone', 'Company', 'Designation', 'Contact Type', 'Status', 'Location'];
-      const rows = contactsData.map((c: BackendContact) => [
-        `${c.firstName} ${c.lastName}`,
-        c.email || '',
-        c.phone || '',
-        c.company?.companyName || '',
-        c.designation || '',
-        c.contactType,
-        c.status,
-        c.location || '',
-      ]);
+      if (contactsData.length === 0) {
+        toast.message('No contacts to export with current filters.');
+        return;
+      }
 
-      const csv = [headers, ...rows].map((row) => row.map((cell) => `"${cell}"`).join(',')).join('\n');
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `contacts-export-${new Date().toISOString().split('T')[0]}.csv`;
-      link.click();
-      URL.revokeObjectURL(url);
-
-      toast.success('Contacts exported successfully');
+      downloadCsv<BackendContact>(
+        `contacts-export-${new Date().toISOString().split('T')[0]}.csv`,
+        [
+          { id: 'firstName', accessor: (c) => c.firstName || '' },
+          { id: 'lastName', accessor: (c) => c.lastName || '' },
+          { id: 'email', accessor: (c) => c.email || '' },
+          { id: 'phone', accessor: (c) => c.phone || '' },
+          { id: 'company', accessor: (c) => c.company?.companyName || '' },
+          { id: 'designation', accessor: (c) => c.designation || '' },
+          { id: 'contactType', accessor: (c) => c.contactType || '' },
+          { id: 'status', accessor: (c) => c.status || '' },
+          { id: 'location', accessor: (c) => c.location || '' },
+        ],
+        contactsData,
+      );
+      toast.success(`Exported ${contactsData.length} contact${contactsData.length === 1 ? '' : 's'} to CSV`);
     } catch (error: any) {
       toast.error(error.message || 'Failed to export contacts');
     }

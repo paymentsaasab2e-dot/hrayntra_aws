@@ -4,6 +4,7 @@ import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import {
   Plus,
   Upload,
+  Download,
   Search,
   Filter,
   Eye,
@@ -20,6 +21,7 @@ import {
   BadgeCheck,
   X,
 } from 'lucide-react';
+import { downloadCsv, csvDate } from '../../utils/csv';
 import { ImageWithFallback } from '../../components/ImageWithFallback';
 import { LeadDetailsDrawer } from '../../components/drawers/LeadDetailsDrawer';
 import { LeadImportDrawer } from '../../components/drawers/LeadImportDrawer';
@@ -634,6 +636,44 @@ export default function RecruitmentAgencyDashboard() {
 
   const allVisibleSelected = filteredLeads.length > 0 && filteredLeads.every((lead) => selectedLeadIds.includes(lead.id));
 
+  /** Export the currently filtered leads to a CSV that round-trips back into the importer. */
+  const handleExportLeadsCsv = () => {
+    if (filteredLeads.length === 0) {
+      toast.message('No leads to export with current filters.');
+      return;
+    }
+    downloadCsv<Lead>(
+      `leads-${new Date().toISOString().slice(0, 10)}.csv`,
+      [
+        { id: 'companyName', accessor: (l) => l.companyName },
+        { id: 'contactPerson', accessor: (l) => l.contactPerson },
+        { id: 'email', accessor: (l) => l.email },
+        { id: 'phone', accessor: (l) => l.phone },
+        { id: 'type', accessor: (l) => l.type || '' },
+        { id: 'source', accessor: (l) => l.source || '' },
+        { id: 'status', accessor: (l) => l.status },
+        { id: 'priority', accessor: (l) => l.priority || '' },
+        { id: 'industry', accessor: (l) => l.industry || '' },
+        { id: 'companySize', accessor: (l) => l.companySize || '' },
+        { id: 'website', accessor: (l) => l.website || '' },
+        { id: 'linkedIn', accessor: (l) => l.linkedIn || '' },
+        { id: 'location', accessor: (l) => l.location || '' },
+        { id: 'city', accessor: (l) => l.city || '' },
+        { id: 'country', accessor: (l) => l.country || '' },
+        { id: 'designation', accessor: (l) => l.designation || '' },
+        { id: 'interestedNeeds', accessor: (l) => l.interestedNeeds || l.servicesNeeded || '' },
+        { id: 'campaignName', accessor: (l) => l.campaignName || '' },
+        { id: 'nextFollowUpDue', accessor: (l) => csvDate(l.nextFollowUp) },
+        { id: 'notes', accessor: (l) => l.notes || '' },
+        { id: 'assignedTo', accessor: (l) => l.assignedTo?.name || '' },
+        { id: 'lastFollowUp', accessor: (l) => csvDate(l.lastFollowUp) },
+        { id: 'expectedBusinessValue', accessor: (l) => l.expectedBusinessValue || '' },
+      ],
+      filteredLeads,
+    );
+    toast.success(`Exported ${filteredLeads.length} lead${filteredLeads.length === 1 ? '' : 's'} to CSV`);
+  };
+
   const toggleSelectAll = () => {
     if (allVisibleSelected) {
       setSelectedLeadIds((prev) => prev.filter((id) => !filteredLeads.some((lead) => lead.id === id)));
@@ -1092,6 +1132,15 @@ export default function RecruitmentAgencyDashboard() {
                 Log in
               </a>
             )}
+            <button
+              type="button"
+              onClick={handleExportLeadsCsv}
+              className="bg-white hover:bg-indigo-50/90 text-indigo-900 px-4 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2 transition-all shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] border border-indigo-200/70 hover:border-indigo-300 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
+              title="Export visible leads to CSV"
+            >
+              <Download size={18} className="text-indigo-600" strokeWidth={2.25} />
+              <span>Export</span>
+            </button>
             {canCreateLead && (
               <button
                 type="button"

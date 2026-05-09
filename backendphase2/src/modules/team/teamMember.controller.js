@@ -1,5 +1,6 @@
 import { teamMemberService } from './teamMember.service.js';
 import { sendResponse, sendError } from '../../utils/response.js';
+import { isSuperAdminUser } from '../../utils/superAdminScope.js';
 
 export const teamMemberController = {
   async getAll(req, res) {
@@ -75,9 +76,28 @@ export const teamMemberController = {
 
   async resetPassword(req, res) {
     try {
-      const result = await teamMemberService.resetPassword(req.params.id);
+      const result = await teamMemberService.resetPassword(req.params.id, req.user);
       sendResponse(res, 200, result.message, {
         tempPassword: result.tempPassword,
+        loginId: result.loginId,
+      });
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async setPassword(req, res) {
+    try {
+      if (!isSuperAdminUser(req)) {
+        return sendError(res, 403, 'Only Super Admins can set a member password directly.');
+      }
+      const member = await teamMemberService.getById(req.params.id, req.user);
+      if (!member) {
+        return sendError(res, 404, 'Team member not found');
+      }
+      const newPassword = req.body?.newPassword;
+      const result = await teamMemberService.setPassword(req.params.id, newPassword, req.user);
+      sendResponse(res, 200, result.message, {
         loginId: result.loginId,
       });
     } catch (error) {

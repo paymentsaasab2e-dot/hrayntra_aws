@@ -10,12 +10,11 @@ interface CandidateListProps {
   selectedCandidates: string[];
   savedMatches: string[];
   expandedAnalysis: string | null;
-  copiedCandidateId: string | null;
   sortBy: string;
+  savedOnly?: boolean;
   onSortChange: (value: string) => void;
   onToggleSelect: (candidateId: string) => void;
   onToggleSave: (candidateId: string) => void;
-  onCopyLink: (candidateId: string) => void;
   onToggleAnalysis: (candidateId: string) => void;
   onViewProfile: (candidateId: string, tab?: 'overview' | 'resume' | 'ai' | 'notes' | 'activity') => void;
   onOpenPipeline: (candidateId: string) => void;
@@ -33,12 +32,11 @@ export default function CandidateList({
   selectedCandidates,
   savedMatches,
   expandedAnalysis,
-  copiedCandidateId,
   sortBy,
+  savedOnly,
   onSortChange,
   onToggleSelect,
   onToggleSave,
-  onCopyLink,
   onToggleAnalysis,
   onViewProfile,
   onOpenPipeline,
@@ -48,22 +46,29 @@ export default function CandidateList({
   onRateMatch,
   onResetFilters,
 }: CandidateListProps) {
+  const heading = savedOnly
+    ? 'Saved Matches'
+    : activeTab === 'manual'
+    ? 'Manual Candidates'
+    : 'AI Matches';
+  const subtitle = savedOnly
+    ? 'Showing only matches you bookmarked. Toggle "Saved only" off in the filter bar to see everyone.'
+    : activeTab === 'manual'
+    ? 'Showing hand-picked candidates for this position.'
+    : 'Showing score-based candidates ranked by AI.';
+
   return (
     <div className="px-6 py-8 sm:px-8">
       <div className="mx-auto max-w-6xl">
         <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <h2 className="text-[16px] font-semibold text-slate-900">
-              {activeTab === 'manual' ? 'Manual Candidates' : 'AI Matches'}
+              {heading}
               <span className="ml-2 rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-bold text-[#2563EB]">
                 {candidates.length}
               </span>
             </h2>
-            <p className="mt-1 text-sm text-[#6B7280]">
-              {activeTab === 'manual'
-                ? 'Showing hand-picked candidates for this position.'
-                : 'Showing score-based candidates ranked by AI.'}
-            </p>
+            <p className="mt-1 text-sm text-[#6B7280]">{subtitle}</p>
           </div>
 
           <div className="flex items-center gap-3">
@@ -90,16 +95,13 @@ export default function CandidateList({
                 isSelected={selectedCandidates.includes(candidate.id)}
                 isSaved={savedMatches.includes(candidate.id)}
                 isExpanded={expandedAnalysis === candidate.id}
-                copied={copiedCandidateId === candidate.id}
                 onToggleSelect={() => onToggleSelect(candidate.id)}
                 onToggleSave={() => onToggleSave(candidate.id)}
-                onCopyLink={() => onCopyLink(candidate.id)}
                 onToggleAnalysis={() => onToggleAnalysis(candidate.id)}
                 onViewProfile={() => onViewProfile(candidate.id)}
                 onOpenPipeline={() => onOpenPipeline(candidate.id)}
                 onOpenSubmit={() => onOpenSubmit(candidate.id)}
                 onOpenReject={() => onOpenReject(candidate.id)}
-                onOpenHistory={() => onViewProfile(candidate.id, 'activity')}
                 onOpenNotes={() => onViewProfile(candidate.id, 'notes')}
                 onExport={() => onExport(candidate.id)}
                 onRateMatch={(rating) => onRateMatch(candidate.id, rating)}

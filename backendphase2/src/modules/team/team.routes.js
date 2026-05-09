@@ -18,6 +18,7 @@ router.patch('/:id', requireAnyPermission(['edit_team_member']), teamMemberContr
 router.delete('/:id', requireAnyPermission(['edit_team_member']), teamMemberController.delete);
 router.post('/:id/credentials', requirePermission('generate_credentials'), teamMemberController.generateCredentials);
 router.post('/:id/reset-password', requirePermission('generate_credentials'), teamMemberController.resetPassword);
+router.post('/:id/set-password', teamMemberController.setPassword);
 router.post('/:id/resend-invite', requirePermission('generate_credentials'), teamMemberController.resendInvite);
 router.post('/:id/lock', requirePermission('add_team_member'), teamMemberController.lockAccount);
 router.post('/:id/unlock', requirePermission('add_team_member'), teamMemberController.unlockAccount);

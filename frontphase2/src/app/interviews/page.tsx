@@ -2,7 +2,9 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Calendar, List, Plus, RefreshCw } from 'lucide-react';
+import { Calendar, Download, List, Plus, RefreshCw } from 'lucide-react';
+import { toast } from 'sonner';
+import { downloadCsv, csvDate } from '../../utils/csv';
 import { CancelInterviewModal } from '../../components/interviews/CancelInterviewModal';
 import { FeedbackModal } from '../../components/interviews/FeedbackModal';
 import { InterviewCalendarView } from '../../components/interviews/InterviewCalendarView';
@@ -15,7 +17,6 @@ import { RejectCandidateModal } from '../../components/interviews/RejectCandidat
 import { RescheduleModal } from '../../components/interviews/RescheduleModal';
 import { ScheduleInterviewModal } from '../../components/interviews/ScheduleInterviewModal';
 import { SubmitToClientDrawer } from '../../components/interviews/SubmitToClientDrawer';
-import { UploadRecordingModal } from '../../components/interviews/UploadRecordingModal';
 import { useInterviewDrawer } from '../../hooks/useInterviewDrawer';
 import { useInterviews } from '../../hooks/useInterviews';
 import { useInterviewModals } from '../../hooks/useInterviewModals';
@@ -115,7 +116,6 @@ export default function InterviewsPage() {
     addNote,
     updatePanel,
     markNoShow,
-    attachRecording,
   } = useInterviews();
 
   const selectedInterview = useMemo(
@@ -325,6 +325,48 @@ export default function InterviewsPage() {
                   <RefreshCw className="size-4" />
                   Refresh
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (filteredInterviews.length === 0) {
+                      toast.message('No interviews to export with current filters.');
+                      return;
+                    }
+                    downloadCsv<Interview>(
+                      `interviews-${new Date().toISOString().slice(0, 10)}.csv`,
+                      [
+                        { id: 'candidateName', accessor: (i) => i.candidate?.name || '' },
+                        { id: 'candidateEmail', accessor: (i) => i.candidate?.email || '' },
+                        { id: 'jobTitle', accessor: (i) => i.job?.title || '' },
+                        { id: 'client', accessor: (i) => i.job?.client || '' },
+                        { id: 'round', accessor: (i) => i.round },
+                        { id: 'type', accessor: (i) => i.type },
+                        { id: 'mode', accessor: (i) => i.mode },
+                        { id: 'date', accessor: (i) => csvDate(i.scheduledAt || `${i.date} ${i.time}`) },
+                        { id: 'time', accessor: (i) => i.time || '' },
+                        { id: 'duration', accessor: (i) => i.duration ?? '' },
+                        { id: 'timezone', accessor: (i) => i.timezone || '' },
+                        { id: 'status', accessor: (i) => i.status },
+                        { id: 'feedbackStatus', accessor: (i) => i.feedbackStatus },
+                        { id: 'meetingPlatform', accessor: (i) => i.meetingPlatform || '' },
+                        { id: 'meetingLink', accessor: (i) => i.meetingLink || '' },
+                        { id: 'location', accessor: (i) => i.location || '' },
+                        { id: 'panel', accessor: (i) => (i.panel || []).map((p) => p.name).join('; ') },
+                        { id: 'createdBy', accessor: (i) => i.createdBy || '' },
+                        { id: 'notes', accessor: (i) => i.notes || '' },
+                      ],
+                      filteredInterviews,
+                    );
+                    toast.success(
+                      `Exported ${filteredInterviews.length} interview${filteredInterviews.length === 1 ? '' : 's'} to CSV`
+                    );
+                  }}
+                  className="flex items-center gap-2 rounded-xl border border-[#E5E7EB] bg-white px-4 py-2 text-sm font-medium text-[#374151] shadow-sm"
+                  title="Export filtered interviews to CSV"
+                >
+                  <Download className="size-4" />
+                  Export
+                </button>
                 {canCreateInterview && (
                   <button
                     type="button"
@@ -363,7 +405,6 @@ export default function InterviewsPage() {
         onOpenFeedback={canUpdateInterview ? () => modals.open('feedback') : undefined}
         onOpenReschedule={canUpdateInterview ? () => modals.open('reschedule') : undefined}
         onOpenCancel={canDeleteInterview ? () => modals.open('cancel') : undefined}
-        onOpenUploadRecording={canUpdateInterview ? () => modals.open('uploadRecording') : undefined}
         onOpenPanelAssignment={canUpdateInterview ? () => setPanelModalOpen(true) : undefined}
         onOpenReject={canUpdateInterview && selectedInterview ? () => openRejectFlow(selectedInterview) : undefined}
         onOpenSubmitToClient={
@@ -502,17 +543,6 @@ export default function InterviewsPage() {
             await markNoShow(selectedInterview.id, payload);
             modals.close();
           } catch {}
-        }}
-      />
-
-      <UploadRecordingModal
-        isOpen={canUpdateInterview && modals.isModalOpen('uploadRecording')}
-        interview={selectedInterview}
-        onClose={modals.close}
-        onAttach={(type, value) => {
-          if (!selectedInterview) return;
-          attachRecording(selectedInterview.id, type, value);
-          modals.close();
         }}
       />
 
