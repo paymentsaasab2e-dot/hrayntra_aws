@@ -6,6 +6,7 @@ import { roleMiddleware } from '../../middleware/role.middleware.js';
 const router = express.Router();
 
 router.get('/me', authMiddleware, userController.getMe);
+router.get('/me/permissions', authMiddleware, userController.getMyPermissions);
 router.patch('/me', authMiddleware, userController.updateMe);
 
 router.get('/', authMiddleware, userController.getAll);

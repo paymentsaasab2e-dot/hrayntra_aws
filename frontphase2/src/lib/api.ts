@@ -881,6 +881,73 @@ export async function apiUpdateMe(data: Partial<BackendUser>) {
   });
 }
 
+export interface MyPermissionsPayload {
+  id: string;
+  role: string;
+  roleName: string;
+  roleColor?: string;
+  isSuperAdmin: boolean;
+  isActive: boolean;
+  permissions: string[];
+}
+
+export const USER_PERMISSIONS_CHANGED_EVENT = 'hrayntra:user-permissions-changed';
+
+export async function apiGetMyPermissions() {
+  return apiFetch<MyPermissionsPayload>('/users/me/permissions', { auth: true });
+}
+
+/**
+ * Pull the user's effective permissions from the API and write them into
+ * localStorage so `usePermissions` reflects role/permission changes the admin
+ * made in Teams (without requiring the user to log out and back in). Returns
+ * the latest permissions (or null on failure).
+ */
+export async function refreshLocalUserPermissions(): Promise<MyPermissionsPayload | null> {
+  if (typeof window === 'undefined') return null;
+  const accessToken = window.localStorage.getItem('accessToken');
+  if (!accessToken) return null;
+  try {
+    const res = await apiGetMyPermissions();
+    const data = res?.data;
+    if (!data) return null;
+
+    const rawCurrent = window.localStorage.getItem('currentUser');
+    if (rawCurrent) {
+      try {
+        const currentUser = JSON.parse(rawCurrent);
+        const next = {
+          ...currentUser,
+          role: data.role || currentUser?.role || '',
+          roleName: data.roleName || currentUser?.roleName || '',
+          roleColor: data.roleColor ?? currentUser?.roleColor,
+          permissions: Array.isArray(data.permissions) ? data.permissions : [],
+        };
+        window.localStorage.setItem('currentUser', JSON.stringify(next));
+      } catch {
+        // ignore corrupted currentUser blob
+      }
+    }
+    window.localStorage.setItem(
+      'userPermissions',
+      JSON.stringify(Array.isArray(data.permissions) ? data.permissions : [])
+    );
+
+    try {
+      window.dispatchEvent(
+        new CustomEvent(USER_PERMISSIONS_CHANGED_EVENT, { detail: data })
+      );
+    } catch {
+      // CustomEvent may not exist in some old envs; best-effort.
+    }
+
+    return data;
+  } catch (error) {
+    console.warn('Failed to refresh user permissions', error);
+    return null;
+  }
+}
+
 export async function apiUploadUserAvatar(userId: string, file: File) {
   const formData = new FormData();
   formData.append('file', file);

@@ -4,6 +4,12 @@ import React, { useState } from 'react';
 import { CalendarPlus, ChevronDown, ChevronRight } from 'lucide-react';
 import { apiCreateScheduledMeeting, apiUpdateLead, type CreateScheduledMeetingData } from '../lib/api';
 import { requestError, requestWarning } from '../lib/appDialog';
+import {
+  clampDateToMinLocal,
+  getLocalDateInputMinToday,
+  getLocalTimeInputMinNow,
+  isLocalDateTimeNotPast,
+} from '../utils/dateInputConstraints';
 
 export interface ScheduleMeetingFormProps {
   entityType: 'client' | 'lead';
@@ -46,6 +52,11 @@ export function ScheduleMeetingForm({
 
     if (!formData.date || !formData.time) {
       void requestWarning('Please select both date and time for the meeting/follow-up');
+      return;
+    }
+
+    if (!isLocalDateTimeNotPast(formData.date, formData.time)) {
+      void requestWarning('Please choose a date and time in the future.');
       return;
     }
 
@@ -166,8 +177,14 @@ export function ScheduleMeetingForm({
             <input
               id="schedule-date"
               type="date"
+              min={getLocalDateInputMinToday()}
               value={formData.date}
-              onChange={(e) => setFormData((p) => ({ ...p, date: e.target.value }))}
+              onChange={(e) =>
+                setFormData((p) => ({
+                  ...p,
+                  date: clampDateToMinLocal(e.target.value, getLocalDateInputMinToday()),
+                }))
+              }
               className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
             />
           </div>
@@ -178,6 +195,7 @@ export function ScheduleMeetingForm({
             <input
               id="schedule-time"
               type="time"
+              min={formData.date === getLocalDateInputMinToday() ? getLocalTimeInputMinNow() : undefined}
               value={formData.time}
               onChange={(e) => setFormData((p) => ({ ...p, time: e.target.value }))}
               className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"

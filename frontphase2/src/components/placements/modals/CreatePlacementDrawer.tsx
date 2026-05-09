@@ -68,6 +68,12 @@ export function CreatePlacementDrawer({
   }, [isOpen, currentUserId, prefill?.candidateId, prefill?.jobId, prefill?.recruiterId]);
 
   const selectedJob = useMemo(() => jobs.find((job) => job.id === form.jobId) || null, [jobs, form.jobId]);
+  const selectedCandidate = useMemo(
+    () => candidates.find((candidate) => candidate.id === form.candidateId) || null,
+    [candidates, form.candidateId]
+  );
+  const lockCandidate = Boolean(prefill?.candidateId);
+  const lockJob = Boolean(prefill?.jobId);
 
   useEffect(() => {
     const salary = Number(form.offerSalary || 0);
@@ -124,45 +130,59 @@ export function CreatePlacementDrawer({
               <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-[#111827]">Candidate*</label>
-                <select
-                  value={form.candidateId}
-                  onChange={(event) => setForm((current) => ({ ...current, candidateId: event.target.value }))}
-                  className="h-11 w-full rounded-xl border border-[#D1D5DB] px-3 text-sm outline-none focus:border-[#2563EB]"
-                >
-                  <option value="">Select candidate</option>
-                  {candidates.map((candidate) => (
-                    <option key={candidate.id} value={candidate.id}>
-                      {candidate.name} • {candidate.email}
-                    </option>
-                  ))}
-                </select>
+                {lockCandidate ? (
+                  <div className="flex h-11 items-center rounded-xl border border-[#E5E7EB] bg-[#F1F5F9] px-3 text-sm font-medium text-[#0F172A]">
+                    {selectedCandidate
+                      ? `${selectedCandidate.name} • ${selectedCandidate.email}`
+                      : 'Selected candidate'}
+                  </div>
+                ) : (
+                  <select
+                    value={form.candidateId}
+                    onChange={(event) => setForm((current) => ({ ...current, candidateId: event.target.value }))}
+                    className="h-11 w-full rounded-xl border border-[#D1D5DB] bg-white px-3 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
+                  >
+                    <option value="">Select candidate</option>
+                    {candidates.map((candidate) => (
+                      <option key={candidate.id} value={candidate.id}>
+                        {candidate.name} • {candidate.email}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 {errors.candidateId ? <p className="mt-1 text-xs text-red-600">{errors.candidateId}</p> : null}
               </div>
 
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-[#111827]">Job*</label>
-                <select
-                  value={form.jobId}
-                  onChange={(event) => setForm((current) => ({ ...current, jobId: event.target.value }))}
-                  className="h-11 w-full rounded-xl border border-[#D1D5DB] px-3 text-sm outline-none focus:border-[#2563EB]"
-                >
-                  <option value="">Select job</option>
-                  {jobs.map((job) => (
-                    <option key={job.id} value={job.id}>
-                      {job.title} • {job.clientName}
-                    </option>
-                  ))}
-                </select>
+                {lockJob ? (
+                  <div className="flex h-11 items-center rounded-xl border border-[#E5E7EB] bg-[#F1F5F9] px-3 text-sm font-medium text-[#0F172A]">
+                    {selectedJob
+                      ? `${selectedJob.title}${selectedJob.clientName ? ` • ${selectedJob.clientName}` : ''}`
+                      : 'Selected job'}
+                  </div>
+                ) : (
+                  <select
+                    value={form.jobId}
+                    onChange={(event) => setForm((current) => ({ ...current, jobId: event.target.value }))}
+                    className="h-11 w-full rounded-xl border border-[#D1D5DB] bg-white px-3 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
+                  >
+                    <option value="">Select job</option>
+                    {jobs.map((job) => (
+                      <option key={job.id} value={job.id}>
+                        {job.title} • {job.clientName}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 {errors.jobId ? <p className="mt-1 text-xs text-red-600">{errors.jobId}</p> : null}
               </div>
 
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-[#111827]">Company</label>
-                <input
-                  value={selectedJob?.clientName || ''}
-                  readOnly
-                  className="h-11 w-full rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] px-3 text-sm text-[#6B7280]"
-                />
+                <div className="flex h-11 items-center rounded-xl border border-[#E5E7EB] bg-[#F1F5F9] px-3 text-sm font-medium text-[#0F172A]">
+                  {selectedJob?.clientName || 'Pick a job to see the company'}
+                </div>
               </div>
 
               <div>
@@ -170,7 +190,7 @@ export function CreatePlacementDrawer({
                 <select
                   value={form.recruiterId}
                   onChange={(event) => setForm((current) => ({ ...current, recruiterId: event.target.value }))}
-                  className="h-11 w-full rounded-xl border border-[#D1D5DB] px-3 text-sm outline-none focus:border-[#2563EB]"
+                  className="h-11 w-full rounded-xl border border-[#D1D5DB] bg-white px-3 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
                 >
                   <option value="">Select recruiter</option>
                   {recruiters.map((recruiter) => (
@@ -186,7 +206,7 @@ export function CreatePlacementDrawer({
                 <select
                   value={form.currency}
                   onChange={(event) => setForm((current) => ({ ...current, currency: event.target.value }))}
-                  className="h-11 w-full rounded-xl border border-[#D1D5DB] px-3 text-sm outline-none focus:border-[#2563EB]"
+                  className="h-11 w-full rounded-xl border border-[#D1D5DB] bg-white px-3 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
                 >
                   {SUPPORTED_CURRENCIES.map((code) => (
                     <option key={code} value={code}>
@@ -202,7 +222,7 @@ export function CreatePlacementDrawer({
                   type="number"
                   value={form.offerSalary}
                   onChange={(event) => setForm((current) => ({ ...current, offerSalary: event.target.value }))}
-                  className="h-11 w-full rounded-xl border border-[#D1D5DB] px-3 text-sm outline-none focus:border-[#2563EB]"
+                  className="h-11 w-full rounded-xl border border-[#D1D5DB] bg-white px-3 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
                 />
                 {Number(form.offerSalary) > 0 ? (
                   <p className="mt-1 text-xs text-[#6B7280]">{formatCurrencyAmount(Number(form.offerSalary), form.currency)}</p>
@@ -219,7 +239,7 @@ export function CreatePlacementDrawer({
                     setFeeEditedManually(false);
                     setForm((current) => ({ ...current, commissionPercentage: event.target.value }));
                   }}
-                  className="h-11 w-full rounded-xl border border-[#D1D5DB] px-3 text-sm outline-none focus:border-[#2563EB]"
+                  className="h-11 w-full rounded-xl border border-[#D1D5DB] bg-white px-3 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
                 />
                 <p className="mt-1 text-xs text-[#6B7280]">
                   Drives placement fee. Edit fee directly to override.
@@ -235,7 +255,7 @@ export function CreatePlacementDrawer({
                     setFeeEditedManually(true);
                     setForm((current) => ({ ...current, placementFee: event.target.value }));
                   }}
-                  className="h-11 w-full rounded-xl border border-[#D1D5DB] px-3 text-sm outline-none focus:border-[#2563EB]"
+                  className="h-11 w-full rounded-xl border border-[#D1D5DB] bg-white px-3 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
                 />
                 {Number(form.placementFee) > 0 ? (
                   <p className="mt-1 text-xs text-[#6B7280]">
@@ -254,7 +274,7 @@ export function CreatePlacementDrawer({
                   type="date"
                   value={form.offerDate}
                   onChange={(event) => setForm((current) => ({ ...current, offerDate: event.target.value }))}
-                  className="h-11 w-full rounded-xl border border-[#D1D5DB] px-3 text-sm outline-none focus:border-[#2563EB]"
+                  className="h-11 w-full rounded-xl border border-[#D1D5DB] bg-white px-3 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
                 />
                 {errors.offerDate ? <p className="mt-1 text-xs text-red-600">{errors.offerDate}</p> : null}
               </div>
@@ -265,7 +285,7 @@ export function CreatePlacementDrawer({
                   type="date"
                   value={form.expectedJoiningDate}
                   onChange={(event) => setForm((current) => ({ ...current, expectedJoiningDate: event.target.value }))}
-                  className="h-11 w-full rounded-xl border border-[#D1D5DB] px-3 text-sm outline-none focus:border-[#2563EB]"
+                  className="h-11 w-full rounded-xl border border-[#D1D5DB] bg-white px-3 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
                 />
               </div>
 
@@ -276,7 +296,7 @@ export function CreatePlacementDrawer({
                   onChange={(event) =>
                     setForm((current) => ({ ...current, employmentType: event.target.value as EmploymentType }))
                   }
-                  className="h-11 w-full rounded-xl border border-[#D1D5DB] px-3 text-sm outline-none focus:border-[#2563EB]"
+                  className="h-11 w-full rounded-xl border border-[#D1D5DB] bg-white px-3 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
                 >
                   {employmentTypes.map((type) => (
                     <option key={type} value={type}>
@@ -311,7 +331,7 @@ export function CreatePlacementDrawer({
                   rows={4}
                   value={form.notes}
                   onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
-                  className="w-full rounded-xl border border-[#D1D5DB] px-3 py-3 text-sm outline-none focus:border-[#2563EB]"
+                  className="w-full rounded-xl border border-[#D1D5DB] bg-white px-3 py-3 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
                 />
               </div>
               </div>

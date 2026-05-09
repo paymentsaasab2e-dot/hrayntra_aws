@@ -313,19 +313,24 @@ export function PlacementsTable({
                         >
                           {`${placement.candidate.firstName} ${placement.candidate.lastName}`.trim()}
                         </button>
-                        <div className="mt-1">
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                              placement.paymentStatus === 'PAID'
-                                ? 'bg-[#D1FAE5] text-[#065F46]'
-                                : placement.paymentStatus === 'OVERDUE'
-                                ? 'bg-red-50 text-red-700'
-                                : 'bg-[#F3F4F6] text-[#6B7280]'
-                            }`}
-                          >
-                            {placement.paymentStatus || 'PENDING'}
-                          </span>
-                        </div>
+                        {/* Only surface the payment status when it carries real signal
+                            (PAID / OVERDUE). The placement lifecycle (Offer Accepted
+                            → Joined → …) already lives in the Status column on the
+                            right, so we no longer render a default "PENDING" chip
+                            that lingers even after the candidate joins. */}
+                        {placement.paymentStatus === 'PAID' || placement.paymentStatus === 'OVERDUE' ? (
+                          <div className="mt-1">
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                placement.paymentStatus === 'PAID'
+                                  ? 'bg-[#D1FAE5] text-[#065F46]'
+                                  : 'bg-red-50 text-red-700'
+                              }`}
+                            >
+                              {placement.paymentStatus}
+                            </span>
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   </td>

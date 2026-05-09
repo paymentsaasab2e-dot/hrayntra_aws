@@ -7,6 +7,7 @@ import {
   toDateTimeLocalInput,
   fromDateTimeLocalInput,
 } from '../../utils/formatLeadDateTime';
+import { clampDateTimeLocalToMin, getLocalDateTimeInputMinNow } from '../../utils/dateInputConstraints';
 import { exportLeadAsPdf } from '../../utils/exportLeadPdf';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -1661,8 +1662,16 @@ export function LeadDetailsDrawer({
                       <input
                         id="log-call-next"
                         type="datetime-local"
+                        min={getLocalDateTimeInputMinNow()}
                         value={toDateTimeLocalInput(logCallForm.nextFollowUp)}
-                        onChange={(e) => setLogCallForm((p) => ({ ...p, nextFollowUp: fromDateTimeLocalInput(e.target.value) }))}
+                        onChange={(e) =>
+                          setLogCallForm((p) => ({
+                            ...p,
+                            nextFollowUp: fromDateTimeLocalInput(
+                              clampDateTimeLocalToMin(e.target.value, getLocalDateTimeInputMinNow())
+                            ),
+                          }))
+                        }
                         className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                       />
                     </div>
@@ -2344,8 +2353,16 @@ export function LeadDetailsDrawer({
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Next Follow-up Date &amp; Time</label>
                           <input
                             type="datetime-local"
+                            min={getLocalDateTimeInputMinNow()}
                             value={toDateTimeLocalInput(addLeadForm.nextFollowUp ?? '')}
-                            onChange={(e) => setAddLeadForm((p) => ({ ...p, nextFollowUp: fromDateTimeLocalInput(e.target.value) }))}
+                            onChange={(e) =>
+                              setAddLeadForm((p) => ({
+                                ...p,
+                                nextFollowUp: fromDateTimeLocalInput(
+                                  clampDateTimeLocalToMin(e.target.value, getLocalDateTimeInputMinNow())
+                                ),
+                              }))
+                            }
                             className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                           />
                         </div>
@@ -2592,8 +2609,16 @@ export function LeadDetailsDrawer({
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Next Follow-up Date &amp; Time</label>
                           <input
                             type="datetime-local"
+                            min={getLocalDateTimeInputMinNow()}
                             value={toDateTimeLocalInput(addLeadForm.nextFollowUp ?? '')}
-                            onChange={(e) => setAddLeadForm((p) => ({ ...p, nextFollowUp: fromDateTimeLocalInput(e.target.value) }))}
+                            onChange={(e) =>
+                              setAddLeadForm((p) => ({
+                                ...p,
+                                nextFollowUp: fromDateTimeLocalInput(
+                                  clampDateTimeLocalToMin(e.target.value, getLocalDateTimeInputMinNow())
+                                ),
+                              }))
+                            }
                             className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                           />
                         </div>
@@ -2916,8 +2941,16 @@ export function LeadDetailsDrawer({
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Next Follow-up Date &amp; Time</label>
                               <input
                                 type="datetime-local"
+                                min={getLocalDateTimeInputMinNow()}
                                 value={toDateTimeLocalInput(overviewEditForm.nextFollowUp)}
-                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, nextFollowUp: fromDateTimeLocalInput(e.target.value) }))}
+                                onChange={(e) =>
+                                  setOverviewEditForm((p) => ({
+                                    ...p,
+                                    nextFollowUp: fromDateTimeLocalInput(
+                                      clampDateTimeLocalToMin(e.target.value, getLocalDateTimeInputMinNow())
+                                    ),
+                                  }))
+                                }
                                 className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                               />
                             </div>
@@ -3374,8 +3407,16 @@ export function LeadDetailsDrawer({
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Next Follow-up</label>
                               <input
                                 type="datetime-local"
+                                min={getLocalDateTimeInputMinNow()}
                                 value={toDateTimeLocalInput(overviewEditForm.nextFollowUp)}
-                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, nextFollowUp: fromDateTimeLocalInput(e.target.value) }))}
+                                onChange={(e) =>
+                                  setOverviewEditForm((p) => ({
+                                    ...p,
+                                    nextFollowUp: fromDateTimeLocalInput(
+                                      clampDateTimeLocalToMin(e.target.value, getLocalDateTimeInputMinNow())
+                                    ),
+                                  }))
+                                }
                                 className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                               />
                             </div>

@@ -233,6 +233,16 @@ function extractApiData<T>(response: { data?: T | { data?: T } } | T): T {
 
 type BackendCandidateInterview = NonNullable<BackendCandidate['interviews']>[number];
 
+function findJobTitleById(jobId: string, matches?: BackendCandidate['matches']): string | undefined {
+  if (!jobId || !Array.isArray(matches)) return undefined;
+  for (const match of matches) {
+    if (match?.job?.id === jobId && match.job.title) {
+      return match.job.title;
+    }
+  }
+  return undefined;
+}
+
 function mapCandidateProfile(c: BackendCandidate): CandidateProfileDrawerData {
   const namePart = `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim();
   const emailPart = c.email?.trim() || '';
@@ -446,8 +456,16 @@ function mapCandidateProfile(c: BackendCandidate): CandidateProfileDrawerData {
     currentSalaryValue: c.currentSalary ?? careerPrefs?.currentSalary ?? null,
     salaryCurrency: careerPrefs?.preferredCurrency || c.salary?.currency || 'INR',
     noticePeriod: c.noticePeriod || careerPrefs?.noticePeriod || '—',
-    assignedJob: latestMatch?.job?.title || '—',
-    assignedJobId: latestMatch?.job?.id || c.assignedJobs?.[0] || null,
+    // Prefer the explicitly-assigned job (set via the candidate edit modal) over
+    // any pre-existing Match record so changing the assignment reflects in the
+    // drawer + dropdown immediately after save. If the title can't be resolved
+    // locally we leave it empty — the drawer enriches it from the loaded jobs
+    // list before display.
+    assignedJob:
+      (c.assignedJobs?.[0] && findJobTitleById(c.assignedJobs[0], c.matches)) ||
+      latestMatch?.job?.title ||
+      '—',
+    assignedJobId: c.assignedJobs?.[0] || latestMatch?.job?.id || null,
     assignedJobs: (() => {
       const seen = new Set<string>();
       const out: NonNullable<CandidateProfileDrawerData['assignedJobs']> = [];

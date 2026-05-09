@@ -21,6 +21,7 @@ import {
 } from '../app/Task&Activites/types';
 import { apiGetCandidates, apiGetJobs, apiGetClients, apiGetInterviews, type BackendCandidate, type BackendJob, type BackendClient, type BackendInterviewListItem } from '../lib/api';
 import { getAllTeamMembersForAssign } from '../lib/api/teamApi';
+import { clampDateToMinLocal, getLocalDateInputMinToday, getLocalTimeInputMinNow, isLocalDateTimeNotPast } from '../utils/dateInputConstraints';
 
 const DEFAULT_FORM_VALUES: TaskFormValues = {
   title: '',
@@ -240,11 +241,12 @@ export function TaskForm({
 
   const isPastDue = useMemo(() => {
     if (!values.dueDate) return false;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const due = new Date(values.dueDate);
-    return due < today;
-  }, [values.dueDate]);
+    const today = getLocalDateInputMinToday();
+    if (values.dueDate < today) return true;
+    if (values.dueDate > today) return false;
+    if (!values.dueTime) return false;
+    return !isLocalDateTimeNotPast(values.dueDate, values.dueTime);
+  }, [values.dueDate, values.dueTime]);
 
   const attachmentNames = useMemo(
     () => values.attachmentNames.split(',').map((item) => item.trim()).filter(Boolean),
@@ -449,8 +451,14 @@ export function TaskForm({
             <label className="block text-sm font-medium text-slate-700 mb-2">Due Date <span className="text-red-500">*</span></label>
             <input
               type="date"
+              min={getLocalDateInputMinToday()}
               value={values.dueDate}
-              onChange={(e) => onChange({ ...values, dueDate: e.target.value })}
+              onChange={(e) =>
+                onChange({
+                  ...values,
+                  dueDate: clampDateToMinLocal(e.target.value, getLocalDateInputMinToday()),
+                })
+              }
               className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
             />
               {isPastDue && (
@@ -463,6 +471,7 @@ export function TaskForm({
           <label className="block text-sm font-medium text-slate-700 mb-2">Due Time</label>
           <input
             type="time"
+            min={values.dueDate === getLocalDateInputMinToday() ? getLocalTimeInputMinNow() : undefined}
             value={values.dueTime}
             onChange={(e) => onChange({ ...values, dueTime: e.target.value })}
             className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"

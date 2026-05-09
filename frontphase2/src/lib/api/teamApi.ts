@@ -1,4 +1,4 @@
-import { apiFetch, type BackendUser } from '../api';
+import { apiFetch, refreshLocalUserPermissions, type BackendUser } from '../api';
 import type {
   TeamMember,
   TeamMemberDetail,
@@ -258,7 +258,13 @@ export async function updateTeamMember(id: string, payload: UpdateMemberPayload)
   if (!res.ok || json?.success === false) {
     throw new Error(json?.message || `Request failed with status ${res.status}`);
   }
-  
+
+  // If the admin re-assigned a role, immediately refresh the acting user's
+  // own permission cache (no-op if a different user was edited; the affected
+  // user picks the change up via the UserPermissionsSync heartbeat / focus
+  // refresh).
+  void refreshLocalUserPermissions();
+
   return { data: json.data, success: json.success };
 }
 
@@ -837,7 +843,12 @@ export async function updateRole(id: string, payload: { roleName?: string; descr
   if (!res.ok || json?.success === false) {
     throw new Error(json?.message || `Request failed with status ${res.status}`);
   }
-  
+
+  // If the acting user shares this role, the change has to reflect in their
+  // own session immediately. Refreshing the local permission cache is cheap
+  // and a no-op when the role isn't assigned to the current user.
+  void refreshLocalUserPermissions();
+
   return { data: json.data, success: json.success };
 }
 

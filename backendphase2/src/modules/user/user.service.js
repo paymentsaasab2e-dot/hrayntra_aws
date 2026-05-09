@@ -127,4 +127,63 @@ export const userService = {
     await prisma.user.delete({ where: { id } });
     return { message: 'User deleted successfully' };
   },
+
+  /**
+   * Resolve the live, effective permissions for the given user from the
+   * database (so changes the admin makes in Teams/Roles propagate to active
+   * sessions on the next refresh). Super admins always get the wildcard
+   * `'all'` token; non-super users get the unique permission names attached
+   * to their assigned role.
+   */
+  async getEffectivePermissions(id) {
+    if (!id) return null;
+    const user = await prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        role: true,
+        roleId: true,
+        isActive: true,
+        systemRole: {
+          select: {
+            id: true,
+            roleName: true,
+            color: true,
+            rolePermissions: {
+              select: {
+                permission: { select: { permissionName: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!user) return null;
+
+    const roleName = user.systemRole?.roleName || '';
+    const isSuperAdmin =
+      user.role === 'SUPER_ADMIN' ||
+      String(roleName).trim().toLowerCase().replace(/\s+/g, '_') === 'super_admin';
+
+    const permissionNames = isSuperAdmin
+      ? ['all']
+      : Array.from(
+          new Set(
+            (user.systemRole?.rolePermissions || [])
+              .map((rp) => rp.permission?.permissionName)
+              .filter(Boolean)
+          )
+        );
+
+    return {
+      id: user.id,
+      role: user.role || (isSuperAdmin ? 'SUPER_ADMIN' : ''),
+      roleName,
+      roleColor: user.systemRole?.color || '',
+      isSuperAdmin,
+      isActive: user.isActive,
+      permissions: permissionNames,
+    };
+  },
 };

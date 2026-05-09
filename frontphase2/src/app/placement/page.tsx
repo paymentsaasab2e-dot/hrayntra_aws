@@ -2,7 +2,8 @@
 
 import React, { Suspense, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { Download, Plus } from 'lucide-react';
+import { Download, Plus, Trophy } from 'lucide-react';
+import { PageHeaderTitle } from '../../components/ui/PageHeaderTitle';
 import { Toaster, toast } from 'sonner';
 import { FiltersBar } from '../../components/placements/FiltersBar';
 import { KPICards } from '../../components/placements/KPICards';
@@ -147,10 +148,12 @@ function PlacementsPageContent() {
       <main className="p-8">
         <div className="mx-auto max-w-7xl space-y-6">
           <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900">Placements</h1>
-              <p className="mt-1 text-sm text-slate-500">Manage and track candidates who have accepted offers.</p>
-            </div>
+            <PageHeaderTitle
+              title="Placements"
+              subtitle="Manage and track candidates who have accepted offers."
+              icon={<Trophy className="h-6 w-6" strokeWidth={2.2} />}
+              gradient="emerald"
+            />
 
             <div className="flex flex-wrap items-center gap-3">
               {canExportData && (
