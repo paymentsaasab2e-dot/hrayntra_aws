@@ -41,6 +41,12 @@ import { getCandidateStageBadgeClasses, getCandidateStageLabel } from '../../uti
 import type { LucideIcon } from 'lucide-react';
 import { useFiles } from '../../hooks/useFiles';
 import { apiGenerateCandidateInterviewMeetingLink, apiGetJob, type UpdateCandidatePayload } from '../../lib/api';
+import {
+  clampDateToMinLocal,
+  filterInterviewSlotsForLocalDate,
+  generateStandardInterviewSlotDescriptors,
+  getLocalDateInputMinToday,
+} from '../../utils/dateInputConstraints';
 
 export interface CandidateTagItem {
   id: string;
@@ -1054,29 +1060,14 @@ const INTERVIEW_TYPES = [
 const INTERVIEW_DURATIONS = ['30 mins', '45 mins', '1 hour', '1.5 hours', '2 hours'] as const;
 const INTERVIEW_PANEL_ROLES = ['Lead Interviewer', 'Interviewer', 'Observer'] as const;
 
-function generateTimeSlots() {
-  const slots: string[] = [];
-  for (let hour = 9; hour <= 17; hour += 1) {
-    for (const minute of [0, 30]) {
-      const date = new Date();
-      date.setHours(hour, minute, 0, 0);
-      slots.push(
-        date.toLocaleTimeString('en-US', {
-          hour: 'numeric',
-          minute: '2-digit',
-        })
-      );
-    }
-  }
-  return slots;
-}
-
 interface ScheduleInterviewModalProps {
   candidate: Pick<
     CandidateProfileDrawerData,
     'id' | 'name' | 'phone' | 'stage' | 'assignedJob' | 'assignedJobId'
   > | null;
   linkedJobLabel?: string;
+  linkedJobTitle?: string;
+  linkedJobCompany?: string;
   interviewers: CandidateInterviewerOption[];
   existingInterviews: CandidateScheduledInterview[];
   isOpen: boolean;
@@ -1090,6 +1081,8 @@ interface ScheduleInterviewModalProps {
 function ScheduleInterviewModal({
   candidate,
   linkedJobLabel,
+  linkedJobTitle,
+  linkedJobCompany,
   interviewers,
   existingInterviews,
   isOpen,
@@ -1132,8 +1125,13 @@ function ScheduleInterviewModal({
   const interviewerRef = useRef<HTMLDivElement | null>(null);
   const roleMenuRef = useRef<HTMLDivElement | null>(null);
 
-  const timeSlots = useMemo(() => generateTimeSlots(), []);
-  const minimumDate = useMemo(() => new Date().toISOString().split('T')[0], []);
+  const interviewSlotDescriptors = useMemo(() => generateStandardInterviewSlotDescriptors(), []);
+  const visibleTimeSlots = useMemo(
+    () => filterInterviewSlotsForLocalDate(interviewSlotDescriptors, date).map((s) => s.label),
+    [interviewSlotDescriptors, date]
+  );
+  const isEditingInterview = Boolean(editInterview);
+  const minimumDate = getLocalDateInputMinToday();
 
   useEffect(() => {
     if (!isOpen) {
@@ -1459,10 +1457,16 @@ function ScheduleInterviewModal({
                       </label>
                       <input
                         type="date"
-                        min={minimumDate}
+                        min={isEditingInterview ? undefined : minimumDate}
                         value={date}
                         onChange={(e) => {
-                          setDate(e.target.value);
+                          const raw = e.target.value;
+                          const next = isEditingInterview ? raw : clampDateToMinLocal(raw, minimumDate);
+                          setDate(next);
+                          const allowed = filterInterviewSlotsForLocalDate(interviewSlotDescriptors, next).map(
+                            (s) => s.label
+                          );
+                          setTime((prev) => (prev && allowed.includes(prev) ? prev : ''));
                           if (mode === 'video') {
                             setMeetingLink('');
                           }
@@ -1492,7 +1496,7 @@ function ScheduleInterviewModal({
                         </button>
                         {timeOpen ? (
                           <div className="absolute left-0 right-0 top-12 z-20 max-h-56 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
-                            {timeSlots.map((slot) => (
+                            {visibleTimeSlots.map((slot) => (
                               <button
                                 key={slot}
                                 type="button"
@@ -1670,18 +1674,24 @@ function ScheduleInterviewModal({
                       </div>
                     ) : null}
 
-                    <div className="sm:col-span-2">
+                    <div>
                       <label className="mb-2 block text-sm font-medium text-slate-700">
                         Linked Job <span className="text-red-500">*</span>
                       </label>
                       <div
-                        className={`rounded-xl border bg-white px-3 py-2.5 text-sm text-slate-600 ${
+                        className={`flex h-[42px] items-center rounded-xl border bg-slate-50 px-3 text-sm font-medium text-slate-900 ${
                           errors.linkedJob ? 'border-red-300' : 'border-slate-200'
                         }`}
                       >
-                        {linkedJobLabel || candidate?.assignedJob || (candidate?.assignedJobId ? `Job ID: ${candidate.assignedJobId}` : 'No linked job')}
+                        {linkedJobTitle || candidate?.assignedJob || (candidate?.assignedJobId ? `Job ID: ${candidate.assignedJobId}` : 'No linked job')}
                       </div>
                       {errors.linkedJob ? <p className="mt-1 text-xs text-red-600">{errors.linkedJob}</p> : null}
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">Company</label>
+                      <div className="flex h-[42px] items-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-900">
+                        {linkedJobCompany || 'Linked from job'}
+                      </div>
                     </div>
                   </div>
                 </section>
@@ -3025,13 +3035,28 @@ export function CandidateProfileDrawer({
   }, []);
   const toFileHref = (fileUrl?: string | null) => buildFileHref(fileUrl, uploadsBase);
 
-  const linkedJobLabel = useMemo(() => {
+  const linkedJob = useMemo(() => {
     const jobId = candidate?.assignedJobId || null;
-    if (!jobId) return '';
+    if (!jobId) return { title: '', company: '' };
     const job = jobs.find((j) => j.id === jobId);
-    if (!job) return candidate?.assignedJob && candidate.assignedJob !== '—' ? String(candidate.assignedJob) : '';
-    return `${job.title}${job.department ? ` · ${job.department}` : ''}`;
+    if (!job) {
+      const fallbackTitle =
+        candidate?.assignedJob && candidate.assignedJob !== '—' ? String(candidate.assignedJob) : '';
+      return { title: fallbackTitle, company: '' };
+    }
+    return {
+      title: job.title || '',
+      company: job.department || '',
+    };
   }, [candidate?.assignedJob, candidate?.assignedJobId, jobs]);
+
+  const linkedJobTitle = linkedJob.title;
+  const linkedJobCompany = linkedJob.company;
+  // Backwards-compatible label kept for downstream consumers (single-line).
+  const linkedJobLabel = useMemo(() => {
+    if (!linkedJobTitle) return '';
+    return linkedJobCompany ? `${linkedJobTitle} · ${linkedJobCompany}` : linkedJobTitle;
+  }, [linkedJobTitle, linkedJobCompany]);
 
   const titleLine = useMemo(() => {
     if (!candidate) return '—';
@@ -3230,6 +3255,8 @@ export function CandidateProfileDrawer({
             isOpen={showScheduleInterviewModal}
             candidate={candidate}
             linkedJobLabel={linkedJobLabel}
+            linkedJobTitle={linkedJobTitle}
+            linkedJobCompany={linkedJobCompany}
             interviewers={interviewers}
             existingInterviews={existingInterviews.length ? existingInterviews : candidate.scheduledInterviews || []}
             onClose={() => {

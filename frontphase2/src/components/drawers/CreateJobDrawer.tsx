@@ -39,6 +39,7 @@ import { LinkedInConnect } from '../LinkedInConnect';
 import { LinkedInPostPreview } from '../LinkedInPostPreview';
 import { useLinkedIn } from '../../hooks/useLinkedIn';
 import { requestError, requestInfo, requestWarning } from '../../lib/appDialog';
+import { clampDateTimeLocalToMin, getLocalDateTimeInputMinNow } from '../../utils/dateInputConstraints';
 
 type ApplicationLogoOption = 'account' | 'company' | 'none' | 'custom';
 
@@ -2835,8 +2836,16 @@ export function CreateJobDrawer({
                                 <label className="block text-sm font-medium text-slate-700 mb-2">Schedule tweet (optional)</label>
                                 <input
                                   type="datetime-local"
+                                  min={getLocalDateTimeInputMinNow()}
                                   value={formData.twitterScheduleDate}
-                                  onChange={(e) => setFormData(prev => ({ ...prev, twitterScheduleDate: e.target.value }))}
+                                  onChange={(e) => {
+                                    const v = e.target.value;
+                                    const min = getLocalDateTimeInputMinNow();
+                                    setFormData((prev) => ({
+                                      ...prev,
+                                      twitterScheduleDate: v ? clampDateTimeLocalToMin(v, min) : '',
+                                    }));
+                                  }}
                                   className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                                 />
                               </div>

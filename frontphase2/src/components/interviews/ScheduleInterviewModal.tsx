@@ -3,6 +3,12 @@ import { AnimatePresence, motion } from 'motion/react';
 import { Plus, X } from 'lucide-react';
 import { PanelAssignmentModal } from './PanelAssignmentModal';
 import { combineInterviewDateAndTimeToIso } from '../../lib/interview-schedule-helpers';
+import {
+  clampDateToMinLocal,
+  filterInterviewSlotsForLocalDate,
+  generateStandardInterviewSlotDescriptors,
+  getLocalDateInputMinToday,
+} from '../../utils/dateInputConstraints';
 import type {
   Interview,
   InterviewCandidate,
@@ -50,25 +56,6 @@ const timezoneOptions = [
   { label: 'GMT+0:00', value: 'UTC' },
   { label: 'GMT-5:00', value: 'Etc/GMT+5' },
 ] as const;
-
-/** Build human-friendly slots (9:00 AM, 9:30 AM, ...) so the time field matches the candidates drawer modal. */
-function generateTimeSlots(): string[] {
-  const slots: string[] = [];
-  for (let hour = 9; hour <= 17; hour += 1) {
-    for (const minute of [0, 30]) {
-      const date = new Date();
-      date.setHours(hour, minute, 0, 0);
-      slots.push(date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }));
-    }
-  }
-  return slots;
-}
-const timeSlots = generateTimeSlots();
-
-/** ISO `YYYY-MM-DD` for today, used as `min` on the date picker. */
-function todayDate(): string {
-  return new Date().toISOString().split('T')[0];
-}
 
 export function ScheduleInterviewModal({
   isOpen,
@@ -132,6 +119,12 @@ export function ScheduleInterviewModal({
     sendWhatsAppReminder: true,
   });
   const [form, setForm] = useState<ScheduleInterviewPayload>(buildDefaultForm());
+
+  const interviewSlotDescriptors = useMemo(() => generateStandardInterviewSlotDescriptors(), []);
+  const visibleTimeSlotLabels = useMemo(
+    () => filterInterviewSlotsForLocalDate(interviewSlotDescriptors, form.date).map((s) => s.label),
+    [interviewSlotDescriptors, form.date]
+  );
 
   React.useEffect(() => {
     if (!isOpen) return;
@@ -231,7 +224,7 @@ export function ScheduleInterviewModal({
                     if (!candidate) return;
                     setForm((current) => ({ ...current, candidateId: candidate.id }));
                   }}
-                  className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-sm outline-none focus:border-[#2563EB]"
+                  className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
                 >
                   <option value="" disabled>
                     Select candidate
@@ -247,37 +240,40 @@ export function ScheduleInterviewModal({
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <label className="mb-2 block text-sm font-semibold text-[#111827]">Job Role</label>
-                  <select
-                    value={form.jobId}
-                    disabled={lockJob}
-                    onChange={(event) => {
-                      const nextJobId = event.target.value;
-                      const nextJob = jobs.find((job) => job.id === nextJobId);
-                      setForm((current) => ({
-                        ...current,
-                        jobId: nextJobId,
-                        clientId: nextJob?.clientId || current.clientId,
-                      }));
-                    }}
-                    className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-sm outline-none focus:border-[#2563EB]"
-                  >
-                    <option value="" disabled>
-                      Select job role
-                    </option>
-                    {jobs.map((job) => (
-                      <option key={job.id} value={job.id}>
-                        {job.title}
+                  {lockJob ? (
+                    <div className="flex h-[42px] items-center rounded-xl border border-[#E5E7EB] bg-[#F1F5F9] px-3 text-sm font-medium text-[#0F172A]">
+                      {selectedJob?.title || 'Selected job'}
+                    </div>
+                  ) : (
+                    <select
+                      value={form.jobId}
+                      onChange={(event) => {
+                        const nextJobId = event.target.value;
+                        const nextJob = jobs.find((job) => job.id === nextJobId);
+                        setForm((current) => ({
+                          ...current,
+                          jobId: nextJobId,
+                          clientId: nextJob?.clientId || current.clientId,
+                        }));
+                      }}
+                      className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
+                    >
+                      <option value="" disabled>
+                        Select job role
                       </option>
-                    ))}
-                  </select>
+                      {jobs.map((job) => (
+                        <option key={job.id} value={job.id}>
+                          {job.title}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
                 <div>
                   <label className="mb-2 block text-sm font-semibold text-[#111827]">Client</label>
-                  <input
-                    value={selectedJob?.client || ''}
-                    readOnly
-                    className="w-full rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2.5 text-sm text-[#374151]"
-                  />
+                  <div className="flex h-[42px] items-center rounded-xl border border-[#E5E7EB] bg-[#F1F5F9] px-3 text-sm font-medium text-[#0F172A]">
+                    {selectedJob?.client || 'Pick a job to see the client'}
+                  </div>
                 </div>
               </div>
 
@@ -350,11 +346,19 @@ export function ScheduleInterviewModal({
                   <label className="mb-2 block text-sm font-semibold text-[#111827]">Date</label>
                   <input
                     type="date"
-                    min={todayDate()}
+                    min={isEditMode ? undefined : getLocalDateInputMinToday()}
                     value={form.date}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, date: event.target.value }))
-                    }
+                    onChange={(event) => {
+                      const raw = event.target.value;
+                      const nextDate = isEditMode ? raw : clampDateToMinLocal(raw, getLocalDateInputMinToday());
+                      setForm((current) => {
+                        const allowed = filterInterviewSlotsForLocalDate(interviewSlotDescriptors, nextDate).map(
+                          (s) => s.label
+                        );
+                        const nextTime = current.time && allowed.includes(current.time) ? current.time : '';
+                        return { ...current, date: nextDate, time: nextTime };
+                      });
+                    }}
                     className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-sm outline-none focus:border-[#2563EB]"
                   />
                 </div>
@@ -368,7 +372,7 @@ export function ScheduleInterviewModal({
                     <option value="" disabled>
                       Select time
                     </option>
-                    {timeSlots.map((slot) => (
+                    {visibleTimeSlotLabels.map((slot) => (
                       <option key={slot} value={slot}>
                         {slot}
                       </option>

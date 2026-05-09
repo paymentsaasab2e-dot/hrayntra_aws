@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
+import { clampDateToMinLocal, getLocalDateInputMinToday } from '../../utils/dateInputConstraints';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Building2,
@@ -2568,7 +2569,18 @@ export function ClientDetailsDrawer({
                               </div>
                               <div>
                                 <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Next Follow-up Date</label>
-                                <input type="date" value={overviewEditForm.nextFollowUpDue} onChange={(e) => setOverviewEditForm((p) => ({ ...p, nextFollowUpDue: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                                <input
+                                  type="date"
+                                  min={getLocalDateInputMinToday()}
+                                  value={overviewEditForm.nextFollowUpDue}
+                                  onChange={(e) =>
+                                    setOverviewEditForm((p) => ({
+                                      ...p,
+                                      nextFollowUpDue: clampDateToMinLocal(e.target.value, getLocalDateInputMinToday()),
+                                    }))
+                                  }
+                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                />
                               </div>
                               <div>
                                 <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Assigned To</label>

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { FloatingBotMount } from "../components/FloatingBotMount";
 import { GlobalAlertHost } from "../components/GlobalAlertHost";
 import { PageTitleSync } from "../components/PageTitleSync";
+import { UserPermissionsSync } from "../components/UserPermissionsSync";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -22,6 +23,7 @@ export default function RootLayout({
       <body suppressHydrationWarning>
         {children}
         <PageTitleSync />
+        <UserPermissionsSync />
         <GlobalAlertHost />
         <FloatingBotMount />
       </body>

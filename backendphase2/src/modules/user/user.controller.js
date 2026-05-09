@@ -23,6 +23,18 @@ export const userController = {
     }
   },
 
+  async getMyPermissions(req, res) {
+    try {
+      const payload = await userService.getEffectivePermissions(req.user.id);
+      if (!payload) {
+        return sendError(res, 404, 'User not found');
+      }
+      sendResponse(res, 200, 'User permissions retrieved successfully', payload);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
   async getById(req, res) {
     try {
       const user = await userService.getById(req.params.id);

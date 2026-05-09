@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { ChevronDown, Bell, Mail, MessageCircle } from 'lucide-react';
 import { REMINDER_OPTIONS, REMINDER_CHANNEL_OPTIONS, type ReminderChannel } from '../app/Task&Activites/types';
+import { clampDateToMinLocal, getLocalDateInputMinToday, getLocalTimeInputMinNow } from '../utils/dateInputConstraints';
 
 /** Parsed custom reminder: value starts with "custom:" then ISO date-time, optionally ":channel" */
 function parseCustomReminder(value: string): { date: string; time: string; channel: ReminderChannel } | null {
@@ -129,17 +130,34 @@ export function TaskReminderField({
       onChange('custom');
       return;
     }
+    const today = getLocalDateInputMinToday();
+    const d = clampDateToMinLocal(customDate, today);
+    let t = customTime;
+    if (d === today) {
+      const minT = getLocalTimeInputMinNow();
+      if (!t || t < minT) t = minT;
+    }
+    if (d !== customDate) setCustomDate(d);
+    if (t !== customTime) setCustomTime(t);
     const channelPart = customChannel ? `:${customChannel}` : '';
-    onChange(`custom:${customDate}T${customTime}${channelPart}`);
+    onChange(`custom:${d}T${t}${channelPart}`);
   };
 
   const handleCustomDateChange = (v: string) => {
-    setCustomDate(v);
-    if (v && customTime) onChange(`custom:${v}T${customTime}:${customChannel}`);
+    const next = clampDateToMinLocal(v, getLocalDateInputMinToday());
+    setCustomDate(next);
+    let nextTime = customTime;
+    if (next === getLocalDateInputMinToday() && customTime && customTime < getLocalTimeInputMinNow()) {
+      nextTime = getLocalTimeInputMinNow();
+      setCustomTime(nextTime);
+    }
+    if (next && nextTime) onChange(`custom:${next}T${nextTime}:${customChannel}`);
   };
   const handleCustomTimeChange = (v: string) => {
-    setCustomTime(v);
-    if (customDate && v) onChange(`custom:${customDate}T${v}:${customChannel}`);
+    const minT = customDate === getLocalDateInputMinToday() ? getLocalTimeInputMinNow() : '00:00';
+    const next = v < minT ? minT : v;
+    setCustomTime(next);
+    if (customDate && next) onChange(`custom:${customDate}T${next}:${customChannel}`);
   };
   const handleCustomChannelChange = (ch: ReminderChannel) => {
     setCustomChannel(ch);
@@ -188,6 +206,7 @@ export function TaskReminderField({
               <label className="block text-xs font-medium text-slate-500 mb-1">Reminder date</label>
               <input
                 type="date"
+                min={getLocalDateInputMinToday()}
                 value={customDate}
                 onChange={(e) => handleCustomDateChange(e.target.value)}
                 onBlur={commitCustom}
@@ -198,6 +217,7 @@ export function TaskReminderField({
               <label className="block text-xs font-medium text-slate-500 mb-1">Reminder time</label>
               <input
                 type="time"
+                min={customDate === getLocalDateInputMinToday() ? getLocalTimeInputMinNow() : undefined}
                 value={customTime}
                 onChange={(e) => handleCustomTimeChange(e.target.value)}
                 onBlur={commitCustom}

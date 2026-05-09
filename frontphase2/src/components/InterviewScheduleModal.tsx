@@ -1,6 +1,9 @@
-import React from 'react';
+'use client';
+
+import React, { useState } from 'react';
 import { X, Calendar, Clock, Video, Users, Link as LinkIcon, FileText, ChevronDown, PlayCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { clampDateToMinLocal, getLocalDateInputMinToday, getLocalTimeInputMinNow } from '../utils/dateInputConstraints';
 
 interface ScheduleModalProps {
   isOpen: boolean;
@@ -8,7 +11,23 @@ interface ScheduleModalProps {
 }
 
 export function InterviewScheduleModal({ isOpen, onClose }: ScheduleModalProps) {
+  const todayYmd = getLocalDateInputMinToday();
+  const [interviewDate, setInterviewDate] = useState('');
+  const [interviewTime, setInterviewTime] = useState('');
+
   if (!isOpen) return null;
+
+  const handleInterviewDate = (v: string) => {
+    const next = clampDateToMinLocal(v, todayYmd);
+    setInterviewDate(next);
+    if (next === todayYmd && interviewTime && interviewTime < getLocalTimeInputMinNow()) {
+      setInterviewTime(getLocalTimeInputMinNow());
+    }
+  };
+  const handleInterviewTime = (v: string) => {
+    const minT = interviewDate === todayYmd ? getLocalTimeInputMinNow() : '00:00';
+    setInterviewTime(v < minT ? minT : v);
+  };
 
   return (
     <AnimatePresence>
@@ -85,8 +104,11 @@ export function InterviewScheduleModal({ isOpen, onClose }: ScheduleModalProps) 
                   <Calendar className="size-4 text-slate-400" />
                   Date
                 </label>
-                <input 
-                  type="date" 
+                <input
+                  type="date"
+                  min={todayYmd}
+                  value={interviewDate}
+                  onChange={(e) => handleInterviewDate(e.target.value)}
                   className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
                 />
               </div>
@@ -97,8 +119,11 @@ export function InterviewScheduleModal({ isOpen, onClose }: ScheduleModalProps) 
                   <Clock className="size-4 text-slate-400" />
                   Time
                 </label>
-                <input 
-                  type="time" 
+                <input
+                  type="time"
+                  min={interviewDate === todayYmd ? getLocalTimeInputMinNow() : undefined}
+                  value={interviewTime}
+                  onChange={(e) => handleInterviewTime(e.target.value)}
                   className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
                 />
               </div>

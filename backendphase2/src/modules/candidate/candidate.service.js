@@ -1001,21 +1001,17 @@ export const candidateService = {
   },
 
   async getById(id, req = null) {
+    // Super admins should be able to open ANY candidate in their tenant by default.
+    // buildSuperAdminOwnerScope already returns null unless mineOnly=true is explicitly
+    // passed, so we don't apply any extra "mine" restriction here. Non-super users
+    // without the view_all_candidates permission stay scoped to records they
+    // created or are assigned to.
     const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
     let accessScope = superAdminScope;
     const canViewAllCandidates =
       canViewAllAssignments(req) || hasAnyPermissionScope(req, ['view_all_candidates']);
 
-    // Keep drawer access aligned with list access for super admins:
-    // allow candidate created/assigned directly OR linked to jobs created by this super admin.
-    if (isSuperAdminUser(req) && req?.user?.id) {
-      const mineScope = await buildMineCandidatesScope(req.user.id);
-      if (accessScope && mineScope) {
-        accessScope = { OR: [accessScope, mineScope] };
-      } else {
-        accessScope = mineScope || accessScope;
-      }
-    } else if (!canViewAllCandidates && req?.user?.id) {
+    if (!isSuperAdminUser(req) && !canViewAllCandidates && req?.user?.id) {
       const assignedScope = { OR: [{ createdById: req.user.id }, { assignedToId: req.user.id }] };
       accessScope = accessScope ? { AND: [accessScope, assignedScope] } : assignedScope;
     }
@@ -1108,64 +1104,120 @@ export const candidateService = {
   },
 
   async update(id, data) {
-    const updateData = {
-      firstName: data.firstName,
-      lastName: data.lastName,
-      email: data.email,
-      phone: data.phone,
-      linkedIn: data.linkedIn,
-      resume: data.resume,
-      skills: data.skills,
-      experience: data.experience,
-      currentTitle: data.currentTitle,
-      currentCompany: data.currentCompany,
-      designation: data.designation,
-      location: data.location,
-      status: data.status,
-      source: data.source,
-      assignedToId: data.assignedToId,
-      rating: data.rating,
-      noticePeriod: data.noticePeriod,
-      hotlist: data.hotlist,
-      salary: data.salary,
-      assignedJobs: data.assignedJobs,
-      stage: data.stage,
-      lastActivity: data.lastActivity ? new Date(data.lastActivity) : undefined,
-      dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : undefined,
-      gender: data.gender,
-      address: data.address,
-      city: data.city,
-      state: data.state,
-      zipCode: data.zipCode,
-      country: data.country,
-      workAuthorization: data.workAuthorization,
-      availability: data.availability,
-      expectedSalary: data.expectedSalary,
-      currentSalary: data.currentSalary,
-      education: data.education,
-      certifications: data.certifications,
-      languages: data.languages,
-      portfolio: data.portfolio,
-      github: data.github,
-      website: data.website,
-      notes: data.notes,
-      cvSummary: data.cvSummary,
-      cvEducationEntries: data.cvEducationEntries,
-      cvWorkExperienceEntries: data.cvWorkExperienceEntries,
-      cvPortfolioLinks: data.cvPortfolioLinks,
-      tags: data.tags,
-      preferredLocation: data.preferredLocation,
-      willingToRelocate: data.willingToRelocate,
-      remoteWorkPreference: data.remoteWorkPreference,
-    };
+    // Whitelist of fields that exist on the Candidate Prisma model. Anything not
+    // in this list (e.g. legacy `tags`, `dateOfBirth`, `workAuthorization`,
+    // `state`, `zipCode`, `github`, `gender`, `willingToRelocate`,
+    // `remoteWorkPreference`) is intentionally ignored — including those keys
+    // even with `undefined` values can cause Prisma "Unknown argument" errors,
+    // and silently mapping them would also corrupt valid saves.
+    const ALLOWED_FIELDS = [
+      'firstName',
+      'lastName',
+      'email',
+      'phone',
+      'linkedIn',
+      'resume',
+      'resumeUrl',
+      'skills',
+      'recruiterSkills',
+      'currentTitle',
+      'currentCompany',
+      'designation',
+      'location',
+      'address',
+      'addressLine',
+      'city',
+      'country',
+      'status',
+      'recruiterStatus',
+      'source',
+      'assignedToId',
+      'rating',
+      'availability',
+      'noticePeriod',
+      'hotlist',
+      'avatar',
+      'education',
+      'recruiterEducation',
+      'certifications',
+      'certificationsList',
+      'languages',
+      'recruiterLanguages',
+      'portfolio',
+      'website',
+      'notes',
+      'recruiterNotes',
+      'cvSummary',
+      'cvEducationEntries',
+      'cvWorkExperienceEntries',
+      'cvPortfolioLinks',
+      'preferredLocation',
+      'assignedJobs',
+      'stage',
+      'salary',
+    ];
+    const INTEGER_FIELDS = new Set([
+      'experience',
+      'experienceYears',
+      'expectedSalary',
+      'currentSalary',
+    ]);
 
-    // Log data being updated
+    const updateData = {};
+    for (const key of ALLOWED_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(data || {}, key)) {
+        updateData[key] = data[key];
+      }
+    }
+
+    for (const key of INTEGER_FIELDS) {
+      if (!Object.prototype.hasOwnProperty.call(data || {}, key)) continue;
+      const raw = data[key];
+      if (raw === null || raw === '' || raw === undefined) {
+        updateData[key] = null;
+        continue;
+      }
+      const parsed = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
+      updateData[key] = Number.isFinite(parsed) ? parsed : null;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(data || {}, 'lastActivity')) {
+      updateData.lastActivity = data.lastActivity ? new Date(data.lastActivity) : null;
+    }
+
     dbLogger.logUpdate('CANDIDATE', id, updateData);
 
-    const updated = await prisma.candidate.update({
-      where: { id },
-      data: updateData,
-    });
+    // The candidate may live in the main tenant DB (recruiter-created) OR in
+    // the per-tenant job-portal DB (self-registered via the public portal).
+    // We update wherever the row actually exists so saves never fail with
+    // "Record to update not found" on hybrid candidates.
+    const writeOnClient = async (client) => {
+      try {
+        return await client.candidate.update({
+          where: { id },
+          data: updateData,
+        });
+      } catch (error) {
+        if (error?.code === 'P2025') return null;
+        throw error;
+      }
+    };
+
+    let updated = await writeOnClient(prisma);
+
+    if (!updated && isTenantScopedRequest()) {
+      let portalPrisma = null;
+      try { portalPrisma = getJobPortalPrismaClient(); } catch { portalPrisma = null; }
+      if (portalPrisma) {
+        updated = await writeOnClient(portalPrisma);
+      }
+    }
+
+    if (!updated) {
+      const err = new Error('Candidate not found');
+      err.code = 'P2025';
+      throw err;
+    }
 
     console.log(`✅ Candidate updated successfully (ID: ${id})\n`);
 
