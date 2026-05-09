@@ -200,40 +200,46 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                   </div>
                 </td>
                 <td className="px-4 py-4 text-right">
-                  <div className="flex items-center justify-end gap-1">
-                    <div className="flex items-center gap-1 mr-1 bg-slate-50 border border-slate-200 rounded-lg p-0.5">
+                  {/* Colored action icons — matches the design used on the
+                      Leads / Clients tabs so each verb has its own hue:
+                      view = blue, message = emerald, edit = amber,
+                      delete = rose. */}
+                  <div className="flex items-center justify-end" onClick={(e) => e.stopPropagation()}>
+                    <div className="inline-flex items-center justify-end gap-0.5 rounded-2xl bg-slate-100/70 p-1 ring-1 ring-slate-200/60">
                       <button
-                        className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-white rounded transition-all"
+                        type="button"
+                        className="flex h-8 w-8 items-center justify-center rounded-xl text-blue-600 hover:bg-white hover:text-blue-700 hover:shadow-sm transition-all"
                         title="View Profile"
                         onClick={() => onViewProfile?.(candidate)}
                       >
-                        <Eye size={15} />
+                        <Eye size={16} strokeWidth={2.25} />
                       </button>
                       <button
                         type="button"
-                        className="p-1.5 text-slate-500 hover:text-green-600 hover:bg-white rounded transition-all"
+                        className="flex h-8 w-8 items-center justify-center rounded-xl text-emerald-600 hover:bg-white hover:text-emerald-800 hover:shadow-sm transition-all"
                         title="WhatsApp"
                         onClick={(e) => {
                           e.stopPropagation();
                           onWhatsAppCandidate?.(candidate);
                         }}
                       >
-                        <MessageSquare size={15} />
+                        <MessageSquare size={16} strokeWidth={2.25} />
                       </button>
                       <button
-                        className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-white rounded transition-all"
+                        type="button"
+                        className="flex h-8 w-8 items-center justify-center rounded-xl text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
                         title="Edit candidate"
                         onClick={(e) => {
                           e.stopPropagation();
                           onEditCandidate?.(candidate);
                         }}
                       >
-                        <Pencil size={15} />
+                        <Pencil size={16} strokeWidth={2.25} />
                       </button>
                       {onDeleteCandidate && (
                         <button
                           type="button"
-                          className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded transition-all disabled:opacity-50 disabled:pointer-events-none"
+                          className="flex h-8 w-8 items-center justify-center rounded-xl text-rose-500 hover:bg-white hover:text-rose-700 hover:shadow-sm transition-all disabled:opacity-50 disabled:pointer-events-none"
                           title="Delete candidate"
                           disabled={deletingCandidateId === candidate.id}
                           onClick={(e) => {
@@ -242,9 +248,9 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                           }}
                         >
                           {deletingCandidateId === candidate.id ? (
-                            <Loader2 size={15} className="animate-spin text-red-600" />
+                            <Loader2 size={16} className="animate-spin text-rose-600" />
                           ) : (
-                            <Trash2 size={15} />
+                            <Trash2 size={16} strokeWidth={2.25} />
                           )}
                         </button>
                       )}
