@@ -65,6 +65,51 @@ export function mapStageNameToPipelineBucket(stageName) {
   return PIPELINE_STAGES.APPLIED;
 }
 
+/**
+ * Resolve the tenant CRM `PipelineStage` row for a canonical bucket (PIPELINE_STAGES.*).
+ * Prefer explicit `systemRole` on the stage; else substring bucket from `name`.
+ */
+export async function resolveJobPipelineStageForRole(jobId, canonicalStage) {
+  const role = String(canonicalStage || '').toUpperCase();
+  if (!jobId || !role) return null;
+  const stages = await prisma.pipelineStage.findMany({
+    where: { jobId },
+    orderBy: { order: 'asc' },
+  });
+  if (!stages.length) return null;
+  const tagged = stages.find((s) => s.systemRole && String(s.systemRole).toUpperCase() === role);
+  if (tagged) return tagged;
+  return stages.find((s) => mapStageNameToPipelineBucket(s.name) === role) || null;
+}
+
+async function upsertTenantPipelineEntry(candidateId, jobId, stageId, movedById) {
+  if (!candidateId || !jobId || !stageId) return;
+  const existing = await prisma.pipelineEntry.findFirst({
+    where: { candidateId, jobId },
+    select: { id: true },
+  });
+  const data = {
+    stageId,
+    movedAt: new Date(),
+    ...(movedById ? { movedById } : {}),
+  };
+  if (existing) {
+    await prisma.pipelineEntry.update({
+      where: { id: existing.id },
+      data,
+    });
+  } else {
+    await prisma.pipelineEntry.create({
+      data: {
+        candidateId,
+        jobId,
+        stageId,
+        movedById: movedById || null,
+      },
+    });
+  }
+}
+
 /** CRM / list `candidate.stage` string (tenant + portal profile). */
 export function mapPipelineStageToCrmCandidateLabel(stage) {
   const s = String(stage || '').toUpperCase();
@@ -325,6 +370,15 @@ export async function updateCandidateStage({
     };
 
     await syncApplicationState(candidateId, jobId, portalExtra);
+
+    try {
+      const resolvedStage = await resolveJobPipelineStageForRole(jobId, upper);
+      if (resolvedStage?.id) {
+        await upsertTenantPipelineEntry(candidateId, jobId, resolvedStage.id, performedById || null);
+      }
+    } catch (pipeErr) {
+      console.warn('[updateCandidateStage] tenant pipeline entry move failed:', pipeErr?.message || pipeErr);
+    }
   } else if (upper === PIPELINE_STAGES.REJECTED) {
     // Job-scoped portal sync could not run (no `jobId` on the reject payload).
     // Still push the terminal label onto the portal candidate profile so

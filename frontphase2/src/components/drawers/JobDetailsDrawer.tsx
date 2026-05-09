@@ -4,7 +4,7 @@ import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 're
 import { createPortal } from 'react-dom';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { motion, AnimatePresence } from 'motion/react';
-import { requestError } from '../../lib/appDialog';
+import { requestError, requestInfo } from '../../lib/appDialog';
 import {
   X,
   Pencil,
@@ -51,7 +51,14 @@ import {
 import { ImageWithFallback } from '../ImageWithFallback';
 import { NotesService } from '../NotesService';
 import { StatusChangeService } from '../StatusChangeService';
-import { apiGetJobActivities, apiUpdateJob, type BackendActivity } from '../../lib/api';
+import {
+  apiGetJobActivities,
+  apiUpdateJob,
+  apiResetJobPipelineToOrgTemplate,
+  type BackendActivity,
+  getCachedOrgRecruitmentMode,
+  ORG_RECRUITMENT_CACHE_EVENT,
+} from '../../lib/api';
 import { useFiles } from '../../hooks/useFiles';
 
 export type JobDrawerStatus = 'Draft' | 'Active' | 'On Hold' | 'Closed';
@@ -116,6 +123,8 @@ export interface JobPipelineStage {
   id: string;
   name: string;
   sla?: string;
+  /** Backend lifecycle bucket (APPLIED, INTERVIEW, …) for standalone tenant pipeline sync */
+  systemRole?: string | null;
 }
 
 const DEFAULT_PIPELINE_STAGE_NAMES = ['Apply', 'Interview', 'Reject', 'Placed'] as const;
@@ -126,6 +135,16 @@ const DEFAULT_PIPELINE_STAGE_IDS: Record<(typeof DEFAULT_PIPELINE_STAGE_NAMES)[n
   Placed: 'default-placed-stage',
 };
 const DEFAULT_PIPELINE_STAGE_ID_SET = new Set(Object.values(DEFAULT_PIPELINE_STAGE_IDS));
+
+const PIPELINE_SYSTEM_ROLE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: '', label: 'Auto / unset' },
+  { value: 'APPLIED', label: 'Applied' },
+  { value: 'SCREENING', label: 'Screening' },
+  { value: 'INTERVIEW', label: 'Interview' },
+  { value: 'OFFER', label: 'Offer' },
+  { value: 'HIRED', label: 'Hired' },
+  { value: 'REJECTED', label: 'Rejected' },
+];
 
 const getDefaultPipelineStageNameById = (id: string): (typeof DEFAULT_PIPELINE_STAGE_NAMES)[number] | null => {
   const found = DEFAULT_PIPELINE_STAGE_NAMES.find((defaultName) => DEFAULT_PIPELINE_STAGE_IDS[defaultName] === id);
@@ -167,32 +186,39 @@ function normalizePipelineStages(stages?: JobPipelineStage[] | null): JobPipelin
       id: String(stage?.id || `s-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
       name: String(stage?.name || '').trim(),
       sla: stage?.sla || '',
+      systemRole:
+        stage?.systemRole != null && String(stage.systemRole).trim() !== ''
+          ? String(stage.systemRole).trim()
+          : undefined,
     }))
     .filter((stage) => stage.name.length > 0);
 
   if (normalizedInput.length === 0) {
+    // Last-resort fallback for jobs that have no configured pipeline yet.
+    // For agency the org has no template, so we keep the historical four-stage UX.
     return DEFAULT_PIPELINE_STAGE_NAMES.map((defaultName) => ({
       id: DEFAULT_PIPELINE_STAGE_IDS[defaultName],
       name: defaultName,
       sla: '',
+      systemRole: undefined,
     }));
   }
 
-  // Preserve incoming order; only append any missing defaults.
-  const existingDefaultNames = new Set(
-    normalizedInput
-      .map((stage) => getDefaultPipelineStageNameById(stage.id) || getDefaultPipelineStageName(stage.name))
-      .filter((name): name is (typeof DEFAULT_PIPELINE_STAGE_NAMES)[number] => Boolean(name))
-  );
-  const missingDefaults = DEFAULT_PIPELINE_STAGE_NAMES
-    .filter((defaultName) => !existingDefaultNames.has(defaultName))
-    .map((defaultName) => ({
-      id: DEFAULT_PIPELINE_STAGE_IDS[defaultName],
-      name: defaultName,
-      sla: '',
-    }));
+  const deduped = (() => {
+    const hasAppliedLike = normalizedInput.some(
+      (s) =>
+        String(s.systemRole || '').toUpperCase() === 'APPLIED' ||
+        /^applied$/i.test(String(s.name || '').trim())
+    );
+    if (!hasAppliedLike) return normalizedInput;
+    return normalizedInput.filter((s) => String(s.name || '').trim().toLowerCase() !== 'apply');
+  })();
 
-  return [...normalizedInput, ...missingDefaults];
+  // Respect whatever the backend returned. Previously this function appended any of the four
+  // legacy defaults (Apply/Interview/Reject/Placed) that weren't already present, which caused
+  // standalone tenants — whose org template uses Applied/Screening/Interviewing/Offer/Hired/Rejected —
+  // to see an extra "Apply" / "Interview" / "Reject" / "Placed" tail glued onto every job's pipeline.
+  return deduped;
 }
 
 /** Candidate row for Job Candidates list (Candidates tab) */
@@ -320,7 +346,21 @@ export function JobDetailsDrawer({
   const [draggedStageId, setDraggedStageId] = useState<string | null>(null);
   const [pipelineDirty, setPipelineDirty] = useState(false);
   const [pipelineValidationError, setPipelineValidationError] = useState('');
+  const [orgRecruitmentMode, setOrgRecruitmentMode] = useState<'agency' | 'standalone'>(() =>
+    typeof window !== 'undefined' ? getCachedOrgRecruitmentMode() : 'agency'
+  );
+  const [standaloneCustomizePipeline, setStandaloneCustomizePipeline] = useState(false);
   const isOwnPipelineEditRef = useRef(false);
+
+  useEffect(() => {
+    const on = () => setOrgRecruitmentMode(getCachedOrgRecruitmentMode());
+    window.addEventListener(ORG_RECRUITMENT_CACHE_EVENT, on);
+    return () => window.removeEventListener(ORG_RECRUITMENT_CACHE_EVENT, on);
+  }, []);
+
+  useEffect(() => {
+    setStandaloneCustomizePipeline(false);
+  }, [job?.id]);
 
   useEffect(() => {
     if (job) {
@@ -331,8 +371,11 @@ export function JobDetailsDrawer({
         setPipelineStages(normalized);
       }
       if (!isOwnPipelineEditRef.current) {
-        const incomingCount = Array.isArray(initialPipelineStages) ? initialPipelineStages.filter((s) => String(s?.name || '').trim()).length : 0;
-        setPipelineDirty(incomingCount === 0);
+        // Never auto-mark dirty just because the backend returned no stages —
+        // doing so caused the four fallback stages (Apply/Interview/Reject/Placed)
+        // to silently get saved on the next user-triggered save, polluting jobs
+        // that should have been using the org pipeline template instead.
+        setPipelineDirty(false);
       }
       setPipelineValidationError('');
       isOwnPipelineEditRef.current = false;
@@ -343,6 +386,8 @@ export function JobDetailsDrawer({
     isOwnPipelineEditRef.current = true;
     onPipelineStagesChange?.(stages);
   };
+
+  const pipelineConfigLocked = orgRecruitmentMode === 'standalone' && !standaloneCustomizePipeline;
 
   const [activeTab, setActiveTab] = useState<(typeof TAB_CONFIG)[number]['id']>('overview');
   const [candidateMenuOpen, setCandidateMenuOpen] = useState<string | null>(null);
@@ -440,6 +485,7 @@ export function JobDetailsDrawer({
   };
 
   const handlePipelineReorder = (fromIndex: number, toIndex: number) => {
+    if (pipelineConfigLocked) return;
     if (fromIndex === toIndex) return;
     const next = [...pipelineStages];
     const [removed] = next.splice(fromIndex, 1);
@@ -451,6 +497,7 @@ export function JobDetailsDrawer({
   };
 
   const handleAddStage = () => {
+    if (pipelineConfigLocked) return;
     const next = [...pipelineStages, { id: `s-${Date.now()}`, name: 'New stage', sla: '' }];
     setPipelineStages(next);
     notifyPipelineChange(next);
@@ -459,6 +506,7 @@ export function JobDetailsDrawer({
   };
 
   const handleRemoveStage = (id: string) => {
+    if (pipelineConfigLocked) return;
     const next = pipelineStages.filter((s) => s.id !== id);
     const normalized = normalizePipelineStages(next);
     setPipelineStages(normalized);
@@ -468,6 +516,7 @@ export function JobDetailsDrawer({
   };
 
   const handleStageNameChange = (id: string, name: string) => {
+    if (pipelineConfigLocked) return;
     const stage = pipelineStages.find((s) => s.id === id);
     if (!stage) return;
 
@@ -479,7 +528,19 @@ export function JobDetailsDrawer({
   };
 
   const handleStageSlaChange = (id: string, sla: string) => {
+    if (pipelineConfigLocked) return;
     const next = pipelineStages.map((s) => (s.id === id ? { ...s, sla } : s));
+    setPipelineStages(next);
+    notifyPipelineChange(next);
+    setPipelineDirty(true);
+    setPipelineValidationError('');
+  };
+
+  const handleStageSystemRoleChange = (id: string, systemRole: string) => {
+    const value = String(systemRole || '').trim();
+    const next = pipelineStages.map((s) =>
+      s.id === id ? { ...s, systemRole: value || undefined } : s
+    );
     setPipelineStages(next);
     notifyPipelineChange(next);
     setPipelineDirty(true);
@@ -1306,49 +1367,114 @@ export function JobDetailsDrawer({
 
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="p-4 border-b border-slate-100">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
                           <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Pipeline configuration</h4>
-                          <p className="text-xs text-slate-500 mt-0.5">Custom hiring pipeline for this job. Drag to reorder, add or remove stages.</p>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            {pipelineConfigLocked
+                              ? 'Standalone org: this job uses the organization default pipeline. Use “Customize pipeline” to change stages, order, or system roles for this job only.'
+                              : 'Custom hiring pipeline for this job. Drag to reorder, add or remove stages.'}
+                          </p>
                           <p className="text-[11px] text-amber-600 mt-1">Note: SLA values are currently display-only and are not persisted yet.</p>
                         </div>
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          {orgRecruitmentMode === 'standalone' && job?.id && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const ok = window.confirm(
+                                  'Reset this job\'s pipeline to the organization default template? This wipes the current stages and any candidates already on them.'
+                                );
+                                if (!ok) return;
+                                try {
+                                  const res = await apiResetJobPipelineToOrgTemplate(job.id);
+                                  const stages = res.data?.stages || [];
+                                  const mapped = stages.map((s) => ({
+                                    id: String(s.id),
+                                    name: String(s.name || ''),
+                                    sla: '',
+                                    systemRole: s.systemRole || undefined,
+                                  }));
+                                  setPipelineStages(mapped);
+                                  notifyPipelineChange(mapped);
+                                  setPipelineDirty(false);
+                                  setStandaloneCustomizePipeline(false);
+                                  void requestInfo('Pipeline reset to org default');
+                                } catch (err: any) {
+                                  void requestError(err?.message || 'Failed to reset pipeline');
+                                }
+                              }}
+                              className="px-3 py-2 rounded-lg text-xs font-bold border border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors"
+                              title="Replace this job's stages with the saved org template"
+                            >
+                              Reset to org default
+                            </button>
+                          )}
+                          {orgRecruitmentMode === 'standalone' &&
+                            (pipelineConfigLocked ? (
+                              <button
+                                type="button"
+                                onClick={() => setStandaloneCustomizePipeline(true)}
+                                className="px-3 py-2 rounded-lg text-xs font-bold border border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors"
+                              >
+                                Customize pipeline
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setStandaloneCustomizePipeline(false);
+                                  setPipelineDirty(false);
+                                }}
+                                className="px-3 py-2 rounded-lg text-xs font-bold border border-slate-200 text-slate-600 bg-white hover:bg-slate-50 transition-colors"
+                              >
+                                Lock to org view
+                              </button>
+                            ))}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (pipelineConfigLocked) return;
+                              const hasEmptyStageName = pipelineStages.some(
+                                (stage) => String(stage.name || '').trim().length === 0
+                              );
+                              if (hasEmptyStageName) {
+                                setPipelineValidationError('Please enter a stage name for all pipeline stages before saving.');
+                                return;
+                              }
+                              const stagesForSave = pipelineStages.map((stage) => ({
+                                ...stage,
+                                name: String(stage.name || '').trim(),
+                                systemRole: stage.systemRole && String(stage.systemRole).trim()
+                                  ? String(stage.systemRole).trim()
+                                  : undefined,
+                              }));
+                              setPipelineStages(stagesForSave);
+                              notifyPipelineChange(stagesForSave);
+                              onSavePipelineStages?.(stagesForSave);
+                              setPipelineValidationError('');
+                              setPipelineDirty(false);
+                            }}
+                            disabled={!pipelineDirty || pipelineConfigLocked}
+                            className={`px-3 py-2 rounded-lg text-xs font-bold border transition-colors ${
+                              pipelineDirty && !pipelineConfigLocked
+                                ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
+                                : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                            }`}
+                          >
+                            Save pipeline
+                          </button>
+                        </div>
+                      </div>
+                      {!pipelineConfigLocked && (
                         <button
                           type="button"
-                          onClick={() => {
-                            const hasEmptyStageName = pipelineStages.some(
-                              (stage) => String(stage.name || '').trim().length === 0
-                            );
-                            if (hasEmptyStageName) {
-                              setPipelineValidationError('Please enter a stage name for all pipeline stages before saving.');
-                              return;
-                            }
-                            const stagesForSave = pipelineStages.map((stage) => ({
-                              ...stage,
-                              name: String(stage.name || '').trim(),
-                            }));
-                            setPipelineStages(stagesForSave);
-                            notifyPipelineChange(stagesForSave);
-                            onSavePipelineStages?.(stagesForSave);
-                            setPipelineValidationError('');
-                            setPipelineDirty(false);
-                          }}
-                          disabled={!pipelineDirty}
-                          className={`shrink-0 px-3 py-2 rounded-lg text-xs font-bold border transition-colors ${
-                            pipelineDirty
-                              ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
-                              : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
-                          }`}
+                          onClick={handleAddStage}
+                          className="mt-3 flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-100 transition-colors"
                         >
-                          Save pipeline
+                          <Plus size={14} /> Add stage
                         </button>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleAddStage}
-                        className="mt-3 flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-100 transition-colors"
-                      >
-                        <Plus size={14} /> Add stage
-                      </button>
+                      )}
                       {pipelineValidationError ? (
                         <p className="mt-3 text-xs font-medium text-red-600">{pipelineValidationError}</p>
                       ) : null}
@@ -1359,57 +1485,97 @@ export function JobDetailsDrawer({
                           No stages yet. Click &quot;+ Add stage&quot; to build your pipeline, then &quot;Save pipeline&quot; when done.
                         </div>
                       ) : (
-                      pipelineStages.map((stage, index) => (
-                        <div
-                          key={stage.id}
-                          draggable
-                          onDragStart={() => setDraggedStageId(stage.id)}
-                          onDragOver={(e) => e.preventDefault()}
-                          onDrop={(e) => {
-                            e.preventDefault();
-                            if (!draggedStageId || draggedStageId === stage.id) return;
-                            const from = pipelineStages.findIndex((s) => s.id === draggedStageId);
-                            const to = index;
-                            if (from >= 0 && to >= 0) handlePipelineReorder(from, to);
-                            setDraggedStageId(null);
-                          }}
-                          onDragEnd={() => setDraggedStageId(null)}
-                          className={`flex items-center gap-3 px-4 py-3 hover:bg-slate-50/50 transition-colors ${draggedStageId === stage.id ? 'opacity-50' : ''}`}
-                        >
-                          <span className="cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-600" aria-label="Drag to reorder">
-                            <GripVertical size={18} />
-                          </span>
-                          <span className="text-sm font-medium text-slate-500 w-8 shrink-0">{index + 1}</span>
-                          <input
-                            type="text"
-                            value={stage.name}
-                            onChange={(e) => handleStageNameChange(stage.id, e.target.value)}
-                            className="flex-1 min-w-0 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                            placeholder="Stage name"
-                          />
-                          <div className="flex items-center gap-1.5 shrink-0 w-28">
-                            <Clock size={14} className="text-slate-400 shrink-0" />
-                            <input
-                              type="text"
-                              value={stage.sla ?? ''}
-                              onChange={(e) => handleStageSlaChange(stage.id, e.target.value)}
-                              placeholder="e.g. 2 days"
-                              disabled
-                              title="SLA persistence is not enabled yet"
-                              className="w-full rounded-lg border border-slate-200 bg-slate-100 px-2 py-1.5 text-xs text-slate-500 cursor-not-allowed"
-                            />
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveStage(stage.id)}
-                            disabled={isDefaultPipelineStage(stage)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0"
-                            aria-label="Remove stage"
+                        pipelineStages.map((stage, index) => (
+                          <div
+                            key={stage.id}
+                            draggable={!pipelineConfigLocked}
+                            onDragStart={() => {
+                              if (pipelineConfigLocked) return;
+                              setDraggedStageId(stage.id);
+                            }}
+                            onDragOver={(e) => {
+                              if (pipelineConfigLocked) return;
+                              e.preventDefault();
+                            }}
+                            onDrop={(e) => {
+                              if (pipelineConfigLocked) return;
+                              e.preventDefault();
+                              if (!draggedStageId || draggedStageId === stage.id) return;
+                              const from = pipelineStages.findIndex((s) => s.id === draggedStageId);
+                              const to = index;
+                              if (from >= 0 && to >= 0) handlePipelineReorder(from, to);
+                              setDraggedStageId(null);
+                            }}
+                            onDragEnd={() => setDraggedStageId(null)}
+                            className={`flex flex-wrap items-center gap-3 px-4 py-3 hover:bg-slate-50/50 transition-colors ${
+                              draggedStageId === stage.id ? 'opacity-50' : ''
+                            }`}
                           >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      ))
+                            <span
+                              className={`shrink-0 ${pipelineConfigLocked ? 'text-slate-200' : 'cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-600'}`}
+                              aria-label="Drag to reorder"
+                            >
+                              <GripVertical size={18} />
+                            </span>
+                            <span className="text-sm font-medium text-slate-500 w-8 shrink-0">{index + 1}</span>
+                            {pipelineConfigLocked ? (
+                              <span className="flex-1 min-w-0 text-sm font-medium text-slate-900">{stage.name}</span>
+                            ) : (
+                              <input
+                                type="text"
+                                value={stage.name}
+                                onChange={(e) => handleStageNameChange(stage.id, e.target.value)}
+                                className="flex-1 min-w-[120px] rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                placeholder="Stage name"
+                              />
+                            )}
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase whitespace-nowrap">Role</span>
+                              {pipelineConfigLocked ? (
+                                <span className="text-xs font-medium text-slate-600 min-w-[100px]">
+                                  {PIPELINE_SYSTEM_ROLE_OPTIONS.find((o) => o.value === (stage.systemRole || ''))?.label ||
+                                    stage.systemRole ||
+                                    '—'}
+                                </span>
+                              ) : (
+                                <select
+                                  value={stage.systemRole || ''}
+                                  onChange={(e) => handleStageSystemRoleChange(stage.id, e.target.value)}
+                                  className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs text-slate-800 min-w-[128px]"
+                                >
+                                  {PIPELINE_SYSTEM_ROLE_OPTIONS.map((o) => (
+                                    <option key={o.value || 'unset'} value={o.value}>
+                                      {o.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0 w-28">
+                              <Clock size={14} className="text-slate-400 shrink-0" />
+                              <input
+                                type="text"
+                                value={stage.sla ?? ''}
+                                onChange={(e) => handleStageSlaChange(stage.id, e.target.value)}
+                                placeholder="e.g. 2 days"
+                                disabled
+                                title="SLA persistence is not enabled yet"
+                                className="w-full rounded-lg border border-slate-200 bg-slate-100 px-2 py-1.5 text-xs text-slate-500 cursor-not-allowed"
+                              />
+                            </div>
+                            {!pipelineConfigLocked && (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveStage(stage.id)}
+                                disabled={isDefaultPipelineStage(stage)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0"
+                                aria-label="Remove stage"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            )}
+                          </div>
+                        ))
                       )}
                     </div>
                   </div>

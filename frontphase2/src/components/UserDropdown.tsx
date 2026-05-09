@@ -13,6 +13,13 @@ interface UserDropdownProps {
   avatarUrl?: string;
 }
 
+type MenuItem = {
+  icon: typeof User;
+  label: string;
+  action: 'profile' | 'switch' | 'settings' | 'logout';
+  color?: string;
+};
+
 export function UserDropdown({ avatarUrl: propAvatarUrl }: UserDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -34,25 +41,31 @@ export function UserDropdown({ avatarUrl: propAvatarUrl }: UserDropdownProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const menuItems = [
-    { icon: User, label: 'My Profile' },
-    { icon: Repeat, label: 'Switch Workspace' },
-    { icon: Settings, label: 'Settings' },
-    { icon: LogOut, label: 'Logout', color: 'text-red-500 hover:bg-red-50' },
+  // Profile + Settings are accessible to every signed-in user. Confidential
+  // tabs inside `/setting` are gated by permission within the settings UI.
+  const menuItems: MenuItem[] = [
+    { icon: User, label: 'My Profile', action: 'profile' },
+    { icon: Repeat, label: 'Switch Workspace', action: 'switch' },
+    { icon: Settings, label: 'Settings', action: 'settings' },
+    { icon: LogOut, label: 'Logout', action: 'logout', color: 'text-red-500 hover:bg-red-50' },
   ];
 
-  async function handleMenuClick(label: string) {
-    if (label === 'My Profile') {
+  async function handleMenuClick(item: MenuItem) {
+    if (item.action === 'profile') {
+      setIsOpen(false);
       router.push('/setting?section=profile');
-      setIsOpen(false);
       return;
     }
-    if (label === 'Settings') {
+    if (item.action === 'settings') {
+      setIsOpen(false);
       router.push('/setting');
+      return;
+    }
+    if (item.action === 'switch') {
       setIsOpen(false);
       return;
     }
-    if (label !== 'Logout' || isLoggingOut) {
+    if (item.action !== 'logout' || isLoggingOut) {
       return;
     }
 
@@ -71,26 +84,8 @@ export function UserDropdown({ avatarUrl: propAvatarUrl }: UserDropdownProps) {
   return (
     <div className="relative" ref={dropdownRef}>
       <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 focus:outline-none"
-      >
-        <div className="w-9 h-9 rounded-full overflow-hidden ring-2 ring-white/20 hover:ring-white/50 transition-all">
-          <ImageWithFallback
-            src={avatarUrl}
-            alt="User Avatar"
-            className="w-full h-full object-cover"
-          />
-        </div>
-      </button>
-
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-
-  return (
-    <div className="relative" ref={dropdownRef}>
-      <button
-        onClick={() => setIsOpen(!isOpen)}
+        type="button"
+        onClick={() => setIsOpen((open) => !open)}
         className="flex items-center gap-2 focus:outline-none"
       >
         <div className="w-9 h-9 rounded-full overflow-hidden ring-2 ring-white/20 hover:ring-white/50 transition-all">
@@ -115,15 +110,15 @@ export function UserDropdown({ avatarUrl: propAvatarUrl }: UserDropdownProps) {
               <p className="text-sm font-semibold text-slate-800">{userName}</p>
               <p className="text-xs text-slate-500">{userRole}</p>
             </div>
-            {menuItems.map((item, index) => (
+            {menuItems.map((item) => (
               <button
-                key={index}
+                key={item.label}
                 type="button"
-                onClick={() => handleMenuClick(item.label)}
-                disabled={item.label === 'Logout' && isLoggingOut}
+                onClick={() => handleMenuClick(item)}
+                disabled={item.action === 'logout' && isLoggingOut}
                 className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
                   item.color || 'text-slate-600 hover:bg-slate-50'
-                } ${item.label === 'Logout' && isLoggingOut ? 'opacity-70 cursor-not-allowed' : ''}`}
+                } ${item.action === 'logout' && isLoggingOut ? 'opacity-70 cursor-not-allowed' : ''}`}
               >
                 <item.icon className="w-4 h-4" />
                 <span>{item.label}</span>

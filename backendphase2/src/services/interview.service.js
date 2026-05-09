@@ -502,16 +502,58 @@ export const interviewService = {
 
     const skip = (page - 1) * limit;
 
+    // Defensive: legacy tenants can have orphan Interview rows whose jobId/clientId/candidateId
+    // point to deleted records. Prisma errors with "Inconsistent query result: Field job is
+    // required to return data, got null instead" when including required relations for orphans.
+    // We pre-fetch matching IDs and validate the FK targets so the include never sees an orphan.
+    const allMatchingIds = await prisma.interview.findMany({
+      where: scopedWhere,
+      select: { id: true, jobId: true, clientId: true, candidateId: true },
+    });
+
+    const requestedJobIds = [...new Set(allMatchingIds.map((row) => row.jobId).filter(Boolean))];
+    const requestedClientIds = [...new Set(allMatchingIds.map((row) => row.clientId).filter(Boolean))];
+    const requestedCandidateIds = [...new Set(allMatchingIds.map((row) => row.candidateId).filter(Boolean))];
+
+    const [existingJobs, existingClients, existingCandidates] = await Promise.all([
+      requestedJobIds.length
+        ? prisma.job.findMany({ where: { id: { in: requestedJobIds } }, select: { id: true } })
+        : Promise.resolve([]),
+      requestedClientIds.length
+        ? prisma.client.findMany({ where: { id: { in: requestedClientIds } }, select: { id: true } })
+        : Promise.resolve([]),
+      requestedCandidateIds.length
+        ? prisma.candidate.findMany({ where: { id: { in: requestedCandidateIds } }, select: { id: true } })
+        : Promise.resolve([]),
+    ]);
+
+    const validJobIds = new Set(existingJobs.map((row) => row.id));
+    const validClientIds = new Set(existingClients.map((row) => row.id));
+    const validCandidateIds = new Set(existingCandidates.map((row) => row.id));
+
+    const validInterviewIds = allMatchingIds
+      .filter(
+        (row) =>
+          (!row.jobId || validJobIds.has(row.jobId)) &&
+          (!row.clientId || validClientIds.has(row.clientId)) &&
+          (!row.candidateId || validCandidateIds.has(row.candidateId))
+      )
+      .map((row) => row.id);
+
+    const finalWhere = { id: { in: validInterviewIds } };
+
     const [data, total, kpis] = await Promise.all([
-      prisma.interview.findMany({
-        where: scopedWhere,
-        skip,
-        take: limit,
-        include: interviewInclude,
-        orderBy: { scheduledAt: 'asc' },
-      }),
-      prisma.interview.count({ where: scopedWhere }),
-      countKpis(scopedWhere),
+      validInterviewIds.length
+        ? prisma.interview.findMany({
+            where: finalWhere,
+            skip,
+            take: limit,
+            include: interviewInclude,
+            orderBy: { scheduledAt: 'asc' },
+          })
+        : Promise.resolve([]),
+      Promise.resolve(validInterviewIds.length),
+      countKpis(finalWhere),
     ]);
 
     return {
@@ -879,6 +921,22 @@ export const interviewService = {
           notifyInterviewer: payload.notifyInterviewer,
         }
       );
+    }
+
+    try {
+      await updateCandidateStage({
+        candidateId: updated.candidateId,
+        jobId: updated.jobId,
+        stage: PIPELINE_STAGES.INTERVIEW,
+        performedById: user.id,
+        skipStageActivity: true,
+        metadata: {
+          source: 'interview-rescheduled',
+          scheduledAt: nextDate.toISOString(),
+        },
+      });
+    } catch (stageErr) {
+      console.warn('[interview.reschedule] stage sync failed:', stageErr?.message || stageErr);
     }
 
     return {

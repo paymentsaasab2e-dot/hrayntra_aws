@@ -55,8 +55,11 @@ import {
   type BackendJob,
 } from '../../lib/api';
 import { getAllTeamMembersForAssign } from '../../lib/api/teamApi';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { usePathname, useSearchParams, useRouter } from 'next/navigation';
 import { usePermissions } from '../../hooks/usePermissions';
+import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
+import { TableSkeleton } from '../../components/ui/Skeleton';
+import { SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
 
 export const dynamic = 'force-dynamic';
 
@@ -616,6 +619,7 @@ function mapCandidateProfile(c: BackendCandidate): CandidateProfileDrawerData {
 
 function CandidatesPageContent() {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const { hasPermission, hasAnyPermission } = usePermissions();
   const canCreateCandidate = hasAnyPermission(['candidates_create', 'add_candidate']);
@@ -755,7 +759,10 @@ function CandidatesPageContent() {
       pendingDeepLinkCandidateIdRef.current = null;
       return;
     }
-    if (pendingDeepLinkCandidateIdRef.current === candidateId && candidateDrawerOpen && selectedCandidateProfile?.id === candidateId) {
+    // Only react when the URL parameter itself changes. Without this guard,
+    // closing the drawer used to re-fire this effect (because the drawer-open
+    // and selected-profile state both reset) and immediately reopen it.
+    if (pendingDeepLinkCandidateIdRef.current === candidateId) {
       return;
     }
     pendingDeepLinkCandidateIdRef.current = candidateId;
@@ -775,7 +782,7 @@ function CandidatesPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [candidateDrawerOpen, loadCandidateProfile, searchParams, selectedCandidateProfile?.id]);
+  }, [loadCandidateProfile, searchParams]);
 
   const loadCandidates = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = opts?.silent === true;
@@ -870,14 +877,15 @@ function CandidatesPageContent() {
     loadCandidates();
   }, [loadCandidates]);
 
-  useEffect(() => {
-    const handleCandidatesChanged = () => {
-      void loadCandidates({ silent: true });
-    };
-
-    window.addEventListener('jobportal:candidates-changed', handleCandidatesChanged);
-    return () => window.removeEventListener('jobportal:candidates-changed', handleCandidatesChanged);
-  }, [loadCandidates]);
+  // Reusable auto-refresh: polls while visible, refreshes on tab focus and on
+  // candidate / job-pipeline change events.
+  const candidatesAutoLoad = useCallback(
+    ({ silent }: { silent: boolean }) => loadCandidates({ silent }),
+    [loadCandidates]
+  );
+  usePageAutoRefresh(candidatesAutoLoad, {
+    events: ['jobportal:candidates-changed', 'jobportal:jobs-changed'],
+  });
 
   // Refresh stats when candidates are updated
   const refreshStats = useCallback(() => {
@@ -1496,7 +1504,14 @@ function CandidatesPageContent() {
               </div>
             )}
             {loading ? (
-              <div className="p-8 text-center text-sm text-slate-500">Loading candidates from API...</div>
+              <div className="space-y-4 p-4">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                  {(['blue', 'purple', 'cyan', 'green', 'orange'] as SummaryCardColor[]).map((c, i) => (
+                    <SummaryCardSkeleton key={i} color={c} />
+                  ))}
+                </div>
+                <TableSkeleton rows={8} columns={7} />
+              </div>
             ) : viewMode === 'list' ? (
               <>
                 <BulkActions
@@ -1876,6 +1891,13 @@ function CandidatesPageContent() {
           setSelectedCandidateProfile(null);
           setCandidateDrawerMode('view');
           setCandidateEditOpenToken(null);
+          if (searchParams.get('candidateId')) {
+            const sp = new URLSearchParams(searchParams.toString());
+            sp.delete('candidateId');
+            pendingDeepLinkCandidateIdRef.current = null;
+            const qs = sp.toString();
+            router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+          }
         }}
         onAction={(action, candidate) => {
           console.log('Candidate drawer action:', action, candidate.id);

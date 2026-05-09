@@ -42,6 +42,8 @@ import {
   type BackendMatch,
   type BackendUser,
 } from '../../lib/api';
+import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
+import { TableSkeleton } from '../../components/ui/Skeleton';
 
 // Show every match candidate by default (AI and manual). Recruiters can
 // tighten filters via the FilterBar; the legacy 75% / 5-10 yrs preset hid
@@ -477,6 +479,12 @@ export default function MatchesPage() {
     const timeout = window.setTimeout(() => setToast(null), 1800);
     return () => window.clearTimeout(timeout);
   }, [toast]);
+
+  // Reusable auto-refresh — re-runs `refreshMatches` while visible / on focus
+  // / on candidate-or-job changes. Same hook used across the app.
+  usePageAutoRefresh(() => refreshMatches(), {
+    events: ['jobportal:candidates-changed', 'jobportal:jobs-changed'],
+  });
 
   const filteredCandidates = useMemo(() => {
     const list = candidates

@@ -4,6 +4,7 @@ import { generateOtp, hashOtp, compareOtp } from '../../utils/otp.js';
 import { signToken, signRefreshToken, verifyRefreshToken } from '../../utils/jwt.js';
 import { sendOtpEmail, sendWelcomeEmail } from '../../emails/email.service.js';
 import { headquartersAuthService } from './headquarters-auth.service.js';
+import { seedOrgRecruitmentFromOrganizationType } from '../setting/recruitmentMode.service.js';
 import { DEFAULT_SYSTEM_ROLES } from '../role/default-permissions.js';
 import { ensureSuperAdminHasAllPermissions, syncDefaultPermissions } from '../role/permission-sync.service.js';
 
@@ -103,8 +104,9 @@ async function ensureLocalSuperAdminFromHeadquarters(hqUser) {
   const firstName = existing?.firstName || nameParts[0] || 'Super';
   const lastName = existing?.lastName || nameParts.slice(1).join(' ') || 'Admin';
 
+  let user;
   if (existing) {
-    return prisma.user.update({
+    user = await prisma.user.update({
       where: { id: existing.id },
       data: {
         name: fallbackName,
@@ -117,23 +119,48 @@ async function ensureLocalSuperAdminFromHeadquarters(hqUser) {
         status: 'ACTIVE',
       },
     });
+  } else {
+    const placeholderHash = await bcrypt.hash(`headquarters:${hqUser.id}:${Date.now()}`, 10);
+    user = await prisma.user.create({
+      data: {
+        name: fallbackName,
+        firstName,
+        lastName,
+        email: hqUser.email,
+        passwordHash: placeholderHash,
+        role: 'SUPER_ADMIN',
+        roleId: superAdminRole.id,
+        departmentId: department.id,
+        isActive: true,
+        status: 'ACTIVE',
+      },
+    });
   }
 
-  const placeholderHash = await bcrypt.hash(`headquarters:${hqUser.id}:${Date.now()}`, 10);
-  return prisma.user.create({
-    data: {
-      name: fallbackName,
-      firstName,
-      lastName,
-      email: hqUser.email,
-      passwordHash: placeholderHash,
-      role: 'SUPER_ADMIN',
-      roleId: superAdminRole.id,
-      departmentId: department.id,
-      isActive: true,
-      status: 'ACTIVE',
-    },
-  });
+  const plainLoginId = String(hqUser.loginId || hqUser.email || '').trim();
+  if (plainLoginId && hqUser.password) {
+    const hashedPassword = await bcrypt.hash(String(hqUser.password), 10);
+    await prisma.userCredential.upsert({
+      where: { userId: user.id },
+      update: {
+        loginId: plainLoginId,
+        hashedPassword,
+        tempPasswordFlag: false,
+        isLocked: false,
+        failedAttempts: 0,
+      },
+      create: {
+        userId: user.id,
+        loginId: plainLoginId,
+        hashedPassword,
+        tempPasswordFlag: false,
+        isLocked: false,
+        failedAttempts: 0,
+      },
+    });
+  }
+
+  return user;
 }
 
 async function ensureDirectSuperAdminAccount() {
@@ -237,6 +264,20 @@ async function ensureDirectSuperAdminAccount() {
 }
 
 export const authService = {
+  async provisionHeadquartersMappedTenant(headquartersUser) {
+    if (!headquartersUser?.tenantDbName) {
+      throw new Error('tenantDbName is required');
+    }
+    return runWithTenantContext(headquartersUser.tenantDbName, async () => {
+      await seedOrgRecruitmentFromOrganizationType(headquartersUser.organizationType || 'agency');
+      return ensureLocalSuperAdminFromHeadquarters(headquartersUser);
+    });
+  },
+
+  async finalizeHeadquartersTenantWorkspace(headquartersUser, localUser) {
+    await ensureWorkspaceClientForTenant(headquartersUser.tenantDbName, localUser, headquartersUser.name);
+  },
+
   async register(data) {
     const { name, email, password } = data;
     const normalizedEmail = String(email || '').trim().toLowerCase();
@@ -250,12 +291,11 @@ export const authService = {
       name: normalizedName,
       email: normalizedEmail,
       password,
+      loginId: data.loginId || normalizedEmail,
+      organizationType: data.organizationType || 'agency',
     });
 
-    const localUser = await runWithTenantContext(
-      headquartersUser.tenantDbName,
-      async () => ensureLocalSuperAdminFromHeadquarters(headquartersUser)
-    );
+    const localUser = await this.provisionHeadquartersMappedTenant(headquartersUser);
     await ensureWorkspaceClientForTenant(headquartersUser.tenantDbName, localUser, headquartersUser.name);
     await sendWelcomeEmail(normalizedEmail, normalizedName);
 
@@ -278,6 +318,25 @@ export const authService = {
   },
 
   async login(loginIdOrEmail, password, ipAddress, userAgent) {
+    // Plain `/login` (no invite token, no cached `x-tenant-db-name`) carries no
+    // tenant context, so Prisma would fall back to the default DB and never see
+    // tenant-scoped team-member credentials. Resolve the user's tenant via the
+    // HQ directory and re-enter login inside the right tenant context once.
+    const activeTenantDbName = String(getActiveTenantDbName() || '').trim();
+    if (!activeTenantDbName && loginIdOrEmail) {
+      let resolvedTenantDbName = await headquartersAuthService.findTenantDbNameForUser(loginIdOrEmail);
+      if (!resolvedTenantDbName) {
+        resolvedTenantDbName = await headquartersAuthService.findTenantDbNameForUserByCredentialScan(
+          loginIdOrEmail
+        );
+      }
+      if (resolvedTenantDbName) {
+        return runWithTenantContext(resolvedTenantDbName, () =>
+          this.login(loginIdOrEmail, password, ipAddress, userAgent)
+        );
+      }
+    }
+
     // Determine if this is a loginId login or email login
     // If it ends with @saasa or doesn't look like a normal email, treat as loginId
     const isLoginId = loginIdOrEmail.endsWith('@saasa') || !loginIdOrEmail.includes('@') || !loginIdOrEmail.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/);
@@ -563,6 +622,13 @@ export const authService = {
 
       await ensureWorkspaceClientForTenant(tenantDbName, user);
 
+      // Refresh HQ directory so future plain-/login attempts can resolve this user
+      await headquartersAuthService.upsertTenantUserDirectoryEntry({
+        email: user.email,
+        loginId: credential.loginId,
+        tenantDbName,
+      });
+
       return {
         token: accessToken,
         user: {
@@ -694,6 +760,12 @@ export const authService = {
 
       await ensureWorkspaceClientForTenant(tenantDbName, user);
 
+      await headquartersAuthService.upsertTenantUserDirectoryEntry({
+        email: user.email,
+        loginId: credential.loginId,
+        tenantDbName,
+      });
+
       return {
         user: {
           id: user.id,
@@ -745,6 +817,11 @@ export const authService = {
       });
 
       await ensureWorkspaceClientForTenant(tenantDbName, user);
+
+      await headquartersAuthService.upsertTenantUserDirectoryEntry({
+        email: user.email,
+        tenantDbName,
+      });
 
       return {
         user: { id: user.id, name: user.name, email: user.email, role: user.role },

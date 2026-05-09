@@ -333,7 +333,7 @@ function getInvoiceExportRows(summary) {
 function getPaymentExportRows(summary) {
   return summary.payments.map((payment) => ({
     paymentId: payment.id,
-    source: payment.source,
+    receiptNumber: payment.receiptNumber,
     clientName: payment.clientName,
     invoiceNumber: payment.invoiceNumber,
     amount: payment.amount,
@@ -762,30 +762,38 @@ export const billingService = {
       };
     });
 
-    const paymentsFromPlacementBilling = placementBillingsRaw.map((record) => ({
-      id: record.id,
-      source: 'Placement billing',
-      clientId: record.placement?.client?.id || '',
-      clientName: record.placement?.client?.companyName || '-',
-      recruiterId: record.placement?.recruiterId || '',
-      invoiceNumber: record.invoiceNumber || `PB-${record.id.slice(-6).toUpperCase()}`,
-      amount: formatMoney(record.totalAmount || record.amount),
-      mode: record.paymentMethod || '-',
-      transactionId: record.invoiceNumber || record.id,
-      date: displayDate(record.paymentDate || record.invoiceDate || record.createdAt),
-      receivedBy: record.placement?.recruiter?.name || 'System',
-      status: record.paymentStatus === 'PAID' ? 'Confirmed' : 'Pending',
-    }));
+    // Payments tab is the "receipts" view — only show invoices/placement
+    // billing entries that have actually been settled. The placement-billing
+    // mirror used to duplicate rows that the Invoices tab already lists with
+    // their pending status, so we now skip pending placement-billing and only
+    // surface settled rows. Receipt numbers come from the invoice number when
+    // available, otherwise we synthesize one from the row id.
+    const paymentsFromPlacementBilling = placementBillingsRaw
+      .filter((record) => record.paymentStatus === 'PAID' || record.paymentDate)
+      .map((record) => ({
+        id: record.id,
+        clientId: record.placement?.client?.id || '',
+        clientName: record.placement?.client?.companyName || '-',
+        recruiterId: record.placement?.recruiterId || '',
+        receiptNumber: record.invoiceNumber || `RCP-${record.id.slice(-6).toUpperCase()}`,
+        invoiceNumber: record.invoiceNumber || '',
+        amount: formatMoney(record.totalAmount || record.amount),
+        mode: record.paymentMethod || '-',
+        transactionId: record.invoiceNumber || record.id,
+        date: displayDate(record.paymentDate || record.invoiceDate || record.createdAt),
+        receivedBy: record.placement?.recruiter?.name || 'System',
+        status: 'Confirmed',
+      }));
 
     const paymentsFromBillingRecords = billingRecordsRaw
       .filter((record) => record.paidAt || record.status === 'PAID')
       .map((record) => ({
         id: record.id,
-        source: 'Invoice record',
         clientId: record.clientId,
         clientName: record.client?.companyName || '-',
         recruiterId: record.placement?.recruiterId || record.client?.assignedToId || '',
-        invoiceNumber: record.invoiceNumber || `INV-${record.id.slice(-6).toUpperCase()}`,
+        receiptNumber: record.invoiceNumber || `RCP-${record.id.slice(-6).toUpperCase()}`,
+        invoiceNumber: record.invoiceNumber || '',
         amount: formatMoney(record.amount),
         mode: 'Recorded payment',
         transactionId: record.invoiceNumber || record.id,
@@ -877,7 +885,20 @@ export const billingService = {
     });
 
     let invoices = invoicesMapped;
-    let payments = [...paymentsFromPlacementBilling, ...paymentsFromBillingRecords];
+    // BillingRecord is the canonical invoice ledger — prefer it. Only pull in
+    // a PlacementBilling row when its invoiceNumber doesn't already appear on
+    // an invoice-record receipt. This eliminates the duplicate "same payment
+    // shown twice in different rows" problem.
+    const seenInvoiceNumbers = new Set(
+      paymentsFromBillingRecords
+        .map((p) => String(p.invoiceNumber || '').trim().toLowerCase())
+        .filter(Boolean)
+    );
+    const dedupedPlacementBillingPayments = paymentsFromPlacementBilling.filter((p) => {
+      const key = String(p.invoiceNumber || '').trim().toLowerCase();
+      return !key || !seenInvoiceNumbers.has(key);
+    });
+    let payments = [...paymentsFromBillingRecords, ...dedupedPlacementBillingPayments];
     let placements = placementsMapped;
     let clients = clientsMapped;
     let commissions = commissionsMapped;
@@ -902,7 +923,14 @@ export const billingService = {
     }
 
     invoices = applySearch(invoices, search, ['invoiceNumber', 'clientName', 'candidateName', 'jobTitle', 'status']);
-    payments = applySearch(payments, search, ['clientName', 'invoiceNumber', 'mode', 'transactionId', 'status']);
+    payments = applySearch(payments, search, [
+      'clientName',
+      'receiptNumber',
+      'invoiceNumber',
+      'mode',
+      'transactionId',
+      'status',
+    ]);
     placements = applySearch(placements, search, ['candidate', 'jobTitle', 'client', 'billingType', 'status', 'recruiter']);
     clients = applySearch(clients, search, ['name', 'industry', 'location', 'owner', 'status', 'sla']);
     commissions = applySearch(commissions, search, ['recruiter', 'placement', 'status']);
@@ -1013,5 +1041,277 @@ export const billingService = {
 
   async updateSettings(payload, user) {
     return saveBillingSettings(user?.id, payload);
+  },
+
+  /**
+   * Build a unified activity timeline for a single invoice. Walks the chain:
+   *
+   *   Lead (matched by client name/email) → Client → Job → Candidate
+   *   → Pipeline stage history → Interviews → Placement → BillingRecord
+   *   → PlacementBilling (legacy) → Activity log entries
+   *
+   * Each step is best-effort — if a relation isn't found we just skip it.
+   */
+  async getInvoiceActivity(invoiceId) {
+    if (!invoiceId) throw new Error('invoiceId is required');
+
+    const invoice = await prisma.billingRecord.findUnique({
+      where: { id: invoiceId },
+      include: {
+        client: true,
+        placement: {
+          include: {
+            candidate: true,
+            job: true,
+            recruiter: { select: { id: true, name: true, email: true } },
+            commission: true,
+            billing: true,
+          },
+        },
+      },
+    });
+
+    if (!invoice) throw new Error('Invoice not found');
+
+    const placement = invoice.placement || null;
+    const candidate = placement?.candidate || null;
+    const job = placement?.job || null;
+    const client = invoice.client || null;
+
+    // Pipeline stage moves for this candidate within this job.
+    let pipelineHistory = [];
+    if (candidate?.id && job?.id) {
+      try {
+        pipelineHistory = await prisma.pipelineEntry.findMany({
+          where: { candidateId: candidate.id, jobId: job.id },
+          include: { stage: { select: { id: true, name: true, order: true } } },
+          orderBy: [{ movedAt: 'asc' }, { createdAt: 'asc' }],
+        });
+      } catch (err) {
+        console.warn('[billing] pipeline history failed:', err?.message || err);
+      }
+    }
+
+    // Interviews scheduled for this candidate + job pair.
+    let interviews = [];
+    if (candidate?.id && job?.id) {
+      try {
+        interviews = await prisma.interview.findMany({
+          where: { candidateId: candidate.id, jobId: job.id },
+          orderBy: [{ scheduledAt: 'asc' }, { createdAt: 'asc' }],
+        });
+      } catch (err) {
+        console.warn('[billing] interview history failed:', err?.message || err);
+      }
+    }
+
+    // Build a focused candidate-journey timeline. We deliberately stay narrow
+    // here: from "candidate applied to this job" → every pipeline stage move
+    // → interviews → placement → this invoice → payment. Lead/client/sibling
+    // invoices and free-form Activity rows are out of scope to keep the
+    // drawer readable.
+    const events = [];
+
+    if (job) {
+      events.push({
+        kind: 'job',
+        title: 'Job opened',
+        description: job.title || '-',
+        at: job.createdAt,
+        meta: { status: job.status },
+      });
+    }
+
+    if (candidate) {
+      // Candidate.createdAt approximates "applied to job" — the platform
+      // creates the row when the candidate enters this job's pipeline.
+      events.push({
+        kind: 'candidate',
+        title: 'Candidate applied',
+        description:
+          [`${candidate.firstName || ''} ${candidate.lastName || ''}`.trim(), candidate.email]
+            .filter(Boolean)
+            .join(' · ') || '-',
+        at: candidate.createdAt,
+      });
+    }
+
+    pipelineHistory.forEach((entry) => {
+      events.push({
+        kind: 'pipeline',
+        title: `Stage update — ${entry.stage?.name || 'Moved'}`,
+        description: entry.notes || null,
+        at: entry.movedAt || entry.createdAt,
+        meta: { stage: entry.stage?.name },
+      });
+    });
+
+    interviews.forEach((iv) => {
+      const statusLabel = String(iv.status || 'scheduled').toLowerCase();
+      events.push({
+        kind: 'interview',
+        title: `Interview ${statusLabel}`,
+        description: iv.round || iv.notes || iv.location || null,
+        at: iv.scheduledAt || iv.createdAt,
+        meta: { mode: iv.mode, type: iv.type, round: iv.round },
+      });
+    });
+
+    if (placement) {
+      if (placement.offerDate) {
+        events.push({
+          kind: 'placement',
+          title: 'Offer extended',
+          description: placement.salaryOffered
+            ? `Offered ${placement.salaryOffered}`
+            : null,
+          at: placement.offerDate,
+        });
+      }
+      if (placement.actualJoiningDate || placement.joiningDate || placement.startDate) {
+        events.push({
+          kind: 'placement',
+          title: 'Candidate joined',
+          description: `Placement ${placement.status || 'PLACED'}`,
+          at: placement.actualJoiningDate || placement.joiningDate || placement.startDate,
+          meta: { fee: placement.placementFee || placement.fee || placement.revenue || 0 },
+        });
+      } else {
+        events.push({
+          kind: 'placement',
+          title: 'Placement created',
+          description: `Placement ${placement.status || 'PENDING'}`,
+          at: placement.createdAt,
+        });
+      }
+    }
+
+    // The current invoice itself + its payment.
+    events.push({
+      kind: 'invoice',
+      title: 'Invoice issued',
+      description: invoice.invoiceNumber || `INV-${invoice.id.slice(-6).toUpperCase()}`,
+      at: invoice.invoiceDate || invoice.createdAt,
+      meta: {
+        amount: invoice.amount,
+        currency: invoice.currency,
+        status: deriveInvoiceStatus(invoice),
+      },
+    });
+
+    if (invoice.paidAt) {
+      events.push({
+        kind: 'payment',
+        title: 'Payment received',
+        description: invoice.invoiceNumber
+          ? `Invoice ${invoice.invoiceNumber} settled`
+          : null,
+        at: invoice.paidAt,
+        meta: { amount: invoice.amount, currency: invoice.currency },
+      });
+    }
+
+    // Sort the merged events by timestamp ascending; rows without a timestamp
+    // sink to the end so they don't disrupt the chronological flow.
+    const eventsSorted = events
+      .filter((e) => Boolean(e.at))
+      .map((e) => ({ ...e, at: new Date(e.at).toISOString() }))
+      .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+
+    return {
+      invoice: {
+        id: invoice.id,
+        invoiceNumber: invoice.invoiceNumber || `INV-${invoice.id.slice(-6).toUpperCase()}`,
+        amount: formatMoney(invoice.amount),
+        currency: invoice.currency || 'USD',
+        status: deriveInvoiceStatus(invoice),
+        date: displayDate(invoice.invoiceDate || invoice.createdAt),
+        dueDate: displayDate(invoice.dueDate),
+        paidAt: invoice.paidAt ? displayDate(invoice.paidAt) : null,
+      },
+      // `lead` is no longer surfaced — the timeline is candidate-centric, so
+      // top-of-funnel data is intentionally elided. Kept null for backwards
+      // compat with the existing TypeScript interface.
+      lead: null,
+      client: client
+        ? {
+            id: client.id,
+            companyName: client.companyName,
+            status: client.status,
+            industry: client.industry,
+          }
+        : null,
+      job: job
+        ? { id: job.id, title: job.title, status: job.status }
+        : null,
+      candidate: candidate
+        ? {
+            id: candidate.id,
+            name: `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim(),
+            email: candidate.email,
+          }
+        : null,
+      placement: placement
+        ? {
+            id: placement.id,
+            status: placement.status,
+            joiningDate: displayDate(
+              placement.actualJoiningDate || placement.joiningDate || placement.startDate
+            ),
+            recruiter: placement.recruiter?.name || null,
+            fee: placement.placementFee || placement.fee || placement.revenue || 0,
+          }
+        : null,
+      events: eventsSorted,
+    };
+  },
+
+  /**
+   * Update the currency on a single invoice and propagate the change to all
+   * sibling BillingRecord rows + any PlacementBilling entries belonging to
+   * the same placement. This keeps the entire revenue chain for a hire in
+   * one currency, matching the user's mental model of "switch currency on
+   * the invoice = switch currency for that placement everywhere".
+   */
+  async updateInvoiceCurrency(invoiceId, rawCurrency) {
+    if (!invoiceId) throw new Error('invoiceId is required');
+    const currency = String(rawCurrency || '').trim().toUpperCase();
+    if (!/^[A-Z]{3}$/.test(currency)) {
+      throw new Error('currency must be a 3-letter ISO code');
+    }
+
+    const invoice = await prisma.billingRecord.findUnique({
+      where: { id: invoiceId },
+      select: { id: true, placementId: true },
+    });
+    if (!invoice) throw new Error('Invoice not found');
+
+    let updatedSiblings = 0;
+    if (invoice.placementId) {
+      // Cascade to all BillingRecords for the same placement so a placement's
+      // currency stays consistent across original invoice, revisions, etc.
+      const result = await prisma.billingRecord.updateMany({
+        where: { placementId: invoice.placementId },
+        data: { currency },
+      });
+      updatedSiblings = result.count;
+    } else {
+      // Standalone invoice — just patch this row.
+      await prisma.billingRecord.update({
+        where: { id: invoiceId },
+        data: { currency },
+      });
+      updatedSiblings = 1;
+    }
+
+    // PlacementBilling has no currency column today — skip silently. When the
+    // schema gains it, propagate here in the same transaction.
+
+    return {
+      invoiceId,
+      placementId: invoice.placementId,
+      currency,
+      updatedRecords: updatedSiblings,
+    };
   },
 };

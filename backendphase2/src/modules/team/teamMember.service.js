@@ -9,6 +9,26 @@ import {
 } from '../../utils/credentialGenerator.js';
 import { sendCredentialInvite, sendPasswordResetEmail } from '../../utils/emailService.js';
 import { isSuperAdminUser } from '../../utils/superAdminScope.js';
+import { headquartersAuthService } from '../auth/headquarters-auth.service.js';
+
+/**
+ * Best-effort: register the new credential's email/loginId in the HQ directory
+ * so the user can later sign in via the plain `/login` URL (without the
+ * invite-link `tenantDbName=` query param).
+ */
+async function recordTenantUserDirectoryEntry({ email, loginId }) {
+  const tenantDbName = getActiveTenantDbName() || '';
+  if (!tenantDbName) return;
+  try {
+    await headquartersAuthService.upsertTenantUserDirectoryEntry({
+      email,
+      loginId,
+      tenantDbName,
+    });
+  } catch (error) {
+    console.warn('[teamMember] tenant-user directory upsert failed:', error?.message || error);
+  }
+}
 
 export const teamMemberService = {
   async getAll(req) {
@@ -329,6 +349,8 @@ export const teamMemberService = {
         },
       });
 
+      await recordTenantUserDirectoryEntry({ email: user.email, loginId });
+
       credentialData = {
         loginId,
         tempPassword, // Only returned once
@@ -567,6 +589,8 @@ export const teamMemberService = {
       },
     });
 
+    await recordTenantUserDirectoryEntry({ email: user.email, loginId });
+
     // Send invite email if requested
     if (sendInvite) {
       try {
@@ -634,6 +658,11 @@ export const teamMemberService = {
         failedAttempts: 0,
         isLocked: false,
       },
+    });
+
+    await recordTenantUserDirectoryEntry({
+      email: user.email,
+      loginId: user.credential?.loginId,
     });
 
     // Send password reset email (Super Admin can still complete reset if email fails)
@@ -754,6 +783,11 @@ export const teamMemberService = {
         failedAttempts: 0,
         isLocked: false,
       },
+    });
+
+    await recordTenantUserDirectoryEntry({
+      email: user.email,
+      loginId: user.credential.loginId,
     });
 
     // Send invite email

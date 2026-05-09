@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import { prisma } from '../config/prisma.js';
 import { env } from '../config/env.js';
 import { INTERVIEW_ACTIVITY_ACTIONS, logActivity } from '../utils/activityLogger.js';
+import { updateCandidateStage, PIPELINE_STAGES } from '../modules/stage/candidateStage.service.js';
 
 const openai = env.OPENAI_API_KEY ? new OpenAI({ apiKey: env.OPENAI_API_KEY }) : null;
 
@@ -79,6 +80,19 @@ export const interviewFeedbackService = {
         overallScore: payload.overallScore ?? averageScore(payload),
       },
     });
+
+    try {
+      await updateCandidateStage({
+        candidateId: interview.candidateId,
+        jobId: interview.jobId,
+        stage: PIPELINE_STAGES.INTERVIEW,
+        performedById: user.id,
+        skipStageActivity: true,
+        metadata: { source: 'interview-feedback-submitted', interviewId },
+      });
+    } catch (stageErr) {
+      console.warn('[interviewFeedback.create] stage sync failed:', stageErr?.message || stageErr);
+    }
 
     return feedback;
   },
