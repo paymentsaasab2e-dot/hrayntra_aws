@@ -28,6 +28,7 @@ export interface LeadImportDrawerProps {
 
 const CRM_FIELDS = [
   { id: 'companyName', label: 'Company Name', required: false },
+  { id: 'directorSalutation', label: 'Salutation (Mr, Ms, Dr…)', required: false },
   { id: 'contactPerson', label: 'Contact Person', required: false },
   { id: 'email', label: 'Email', required: false },
   { id: 'phone', label: 'Phone', required: false },

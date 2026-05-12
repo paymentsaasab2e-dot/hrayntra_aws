@@ -7,8 +7,10 @@ import {
   toDateTimeLocalInput,
   fromDateTimeLocalInput,
 } from '../../utils/formatLeadDateTime';
+import { formatDateDMY, formatDateTimeDMY } from '../../utils/dateDisplay';
 import { clampDateTimeLocalToMin, getLocalDateTimeInputMinNow } from '../../utils/dateInputConstraints';
 import { exportLeadAsPdf } from '../../utils/exportLeadPdf';
+import { NAME_SALUTATION_OPTIONS, formatDirectorDisplay } from '../../constants/salutations';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { requestError } from '../../lib/appDialog';
@@ -22,7 +24,6 @@ import {
   Target,
   Calendar,
   PhoneCall,
-  MessageCircle,
   CalendarPlus,
   UserPlus,
   XCircle,
@@ -52,10 +53,13 @@ import type { Lead, LeadStatus, LeadSource, LeadType, LeadNote, LeadNoteTag, Act
 import { ImageWithFallback } from '../ImageWithFallback';
 import { ScheduleMeetingForm } from '../ScheduleMeetingForm';
 import { NotesService } from '../NotesService';
-import { apiCreateLead, apiUpdateLead, apiGetLead, apiGetLeadActivities, apiGenerateLeadDetails, type CreateLeadData, type BackendActivity, type BackendLead } from '../../lib/api';
+import { apiCreateLead, apiUpdateLead, apiGetLead, apiGetLeadActivities, apiGenerateLeadDetails, filesApiUpload, type CreateLeadData, type BackendActivity, type BackendLead } from '../../lib/api';
 import { getAllTeamMembersForAssign } from '../../lib/api/teamApi';
 import { useFiles } from '../../hooks/useFiles';
 import type { TeamMember } from '../../types/team';
+import { LeadAssigneesMultiSelect } from './LeadAssigneesMultiSelect';
+import { LocationAutocomplete, type LocationSelection } from '../LocationAutocomplete';
+import { WhatsAppIcon } from '../icons/WhatsAppIcon';
 
 const CALL_OUTCOMES = ['Interested', 'Follow-up Required', 'No Answer', 'Wrong Number', 'Not Interested'];
 
@@ -173,7 +177,10 @@ function validateLeadRequiredFields(form: {
 }
 
 export type AssignLeadFormData = {
+  /** Legacy single-assignee — kept for backwards compatibility (primary owner). */
   assignTo: string;
+  /** Multi-assignee — full list of user ids to assign. First entry is the primary owner. */
+  assignTos?: string[];
   priority: 'High' | 'Medium' | 'Low';
   notifyUser: boolean;
 };
@@ -184,6 +191,11 @@ export type MarkLostFormData = {
 };
 
 export type AddLeadFormData = {
+  /** Agreements & Terms — single signed document uploaded against the lead. */
+  agreementsFile?: File | null;
+  agreementsFileName?: string;
+  agreementsFileUrl?: string;
+  agreementsUploadedAt?: string;
   // Company Information Section
   companyName: string;
   industry?: string;
@@ -192,12 +204,17 @@ export type AddLeadFormData = {
   linkedIn?: string;
   location?: string;
   // Contact Section
+  directorSalutation?: string;
   contactPerson: string;
   designation?: string;
   email: string;
   phone?: string;
   country?: string;
   city?: string;
+  /** Smart-location autofill metadata (OSM/Nominatim). */
+  state?: string;
+  latitude?: number | null;
+  longitude?: number | null;
   // Lead Details Section
   type?: LeadType;
   source?: LeadSource;
@@ -210,6 +227,8 @@ export type AddLeadFormData = {
   otherDetails?: Array<{ label: string; value: string }>;
   assignedToName?: string;
   assignedToId?: string;
+  /** Multi-assignee ids — primary owner is the first entry. */
+  assignedToIds?: string[];
   status?: LeadStatus;
   priority?: 'High' | 'Medium' | 'Low';
   interestedNeeds?: string;
@@ -370,12 +389,16 @@ export function LeadDetailsDrawer({
     linkedIn: '',
     location: '',
     // Contact Person
+    directorSalutation: '',
     contactPerson: '',
     designation: '',
     email: '',
     phone: '',
     country: '',
     city: '',
+    state: '',
+    latitude: null,
+    longitude: null,
     // Lead Details
     type: 'Company',
     source: 'Website',
@@ -387,6 +410,7 @@ export function LeadDetailsDrawer({
     sourceEmail: '',
     assignedToName: '',
     assignedToId: '',
+    assignedToIds: [],
     status: 'New',
     priority: 'Medium',
     interestedNeeds: '',
@@ -395,7 +419,15 @@ export function LeadDetailsDrawer({
     nextFollowUp: '',
   });
   const [addLeadErrors, setAddLeadErrors] = useState<LeadRequiredFieldErrors>({});
-  
+
+  /** Pending Agreements & Terms file selected in the Add Lead form (uploaded after the lead is created). */
+  const [pendingAddLeadAgreementsFile, setPendingAddLeadAgreementsFile] = useState<File | null>(null);
+  const addLeadAgreementsInputRef = useRef<HTMLInputElement | null>(null);
+  /** Pending Agreements & Terms file selected in the Overview edit form (uploaded immediately on save). */
+  const [pendingOverviewAgreementsFile, setPendingOverviewAgreementsFile] = useState<File | null>(null);
+  const overviewAgreementsInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploadingAgreements, setUploadingAgreements] = useState(false);
+
   // Fetch recruiters from backend
   const [recruiters, setRecruiters] = useState<TeamMember[]>([]);
   const [loadingRecruiters, setLoadingRecruiters] = useState(false);
@@ -485,11 +517,15 @@ export function LeadDetailsDrawer({
       location: form.location?.trim() || undefined,
       directorName: form.contactPerson.trim(),
       contactPerson: form.contactPerson.trim(),
+      directorSalutation: form.directorSalutation?.trim() || undefined,
       designation: form.designation?.trim() || undefined,
       email: form.email.trim(),
       phone: form.phone?.trim() || undefined,
       country: form.country?.trim() || undefined,
       city: form.city?.trim() || undefined,
+      state: form.state?.trim() || undefined,
+      latitude: typeof form.latitude === 'number' ? form.latitude : undefined,
+      longitude: typeof form.longitude === 'number' ? form.longitude : undefined,
       type: form.type || 'Company',
       source: form.source || 'Website',
       campaignName: form.campaignName?.trim() || undefined,
@@ -507,7 +543,8 @@ export function LeadDetailsDrawer({
       notes: form.notes?.trim() || undefined,
       lastFollowUp: form.lastFollowUp || undefined,
       nextFollowUp: form.nextFollowUp || undefined,
-      assignedToId: form.assignedToId || undefined,
+      assignedToId: form.assignedToIds?.[0] || form.assignedToId || undefined,
+      assignedToIds: form.assignedToIds && form.assignedToIds.length > 0 ? form.assignedToIds : undefined,
     };
   };
 
@@ -519,12 +556,16 @@ export function LeadDetailsDrawer({
       website: '',
       linkedIn: '',
       location: '',
+      directorSalutation: '',
       contactPerson: '',
       designation: '',
       email: '',
       phone: '',
       country: '',
       city: '',
+      state: '',
+      latitude: null,
+      longitude: null,
       type: 'Company',
       source: 'Website',
       campaignName: '',
@@ -536,6 +577,7 @@ export function LeadDetailsDrawer({
       otherDetails: [],
       assignedToName: '',
       assignedToId: '',
+      assignedToIds: [],
       status: 'New',
       priority: 'Medium',
       interestedNeeds: '',
@@ -544,12 +586,52 @@ export function LeadDetailsDrawer({
       nextFollowUp: '',
     });
     setAddLeadErrors({});
+    setPendingAddLeadAgreementsFile(null);
+    if (addLeadAgreementsInputRef.current) addLeadAgreementsInputRef.current.value = '';
   };
 
   const createLeadFromAiForm = async (form: AddLeadFormData) => {
     const createData = buildLeadCreatePayload(form);
     const createdLeadResponse = await apiCreateLead(createData);
-    onAddLead?.(form, createdLeadResponse.data);
+    let createdLead = createdLeadResponse.data;
+
+    // Agreements & Terms — handle the same way the inline Add Lead path does so AI-assisted
+    // creation also persists the file the user attached.
+    if (createdLead?.id && pendingAddLeadAgreementsFile) {
+      try {
+        setUploadingAgreements(true);
+        const uploadResponse = await filesApiUpload(
+          'lead',
+          createdLead.id,
+          pendingAddLeadAgreementsFile,
+          'AGREEMENT'
+        );
+        const agreementUrl = uploadResponse.data?.fileUrl;
+        const agreementName = uploadResponse.data?.fileName || pendingAddLeadAgreementsFile.name;
+        if (agreementUrl) {
+          const patched = await apiUpdateLead(createdLead.id, {
+            agreementsFileName: agreementName,
+            agreementsFileUrl: agreementUrl,
+            agreementsUploadedAt: new Date().toISOString(),
+          });
+          createdLead = patched?.data || {
+            ...createdLead,
+            agreementsFileName: agreementName,
+            agreementsFileUrl: agreementUrl,
+            agreementsUploadedAt: new Date().toISOString(),
+          };
+        }
+      } catch (uploadError: any) {
+        console.error('Failed to upload lead agreement:', uploadError);
+        void requestError(uploadError.message || 'Failed to upload agreements file');
+      } finally {
+        setUploadingAgreements(false);
+      }
+    }
+
+    onAddLead?.(form, createdLead);
+    setPendingAddLeadAgreementsFile(null);
+    if (addLeadAgreementsInputRef.current) addLeadAgreementsInputRef.current.value = '';
     resetAddLeadForm();
     setShowAiLeadDrawer(false);
     onClose();
@@ -612,6 +694,8 @@ export function LeadDetailsDrawer({
       const nextFormState: AddLeadFormData = {
         ...addLeadForm,
         companyName: generated.companyName || addLeadForm.companyName,
+        directorSalutation:
+          (generated as { directorSalutation?: string }).directorSalutation || addLeadForm.directorSalutation,
         contactPerson: generated.contactPerson || addLeadForm.contactPerson,
         designation: generated.designation || addLeadForm.designation,
         email: generated.email || addLeadForm.email,
@@ -629,6 +713,9 @@ export function LeadDetailsDrawer({
         location: generated.location || addLeadForm.location,
         country: generated.country || addLeadForm.country,
         city: generated.city || addLeadForm.city,
+        state: addLeadForm.state,
+        latitude: addLeadForm.latitude,
+        longitude: addLeadForm.longitude,
         campaignName: generated.campaignName || addLeadForm.campaignName,
         campaignLink: generated.campaignLink || addLeadForm.campaignLink,
         referralName: generated.referralName || addLeadForm.referralName,
@@ -697,12 +784,16 @@ export function LeadDetailsDrawer({
     website: '',
     linkedIn: '',
     location: '',
+    directorSalutation: '',
     contactPerson: '',
     designation: '',
     email: '',
     phone: '',
     country: '',
     city: '',
+    state: '',
+    latitude: null as number | null,
+    longitude: null as number | null,
     source: '' as LeadSource | '',
     campaignName: '',
     campaignLink: '',
@@ -713,6 +804,7 @@ export function LeadDetailsDrawer({
     otherDetailsText: '',
     leadOwner: '',
     assignedToId: '',
+    assignedToIds: [] as string[],
     status: 'New' as LeadStatus,
     priority: 'Medium' as 'High' | 'Medium' | 'Low',
     interestedNeeds: '',
@@ -720,6 +812,9 @@ export function LeadDetailsDrawer({
     createdDate: '',
     lastFollowUp: '',
     nextFollowUp: '',
+    agreementsFileName: '' as string,
+    agreementsFileUrl: '' as string,
+    agreementsUploadedAt: '' as string,
   });
   const [activityFilter, setActivityFilter] = useState<'all' | 'calls' | 'messages' | 'emails'>('all');
   const [activities, setActivities] = useState<LeadActivity[]>([]);
@@ -817,12 +912,17 @@ export function LeadDetailsDrawer({
   };
 
   const [showAssignLeadForm, setShowAssignLeadForm] = useState(false);
-  const [assignLeadForm, setAssignLeadForm] = useState({
+  const [assignLeadForm, setAssignLeadForm] = useState<{
+    assignTo: string;
+    assignTos: string[];
+    priority: 'High' | 'Medium' | 'Low';
+    notifyUser: boolean;
+  }>({
     assignTo: '',
-    priority: 'Medium' as 'High' | 'Medium' | 'Low',
+    assignTos: [],
+    priority: 'Medium',
     notifyUser: true,
   });
-  const [assignToDropdownOpen, setAssignToDropdownOpen] = useState(false);
   const [showMarkLostForm, setShowMarkLostForm] = useState(false);
   const [markLostForm, setMarkLostForm] = useState<MarkLostFormData>({ lostReason: '', notes: '' });
   const [lostReasonDropdownOpen, setLostReasonDropdownOpen] = useState(false);
@@ -877,6 +977,7 @@ export function LeadDetailsDrawer({
         source: lead.source,
         contactPerson: lead.contactPerson,
         directorName: lead.directorName,
+        directorSalutation: lead.directorSalutation,
         email: lead.email,
         phone: lead.phone,
         status: 'New',
@@ -903,6 +1004,9 @@ export function LeadDetailsDrawer({
         sourceEmail: lead.sourceEmail,
         otherDetails: lead.otherDetails,
         assignedToId: lead.assignedToId,
+        assignedToIds: Array.isArray(lead.assignedToIds) && lead.assignedToIds.length > 0
+          ? lead.assignedToIds
+          : undefined,
       } as CreateLeadData;
 
       const response = await apiCreateLead(payload);
@@ -965,15 +1069,8 @@ export function LeadDetailsDrawer({
             type = 'Meeting';
           }
 
-          // Format date
-          const date = new Date(activity.createdAt);
-          const formattedDate = date.toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-          });
+          // Format date (DD/MM/YYYY + time for activity log)
+          const formattedDate = formatDateTimeDMY(activity.createdAt);
 
           // Extract follow-up details from description if it's a follow-up activity
           let description = activity.description || activity.action;
@@ -1042,8 +1139,12 @@ export function LeadDetailsDrawer({
   };
 
   const openAssignLeadForm = () => {
+    const existingIds = Array.isArray(lead?.assignedToIds) && lead!.assignedToIds!.length > 0
+      ? lead!.assignedToIds!
+      : (lead?.assignedTo?.id ? [lead.assignedTo.id] : []);
     setAssignLeadForm({
-      assignTo: lead?.assignedTo?.name ?? '',
+      assignTo: existingIds[0] ?? '',
+      assignTos: existingIds,
       priority: lead?.priority ?? 'Medium',
       notifyUser: true,
     });
@@ -1053,7 +1154,7 @@ export function LeadDetailsDrawer({
   const openConvertToClientForm = () => {
     setConvertToClientForm({
       companyName: lead?.companyName ?? '',
-      primaryContact: lead?.contactPerson ?? '',
+      primaryContact: formatDirectorDisplay(lead?.directorSalutation, lead?.contactPerson) || lead?.contactPerson || '',
       email: lead?.email ?? '',
       phone: lead?.phone ?? '',
       industry: lead?.industry ?? '',
@@ -1086,12 +1187,16 @@ export function LeadDetailsDrawer({
       website: lead.website ?? '',
       linkedIn: lead.linkedIn ?? '',
       location: lead.location ?? '',
+      directorSalutation: lead.directorSalutation ?? '',
       contactPerson: lead.contactPerson,
       designation: lead.designation ?? '',
       email: lead.email,
       phone: lead.phone,
       country: lead.country ?? '',
       city: lead.city ?? '',
+      state: lead.state ?? '',
+      latitude: typeof lead.latitude === 'number' ? lead.latitude : null,
+      longitude: typeof lead.longitude === 'number' ? lead.longitude : null,
       source: lead.source,
       campaignName: lead.campaignName ?? '',
       campaignLink: lead.campaignLink ?? '',
@@ -1104,6 +1209,9 @@ export function LeadDetailsDrawer({
         : '',
       leadOwner: lead.assignedTo?.name ?? '',
       assignedToId: lead.assignedTo?.id ?? '',
+      assignedToIds: Array.isArray(lead.assignedToIds) && lead.assignedToIds.length > 0
+        ? lead.assignedToIds
+        : (lead.assignedTo?.id ? [lead.assignedTo.id] : []),
       status: lead.status,
       priority: lead.priority ?? 'Medium',
       interestedNeeds: lead.interestedNeeds ?? '',
@@ -1111,7 +1219,12 @@ export function LeadDetailsDrawer({
       createdDate: lead.createdDate ?? '',
       lastFollowUp: lead.lastFollowUp,
       nextFollowUp: lead.nextFollowUp ?? '',
+      agreementsFileName: lead.agreementsFileName ?? '',
+      agreementsFileUrl: lead.agreementsFileUrl ?? '',
+      agreementsUploadedAt: lead.agreementsUploadedAt ?? '',
     });
+    setPendingOverviewAgreementsFile(null);
+    if (overviewAgreementsInputRef.current) overviewAgreementsInputRef.current.value = '';
     setOverviewEditMode(true);
     setOverviewOpen({ company: true, contact: true, leadDetails: true });
   };
@@ -1119,6 +1232,8 @@ export function LeadDetailsDrawer({
   const cancelOverviewEdit = () => {
     setOverviewEditMode(false);
     setOverviewEditErrors({});
+    setPendingOverviewAgreementsFile(null);
+    if (overviewAgreementsInputRef.current) overviewAgreementsInputRef.current.value = '';
   };
 
   const saveOverviewEdit = async () => {
@@ -1134,6 +1249,8 @@ export function LeadDetailsDrawer({
       const updateData: Partial<CreateLeadData> = {
         companyName: overviewEditForm.companyName,
         contactPerson: overviewEditForm.contactPerson,
+        directorName: overviewEditForm.contactPerson.trim(),
+        directorSalutation: overviewEditForm.directorSalutation?.trim() || null,
         email: overviewEditForm.email,
         phone: overviewEditForm.phone,
         industry: overviewEditForm.industry || undefined,
@@ -1141,6 +1258,9 @@ export function LeadDetailsDrawer({
         website: overviewEditForm.website || undefined,
         linkedIn: overviewEditForm.linkedIn || undefined,
         location: overviewEditForm.location || undefined,
+        state: overviewEditForm.state || undefined,
+        latitude: typeof overviewEditForm.latitude === 'number' ? overviewEditForm.latitude : undefined,
+        longitude: typeof overviewEditForm.longitude === 'number' ? overviewEditForm.longitude : undefined,
         designation: overviewEditForm.designation || undefined,
         country: overviewEditForm.country || undefined,
         city: overviewEditForm.city || undefined,
@@ -1167,14 +1287,53 @@ export function LeadDetailsDrawer({
           : undefined,
         status: overviewEditForm.status,
         priority: overviewEditForm.priority,
-        assignedToId: overviewEditForm.assignedToId || undefined,
+        assignedToId: overviewEditForm.assignedToIds?.[0] || overviewEditForm.assignedToId || undefined,
+        assignedToIds: overviewEditForm.assignedToIds && overviewEditForm.assignedToIds.length > 0
+          ? overviewEditForm.assignedToIds
+          : undefined,
         interestedNeeds: overviewEditForm.interestedNeeds || undefined,
         notes: overviewEditForm.notes || undefined,
         lastFollowUp: overviewEditForm.lastFollowUp || undefined,
         nextFollowUp: overviewEditForm.nextFollowUp || undefined,
       };
 
+      // Agreements & Terms — upload the pending file (if any) before patching the lead so the
+      // URL/filename ride along with the same update call as the other overview fields.
+      if (pendingOverviewAgreementsFile) {
+        try {
+          setUploadingAgreements(true);
+          const uploadResponse = await filesApiUpload(
+            'lead',
+            lead.id,
+            pendingOverviewAgreementsFile,
+            'AGREEMENT'
+          );
+          const agreementUrl = uploadResponse.data?.fileUrl;
+          const agreementName = uploadResponse.data?.fileName || pendingOverviewAgreementsFile.name;
+          if (agreementUrl) {
+            (updateData as any).agreementsFileName = agreementName;
+            (updateData as any).agreementsFileUrl = agreementUrl;
+            (updateData as any).agreementsUploadedAt = new Date().toISOString();
+          }
+        } catch (uploadError: any) {
+          console.error('Failed to upload lead agreement:', uploadError);
+          void requestError(uploadError.message || 'Failed to upload agreements file');
+        } finally {
+          setUploadingAgreements(false);
+        }
+      } else if (
+        lead.agreementsFileUrl &&
+        !(overviewEditForm as any).agreementsFileUrl
+      ) {
+        // User explicitly cleared the existing agreement.
+        (updateData as any).agreementsFileName = null;
+        (updateData as any).agreementsFileUrl = null;
+        (updateData as any).agreementsUploadedAt = null;
+      }
+
       const updatedLeadResponse = await apiUpdateLead(lead.id, updateData);
+      setPendingOverviewAgreementsFile(null);
+      if (overviewAgreementsInputRef.current) overviewAgreementsInputRef.current.value = '';
       setOverviewEditMode(false);
       setOverviewEditErrors({});
       onUpdateLead?.(updatedLeadResponse.data);
@@ -1713,7 +1872,7 @@ export function LeadDetailsDrawer({
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-2">Recipient</label>
                       <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-700">
-                        <MessageCircle size={18} className="text-emerald-600 shrink-0" />
+                        <WhatsAppIcon size={18} className="text-emerald-600 shrink-0" />
                         <span>{lead?.phone || '—'}</span>
                       </div>
                       <p className="text-[11px] text-slate-400 mt-1">Auto-filled from lead contact</p>
@@ -1793,7 +1952,7 @@ export function LeadDetailsDrawer({
                       }}
                       className="px-4 py-2.5 text-sm font-medium text-white bg-emerald-600 rounded-xl hover:bg-emerald-700 shadow-sm transition-colors flex items-center gap-2"
                     >
-                      <MessageCircle size={16} />
+                      <WhatsAppIcon size={16} />
                       Send Message
                     </button>
                   </div>
@@ -2030,53 +2189,18 @@ export function LeadDetailsDrawer({
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-5">
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-2">Assign To</label>
-                      <div className="relative">
-                        <button
-                          type="button"
-                          onClick={() => setAssignToDropdownOpen((v) => !v)}
-                          className="w-full flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-left text-slate-700 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                        >
-                          {assignLeadForm.assignTo ? (
-                            (() => {
-                              const r = recruiters.find((x) => x.id === assignLeadForm.assignTo);
-                              return r ? (
-                                <span className="flex items-center gap-2">
-                                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold ${roleColorMap[(r.role || r.systemRole)?.color?.toLowerCase() || 'gray'] || 'bg-gray-100 text-gray-600'}`}>
-                                    {r.firstName?.[0] || ''}{r.lastName?.[0] || ''}
-                                  </div>
-                                  <span className="text-slate-900">{r.firstName} {r.lastName}</span>
-                                </span>
-                              ) : (
-                                <span className="text-slate-900">{assignLeadForm.assignTo}</span>
-                              );
-                            })()
-                          ) : (
-                            <span className="text-slate-400">Select recruiter</span>
-                          )}
-                          <ChevronDown size={16} className="text-slate-400" />
-                        </button>
-                        {assignToDropdownOpen && (
-                          <>
-                            <div className="fixed inset-0 z-10" onClick={() => setAssignToDropdownOpen(false)} aria-hidden />
-                            <ul className="absolute z-20 mt-1 w-full rounded-xl border border-slate-200 bg-white py-1 shadow-lg max-h-48 overflow-y-auto">
-                              {recruiters.map((rec) => (
-                                <li key={rec.id}>
-                                  <button
-                                    type="button"
-                                    onClick={() => { setAssignLeadForm((p) => ({ ...p, assignTo: rec.id })); setAssignToDropdownOpen(false); }}
-                                    className={`w-full flex items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${assignLeadForm.assignTo === rec.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'}`}
-                                  >
-                                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold ${roleColorMap[rec.role?.color?.toLowerCase() || 'gray'] || 'bg-gray-100 text-gray-600'}`}>
-                                      {rec.firstName?.[0] || ''}{rec.lastName?.[0] || ''}
-                                    </div>
-                                    {rec.firstName} {rec.lastName}
-                                  </button>
-                                </li>
-                              ))}
-                            </ul>
-                          </>
-                        )}
-                      </div>
+                      <LeadAssigneesMultiSelect
+                        members={recruiters}
+                        value={assignLeadForm.assignTos}
+                        loading={loadingRecruiters}
+                        onChange={(ids) => {
+                          setAssignLeadForm((p) => ({
+                            ...p,
+                            assignTos: ids,
+                            assignTo: ids[0] ?? '',
+                          }));
+                        }}
+                      />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-2">Priority</label>
@@ -2260,24 +2384,40 @@ export function LeadDetailsDrawer({
                         </div>
                         <div>
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Director Name *</label>
-                          <input
-                            value={addLeadForm.contactPerson}
-                            onChange={(e) => {
-                              const value = e.target.value;
-                              setAddLeadForm((p) => ({ ...p, contactPerson: value }));
-                              if (addLeadErrors.contactPerson) {
-                                setAddLeadErrors((prev) => ({ ...prev, contactPerson: undefined }));
+                          <div className="flex gap-2">
+                            <select
+                              value={addLeadForm.directorSalutation ?? ''}
+                              onChange={(e) =>
+                                setAddLeadForm((p) => ({ ...p, directorSalutation: e.target.value }))
                               }
-                            }}
-                            onBlur={() => {
-                              const nextErrors = validateLeadRequiredFields(addLeadForm);
-                              setAddLeadErrors((prev) => ({ ...prev, contactPerson: nextErrors.contactPerson }));
-                            }}
-                            className={`w-full rounded-xl border px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 ${
-                              addLeadErrors.contactPerson ? 'border-red-300' : 'border-slate-200'
-                            }`}
-                            placeholder="e.g. John Doe"
-                          />
+                              className="w-[5.75rem] shrink-0 rounded-xl border border-slate-200 px-2 py-2.5 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                              aria-label="Director salutation"
+                            >
+                              {NAME_SALUTATION_OPTIONS.map((opt) => (
+                                <option key={opt.value || 'none'} value={opt.value}>
+                                  {opt.label}
+                                </option>
+                              ))}
+                            </select>
+                            <input
+                              value={addLeadForm.contactPerson}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setAddLeadForm((p) => ({ ...p, contactPerson: value }));
+                                if (addLeadErrors.contactPerson) {
+                                  setAddLeadErrors((prev) => ({ ...prev, contactPerson: undefined }));
+                                }
+                              }}
+                              onBlur={() => {
+                                const nextErrors = validateLeadRequiredFields(addLeadForm);
+                                setAddLeadErrors((prev) => ({ ...prev, contactPerson: nextErrors.contactPerson }));
+                              }}
+                              className={`min-w-0 flex-1 rounded-xl border px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 ${
+                                addLeadErrors.contactPerson ? 'border-red-300' : 'border-slate-200'
+                              }`}
+                              placeholder="e.g. John Doe"
+                            />
+                          </div>
                           {addLeadErrors.contactPerson && (
                             <p className="mt-1 text-xs text-red-600">{addLeadErrors.contactPerson}</p>
                           )}
@@ -2315,20 +2455,47 @@ export function LeadDetailsDrawer({
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Phone</label>
                           <input value={addLeadForm.phone ?? ''} onChange={(e) => setAddLeadForm((p) => ({ ...p, phone: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" placeholder="+1 (555) 000-0000" />
                         </div>
-                        <div>
+                        <div className="sm:col-span-2">
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Location</label>
-                          <input value={addLeadForm.location ?? ''} onChange={(e) => setAddLeadForm((p) => ({ ...p, location: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" placeholder="e.g. Downtown Office" />
+                          <LocationAutocomplete
+                            value={addLeadForm.location ?? ''}
+                            onChange={(next) => setAddLeadForm((p) => ({ ...p, location: next }))}
+                            onSelect={(s: LocationSelection) =>
+                              setAddLeadForm((p) => ({
+                                ...p,
+                                location: s.location,
+                                city: s.city || p.city || '',
+                                country: s.country || p.country || '',
+                                state: s.state || p.state || '',
+                                latitude: s.latitude,
+                                longitude: s.longitude,
+                              }))
+                            }
+                            placeholder="Start typing a city, region, or address…"
+                          />
+                          {(addLeadForm.state || typeof addLeadForm.latitude === 'number') && (
+                            <p className="mt-1 text-[11px] text-slate-500">
+                              <span className="font-semibold text-emerald-600">Detected</span>{' '}
+                              {[addLeadForm.state, typeof addLeadForm.latitude === 'number' && typeof addLeadForm.longitude === 'number'
+                                ? `${addLeadForm.latitude.toFixed(4)}, ${addLeadForm.longitude.toFixed(4)}`
+                                : null].filter(Boolean).join(' · ')}
+                            </p>
+                          )}
                         </div>
                         <div>
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">City</label>
                           <input value={addLeadForm.city ?? ''} onChange={(e) => setAddLeadForm((p) => ({ ...p, city: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" placeholder="e.g. San Francisco" />
                         </div>
                         <div>
+                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">State</label>
+                          <input value={addLeadForm.state ?? ''} onChange={(e) => setAddLeadForm((p) => ({ ...p, state: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" placeholder="e.g. California" />
+                        </div>
+                        <div>
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Country</label>
                           <input value={addLeadForm.country ?? ''} onChange={(e) => setAddLeadForm((p) => ({ ...p, country: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" placeholder="e.g. United States" />
                         </div>
                         <div>
-                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Sector</label>
+                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Industry</label>
                           <input value={addLeadForm.industry ?? ''} onChange={(e) => setAddLeadForm((p) => ({ ...p, industry: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" placeholder="e.g. Technology" />
                         </div>
                         <div>
@@ -2368,14 +2535,20 @@ export function LeadDetailsDrawer({
                         </div>
                         <div>
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Assigned To</label>
-                          <select value={addLeadForm.assignedToId ?? ''} onChange={(e) => { const selectedRecruiter = recruiters.find(r => r.id === e.target.value); setAddLeadForm((p) => ({ ...p, assignedToId: e.target.value, assignedToName: selectedRecruiter ? `${selectedRecruiter.firstName} ${selectedRecruiter.lastName}` : '' })); }} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white" disabled={loadingRecruiters}>
-                            <option value="">Select recruiter</option>
-                            {recruiters.map((r) => (
-                              <option key={r.id} value={r.id}>
-                                {r.firstName} {r.lastName}
-                              </option>
-                            ))}
-                          </select>
+                          <LeadAssigneesMultiSelect
+                            members={recruiters}
+                            value={addLeadForm.assignedToIds ?? (addLeadForm.assignedToId ? [addLeadForm.assignedToId] : [])}
+                            loading={loadingRecruiters}
+                            onChange={(ids) => {
+                              const primary = ids[0] ? recruiters.find((r) => r.id === ids[0]) : undefined;
+                              setAddLeadForm((p) => ({
+                                ...p,
+                                assignedToIds: ids,
+                                assignedToId: ids[0] ?? '',
+                                assignedToName: primary ? `${primary.firstName} ${primary.lastName}` : '',
+                              }));
+                            }}
+                          />
                         </div>
                       </div>
                       <div>
@@ -2431,7 +2604,7 @@ export function LeadDetailsDrawer({
                           />
                         </div>
                         <div>
-                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Sector</label>
+                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Industry</label>
                           <input
                             value={addLeadForm.industry ?? ''}
                             onChange={(e) => setAddLeadForm((p) => ({ ...p, industry: e.target.value }))}
@@ -2509,12 +2682,28 @@ export function LeadDetailsDrawer({
                       <div className="px-5 pb-5 pt-0 border-t border-slate-100 space-y-4">
                         <div>
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Director Name *</label>
-                          <input
-                            value={addLeadForm.contactPerson}
-                            onChange={(e) => setAddLeadForm((p) => ({ ...p, contactPerson: e.target.value }))}
-                            className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                            placeholder="e.g. John Doe"
-                          />
+                          <div className="flex gap-2">
+                            <select
+                              value={addLeadForm.directorSalutation ?? ''}
+                              onChange={(e) =>
+                                setAddLeadForm((p) => ({ ...p, directorSalutation: e.target.value }))
+                              }
+                              className="w-[5.75rem] shrink-0 rounded-xl border border-slate-200 px-2 py-2.5 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                              aria-label="Director salutation"
+                            >
+                              {NAME_SALUTATION_OPTIONS.map((opt) => (
+                                <option key={opt.value || 'none'} value={opt.value}>
+                                  {opt.label}
+                                </option>
+                              ))}
+                            </select>
+                            <input
+                              value={addLeadForm.contactPerson}
+                              onChange={(e) => setAddLeadForm((p) => ({ ...p, contactPerson: e.target.value }))}
+                              className="min-w-0 flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                              placeholder="e.g. John Doe"
+                            />
+                          </div>
                         </div>
                         <div>
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Email *</label>
@@ -2624,29 +2813,67 @@ export function LeadDetailsDrawer({
                         </div>
                         <div>
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Assigned To</label>
-                          <select
-                            value={addLeadForm.assignedToId ?? ''}
-                            onChange={(e) => {
-                              const selectedRecruiter = recruiters.find(r => r.id === e.target.value);
-                              setAddLeadForm((p) => ({ 
-                                ...p, 
-                                assignedToId: e.target.value,
-                                assignedToName: selectedRecruiter ? `${selectedRecruiter.firstName} ${selectedRecruiter.lastName}` : ''
+                          <LeadAssigneesMultiSelect
+                            members={recruiters}
+                            value={addLeadForm.assignedToIds ?? (addLeadForm.assignedToId ? [addLeadForm.assignedToId] : [])}
+                            loading={loadingRecruiters}
+                            onChange={(ids) => {
+                              const primary = ids[0] ? recruiters.find((r) => r.id === ids[0]) : undefined;
+                              setAddLeadForm((p) => ({
+                                ...p,
+                                assignedToIds: ids,
+                                assignedToId: ids[0] ?? '',
+                                assignedToName: primary ? `${primary.firstName} ${primary.lastName}` : '',
                               }));
                             }}
-                            className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
-                            disabled={loadingRecruiters}
-                          >
-                            <option value="">Select recruiter</option>
-                            {recruiters.map((r) => (
-                              <option key={r.id} value={r.id}>
-                                {r.firstName} {r.lastName}
-                              </option>
-                            ))}
-                          </select>
-                          {loadingRecruiters && (
-                            <p className="text-xs text-slate-500 mt-1">Loading recruiters...</p>
-                          )}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                            Agreements &amp; Terms
+                          </label>
+                          <p className="text-xs text-slate-500 mb-2">
+                            Upload the signed agreement, MoU, or terms document for this lead. PDF, DOC, DOCX up to 10MB.
+                          </p>
+                          <input
+                            ref={addLeadAgreementsInputRef}
+                            type="file"
+                            accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.pdf,.doc,.docx"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              setPendingAddLeadAgreementsFile(file);
+                            }}
+                            className="hidden"
+                          />
+                          {pendingAddLeadAgreementsFile ? (
+                            <div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                              <Paperclip size={14} className="text-blue-600 shrink-0" />
+                              <span className="truncate flex-1">{pendingAddLeadAgreementsFile.name}</span>
+                              <span className="text-xs text-blue-700 shrink-0">Pending upload</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setPendingAddLeadAgreementsFile(null);
+                                  if (addLeadAgreementsInputRef.current) addLeadAgreementsInputRef.current.value = '';
+                                }}
+                                className="text-blue-700 hover:text-blue-900 text-xs font-semibold"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ) : null}
+                          <div className="mt-2">
+                            <button
+                              type="button"
+                              onClick={() => addLeadAgreementsInputRef.current?.click()}
+                              disabled={uploadingAgreements}
+                              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-60"
+                            >
+                              <Upload size={14} className="text-slate-500" />
+                              {pendingAddLeadAgreementsFile ? 'Replace file' : 'Upload file'}
+                            </button>
+                          </div>
                         </div>
                       </div>
                     )}
@@ -2691,6 +2918,7 @@ export function LeadDetailsDrawer({
                             // Contact Person
                             directorName: addLeadForm.contactPerson.trim(),
                             contactPerson: addLeadForm.contactPerson.trim(),
+                            directorSalutation: addLeadForm.directorSalutation?.trim() || undefined,
                             designation: addLeadForm.designation?.trim() || undefined,
                             email: addLeadForm.email.trim(),
                             phone: addLeadForm.phone?.trim() || undefined,
@@ -2720,8 +2948,43 @@ export function LeadDetailsDrawer({
                           };
 
                           const createdLeadResponse = await apiCreateLead(createData);
-                          const createdLead = createdLeadResponse?.data;
-                           
+                          let createdLead = createdLeadResponse?.data;
+
+                          // Agreements & Terms — upload after creation so the file is scoped to the new lead id.
+                          if (createdLead?.id && pendingAddLeadAgreementsFile) {
+                            try {
+                              setUploadingAgreements(true);
+                              const uploadResponse = await filesApiUpload(
+                                'lead',
+                                createdLead.id,
+                                pendingAddLeadAgreementsFile,
+                                'AGREEMENT'
+                              );
+                              const agreementUrl = uploadResponse.data?.fileUrl;
+                              const agreementName = uploadResponse.data?.fileName || pendingAddLeadAgreementsFile.name;
+                              if (agreementUrl) {
+                                const patched = await apiUpdateLead(createdLead.id, {
+                                  agreementsFileName: agreementName,
+                                  agreementsFileUrl: agreementUrl,
+                                  agreementsUploadedAt: new Date().toISOString(),
+                                });
+                                createdLead = patched?.data || {
+                                  ...createdLead,
+                                  agreementsFileName: agreementName,
+                                  agreementsFileUrl: agreementUrl,
+                                  agreementsUploadedAt: new Date().toISOString(),
+                                };
+                              }
+                            } catch (uploadError: any) {
+                              console.error('Failed to upload lead agreement:', uploadError);
+                              void requestError(uploadError.message || 'Failed to upload agreements file');
+                            } finally {
+                              setUploadingAgreements(false);
+                            }
+                          }
+                          setPendingAddLeadAgreementsFile(null);
+                          if (addLeadAgreementsInputRef.current) addLeadAgreementsInputRef.current.value = '';
+
                           // Call the parent handler so table can update immediately
                           onAddLead?.(addLeadForm, createdLead);
                           
@@ -2733,6 +2996,7 @@ export function LeadDetailsDrawer({
                             website: '',
                             linkedIn: '',
                             location: '',
+                            directorSalutation: '',
                             contactPerson: '',
                             designation: '',
                             email: '',
@@ -2787,18 +3051,36 @@ export function LeadDetailsDrawer({
                           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                             <div><FieldRow label="Company *" value={lead?.companyName ?? ''} /></div>
                             <div><FieldRow label="Company Links" value={lead?.website ?? ''} href={!!lead?.website} /></div>
-                            <div><FieldRow label="Director Name *" value={lead?.contactPerson ?? ''} /></div>
+                            <div><FieldRow label="Director Name *" value={formatDirectorDisplay(lead?.directorSalutation, lead?.directorName || lead?.contactPerson)} /></div>
                             <div><FieldRow label="Team Name" value={lead?.companySize ?? ''} /></div>
                             <div><FieldRow label="Email *" value={lead?.email ?? ''} href /></div>
                             <div><FieldRow label="Phone" value={lead?.phone ?? ''} /></div>
                             <div><FieldRow label="Location" value={lead?.location ?? ''} /></div>
                             <div><FieldRow label="City" value={lead?.city ?? ''} /></div>
+                            <div><FieldRow label="State" value={lead?.state ?? ''} /></div>
                             <div><FieldRow label="Country" value={lead?.country ?? ''} /></div>
-                            <div><FieldRow label="Sector" value={lead?.industry ?? ''} /></div>
+                            {(typeof lead?.latitude === 'number' && typeof lead?.longitude === 'number') && (
+                              <div className="sm:col-span-2">
+                                <FieldRow
+                                  label="Coordinates"
+                                  value={`${lead.latitude.toFixed(5)}, ${lead.longitude.toFixed(5)}`}
+                                />
+                              </div>
+                            )}
+                            <div><FieldRow label="Industry" value={lead?.industry ?? ''} /></div>
                             <div><FieldRow label="Status" value={lead?.status ?? ''} /></div>
                             <div><FieldRow label="Interest Level" value={lead?.priority ?? ''} /></div>
                             <div><FieldRow label="Next Follow-up Date" value={lead?.nextFollowUp ?? ''} /></div>
-                            <div><FieldRow label="Assigned To" value={lead?.assignedTo?.name ?? ''} /></div>
+                            <div>
+                              <FieldRow
+                                label="Assigned To"
+                                value={
+                                  Array.isArray(lead?.assignedToUsers) && lead!.assignedToUsers!.length > 0
+                                    ? lead!.assignedToUsers!.map((u) => u.name).join(', ')
+                                    : (lead?.assignedTo?.name ?? '')
+                                }
+                              />
+                            </div>
                           </div>
                           <div>
                             <FieldRow label="Services Needed" value={lead?.interestedNeeds ?? ''} />
@@ -2806,6 +3088,27 @@ export function LeadDetailsDrawer({
                           <div>
                             <FieldRow label="Expected Business Value" value={lead?.notes ?? ''} />
                           </div>
+                          {lead?.agreementsFileUrl && (
+                            <div>
+                              <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Agreements &amp; Terms</div>
+                              <a
+                                href={lead.agreementsFileUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 hover:bg-slate-100 transition-colors"
+                              >
+                                <Paperclip size={14} className="text-slate-500" />
+                                <span className="truncate max-w-[280px]">
+                                  {lead.agreementsFileName || 'Agreement document'}
+                                </span>
+                                {lead.agreementsUploadedAt && (
+                                  <span className="text-xs text-slate-400 shrink-0">
+                                    Uploaded {formatDateDMY(String(lead.agreementsUploadedAt))}
+                                  </span>
+                                )}
+                              </a>
+                            </div>
+                          )}
                           {Array.isArray(lead?.otherDetails) && lead.otherDetails.length ? (
                             <div>
                               <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
@@ -2850,19 +3153,35 @@ export function LeadDetailsDrawer({
                             </div>
                             <div>
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Director Name *</label>
-                              <input
-                                value={overviewEditForm.contactPerson}
-                                onChange={(e) => {
-                                  const value = e.target.value;
-                                  setOverviewEditForm((p) => ({ ...p, contactPerson: value }));
-                                  if (overviewEditErrors.contactPerson) {
-                                    setOverviewEditErrors((prev) => ({ ...prev, contactPerson: undefined }));
+                              <div className="flex gap-2">
+                                <select
+                                  value={overviewEditForm.directorSalutation ?? ''}
+                                  onChange={(e) =>
+                                    setOverviewEditForm((p) => ({ ...p, directorSalutation: e.target.value }))
                                   }
-                                }}
-                                className={`w-full rounded-xl border px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 ${
-                                  overviewEditErrors.contactPerson ? 'border-red-300' : 'border-slate-200'
-                                }`}
-                              />
+                                  className="w-[5.75rem] shrink-0 rounded-xl border border-slate-200 px-2 py-2.5 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                  aria-label="Director salutation"
+                                >
+                                  {NAME_SALUTATION_OPTIONS.map((opt) => (
+                                    <option key={opt.value || 'none'} value={opt.value}>
+                                      {opt.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                <input
+                                  value={overviewEditForm.contactPerson}
+                                  onChange={(e) => {
+                                    const value = e.target.value;
+                                    setOverviewEditForm((p) => ({ ...p, contactPerson: value }));
+                                    if (overviewEditErrors.contactPerson) {
+                                      setOverviewEditErrors((prev) => ({ ...prev, contactPerson: undefined }));
+                                    }
+                                  }}
+                                  className={`min-w-0 flex-1 rounded-xl border px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 ${
+                                    overviewEditErrors.contactPerson ? 'border-red-300' : 'border-slate-200'
+                                  }`}
+                                />
+                              </div>
                               {overviewEditErrors.contactPerson && (
                                 <p className="mt-1 text-xs text-red-600">{overviewEditErrors.contactPerson}</p>
                               )}
@@ -2899,20 +3218,47 @@ export function LeadDetailsDrawer({
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Phone</label>
                               <input value={overviewEditForm.phone} onChange={(e) => setOverviewEditForm((p) => ({ ...p, phone: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
                             </div>
-                            <div>
+                            <div className="sm:col-span-2">
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Location</label>
-                              <input value={overviewEditForm.location} onChange={(e) => setOverviewEditForm((p) => ({ ...p, location: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                              <LocationAutocomplete
+                                value={overviewEditForm.location}
+                                onChange={(next) => setOverviewEditForm((p) => ({ ...p, location: next }))}
+                                onSelect={(s: LocationSelection) =>
+                                  setOverviewEditForm((p) => ({
+                                    ...p,
+                                    location: s.location,
+                                    city: s.city || p.city || '',
+                                    country: s.country || p.country || '',
+                                    state: s.state || p.state || '',
+                                    latitude: s.latitude,
+                                    longitude: s.longitude,
+                                  }))
+                                }
+                                placeholder="Start typing a city, region, or address…"
+                              />
+                              {(overviewEditForm.state || typeof overviewEditForm.latitude === 'number') && (
+                                <p className="mt-1 text-[11px] text-slate-500">
+                                  <span className="font-semibold text-emerald-600">Detected</span>{' '}
+                                  {[overviewEditForm.state, typeof overviewEditForm.latitude === 'number' && typeof overviewEditForm.longitude === 'number'
+                                    ? `${overviewEditForm.latitude.toFixed(4)}, ${overviewEditForm.longitude.toFixed(4)}`
+                                    : null].filter(Boolean).join(' · ')}
+                                </p>
+                              )}
                             </div>
                             <div>
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">City</label>
                               <input value={overviewEditForm.city} onChange={(e) => setOverviewEditForm((p) => ({ ...p, city: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
                             </div>
                             <div>
+                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">State</label>
+                              <input value={overviewEditForm.state} onChange={(e) => setOverviewEditForm((p) => ({ ...p, state: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                            </div>
+                            <div>
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Country</label>
                               <input value={overviewEditForm.country} onChange={(e) => setOverviewEditForm((p) => ({ ...p, country: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
                             </div>
                             <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Sector</label>
+                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Industry</label>
                               <input value={overviewEditForm.industry} onChange={(e) => setOverviewEditForm((p) => ({ ...p, industry: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
                             </div>
                             <div>
@@ -2956,26 +3302,20 @@ export function LeadDetailsDrawer({
                             </div>
                             <div>
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Assigned To</label>
-                              <select
-                                value={overviewEditForm.assignedToId}
-                                onChange={(e) => {
-                                  const selectedRecruiter = recruiters.find((r) => r.id === e.target.value);
+                              <LeadAssigneesMultiSelect
+                                members={recruiters}
+                                value={overviewEditForm.assignedToIds ?? (overviewEditForm.assignedToId ? [overviewEditForm.assignedToId] : [])}
+                                loading={loadingRecruiters}
+                                onChange={(ids) => {
+                                  const primary = ids[0] ? recruiters.find((r) => r.id === ids[0]) : undefined;
                                   setOverviewEditForm((p) => ({
                                     ...p,
-                                    assignedToId: e.target.value,
-                                    leadOwner: selectedRecruiter ? `${selectedRecruiter.firstName} ${selectedRecruiter.lastName}` : '',
+                                    assignedToIds: ids,
+                                    assignedToId: ids[0] ?? '',
+                                    leadOwner: primary ? `${primary.firstName} ${primary.lastName}` : '',
                                   }));
                                 }}
-                                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
-                                disabled={loadingRecruiters}
-                              >
-                                <option value="">Select recruiter</option>
-                                {recruiters.map((r) => (
-                                  <option key={r.id} value={r.id}>
-                                    {r.firstName} {r.lastName}
-                                  </option>
-                                ))}
-                              </select>
+                              />
                             </div>
                           </div>
                             <div>
@@ -3029,7 +3369,7 @@ export function LeadDetailsDrawer({
                           onClick={() => setShowSendWhatsAppForm(true)}
                           className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100 hover:border-slate-300 active:scale-[0.98] active:bg-slate-200 active:border-slate-300 transition-all duration-150"
                         >
-                          <MessageCircle size={16} className="text-slate-600" />
+                          <WhatsAppIcon size={16} className="text-emerald-600" />
                           Send WhatsApp
                         </button>
                         <button
@@ -3140,11 +3480,29 @@ export function LeadDetailsDrawer({
                             </div>
                             <div>
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Location</label>
-                              <input
+                              <LocationAutocomplete
                                 value={overviewEditForm.location}
-                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, location: e.target.value }))}
-                                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                onChange={(next) => setOverviewEditForm((p) => ({ ...p, location: next }))}
+                                onSelect={(s: LocationSelection) =>
+                                  setOverviewEditForm((p) => ({
+                                    ...p,
+                                    location: s.location,
+                                    city: s.city || p.city || '',
+                                    country: s.country || p.country || '',
+                                    state: s.state || p.state || '',
+                                    latitude: s.latitude,
+                                    longitude: s.longitude,
+                                  }))
+                                }
                               />
+                              {(overviewEditForm.state || typeof overviewEditForm.latitude === 'number') && (
+                                <p className="mt-1 text-[11px] text-slate-500">
+                                  <span className="font-semibold text-emerald-600">Detected</span>{' '}
+                                  {[overviewEditForm.state, typeof overviewEditForm.latitude === 'number' && typeof overviewEditForm.longitude === 'number'
+                                    ? `${overviewEditForm.latitude.toFixed(4)}, ${overviewEditForm.longitude.toFixed(4)}`
+                                    : null].filter(Boolean).join(' · ')}
+                                </p>
+                              )}
                             </div>
                           </div>
                         )}
@@ -3173,7 +3531,7 @@ export function LeadDetailsDrawer({
                       <div className="px-5 pb-5 pt-0 border-t border-slate-100 space-y-0">
                         {!overviewEditMode ? (
                           <>
-                            <FieldRow label="Contact Name" value={lead?.contactPerson ?? ''} />
+                            <FieldRow label="Contact Name" value={formatDirectorDisplay(lead?.directorSalutation, lead?.contactPerson)} />
                             <FieldRow label="Designation" value={lead?.designation ?? ''} />
                             <FieldRow label="Email" value={lead?.email ?? ''} href />
                             <FieldRow label="Phone" value={lead?.phone ?? ''} />
@@ -3184,11 +3542,27 @@ export function LeadDetailsDrawer({
                           <div className="space-y-4 pt-2">
                             <div>
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Contact Name</label>
-                              <input
-                                value={overviewEditForm.contactPerson}
-                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, contactPerson: e.target.value }))}
-                                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                              />
+                              <div className="flex gap-2">
+                                <select
+                                  value={overviewEditForm.directorSalutation ?? ''}
+                                  onChange={(e) =>
+                                    setOverviewEditForm((p) => ({ ...p, directorSalutation: e.target.value }))
+                                  }
+                                  className="w-[5.75rem] shrink-0 rounded-xl border border-slate-200 px-2 py-2.5 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                  aria-label="Contact salutation"
+                                >
+                                  {NAME_SALUTATION_OPTIONS.map((opt) => (
+                                    <option key={opt.value || 'none'} value={opt.value}>
+                                      {opt.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                <input
+                                  value={overviewEditForm.contactPerson}
+                                  onChange={(e) => setOverviewEditForm((p) => ({ ...p, contactPerson: e.target.value }))}
+                                  className="min-w-0 flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                />
+                              </div>
                             </div>
                             <div>
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Designation</label>
@@ -3274,7 +3648,14 @@ export function LeadDetailsDrawer({
                               }
                             />
                             <FieldRow label="Campaign Name" value={lead?.campaignName ?? ''} />
-                            <FieldRow label="Lead Owner" value={lead?.assignedTo?.name ?? ''} />
+                            <FieldRow
+                              label="Lead Owner"
+                              value={
+                                Array.isArray(lead?.assignedToUsers) && lead!.assignedToUsers!.length > 0
+                                  ? lead!.assignedToUsers!.map((u) => u.name).join(', ')
+                                  : (lead?.assignedTo?.name ?? '')
+                              }
+                            />
                             <FieldRow label="Lead Status" value={lead?.status ?? ''} />
                             <FieldRow label="Created Date" value={lead?.createdDate ?? ''} />
                             <FieldRowDateTime label="Last Contacted" value={lead?.lastFollowUp} />
@@ -3420,6 +3801,89 @@ export function LeadDetailsDrawer({
                                 className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                               />
                             </div>
+                            <div className="md:col-span-2">
+                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                                Agreements &amp; Terms
+                              </label>
+                              <p className="text-xs text-slate-500 mb-2">
+                                Upload the signed agreement, MoU, or terms document for this lead. PDF, DOC, DOCX up to 10MB.
+                              </p>
+                              <input
+                                ref={overviewAgreementsInputRef}
+                                type="file"
+                                accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.pdf,.doc,.docx"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) return;
+                                  setPendingOverviewAgreementsFile(file);
+                                  setOverviewEditForm((p) => ({
+                                    ...p,
+                                    agreementsFileName: file.name,
+                                  }));
+                                }}
+                                className="hidden"
+                              />
+                              {pendingOverviewAgreementsFile ? (
+                                <div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                                  <Paperclip size={14} className="text-blue-600 shrink-0" />
+                                  <span className="truncate flex-1">{pendingOverviewAgreementsFile.name}</span>
+                                  <span className="text-xs text-blue-700 shrink-0">Pending upload</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setPendingOverviewAgreementsFile(null);
+                                      if (overviewAgreementsInputRef.current) overviewAgreementsInputRef.current.value = '';
+                                    }}
+                                    className="text-blue-700 hover:text-blue-900 text-xs font-semibold"
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              ) : overviewEditForm.agreementsFileUrl ? (
+                                <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900">
+                                  <Paperclip size={14} className="text-slate-500 shrink-0" />
+                                  <a
+                                    href={overviewEditForm.agreementsFileUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="truncate flex-1 hover:underline"
+                                  >
+                                    {overviewEditForm.agreementsFileName || 'Agreement document'}
+                                  </a>
+                                  {overviewEditForm.agreementsUploadedAt && (
+                                    <span className="text-xs text-slate-500 shrink-0">
+                                      Uploaded {formatDateDMY(overviewEditForm.agreementsUploadedAt)}
+                                    </span>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOverviewEditForm((p) => ({
+                                        ...p,
+                                        agreementsFileName: '',
+                                        agreementsFileUrl: '',
+                                        agreementsUploadedAt: '',
+                                      }));
+                                      if (overviewAgreementsInputRef.current) overviewAgreementsInputRef.current.value = '';
+                                    }}
+                                    className="text-slate-600 hover:text-slate-900 text-xs font-semibold"
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              ) : null}
+                              <div className="mt-2">
+                                <button
+                                  type="button"
+                                  onClick={() => overviewAgreementsInputRef.current?.click()}
+                                  disabled={uploadingAgreements}
+                                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-60"
+                                >
+                                  <Upload size={14} className="text-slate-500" />
+                                  {overviewEditForm.agreementsFileUrl || pendingOverviewAgreementsFile ? 'Replace file' : 'Upload file'}
+                                </button>
+                              </div>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -3521,7 +3985,7 @@ export function LeadDetailsDrawer({
                                             ) : isEmail ? (
                                               <Mail size={14} />
                                             ) : isMessage ? (
-                                              <MessageCircle size={14} />
+                                              <WhatsAppIcon size={14} />
                                             ) : isMeeting ? (
                                               <Calendar size={14} />
                                             ) : (
@@ -3638,8 +4102,7 @@ export function LeadDetailsDrawer({
                   const formatUploadDate = (d: string) => {
                     if (!d) return '—';
                     try {
-                      const date = new Date(d);
-                      return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+                      return formatDateTimeDMY(d);
                     } catch {
                       return d;
                     }
@@ -3853,7 +4316,9 @@ export function LeadDetailsDrawer({
                               </div>
                               <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                                 <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Director Name</p>
-                                <p className="mt-2 text-sm font-medium text-slate-900">{addLeadForm.contactPerson || '—'}</p>
+                                <p className="mt-2 text-sm font-medium text-slate-900">
+                                  {formatDirectorDisplay(addLeadForm.directorSalutation, addLeadForm.contactPerson) || '—'}
+                                </p>
                               </div>
                               <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                                 <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Email</p>
@@ -3880,7 +4345,7 @@ export function LeadDetailsDrawer({
                                 <p className="mt-2 text-sm font-medium text-slate-900">{addLeadForm.country || '—'}</p>
                               </div>
                               <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Sector</p>
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Industry</p>
                                 <p className="mt-2 text-sm font-medium text-slate-900">{addLeadForm.industry || '—'}</p>
                               </div>
                               <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">

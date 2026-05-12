@@ -22,6 +22,7 @@ import {
   type BackendJob,
   type BackendUser,
 } from '../lib/api';
+import { formatDateDMY, formatDateTimeDMY, formatTime12hEnGb } from '../utils/dateDisplay';
 import { MY_JOBS_LIST_PARAMS } from '../lib/myJobsListParams';
 import { combineInterviewDateAndTimeToIso, mapInterviewUiTypeToBackend } from '../lib/interview-schedule-helpers';
 import type {
@@ -82,18 +83,9 @@ const toTitle = (value: string) =>
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
 
-const formatDatePart = (value: string) =>
-  new Date(value).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+const formatDatePart = (value: string) => formatDateDMY(value);
 
-const formatTimePart = (value: string) =>
-  new Date(value).toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+const formatTimePart = (value: string) => formatTime12hEnGb(value);
 
 const isLikelyUrl = (value?: string | null) => /^https?:\/\//i.test(String(value || '').trim());
 
@@ -188,13 +180,7 @@ const mapInterview = (item: BackendInterviewListItem): Interview => ({
     id: entry.id,
     interviewerId: entry.interviewer.id,
     interviewerName: entry.interviewer.name,
-    submittedAt: new Date(entry.createdAt).toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    }),
+    submittedAt: formatDateTimeDMY(entry.createdAt),
     ratings: {
       technicalSkills: entry.technicalScore,
       communication: entry.communicationScore,
@@ -214,26 +200,14 @@ const mapInterview = (item: BackendInterviewListItem): Interview => ({
     avatar:
       safeDisplayText(note.author.avatar, '') ||
       initialsFromName(note.author.name, 'NA'),
-    timestamp: new Date(note.createdAt).toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    }),
+    timestamp: formatDateTimeDMY(note.createdAt),
     text: note.note,
   })),
   activityLog: (item.activityLogs || []).map((log) => ({
     id: log.id,
     action: log.action,
     user: log.user.name,
-    timestamp: new Date(log.timestamp).toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    }),
+    timestamp: formatDateTimeDMY(log.timestamp),
     color: activityColor(log.action),
   })),
   recording: null,

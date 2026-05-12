@@ -2,7 +2,6 @@
 
 import React, { useState, useMemo } from 'react';
 import {
-  MessageCircle,
   Mail,
   Phone,
   UserCheck,
@@ -11,6 +10,8 @@ import {
   Search,
   Users,
 } from 'lucide-react';
+import { formatDateTimeDMY } from '../utils/dateDisplay';
+import { WhatsAppIcon } from './icons/WhatsAppIcon';
 import type {
   CandidateInteractionEntry,
   CandidateInteractionType,
@@ -23,7 +24,7 @@ export interface CandidateInteractionLogsProps {
 }
 
 const TYPE_CONFIG: Record<CandidateInteractionType, { label: string; icon: React.ComponentType<{ size?: number; className?: string }>; iconBg: string }> = {
-  whatsapp_sent: { label: 'WhatsApp', icon: MessageCircle as React.ComponentType<{ size?: number; className?: string }>, iconBg: 'bg-emerald-600 text-white' },
+  whatsapp_sent: { label: 'WhatsApp', icon: WhatsAppIcon as React.ComponentType<{ size?: number; className?: string }>, iconBg: 'bg-emerald-600 text-white' },
   email_sent: { label: 'Email', icon: Mail as React.ComponentType<{ size?: number; className?: string }>, iconBg: 'bg-amber-500 text-white' },
   call_attempted: { label: 'Call', icon: Phone as React.ComponentType<{ size?: number; className?: string }>, iconBg: 'bg-slate-500 text-white' },
   call_connected: { label: 'Call', icon: Phone as React.ComponentType<{ size?: number; className?: string }>, iconBg: 'bg-blue-600 text-white' },
@@ -42,7 +43,7 @@ const CHANNEL_FILTERS: { id: CandidateInteractionChannel; label: string }[] = [
 function InteractionCard({ entry }: { entry: CandidateInteractionEntry }) {
   const config = TYPE_CONFIG[entry.type];
   const Icon = config.icon;
-  const dateStr = entry.timestampDisplay ?? new Date(entry.timestamp).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+  const dateStr = entry.timestampDisplay ?? formatDateTimeDMY(entry.timestamp);
   const isResponse = entry.direction === 'response';
 
   return (

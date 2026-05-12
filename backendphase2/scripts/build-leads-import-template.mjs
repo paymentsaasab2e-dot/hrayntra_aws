@@ -13,6 +13,7 @@ const outPath = path.join(__dirname, '..', 'docs', 'templates', 'leads_import_te
 // Column keys must match LeadImportDrawer CRM_FIELDS + import payload (lead.service importLeads)
 const headers = [
   'companyName',
+  'directorSalutation',
   'contactPerson',
   'email',
   'phone',
@@ -37,6 +38,7 @@ const headers = [
 const exampleRows = [
   [
     'Acme Corporation',
+    'Ms',
     'Jane Smith',
     'jane.smith@acme.com',
     '+1-555-0100',
@@ -59,6 +61,7 @@ const exampleRows = [
   ],
   [
     'Globex LLC',
+    'Mr',
     'John Doe',
     'john@globex.example',
     '+91-9876543210',
@@ -84,6 +87,7 @@ const exampleRows = [
 const guideSheet = [
   ['Field', 'Description', 'Allowed / notes'],
   ['companyName', 'Legal or trading name of the company', 'Required for meaningful rows; used with contactPerson for duplicate match'],
+  ['directorSalutation', 'Optional honorific', 'Mr | Mrs | Ms | Miss | Dr | Prof (empty allowed)'],
   ['contactPerson', 'Primary contact full name', ''],
   ['email', 'Work email', 'Lowercased on import; duplicate detection'],
   ['phone', 'Phone with country code', ''],

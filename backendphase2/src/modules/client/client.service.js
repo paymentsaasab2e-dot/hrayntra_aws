@@ -362,6 +362,21 @@ export const clientService = {
       expectedBusinessValue: data.expectedBusinessValue,
       leadStatus: data.leadStatus,
       sla: data.sla,
+      // Smart-location autofill metadata (shared with Lead).
+      city: data.city ?? undefined,
+      state: data.state ?? undefined,
+      country: data.country ?? undefined,
+      latitude: Number.isFinite(Number(data.latitude)) ? Number(data.latitude) : undefined,
+      longitude: Number.isFinite(Number(data.longitude)) ? Number(data.longitude) : undefined,
+      directorSalutation: data.directorSalutation ?? undefined,
+      // Lead-style next follow-up timestamp (Add Client form uses datetime-local now).
+      nextFollowUpDue: data.nextFollowUpDue ? new Date(data.nextFollowUpDue) : undefined,
+      // Agreements & Terms — single primary document attached during onboarding.
+      agreementsFileName: data.agreementsFileName ?? undefined,
+      agreementsFileUrl: data.agreementsFileUrl ?? undefined,
+      agreementsUploadedAt: data.agreementsUploadedAt
+        ? new Date(data.agreementsUploadedAt)
+        : (data.agreementsFileUrl ? new Date() : undefined),
       // Only include fields that exist in the Prisma schema
       // Removed: annualRevenue, taxId, paymentTerms, contractStartDate, contractEndDate,
       // billingEmail, billingPhone, billingAddress, notes, tags, hot (not in schema)
@@ -486,6 +501,42 @@ export const clientService = {
       // Removed: annualRevenue, taxId, paymentTerms, contractStartDate, contractEndDate,
       // billingEmail, billingPhone, billingAddress, notes, tags, hot (not in schema)
     };
+
+    // Smart-location autofill metadata (shared with Lead) — only patch when caller sent the field.
+    if (data.city !== undefined) updateData.city = data.city || null;
+    if (data.state !== undefined) updateData.state = data.state || null;
+    if (data.country !== undefined) updateData.country = data.country || null;
+    if (data.latitude !== undefined) {
+      const n = Number(data.latitude);
+      updateData.latitude = Number.isFinite(n) ? n : null;
+    }
+    if (data.longitude !== undefined) {
+      const n = Number(data.longitude);
+      updateData.longitude = Number.isFinite(n) ? n : null;
+    }
+    if (data.directorSalutation !== undefined) {
+      updateData.directorSalutation = data.directorSalutation || null;
+    }
+    if (data.nextFollowUpDue !== undefined) {
+      updateData.nextFollowUpDue = data.nextFollowUpDue ? new Date(data.nextFollowUpDue) : null;
+    }
+
+    // Agreements & Terms (single primary document) — only patch when the caller sent the field.
+    if (data.agreementsFileName !== undefined) {
+      updateData.agreementsFileName = data.agreementsFileName || null;
+    }
+    if (data.agreementsFileUrl !== undefined) {
+      updateData.agreementsFileUrl = data.agreementsFileUrl || null;
+      // Stamp uploadedAt automatically when a URL is set/cleared and caller didn't send one.
+      if (data.agreementsUploadedAt === undefined) {
+        updateData.agreementsUploadedAt = data.agreementsFileUrl ? new Date() : null;
+      }
+    }
+    if (data.agreementsUploadedAt !== undefined) {
+      updateData.agreementsUploadedAt = data.agreementsUploadedAt
+        ? new Date(data.agreementsUploadedAt)
+        : null;
+    }
 
     // Remove undefined values to avoid Prisma errors
     Object.keys(updateData).forEach(key => {

@@ -9,6 +9,7 @@ import type { Department } from '../../../types/team';
 import { AddDepartmentDrawer } from '../AddDepartmentDrawer';
 import { DepartmentMembersDrawer } from '../DepartmentMembersDrawer';
 import PaginationAll from '../../../components/PaginationAll';
+import { formatDateDMY } from '../../../utils/dateDisplay';
 
 // Color mapping for role colors
 const roleColorMap: Record<string, string> = {
@@ -132,11 +133,7 @@ export const DepartmentsTab: React.FC = () => {
   }, []);
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
+    return formatDateDMY(dateString);
   };
 
   return (

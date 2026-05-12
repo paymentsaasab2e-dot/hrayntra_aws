@@ -30,6 +30,7 @@ import { DndProvider, useDrag, useDrop, DragSourceMonitor, DropTargetMonitor } f
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { useRouter } from "next/navigation";
 import { ImageWithFallback } from "../../components/ImageWithFallback";
+import { formatDateDMY } from "../../utils/dateDisplay";
 import AddCandidateDrawer from "../../components/candidates/AddCandidateDrawer";
 import { usePageAutoRefresh } from "../../hooks/usePageAutoRefresh";
 import {
@@ -225,7 +226,7 @@ function mapBackendCandidateToPipelineCandidate(candidate: BackendCandidate): Ca
     experience,
     location: candidate.location || '—',
     status: candidate.status === 'REJECTED' ? 'Stalled' : candidate.status === 'PLACED' ? 'Approved' : 'Waiting',
-    lastActivity: candidate.updatedAt ? new Date(candidate.updatedAt).toLocaleDateString() : 'Just now',
+    lastActivity: candidate.updatedAt ? formatDateDMY(candidate.updatedAt) : 'Just now',
     followUpStatus: getFollowUpStatus(candidate),
     avatar: candidate.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(candidateName)}&background=0f172a&color=fff`,
     stage: ([

@@ -14,6 +14,7 @@ import {
   RotateCcw,
   Circle,
 } from 'lucide-react';
+import { formatDateDMY } from '../utils/dateDisplay';
 import type { TaskActivityEvent, TaskActivityEventType } from '../app/Task&Activites/types';
 
 export interface TaskActivityLogProps {
@@ -49,7 +50,7 @@ function getDateGroupLabel(timestamp: string): string {
 
   if (dDay.getTime() === today.getTime()) return 'Today';
   if (dDay.getTime() === yesterday.getTime()) return 'Yesterday';
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return formatDateDMY(timestamp);
 }
 
 function groupEventsByDate(events: TaskActivityEvent[]): { label: string; events: TaskActivityEvent[] }[] {

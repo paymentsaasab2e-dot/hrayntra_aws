@@ -27,6 +27,7 @@ import {
   type UpdateJobNoteData,
 } from '../lib/api';
 import { requestConfirm, requestError, requestWarning } from '../lib/appDialog';
+import { formatDateDMY } from '../utils/dateDisplay';
 
 export type NoteTag = 'HR' | 'Finance' | 'Contract' | 'Feedback';
 
@@ -76,11 +77,7 @@ function mapBackendNoteToFrontend(backendNote: BackendClientNote | BackendLeadNo
       name: backendNote.createdBy.name || backendNote.createdBy.email,
       avatar: backendNote.createdBy.avatar || undefined,
     },
-    createdAt: new Date(backendNote.createdAt).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    }),
+    createdAt: formatDateDMY(backendNote.createdAt),
     isPinned: backendNote.isPinned,
   };
 }

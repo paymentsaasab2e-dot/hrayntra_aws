@@ -2681,6 +2681,8 @@ export interface BackendLead {
   id: string;
   companyName: string | null;
   contactPerson: string | null;
+  directorName?: string | null;
+  directorSalutation?: string | null;
   email: string | null;
   phone?: string | null;
   type: 'Company' | 'Individual' | 'Referral';
@@ -2697,6 +2699,10 @@ export interface BackendLead {
   designation?: string | null;
   country?: string | null;
   city?: string | null;
+  /** Smart-location autofill metadata sourced from OpenStreetMap/Nominatim. */
+  state?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
   campaignName?: string | null;
   campaignLink?: string | null;
   referralName?: string | null;
@@ -2707,12 +2713,25 @@ export interface BackendLead {
   lastFollowUp?: string | null;
   nextFollowUp?: string | null;
   lostReason?: string | null;
+  /** Agreements & Terms — single primary document uploaded against the lead. */
+  agreementsFileName?: string | null;
+  agreementsFileUrl?: string | null;
+  agreementsUploadedAt?: string | null;
   assignedTo?: {
     id: string;
     name: string;
     email: string;
     avatar?: string | null;
   } | null;
+  /** Multi-assignee — all team members the lead is shared with. */
+  assignedToIds?: string[];
+  /** Hydrated user records for `assignedToIds`, ordered to match. */
+  assignedToUsers?: Array<{
+    id: string;
+    name: string;
+    email: string;
+    avatar?: string | null;
+  }>;
   createdAt: string;
   updatedAt: string;
 }
@@ -2721,6 +2740,7 @@ export interface CreateLeadData {
   companyName?: string | null;
   contactPerson?: string | null;
   directorName?: string;
+  directorSalutation?: string | null;
   email?: string | null;
   phone?: string;
   type?: 'Company' | 'Individual' | 'Referral';
@@ -2742,6 +2762,10 @@ export interface CreateLeadData {
   designation?: string;
   country?: string;
   city?: string;
+  /** Smart-location autofill metadata. Latitude/Longitude are decimal degrees. */
+  state?: string;
+  latitude?: number | null;
+  longitude?: number | null;
   campaignName?: string;
   campaignLink?: string;
   referralName?: string;
@@ -2752,7 +2776,13 @@ export interface CreateLeadData {
   lastFollowUp?: string;
   nextFollowUp?: string;
   lostReason?: string;
+  /** Agreements & Terms — single primary document uploaded against the lead. */
+  agreementsFileName?: string | null;
+  agreementsFileUrl?: string | null;
+  agreementsUploadedAt?: string | null;
   assignedToId?: string;
+  /** Multi-assignee list. First item also written to `assignedToId` (primary). */
+  assignedToIds?: string[];
   /**
    * Optional remark when changing status from the leads table.
    * Used only for activity logging; not stored directly on the Lead model.
@@ -2878,6 +2908,18 @@ export interface BackendClient {
   priority?: string | null;
   sla?: string | null;
   nextFollowUpDue?: string | null;
+  /** Smart-location autofill metadata (shared with Lead). */
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  /** Salutation captured on the Add Client form alongside the primary director. */
+  directorSalutation?: string | null;
+  /** Agreements & Terms — single primary document uploaded against the client. */
+  agreementsFileName?: string | null;
+  agreementsFileUrl?: string | null;
+  agreementsUploadedAt?: string | null;
   avgTimeToFill?: string | null;
   healthStatus?: string | null;
   revenueGenerated?: string | null;
@@ -3351,6 +3393,7 @@ export const apiGetJobActivities = async (jobId: string) => {
 
 export interface BackendContact {
   id: string;
+  salutation?: string | null;
   firstName: string;
   lastName: string;
   email: string | null;
@@ -3444,6 +3487,7 @@ export interface ContactFilters {
 }
 
 export interface CreateContactData {
+  salutation?: string;
   firstName: string;
   lastName: string;
   email?: string;
@@ -3640,6 +3684,8 @@ export interface CreateClientData {
   logo?: string;
   location?: string;
   status?: 'ACTIVE' | 'PROSPECT' | 'ON_HOLD' | 'INACTIVE';
+  /** Lead-style status snapshot. The Add Client form (mirroring Add Lead) writes here. */
+  leadStatus?: string;
   assignedToId?: string;
   companySize?: string;
   hiringLocations?: string;
@@ -3649,6 +3695,19 @@ export interface CreateClientData {
   timezone?: string;
   priority?: string;
   sla?: string;
+  nextFollowUpDue?: string | null;
+  /** Smart-location autofill metadata (shared with Lead). */
+  city?: string;
+  state?: string;
+  country?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  /** Salutation captured on the Add Client form alongside the primary director. */
+  directorSalutation?: string;
+  /** Agreements & Terms — single primary document uploaded against the client. */
+  agreementsFileName?: string | null;
+  agreementsFileUrl?: string | null;
+  agreementsUploadedAt?: string | null;
 }
 
 export interface UpdateClientData {
@@ -3658,15 +3717,30 @@ export interface UpdateClientData {
   logo?: string;
   location?: string;
   status?: 'ACTIVE' | 'PROSPECT' | 'ON_HOLD' | 'INACTIVE';
-  assignedToId?: string;
-  companySize?: string;
-  hiringLocations?: string;
-  servicesNeeded?: string;
-  expectedBusinessValue?: string;
-  linkedin?: string;
-  timezone?: string;
-  priority?: string;
-  sla?: string;
+  /** Lead-style status snapshot. The Add Client form (mirroring Add Lead) writes here. */
+  leadStatus?: string | null;
+  assignedToId?: string | null;
+  companySize?: string | null;
+  hiringLocations?: string | null;
+  servicesNeeded?: string | null;
+  expectedBusinessValue?: string | null;
+  linkedin?: string | null;
+  timezone?: string | null;
+  priority?: string | null;
+  sla?: string | null;
+  nextFollowUpDue?: string | null;
+  /** Smart-location autofill metadata (shared with Lead). */
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  /** Salutation captured on the Add Client form alongside the primary director. */
+  directorSalutation?: string | null;
+  /** Agreements & Terms — single primary document uploaded against the client. */
+  agreementsFileName?: string | null;
+  agreementsFileUrl?: string | null;
+  agreementsUploadedAt?: string | null;
 }
 
 export const apiCreateClient = async (data: CreateClientData) => {

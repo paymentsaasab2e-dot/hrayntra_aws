@@ -3,7 +3,6 @@ import {
   Eye, 
   FileText, 
   Mail, 
-  MessageSquare, 
   Star, 
   MapPin, 
   Briefcase, 
@@ -12,6 +11,7 @@ import {
 } from 'lucide-react';
 import { ImageWithFallback } from './ImageWithFallback';
 import { Candidate } from './CandidateTable';
+import { WhatsAppIcon } from './icons/WhatsAppIcon';
 
 interface CandidateGridProps {
   candidates: Candidate[];
@@ -120,7 +120,7 @@ export const CandidateGrid: React.FC<CandidateGridProps> = ({
             
             <div className="flex items-center gap-1">
               <button className="p-2 text-slate-500 hover:text-green-600 hover:bg-white rounded-lg transition-all shadow-sm border border-transparent hover:border-slate-200" title="WhatsApp">
-                <MessageSquare size={16} />
+                <WhatsAppIcon size={16} />
               </button>
               <button className="p-2 text-slate-500 hover:text-blue-600 hover:bg-white rounded-lg transition-all shadow-sm border border-transparent hover:border-slate-200" title="Email">
                 <Mail size={16} />

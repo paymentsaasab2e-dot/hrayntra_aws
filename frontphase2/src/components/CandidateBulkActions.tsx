@@ -9,9 +9,9 @@ import {
   Star, 
   Trash2,
   X,
-  MessageCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { WhatsAppIcon } from './icons/WhatsAppIcon';
 
 interface CandidateBulkActionsProps {
   selectedCount: number;
@@ -45,7 +45,7 @@ export const CandidateBulkActions: React.FC<CandidateBulkActionsProps> = ({ sele
             <ActionButton icon={Briefcase} label="Assign Job" />
             <ActionButton icon={RefreshCcw} label="Change Stage" />
             <ActionButton icon={Mail} label="Send Email" />
-            <ActionButton icon={MessageCircle} label="WhatsApp" />
+            <ActionButton icon={WhatsAppIcon} label="WhatsApp" />
             <ActionButton icon={Tag} label="Add Tags" />
             <ActionButton icon={User} label="Assign Owner" />
             <ActionButton icon={Download} label="Export" />

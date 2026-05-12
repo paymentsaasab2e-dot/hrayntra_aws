@@ -35,6 +35,7 @@ import {
   type InvoiceActivityResponse,
 } from '../../lib/api';
 import { SUPPORTED_CURRENCIES, formatCurrencyAmount } from '../../utils/currency';
+import { formatDateTimeDMY } from '../../utils/dateDisplay';
 import { Skeleton } from '../ui/Skeleton';
 
 type Tone = {
@@ -72,13 +73,7 @@ const KIND_ICON: Record<InvoiceActivityEvent['kind'], React.ComponentType<{ size
 function formatTimestamp(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatDateTimeDMY(d);
 }
 
 interface Props {

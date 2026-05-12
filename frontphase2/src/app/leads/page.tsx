@@ -6,7 +6,6 @@ import {
   Upload,
   Download,
   Search,
-  Filter,
   Eye,
   Pencil,
   UserPlus,
@@ -14,7 +13,6 @@ import {
   XCircle,
   Phone,
   Building2,
-  ExternalLink,
   Target,
   Trash2,
   Check,
@@ -22,7 +20,10 @@ import {
   X,
 } from 'lucide-react';
 import { downloadCsv, csvDate } from '../../utils/csv';
-import { ImageWithFallback } from '../../components/ImageWithFallback';
+import { formatDateDMY } from '../../utils/dateDisplay';
+import { formatDirectorDisplay } from '../../constants/salutations';
+import { AssigneeAvatars } from './AssigneeAvatars';
+import { SourceCell } from './SourceCell';
 import { LeadDetailsDrawer } from '../../components/drawers/LeadDetailsDrawer';
 import { LeadImportDrawer } from '../../components/drawers/LeadImportDrawer';
 import AriaChat from '../../components/AriaChat';
@@ -272,6 +273,8 @@ function mapBackendLeadToFrontend(backendLead: BackendLead): Lead {
     type: backendLead.type,
     source: backendLead.source,
     contactPerson: backendLead.contactPerson || '',
+    directorSalutation: backendLead.directorSalutation || undefined,
+    directorName: backendLead.directorName || undefined,
     email: backendLead.email || '',
     phone: backendLead.phone || '',
     status: backendLead.status,
@@ -281,6 +284,10 @@ function mapBackendLeadToFrontend(backendLead: BackendLead): Lead {
       avatar: backendLead.assignedTo.avatar || '',
     } : { name: 'Unassigned', avatar: '' },
     assignedToId: backendLead.assignedTo?.id,
+    assignedToIds: Array.isArray(backendLead.assignedToIds) ? backendLead.assignedToIds : (backendLead.assignedTo?.id ? [backendLead.assignedTo.id] : []),
+    assignedToUsers: Array.isArray(backendLead.assignedToUsers)
+      ? backendLead.assignedToUsers.map((u) => ({ id: u.id, name: u.name, avatar: u.avatar || '', email: u.email }))
+      : (backendLead.assignedTo ? [{ id: backendLead.assignedTo.id, name: backendLead.assignedTo.name, avatar: backendLead.assignedTo.avatar || '', email: backendLead.assignedTo.email }] : []),
     lastFollowUp: backendLead.lastFollowUp || '',
     nextFollowUp: backendLead.nextFollowUp || undefined,
     priority: backendLead.priority,
@@ -296,6 +303,9 @@ function mapBackendLeadToFrontend(backendLead: BackendLead): Lead {
     designation: backendLead.designation || undefined,
     country: backendLead.country || undefined,
     city: backendLead.city || undefined,
+    state: backendLead.state || undefined,
+    latitude: typeof backendLead.latitude === 'number' ? backendLead.latitude : undefined,
+    longitude: typeof backendLead.longitude === 'number' ? backendLead.longitude : undefined,
     campaignName: backendLead.campaignName || undefined,
     campaignLink: backendLead.campaignLink || undefined,
     referralName: backendLead.referralName || undefined,
@@ -303,7 +313,10 @@ function mapBackendLeadToFrontend(backendLead: BackendLead): Lead {
     sourceLinkedInUrl: backendLead.sourceLinkedInUrl || undefined,
     sourceEmail: backendLead.sourceEmail || undefined,
     otherDetails: Array.isArray(backendLead.otherDetails) ? backendLead.otherDetails : undefined,
-    createdDate: backendLead.createdAt ? new Date(backendLead.createdAt).toLocaleDateString() : undefined,
+    createdDate: backendLead.createdAt ? formatDateDMY(backendLead.createdAt) : undefined,
+    agreementsFileName: backendLead.agreementsFileName || undefined,
+    agreementsFileUrl: backendLead.agreementsFileUrl || undefined,
+    agreementsUploadedAt: backendLead.agreementsUploadedAt || undefined,
   };
 }
 
@@ -592,9 +605,16 @@ export default function RecruitmentAgencyDashboard() {
         !query ||
         lead.companyName.toLowerCase().includes(query) ||
         lead.email.toLowerCase().includes(query) ||
-        lead.contactPerson.toLowerCase().includes(query);
+        lead.contactPerson.toLowerCase().includes(query) ||
+        (lead.directorSalutation && String(lead.directorSalutation).toLowerCase().includes(query)) ||
+        formatDirectorDisplay(lead.directorSalutation, lead.directorName || lead.contactPerson)
+          .toLowerCase()
+          .includes(query);
       const matchesRecruiter =
-        !recruiterFilter || lead.assignedToId === recruiterFilter || lead.assignedTo?.id === recruiterFilter;
+        !recruiterFilter
+        || lead.assignedToId === recruiterFilter
+        || lead.assignedTo?.id === recruiterFilter
+        || (Array.isArray(lead.assignedToIds) && lead.assignedToIds.includes(recruiterFilter));
       return matchesSearch && matchesRecruiter;
     });
   }, [leads, searchQuery, recruiterFilter]);
@@ -670,7 +690,8 @@ export default function RecruitmentAgencyDashboard() {
       `leads-${new Date().toISOString().slice(0, 10)}.csv`,
       [
         { id: 'companyName', accessor: (l) => l.companyName },
-        { id: 'contactPerson', accessor: (l) => l.contactPerson },
+        { id: 'directorSalutation', accessor: (l) => l.directorSalutation || '' },
+        { id: 'contactPerson', accessor: (l) => formatDirectorDisplay(l.directorSalutation, l.directorName || l.contactPerson) },
         { id: 'email', accessor: (l) => l.email },
         { id: 'phone', accessor: (l) => l.phone },
         { id: 'type', accessor: (l) => l.type || '' },
@@ -689,7 +710,12 @@ export default function RecruitmentAgencyDashboard() {
         { id: 'campaignName', accessor: (l) => l.campaignName || '' },
         { id: 'nextFollowUpDue', accessor: (l) => csvDate(l.nextFollowUp) },
         { id: 'notes', accessor: (l) => l.notes || '' },
-        { id: 'assignedTo', accessor: (l) => l.assignedTo?.name || '' },
+        {
+          id: 'assignedTo',
+          accessor: (l) => Array.isArray(l.assignedToUsers) && l.assignedToUsers.length > 0
+            ? l.assignedToUsers.map((u) => u.name).join('; ')
+            : (l.assignedTo?.name || ''),
+        },
         { id: 'lastFollowUp', accessor: (l) => csvDate(l.lastFollowUp) },
         { id: 'expectedBusinessValue', accessor: (l) => l.expectedBusinessValue || '' },
       ],
@@ -1040,7 +1066,7 @@ export default function RecruitmentAgencyDashboard() {
       country: base.country || undefined,
       city: base.city || undefined,
       campaignName: base.campaignName || undefined,
-      createdDate: base.createdAt ? new Date(base.createdAt).toLocaleDateString() : undefined,
+      createdDate: base.createdAt ? formatDateDMY(base.createdAt) : undefined,
     };
   };
 
@@ -1260,11 +1286,6 @@ export default function RecruitmentAgencyDashboard() {
               </div>
               
               <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-                <div className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-indigo-500/[0.07] ring-1 ring-indigo-500/10">
-                  <Filter size={15} className="text-indigo-600 shrink-0" strokeWidth={2.35} />
-                  <span className="text-[11px] font-bold text-indigo-900/75 uppercase tracking-wide">Filters</span>
-                </div>
-                
                 <div className="flex flex-wrap items-center gap-2">
                   <select 
                     className={LEADS_FILTER_SELECT}
@@ -1349,7 +1370,7 @@ export default function RecruitmentAgencyDashboard() {
                             onChange={toggleSelectAll}
                           />
                         </th>
-                        <th className="px-5 sm:px-6 py-3.5">Lead / Company</th>
+                        <th className="px-5 sm:px-6 py-3.5">Lead</th>
                         <th className="px-5 sm:px-6 py-3.5">Source</th>
                         <th className="px-5 sm:px-6 py-3.5">Contact</th>
                         <th className="px-5 sm:px-6 py-3.5">Status</th>
@@ -1406,15 +1427,14 @@ export default function RecruitmentAgencyDashboard() {
                                 </div>
                               </div>
                             </td>
-                            <td className="px-5 sm:px-6 py-3.5">
-                              <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-violet-800 bg-gradient-to-r from-violet-50 to-fuchsia-50/80 border border-violet-100/90 w-fit px-2.5 py-1.5 rounded-xl shadow-sm shadow-violet-500/5">
-                                <ExternalLink size={13} className="text-violet-600 shrink-0" strokeWidth={2.35} />
-                                {lead.source}
-                              </div>
+                            <td className="px-5 sm:px-6 py-3.5" onClick={(e) => e.stopPropagation()}>
+                              <SourceCell lead={lead} />
                             </td>
                             <td className="px-5 sm:px-6 py-3.5">
                               <div className="flex flex-col gap-0.5">
-                                <span className="text-sm font-medium text-slate-800">{lead.contactPerson}</span>
+                                <span className="text-sm font-medium text-slate-800">
+                                  {formatDirectorDisplay(lead.directorSalutation, lead.directorName || lead.contactPerson)}
+                                </span>
                                 <span className="text-[11px] text-slate-500">{lead.email}</span>
                               </div>
                             </td>
@@ -1471,14 +1491,9 @@ export default function RecruitmentAgencyDashboard() {
                               </div>
                             </td>
                             <td className="px-5 sm:px-6 py-3.5">
-                              <div className="flex items-center gap-2.5 min-w-0">
-                                <ImageWithFallback
-                                  src={lead.assignedTo.avatar}
-                                  alt={lead.assignedTo.name}
-                                  className="h-8 w-8 shrink-0 rounded-full object-cover ring-2 ring-white shadow-md shadow-slate-300/30"
-                                />
-                                <span className="text-sm font-medium text-slate-800 truncate">{lead.assignedTo.name}</span>
-                              </div>
+                              <AssigneeAvatars
+                                lead={lead}
+                              />
                             </td>
                             <td className="px-5 sm:px-6 py-3.5">
                               <LeadFollowUpTableCell
@@ -1613,11 +1628,19 @@ export default function RecruitmentAgencyDashboard() {
             onDeleteLead={canDeleteLead ? handleDeleteLead : undefined}
             onAssignLead={canUpdateLead ? async (leadId, formData) => {
               try {
+                const ids = formData.assignTos && formData.assignTos.length > 0
+                  ? formData.assignTos
+                  : (formData.assignTo ? [formData.assignTo] : []);
                 await apiUpdateLead(leadId, {
-                  assignedToId: formData.assignTo || undefined,
+                  assignedToId: ids[0] || undefined,
+                  assignedToIds: ids,
                   priority: formData.priority,
                 });
-                toast.success('Lead assigned successfully');
+                toast.success(
+                  ids.length > 1
+                    ? `Lead assigned to ${ids.length} members`
+                    : 'Lead assigned successfully'
+                );
                 await handleRefresh({ silent: true });
               } catch (err: any) {
                 console.error('Failed to assign lead:', err);

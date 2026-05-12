@@ -2,7 +2,14 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
-import { clampDateToMinLocal, getLocalDateInputMinToday } from '../../utils/dateInputConstraints';
+import { clampDateToMinLocal, getLocalDateInputMinToday, clampDateTimeLocalToMin, getLocalDateTimeInputMinNow } from '../../utils/dateInputConstraints';
+import { formatDateDMY, formatTime12hEnGb } from '../../utils/dateDisplay';
+import { toDateTimeLocalInput, fromDateTimeLocalInput } from '../../utils/formatLeadDateTime';
+import { NAME_SALUTATION_OPTIONS } from '../../constants/salutations';
+import { WhatsAppIcon } from '../icons/WhatsAppIcon';
+import { LeadAssigneesMultiSelect } from './LeadAssigneesMultiSelect';
+import { LocationAutocomplete, type LocationSelection } from '../LocationAutocomplete';
+import type { TeamMember } from '../../types/team';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Building2,
@@ -274,7 +281,7 @@ export function ClientDetailsDrawer({
               website: response.data.website || client.website,
               linkedin: response.data.linkedin || client.linkedin,
               timezone: response.data.timezone || client.timezone,
-              clientSince: response.data.clientSince ? new Date(response.data.clientSince).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : client.clientSince,
+              clientSince: response.data.clientSince ? formatDateDMY(response.data.clientSince) : client.clientSince,
               priority: response.data.priority as Client['priority'] || client.priority,
               sla: response.data.sla || client.sla,
               stage: statusMap[response.data.status] || client.stage,
@@ -337,16 +344,36 @@ export function ClientDetailsDrawer({
     contactPhone: '',
     hiringLocations: '',
     timezone: '',
-    priority: '',
+    priority: '' as string,
     servicesNeeded: '',
     expectedBusinessValue: '',
     nextFollowUpDue: '',
     sla: '',
     status: 'ACTIVE' as 'ACTIVE' | 'ON_HOLD' | 'INACTIVE',
     assignedToId: '',
+    // Add-Lead-mirroring fields so the Add Client form can share the same widgets.
+    /** Multi-link list, mirrors AddLeadFormData. First slot doubles as the legacy `website`. */
+    companyLinks: [''] as string[],
+    directorSalutation: '' as string,
+    designation: '' as string,
+    state: '' as string,
+    latitude: null as number | null,
+    longitude: null as number | null,
+    /** Lead-style funnel status (New/Contacted/Qualified/Converted/Lost). Stored on Client.leadStatus. */
+    leadStatusValue: 'New' as 'New' | 'Contacted' | 'Qualified' | 'Converted' | 'Lost',
+    /** Multi-assignee mirror, matches LeadAssigneesMultiSelect contract. */
+    assignedToIds: [] as string[],
+    // Agreements & Terms — primary contract/NDA shown on the client overview.
+    agreementsFileName: '' as string,
+    agreementsFileUrl: '' as string,
+    agreementsUploadedAt: '' as string,
   });
   const clientLogoInputRef = useRef<HTMLInputElement>(null);
+  const agreementsInputRef = useRef<HTMLInputElement>(null);
   const [uploadingClientLogo, setUploadingClientLogo] = useState(false);
+  /** Pending file selected while editing — uploaded after Save (Add) or immediately on Save (Edit). */
+  const [pendingAgreementsFile, setPendingAgreementsFile] = useState<File | null>(null);
+  const [uploadingAgreements, setUploadingAgreements] = useState(false);
   const [pendingClientLogoFile, setPendingClientLogoFile] = useState<File | null>(null);
   const [pendingClientLogoPreview, setPendingClientLogoPreview] = useState('');
   /** Tracks an explicit "Remove logo" intent so the preview hides the existing
@@ -371,8 +398,12 @@ export function ClientDetailsDrawer({
   const [showAddContactForm, setShowAddContactForm] = useState(false);
   const [addContactDeptOpen, setAddContactDeptOpen] = useState(false);
   const [users, setUsers] = useState<BackendUser[]>([]);
+  /** Raw TeamMember list backing the Add-Lead-style multi-assignee picker on the Add Client form. */
+  const [recruiters, setRecruiters] = useState<TeamMember[]>([]);
   const [assignedToDropdownOpen, setAssignedToDropdownOpen] = useState(false);
   const [loadingUsers, setLoadingUsers] = useState(false);
+  /** Mirrors LeadDetailsDrawer.loadingRecruiters so the multi-select shows its spinner. */
+  const loadingRecruiters = loadingUsers;
   const [stageDropdownOpen, setStageDropdownOpen] = useState(false);
   const [clientJobs, setClientJobs] = useState<ClientJob[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(false);
@@ -424,7 +455,7 @@ export function ClientDetailsDrawer({
       phone: contact.phone || '',
       isPrimary: contact.isPrimary || false,
       lastContacted: contact.lastContacted
-        ? new Date(contact.lastContacted).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        ? formatDateDMY(contact.lastContacted)
         : 'Never',
       avatar: contact.avatar || undefined,
       preferredChannel: (contact.preferredChannel as ClientContact['preferredChannel']) || undefined,
@@ -981,12 +1012,37 @@ export function ClientDetailsDrawer({
       priority: fetchedClient?.priority || client.priority || '',
       servicesNeeded: fetchedClient?.servicesNeeded || client.servicesNeeded || '',
       expectedBusinessValue: fetchedClient?.expectedBusinessValue || client.expectedBusinessValue || '',
-      nextFollowUpDue: fetchedClient?.nextFollowUpDue ? new Date(fetchedClient.nextFollowUpDue).toISOString().slice(0, 10) : '',
+      nextFollowUpDue: fetchedClient?.nextFollowUpDue || '',
       sla: fetchedClient?.sla || client.sla || '',
       status: statusMap[clientStage] || 'ACTIVE',
       assignedToId: assignedToId,
+      // Add-Lead-mirroring fields prefill — fall back through the freshest data, the local model, then defaults.
+      companyLinks: (() => {
+        const website = fetchedClient?.website || client.website || '';
+        const linkedin = fetchedClient?.linkedin || client.linkedin || '';
+        const list = [website, linkedin].filter(Boolean);
+        return list.length > 0 ? list : [''];
+      })(),
+      directorSalutation: fetchedClient?.directorSalutation || client.directorSalutation || '',
+      designation: '',
+      state: fetchedClient?.state || client.state || '',
+      latitude: typeof fetchedClient?.latitude === 'number'
+        ? fetchedClient.latitude
+        : (typeof client.latitude === 'number' ? client.latitude : null),
+      longitude: typeof fetchedClient?.longitude === 'number'
+        ? fetchedClient.longitude
+        : (typeof client.longitude === 'number' ? client.longitude : null),
+      leadStatusValue: (
+        (fetchedClient?.leadStatus || client.leadStatusValue || 'New') as
+        'New' | 'Contacted' | 'Qualified' | 'Converted' | 'Lost'
+      ),
+      assignedToIds: assignedToId ? [assignedToId] : [],
+      agreementsFileName: fetchedClient?.agreementsFileName || client.agreementsFileName || '',
+      agreementsFileUrl: fetchedClient?.agreementsFileUrl || client.agreementsFileUrl || '',
+      agreementsUploadedAt: fetchedClient?.agreementsUploadedAt || client.agreementsUploadedAt || '',
     });
     resetClientLogoDraft();
+    setPendingAgreementsFile(null);
     setOverviewEditMode(true);
     // Open all sections for editing
     setOverviewOpen({
@@ -1001,6 +1057,7 @@ export function ClientDetailsDrawer({
   const cancelOverviewEdit = () => {
     setOverviewEditMode(false);
     resetClientLogoDraft();
+    setPendingAgreementsFile(null);
   };
 
   const saveOverviewEdit = async () => {
@@ -1012,11 +1069,22 @@ export function ClientDetailsDrawer({
       }
       
       try {
+        // The Add Client form (mirroring Add Lead) collects multi company links and
+        // smart-location autofill metadata. Mirror Lead's create payload semantics here:
+        // store the first link as the legacy `website`, keep the salutation/state/lat/lng
+        // on the client row, and translate the funnel status into the Client.status enum.
+        const cleanedCompanyLinks = (overviewEditForm.companyLinks || [overviewEditForm.website || ''])
+          .map((link) => String(link || '').trim())
+          .filter(Boolean);
+        const primaryWebsite = cleanedCompanyLinks[0] || overviewEditForm.website?.trim() || undefined;
+        const leadStatusValue = overviewEditForm.leadStatusValue || 'New';
+        const derivedClientStatus = leadStatusValue === 'Converted' ? 'ACTIVE' : 'PROSPECT';
+        const primaryAssignedToId = overviewEditForm.assignedToIds?.[0] || overviewEditForm.assignedToId || undefined;
         const createData = {
           companyName: overviewEditForm.companyName,
           industry: overviewEditForm.industry || undefined,
           companySize: overviewEditForm.companySize || undefined,
-          website: overviewEditForm.website || undefined,
+          website: primaryWebsite,
           linkedin: overviewEditForm.linkedin || undefined,
           location: overviewEditForm.location || undefined,
           hiringLocations: overviewEditForm.hiringLocations || undefined,
@@ -1026,8 +1094,16 @@ export function ClientDetailsDrawer({
           expectedBusinessValue: overviewEditForm.expectedBusinessValue || undefined,
           nextFollowUpDue: overviewEditForm.nextFollowUpDue || undefined,
           sla: overviewEditForm.sla || undefined,
-          status: overviewEditForm.status || 'ACTIVE',
-          assignedToId: overviewEditForm.assignedToId || undefined,
+          status: derivedClientStatus as 'ACTIVE' | 'PROSPECT',
+          leadStatus: leadStatusValue,
+          assignedToId: primaryAssignedToId,
+          // Smart-location autofill metadata + salutation (mirror Add Lead).
+          city: overviewEditForm.city || undefined,
+          state: overviewEditForm.state || undefined,
+          country: overviewEditForm.country || undefined,
+          latitude: typeof overviewEditForm.latitude === 'number' ? overviewEditForm.latitude : undefined,
+          longitude: typeof overviewEditForm.longitude === 'number' ? overviewEditForm.longitude : undefined,
+          directorSalutation: overviewEditForm.directorSalutation || undefined,
         };
 
         const createdClient = await apiCreateClient(createData);
@@ -1041,7 +1117,67 @@ export function ClientDetailsDrawer({
           }
         }
 
+        // Primary contact — Add Client now collects director name/email/phone the same way
+        // Add Lead does. Persist them as the client's primary Contact so the Contacts tab and
+        // downstream automations see the same record.
+        if (
+          createdClientId &&
+          (overviewEditForm.directorName.trim() ||
+            overviewEditForm.contactEmail.trim() ||
+            overviewEditForm.contactPhone.trim())
+        ) {
+          try {
+            const [firstName = '', ...lastParts] = overviewEditForm.directorName.trim().split(/\s+/).filter(Boolean);
+            await apiCreateContact({
+              firstName: firstName || 'Unknown',
+              lastName: lastParts.join(' '),
+              email: overviewEditForm.contactEmail || undefined,
+              phone: overviewEditForm.contactPhone || undefined,
+              location:
+                [overviewEditForm.city, overviewEditForm.country].filter(Boolean).join(', ') ||
+                overviewEditForm.location ||
+                undefined,
+              designation: overviewEditForm.designation || 'Director',
+              companyId: createdClientId,
+              ownerId: primaryAssignedToId,
+              isPrimary: true,
+              contactType: 'CLIENT',
+            });
+          } catch (contactError: any) {
+            console.error('Failed to create primary contact for new client:', contactError);
+            // Non-blocking — the client itself was created successfully.
+          }
+        }
+
+        // Agreements & Terms — upload after creation so we have a client id to scope the file under.
+        if (createdClientId && pendingAgreementsFile) {
+          try {
+            setUploadingAgreements(true);
+            const uploadResponse = await filesApiUpload(
+              'client',
+              createdClientId,
+              pendingAgreementsFile,
+              'AGREEMENT'
+            );
+            const agreementUrl = uploadResponse.data?.fileUrl;
+            const agreementName = uploadResponse.data?.fileName || pendingAgreementsFile.name;
+            if (agreementUrl) {
+              await apiUpdateClient(createdClientId, {
+                agreementsFileName: agreementName,
+                agreementsFileUrl: agreementUrl,
+                agreementsUploadedAt: new Date().toISOString(),
+              });
+            }
+          } catch (uploadError: any) {
+            console.error('Failed to upload client agreement:', uploadError);
+            void requestError(uploadError.message || 'Failed to upload agreements file');
+          } finally {
+            setUploadingAgreements(false);
+          }
+        }
+
         resetClientLogoDraft();
+        setPendingAgreementsFile(null);
         onClientCreated?.();
         onClose();
       } catch (error: any) {
@@ -1079,6 +1215,37 @@ export function ClientDetailsDrawer({
         }
         if (overviewEditForm.logo !== undefined) updateData.logo = overviewEditForm.logo || null;
 
+        // Agreements & Terms — upload the new file (if any) before patching the client so the
+        // URL/filename land on the same update call as the rest of the overview fields.
+        if (pendingAgreementsFile) {
+          try {
+            setUploadingAgreements(true);
+            const uploadResponse = await filesApiUpload(
+              'client',
+              client.id,
+              pendingAgreementsFile,
+              'AGREEMENT'
+            );
+            const agreementUrl = uploadResponse.data?.fileUrl;
+            const agreementName = uploadResponse.data?.fileName || pendingAgreementsFile.name;
+            if (agreementUrl) {
+              updateData.agreementsFileName = agreementName;
+              updateData.agreementsFileUrl = agreementUrl;
+              updateData.agreementsUploadedAt = new Date().toISOString();
+            }
+          } catch (uploadError: any) {
+            console.error('Failed to upload client agreement:', uploadError);
+            void requestError(uploadError.message || 'Failed to upload agreements file');
+          } finally {
+            setUploadingAgreements(false);
+          }
+        } else if (overviewEditForm.agreementsFileUrl === '' && overviewEditForm.agreementsFileName === '') {
+          // Explicit removal of the existing agreement.
+          updateData.agreementsFileName = null;
+          updateData.agreementsFileUrl = null;
+          updateData.agreementsUploadedAt = null;
+        }
+
         console.log('Updating client with data:', updateData);
         await apiUpdateClient(client.id, updateData);
         if (primaryClientContact?.id) {
@@ -1115,10 +1282,15 @@ export function ClientDetailsDrawer({
         }
         setFullClientData((prev) => {
           if (!prev) return prev;
-          if (updateData.logo === undefined) return prev;
-          return { ...prev, logo: updateData.logo ?? '' };
+          const next = { ...prev } as any;
+          if (updateData.logo !== undefined) next.logo = updateData.logo ?? '';
+          if (updateData.agreementsFileName !== undefined) next.agreementsFileName = updateData.agreementsFileName ?? null;
+          if (updateData.agreementsFileUrl !== undefined) next.agreementsFileUrl = updateData.agreementsFileUrl ?? null;
+          if (updateData.agreementsUploadedAt !== undefined) next.agreementsUploadedAt = updateData.agreementsUploadedAt ?? null;
+          return next;
         });
         resetClientLogoDraft();
+        setPendingAgreementsFile(null);
         onClientCreated?.();
         setOverviewEditMode(false);
         
@@ -1144,18 +1316,10 @@ export function ClientDetailsDrawer({
             } else if (isYesterday) {
               dateDisplay = 'Yesterday';
             } else {
-              dateDisplay = activityDate.toLocaleDateString('en-US', { 
-                month: 'short', 
-                day: 'numeric', 
-                year: activityDate.getFullYear() !== now.getFullYear() ? 'numeric' : undefined 
-              });
+              dateDisplay = formatDateDMY(activityDate);
             }
             
-            const timeDisplay = activityDate.toLocaleTimeString('en-US', { 
-              hour: 'numeric', 
-              minute: '2-digit',
-              hour12: true 
-            });
+            const timeDisplay = formatTime12hEnGb(activityDate);
             
             const timestamp = `${dateDisplay} at ${timeDisplay}`;
 
@@ -1194,10 +1358,22 @@ export function ClientDetailsDrawer({
       setLoadingUsers(true);
       try {
         const members = await getAllTeamMembersForAssign();
+        // The Add Client form (mirroring Add Lead) needs the raw TeamMember list for
+        // LeadAssigneesMultiSelect; the legacy single-select dropdown keeps using BackendUser.
+        setRecruiters(
+          members.map((member) => {
+            const m = member as TeamMember & { systemRole?: TeamMember['role'] };
+            if (!m.role && m.systemRole) {
+              return { ...member, role: m.systemRole };
+            }
+            return member;
+          })
+        );
         setUsers(teamMembersToBackendUsers(members));
       } catch (error) {
         console.error('Failed to fetch users:', error);
         setUsers([]);
+        setRecruiters([]);
       } finally {
         setLoadingUsers(false);
       }
@@ -1237,18 +1413,10 @@ export function ClientDetailsDrawer({
           } else if (isYesterday) {
             dateDisplay = 'Yesterday';
           } else {
-            dateDisplay = activityDate.toLocaleDateString('en-US', { 
-              month: 'short', 
-              day: 'numeric', 
-              year: activityDate.getFullYear() !== now.getFullYear() ? 'numeric' : undefined 
-            });
+            dateDisplay = formatDateDMY(activityDate);
           }
           
-          const timeDisplay = activityDate.toLocaleTimeString('en-US', { 
-            hour: 'numeric', 
-            minute: '2-digit',
-            hour12: true 
-          });
+          const timeDisplay = formatTime12hEnGb(activityDate);
           
           const timestamp = `${dateDisplay} at ${timeDisplay}`;
 
@@ -1317,7 +1485,7 @@ export function ClientDetailsDrawer({
           openings: job.openings,
           pipelineStages: (job as any).pipelineStages || [],
           status: statusMap[job.status] || 'Open',
-          createdDate: createdAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+          createdDate: formatDateDMY(createdAt),
           isAging,
         };
       });
@@ -1368,7 +1536,8 @@ export function ClientDetailsDrawer({
   useEffect(() => {
     if (isAddMode) {
       // Reset form to empty values when opening in add mode
-      setOverviewEditForm({
+      setOverviewEditForm((prev) => ({
+        ...prev,
         companyName: '',
         logo: '',
         industry: '',
@@ -1376,14 +1545,35 @@ export function ClientDetailsDrawer({
         website: '',
         linkedin: '',
         location: '',
+        city: '',
+        country: '',
+        directorName: '',
+        contactEmail: '',
+        contactPhone: '',
         hiringLocations: '',
         timezone: '',
         priority: '',
         sla: '',
+        servicesNeeded: '',
+        expectedBusinessValue: '',
+        nextFollowUpDue: '',
         status: 'ACTIVE' as 'ACTIVE' | 'ON_HOLD' | 'INACTIVE',
         assignedToId: '',
-      });
+        // Add-Lead-mirroring fields — reset to their Add-form defaults.
+        companyLinks: [''],
+        directorSalutation: '',
+        designation: '',
+        state: '',
+        latitude: null,
+        longitude: null,
+        leadStatusValue: 'New',
+        assignedToIds: [],
+        agreementsFileName: '',
+        agreementsFileUrl: '',
+        agreementsUploadedAt: '',
+      }));
       resetClientLogoDraft();
+      setPendingAgreementsFile(null);
       // Set edit mode to true so form is visible
       setOverviewEditMode(true);
       // Open relevant sections
@@ -1548,18 +1738,10 @@ export function ClientDetailsDrawer({
                                             } else if (isYesterday) {
                                               dateDisplay = 'Yesterday';
                                             } else {
-                                              dateDisplay = activityDate.toLocaleDateString('en-US', { 
-                                                month: 'short', 
-                                                day: 'numeric', 
-                                                year: activityDate.getFullYear() !== now.getFullYear() ? 'numeric' : undefined 
-                                              });
+                                              dateDisplay = formatDateDMY(activityDate);
                                             }
                                             
-                                            const timeDisplay = activityDate.toLocaleTimeString('en-US', { 
-                                              hour: 'numeric', 
-                                              minute: '2-digit',
-                                              hour12: true 
-                                            });
+                                            const timeDisplay = formatTime12hEnGb(activityDate);
                                             
                                             const timestamp = `${dateDisplay} at ${timeDisplay}`;
 
@@ -1744,7 +1926,379 @@ export function ClientDetailsDrawer({
               <div className="p-5">
                 {isAddMode ? (
                   <div className="space-y-4">
-                    {/* Add Client Form - Same as Edit Form */}
+                    {/* Add Client Form — mirrors AddLeadDrawer fields and widgets (single "Client Information" section). */}
+                    <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="p-5 border-b border-slate-100">
+                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Client Information</h4>
+                      </div>
+                      <div className="p-5 space-y-4">
+                        {/* Company Logo uploader — kept on Add Client even though Add Lead doesn't have one,
+                            so the client gets a logo immediately during onboarding. */}
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Company Logo</label>
+                          <input
+                            ref={clientLogoInputRef}
+                            type="file"
+                            accept="image/*"
+                            onChange={handleClientLogoFileChange}
+                            className="hidden"
+                          />
+                          <div className="flex items-center gap-4">
+                            <div className="w-16 h-16 rounded-xl overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center shrink-0">
+                              {clientLogoPreview ? (
+                                <ImageWithFallback
+                                  src={getClientLogoSrc(clientLogoPreview)}
+                                  alt="Client logo preview"
+                                  className="w-full h-full object-cover block"
+                                />
+                              ) : (
+                                <Building2 size={24} className="text-slate-300" />
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => clientLogoInputRef.current?.click()}
+                                disabled={uploadingClientLogo}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
+                              >
+                                <Upload size={16} />
+                                {uploadingClientLogo ? 'Uploading…' : clientLogoPreview ? 'Replace Logo' : 'Upload Logo'}
+                              </button>
+                              {clientLogoPreview && (
+                                <button
+                                  type="button"
+                                  onClick={markClientLogoRemoved}
+                                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50"
+                                >
+                                  <Trash2 size={16} />
+                                  Remove
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          <p className="mt-2 text-xs text-slate-500">PNG, JPG, or SVG. Recommended size 256×256 or larger.</p>
+                        </div>
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Company *</label>
+                            <input
+                              value={overviewEditForm.companyName}
+                              onChange={(e) => setOverviewEditForm((p) => ({ ...p, companyName: e.target.value }))}
+                              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                              placeholder="e.g. Acme Inc."
+                            />
+                          </div>
+                          <div>
+                            <div className="mb-1 flex items-center justify-between gap-3">
+                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">Company Links</label>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setOverviewEditForm((p) => ({ ...p, companyLinks: [...(p.companyLinks || ['']), ''] }))
+                                }
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-blue-200 bg-blue-50 text-blue-600 transition-colors hover:bg-blue-100"
+                                aria-label="Add company link"
+                              >
+                                <Plus size={14} />
+                              </button>
+                            </div>
+                            <div className="space-y-2">
+                              {(overviewEditForm.companyLinks?.length ? overviewEditForm.companyLinks : ['']).map((link, index) => (
+                                <div key={`add-client-company-link-${index}`} className="flex items-center gap-2">
+                                  <input
+                                    value={link}
+                                    onChange={(e) =>
+                                      setOverviewEditForm((p) => {
+                                        const next = [...(p.companyLinks?.length ? p.companyLinks : [''])];
+                                        next[index] = e.target.value;
+                                        return { ...p, companyLinks: next, website: next[0] || '' };
+                                      })
+                                    }
+                                    className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                    placeholder="https://company.com or LinkedIn URL"
+                                  />
+                                  {(overviewEditForm.companyLinks?.length ?? 0) > 1 && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setOverviewEditForm((p) => {
+                                          const next = (p.companyLinks?.length ? p.companyLinks : ['']).filter((_, i) => i !== index);
+                                          return {
+                                            ...p,
+                                            companyLinks: next.length ? next : [''],
+                                            website: (next[0] ?? '') || '',
+                                          };
+                                        })
+                                      }
+                                      className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition-colors hover:bg-slate-50 hover:text-red-500"
+                                      aria-label={`Remove company link ${index + 1}`}
+                                    >
+                                      <Trash2 size={16} />
+                                    </button>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Director Name *</label>
+                            <div className="flex gap-2">
+                              <select
+                                value={overviewEditForm.directorSalutation ?? ''}
+                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, directorSalutation: e.target.value }))}
+                                className="w-[5.75rem] shrink-0 rounded-xl border border-slate-200 px-2 py-2.5 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                aria-label="Director salutation"
+                              >
+                                {NAME_SALUTATION_OPTIONS.map((opt) => (
+                                  <option key={opt.value || 'none'} value={opt.value}>
+                                    {opt.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <input
+                                value={overviewEditForm.directorName}
+                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, directorName: e.target.value }))}
+                                className="min-w-0 flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                placeholder="e.g. John Doe"
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Team Name</label>
+                            <input
+                              value={overviewEditForm.companySize}
+                              onChange={(e) => setOverviewEditForm((p) => ({ ...p, companySize: e.target.value }))}
+                              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                              placeholder="e.g. Growth Team"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Email *</label>
+                            <input
+                              type="email"
+                              value={overviewEditForm.contactEmail}
+                              onChange={(e) => setOverviewEditForm((p) => ({ ...p, contactEmail: e.target.value }))}
+                              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                              placeholder="email@company.com"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Phone</label>
+                            <input
+                              value={overviewEditForm.contactPhone}
+                              onChange={(e) => setOverviewEditForm((p) => ({ ...p, contactPhone: e.target.value }))}
+                              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                              placeholder="+1 (555) 000-0000"
+                            />
+                          </div>
+                          <div className="sm:col-span-2">
+                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Location</label>
+                            <LocationAutocomplete
+                              value={overviewEditForm.location ?? ''}
+                              onChange={(next) => setOverviewEditForm((p) => ({ ...p, location: next }))}
+                              onSelect={(s: LocationSelection) =>
+                                setOverviewEditForm((p) => ({
+                                  ...p,
+                                  location: s.location,
+                                  city: s.city || p.city || '',
+                                  country: s.country || p.country || '',
+                                  state: s.state || p.state || '',
+                                  latitude: s.latitude,
+                                  longitude: s.longitude,
+                                }))
+                              }
+                              placeholder="Start typing a city, region, or address…"
+                            />
+                            {(overviewEditForm.state || typeof overviewEditForm.latitude === 'number') && (
+                              <p className="mt-1 text-[11px] text-slate-500">
+                                <span className="font-semibold text-emerald-600">Detected</span>{' '}
+                                {[
+                                  overviewEditForm.state,
+                                  typeof overviewEditForm.latitude === 'number' && typeof overviewEditForm.longitude === 'number'
+                                    ? `${overviewEditForm.latitude.toFixed(4)}, ${overviewEditForm.longitude.toFixed(4)}`
+                                    : null,
+                                ].filter(Boolean).join(' · ')}
+                              </p>
+                            )}
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">City</label>
+                            <input
+                              value={overviewEditForm.city}
+                              onChange={(e) => setOverviewEditForm((p) => ({ ...p, city: e.target.value }))}
+                              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                              placeholder="e.g. San Francisco"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">State</label>
+                            <input
+                              value={overviewEditForm.state}
+                              onChange={(e) => setOverviewEditForm((p) => ({ ...p, state: e.target.value }))}
+                              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                              placeholder="e.g. California"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Country</label>
+                            <input
+                              value={overviewEditForm.country}
+                              onChange={(e) => setOverviewEditForm((p) => ({ ...p, country: e.target.value }))}
+                              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                              placeholder="e.g. United States"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Industry</label>
+                            <input
+                              value={overviewEditForm.industry}
+                              onChange={(e) => setOverviewEditForm((p) => ({ ...p, industry: e.target.value }))}
+                              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                              placeholder="e.g. Technology"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Status</label>
+                            <select
+                              value={overviewEditForm.leadStatusValue}
+                              onChange={(e) =>
+                                setOverviewEditForm((p) => ({
+                                  ...p,
+                                  leadStatusValue: e.target.value as 'New' | 'Contacted' | 'Qualified' | 'Converted' | 'Lost',
+                                  status: (e.target.value === 'Converted' ? 'ACTIVE' : 'PROSPECT') as any,
+                                }))
+                              }
+                              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
+                            >
+                              <option value="New">New</option>
+                              <option value="Contacted">Contacted</option>
+                              <option value="Qualified">Qualified</option>
+                              <option value="Converted">Converted</option>
+                              <option value="Lost">Lost</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Interest Level</label>
+                            <select
+                              value={overviewEditForm.priority || 'Medium'}
+                              onChange={(e) =>
+                                setOverviewEditForm((p) => ({
+                                  ...p,
+                                  priority: e.target.value as 'High' | 'Medium' | 'Low',
+                                }))
+                              }
+                              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
+                            >
+                              <option value="High">High</option>
+                              <option value="Medium">Medium</option>
+                              <option value="Low">Low</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Next Follow-up Date &amp; Time</label>
+                            <input
+                              type="datetime-local"
+                              min={getLocalDateTimeInputMinNow()}
+                              value={toDateTimeLocalInput(overviewEditForm.nextFollowUpDue)}
+                              onChange={(e) =>
+                                setOverviewEditForm((p) => ({
+                                  ...p,
+                                  nextFollowUpDue: fromDateTimeLocalInput(
+                                    clampDateTimeLocalToMin(e.target.value, getLocalDateTimeInputMinNow())
+                                  ),
+                                }))
+                              }
+                              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                            />
+                          </div>
+                          <div className="sm:col-span-2">
+                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Assigned To</label>
+                            <LeadAssigneesMultiSelect
+                              members={recruiters}
+                              value={overviewEditForm.assignedToIds ?? (overviewEditForm.assignedToId ? [overviewEditForm.assignedToId] : [])}
+                              loading={loadingRecruiters}
+                              onChange={(ids) => {
+                                setOverviewEditForm((p) => ({
+                                  ...p,
+                                  assignedToIds: ids,
+                                  assignedToId: ids[0] ?? '',
+                                }));
+                              }}
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Services Needed</label>
+                          <input
+                            value={overviewEditForm.servicesNeeded}
+                            onChange={(e) => setOverviewEditForm((p) => ({ ...p, servicesNeeded: e.target.value }))}
+                            className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                            placeholder="e.g. Hiring support for engineering and sales"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Expected Business Value</label>
+                          <textarea
+                            value={overviewEditForm.expectedBusinessValue}
+                            onChange={(e) => setOverviewEditForm((p) => ({ ...p, expectedBusinessValue: e.target.value }))}
+                            rows={3}
+                            className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-none"
+                            placeholder="e.g. Potential annual business of $50,000"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                            Agreements &amp; Terms
+                          </label>
+                          <p className="text-xs text-slate-500 mb-2">
+                            Upload the signed contract, NDA, or terms agreement for this client. PDF, DOC, DOCX up to 10MB.
+                          </p>
+                          <input
+                            ref={agreementsInputRef}
+                            type="file"
+                            accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.pdf,.doc,.docx"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              setPendingAgreementsFile(file);
+                              setOverviewEditForm((p) => ({ ...p, agreementsFileName: file.name }));
+                            }}
+                            className="hidden"
+                          />
+                          {pendingAgreementsFile ? (
+                            <div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                              <Paperclip size={14} className="text-blue-600 shrink-0" />
+                              <span className="truncate flex-1">{pendingAgreementsFile.name}</span>
+                              <span className="text-xs text-blue-700 shrink-0">Pending upload</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setPendingAgreementsFile(null);
+                                  if (agreementsInputRef.current) agreementsInputRef.current.value = '';
+                                }}
+                                className="text-blue-700 hover:text-blue-900 text-xs font-semibold"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ) : null}
+                          <div className="mt-2">
+                            <button
+                              type="button"
+                              onClick={() => agreementsInputRef.current?.click()}
+                              disabled={uploadingAgreements}
+                              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-60"
+                            >
+                              <Upload size={14} className="text-slate-500" />
+                              {pendingAgreementsFile ? 'Replace file' : 'Upload file'}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+                    {/* Legacy Add Client sections (logo / SLA / placeholder cards) — kept below for now but hidden. */}
+                    <div className="hidden">
                     {/* 1. Company Snapshot Card */}
                     <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                       <button
@@ -2081,6 +2635,7 @@ export function ClientDetailsDrawer({
                         </div>
                       )}
                     </section>
+                    </div>
                   </div>
                 ) : showSendMessageForm ? (
                   <div className="space-y-5">
@@ -2111,7 +2666,7 @@ export function ClientDetailsDrawer({
                           onClick={() => setSendMessageChannel('WhatsApp')}
                           className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${sendMessageChannel === 'WhatsApp' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
                         >
-                          <MessageCircle size={16} />
+                          <WhatsAppIcon size={16} />
                           WhatsApp
                         </button>
                       </div>
@@ -2464,6 +3019,350 @@ export function ClientDetailsDrawer({
                             </div>
                             <div><FieldRow label="Services Needed" value={servicesNeededValue} /></div>
                             <div><FieldRow label="Expected Business Value" value={businessValue} /></div>
+                            {(fullClientData?.agreementsFileUrl || client?.agreementsFileUrl) && (
+                              <div>
+                                <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Agreements &amp; Terms</div>
+                                <a
+                                  href={String(fullClientData?.agreementsFileUrl || client?.agreementsFileUrl)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 hover:bg-slate-100 transition-colors"
+                                >
+                                  <Paperclip size={14} className="text-slate-500" />
+                                  <span className="truncate max-w-[280px]">
+                                    {fullClientData?.agreementsFileName || client?.agreementsFileName || 'Agreement document'}
+                                  </span>
+                                  {(fullClientData?.agreementsUploadedAt || client?.agreementsUploadedAt) && (
+                                    <span className="text-xs text-slate-400 shrink-0">
+                                      Uploaded {formatDateDMY(String(fullClientData?.agreementsUploadedAt || client?.agreementsUploadedAt))}
+                                    </span>
+                                  )}
+                                </a>
+                              </div>
+                            )}
+                          </>
+                        ) : isAddMode ? (
+                          // ── Add Client form — mirrors AddLeadDrawer fields (same widgets and layout).
+                          // The legacy edit form below stays for the "Edit Client" path.
+                          <>
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Company *</label>
+                                <input
+                                  value={overviewEditForm.companyName}
+                                  onChange={(e) => setOverviewEditForm((p) => ({ ...p, companyName: e.target.value }))}
+                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                  placeholder="e.g. Acme Inc."
+                                />
+                              </div>
+                              <div>
+                                <div className="mb-1 flex items-center justify-between gap-3">
+                                  <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">Company Links</label>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setOverviewEditForm((p) => ({ ...p, companyLinks: [...(p.companyLinks || ['']), ''] }))
+                                    }
+                                    className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-blue-200 bg-blue-50 text-blue-600 transition-colors hover:bg-blue-100"
+                                    aria-label="Add company link"
+                                  >
+                                    <Plus size={14} />
+                                  </button>
+                                </div>
+                                <div className="space-y-2">
+                                  {(overviewEditForm.companyLinks?.length ? overviewEditForm.companyLinks : ['']).map((link, index) => (
+                                    <div key={`client-company-link-${index}`} className="flex items-center gap-2">
+                                      <input
+                                        value={link}
+                                        onChange={(e) =>
+                                          setOverviewEditForm((p) => {
+                                            const next = [...(p.companyLinks?.length ? p.companyLinks : [''])];
+                                            next[index] = e.target.value;
+                                            // Keep the first link mirrored into `website` so existing code paths still work.
+                                            return { ...p, companyLinks: next, website: next[0] || '' };
+                                          })
+                                        }
+                                        className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                        placeholder="https://company.com or LinkedIn URL"
+                                      />
+                                      {(overviewEditForm.companyLinks?.length ?? 0) > 1 && (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setOverviewEditForm((p) => {
+                                              const next = (p.companyLinks?.length ? p.companyLinks : ['']).filter((_, i) => i !== index);
+                                              return {
+                                                ...p,
+                                                companyLinks: next.length ? next : [''],
+                                                website: (next[0] ?? '') || '',
+                                              };
+                                            })
+                                          }
+                                          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition-colors hover:bg-slate-50 hover:text-red-500"
+                                          aria-label={`Remove company link ${index + 1}`}
+                                        >
+                                          <Trash2 size={16} />
+                                        </button>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Director Name *</label>
+                                <div className="flex gap-2">
+                                  <select
+                                    value={overviewEditForm.directorSalutation ?? ''}
+                                    onChange={(e) => setOverviewEditForm((p) => ({ ...p, directorSalutation: e.target.value }))}
+                                    className="w-[5.75rem] shrink-0 rounded-xl border border-slate-200 px-2 py-2.5 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                    aria-label="Director salutation"
+                                  >
+                                    {NAME_SALUTATION_OPTIONS.map((opt) => (
+                                      <option key={opt.value || 'none'} value={opt.value}>
+                                        {opt.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <input
+                                    value={overviewEditForm.directorName}
+                                    onChange={(e) => setOverviewEditForm((p) => ({ ...p, directorName: e.target.value }))}
+                                    className="min-w-0 flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                    placeholder="e.g. John Doe"
+                                  />
+                                </div>
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Team Name</label>
+                                <input
+                                  value={overviewEditForm.companySize}
+                                  onChange={(e) => setOverviewEditForm((p) => ({ ...p, companySize: e.target.value }))}
+                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                  placeholder="e.g. Growth Team"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Email *</label>
+                                <input
+                                  type="email"
+                                  value={overviewEditForm.contactEmail}
+                                  onChange={(e) => setOverviewEditForm((p) => ({ ...p, contactEmail: e.target.value }))}
+                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                  placeholder="email@company.com"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Phone</label>
+                                <input
+                                  value={overviewEditForm.contactPhone}
+                                  onChange={(e) => setOverviewEditForm((p) => ({ ...p, contactPhone: e.target.value }))}
+                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                  placeholder="+1 (555) 000-0000"
+                                />
+                              </div>
+                              <div className="sm:col-span-2">
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Location</label>
+                                <LocationAutocomplete
+                                  value={overviewEditForm.location ?? ''}
+                                  onChange={(next) => setOverviewEditForm((p) => ({ ...p, location: next }))}
+                                  onSelect={(s: LocationSelection) =>
+                                    setOverviewEditForm((p) => ({
+                                      ...p,
+                                      location: s.location,
+                                      city: s.city || p.city || '',
+                                      country: s.country || p.country || '',
+                                      state: s.state || p.state || '',
+                                      latitude: s.latitude,
+                                      longitude: s.longitude,
+                                    }))
+                                  }
+                                  placeholder="Start typing a city, region, or address…"
+                                />
+                                {(overviewEditForm.state || typeof overviewEditForm.latitude === 'number') && (
+                                  <p className="mt-1 text-[11px] text-slate-500">
+                                    <span className="font-semibold text-emerald-600">Detected</span>{' '}
+                                    {[
+                                      overviewEditForm.state,
+                                      typeof overviewEditForm.latitude === 'number' && typeof overviewEditForm.longitude === 'number'
+                                        ? `${overviewEditForm.latitude.toFixed(4)}, ${overviewEditForm.longitude.toFixed(4)}`
+                                        : null,
+                                    ].filter(Boolean).join(' · ')}
+                                  </p>
+                                )}
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">City</label>
+                                <input
+                                  value={overviewEditForm.city}
+                                  onChange={(e) => setOverviewEditForm((p) => ({ ...p, city: e.target.value }))}
+                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                  placeholder="e.g. San Francisco"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">State</label>
+                                <input
+                                  value={overviewEditForm.state}
+                                  onChange={(e) => setOverviewEditForm((p) => ({ ...p, state: e.target.value }))}
+                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                  placeholder="e.g. California"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Country</label>
+                                <input
+                                  value={overviewEditForm.country}
+                                  onChange={(e) => setOverviewEditForm((p) => ({ ...p, country: e.target.value }))}
+                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                  placeholder="e.g. United States"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Industry</label>
+                                <input
+                                  value={overviewEditForm.industry}
+                                  onChange={(e) => setOverviewEditForm((p) => ({ ...p, industry: e.target.value }))}
+                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                  placeholder="e.g. Technology"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Status</label>
+                                <select
+                                  value={overviewEditForm.leadStatusValue}
+                                  onChange={(e) =>
+                                    setOverviewEditForm((p) => ({
+                                      ...p,
+                                      leadStatusValue: e.target.value as 'New' | 'Contacted' | 'Qualified' | 'Converted' | 'Lost',
+                                      // Mirror Add Lead's funnel semantics — only "Converted" promotes to ACTIVE.
+                                      status: (e.target.value === 'Converted' ? 'ACTIVE' : 'PROSPECT') as any,
+                                    }))
+                                  }
+                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
+                                >
+                                  <option value="New">New</option>
+                                  <option value="Contacted">Contacted</option>
+                                  <option value="Qualified">Qualified</option>
+                                  <option value="Converted">Converted</option>
+                                  <option value="Lost">Lost</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Interest Level</label>
+                                <select
+                                  value={overviewEditForm.priority || 'Medium'}
+                                  onChange={(e) =>
+                                    setOverviewEditForm((p) => ({
+                                      ...p,
+                                      priority: e.target.value as 'High' | 'Medium' | 'Low',
+                                    }))
+                                  }
+                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
+                                >
+                                  <option value="High">High</option>
+                                  <option value="Medium">Medium</option>
+                                  <option value="Low">Low</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Next Follow-up Date &amp; Time</label>
+                                <input
+                                  type="datetime-local"
+                                  min={getLocalDateTimeInputMinNow()}
+                                  value={toDateTimeLocalInput(overviewEditForm.nextFollowUpDue)}
+                                  onChange={(e) =>
+                                    setOverviewEditForm((p) => ({
+                                      ...p,
+                                      nextFollowUpDue: fromDateTimeLocalInput(
+                                        clampDateTimeLocalToMin(e.target.value, getLocalDateTimeInputMinNow())
+                                      ),
+                                    }))
+                                  }
+                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                />
+                              </div>
+                              <div className="sm:col-span-2">
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Assigned To</label>
+                                <LeadAssigneesMultiSelect
+                                  members={recruiters}
+                                  value={overviewEditForm.assignedToIds ?? (overviewEditForm.assignedToId ? [overviewEditForm.assignedToId] : [])}
+                                  loading={loadingRecruiters}
+                                  onChange={(ids) => {
+                                    setOverviewEditForm((p) => ({
+                                      ...p,
+                                      assignedToIds: ids,
+                                      assignedToId: ids[0] ?? '',
+                                    }));
+                                  }}
+                                />
+                              </div>
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Services Needed</label>
+                              <input
+                                value={overviewEditForm.servicesNeeded}
+                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, servicesNeeded: e.target.value }))}
+                                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                placeholder="e.g. Hiring support for engineering and sales"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Expected Business Value</label>
+                              <textarea
+                                value={overviewEditForm.expectedBusinessValue}
+                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, expectedBusinessValue: e.target.value }))}
+                                rows={3}
+                                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-none"
+                                placeholder="e.g. Potential annual business of $50,000"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                                Agreements &amp; Terms
+                              </label>
+                              <p className="text-xs text-slate-500 mb-2">
+                                Upload the signed contract, NDA, or terms agreement for this client. PDF, DOC, DOCX up to 10MB.
+                              </p>
+                              <input
+                                ref={agreementsInputRef}
+                                type="file"
+                                accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.pdf,.doc,.docx"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) return;
+                                  setPendingAgreementsFile(file);
+                                  setOverviewEditForm((p) => ({ ...p, agreementsFileName: file.name }));
+                                }}
+                                className="hidden"
+                              />
+                              {pendingAgreementsFile ? (
+                                <div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                                  <Paperclip size={14} className="text-blue-600 shrink-0" />
+                                  <span className="truncate flex-1">{pendingAgreementsFile.name}</span>
+                                  <span className="text-xs text-blue-700 shrink-0">Pending upload</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setPendingAgreementsFile(null);
+                                      if (agreementsInputRef.current) agreementsInputRef.current.value = '';
+                                    }}
+                                    className="text-blue-700 hover:text-blue-900 text-xs font-semibold"
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              ) : null}
+                              <div className="mt-2">
+                                <button
+                                  type="button"
+                                  onClick={() => agreementsInputRef.current?.click()}
+                                  disabled={uploadingAgreements}
+                                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-60"
+                                >
+                                  <Upload size={14} className="text-slate-500" />
+                                  {pendingAgreementsFile ? 'Replace file' : 'Upload file'}
+                                </button>
+                              </div>
+                            </div>
                           </>
                         ) : (
                           <>
@@ -2618,6 +3517,89 @@ export function ClientDetailsDrawer({
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Expected Business Value</label>
                               <textarea value={overviewEditForm.expectedBusinessValue} onChange={(e) => setOverviewEditForm((p) => ({ ...p, expectedBusinessValue: e.target.value }))} rows={3} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
                             </div>
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                                Agreements &amp; Terms
+                              </label>
+                              <p className="text-xs text-slate-500 mb-2">
+                                Upload the signed contract, NDA, or terms agreement for this client. PDF, DOC, DOCX up to 10MB.
+                              </p>
+                              <input
+                                ref={agreementsInputRef}
+                                type="file"
+                                accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.pdf,.doc,.docx"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) return;
+                                  setPendingAgreementsFile(file);
+                                  setOverviewEditForm((p) => ({
+                                    ...p,
+                                    agreementsFileName: file.name,
+                                  }));
+                                }}
+                                className="hidden"
+                              />
+                              {pendingAgreementsFile ? (
+                                <div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                                  <Paperclip size={14} className="text-blue-600 shrink-0" />
+                                  <span className="truncate flex-1">{pendingAgreementsFile.name}</span>
+                                  <span className="text-xs text-blue-700 shrink-0">Pending upload</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setPendingAgreementsFile(null);
+                                      if (agreementsInputRef.current) agreementsInputRef.current.value = '';
+                                    }}
+                                    className="text-blue-700 hover:text-blue-900 text-xs font-semibold"
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              ) : overviewEditForm.agreementsFileUrl ? (
+                                <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900">
+                                  <Paperclip size={14} className="text-slate-500 shrink-0" />
+                                  <a
+                                    href={overviewEditForm.agreementsFileUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="truncate flex-1 hover:underline"
+                                  >
+                                    {overviewEditForm.agreementsFileName || 'Agreement document'}
+                                  </a>
+                                  {overviewEditForm.agreementsUploadedAt && (
+                                    <span className="text-xs text-slate-500 shrink-0">
+                                      Uploaded {formatDateDMY(overviewEditForm.agreementsUploadedAt)}
+                                    </span>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOverviewEditForm((p) => ({
+                                        ...p,
+                                        agreementsFileName: '',
+                                        agreementsFileUrl: '',
+                                        agreementsUploadedAt: '',
+                                      }));
+                                      if (agreementsInputRef.current) agreementsInputRef.current.value = '';
+                                    }}
+                                    className="text-slate-600 hover:text-slate-900 text-xs font-semibold"
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              ) : null}
+                              <div className="mt-2">
+                                <button
+                                  type="button"
+                                  onClick={() => agreementsInputRef.current?.click()}
+                                  disabled={uploadingAgreements}
+                                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-60"
+                                >
+                                  <Upload size={14} className="text-slate-500" />
+                                  {overviewEditForm.agreementsFileUrl || pendingAgreementsFile ? 'Replace file' : 'Upload file'}
+                                </button>
+                              </div>
+                            </div>
                           </>
                         )}
                       </div>
@@ -2658,7 +3640,7 @@ export function ClientDetailsDrawer({
                             const clientSince = fullClientData?.clientSince || client?.clientSince;
                             if (!clientSince) return 'Ã¢â‚¬â€';
                             if (typeof clientSince === 'string' && clientSince.includes('-')) {
-                              return new Date(clientSince).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                              return formatDateDMY(clientSince);
                             }
                             return clientSince;
                           })()} />
@@ -3342,7 +4324,7 @@ export function ClientDetailsDrawer({
                                         className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
                                         title="WhatsApp"
                                       >
-                                        <MessageCircle size={14} />
+                                        <WhatsAppIcon size={14} />
                                       </button>
                                       <button
                                         type="button"
@@ -3888,12 +4870,7 @@ export function ClientDetailsDrawer({
                                           
                                           if (isToday) return 'Today';
                                           if (isYesterday) return 'Yesterday';
-                                          return date.toLocaleDateString('en-US', { 
-                                            weekday: 'long',
-                                            month: 'long', 
-                                            day: 'numeric',
-                                            year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
-                                          });
+                                          return formatDateDMY(date);
                                         })() : ''}
                                       </span>
                                     </div>
@@ -3962,10 +4939,9 @@ export function ClientDetailsDrawer({
                   const uploadsBase = (typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1') : 'http://localhost:5001/api/v1').replace(/\/api\/v1\/?$/, '');
                   const toFileHref = (fileUrl?: string | null) => buildFileHref(fileUrl, uploadsBase);
                   const formatUploadDate = (d: string) => {
-                    if (!d) return 'Ã¢â‚¬â€';
+                    if (!d) return '—';
                     try {
-                      const date = new Date(d);
-                      return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+                      return formatDateDMY(d);
                     } catch {
                       return d;
                     }
@@ -4107,8 +5083,8 @@ export function ClientDetailsDrawer({
                   const formatDateTime = (dateString: string) => {
                     const date = new Date(dateString);
                     return {
-                      date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-                      time: date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+                      date: formatDateDMY(date),
+                      time: formatTime12hEnGb(date),
                     };
                   };
 
@@ -4246,7 +5222,7 @@ export function ClientDetailsDrawer({
                                           <span className="text-[11px] font-medium text-slate-600">Scheduled by {scheduledByName}</span>
                                           <span className="text-[11px] text-slate-400">Ã‚Â·</span>
                                           <span className="text-[11px] text-slate-500">
-                                            {new Date(meeting.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                            {formatDateDMY(meeting.createdAt)}
                                           </span>
                                         </div>
                                       </div>
@@ -4362,18 +5338,10 @@ export function ClientDetailsDrawer({
                 } else if (isYesterday) {
                   dateDisplay = 'Yesterday';
                 } else {
-                  dateDisplay = activityDate.toLocaleDateString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                    year: activityDate.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
-                  });
+                  dateDisplay = formatDateDMY(activityDate);
                 }
 
-                const timeDisplay = activityDate.toLocaleTimeString('en-US', {
-                  hour: 'numeric',
-                  minute: '2-digit',
-                  hour12: true,
-                });
+                const timeDisplay = formatTime12hEnGb(activityDate);
 
                 return {
                   id: activity.id,

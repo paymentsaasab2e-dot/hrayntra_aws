@@ -20,6 +20,7 @@ const LEAD_IMPORT_FIELD_ALIASES = {
   linkedIn: ['linkedin', 'linkedin url', 'linked in'],
   location: ['location', 'address', 'region'],
   designation: ['designation', 'title', 'job title'],
+  directorSalutation: ['salutation', 'title prefix', 'director salutation', 'prefix', 'honorific'],
   city: ['city'],
   country: ['country'],
   campaignName: ['campaign', 'campaign name'],

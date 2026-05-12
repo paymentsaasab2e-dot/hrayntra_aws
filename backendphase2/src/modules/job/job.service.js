@@ -68,19 +68,31 @@ function mapStageToMatchStatus(stage) {
 function normalizeSalaryData(salary) {
   if (!salary || typeof salary !== 'object') return salary;
 
-  const normalized = {
-    ...salary,
+  const normalized = { ...salary };
+
+  const toNum = (v) => {
+    if (v === undefined || v === null || v === '') return undefined;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : undefined;
   };
 
-  if (normalized.amount !== undefined && normalized.amount !== null) {
+  const minNum = toNum(normalized.min);
+  const maxNum = toNum(normalized.max);
+  if (minNum !== undefined) normalized.min = minNum;
+  else delete normalized.min;
+  if (maxNum !== undefined) normalized.max = maxNum;
+  else delete normalized.max;
+
+  if (normalized.amount !== undefined && normalized.amount !== null && normalized.amount !== '') {
     normalized.amount = String(normalized.amount).trim();
+  } else {
+    delete normalized.amount;
   }
 
-  if (!normalized.amount && normalized.type && !normalized.min && !normalized.max) {
-    normalized.amount = String(normalized.type).trim();
-  }
+  if (normalized.currency != null && String(normalized.currency).trim() === '') delete normalized.currency;
+  if (normalized.type != null && String(normalized.type).trim() === '') delete normalized.type;
 
-  return normalized;
+  return Object.keys(normalized).length ? normalized : null;
 }
 
 /**

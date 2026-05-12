@@ -5,7 +5,6 @@ import {
   FileText, 
   Phone, 
   Mail, 
-  MessageSquare, 
   Star, 
   UserPlus, 
   ArrowRight,
@@ -16,6 +15,7 @@ import {
   Briefcase
 } from 'lucide-react';
 import { ImageWithFallback } from './ImageWithFallback';
+import { WhatsAppIcon } from './icons/WhatsAppIcon';
 
 export interface Candidate {
   id: string;
@@ -193,7 +193,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                         <FileText size={15} />
                       </button>
                       <button className="p-1.5 text-slate-500 hover:text-green-600 hover:bg-white rounded transition-all" title="WhatsApp">
-                        <MessageSquare size={15} />
+                        <WhatsAppIcon size={15} />
                       </button>
                       <button className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-white rounded transition-all" title="Email">
                         <Mail size={15} />

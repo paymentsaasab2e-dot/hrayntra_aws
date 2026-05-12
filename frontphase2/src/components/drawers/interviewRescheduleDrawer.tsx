@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { X, CheckCircle2, AlertTriangle, Copy, ChevronLeft, ChevronRight, ChevronDown, ChevronUp } from "lucide-react";
+import { formatDateDMY } from "../../utils/dateDisplay";
 
 interface RescheduleDrawerProps {
   isOpen: boolean;
@@ -245,7 +246,7 @@ export function RescheduleDrawer({ isOpen, onClose }: RescheduleDrawerProps) {
               {/* Selected Date Label */}
               <div className="mt-4 pt-4 border-t border-gray-200">
                 <p className="text-sm text-gray-600">
-                  <strong>New Selected Date:</strong> {selectedDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                  <strong>New Selected Date:</strong> {formatDateDMY(selectedDate)}
                 </p>
               </div>
             </div>

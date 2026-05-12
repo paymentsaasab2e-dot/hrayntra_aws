@@ -8,6 +8,7 @@ import { apiGetContact, apiAddContactNote, apiAddContactActivity, apiAddContactC
 import { ImageWithFallback } from '../../../components/ImageWithFallback';
 import { ContactTypeBadge } from '../../../components/contacts/ContactTypeBadge';
 import { OwnerAvatar } from '../../../components/contacts/OwnerAvatar';
+import { formatDateDMY, formatDateTimeDMY } from '../../../utils/dateDisplay';
 
 export default function ContactProfilePage() {
   const params = useParams();
@@ -201,7 +202,7 @@ export default function ContactProfilePage() {
                         </p>
                         {typeof note === 'object' && note.author && (
                           <p className="text-xs text-gray-500 mt-2">
-                            {note.author.name} • {new Date(note.createdAt).toLocaleDateString()}
+                            {note.author.name} • {formatDateDMY(note.createdAt)}
                           </p>
                         )}
                       </div>
@@ -292,7 +293,7 @@ export default function ContactProfilePage() {
                           <div className="flex-1">
                             <p className="text-sm font-medium text-gray-900">{activity.description}</p>
                             <p className="text-xs text-gray-500 mt-1">
-                              {activity.user?.name} • {new Date(activity.timestamp).toLocaleString()}
+                              {activity.user?.name} • {formatDateTimeDMY(activity.timestamp)}
                             </p>
                           </div>
                         </div>
@@ -313,7 +314,7 @@ export default function ContactProfilePage() {
                               {comm.type} • {comm.direction}
                             </span>
                             <span className="text-xs text-gray-500">
-                              {new Date(comm.timestamp).toLocaleString()}
+                              {formatDateTimeDMY(comm.timestamp)}
                             </span>
                           </div>
                           {comm.subject && (

@@ -25,6 +25,7 @@ import {
   ResponsiveContainer 
 } from 'recharts';
 import { ImageWithFallback } from '../ImageWithFallback';
+import { formatDateDMY } from '../../utils/dateDisplay';
 
 interface MemberDrawerProps {
   member: TeamMember | null;
@@ -126,7 +127,7 @@ export const MemberDrawer: React.FC<MemberDrawerProps> = ({ member, isOpen, onCl
                           </div>
                           <div className="flex items-center gap-3">
                             <Calendar className="size-4 text-slate-400" />
-                            <span className="text-sm text-slate-600">Joined {new Date(member.joiningDate).toLocaleDateString()}</span>
+                            <span className="text-sm text-slate-600">Joined {formatDateDMY(member.joiningDate)}</span>
                           </div>
                           <div className="flex items-center gap-3">
                             <Clock className="size-4 text-slate-400" />

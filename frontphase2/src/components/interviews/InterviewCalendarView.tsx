@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import type { Interview } from '../../types/interview.types';
+import { formatDateDMY } from '../../utils/dateDisplay';
 
 interface InterviewCalendarViewProps {
   interviews: Interview[];
@@ -36,7 +37,8 @@ function addMonths(date: Date, amount: number) {
 }
 
 function formatMonthTitle(date: Date) {
-  return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  return `${mm}/${date.getFullYear()}`;
 }
 
 function toInterviewDate(interview: Interview) {
@@ -59,12 +61,8 @@ function isSameMonth(a: Date, b: Date) {
 
 function formatDetailDate(date: Date | null) {
   if (!date) return 'Unknown date';
-  return date.toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  const weekday = date.toLocaleDateString('en-GB', { weekday: 'long' });
+  return `${weekday}, ${formatDateDMY(date)}`;
 }
 
 export function InterviewCalendarView({ interviews, onSelectInterview }: InterviewCalendarViewProps) {

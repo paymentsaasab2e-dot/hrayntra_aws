@@ -3,7 +3,6 @@ import {
   Eye, 
   FileText, 
   Mail, 
-  MessageSquare, 
   Star, 
   MapPin, 
   Briefcase, 
@@ -13,6 +12,7 @@ import {
 import { ImageWithFallback } from '../../../components/ImageWithFallback';
 import { Candidate } from './CandidateTable';
 import { getCandidateStageLabel } from '../../../utils/candidateStage';
+import { WhatsAppIcon } from '../../../components/icons/WhatsAppIcon';
 
 interface CandidateGridProps {
   candidates: Candidate[];
@@ -142,7 +142,7 @@ export const CandidateGrid: React.FC<CandidateGridProps> = ({
                 className="flex h-8 w-8 items-center justify-center rounded-xl text-emerald-600 hover:bg-white hover:text-emerald-800 hover:shadow-sm transition-all"
                 title="WhatsApp"
               >
-                <MessageSquare size={16} strokeWidth={2.25} />
+                <WhatsAppIcon size={16} />
               </button>
               <button
                 className="flex h-8 w-8 items-center justify-center rounded-xl text-cyan-600 hover:bg-white hover:text-cyan-700 hover:shadow-sm transition-all"

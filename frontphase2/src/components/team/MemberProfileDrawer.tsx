@@ -19,6 +19,7 @@ import { usePermissions } from '../../hooks/usePermissions';
 import type { TeamMemberDetail, UserActivity, TeamTask } from '../../types/team';
 import { LoginHistoryDrawer } from './LoginHistoryDrawer';
 import { PortalHost } from './PortalHost';
+import { formatDateDMY } from '../../utils/dateDisplay';
 
 interface MemberProfileDrawerProps {
   isOpen: boolean;
@@ -57,7 +58,7 @@ const formatRelativeTime = (dateString: string | null | undefined) => {
   if (diffMins < 60) return `${diffMins}m ago`;
   if (diffHours < 24) return `${diffHours}h ago`;
   if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString();
+  return formatDateDMY(date);
 };
 
 export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
@@ -627,7 +628,7 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
                                   <p className="text-sm font-medium text-slate-900">{task.taskTitle}</p>
                                   {task.dueDate && (
                                     <p className={`text-xs mt-1 ${isOverdue ? 'text-red-600' : 'text-slate-500'}`}>
-                                      Due: {new Date(task.dueDate).toLocaleDateString()}
+                                      Due: {formatDateDMY(task.dueDate)}
                                     </p>
                                   )}
                                 </div>

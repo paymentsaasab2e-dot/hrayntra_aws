@@ -11,6 +11,7 @@ import {
   type UpdateClientData,
   type UpdateJobData,
 } from '../../lib/api';
+import { formatDateTimeDMY } from '../../utils/dateDisplay';
 import { SUBMISSION_TYPES } from '../interviews/SubmitToClientDrawer';
 
 type SubmissionTypeValue = (typeof SUBMISSION_TYPES)[number]['value'];
@@ -284,7 +285,7 @@ export default function SubmitModal({
     if (!value) return '-';
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) return String(value);
-    return parsed.toLocaleString();
+    return formatDateTimeDMY(parsed);
   };
 
   const startEditNote = (id: string, text: string) => {

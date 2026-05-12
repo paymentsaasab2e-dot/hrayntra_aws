@@ -26,6 +26,7 @@ import {
   Trash2,
   UserCircle2,
 } from 'lucide-react';
+import { formatDateDMY, formatDateTimeDMY } from '../../utils/dateDisplay';
 import {
   apiArchiveGmailMessage,
   apiConnectIntegration,
@@ -97,22 +98,12 @@ function fitPaneWidths(totalWidth: number, desired: { left: number; list: number
 
 function formatRowDate(value?: string | null) {
   if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  return formatDateDMY(value);
 }
 
 function formatDetailDate(value?: string | null) {
   if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleString('en-IN', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatDateTimeDMY(value);
 }
 
 function clamp(value: number, min: number, max: number) {

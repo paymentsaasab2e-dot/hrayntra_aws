@@ -75,12 +75,11 @@ export default function LoginPage() {
       // Skip password reset for Super Admin
       const isSuperAdmin = roleName === 'super admin' || roleCode === 'super admin';
       
-      // Redirect to password reset if required (and not Super Admin), otherwise to dashboard/leads
+      // Redirect to password reset if required (and not Super Admin), otherwise to dashboard
       setTimeout(() => {
         if (requirePasswordReset && !isSuperAdmin) {
           router.push('/reset-password');
         } else {
-          // Clear requirePasswordReset flag for Super Admin
           if (isSuperAdmin && requirePasswordReset) {
             localStorage.removeItem('requirePasswordReset');
             const currentUser = localStorage.getItem('currentUser');
@@ -90,7 +89,9 @@ export default function LoginPage() {
               localStorage.setItem('currentUser', JSON.stringify(user));
             }
           }
-          const redirectTo = new URLSearchParams(window.location.search).get('redirect') || '/leads';
+          const redirectParam = new URLSearchParams(window.location.search).get('redirect');
+          // Avoid bouncing the user back to a stale "/leads" redirect when they explicitly came to log in.
+          const redirectTo = redirectParam && redirectParam !== '/leads' ? redirectParam : '/dashboard';
           window.location.href = redirectTo;
         }
       }, 800);

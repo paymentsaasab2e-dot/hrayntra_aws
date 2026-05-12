@@ -6,6 +6,7 @@ import {
   cloudinaryPdfViewerHref,
   buildFileHref,
 } from '../../utils/cloudinaryUrls';
+import { formatDateDMY, formatDateTimeDMY } from '../../utils/dateDisplay';
 import { AnimatePresence, motion } from 'motion/react';
 import { requestSuccess } from '../../lib/appDialog';
 import {
@@ -658,11 +659,7 @@ function formatTimelineDateLabel(value: string) {
   if (targetKey === today.toDateString()) return 'Today';
   if (targetKey === yesterday.toDateString()) return 'Yesterday';
 
-  return target.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  return formatDateDMY(target);
 }
 
 function getTimelineConfig(
@@ -734,11 +731,7 @@ function formatRelativeTime(value: string) {
   const diffDays = Math.floor(diffHours / 24);
   if (diffDays < 7) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
 
-  return new Date(value).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  return formatDateDMY(new Date(value));
 }
 
 interface CandidateTagSystemProps {
@@ -1329,11 +1322,7 @@ function ScheduleInterviewModal({
       } else {
         await Promise.resolve(onSchedule?.(payload));
       }
-      const prettyDate = new Date(`${date}T00:00:00`).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      });
+      const prettyDate = formatDateDMY(new Date(`${date}T00:00:00`));
       onScheduledSuccess?.(editInterview?.id ? `Interview updated (${status})` : `Interview scheduled for ${prettyDate} at ${time}`);
       onClose();
     } finally {
@@ -4310,7 +4299,7 @@ export function CandidateProfileDrawer({
                                             ) : null}
                                           </div>
                                           <span className="text-xs text-slate-500">
-                                            {new Date(item.timestamp).toLocaleString()}
+                                            {formatDateTimeDMY(item.timestamp)}
                                           </span>
                                         </div>
 

@@ -60,6 +60,23 @@ import {
   ORG_RECRUITMENT_CACHE_EVENT,
 } from '../../lib/api';
 import { useFiles } from '../../hooks/useFiles';
+import { formatDateDMY, formatDateTimeDMY, formatTime12hEnGb } from '../../utils/dateDisplay';
+
+/** Render salary as `currency min - max` (or single number when only one bound). */
+function formatJobSalaryRange(job: {
+  salaryRange?: string;
+  salaryCurrency?: string;
+  minSalary?: number;
+  maxSalary?: number;
+}): string {
+  const currency = job.salaryCurrency ? `${job.salaryCurrency} ` : '';
+  const hasMin = job.minSalary !== undefined && job.minSalary !== null;
+  const hasMax = job.maxSalary !== undefined && job.maxSalary !== null;
+  if (hasMin && hasMax) return `${currency}${job.minSalary} - ${job.maxSalary}`;
+  if (hasMin) return `${currency}${job.minSalary}`;
+  if (hasMax) return `${currency}${job.maxSalary}`;
+  return job.salaryRange || '';
+}
 
 export type JobDrawerStatus = 'Draft' | 'Active' | 'On Hold' | 'Closed';
 
@@ -833,10 +850,7 @@ export function JobDetailsDrawer({
                         <div className="sm:col-span-2">
                           <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Salary</p>
                           <p className="mt-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">
-                            {job.salaryRange ||
-                              (job.minSalary || job.maxSalary
-                                ? `${job.salaryCurrency ? `${job.salaryCurrency} ` : ''}${job.minSalary ?? ''}${job.maxSalary !== undefined ? ` - ${job.maxSalary}` : ''}`
-                                : '—')}
+                            {formatJobSalaryRange(job) || '—'}
                           </p>
                         </div>
                       </div>
@@ -893,7 +907,7 @@ export function JobDetailsDrawer({
                                     <div>
                                       <p className="text-sm font-semibold text-slate-900">{formatApplicationCandidateName(app)}</p>
                                       <p className="text-xs text-slate-500 mt-0.5">
-                                        {app.appliedAt ? new Date(app.appliedAt).toLocaleString() : 'Applied'}
+                                        {app.appliedAt ? formatDateTimeDMY(app.appliedAt) : 'Applied'}
                                         {app.status ? ` • ${app.status}` : ''}
                                       </p>
                                     </div>
@@ -973,12 +987,11 @@ export function JobDetailsDrawer({
                       <div>
                         <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Salary</p>
                         <p className="text-slate-800 mt-1">
-                          {job.salaryRange ||
-                            (job.minSalary || job.maxSalary
-                              ? `${job.salaryType ? job.salaryType + ' • ' : ''}${
-                                  job.salaryCurrency ? job.salaryCurrency + ' ' : ''
-                                }${job.minSalary ?? ''}${job.maxSalary !== undefined ? ` – ${job.maxSalary}` : ''}`
-                              : '—')}
+                          {(() => {
+                            const range = formatJobSalaryRange(job);
+                            if (!range) return '—';
+                            return job.salaryType ? `${job.salaryType} • ${range}` : range;
+                          })()}
                         </p>
                       </div>
                       <div>
@@ -1791,19 +1804,10 @@ export function JobDetailsDrawer({
                               if (isToday) dateLabel = 'Today';
                               else if (isYesterday) dateLabel = 'Yesterday';
                               else {
-                                dateLabel = date.toLocaleDateString('en-US', { 
-                                  weekday: 'long',
-                                  month: 'long', 
-                                  day: 'numeric',
-                                  year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
-                                });
+                                dateLabel = formatDateDMY(date);
                               }
-                              
-                              const timeLabel = date.toLocaleTimeString('en-US', { 
-                                hour: 'numeric', 
-                                minute: '2-digit',
-                                hour12: true 
-                              });
+
+                              const timeLabel = formatTime12hEnGb(date);
                               
                               return (
                                 <div key={item.id}>
@@ -1891,8 +1895,7 @@ export function JobDetailsDrawer({
                 const formatUploadDate = (d: string) => {
                   if (!d) return '—';
                   try {
-                    const date = new Date(d);
-                    return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+                    return formatDateDMY(d) || d;
                   } catch {
                     return d;
                   }

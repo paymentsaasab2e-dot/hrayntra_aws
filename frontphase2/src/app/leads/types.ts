@@ -34,6 +34,7 @@ export interface Lead {
   type: LeadType;
   source: LeadSource;
   contactPerson: string;
+  directorSalutation?: string;
   directorName?: string;
   email: string;
   phone: string;
@@ -44,6 +45,15 @@ export interface Lead {
     avatar: string;
   };
   assignedToId?: string;
+  /** Multi-assignee ids, includes the primary `assignedToId` as the first element. */
+  assignedToIds?: string[];
+  /** Resolved user records for multi-assignee display (matches `assignedToIds` order). */
+  assignedToUsers?: Array<{
+    id?: string;
+    name: string;
+    avatar: string;
+    email?: string;
+  }>;
   lastFollowUp: string;
   nextFollowUp?: string;
   priority: Priority;
@@ -65,6 +75,9 @@ export interface Lead {
   designation?: string;
   country?: string;
   city?: string;
+  state?: string;
+  latitude?: number | null;
+  longitude?: number | null;
   campaignName?: string;
   campaignLink?: string;
   referralName?: string;
@@ -73,4 +86,8 @@ export interface Lead {
   sourceEmail?: string;
   otherDetails?: Array<{ label: string; value: string }>;
   createdDate?: string;
+  /** Agreements & Terms — single primary document uploaded against the lead. */
+  agreementsFileName?: string | null;
+  agreementsFileUrl?: string | null;
+  agreementsUploadedAt?: string | null;
 }

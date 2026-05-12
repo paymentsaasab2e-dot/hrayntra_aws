@@ -1,12 +1,14 @@
 'use client';
 
 import React from 'react';
-import { CheckSquare, Square, Pencil, Trash2, MessageSquare } from 'lucide-react';
+import { CheckSquare, Square, Pencil, Trash2 } from 'lucide-react';
 import { ImageWithFallback } from '../ImageWithFallback';
+import { WhatsAppIcon } from '../icons/WhatsAppIcon';
 import PaginationAll from '../PaginationAll';
 import type { BackendContact } from '../../lib/api';
 import { ContactTypeBadge } from './ContactTypeBadge';
 import { OwnerAvatar } from './OwnerAvatar';
+import { formatDirectorDisplay } from '../../constants/salutations';
 
 interface ContactsTableProps {
   contacts: BackendContact[];
@@ -67,7 +69,9 @@ export function ContactsTable({
     }
 
     const phone = rawPhone.startsWith('+') ? rawPhone.slice(1) : rawPhone;
-    const message = encodeURIComponent(`Hi ${contact.firstName} ${contact.lastName},`);
+    const message = encodeURIComponent(
+      `Hi ${formatDirectorDisplay(contact.salutation, `${contact.firstName} ${contact.lastName}`.trim())},`
+    );
     window.open(`https://wa.me/${phone}?text=${message}`, '_blank', 'noopener,noreferrer');
   };
 
@@ -178,7 +182,7 @@ export function ContactsTable({
                       />
                       <div>
                         <p className="text-sm font-semibold text-gray-900">
-                          {contact.firstName} {contact.lastName}
+                          {formatDirectorDisplay(contact.salutation, `${contact.firstName} ${contact.lastName}`.trim())}
                         </p>
                         <p className="text-xs text-gray-500 mt-0.5">{contact.email}</p>
                       </div>
@@ -245,10 +249,10 @@ export function ContactsTable({
                         type="button"
                         onClick={() => openWhatsApp(contact)}
                         className="flex h-8 w-8 items-center justify-center rounded-xl text-emerald-600 hover:bg-white hover:text-emerald-800 hover:shadow-sm transition-all"
-                        aria-label="Send message"
-                        title="Send Message"
+                        aria-label="Send WhatsApp"
+                        title="WhatsApp"
                       >
-                        <MessageSquare size={16} strokeWidth={2.25} />
+                        <WhatsAppIcon size={16} />
                       </button>
                       <button
                         type="button"

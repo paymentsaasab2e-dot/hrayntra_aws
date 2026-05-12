@@ -1,23 +1,17 @@
 /**
- * ISO / date strings from API → separate date & time in the user's locale.
- * Used by leads table and lead drawer.
+ * ISO / date strings from API → separate date & time for the leads UI.
+ * Date is always **DD/MM/YYYY** (phase 2 standard).
  */
+import { formatDateDMY, formatTime12hEnGb, parseDisplayableDate } from './dateDisplay';
+
 export function splitDateTimeForDisplay(value: string | null | undefined): { date: string; time: string } | null {
   if (value == null || !String(value).trim()) return null;
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return { date: String(value).trim(), time: '—' };
-  const date = d.toLocaleDateString(undefined, {
-    weekday: 'short',
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-  const time = d.toLocaleTimeString(undefined, {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
-  return { date, time };
+  const d = parseDisplayableDate(value);
+  if (!d) return { date: String(value).trim(), time: '—' };
+  return {
+    date: formatDateDMY(d),
+    time: formatTime12hEnGb(d),
+  };
 }
 
 /**

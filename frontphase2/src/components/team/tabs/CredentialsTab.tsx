@@ -17,6 +17,7 @@ import { MemberProfileDrawer } from '../MemberProfileDrawer';
 import { LoginHistoryDrawer } from '../LoginHistoryDrawer';
 import { GenerateCredentialsDrawer } from '../GenerateCredentialsDrawer';
 import PaginationAll from '../../../components/PaginationAll';
+import { formatDateDMY } from '../../../utils/dateDisplay';
 
 // Color mapping for role colors
 const roleColorMap: Record<string, string> = {
@@ -93,7 +94,7 @@ const formatRelativeTime = (dateString: string | null | undefined) => {
   if (diffMins < 60) return `${diffMins}m ago`;
   if (diffHours < 24) return `${diffHours}h ago`;
   if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString();
+  return formatDateDMY(date);
 };
 
 // Check if user is Super Admin
