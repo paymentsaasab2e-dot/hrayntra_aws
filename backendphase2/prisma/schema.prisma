@@ -231,6 +231,15 @@ model Client {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Soft-delete / Recycle Bin metadata. Hard delete is replaced with isDeleted=true so the
+  // record can be restored from the Recycle Bin page. Stored as nullable Boolean because
+  // legacy MongoDB documents created before this field existed don't carry it — Prisma
+  // would otherwise crash with "Argument `isDeleted` is missing" when deserializing them.
+  // Treat null/undefined as "not deleted" in queries (use { isDeleted: { not: true } }).
+  isDeleted Boolean?  @default(false)
+  deletedAt DateTime?
+  deletedBy String?
+
   // Embedded address (flexible JSON structure for address details)
   address Json?
 
@@ -251,6 +260,7 @@ model Client {
   @@index([status])
   @@index([assignedToId])
   @@index([createdById])
+  @@index([isDeleted])
   @@map("clients")
 }
 
@@ -497,6 +507,8 @@ model Candidate {
   cvEducationEntries      Json?
   cvWorkExperienceEntries Json?
   cvPortfolioLinks        Json?
+  /// Parsed CV sections that do not map to standard fields (awards, volunteer work, etc.)
+  extraData               Json?
   preferredLocation       String?
   assignedJobs            String[] // Array of job IDs
   stage                   String? // Applied, Shortlist, Screening, Interviewing, Offered, Hired, Rejected
@@ -506,6 +518,15 @@ model Candidate {
 
   // Embedded salary
   salary Json?
+
+  // Soft-delete / Recycle Bin metadata. Hard delete is replaced with isDeleted=true so the
+  // candidate can be restored from the Recycle Bin page. Stored as nullable Boolean because
+  // legacy MongoDB documents created before this field existed don't carry it — Prisma
+  // would otherwise crash with "Argument `isDeleted` is missing" when deserializing them.
+  // Treat null/undefined as "not deleted" in queries (use { isDeleted: { not: true } }).
+  isDeleted Boolean?  @default(false)
+  deletedAt DateTime?
+  deletedBy String?
 
   // Relations
   assignedTo      User?           @relation(fields: [assignedToId], references: [id])
@@ -520,6 +541,7 @@ model Candidate {
   @@index([status])
   @@index([assignedToId])
   @@index([createdById])
+  @@index([isDeleted])
   @@map("candidates")
 }
 
@@ -619,6 +641,15 @@ model Job {
   // Embedded salary
   salary Json?
 
+  // Soft-delete / Recycle Bin metadata. Hard delete is replaced with isDeleted=true so the
+  // job can be restored from the Recycle Bin page. Stored as nullable Boolean because
+  // legacy MongoDB documents created before this field existed don't carry it — Prisma
+  // would otherwise crash with "Argument `isDeleted` is missing" when deserializing them.
+  // Treat null/undefined as "not deleted" in queries (use { isDeleted: { not: true } }).
+  isDeleted Boolean?  @default(false)
+  deletedAt DateTime?
+  deletedBy String?
+
   // Relations
   client         Client?         @relation(fields: [clientId], references: [id], onDelete: SetNull)
   assignedTo     User?           @relation("JobAssignee", fields: [assignedToId], references: [id])
@@ -635,6 +666,7 @@ model Job {
   @@index([clientId])
   @@index([assignedToId])
   @@index([createdById])
+  @@index([isDeleted])
   @@map("jobs")
 }
 
@@ -767,7 +799,14 @@ model Lead {
   convertedToClientId    String?    @db.ObjectId
   convertedToCandidateId String?    @db.ObjectId
   convertedAt            DateTime?
-  isDeleted              Boolean    @default(false)
+  // Soft-delete / Recycle Bin metadata. Hard delete is replaced with isDeleted=true so the
+  // lead can be restored from the Recycle Bin page. Stored as nullable Boolean because
+  // legacy MongoDB documents created before this field existed don't carry it — Prisma
+  // would otherwise crash with "Argument `isDeleted` is missing" when deserializing them.
+  // Treat null/undefined as "not deleted" in queries (use { isDeleted: { not: true } }).
+  isDeleted              Boolean?   @default(false)
+  deletedAt              DateTime?
+  deletedBy              String?
   orgId                  String?
   createdBy              String?
   createdAt              DateTime   @default(now())

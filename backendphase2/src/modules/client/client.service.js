@@ -84,6 +84,10 @@ export const clientService = {
     }
     if (req.query.hot !== undefined) where.hot = req.query.hot === 'true';
     if (req.query.tags) where.tags = { hasSome: Array.isArray(req.query.tags) ? req.query.tags : [req.query.tags] };
+    // Recycle Bin: hide soft-deleted rows from the normal Clients page.
+    // `not: true` matches false, null, and missing-field documents (legacy rows from before
+    // the soft-delete column existed) without tripping Prisma's "Argument isDeleted is missing".
+    where = { AND: [where, { isDeleted: { not: true } }] };
     where = applySystemWorkspaceExclusion(where, includeSystemClients);
 
     const superAdminScope = buildSuperAdminOwnerScope(req, ['assignedToId', 'createdById']);
@@ -596,6 +600,8 @@ export const clientService = {
   },
 
   async delete(id, performedById, req = null) {
+    // Soft delete — keeps related rows (jobs, contacts, placements, activities) intact so a
+    // restore from the Recycle Bin brings the full client back without surprises.
     const scope = buildSuperAdminOwnerScope(req, ['assignedToId', 'createdById']);
     let accessWhere = mergeWhereWithScope({ id }, scope);
     accessWhere = applyMemberClientScope(accessWhere, req);
@@ -607,13 +613,128 @@ export const clientService = {
       throw new Error('Client not found');
     }
 
-    // Get client data before deletion for activity log
     const client = await prisma.client.findUnique({
       where: { id },
       select: { companyName: true },
     });
 
-    // Lead.convertedToClientId and Activity.clientId have no onDelete in schema — clear them or delete fails (P2003).
+    await prisma.client.update({
+      where: { id },
+      data: {
+        isDeleted: true,
+        deletedAt: new Date(),
+        deletedBy: performedById || null,
+      },
+    });
+
+    if (performedById && client) {
+      try {
+        await activityService.logClientDeleted({
+          entityId: id,
+          performedById,
+          entityName: client.companyName,
+          clientId: id,
+        });
+      } catch (err) {
+        console.error('Failed to log client delete activity:', err);
+      }
+    }
+
+    return { message: 'Client moved to Recycle Bin' };
+  },
+
+  /**
+   * Recycle Bin — list soft-deleted clients (newest first).
+   * Scope mirrors getAll so non-admins only see their own deleted records.
+   */
+  async listTrash(req) {
+    const { page, limit, skip } = getPaginationParams(req);
+    const superAdminScope = buildSuperAdminOwnerScope(req, ['assignedToId', 'createdById']);
+    let where = { isDeleted: true };
+    where = mergeWhereWithScope(where, superAdminScope);
+    where = applyMemberClientScope(where, req);
+
+    const [clients, total] = await Promise.all([
+      prisma.client.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { deletedAt: 'desc' },
+        include: {
+          assignedTo: { select: { id: true, name: true, email: true } },
+        },
+      }),
+      prisma.client.count({ where }),
+    ]);
+
+    return formatPaginationResponse(clients, page, limit, total);
+  },
+
+  /** Recycle Bin — restore a soft-deleted client. */
+  async restore(id, performedById /*, req = null */) {
+    const client = await prisma.client.findFirst({
+      where: { id, isDeleted: true },
+      select: { id: true, companyName: true },
+    });
+    if (!client) {
+      throw new Error('Deleted client not found');
+    }
+    await prisma.client.update({
+      where: { id },
+      data: { isDeleted: false, deletedAt: null, deletedBy: null },
+    });
+    if (performedById) {
+      try {
+        await activityService.logClientDeleted({
+          entityId: id,
+          performedById,
+          entityName: client.companyName,
+          clientId: id,
+          action: 'Client Restored',
+          description: `Client "${client.companyName}" was restored from the Recycle Bin`,
+        });
+      } catch (err) {
+        console.error('Failed to log client restore activity:', err);
+      }
+    }
+    return { message: 'Client restored' };
+  },
+
+  /**
+   * Recycle Bin — permanently delete a soft-deleted client. Mirrors the original hard-delete
+   * cascade (clear Lead.convertedToClientId / Activity.clientId references first).
+   */
+  /**
+   * Bulk permanent-delete (Recycle Bin → Delete forever). Delegates to `purge` per
+   * id so the transactional cleanup of related rows stays identical. Sequential to
+   * avoid stacking Prisma transactions in the same tenant DB.
+   */
+  async bulkPurge(ids, performedById, req = null) {
+    const unique = Array.from(new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean)));
+    if (!unique.length) {
+      return { success: 0, failed: 0, failures: [] };
+    }
+    let success = 0;
+    const failures = [];
+    for (const clientId of unique) {
+      try {
+        await this.purge(clientId, performedById, req);
+        success += 1;
+      } catch (err) {
+        failures.push({ id: clientId, message: err?.message || 'Failed to purge client' });
+      }
+    }
+    return { success, failed: failures.length, failures };
+  },
+
+  async purge(id /*, performedById, req = null */) {
+    const client = await prisma.client.findFirst({
+      where: { id, isDeleted: true },
+      select: { id: true },
+    });
+    if (!client) {
+      throw new Error('Deleted client not found');
+    }
     await prisma.$transaction(async (tx) => {
       await tx.lead.updateMany({
         where: { convertedToClientId: id },
@@ -625,18 +746,7 @@ export const clientService = {
       });
       await tx.client.delete({ where: { id } });
     });
-
-    // Log deletion activity
-    if (performedById && client) {
-      await activityService.logClientDeleted({
-        entityId: id,
-        performedById,
-        entityName: client.companyName,
-        clientId: id,
-      });
-    }
-
-    return { message: 'Client deleted successfully' };
+    return { message: 'Client permanently deleted' };
   },
 
   async getActivities(clientId) {

@@ -495,7 +495,11 @@ export const jobService = {
       where.title = { contains: search, mode: 'insensitive' };
     }
     const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
-    const scopedWhere = mergeWhereWithScope(where, superAdminScope);
+    let scopedWhere = mergeWhereWithScope(where, superAdminScope);
+    // Recycle Bin: hide soft-deleted rows from the normal Jobs page.
+    // `not: true` matches false, null, and missing-field documents (legacy rows from before
+    // the soft-delete column existed) without tripping Prisma's "Argument isDeleted is missing".
+    scopedWhere = { AND: [scopedWhere, { isDeleted: { not: true } }] };
 
     const [jobs, total] = await Promise.all([
       prisma.job.findMany({
@@ -1130,8 +1134,12 @@ export const jobService = {
   },
 
   async delete(id, performedById) {
-    const currentJob = await prisma.job.findUnique({
-      where: { id },
+    // Soft delete — flips isDeleted=true so the job shows on the Recycle Bin and can be
+    // restored. We also drop the mirrored row from the job-portal DB so public listings
+    // hide the job immediately; the mirror is recreated on restore via the existing
+    // create/update mirror flow if needed.
+    const currentJob = await prisma.job.findFirst({
+      where: { id, isDeleted: { not: true } },
       select: { id: true, title: true, clientId: true },
     });
 
@@ -1139,7 +1147,6 @@ export const jobService = {
       throw new Error('Job not found');
     }
 
-    // Phase 1 / job-portal mirror (same job id) — remove first so public listings never outlive CRM delete
     try {
       await deleteMirroredJobForPhase1(id);
     } catch (syncErr) {
@@ -1151,7 +1158,14 @@ export const jobService = {
       );
     }
 
-    await prisma.job.delete({ where: { id } });
+    await prisma.job.update({
+      where: { id },
+      data: {
+        isDeleted: true,
+        deletedAt: new Date(),
+        deletedBy: performedById || null,
+      },
+    });
 
     if (performedById) {
       await activityService.logJobDeleted({
@@ -1162,7 +1176,113 @@ export const jobService = {
       });
     }
 
-    return { message: 'Job deleted successfully' };
+    return { message: 'Job moved to Recycle Bin' };
+  },
+
+  /**
+   * Recycle Bin — list soft-deleted jobs (newest first). Same access scope as getAll:
+   * non-admins only see jobs they created or are assigned to (or that they deleted).
+   */
+  async listTrash(req) {
+    const page = Math.max(Number.parseInt(String(req.query?.page ?? '1'), 10) || 1, 1);
+    const limit = Math.min(
+      Math.max(Number.parseInt(String(req.query?.limit ?? '50'), 10) || 50, 1),
+      500
+    );
+    const skip = (page - 1) * limit;
+
+    let baseWhere = { isDeleted: true };
+    if (!canViewAllAssignments(req) && req?.user?.id) {
+      baseWhere = {
+        ...baseWhere,
+        OR: [
+          { createdById: req.user.id },
+          { assignedToId: req.user.id },
+          { deletedBy: req.user.id },
+        ],
+      };
+    }
+    const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
+    const where = mergeWhereWithScope(baseWhere, superAdminScope);
+
+    const [jobs, total] = await Promise.all([
+      prisma.job.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { deletedAt: 'desc' },
+        include: {
+          client: { select: { id: true, companyName: true, logo: true } },
+          assignedTo: { select: { id: true, name: true, email: true, avatar: true } },
+        },
+      }),
+      prisma.job.count({ where }),
+    ]);
+    return formatPaginationResponse(jobs, page, limit, total);
+  },
+
+  /** Recycle Bin — restore a soft-deleted job. */
+  async restore(id, performedById = null) {
+    const job = await prisma.job.findFirst({
+      where: { id, isDeleted: true },
+      select: { id: true, title: true, clientId: true },
+    });
+    if (!job) {
+      throw new Error('Deleted job not found');
+    }
+    await prisma.job.update({
+      where: { id },
+      data: { isDeleted: false, deletedAt: null, deletedBy: null },
+    });
+    if (performedById) {
+      try {
+        await activityService.logJobActivity({
+          entityId: id,
+          performedById,
+          action: 'Job Restored',
+          description: `Job "${job.title}" was restored from the Recycle Bin`,
+          metadata: { title: job.title },
+        });
+      } catch (err) {
+        console.error('Failed to log job restore activity:', err);
+      }
+    }
+    return { message: 'Job restored' };
+  },
+
+  /** Recycle Bin — permanently delete a soft-deleted job. */
+  /**
+   * Bulk permanent-delete (Recycle Bin → Delete forever). Sequential so each job's
+   * transactional cleanup is isolated.
+   */
+  async bulkPurge(ids, performedById) {
+    const unique = Array.from(new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean)));
+    if (!unique.length) {
+      return { success: 0, failed: 0, failures: [] };
+    }
+    let success = 0;
+    const failures = [];
+    for (const jobId of unique) {
+      try {
+        await this.purge(jobId, performedById);
+        success += 1;
+      } catch (err) {
+        failures.push({ id: jobId, message: err?.message || 'Failed to purge job' });
+      }
+    }
+    return { success, failed: failures.length, failures };
+  },
+
+  async purge(id) {
+    const job = await prisma.job.findFirst({
+      where: { id, isDeleted: true },
+      select: { id: true },
+    });
+    if (!job) {
+      throw new Error('Deleted job not found');
+    }
+    await prisma.job.delete({ where: { id } });
+    return { message: 'Job permanently deleted' };
   },
 
   async getMetrics(req) {

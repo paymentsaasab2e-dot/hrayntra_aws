@@ -9,7 +9,7 @@ import {
   Clock,
   MoreVertical
 } from 'lucide-react';
-import { ImageWithFallback } from './ImageWithFallback';
+import { ImageWithFallback, initialsFromDisplayName } from './ImageWithFallback';
 import { Candidate } from './CandidateTable';
 import { WhatsAppIcon } from './icons/WhatsAppIcon';
 
@@ -67,7 +67,8 @@ export const CandidateGrid: React.FC<CandidateGridProps> = ({
           <div className="p-6 flex flex-col items-center text-center">
             <div className="relative mb-4">
               <ImageWithFallback 
-                src={candidate.avatar} 
+                src={candidate.avatar || ''} 
+                fallbackInitials={initialsFromDisplayName(candidate.name)}
                 className="w-20 h-20 rounded-2xl object-cover ring-4 ring-white shadow-md"
                 alt={candidate.name}
               />

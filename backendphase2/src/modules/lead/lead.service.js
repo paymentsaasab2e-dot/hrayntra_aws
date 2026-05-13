@@ -137,6 +137,10 @@ export const leadService = {
     }
 
     const andParts = [{ ...baseFilters }];
+    // Recycle Bin: hide soft-deleted rows from the normal Leads page (always opt-in via /trash).
+    // `not: true` matches false, null, and missing-field documents (legacy rows from before
+    // the soft-delete column existed) without tripping Prisma's "Argument isDeleted is missing".
+    andParts.push({ isDeleted: { not: true } });
     if (search) {
       andParts.push({
         OR: [
@@ -809,6 +813,8 @@ export const leadService = {
   },
 
   async delete(id, performedById, req = null) {
+    // Soft delete — flips isDeleted=true and stamps deletedAt/deletedBy so the row
+    // shows up on the Recycle Bin page and can be restored.
     const lead = await prisma.lead.findFirst({
       where: buildLeadAccessWhere(id, req),
     });
@@ -816,7 +822,14 @@ export const leadService = {
       throw new Error('Lead not found');
     }
 
-    await prisma.lead.delete({ where: { id } });
+    await prisma.lead.update({
+      where: { id },
+      data: {
+        isDeleted: true,
+        deletedAt: new Date(),
+        deletedBy: performedById || null,
+      },
+    });
 
     // Create activity log
     if (performedById) {
@@ -825,10 +838,11 @@ export const leadService = {
           entityId: id,
           performedById,
           action: 'Lead Deleted',
-          description: `Lead "${lead.companyName}" was deleted`,
+          description: `Lead "${lead.companyName}" was moved to Recycle Bin`,
           metadata: {
             companyName: lead.companyName,
             contactPerson: lead.contactPerson,
+            softDelete: true,
           },
         });
       } catch (err) {
@@ -836,7 +850,120 @@ export const leadService = {
       }
     }
 
-    return { message: 'Lead deleted successfully' };
+    return { message: 'Lead moved to Recycle Bin' };
+  },
+
+  /**
+   * Recycle Bin — list soft-deleted leads (newest first).
+   * Scope mirrors getAll: assignees see only their own deleted records, admins see all.
+   */
+  async listTrash(req) {
+    const page = Math.max(Number.parseInt(String(req.query.page ?? '1'), 10) || 1, 1);
+    const limit = Math.min(Math.max(Number.parseInt(String(req.query.limit ?? '50'), 10) || 50, 1), 500);
+    const skip = (page - 1) * limit;
+
+    const andParts = [{ isDeleted: true }];
+    if (!canViewAllLeads(req) && req.user?.id) {
+      andParts.push({
+        OR: [
+          { assignedToId: req.user.id },
+          { assignedToIds: { has: req.user.id } },
+          { createdBy: req.user.id },
+          { deletedBy: req.user.id },
+        ],
+      });
+    }
+    const where = { AND: andParts };
+
+    const [leads, total] = await Promise.all([
+      prisma.lead.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { deletedAt: 'desc' },
+        include: {
+          assignedTo: { select: { id: true, name: true, email: true, avatar: true } },
+        },
+      }),
+      prisma.lead.count({ where }),
+    ]);
+    await attachAssignees(leads);
+    return formatPaginationResponse(leads, page, limit, total);
+  },
+
+  /** Recycle Bin — restore a soft-deleted lead. */
+  async restore(id, performedById, req = null) {
+    const lead = await prisma.lead.findFirst({
+      where: { id, isDeleted: true },
+    });
+    if (!lead) {
+      throw new Error('Deleted lead not found');
+    }
+    await prisma.lead.update({
+      where: { id },
+      data: { isDeleted: false, deletedAt: null, deletedBy: null },
+    });
+    if (performedById) {
+      try {
+        await activityService.logLeadActivity({
+          entityId: id,
+          performedById,
+          action: 'Lead Restored',
+          description: `Lead "${lead.companyName}" was restored from the Recycle Bin`,
+          metadata: { companyName: lead.companyName },
+        });
+      } catch (err) {
+        console.error('Failed to create activity log:', err);
+      }
+    }
+    return { message: 'Lead restored' };
+  },
+
+  /** Recycle Bin — permanently delete a soft-deleted lead. */
+  /**
+   * Bulk permanent-delete (Recycle Bin → Delete forever). Sequential so each lead's
+   * transactional cleanup is isolated.
+   */
+  async bulkPurge(ids, performedById, req = null) {
+    const unique = Array.from(new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean)));
+    if (!unique.length) {
+      return { success: 0, failed: 0, failures: [] };
+    }
+    let success = 0;
+    const failures = [];
+    for (const leadId of unique) {
+      try {
+        await this.purge(leadId, performedById, req);
+        success += 1;
+      } catch (err) {
+        failures.push({ id: leadId, message: err?.message || 'Failed to purge lead' });
+      }
+    }
+    return { success, failed: failures.length, failures };
+  },
+
+  async purge(id, performedById, req = null) {
+    const lead = await prisma.lead.findFirst({
+      where: { id, isDeleted: true },
+    });
+    if (!lead) {
+      throw new Error('Deleted lead not found');
+    }
+    await prisma.lead.delete({ where: { id } });
+    if (performedById) {
+      try {
+        await activityService.logLeadActivity({
+          entityId: id,
+          performedById,
+          action: 'Lead Purged',
+          description: `Lead "${lead.companyName}" was permanently deleted`,
+          metadata: { companyName: lead.companyName },
+        });
+      } catch (err) {
+        console.error('Failed to create activity log:', err);
+      }
+    }
+    return { message: 'Lead permanently deleted' };
   },
 
   async importLeads({ rows = [], mapping = {}, duplicateRule = 'skip', performedById, performedByRole }) {

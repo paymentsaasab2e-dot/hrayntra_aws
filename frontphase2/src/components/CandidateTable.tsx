@@ -14,13 +14,13 @@ import {
   Calendar,
   Briefcase
 } from 'lucide-react';
-import { ImageWithFallback } from './ImageWithFallback';
+import { ImageWithFallback, initialsFromDisplayName } from './ImageWithFallback';
 import { WhatsAppIcon } from './icons/WhatsAppIcon';
 
 export interface Candidate {
   id: string;
   name: string;
-  avatar: string;
+  avatar: string | null;
   designation: string;
   company: string;
   experience: number;
@@ -113,7 +113,8 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                   <div className="flex items-center gap-3">
                     <div className="relative">
                       <ImageWithFallback 
-                        src={candidate.avatar} 
+                        src={candidate.avatar || ''} 
+                        fallbackInitials={initialsFromDisplayName(candidate.name)}
                         className="w-10 h-10 rounded-full object-cover ring-2 ring-white"
                         alt={candidate.name}
                       />

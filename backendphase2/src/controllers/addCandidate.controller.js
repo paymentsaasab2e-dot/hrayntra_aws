@@ -1,11 +1,24 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import OpenAI from 'openai';
 import { prisma } from '../config/prisma.js';
 import { env } from '../config/env.js';
 import { uploadBufferToCloudinary, cloudinaryResourceTypeForFile } from '../utils/cloudinary.js';
-import { processCandidateCv } from '../services/cvParsing.service.js';
+import {
+  processCandidateCv,
+  validateCvUploadFile,
+  runCvPipelineThroughStage4,
+  finalizeCvPipelineFromStage5,
+} from '../services/cvParsing.service.js';
+import { chatCompletionWithFallback, hasLlmProvider } from '../services/llmChatFallback.service.js';
+import {
+  findExistingCandidateDuplicate,
+  nextCopyLastNameForBulk,
+  nextUniqueEmailVariant,
+} from '../services/bulkCvDuplicate.service.js';
+import { hardDeleteCandidateById } from '../services/bulkCvHardDelete.service.js';
+import { waitBulkCvDuplicateDecision } from '../socket/bulkCvDuplicateWait.registry.js';
+import { emitBulkCvDuplicateFound, getBulkCvIo } from '../socket/bulkCvSocket.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,8 +40,6 @@ const DEFAULT_TAGS = [
   'Design',
 ];
 const STAGE_ORDER = ['Applied', 'Screening', 'Shortlist', 'Interview', 'Offer', 'Hired'];
-const openai = env.OPENAI_API_KEY ? new OpenAI({ apiKey: env.OPENAI_API_KEY }) : null;
-
 function normalizeEmail(email = '') {
   return String(email).trim().toLowerCase();
 }
@@ -127,6 +138,12 @@ function buildExistingCandidateSummary(candidate) {
     currentTitle: candidate.currentTitle || null,
     currentCompany: candidate.currentCompany || null,
   };
+}
+
+function sanitizeRemoteAvatarUrl(value) {
+  const s = String(value ?? '').trim();
+  if (!s || !/^https?:\/\//i.test(s)) return null;
+  return s;
 }
 
 function validateCreateCandidatePayload(body) {
@@ -444,7 +461,7 @@ function extractFallbackResumeData(text = '', filePath = '') {
 }
 
 async function extractStructuredResumeDataWithOpenAI(cleanedText, file) {
-  if (!openai || !cleanedText) {
+  if (!cleanedText || !hasLlmProvider()) {
     return null;
   }
 
@@ -502,22 +519,25 @@ Resume text:
 ${cleanedText.slice(0, 18000)}
 `;
 
-  const completion = await openai.chat.completions.create({
-    model: env.OPENAI_ASSISTANT_MODEL || 'gpt-4o-mini',
-    temperature: 0.1,
-    response_format: { type: 'json_object' },
-    messages: [
-      {
-        role: 'system',
-        content:
-          'You are a resume parsing engine. Extract only data present in the resume. Return valid JSON only.',
-      },
-      {
-        role: 'user',
-        content: prompt,
-      },
-    ],
-  });
+  const completion = await chatCompletionWithFallback(
+    {
+      model: env.OPENAI_ASSISTANT_MODEL || 'gpt-4o-mini',
+      temperature: 0.1,
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are a resume parsing engine. Extract only data present in the resume. Return valid JSON only.',
+        },
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+    },
+    'cv-parse-add-candidate'
+  );
 
   const content = completion.choices?.[0]?.message?.content || '{}';
   return JSON.parse(content);
@@ -710,6 +730,7 @@ export const addCandidateController = {
         lastName: String(req.body.lastName).trim(),
         email,
         phone: req.body.phone ? normalizePhone(req.body.phone) : null,
+        avatar: sanitizeRemoteAvatarUrl(req.body.avatar ?? req.body.profilePhotoUrl),
         linkedIn: req.body.linkedinUrl ? String(req.body.linkedinUrl).trim() : null,
         skills: Array.isArray(req.body.skills) ? req.body.skills.filter(Boolean).slice(0, 10) : [],
         experience: Number(req.body.experience),
@@ -755,6 +776,10 @@ export const addCandidateController = {
           ? req.body.cvWorkExperienceEntries
           : undefined,
         cvPortfolioLinks: Array.isArray(req.body.cvPortfolioLinks) ? req.body.cvPortfolioLinks : undefined,
+        extraData:
+          req.body.extraData && typeof req.body.extraData === 'object' && !Array.isArray(req.body.extraData)
+            ? req.body.extraData
+            : undefined,
         preferredLocation: req.body.preferredLocation || null,
         // Only touch `resume` when the client sent the key. `resume: null` from
         // `undefined || null` was wiping stored resumes on update and forcing
@@ -946,6 +971,18 @@ export const addCandidateController = {
       }
 
       const filePath = file.path;
+
+      const stage1 = validateCvUploadFile(file);
+      if (!stage1.ok) {
+        if (filePath && fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+        return res.status(400).json({
+          success: false,
+          message: stage1.message,
+        });
+      }
+
       try {
         const normalizedData = await processCandidateCv(file, {
           candidateId: req.body?.candidateId || req.user?.id || null,
@@ -1002,6 +1039,7 @@ export const addCandidateController = {
             isMockData: false,
             parseError: parseError.message,
             tempFilePath: filePath,
+            profilePhotoUrl: null,
           },
         });
       } finally {
@@ -1013,6 +1051,174 @@ export const addCandidateController = {
       return res.status(500).json({
         success: false,
         message: error.message,
+      });
+    }
+  },
+
+  /**
+   * Bulk CV only: run regex/stages 1–4, optional duplicate gate (Socket.IO), then AI + normalize.
+   * Does not persist the candidate — client calls `/candidates/create` with returned `data`.
+   */
+  async bulkCvProcessFile(req, res) {
+    const file = req.file;
+    const filePath = file?.path;
+    const sessionId = String(req.body?.sessionId || '').trim();
+    const fileIndex = Number(req.body?.fileIndex);
+    const userId = req.user?.id;
+
+    const safeUnlink = () => {
+      if (filePath && fs.existsSync(filePath)) {
+        try {
+          fs.unlinkSync(filePath);
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+
+    try {
+      if (!file) {
+        return res.status(400).json({ success: false, message: 'Resume file is required' });
+      }
+      if (!sessionId) {
+        safeUnlink();
+        return res.status(400).json({ success: false, message: 'sessionId is required for bulk CV duplicate handling' });
+      }
+      if (!Number.isFinite(fileIndex) || fileIndex < 0) {
+        safeUnlink();
+        return res.status(400).json({ success: false, message: 'fileIndex is required (0-based)' });
+      }
+
+      const allowedMimeTypes = [
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'text/plain',
+      ];
+      if (!allowedMimeTypes.includes(file.mimetype)) {
+        safeUnlink();
+        return res.status(400).json({
+          success: false,
+          message: 'Only PDF, DOC, and DOCX files are allowed',
+        });
+      }
+
+      const stage1 = validateCvUploadFile(file);
+      if (!stage1.ok) {
+        safeUnlink();
+        return res.status(400).json({ success: false, message: stage1.message });
+      }
+
+      const stage4 = await runCvPipelineThroughStage4(file);
+      const fb = stage4.fallbackData || {};
+      const dup = await findExistingCandidateDuplicate({
+        email: fb.email,
+        firstName: fb.firstName,
+        lastName: fb.lastName,
+      });
+
+      let identityPatch = null;
+      let duplicateResolution = null;
+
+      if (dup) {
+        const io = getBulkCvIo();
+        if (!io) {
+          console.error('[bulk-cv] Socket.IO not initialized');
+          safeUnlink();
+          return res.status(503).json({
+            success: false,
+            message: 'Bulk duplicate resolution unavailable (real-time). Restart the API server.',
+          });
+        }
+
+        const existing = dup.candidate;
+        const decisionPromise = waitBulkCvDuplicateDecision(userId, sessionId, fileIndex);
+        emitBulkCvDuplicateFound(userId, sessionId, {
+          fileIndex,
+          fileName: file.originalname || file.filename || 'resume',
+          newCandidate: {
+            firstName: fb.firstName || '',
+            lastName: fb.lastName || '',
+            email: fb.email || '',
+          },
+          existingCandidate: {
+            id: existing.id,
+            firstName: existing.firstName,
+            lastName: existing.lastName,
+            email: existing.email,
+            designation: existing.designation || existing.currentTitle || null,
+            createdAt: existing.createdAt,
+          },
+          match: dup.match,
+        });
+
+        const decisionRaw = await decisionPromise;
+        const decision = String(decisionRaw || 'cancel').trim();
+        console.log('[bulk-cv] user decision', { file: file.originalname, fileIndex, decision });
+
+        if (decision === 'cancel') {
+          safeUnlink();
+          return res.status(200).json({
+            success: true,
+            message: 'duplicate_skipped',
+            data: {
+              skipped: true,
+              reason: 'duplicate_cancelled',
+              fileIndex,
+            },
+          });
+        }
+
+        if (decision === 'replace') {
+          console.log('[bulk-cv] REPLACE: hard-deleting existing candidate', existing.id);
+          await hardDeleteCandidateById(existing.id);
+          duplicateResolution = 'replaced';
+        } else if (decision === 'create_anyway') {
+          const newLast = await nextCopyLastNameForBulk(fb.firstName, fb.lastName);
+          identityPatch = { lastName: newLast };
+          if (dup.match === 'email') {
+            identityPatch.email = await nextUniqueEmailVariant(fb.email);
+          }
+          duplicateResolution = 'create_anyway';
+        } else {
+          console.warn('[bulk-cv] unknown decision, treating as cancel', decision);
+          safeUnlink();
+          return res.status(200).json({
+            success: true,
+            message: 'duplicate_skipped',
+            data: {
+              skipped: true,
+              reason: 'duplicate_cancelled',
+              fileIndex,
+            },
+          });
+        }
+      }
+
+      const normalizedData = await finalizeCvPipelineFromStage5(
+        file,
+        req.body?.candidateId || userId,
+        stage4,
+        identityPatch
+      );
+
+      safeUnlink();
+
+      return res.status(200).json({
+        success: true,
+        message: 'ok',
+        data: {
+          normalized: normalizedData,
+          duplicateResolution,
+          fileIndex,
+        },
+      });
+    } catch (error) {
+      console.error('[bulk-cv] bulkCvProcessFile failed:', error?.message || error);
+      safeUnlink();
+      return res.status(500).json({
+        success: false,
+        message: error.message || 'Bulk CV processing failed',
       });
     }
   },

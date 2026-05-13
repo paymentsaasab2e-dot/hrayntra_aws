@@ -116,6 +116,51 @@ export const clientController = {
     }
   },
 
+  // ── Recycle Bin ──────────────────────────────────────────────────────────
+  async listTrash(req, res) {
+    try {
+      const result = await clientService.listTrash(req);
+      sendResponse(res, 200, 'Deleted clients retrieved successfully', result);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
+  async restore(req, res) {
+    try {
+      const result = await clientService.restore(req.params.id, req.user?.id, req);
+      sendResponse(res, 200, result.message);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
+  async bulkPurge(req, res) {
+    try {
+      const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+      if (!ids.length) {
+        return sendError(res, 400, 'At least one client id is required');
+      }
+      const result = await clientService.bulkPurge(ids, req.user?.id, req);
+      const message =
+        result.failed === 0
+          ? `${result.success} client${result.success === 1 ? '' : 's'} permanently deleted`
+          : `${result.success} permanently deleted, ${result.failed} failed`;
+      sendResponse(res, 200, message, result);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
+  async purge(req, res) {
+    try {
+      const result = await clientService.purge(req.params.id, req.user?.id, req);
+      sendResponse(res, 200, result.message);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
   async getActivities(req, res) {
     try {
       const { clientId } = req.params;

@@ -8,6 +8,11 @@ const router = express.Router();
 router.use(authMiddleware);
 
 router.get('/stats', requireAnyPermission(['candidates_read', 'view_all_candidates', 'view_assigned_candidates']), candidateController.getStats);
+// Recycle Bin endpoints — registered BEFORE the `/:id` routes so '/trash' isn't read as an id.
+router.get('/trash', requireAnyPermission(['candidates_read', 'candidates_delete', 'view_all_candidates']), candidateController.listTrash);
+router.post('/trash/bulk-purge', requireAnyPermission(['candidates_delete', 'delete_candidate']), candidateController.bulkPurge);
+router.post('/:id/restore', requireAnyPermission(['candidates_update', 'edit_candidate', 'candidates_create', 'add_candidate']), candidateController.restore);
+router.delete('/:id/purge', requireAnyPermission(['candidates_delete', 'delete_candidate']), candidateController.purge);
 router.get('/', requireAnyPermission(['candidates_read', 'view_all_candidates', 'view_assigned_candidates']), candidateController.getAll);
 router.post('/:id/notes', requireAnyPermission(['candidates_update', 'edit_candidate']), candidateController.addNote);
 router.patch('/:id/notes/:noteId', requireAnyPermission(['candidates_update', 'edit_candidate']), candidateController.updateNote);

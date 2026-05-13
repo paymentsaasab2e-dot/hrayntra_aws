@@ -917,7 +917,7 @@ export function ClientDetailsDrawer({
 
   const startOverviewEdit = async () => {
     if (!client) return;
-
+    
     // Fetch full client data AND latest contacts in parallel so the edit form
     // is always seeded with the freshest values. Reading `primaryClientContact`
     // straight from state can return stale/empty values if contacts haven't
@@ -929,8 +929,8 @@ export function ClientDetailsDrawer({
     try {
       const [clientRes, contactsRes] = await Promise.all([
         apiFetch<BackendClient>(`/clients/${client.id}`, {
-          method: 'GET',
-          auth: true,
+        method: 'GET',
+        auth: true,
         }),
         apiGetContacts({ clientId: client.id, type: 'CLIENT' }).catch((error) => {
           console.error('Failed to fetch contacts for edit form:', error);
@@ -954,7 +954,7 @@ export function ClientDetailsDrawer({
         }
       }
     }
-
+    
     // Push fresh contacts into state so view mode and Contacts tab stay in sync.
     if (fetchedContacts.length) {
       setClientContacts(fetchedContacts.map(mapBackendContactToClientContact));
@@ -975,14 +975,14 @@ export function ClientDetailsDrawer({
     const directorNameValue = fetchedPrimaryName || primaryClientContact?.name || '';
     const contactEmailValue = fetchedPrimaryEmail || primaryClientContactEmail;
     const contactPhoneValue = fetchedPrimaryPhone || primaryClientContactPhone;
-
+    
     const statusMap: Record<string, 'ACTIVE' | 'ON_HOLD' | 'INACTIVE'> = {
       'Active': 'ACTIVE',
       'On Hold': 'ON_HOLD',
       'Inactive': 'INACTIVE',
       'Hot Clients ðŸ”¥': 'ACTIVE',
     };
-
+    
     let clientStage = client.stage;
     if (fetchedClient) {
       const reverseStatusMap: Record<string, Client['stage']> = {
@@ -993,7 +993,7 @@ export function ClientDetailsDrawer({
       };
       clientStage = reverseStatusMap[fetchedClient.status] || 'Active';
     }
-
+    
     setOverviewEditForm({
       companyName: fetchedClient?.companyName || client.name || '',
       logo: fetchedClient?.logo || client.logo || '',
@@ -1606,16 +1606,16 @@ export function ClientDetailsDrawer({
   const primaryTabs = useMemo(() => {
     void orgRecruitmentUiVersion;
     const all = [
-      { id: 'overview' as const, label: 'Overview', icon: LayoutGrid },
-      { id: 'contacts' as const, label: 'Contacts', icon: Users },
-      { id: 'jobs' as const, label: 'Jobs', icon: Briefcase },
-      { id: 'placements' as const, label: 'Placements', icon: Award },
-      { id: 'billing' as const, label: 'Billing', icon: CreditCard },
-      { id: 'activity' as const, label: 'Activity', icon: Activity },
-      { id: 'schedule' as const, label: 'Schedule', icon: CalendarPlus },
-      { id: 'notes' as const, label: 'Notes', icon: StickyNote },
-      { id: 'files' as const, label: 'Files', icon: Paperclip },
-    ];
+    { id: 'overview' as const, label: 'Overview', icon: LayoutGrid },
+    { id: 'contacts' as const, label: 'Contacts', icon: Users },
+    { id: 'jobs' as const, label: 'Jobs', icon: Briefcase },
+    { id: 'placements' as const, label: 'Placements', icon: Award },
+    { id: 'billing' as const, label: 'Billing', icon: CreditCard },
+    { id: 'activity' as const, label: 'Activity', icon: Activity },
+    { id: 'schedule' as const, label: 'Schedule', icon: CalendarPlus },
+    { id: 'notes' as const, label: 'Notes', icon: StickyNote },
+    { id: 'files' as const, label: 'Files', icon: Paperclip },
+  ];
     return isOrgBillingNavEnabled() ? all : all.filter((t) => t.id !== 'billing');
   }, [orgRecruitmentUiVersion]);
 

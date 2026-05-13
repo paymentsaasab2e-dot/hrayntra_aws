@@ -29,7 +29,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { DndProvider, useDrag, useDrop, DragSourceMonitor, DropTargetMonitor } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { useRouter } from "next/navigation";
-import { ImageWithFallback } from "../../components/ImageWithFallback";
+import { ImageWithFallback, initialsFromDisplayName } from "../../components/ImageWithFallback";
 import { formatDateDMY } from "../../utils/dateDisplay";
 import AddCandidateDrawer from "../../components/candidates/AddCandidateDrawer";
 import { usePageAutoRefresh } from "../../hooks/usePageAutoRefresh";
@@ -300,7 +300,7 @@ const CandidateCard = ({
       <div className="flex justify-between items-start mb-3">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full overflow-hidden border border-slate-100 ring-2 ring-white">
-            <ImageWithFallback src={candidate.avatar} alt={candidate.name} className="w-full h-full object-cover" />
+            <ImageWithFallback src={candidate.avatar || ''} fallbackInitials={initialsFromDisplayName(candidate.name)} alt={candidate.name} className="w-full h-full object-cover" />
           </div>
           <div>
             <h4 className="font-semibold text-sm text-slate-900 leading-tight group-hover:text-blue-600 transition-colors">{candidate.name}</h4>
@@ -817,7 +817,7 @@ export default function App() {
                           <td className="py-4 px-4">
                             <div className="flex items-center gap-3">
                               <div className="w-9 h-9 rounded-full overflow-hidden border border-slate-100">
-                                <ImageWithFallback src={candidate.avatar} alt={candidate.name} className="w-full h-full object-cover" />
+                                <ImageWithFallback src={candidate.avatar || ''} fallbackInitials={initialsFromDisplayName(candidate.name)} alt={candidate.name} className="w-full h-full object-cover" />
                               </div>
                               <div>
                                 <p className="font-semibold text-sm text-slate-900 group-hover:text-blue-600 transition-colors">{candidate.name}</p>

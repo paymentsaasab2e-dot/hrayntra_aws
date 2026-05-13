@@ -53,7 +53,8 @@ import {
   User,
   LogOut,
   Repeat,
-  DollarSign
+  DollarSign,
+  Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -1136,6 +1137,20 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
           {/* Billing - show if Super Admin or has access_billing */}
           {(mounted && billingNavEnabled && (showAll || hasPermission('access_billing'))) && (
             <NavItem icon={CreditCard} label="Billing" href="/billing" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="amber" />
+          )}
+
+          {/* Recycle Bin — soft-deleted leads / clients / candidates / jobs land here.
+              Visible to anyone with delete permission on at least one of those modules so the
+              menu surfaces alongside the relevant deletion actions. */}
+          {(mounted && (showAll || hasAnyPermission([
+            'leads_delete',
+            'clients_delete',
+            'candidates_delete',
+            'delete_candidate',
+            'jobs_delete',
+            'delete_job',
+          ]))) && (
+            <NavItem icon={Trash2} label="Recycle Bin" href="/recycle-bin" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="slate" />
           )}
 
           <div className="h-4" />

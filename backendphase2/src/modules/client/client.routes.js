@@ -11,6 +11,11 @@ router.use(authMiddleware);
 
 router.get('/', requireAnyPermission(['clients_read']), clientController.getAll);
 router.get('/metrics', requireAnyPermission(['clients_read']), clientController.getMetrics);
+// Recycle Bin endpoints — registered BEFORE the `/:id` routes so '/trash' isn't read as an id.
+router.get('/trash', requireAnyPermission(['clients_read', 'clients_delete']), clientController.listTrash);
+router.post('/trash/bulk-purge', requireAnyPermission(['clients_delete']), clientController.bulkPurge);
+router.post('/:id/restore', requireAnyPermission(['clients_update', 'clients_create']), clientController.restore);
+router.delete('/:id/purge', requireAnyPermission(['clients_delete']), clientController.purge);
 router.post('/import/preview', requireAnyPermission(['clients_create']), importUpload.single('file'), clientController.previewImport);
 router.post('/import', requireAnyPermission(['clients_create']), clientController.importClients);
 router.get('/:id', requireAnyPermission(['clients_read']), clientController.getById);

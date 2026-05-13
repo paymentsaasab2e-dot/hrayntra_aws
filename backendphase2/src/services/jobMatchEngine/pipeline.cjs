@@ -14,6 +14,15 @@ const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   : null;
 
+function hasAnyMatchLlm() {
+  return Boolean(openai || process.env.MISTRAL_API_KEY);
+}
+
+async function jobMatchChatCompletion(body, logLabel = 'job-match') {
+  const { chatCompletionWithFallback } = await import('../llmChatFallback.service.js');
+  return chatCompletionWithFallback(body, logLabel);
+}
+
 const AI_CACHE = {
   skills: new Map(),
   roles: new Map(),
@@ -533,10 +542,10 @@ async function extractSkillsWithOpenAI(input) {
       ].filter(Boolean).join(' ');
   const cacheKey = `skills:${typeof input === 'object' && input?.id ? input.id : text.slice(0, 200)}`;
   if (AI_CACHE.skills.has(cacheKey)) return AI_CACHE.skills.get(cacheKey);
-  if (!openai) return cleanAndExtractSkills(text);
+  if (!hasAnyMatchLlm()) return cleanAndExtractSkills(text);
 
   try {
-    const completion = await openai.chat.completions.create({
+    const completion = await jobMatchChatCompletion({
       model: 'gpt-4o-mini',
       temperature: 0.1,
       response_format: { type: 'json_object' },
@@ -565,10 +574,10 @@ async function extractSkillsWithOpenAI(input) {
 async function inferRolesWithOpenAI(candidateSummary, job) {
   const cacheKey = `${candidateSummary.id}:${job.id}:roles`;
   if (AI_CACHE.roles.has(cacheKey)) return AI_CACHE.roles.get(cacheKey);
-  if (!openai) return null;
+  if (!hasAnyMatchLlm()) return null;
 
   try {
-    const completion = await openai.chat.completions.create({
+    const completion = await jobMatchChatCompletion({
       model: 'gpt-4o-mini',
       temperature: 0.1,
       response_format: { type: 'json_object' },
@@ -611,10 +620,10 @@ async function inferRolesWithOpenAI(candidateSummary, job) {
 async function getSemanticBoostWithOpenAI(candidateSummaryText, job, deterministicScore) {
   const cacheKey = `${job.id}:${deterministicScore}:${candidateSummaryText.slice(0, 100)}`;
   if (AI_CACHE.semantic.has(cacheKey)) return AI_CACHE.semantic.get(cacheKey);
-  if (!openai) return 0;
+  if (!hasAnyMatchLlm()) return 0;
 
   try {
-    const completion = await openai.chat.completions.create({
+    const completion = await jobMatchChatCompletion({
       model: 'gpt-4o-mini',
       temperature: 0.1,
       response_format: { type: 'json_object' },
@@ -653,7 +662,7 @@ async function getSemanticBoostWithOpenAI(candidateSummaryText, job, determinist
 async function getSemanticScoreWithOpenAI(candidate, job) {
   const cacheKey = `semantic:${candidate.id || 'candidate'}:${job.id}`;
   if (AI_CACHE.semantic.has(cacheKey)) return AI_CACHE.semantic.get(cacheKey);
-  if (!openai) {
+  if (!hasAnyMatchLlm()) {
     return {
       score: 0,
       matchedSkills: [],
@@ -662,7 +671,7 @@ async function getSemanticScoreWithOpenAI(candidate, job) {
   }
 
   try {
-    const completion = await openai.chat.completions.create({
+    const completion = await jobMatchChatCompletion({
       model: 'gpt-4o-mini',
       temperature: 0.1,
       response_format: { type: 'json_object' },
@@ -710,9 +719,9 @@ async function getSemanticScoreWithOpenAI(candidate, job) {
 async function getAIMatchScore(candidate, job) {
   const cacheKey = `aimatch:${candidate?.id || 'candidate'}:${job?.id || 'job'}`;
   if (AI_CACHE.aiMatch.has(cacheKey)) return AI_CACHE.aiMatch.get(cacheKey);
-  if (!openai) return null;
+  if (!hasAnyMatchLlm()) return null;
 
-  const response = await openai.chat.completions.create({
+  const response = await jobMatchChatCompletion({
     model: 'gpt-4o-mini',
     temperature: 0.2,
     response_format: { type: 'json_object' },
@@ -769,7 +778,7 @@ async function getFullAiMatchWithOpenAI(candidateSummaryText, job, deterministic
     return AI_CACHE.aiMatch.get(cacheKey);
   }
   console.log(`[AI CACHE] MISS ${cacheKey}`);
-  if (!openai) {
+  if (!hasAnyMatchLlm()) {
     return {
       aiScore: 0,
       matchedSkills: [],
@@ -779,7 +788,7 @@ async function getFullAiMatchWithOpenAI(candidateSummaryText, job, deterministic
   }
 
   try {
-    const completion = await openai.chat.completions.create({
+    const completion = await jobMatchChatCompletion({
       model: 'gpt-4o-mini',
       temperature: 0.1,
       response_format: { type: 'json_object' },
@@ -885,14 +894,14 @@ OUTPUT STRICT JSON ONLY:
 async function generateExplanationWithOpenAI(candidateSummaryText, job, scoringResult) {
   const cacheKey = `${job.id}:${scoringResult.finalScore}:${scoringResult.matchedSkills.join('|')}:${scoringResult.missingSkills.join('|')}`;
   if (AI_CACHE.explanation.has(cacheKey)) return AI_CACHE.explanation.get(cacheKey);
-  if (!openai) {
+  if (!hasAnyMatchLlm()) {
     const fallback = `Matched on ${scoringResult.matchedSkills.slice(0, 5).join(', ') || 'core profile alignment'}. Improve with ${scoringResult.missingSkills.slice(0, 3).join(', ') || 'clearer job-specific evidence'}.`;
     AI_CACHE.explanation.set(cacheKey, fallback);
     return fallback;
   }
 
   try {
-    const completion = await openai.chat.completions.create({
+    const completion = await jobMatchChatCompletion({
       model: 'gpt-4o-mini',
       temperature: 0.2,
       messages: [

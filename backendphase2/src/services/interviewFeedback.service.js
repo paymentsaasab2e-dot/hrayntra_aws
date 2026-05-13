@@ -1,10 +1,8 @@
-import OpenAI from 'openai';
 import { prisma } from '../config/prisma.js';
 import { env } from '../config/env.js';
 import { INTERVIEW_ACTIVITY_ACTIONS, logActivity } from '../utils/activityLogger.js';
 import { updateCandidateStage, PIPELINE_STAGES } from '../modules/stage/candidateStage.service.js';
-
-const openai = env.OPENAI_API_KEY ? new OpenAI({ apiKey: env.OPENAI_API_KEY }) : null;
+import { chatCompletionWithFallback, hasLlmProvider } from './llmChatFallback.service.js';
 
 const averageScore = (payload) =>
   Number(
@@ -140,23 +138,30 @@ export const interviewFeedbackService = {
 
     let summary = fallbackSummary;
 
-    if (openai) {
-      const response = await openai.chat.completions.create({
-        model: 'gpt-4o',
-        messages: [
+    if (hasLlmProvider()) {
+      try {
+        const response = await chatCompletionWithFallback(
           {
-            role: 'user',
-            content: `Summarize this interview feedback for ${feedback.interview.candidate.firstName} ${feedback.interview.candidate.lastName} applying for ${feedback.interview.job.title}.
+            model: env.OPENAI_ASSISTANT_MODEL || 'gpt-4o-mini',
+            messages: [
+              {
+                role: 'user',
+                content: `Summarize this interview feedback for ${feedback.interview.candidate.firstName} ${feedback.interview.candidate.lastName} applying for ${feedback.interview.job.title}.
 Scores: Technical: ${feedback.technicalScore}, Communication: ${feedback.communicationScore}, Problem Solving: ${feedback.problemSolvingScore}, Culture Fit: ${feedback.cultureFitScore}, Experience Match: ${feedback.experienceMatchScore}.
 Strengths: ${feedback.strengths || 'N/A'}.
 Weaknesses: ${feedback.weakness || 'N/A'}.
 Comments: ${feedback.comments || 'N/A'}.
 Provide a 3-4 sentence professional summary and final hiring recommendation.`,
+              },
+            ],
           },
-        ],
-      });
+          'interview-feedback-summary'
+        );
 
-      summary = response.choices?.[0]?.message?.content?.trim() || fallbackSummary;
+        summary = response.choices?.[0]?.message?.content?.trim() || fallbackSummary;
+      } catch (_err) {
+        summary = fallbackSummary;
+      }
     }
 
     await prisma.interviewFeedback.update({

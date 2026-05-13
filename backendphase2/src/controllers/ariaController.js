@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { v4 as uuidv4 } from 'uuid';
 import { PrismaClient } from '@prisma/client';
 import { ariaLeadsSystemPrompt } from '../ai/prompts/ariaLeadsSystemPrompt.js';
@@ -24,9 +23,9 @@ import {
 } from '../services/ariaService.js';
 import { parseLeadCSV } from '../utils/csvParser.js';
 import { parseLeadFromText } from '../utils/ariaAdvancedParser.js';
+import { chatCompletionWithFallback, hasLlmProvider } from '../services/llmChatFallback.service.js';
 
 const prisma = new PrismaClient();
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 function safeJsonParse(text) {
   if (!text) return null;
@@ -44,17 +43,23 @@ function safeJsonParse(text) {
 }
 
 async function callOpenAI(systemPrompt, userMessage, retries = 2) {
+  if (!hasLlmProvider()) {
+    throw new Error('No LLM configured: set OPENAI_API_KEY and/or MISTRAL_API_KEY');
+  }
   for (let i = 0; i <= retries; i += 1) {
     try {
-      const res = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userMessage },
-        ],
-        max_tokens: 2000,
-        temperature: 0.2,
-      });
+      const res = await chatCompletionWithFallback(
+        {
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userMessage },
+          ],
+          max_tokens: 2000,
+          temperature: 0.2,
+        },
+        'aria-leads'
+      );
       const parsed = safeJsonParse(res.choices?.[0]?.message?.content || '');
       if (parsed) return parsed;
     } catch (error) {

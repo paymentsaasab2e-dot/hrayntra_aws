@@ -218,6 +218,51 @@ export const leadController = {
     }
   },
 
+  // ── Recycle Bin ──────────────────────────────────────────────────────────
+  async listTrash(req, res) {
+    try {
+      const result = await leadService.listTrash(req);
+      sendResponse(res, 200, 'Deleted leads retrieved successfully', result);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
+  async restore(req, res) {
+    try {
+      const result = await leadService.restore(req.params.id, req.user.id, req);
+      sendResponse(res, 200, result.message);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
+  async bulkPurge(req, res) {
+    try {
+      const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+      if (!ids.length) {
+        return sendError(res, 400, 'At least one lead id is required');
+      }
+      const result = await leadService.bulkPurge(ids, req.user?.id, req);
+      const message =
+        result.failed === 0
+          ? `${result.success} lead${result.success === 1 ? '' : 's'} permanently deleted`
+          : `${result.success} permanently deleted, ${result.failed} failed`;
+      sendResponse(res, 200, message, result);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
+  async purge(req, res) {
+    try {
+      const result = await leadService.purge(req.params.id, req.user.id, req);
+      sendResponse(res, 200, result.message);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
   async getActivities(req, res) {
     try {
       const activities = await leadService.getActivities(req.params.id);

@@ -64,6 +64,51 @@ export const jobController = {
     }
   },
 
+  // ── Recycle Bin ──────────────────────────────────────────────────────────
+  async listTrash(req, res) {
+    try {
+      const result = await jobService.listTrash(req);
+      sendResponse(res, 200, 'Deleted jobs retrieved successfully', result);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
+  async restore(req, res) {
+    try {
+      const result = await jobService.restore(req.params.id, req.user?.id);
+      sendResponse(res, 200, result.message);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
+  async bulkPurge(req, res) {
+    try {
+      const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+      if (!ids.length) {
+        return sendError(res, 400, 'At least one job id is required');
+      }
+      const result = await jobService.bulkPurge(ids, req.user?.id);
+      const message =
+        result.failed === 0
+          ? `${result.success} job${result.success === 1 ? '' : 's'} permanently deleted`
+          : `${result.success} permanently deleted, ${result.failed} failed`;
+      sendResponse(res, 200, message, result);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
+  async purge(req, res) {
+    try {
+      const result = await jobService.purge(req.params.id, req.user?.id);
+      sendResponse(res, 200, result.message);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
   async getMetrics(req, res) {
     try {
       const metrics = await jobService.getMetrics(req);
