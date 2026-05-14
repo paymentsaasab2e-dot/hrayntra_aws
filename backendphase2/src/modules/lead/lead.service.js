@@ -643,7 +643,11 @@ export const leadService = {
       const url = String(f.fileUrl || '').trim();
       const name = String(f.fileName || '');
       if (!/^https?:\/\//i.test(url)) continue;
-      if (imgExt.test(name) || /\/image\/upload|res\.cloudinary\.com[^/]*\/image\//i.test(url)) {
+      if (
+        imgExt.test(name) ||
+        /\/image\/upload|res\.cloudinary\.com[^/]*\/image\//i.test(url) ||
+        /\.s3[.-][^/]*amazonaws\.com\/.+\.(png|jpe?g|gif|webp)($|[?#])/i.test(url)
+      ) {
         return url;
       }
     }

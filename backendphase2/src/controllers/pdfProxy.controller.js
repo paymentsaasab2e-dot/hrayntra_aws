@@ -1,51 +1,8 @@
-import { v2 as cloudinary } from 'cloudinary';
-import { env } from '../config/env.js';
-
-cloudinary.config({
-  cloud_name: env.CLOUDINARY_CLOUD_NAME,
-  api_key: env.CLOUDINARY_API_KEY,
-  api_secret: env.CLOUDINARY_API_SECRET,
-  secure: true,
-});
+import { getS3ObjectBodyBuffer, isOurS3PdfUrl, parseOurS3Url } from '../utils/s3.js';
 
 const PDF_MAGIC = Buffer.from('%PDF', 'ascii');
 
-/**
- * Parse res.cloudinary.com/{cloud}/(raw|image)/upload/(v{n}/)?{public_id}
- */
-function parseCloudinaryDeliveryUrl(urlString) {
-  try {
-    const u = new URL(urlString);
-    if (u.hostname !== 'res.cloudinary.com') return null;
-
-    const pathname = u.pathname;
-    const withVersion = pathname.match(/^\/([^/]+)\/(raw|image)\/upload\/(v\d+)\/(.+)$/);
-    if (withVersion) {
-      const version = parseInt(withVersion[3].replace(/^v/, ''), 10);
-      return {
-        cloudName: withVersion[1],
-        resourceType: withVersion[2],
-        version: Number.isFinite(version) ? version : undefined,
-        publicId: decodeURIComponent(withVersion[4]),
-      };
-    }
-
-    const noVersion = pathname.match(/^\/([^/]+)\/(raw|image)\/upload\/(.+)$/);
-    if (noVersion) {
-      return {
-        cloudName: noVersion[1],
-        resourceType: noVersion[2],
-        publicId: decodeURIComponent(noVersion[3]),
-      };
-    }
-
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function isAllowedPdfUrl(urlString) {
+function isAllowedCloudinaryPdfUrl(urlString) {
   try {
     const u = new URL(urlString);
     if (u.protocol !== 'https:') return false;
@@ -58,9 +15,12 @@ function isAllowedPdfUrl(urlString) {
   }
 }
 
+function isAllowedPdfUrl(urlString) {
+  return isOurS3PdfUrl(urlString) || isAllowedCloudinaryPdfUrl(urlString);
+}
+
 /**
- * Same-origin PDF proxy for the frontend: signed Cloudinary URL + stream bytes.
- * Fixes 401 on unsigned delivery and iframe cross-origin PDF viewer issues.
+ * Same-origin PDF proxy: S3 URLs (this bucket) or legacy public Cloudinary PDF URLs.
  */
 export async function getPdfProxy(req, res) {
   const raw = req.query.url;
@@ -79,47 +39,40 @@ export async function getPdfProxy(req, res) {
     return res.status(403).send('Forbidden');
   }
 
-  const parsed = parseCloudinaryDeliveryUrl(decoded);
-  if (!parsed) {
-    return res.status(400).send('Invalid Cloudinary URL');
+  let buf;
+
+  if (isOurS3PdfUrl(decoded)) {
+    const parsed = parseOurS3Url(decoded);
+    if (!parsed) {
+      return res.status(400).send('Invalid S3 URL');
+    }
+    try {
+      const upstream = await fetch(decoded, {
+        redirect: 'follow',
+        headers: { Accept: 'application/pdf,*/*' },
+      });
+      if (upstream.ok) {
+        buf = Buffer.from(await upstream.arrayBuffer());
+      } else {
+        buf = await getS3ObjectBodyBuffer(parsed.key);
+      }
+    } catch {
+      try {
+        buf = await getS3ObjectBodyBuffer(parsed.key);
+      } catch (e2) {
+        return res.status(502).send(`S3 fetch failed: ${e2?.message || e2}`);
+      }
+    }
+  } else {
+    const upstream = await fetch(decoded, {
+      redirect: 'follow',
+      headers: { Accept: 'application/pdf,*/*' },
+    });
+    if (!upstream.ok) {
+      return res.status(502).send(`Upstream error: ${upstream.status}`);
+    }
+    buf = Buffer.from(await upstream.arrayBuffer());
   }
-  if (!env.CLOUDINARY_CLOUD_NAME || parsed.cloudName !== env.CLOUDINARY_CLOUD_NAME) {
-    return res.status(403).send('Forbidden');
-  }
-
-  if (!env.CLOUDINARY_API_SECRET || !env.CLOUDINARY_API_KEY) {
-    return res.status(503).send('Cloudinary not configured on server');
-  }
-
-  const opts = {
-    resource_type: parsed.resourceType,
-    secure: true,
-    sign_url: true,
-  };
-  if (parsed.version != null) {
-    opts.version = parsed.version;
-  }
-
-  let signedUrl;
-  try {
-    signedUrl = cloudinary.url(parsed.publicId, opts);
-  } catch (e) {
-    return res.status(500).send(`Sign error: ${e.message}`);
-  }
-
-  const headers = { Accept: 'application/pdf,*/*' };
-
-  let upstream = await fetch(signedUrl, { redirect: 'follow', headers });
-
-  if (!upstream.ok) {
-    upstream = await fetch(decoded, { redirect: 'follow', headers });
-  }
-
-  if (!upstream.ok) {
-    return res.status(502).send(`Upstream error: ${upstream.status}`);
-  }
-
-  const buf = Buffer.from(await upstream.arrayBuffer());
 
   if (buf.length < 4 || !buf.subarray(0, 4).equals(PDF_MAGIC)) {
     return res.status(502).send('Not a valid PDF');

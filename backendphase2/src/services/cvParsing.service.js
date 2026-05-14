@@ -3,7 +3,8 @@ import path from 'path';
 import { pathToFileURL, fileURLToPath } from 'url';
 import { createRequire } from 'module';
 import { env } from '../config/env.js';
-import { uploadBufferToCloudinary, cloudinaryResourceTypeForFile } from '../utils/cloudinary.js';
+import { getActiveTenantDbName } from '../config/prisma.js';
+import { uploadBufferToCloudinary, uploadContentTypeForFile } from '../utils/s3.js';
 import {
   chatCompletionWithFallback,
   getCvLlmCircuitSnapshot,
@@ -2006,12 +2007,20 @@ export async function runCvPipelineThroughStage4(file) {
  * Stages 5–8: uploads + AI + merge + normalize.
  * @param {Record<string, string>|null|undefined} identityPatch - merged into regex fallback before AI merge (bulk create_anyway).
  */
-export async function finalizeCvPipelineFromStage5(file, candidateId, stage4, identityPatch) {
+export async function finalizeCvPipelineFromStage5(
+  file,
+  candidateId,
+  stage4,
+  identityPatch,
+  tenantDbNameOpt
+) {
   let { displayName, buffer, extractedProfilePhoto, cleaned, fallbackData, fullName } = stage4;
   if (identityPatch && typeof identityPatch === 'object') {
     fallbackData = { ...fallbackData, ...identityPatch };
     fullName = `${String(fallbackData.firstName || '').trim()} ${String(fallbackData.lastName || '').trim()}`.trim();
   }
+  const tenantDbName =
+    String(tenantDbNameOpt || getActiveTenantDbName() || 'default').trim() || 'default';
   const tPipeline = Date.now();
 
   logStageBanner(5, 'AI Structured Extraction');
@@ -2033,8 +2042,9 @@ export async function finalizeCvPipelineFromStage5(file, candidateId, stage4, id
 
   const uploadPromise = uploadBufferToCloudinary(buffer, {
     folder: `jobportal/candidates/${candidateId || 'temp'}/resumes`,
-    resourceType: cloudinaryResourceTypeForFile(file.mimetype, displayName),
+    contentType: uploadContentTypeForFile(file.mimetype, displayName),
     originalFilename: displayName,
+    tenantDbName,
   });
 
   const profilePhotoPromise =
@@ -2043,6 +2053,7 @@ export async function finalizeCvPipelineFromStage5(file, candidateId, stage4, id
           folder: `jobportal/candidates/${candidateId || 'temp'}/profile-photos`,
           resourceType: 'image',
           originalFilename: extractedProfilePhoto.filename || 'cv-profile.png',
+          tenantDbName,
         })
       : Promise.resolve(null);
 
@@ -2218,5 +2229,6 @@ export async function finalizeCvPipelineFromStage5(file, candidateId, stage4, id
 
 export async function processCandidateCv(file, { candidateId } = {}) {
   const stage4 = await runCvPipelineThroughStage4(file);
-  return finalizeCvPipelineFromStage5(file, candidateId, stage4, null);
+  const tenantDbName = String(getActiveTenantDbName() || 'default').trim() || 'default';
+  return finalizeCvPipelineFromStage5(file, candidateId, stage4, null, tenantDbName);
 }

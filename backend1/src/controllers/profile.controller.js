@@ -1,6 +1,6 @@
 const { prisma, retryQuery } = require('../lib/prisma');
 const { getMissingProfileSections } = require('../utils/profile-completeness.util');
-const { uploadBufferToCloudinary, destroyByCloudinaryUrl } = require('../lib/cloudinary');
+const { uploadBufferToCloudinary, destroyByCloudinaryUrl } = require('../lib/s3');
 const { randomUUID } = require('crypto');
 
 async function uploadDocumentsToCloudinary(files, { candidateId, folder }) {
@@ -15,6 +15,7 @@ async function uploadDocumentsToCloudinary(files, { candidateId, folder }) {
       resourceType: 'auto',
       publicId: `${candidateId}_${timestamp}_${safeOriginal}`,
       originalFilename: file.originalname,
+      candidateId,
     });
 
     uploadedFiles.push({
@@ -4425,6 +4426,7 @@ async function uploadProfilePhoto(req, res) {
       resourceType: 'image',
       publicId: `profile_${candidateId}_${timestamp}.${fileExtension}`,
       originalFilename: file.originalname,
+      candidateId,
     });
     const fileUrl = uploadedPhoto.secure_url;
 

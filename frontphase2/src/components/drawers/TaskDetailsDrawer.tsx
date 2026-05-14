@@ -558,7 +558,7 @@ export function TaskDetailsDrawer({
         if (isLocalUploadsUrl(attachmentUrl)) {
           return buildTaskAttachmentProxyHref(`/api/v1/tasks/${task.id}/attachments/${filename}`, filename);
         }
-        if (parsed.host.includes('cloudinary.com')) {
+        if (/cloudinary\.com|amazonaws\.com/i.test(parsed.host)) {
           return cloudinaryViewableUrl(attachmentUrl);
         }
       } catch {
@@ -597,7 +597,7 @@ export function TaskDetailsDrawer({
         if (parsed.pathname.startsWith('/uploads/')) {
           return buildTaskAttachmentProxyHref(`/api/v1/tasks/${task.id}/attachments/${filename}`, filename);
         }
-        if (parsed.host.includes('cloudinary.com')) {
+        if (/cloudinary\.com|amazonaws\.com/i.test(parsed.host)) {
           return cloudinaryViewableUrl(filename);
         }
       } catch {

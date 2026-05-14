@@ -1,6 +1,5 @@
 import { filesService } from './files.service.js';
 import { sendResponse, sendError } from '../../utils/response.js';
-import { uploadBufferToCloudinary, cloudinaryResourceTypeForFile } from '../../utils/cloudinary.js';
 
 export const filesController = {
   /**
@@ -41,26 +40,10 @@ export const filesController = {
         return sendError(res, 400, 'Only entityType=job, lead, client, candidate, interview, or user is supported for upload');
       }
 
-      const subDir =
-        entityType === 'lead'
-          ? 'leads'
-          : entityType === 'client'
-            ? 'clients'
-            : entityType === 'candidate'
-              ? 'candidates'
-              : entityType === 'interview'
-                ? 'interviews'
-                : entityType === 'user'
-                  ? 'users'
-                  : 'jobs';
-      const resourceType = cloudinaryResourceTypeForFile(req.file.mimetype, req.file.originalname);
-      const upload = await uploadBufferToCloudinary(req.file.buffer, {
-        folder: `jobportal/${subDir}/${entityId}`,
-        resourceType,
-        originalFilename: req.file.originalname,
-      });
-
-      const fileUrl = upload?.secure_url || upload?.url;
+      const fileUrl = req.file.location || req.file.path;
+      if (!fileUrl) {
+        return sendError(res, 500, 'Upload did not return a file URL');
+      }
       const fileData = {
         fileName: req.file.originalname,
         fileUrl,

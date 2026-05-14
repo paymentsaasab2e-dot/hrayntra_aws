@@ -1,9 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { prisma } from '../config/prisma.js';
+import { prisma, getActiveTenantDbName } from '../config/prisma.js';
 import { env } from '../config/env.js';
-import { uploadBufferToCloudinary, cloudinaryResourceTypeForFile } from '../utils/cloudinary.js';
+import { uploadBufferToCloudinary, uploadContentTypeForFile } from '../utils/s3.js';
 import {
   processCandidateCv,
   validateCvUploadFile,
@@ -1199,7 +1199,8 @@ export const addCandidateController = {
         file,
         req.body?.candidateId || userId,
         stage4,
-        identityPatch
+        identityPatch,
+        String(req.user?.tenantDbName || req.headers['x-tenant-db-name'] || '').trim() || undefined
       );
 
       safeUnlink();
@@ -1340,10 +1341,19 @@ export const addCandidateController = {
         });
       }
 
+      const tenantDbName =
+        String(
+          req.user?.tenantDbName ||
+            req.headers['x-tenant-db-name'] ||
+            getActiveTenantDbName() ||
+            'default'
+        ).trim() || 'default';
+
       const upload = await uploadBufferToCloudinary(file.buffer, {
         folder: `jobportal/candidates/${candidateId}/resumes`,
-        resourceType: cloudinaryResourceTypeForFile(file.mimetype, file.originalname),
+        contentType: uploadContentTypeForFile(file.mimetype, file.originalname),
         originalFilename: file.originalname,
+        tenantDbName,
       });
       const resumeUrl = upload?.secure_url || upload?.url;
       const updatedCandidate = await prisma.candidate.update({

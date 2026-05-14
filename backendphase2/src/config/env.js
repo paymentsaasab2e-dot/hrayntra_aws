@@ -80,11 +80,19 @@ export const env = {
     process.env.BACKEND_PUBLIC_URL ||
     `http://localhost:${parseInt(process.env.PORT || '5001', 10)}`,
   
-  // Cloudinary
-  CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME,
-  CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY,
-  CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET,
-  
+  // AWS S3 (uploads — replaces Cloudinary)
+  AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID,
+  AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY,
+  AWS_REGION: process.env.AWS_REGION,
+  AWS_BUCKET_NAME: process.env.AWS_BUCKET_NAME,
+  /**
+   * First segment after `uploads/` (default `phase2`). Keys: uploads/{phase}/tenants/{tenant}/jobportal/…
+   * Tenant comes from JWT / x-tenant-db-name / request context — not from this env var.
+   */
+  AWS_S3_APP_FOLDER: process.env.AWS_S3_APP_FOLDER || 'phase2',
+  /** Optional object ACL (e.g. public-read); use `none` to omit (BucketOwnerEnforced + bucket policy). */
+  AWS_S3_UPLOAD_ACL: process.env.AWS_S3_UPLOAD_ACL || '',
+
   // Gemini API
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   
