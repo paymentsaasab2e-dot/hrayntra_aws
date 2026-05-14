@@ -2,7 +2,24 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, MoreVertical, Eye, Edit, Key, Lock, Unlock, Mail, UserMinus, UserPlus, X, Target, Trash2, Download } from 'lucide-react';
+import {
+  Search,
+  MoreVertical,
+  Eye,
+  Edit,
+  Key,
+  Lock,
+  Unlock,
+  Mail,
+  UserMinus,
+  UserPlus,
+  X,
+  Target,
+  Trash2,
+  Users,
+  Building2,
+  XCircle,
+} from 'lucide-react';
 import { downloadCsv, csvDateTime } from '../../../utils/csv';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -27,6 +44,14 @@ import { MemberProfileDrawer } from '../MemberProfileDrawer';
 import { usePermissions } from '../../../hooks/usePermissions';
 import { requestConfirm } from '../../../lib/appDialog';
 import PaginationAll from '../../../components/PaginationAll';
+import {
+  PH2_TABLE_CARD_CLASS,
+  PH2_TOOLBAR_ROW_CLASS,
+  PH2_TOOLBAR_SELECT_CLASS,
+  PH2_TABLE_CARD_FOOTER_CLASS,
+} from '../../../components/layout/Ph2ModulePageLayout';
+import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../../components/ui/SummaryCard';
+import { TableSkeleton } from '../../../components/ui/Skeleton';
 
 // Color mapping for role colors
 const roleColorMap: Record<string, string> = {
@@ -38,6 +63,17 @@ const roleColorMap: Record<string, string> = {
   orange: 'bg-orange-100 text-orange-700',
   gray: 'bg-gray-100 text-gray-600',
 };
+
+const TEAM_TABLE_HEAD_ROW =
+  'bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em]';
+
+const TEAM_TH = 'px-3 py-2.5 text-left first:pl-4 sm:px-4 sm:first:pl-6 sm:py-3';
+
+const TEAM_TR =
+  'transition-colors duration-200 even:bg-slate-50/35 hover:bg-indigo-50/45';
+
+const TEAM_SEARCH_INPUT_CLASS =
+  'h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30';
 
 // Debounce hook
 function useDebounce<T>(value: T, delay: number): T {
@@ -56,7 +92,20 @@ function useDebounce<T>(value: T, delay: number): T {
   return debouncedValue;
 }
 
-export const MembersTab: React.FC = () => {
+/** Live counts + actions surfaced in `/team` header (Leads-style top bar). */
+export type TeamMembersHeaderExtras = {
+  pageCount: number;
+  total: number;
+  isLoading: boolean;
+  onRefresh: () => void;
+  onExport: () => void;
+};
+
+type MembersTabProps = {
+  onHeaderExtrasChange?: (extras: TeamMembersHeaderExtras | null) => void;
+};
+
+export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) => {
   const { hasPermission } = usePermissions();
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
@@ -200,14 +249,11 @@ export const MembersTab: React.FC = () => {
 
   // Stats
   const stats = useMemo(() => {
-    const activeCount = members.filter((m) => m.status === 'ACTIVE').length;
     return {
-      total: members.length,
-      active: activeCount,
       departments: departments.length,
       roles: roles.length,
     };
-  }, [members, departments, roles]);
+  }, [departments, roles]);
 
   const memberMatchesFilters = useCallback(
     (member: TeamMember) => {
@@ -405,7 +451,7 @@ export const MembersTab: React.FC = () => {
   const openMember = useMemo(() => members.find((m) => m.id === menuOpen) || null, [members, menuOpen]);
 
   /** Export the visible (already filtered server-side + by selected filters) team members. */
-  const handleExportMembersCsv = () => {
+  const handleExportMembersCsv = useCallback(() => {
     if (members.length === 0) {
       toast.message('No team members to export with the current filters.');
       return;
@@ -430,240 +476,294 @@ export const MembersTab: React.FC = () => {
       members,
     );
     toast.success(`Exported ${members.length} team member${members.length === 1 ? '' : 's'} to CSV`);
+  }, [members]);
+
+  useEffect(() => {
+    if (!onHeaderExtrasChange) return;
+    onHeaderExtrasChange({
+      pageCount: members.length,
+      total: totalMembers,
+      isLoading,
+      onRefresh: () => {
+        void mutate();
+      },
+      onExport: handleExportMembersCsv,
+    });
+    return () => {
+      onHeaderExtrasChange(null);
+    };
+  }, [
+    onHeaderExtrasChange,
+    members.length,
+    totalMembers,
+    isLoading,
+    mutate,
+    handleExportMembersCsv,
+  ]);
+
+  const hasToolbarFilters =
+    Boolean(searchQuery.trim()) ||
+    selectedDepartment !== 'all' ||
+    selectedRole !== 'all' ||
+    selectedStatus !== 'all';
+
+  const clearToolbarFilters = () => {
+    setSearchQuery('');
+    setSelectedDepartment('all');
+    setSelectedRole('all');
+    setSelectedStatus('all');
   };
+
+  const activeOnPage = useMemo(() => members.filter((m) => m.status === 'ACTIVE').length, [members]);
 
   return (
     <div className="space-y-6">
-      {/* Filter Bar */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4">
-        <div className="flex items-start justify-between gap-3 mb-3">
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Filters</p>
-          <button
-            type="button"
-            onClick={handleExportMembersCsv}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
-            title="Export visible team members to CSV"
-          >
-            <Download size={14} className="text-slate-500" />
-            Export CSV
-          </button>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          {/* Search */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search name or email..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-            />
-          </div>
-
-          {/* Department */}
-          <select
-            value={selectedDepartment}
-            onChange={(e) => setSelectedDepartment(e.target.value)}
-            className="px-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-          >
-            <option value="all">All Departments</option>
-            {departments.map((dept) => (
-              <option key={dept.id} value={dept.id}>
-                {dept.name}
-              </option>
-            ))}
-          </select>
-
-          {/* Role */}
-          <select
-            value={selectedRole}
-            onChange={(e) => setSelectedRole(e.target.value)}
-            className="px-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-          >
-            <option value="all">All Roles</option>
-            {roles.map((role) => (
-              <option key={role.id} value={role.roleName}>
-                {role.roleName}
-              </option>
-            ))}
-          </select>
-
-          {/* Status */}
-          <select
-            value={selectedStatus}
-            onChange={(e) => setSelectedStatus(e.target.value)}
-            className="px-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-          >
-            <option value="all">All Status</option>
-            <option value="ACTIVE">Active</option>
-            <option value="INACTIVE">Inactive</option>
-          </select>
-        </div>
-      </div>
-
-      {/* Stats Row */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
-          <div className="text-sm text-slate-500 mb-1">Total Members</div>
-          <div className="text-2xl font-bold text-slate-900">{stats.total}</div>
-        </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
-          <div className="text-sm text-slate-500 mb-1">Active</div>
-          <div className="text-2xl font-bold text-green-600">{stats.active}</div>
-        </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
-          <div className="text-sm text-slate-500 mb-1">Departments</div>
-          <div className="text-2xl font-bold text-slate-900">{stats.departments}</div>
-        </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
-          <div className="text-sm text-slate-500 mb-1">Roles</div>
-          <div className="text-2xl font-bold text-slate-900">{stats.roles}</div>
-        </div>
-      </div>
-
-      {/* Members Table */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        {isLoading ? (
-          <div className="p-8 space-y-4">
-            {[...Array(5)].map((_, i) => (
-              <div key={i} className="h-16 bg-slate-100 rounded-lg animate-pulse" />
-            ))}
-          </div>
-        ) : members.length === 0 ? (
-          <div className="p-12 text-center">
-            <p className="text-slate-500 mb-4">No team members found</p>
-          </div>
+      <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4">
+        {isLoading && members.length === 0 ? (
+          (['blue', 'green', 'indigo', 'purple'] as SummaryCardColor[]).map((c, i) => <SummaryCardSkeleton key={i} color={c} />)
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-              <thead className="bg-slate-50 border-b border-slate-200">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Member</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Role</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Department</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Email</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Assigned Leads</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Credential</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {members.map((member) => {
-                  const roleColor = member.role?.color || 'gray';
-                  const roleName = member.role?.roleName || 'No Role';
-                  
-                  return (
-                    <tr key={member.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className={`size-10 rounded-full flex items-center justify-center font-semibold text-sm ${getRoleColorClass(roleColor)}`}>
-                            {getInitials(member.firstName, member.lastName)}
-                          </div>
-                          <div>
-                            <div className="font-medium text-slate-900">
-                              {member.firstName} {member.lastName}
-                            </div>
-                            {member.designation && (
-                              <div className="text-xs text-slate-500">{member.designation}</div>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${getRoleColorClass(roleColor)}`}>
-                          {roleName}
-                        </span>
-                      </td>
-                    <td className="px-6 py-4 text-sm text-slate-600">
-                      {member.department?.name || '—'}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-600">
-                      <div className="max-w-[200px] truncate" title={member.email}>
-                        {member.email}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-700">
-                        <Target size={12} />
-                        {member._count?.assignedLeads || 0}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      {getCredentialBadge(member)}
-                    </td>
-                    <td className="px-6 py-4">
-                      {member.status === 'ACTIVE' ? (
-                        <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-green-100 text-green-700">Active</span>
-                      ) : (
-                        <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-gray-100 text-gray-600">Inactive</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => handleView(member)}
-                          className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-600 hover:text-slate-900"
-                          title="View"
-                        >
-                          <Eye size={16} />
-                        </button>
-                        {hasPermission('edit_team_member') && (
-                          <button
-                            onClick={() => handleEdit(member)}
-                            className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-600 hover:text-slate-900"
-                            title="Edit"
-                          >
-                            <Edit size={16} />
-                          </button>
-                        )}
-                        <button
-                          ref={(node) => {
-                            if (node) {
-                              menuTriggersRef.current.set(member.id, node);
-                            } else {
-                              menuTriggersRef.current.delete(member.id);
-                            }
-                          }}
-                          onClick={(e) => {
-                            const trigger = e.currentTarget;
-                            if (menuOpen === member.id) {
-                              closeMenu();
-                              return;
-                            }
-                            setMenuOpen(member.id);
-                            positionMenuFromTrigger(trigger);
-                          }}
-                          aria-haspopup="menu"
-                          aria-expanded={menuOpen === member.id}
-                          className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-600 hover:text-slate-900"
-                          title="More options"
-                        >
-                          <MoreVertical size={16} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-              </table>
-            </div>
-
-            <div className="mt-4 w-full">
-              <PaginationAll
-                initialPage={currentPage}
-                totalPages={Math.max(1, Math.ceil(totalMembers / pageSize))}
-                totalCount={totalMembers}
-                pageSize={pageSize}
-                itemLabel="members"
-                onPageChange={setCurrentPage}
-              />
-            </div>
+            <SummaryCard
+              label="Total members"
+              count={totalMembers}
+              color="blue"
+              icon={<Users size={16} strokeWidth={2.35} />}
+            />
+            <SummaryCard
+              label="Active on page"
+              count={activeOnPage}
+              color="green"
+              icon={<Target size={16} strokeWidth={2.35} />}
+            />
+            <SummaryCard
+              label="Departments"
+              count={stats.departments}
+              color="indigo"
+              icon={<Building2 size={16} strokeWidth={2.35} />}
+            />
+            <SummaryCard
+              label="Role types"
+              count={stats.roles}
+              color="purple"
+              icon={<Key size={16} strokeWidth={2.35} />}
+            />
           </>
         )}
+      </div>
+
+      <div className={PH2_TABLE_CARD_CLASS}>
+        <div className={PH2_TOOLBAR_ROW_CLASS}>
+          <div className="flex w-full flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="relative w-full lg:max-w-md lg:flex-1">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-indigo-400"
+                strokeWidth={2.25}
+              />
+              <input
+                type="text"
+                placeholder="Search name, email, or title…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className={TEAM_SEARCH_INPUT_CLASS}
+                aria-label="Search team members"
+              />
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
+              <select
+                value={selectedDepartment}
+                onChange={(e) => setSelectedDepartment(e.target.value)}
+                className={PH2_TOOLBAR_SELECT_CLASS}
+              >
+                <option value="all">All Departments</option>
+                {departments.map((dept) => (
+                  <option key={dept.id} value={dept.id}>
+                    {dept.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={selectedRole}
+                onChange={(e) => setSelectedRole(e.target.value)}
+                className={PH2_TOOLBAR_SELECT_CLASS}
+              >
+                <option value="all">All Roles</option>
+                {roles.map((role) => (
+                  <option key={role.id} value={role.roleName}>
+                    {role.roleName}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={selectedStatus}
+                onChange={(e) => setSelectedStatus(e.target.value)}
+                className={PH2_TOOLBAR_SELECT_CLASS}
+              >
+                <option value="all">All Status</option>
+                <option value="ACTIVE">Active</option>
+                <option value="INACTIVE">Inactive</option>
+              </select>
+              {hasToolbarFilters ? (
+                <button
+                  type="button"
+                  onClick={clearToolbarFilters}
+                  className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
+                >
+                  <XCircle size={15} className="shrink-0 text-rose-500" strokeWidth={2.35} />
+                  Clear
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+
+        <div className="overflow-hidden">
+          <div className="no-scrollbar overflow-x-auto">
+            {isLoading && members.length === 0 ? (
+              <TableSkeleton rows={8} columns={8} className="border-0 shadow-none rounded-none" />
+            ) : members.length === 0 ? (
+              <div className="px-4 py-12 text-center">
+                <p className="text-sm font-medium text-slate-500">No team members found</p>
+                <p className="mt-1 text-xs text-slate-400">Try adjusting search or filters.</p>
+              </div>
+            ) : (
+              <table className="w-full min-w-[1080px] text-left">
+                <thead>
+                  <tr className={TEAM_TABLE_HEAD_ROW}>
+                    <th className={TEAM_TH}>Member</th>
+                    <th className={TEAM_TH}>Role</th>
+                    <th className={TEAM_TH}>Department</th>
+                    <th className={TEAM_TH}>Email</th>
+                    <th className={TEAM_TH}>Assigned leads</th>
+                    <th className={TEAM_TH}>Credential</th>
+                    <th className={TEAM_TH}>Status</th>
+                    <th className={`${TEAM_TH} text-right`}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100/80">
+                  {members.map((member) => {
+                    const roleColor = member.role?.color || 'gray';
+                    const roleName = member.role?.roleName || 'No Role';
+
+                    return (
+                      <tr key={member.id} className={TEAM_TR}>
+                        <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                          <div className="flex items-center gap-3">
+                            <div
+                              className={`flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${getRoleColorClass(roleColor)}`}
+                            >
+                              {getInitials(member.firstName, member.lastName)}
+                            </div>
+                            <div>
+                              <div className="text-xs font-semibold text-slate-900">
+                                {member.firstName} {member.lastName}
+                              </div>
+                              {member.designation ? (
+                                <div className="text-[10px] text-slate-500">{member.designation}</div>
+                              ) : null}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-medium ${getRoleColorClass(roleColor)}`}
+                          >
+                            {roleName}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3 text-xs text-slate-600 sm:px-4 sm:py-3.5">
+                          {member.department?.name || '—'}
+                        </td>
+                        <td className="px-3 py-3 text-xs text-slate-600 sm:px-4 sm:py-3.5">
+                          <div className="max-w-[200px] truncate" title={member.email}>
+                            {member.email}
+                          </div>
+                        </td>
+                        <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-800 ring-1 ring-indigo-100/80">
+                            <Target size={12} />
+                            {member._count?.assignedLeads || 0}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3 sm:px-4 sm:py-3.5">{getCredentialBadge(member)}</td>
+                        <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                          {member.status === 'ACTIVE' ? (
+                            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800 ring-1 ring-emerald-100/80">
+                              Active
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 ring-1 ring-slate-200/80">
+                              Inactive
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-3 text-right sm:px-4 sm:py-3.5">
+                          <div className="inline-flex items-center justify-end gap-0.5 rounded-2xl bg-slate-100/70 p-1 ring-1 ring-slate-200/60">
+                            <button
+                              type="button"
+                              onClick={() => handleView(member)}
+                              className="flex h-8 w-8 items-center justify-center rounded-xl text-blue-600 transition-all hover:bg-white hover:text-blue-700 hover:shadow-sm"
+                              title="View"
+                            >
+                              <Eye size={16} strokeWidth={2.25} />
+                            </button>
+                            {hasPermission('edit_team_member') ? (
+                              <button
+                                type="button"
+                                onClick={() => handleEdit(member)}
+                                className="flex h-8 w-8 items-center justify-center rounded-xl text-amber-600 transition-all hover:bg-white hover:text-amber-800 hover:shadow-sm"
+                                title="Edit"
+                              >
+                                <Edit size={16} strokeWidth={2.25} />
+                              </button>
+                            ) : null}
+                            <button
+                              type="button"
+                              ref={(node) => {
+                                if (node) {
+                                  menuTriggersRef.current.set(member.id, node);
+                                } else {
+                                  menuTriggersRef.current.delete(member.id);
+                                }
+                              }}
+                              onClick={(e) => {
+                                const trigger = e.currentTarget;
+                                if (menuOpen === member.id) {
+                                  closeMenu();
+                                  return;
+                                }
+                                setMenuOpen(member.id);
+                                positionMenuFromTrigger(trigger);
+                              }}
+                              aria-haspopup="menu"
+                              aria-expanded={menuOpen === member.id}
+                              className="flex h-8 w-8 items-center justify-center rounded-xl text-slate-600 transition-all hover:bg-white hover:text-slate-800 hover:shadow-sm"
+                              title="More options"
+                            >
+                              <MoreVertical size={16} strokeWidth={2.25} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+
+        {!isLoading && members.length > 0 ? (
+          <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
+            <PaginationAll
+              initialPage={currentPage}
+              totalPages={Math.max(1, Math.ceil(totalMembers / pageSize))}
+              totalCount={totalMembers}
+              pageSize={pageSize}
+              itemLabel="members"
+              onPageChange={setCurrentPage}
+            />
+          </div>
+        ) : null}
       </div>
 
       {/* Drawers */}

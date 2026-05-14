@@ -9,6 +9,7 @@ import type { BackendContact } from '../../lib/api';
 import { ContactTypeBadge } from './ContactTypeBadge';
 import { OwnerAvatar } from './OwnerAvatar';
 import { formatDirectorDisplay } from '../../constants/salutations';
+import { PH2_TABLE_CARD_FOOTER_CLASS } from '../layout/Ph2ModulePageLayout';
 
 interface ContactsTableProps {
   contacts: BackendContact[];
@@ -96,26 +97,26 @@ export function ContactsTable({
 
   if (loading) {
     return (
-      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-        <div className="p-8 text-center text-gray-500">Loading contacts...</div>
+      <div className="overflow-hidden">
+        <div className="p-8 text-center text-sm font-medium text-slate-500">Loading contacts…</div>
       </div>
     );
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+    <div className="overflow-hidden">
       <div className="overflow-x-auto overflow-y-visible">
         {contacts.length === 0 ? (
           <div className="p-12 text-center">
-            <div className="text-gray-500 mb-2">No contacts found</div>
-            <div className="text-sm text-gray-400">Try adjusting your filters or add a new contact</div>
+            <div className="text-slate-600 mb-2 font-medium">No contacts found</div>
+            <div className="text-sm text-slate-400">Try adjusting your filters or add a new contact</div>
           </div>
         ) : (
-          <table className="w-full text-left">
+          <table className="w-full min-w-[760px] text-left">
             <thead>
-              <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="px-6 py-4 w-12">
-                  <button onClick={handleSelectAll} className="flex items-center justify-center w-5 h-5">
+              <tr className="border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/90 via-white to-indigo-50/30">
+                <th className="px-3 py-2.5 sm:px-4 w-12">
+                  <button type="button" onClick={handleSelectAll} className="flex items-center justify-center w-5 h-5">
                     {allSelected ? (
                       <CheckSquare size={18} className="text-blue-600" />
                     ) : someSelected ? (
@@ -125,50 +126,50 @@ export function ContactsTable({
                     )}
                   </button>
                 </th>
-                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                   Contact Name
                 </th>
-                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                   Company
                 </th>
-                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                   Designation
                 </th>
-                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                   Contact Type
                 </th>
-                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-center">
+                <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500 text-center">
                   Jobs
                 </th>
-                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                   Owner
                 </th>
-                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                   Last Contact
                 </th>
-                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                   Status
                 </th>
-                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">
+                <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500 text-right">
                   Actions
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-indigo-50/80 bg-white/40">
               {contacts.map((contact) => (
                 <tr
                   key={contact.id}
                   onClick={() => onRowClick(contact)}
-                  className="hover:bg-gray-50 transition-colors cursor-pointer group"
+                  className="cursor-pointer transition-colors hover:bg-indigo-50/35 group"
                 >
-                  <td className="px-6 py-4" onClick={(e) => handleSelect(contact.id, e)}>
+                  <td className="px-3 py-2.5 sm:px-4" onClick={(e) => handleSelect(contact.id, e)}>
                     {selectedIds.has(contact.id) ? (
                       <CheckSquare size={18} className="text-blue-600" />
                     ) : (
                       <Square size={18} className="text-gray-400 group-hover:text-gray-600" />
                     )}
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-3 py-2.5 sm:px-4">
                     <div className="flex items-center gap-3">
                       <ImageWithFallback
                         src={contact.avatarUrl}
@@ -181,87 +182,87 @@ export function ContactsTable({
                         }
                       />
                       <div>
-                        <p className="text-sm font-semibold text-gray-900">
+                        <p className="text-sm font-semibold text-slate-900">
                           {formatDirectorDisplay(contact.salutation, `${contact.firstName} ${contact.lastName}`.trim())}
                         </p>
-                        <p className="text-xs text-gray-500 mt-0.5">{contact.email}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">{contact.email}</p>
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-3 py-2.5 sm:px-4">
                     {contact.company ? (
                       <a
                         href={`/client/${contact.company.id}`}
                         onClick={(e) => e.stopPropagation()}
-                        className="text-sm font-medium text-blue-600 hover:underline"
+                        className="text-sm font-medium text-indigo-600 hover:underline"
                       >
                         {contact.company.companyName}
                       </a>
                     ) : (
-                      <span className="text-sm text-gray-400">-</span>
+                      <span className="text-sm text-slate-400">-</span>
                     )}
                   </td>
-                  <td className="px-6 py-4">
-                    <span className="text-sm text-gray-700">{contact.designation || '-'}</span>
+                  <td className="px-3 py-2.5 sm:px-4">
+                    <span className="text-sm text-slate-700">{contact.designation || '-'}</span>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-3 py-2.5 sm:px-4">
                     <ContactTypeBadge type={contact.contactType} />
                   </td>
-                  <td className="px-6 py-4 text-center">
-                    <span className="text-sm font-medium text-gray-700">
+                  <td className="px-3 py-2.5 sm:px-4 text-center">
+                    <span className="text-sm font-medium text-slate-700">
                       {contact.associatedJobIds?.length || 0}
                     </span>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-3 py-2.5 sm:px-4">
                     {contact.owner ? (
                       <OwnerAvatar owner={contact.owner} />
                     ) : (
-                      <span className="text-sm text-gray-400">-</span>
+                      <span className="text-sm text-slate-400">-</span>
                     )}
                   </td>
-                  <td className="px-6 py-4">
-                    <span className="text-xs text-gray-500">{formatLastContact(contact.lastContacted)}</span>
+                  <td className="px-3 py-2.5 sm:px-4">
+                    <span className="text-xs text-slate-500">{formatLastContact(contact.lastContacted)}</span>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-3 py-2.5 sm:px-4">
                     <div className="flex items-center gap-2">
                       <div
                         className={`w-2 h-2 rounded-full ${
                           contact.status === 'ACTIVE' ? 'bg-green-500' : 'bg-gray-400'
                         }`}
                       />
-                      <span className="text-xs text-gray-600 capitalize">{contact.status.toLowerCase()}</span>
+                      <span className="text-xs text-slate-600 capitalize">{contact.status.toLowerCase()}</span>
                     </div>
                   </td>
-                  <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                  <td className="px-3 py-2.5 sm:px-4 text-right" onClick={(e) => e.stopPropagation()}>
                     {/* Colored action icons — keeps the row actions visually
                         identical to the Leads / Clients / Candidates tables. */}
-                    <div className="inline-flex items-center justify-end gap-0.5 rounded-2xl bg-slate-100/70 p-1 ring-1 ring-slate-200/60">
+                    <div className="inline-flex items-center justify-end gap-0.5 rounded-2xl bg-slate-100/70 p-0.5 ring-1 ring-slate-200/60">
                       <button
                         type="button"
                         onClick={() => onEdit(contact)}
-                        className="flex h-8 w-8 items-center justify-center rounded-xl text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
+                        className="flex h-7 w-7 items-center justify-center rounded-lg text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
                         aria-label="Edit contact"
                         title="Edit"
                       >
-                        <Pencil size={16} strokeWidth={2.25} />
+                        <Pencil size={15} strokeWidth={2.25} />
                       </button>
                       <button
                         type="button"
                         onClick={() => openWhatsApp(contact)}
-                        className="flex h-8 w-8 items-center justify-center rounded-xl text-emerald-600 hover:bg-white hover:text-emerald-800 hover:shadow-sm transition-all"
+                        className="flex h-7 w-7 items-center justify-center rounded-lg text-emerald-600 hover:bg-white hover:text-emerald-800 hover:shadow-sm transition-all"
                         aria-label="Send WhatsApp"
                         title="WhatsApp"
                       >
-                        <WhatsAppIcon size={16} />
+                        <WhatsAppIcon size={15} />
                       </button>
                       <button
                         type="button"
                         onClick={() => onDelete(contact.id)}
-                        className="flex h-8 w-8 items-center justify-center rounded-xl text-rose-500 hover:bg-white hover:text-rose-700 hover:shadow-sm transition-all"
+                        className="flex h-7 w-7 items-center justify-center rounded-lg text-rose-500 hover:bg-white hover:text-rose-700 hover:shadow-sm transition-all"
                         aria-label="Delete contact"
                         title="Delete"
                       >
-                        <Trash2 size={16} strokeWidth={2.25} />
+                        <Trash2 size={15} strokeWidth={2.25} />
                       </button>
                     </div>
                   </td>
@@ -272,7 +273,7 @@ export function ContactsTable({
         )}
       </div>
 
-      <div className="border-t border-gray-200 bg-gray-50 px-6 py-4">
+      <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
         <PaginationAll
           initialPage={pagination.page}
           totalPages={Math.max(1, pagination.totalPages)}

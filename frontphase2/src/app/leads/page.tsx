@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
 import {
   Plus,
   Upload,
@@ -47,14 +47,14 @@ import { splitDateTimeForDisplay } from '../../utils/formatLeadDateTime';
 import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { TableSkeleton } from '../../components/ui/Skeleton';
-import { SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
+import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
 import { requestError } from '../../lib/appDialog';
 
 // Force CSR — every interactive bit on this tab is client-driven.
 export const dynamic = 'force-dynamic';
 
 const LEADS_FILTER_SELECT =
-  'rounded-xl border border-indigo-100/90 bg-white/95 px-3 py-2 text-sm font-medium text-slate-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 cursor-pointer hover:border-indigo-200/90 hover:bg-indigo-50/40';
+  'rounded-lg border border-indigo-100/90 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 cursor-pointer hover:border-indigo-200/90 hover:bg-indigo-50/40';
 
 /** Last / next follow-up column: date + time on separate lines (not raw ISO). */
 function LeadFollowUpTableCell({
@@ -683,6 +683,70 @@ export default function RecruitmentAgencyDashboard() {
 
   const allVisibleSelected = filteredLeads.length > 0 && filteredLeads.every((lead) => selectedLeadIds.includes(lead.id));
 
+  /** Wide leads table: primary scroll hides its bar; synced dock shows a visible bar at the bottom of the view. */
+  const leadsTableScrollRef = useRef<HTMLDivElement>(null);
+  const leadsHScrollDockRef = useRef<HTMLDivElement>(null);
+  const leadsHScrollProgrammatic = useRef(false);
+  const [leadsHScrollSpanPx, setLeadsHScrollSpanPx] = useState(0);
+
+  const measureLeadsHorizontalScroll = useCallback(() => {
+    const el = leadsTableScrollRef.current;
+    if (!el) {
+      setLeadsHScrollSpanPx(0);
+      return;
+    }
+    const sw = el.scrollWidth;
+    const cw = el.clientWidth;
+    const needs = sw > cw + 1;
+    setLeadsHScrollSpanPx(needs ? sw : 0);
+    const dock = leadsHScrollDockRef.current;
+    if (dock && needs) {
+      leadsHScrollProgrammatic.current = true;
+      dock.scrollLeft = el.scrollLeft;
+      leadsHScrollProgrammatic.current = false;
+    }
+  }, []);
+
+  useLayoutEffect(() => {
+    measureLeadsHorizontalScroll();
+  }, [measureLeadsHorizontalScroll, loading, error, filteredLeads, currentPage]);
+
+  useEffect(() => {
+    const el = leadsTableScrollRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      measureLeadsHorizontalScroll();
+    });
+    ro.observe(el);
+    window.addEventListener('resize', measureLeadsHorizontalScroll);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', measureLeadsHorizontalScroll);
+    };
+  }, [measureLeadsHorizontalScroll]);
+
+  const onLeadsTableHorizontalScroll = useCallback(() => {
+    if (leadsHScrollProgrammatic.current) return;
+    const el = leadsTableScrollRef.current;
+    const dock = leadsHScrollDockRef.current;
+    if (!el || !dock || leadsHScrollSpanPx <= 0) return;
+    if (Math.abs(el.scrollLeft - dock.scrollLeft) < 1) return;
+    leadsHScrollProgrammatic.current = true;
+    dock.scrollLeft = el.scrollLeft;
+    leadsHScrollProgrammatic.current = false;
+  }, [leadsHScrollSpanPx]);
+
+  const onLeadsHScrollDockScroll = useCallback(() => {
+    if (leadsHScrollProgrammatic.current) return;
+    const el = leadsTableScrollRef.current;
+    const dock = leadsHScrollDockRef.current;
+    if (!el || !dock || leadsHScrollSpanPx <= 0) return;
+    if (Math.abs(el.scrollLeft - dock.scrollLeft) < 1) return;
+    leadsHScrollProgrammatic.current = true;
+    el.scrollLeft = dock.scrollLeft;
+    leadsHScrollProgrammatic.current = false;
+  }, [leadsHScrollSpanPx]);
+
   /** Export the currently filtered leads to a CSV that round-trips back into the importer. */
   const handleExportLeadsCsv = () => {
     if (filteredLeads.length === 0) {
@@ -1166,25 +1230,25 @@ export default function RecruitmentAgencyDashboard() {
       {/* Main Content */}
       <main className="flex flex-col overflow-hidden relative">
         {/* Header */}
-        <header className="min-h-[5.25rem] flex flex-wrap items-center justify-between gap-4 px-6 sm:px-8 py-4 shrink-0 border-b border-indigo-100/50 bg-white/80 backdrop-blur-md shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)]">
-          <div className="flex items-start gap-3 sm:gap-4">
-            <div className="mt-0.5 flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-rose-500 via-orange-500 to-amber-500 text-white shadow-lg shadow-rose-500/30 ring-1 ring-white/20">
-              <Target className="h-6 w-6" strokeWidth={2.2} />
+        <header className="min-h-[4.5rem] flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-3 shrink-0 border-b border-indigo-100/50 bg-white/80 backdrop-blur-md shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)]">
+          <div className="flex items-start gap-2.5 sm:gap-3">
+            <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-rose-500 via-orange-500 to-amber-500 text-white shadow-lg shadow-rose-500/30 ring-1 ring-white/20">
+              <Target className="h-5 w-5" strokeWidth={2.2} />
             </div>
             <div>
-              <h1 className="text-2xl sm:text-[1.65rem] font-bold tracking-tight text-slate-900 leading-tight">Leads</h1>
-              <p className="text-sm text-slate-500 max-w-xl">Track, manage, and convert potential clients into active hiring partners</p>
+              <h1 className="text-xl sm:text-[1.35rem] font-bold tracking-tight text-slate-900 leading-tight">Leads</h1>
+              <p className="text-xs text-slate-500 max-w-xl">Track, manage, and convert potential clients into active hiring partners</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {canDeleteLead && (
               <button
                 type="button"
                 onClick={() => setRecycleBinDrawerOpen(true)}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98]"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98]"
                 title="Deleted leads"
               >
-                <Inbox size={20} strokeWidth={2.25} />
+                <Inbox size={17} strokeWidth={2.25} />
               </button>
             )}
             {isAuthenticated === false && (
@@ -1198,19 +1262,19 @@ export default function RecruitmentAgencyDashboard() {
             <button
               type="button"
               onClick={handleExportLeadsCsv}
-              className="bg-white hover:bg-indigo-50/90 text-indigo-900 px-4 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2 transition-all shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] border border-indigo-200/70 hover:border-indigo-300 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
+              className="bg-white hover:bg-indigo-50/90 text-indigo-900 px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] border border-indigo-200/70 hover:border-indigo-300 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
               title="Export visible leads to CSV"
             >
-              <Download size={18} className="text-indigo-600" strokeWidth={2.25} />
+              <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
               <span>Export</span>
             </button>
             {canCreateLead && (
               <button
                 type="button"
                 onClick={() => setImportDrawerOpen(true)}
-                className="bg-white hover:bg-indigo-50/90 text-indigo-900 px-4 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2 transition-all shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] border border-indigo-200/70 hover:border-indigo-300 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
+                className="bg-white hover:bg-indigo-50/90 text-indigo-900 px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] border border-indigo-200/70 hover:border-indigo-300 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
               >
-                <Upload size={18} className="text-indigo-600" strokeWidth={2.25} />
+                <Upload size={16} className="text-indigo-600" strokeWidth={2.25} />
                 <span>Import</span>
               </button>
             )}
@@ -1218,9 +1282,9 @@ export default function RecruitmentAgencyDashboard() {
               <button
                 type="button"
                 onClick={() => setAddLeadDrawerOpen(true)}
-                className="bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 text-white px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2 transition-all shadow-lg shadow-indigo-500/30 active:scale-[0.98]"
+                className="bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 text-white px-3.5 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-lg shadow-indigo-500/30 active:scale-[0.98]"
               >
-                <Plus size={18} className="text-white" strokeWidth={2.5} />
+                <Plus size={16} className="text-white" strokeWidth={2.5} />
                 <span>Add Lead</span>
               </button>
             )}
@@ -1228,9 +1292,9 @@ export default function RecruitmentAgencyDashboard() {
         </header>
 
         {/* Scrollable Area */}
-        <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+        <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
           {/* Summary Cards — show skeleton mirrors while the first fetch resolves. */}
-          <div className="grid grid-cols-2 gap-3 sm:gap-4 sm:grid-cols-3 lg:grid-cols-5 mb-8">
+          <div className="grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-3 lg:grid-cols-5 mb-5">
             {loading ? (
               (['blue', 'yellow', 'purple', 'green', 'gray'] as SummaryCardColor[]).map((c, i) => (
                 <SummaryCardSkeleton key={i} color={c} />
@@ -1241,7 +1305,7 @@ export default function RecruitmentAgencyDashboard() {
                   label="NEW LEADS"
                   count={metrics.NEW_LEADS}
                   color="blue"
-                  icon={<Plus size={18} strokeWidth={2.35} />}
+                  icon={<Plus size={16} strokeWidth={2.35} />}
                   active={statusFilter === 'New'}
                   onClick={() => handleStatusCardClick('New')}
                 />
@@ -1249,7 +1313,7 @@ export default function RecruitmentAgencyDashboard() {
                   label="CONTACTED"
                   count={metrics.CONTACTED}
                   color="yellow"
-                  icon={<Phone size={18} strokeWidth={2.35} />}
+                  icon={<Phone size={16} strokeWidth={2.35} />}
                   active={statusFilter === 'Contacted'}
                   onClick={() => handleStatusCardClick('Contacted')}
                 />
@@ -1257,7 +1321,7 @@ export default function RecruitmentAgencyDashboard() {
                   label="QUALIFIED"
                   count={metrics.QUALIFIED}
                   color="purple"
-                  icon={<Target size={18} strokeWidth={2.35} />}
+                  icon={<Target size={16} strokeWidth={2.35} />}
                   active={statusFilter === 'Qualified'}
                   onClick={() => handleStatusCardClick('Qualified')}
                 />
@@ -1265,7 +1329,7 @@ export default function RecruitmentAgencyDashboard() {
                   label="CONVERTED"
                   count={metrics.CONVERTED}
                   color="green"
-                  icon={<CheckCircle size={18} strokeWidth={2.35} />}
+                  icon={<CheckCircle size={16} strokeWidth={2.35} />}
                   active={statusFilter === 'Converted'}
                   onClick={() => handleStatusCardClick('Converted')}
                 />
@@ -1273,7 +1337,7 @@ export default function RecruitmentAgencyDashboard() {
                   label="LOST"
                   count={metrics.LOST}
                   color="gray"
-                  icon={<XCircle size={18} strokeWidth={2.35} />}
+                  icon={<XCircle size={16} strokeWidth={2.35} />}
                   active={statusFilter === 'Lost'}
                   onClick={() => handleStatusCardClick('Lost')}
                 />
@@ -1282,14 +1346,14 @@ export default function RecruitmentAgencyDashboard() {
           </div>
 
           {/* Table Controls */}
-          <div className="mb-6 overflow-hidden rounded-2xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm transition-shadow hover:shadow-[0_16px_48px_-14px_rgba(79,70,229,0.16)]">
-            <div className="p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20">
+          <div className="mb-4 overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm transition-shadow hover:shadow-[0_16px_48px_-14px_rgba(79,70,229,0.16)]">
+            <div className="p-3 sm:p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20">
               <div className="relative w-full lg:max-w-md lg:flex-1">
-                <Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-indigo-400" size={18} strokeWidth={2.25} />
+                <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400" size={16} strokeWidth={2.25} />
                 <input 
                   type="text" 
                   placeholder="Search company, email, or contact..." 
-                  className="w-full h-11 pl-11 pr-4 bg-white/95 border border-indigo-100/90 rounded-2xl text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-300 transition-all [box-shadow:inset_0_1px_2px_rgba(15,23,42,0.04)]"
+                  className="w-full h-9 pl-10 pr-3 bg-white/95 border border-indigo-100/90 rounded-xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-300 transition-all [box-shadow:inset_0_1px_2px_rgba(15,23,42,0.04)]"
                   value={searchQuery}
                   onChange={(e) => {
                     setCurrentPage(1);
@@ -1298,8 +1362,8 @@ export default function RecruitmentAgencyDashboard() {
                 />
               </div>
               
-              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-                <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                <div className="flex flex-wrap items-center gap-1.5">
                   <select 
                     className={LEADS_FILTER_SELECT}
                     value={statusFilter}
@@ -1350,7 +1414,7 @@ export default function RecruitmentAgencyDashboard() {
 
                   <button 
                     type="button"
-                    className="text-sm text-rose-600 hover:text-rose-700 font-semibold px-3 py-2 rounded-xl hover:bg-rose-50 flex items-center gap-1.5 transition-colors"
+                    className="text-xs text-rose-600 hover:text-rose-700 font-semibold px-2 py-1.5 rounded-lg hover:bg-rose-50 flex items-center gap-1 transition-colors"
                     onClick={() => {
                     setCurrentPage(1);
                     setSearchQuery('');
@@ -1366,38 +1430,42 @@ export default function RecruitmentAgencyDashboard() {
               </div>
             </div>
 
-            {/* Leads Table */}
-            <div className="overflow-hidden">
-              <div className="no-scrollbar overflow-x-auto">
+            {/* Leads Table — horizontal scroll bar is shown in a sticky dock at the bottom of the view */}
+            <div className="overflow-hidden flex flex-col">
+              <div
+                ref={leadsTableScrollRef}
+                className="no-scrollbar overflow-x-auto overflow-y-visible"
+                onScroll={onLeadsTableHorizontalScroll}
+              >
                 {loading && <TableSkeleton rows={8} columns={6} />}
                 {error && !loading && (
                   <div className="p-10 text-center text-sm text-rose-600 font-medium">Error: {error}</div>
                 )}
                 {!loading && !error && (
-                  <table className="w-full min-w-[860px] text-left">
+                  <table id="leads-main-table" className="w-full min-w-[760px] text-left" aria-label="Leads">
                     <thead>
-                      <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/45 uppercase text-[10px] font-bold tracking-[0.14em]">
-                        <th className="px-5 sm:px-6 py-3.5 w-12 first:pl-6">
+                      <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em]">
+                        <th className="px-3 sm:px-4 py-2 w-10 first:pl-4">
                           <SelectionCheckbox
                             checked={allVisibleSelected}
                             onChange={toggleSelectAll}
                           />
                         </th>
-                        <th className="px-5 sm:px-6 py-3.5">Lead</th>
-                        <th className="px-5 sm:px-6 py-3.5">Source</th>
-                        <th className="px-5 sm:px-6 py-3.5">Contact</th>
-                        <th className="px-5 sm:px-6 py-3.5">Status</th>
-                        <th className="px-5 sm:px-6 py-3.5">Assigned To</th>
-                        <th className="px-5 sm:px-6 py-3.5">Last Follow-up</th>
-                        <th className="px-5 sm:px-6 py-3.5 text-right">Actions</th>
+                        <th className="px-3 sm:px-4 py-2">Lead</th>
+                        <th className="px-3 sm:px-4 py-2">Source</th>
+                        <th className="px-3 sm:px-4 py-2">Contact</th>
+                        <th className="px-3 sm:px-4 py-2">Status</th>
+                        <th className="px-3 sm:px-4 py-2">Assigned To</th>
+                        <th className="px-3 sm:px-4 py-2">Last Follow-up</th>
+                        <th className="px-3 sm:px-4 py-2 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100/80">
                       {filteredLeads.length === 0 ? (
                         <tr>
-                          <td colSpan={8} className="px-6 py-16 text-center">
-                            <p className="text-sm font-medium text-slate-500">No leads match your filters</p>
-                            <p className="mt-1 text-xs text-slate-400">Try adjusting search or clear filters</p>
+                          <td colSpan={8} className="px-4 py-12 text-center">
+                            <p className="text-xs font-medium text-slate-500">No leads match your filters</p>
+                            <p className="mt-1 text-[11px] text-slate-400">Try adjusting search or clear filters</p>
                           </td>
                         </tr>
                       ) : (
@@ -1414,21 +1482,21 @@ export default function RecruitmentAgencyDashboard() {
                                     : 'even:bg-slate-50/35 hover:bg-indigo-50/45'
                             }`}
                           >
-                            <td className="px-5 sm:px-6 py-3.5" onClick={(e) => e.stopPropagation()}>
+                            <td className="px-3 sm:px-4 py-2" onClick={(e) => e.stopPropagation()}>
                               <SelectionCheckbox
                                 checked={selectedLeadIds.includes(lead.id)}
                                 onChange={() => toggleLeadSelection(lead.id)}
                               />
                             </td>
-                            <td className="px-5 sm:px-6 py-3.5">
-                              <div className="flex items-start gap-2.5">
-                                <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-slate-100 to-slate-50 ring-1 ring-slate-200/80 text-slate-500">
-                                  <Building2 size={15} strokeWidth={2.25} />
+                            <td className="px-3 sm:px-4 py-2">
+                              <div className="flex items-start gap-2">
+                                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-slate-100 to-slate-50 ring-1 ring-slate-200/80 text-slate-500">
+                                  <Building2 size={14} strokeWidth={2.25} />
                                 </span>
                                 <div className="min-w-0 flex flex-col gap-0.5">
                                 <button
                                   type="button"
-                                  className="text-left text-sm font-semibold text-slate-900 hover:text-indigo-700 transition-colors line-clamp-1"
+                                  className="text-left text-xs font-semibold text-slate-900 hover:text-indigo-700 transition-colors line-clamp-1"
                                   onClick={() => {
                                     setSelectedLeadDrawerMode('view');
                                     setSelectedLeadId(lead.id);
@@ -1436,26 +1504,26 @@ export default function RecruitmentAgencyDashboard() {
                                 >
                                   {lead.companyName}
                                 </button>
-                                <span className="text-[11px] font-medium text-slate-500">{lead.type}</span>
+                                <span className="text-[10px] font-medium text-slate-500">{lead.type}</span>
                                 </div>
                               </div>
                             </td>
-                            <td className="px-5 sm:px-6 py-3.5" onClick={(e) => e.stopPropagation()}>
+                            <td className="px-3 sm:px-4 py-2" onClick={(e) => e.stopPropagation()}>
                               <SourceCell lead={lead} />
                             </td>
-                            <td className="px-5 sm:px-6 py-3.5">
+                            <td className="px-3 sm:px-4 py-2">
                               <div className="flex flex-col gap-0.5">
-                                <span className="text-sm font-medium text-slate-800">
+                                <span className="text-xs font-medium text-slate-800">
                                   {formatDirectorDisplay(lead.directorSalutation, lead.directorName || lead.contactPerson)}
                                 </span>
-                                <span className="text-[11px] text-slate-500">{lead.email}</span>
+                                <span className="text-[10px] text-slate-500">{lead.email}</span>
                               </div>
                             </td>
-                            <td className="px-5 sm:px-6 py-3.5" onClick={(e) => e.stopPropagation()}>
-                              <div className="flex flex-col gap-2">
+                            <td className="px-3 sm:px-4 py-2" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex flex-col gap-1.5">
                                 {canUpdateLead ? (
                                   <select
-                                    className="max-w-[11rem] rounded-full border-0 bg-slate-100/80 px-3 py-1.5 text-xs font-semibold text-slate-800 ring-1 ring-slate-200/90 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer hover:bg-slate-100"
+                                    className="max-w-[10rem] rounded-full border-0 bg-slate-100/80 px-2 py-1 text-[11px] font-semibold text-slate-800 ring-1 ring-slate-200/90 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer hover:bg-slate-100"
                                     value={lead.status}
                                     onChange={(e) =>
                                       handleInlineStatusChange(lead.id, e.target.value as LeadStatus)
@@ -1503,55 +1571,55 @@ export default function RecruitmentAgencyDashboard() {
                                 )}
                               </div>
                             </td>
-                            <td className="px-5 sm:px-6 py-3.5">
+                            <td className="px-3 sm:px-4 py-2">
                               <AssigneeAvatars
                                 lead={lead}
                               />
                             </td>
-                            <td className="px-5 sm:px-6 py-3.5">
+                            <td className="px-3 sm:px-4 py-2">
                               <LeadFollowUpTableCell
                                 lastFollowUp={lead.lastFollowUp}
                                 nextFollowUp={lead.nextFollowUp}
                               />
                             </td>
-                            <td className="px-5 sm:px-6 py-3.5 text-right" onClick={(e) => e.stopPropagation()}>
-                              <div className="inline-flex items-center justify-end gap-0.5 rounded-2xl bg-slate-100/70 p-1 ring-1 ring-slate-200/60">
+                            <td className="px-3 sm:px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
+                              <div className="inline-flex items-center justify-end gap-0.5 rounded-xl bg-slate-100/70 p-0.5 ring-1 ring-slate-200/60">
                                 <button
                                   type="button"
-                                  className="flex h-8 w-8 items-center justify-center rounded-xl text-blue-600 hover:bg-white hover:text-blue-700 hover:shadow-sm transition-all"
+                                  className="flex h-7 w-7 items-center justify-center rounded-lg text-blue-600 hover:bg-white hover:text-blue-700 hover:shadow-sm transition-all"
                                   title="View Details"
                                   onClick={() => {
                                     setSelectedLeadDrawerMode('view');
                                     setSelectedLeadId(lead.id);
                                   }}
                                 >
-                                  <Eye size={17} strokeWidth={2.35} />
+                                  <Eye size={15} strokeWidth={2.35} />
                                 </button>
                                 <button
                                   type="button"
-                                  className="flex h-8 w-8 items-center justify-center rounded-xl text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
+                                  className="flex h-7 w-7 items-center justify-center rounded-lg text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
                                   title="Edit Lead"
                                   onClick={() => {
                                     setSelectedLeadDrawerMode('edit');
                                     setSelectedLeadId(lead.id);
                                   }}
                                 >
-                                  <Pencil size={17} strokeWidth={2.35} />
+                                  <Pencil size={15} strokeWidth={2.35} />
                                 </button>
                                 {canConvertLead && (
                                   <button
                                     type="button"
-                                    className="flex h-8 w-8 items-center justify-center rounded-xl text-emerald-600 hover:bg-white hover:text-emerald-800 hover:shadow-sm transition-all"
+                                    className="flex h-7 w-7 items-center justify-center rounded-lg text-emerald-600 hover:bg-white hover:text-emerald-800 hover:shadow-sm transition-all"
                                     title="Convert to Client"
                                     onClick={() => handleConvert(lead.id)}
                                   >
-                                    <UserPlus size={17} strokeWidth={2.35} />
+                                    <UserPlus size={15} strokeWidth={2.35} />
                                   </button>
                                 )}
                                 {canDeleteLead && (
                                   <button
                                     type="button"
-                                    className="flex h-8 w-8 items-center justify-center rounded-xl text-rose-500 hover:bg-white hover:text-rose-800 hover:shadow-sm transition-all"
+                                    className="flex h-7 w-7 items-center justify-center rounded-lg text-rose-500 hover:bg-white hover:text-rose-800 hover:shadow-sm transition-all"
                                     title="Delete Lead"
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -1562,7 +1630,7 @@ export default function RecruitmentAgencyDashboard() {
                                       });
                                     }}
                                   >
-                                    <Trash2 size={17} strokeWidth={2.35} />
+                                    <Trash2 size={15} strokeWidth={2.35} />
                                   </button>
                                 )}
                               </div>
@@ -1574,9 +1642,24 @@ export default function RecruitmentAgencyDashboard() {
                   </table>
                 )}
               </div>
+              {leadsHScrollSpanPx > 0 && !loading && !error && (
+                <div className="leads-hscroll-dock-wrap sticky bottom-0 z-20 border-t border-indigo-100/60 bg-gradient-to-b from-white via-white to-indigo-50/30 shadow-[0_-10px_24px_-12px_rgba(49,46,129,0.14)]">
+                  <div
+                    ref={leadsHScrollDockRef}
+                    role="region"
+                    aria-label="Horizontal scroll for leads table"
+                    aria-controls="leads-main-table"
+                    tabIndex={0}
+                    className="leads-hscroll-dock overflow-x-auto overflow-y-hidden px-1 pb-1 pt-0.5 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500/35"
+                    onScroll={onLeadsHScrollDockScroll}
+                  >
+                    <div className="h-2.5 min-h-[10px]" style={{ width: leadsHScrollSpanPx }} aria-hidden />
+                  </div>
+                </div>
+              )}
             </div>
             {!loading && !error && (
-              <div className="mt-0 w-full border-t border-indigo-100/50 bg-gradient-to-r from-slate-50/40 via-white to-indigo-50/25 px-4 py-3 sm:px-5">
+              <div className="mt-0 w-full border-t border-indigo-100/50 bg-gradient-to-r from-slate-50/40 via-white to-indigo-50/25 px-3 py-2 sm:px-4">
                 <PaginationAll
                   initialPage={currentPage}
                   totalPages={Math.ceil(totalEntries / PAGE_SIZE)}
@@ -1820,94 +1903,3 @@ export default function RecruitmentAgencyDashboard() {
     </div>
   );
 }
-
-// --- Helper Components ---
-
-const SummaryCard = ({
-  label,
-  count,
-  color,
-  icon,
-  active = false,
-  onClick,
-}: {
-  label: string;
-  count: number;
-  color: string;
-  icon: React.ReactNode;
-  active?: boolean;
-  onClick?: () => void;
-}) => {
-  const styles: Record<
-    string,
-    { panel: string; text: string; iconWrap: string; ring: string; activeRing: string }
-  > = {
-    blue: {
-      panel: 'bg-gradient-to-br from-blue-50 via-white to-indigo-50/90',
-      text: 'text-blue-800',
-      iconWrap: 'bg-blue-500/15 text-blue-600 ring-1 ring-blue-200/80 shadow-inner',
-      ring: 'border-blue-200/90',
-      activeRing: 'ring-2 ring-blue-400/35 shadow-ph2-card-hover',
-    },
-    yellow: {
-      panel: 'bg-gradient-to-br from-amber-50 via-white to-yellow-50/80',
-      text: 'text-amber-800',
-      iconWrap: 'bg-amber-400/20 text-amber-700 ring-1 ring-amber-200/90 shadow-inner',
-      ring: 'border-amber-200/90',
-      activeRing: 'ring-2 ring-amber-400/40 shadow-ph2-card-hover',
-    },
-    purple: {
-      panel: 'bg-gradient-to-br from-violet-50 via-white to-purple-50/80',
-      text: 'text-violet-800',
-      iconWrap: 'bg-violet-500/15 text-violet-700 ring-1 ring-violet-200/80 shadow-inner',
-      ring: 'border-violet-200/90',
-      activeRing: 'ring-2 ring-violet-400/35 shadow-ph2-card-hover',
-    },
-    green: {
-      panel: 'bg-gradient-to-br from-emerald-50 via-white to-teal-50/70',
-      text: 'text-emerald-800',
-      iconWrap: 'bg-emerald-500/15 text-emerald-700 ring-1 ring-emerald-200/80 shadow-inner',
-      ring: 'border-emerald-200/90',
-      activeRing: 'ring-2 ring-emerald-400/35 shadow-ph2-card-hover',
-    },
-    gray: {
-      panel: 'bg-gradient-to-br from-slate-50 via-white to-slate-100/70',
-      text: 'text-slate-700',
-      iconWrap: 'bg-slate-500/12 text-slate-600 ring-1 ring-slate-200 shadow-inner',
-      ring: 'border-slate-200/95',
-      activeRing: 'ring-2 ring-slate-400/30 shadow-ph2-card-hover',
-    },
-  };
-  const s = styles[color] ?? styles.gray;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`group relative w-full overflow-hidden rounded-2xl border p-4 sm:p-5 text-left shadow-[0_8px_30px_-12px_rgba(15,23,42,0.12)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_16px_40px_-12px_rgba(59,130,246,0.22)] cursor-pointer ${
-        s.panel
-      } ${s.ring} ${active ? s.activeRing : ''}`}
-      aria-pressed={active}
-    >
-      <div className="pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full bg-white/40 blur-2xl" aria-hidden />
-      <div className="relative flex items-start justify-between gap-3">
-        <div
-          className={`flex h-11 w-11 items-center justify-center rounded-2xl transition-transform duration-300 group-hover:scale-105 ${s.iconWrap}`}
-        >
-          {icon}
-        </div>
-        <span className={`text-3xl font-semibold tabular-nums tracking-tight ${s.text}`}>{count}</span>
-      </div>
-      <div className="relative mt-4 flex items-end justify-between gap-2">
-        <p className={`text-[11px] font-bold uppercase tracking-[0.14em] leading-snug opacity-85 ${s.text}`}>{label}</p>
-        {active ? (
-          <span
-            className={`shrink-0 rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider shadow-sm ring-1 ring-black/5 ${s.text}`}
-          >
-            Active
-          </span>
-        ) : null}
-      </div>
-    </button>
-  );
-};
-

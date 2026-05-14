@@ -11,6 +11,8 @@ import { AddRoleDrawer } from '../AddRoleDrawer';
 import { EditRoleDrawer } from '../EditRoleDrawer';
 import { RoleMembersDrawer } from '../RoleMembersDrawer';
 import { mergePermissionMaps } from '../permissionCatalog';
+import { PH2_TABLE_CARD_CLASS } from '../../../components/layout/Ph2ModulePageLayout';
+import { TableSkeleton } from '../../../components/ui/Skeleton';
 
 // Color mapping for role colors
 const roleColorMap: Record<string, string> = {
@@ -36,6 +38,14 @@ const getSafeRoleColorClass = (color?: string | null) => {
   const key = String(color || '').trim().toLowerCase();
   return roleColorMap[key] || 'bg-gray-500';
 };
+
+const ROLES_TABLE_HEAD_ROW =
+  'bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em]';
+
+const ROLES_TH = 'px-3 py-2.5 text-left first:pl-4 sm:px-4 sm:first:pl-6 sm:py-3';
+
+const ROLES_TR =
+  'transition-colors duration-200 even:bg-slate-50/35 hover:bg-indigo-50/45';
 
 export const RolesTab: React.FC = () => {
   const [roles, setRoles] = useState<SystemRole[]>([]);
@@ -139,133 +149,136 @@ export const RolesTab: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Roles Table */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        {isLoading ? (
-          <div className="p-8 space-y-4">
-            {[...Array(5)].map((_, i) => (
-              <div key={i} className="h-16 bg-slate-100 rounded-lg animate-pulse" />
-            ))}
-          </div>
-        ) : roles.length === 0 ? (
-          <div className="p-12 text-center">
-            <p className="text-slate-500 mb-4">No roles found</p>
-            <button
-              onClick={() => setShowAddDrawer(true)}
-              className="text-blue-600 hover:text-blue-700 font-medium"
-            >
-              Create your first role
-            </button>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-slate-50 border-b border-slate-200">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Role</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Color</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Members</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Permissions</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {roles.map((role) => {
-                  const modules = getModulesForRole(role);
-                  const permCount = getPermissionCount(role);
-                  const memberCount = role._count?.users || 0;
-                  const isSuperAdmin = role.roleName === 'Super Admin';
+      <div className={PH2_TABLE_CARD_CLASS}>
+        <div className="overflow-hidden">
+          <div className="no-scrollbar overflow-x-auto">
+            {isLoading ? (
+              <TableSkeleton rows={6} columns={5} className="border-0 shadow-none rounded-none" />
+            ) : roles.length === 0 ? (
+              <div className="px-4 py-12 text-center">
+                <p className="text-sm font-medium text-slate-500">No roles found</p>
+                <button
+                  type="button"
+                  onClick={() => setShowAddDrawer(true)}
+                  className="mt-3 text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+                >
+                  Create your first role
+                </button>
+              </div>
+            ) : (
+              <table className="w-full min-w-[720px] text-left">
+                <thead>
+                  <tr className={ROLES_TABLE_HEAD_ROW}>
+                    <th className={ROLES_TH}>Role</th>
+                    <th className={ROLES_TH}>Color</th>
+                    <th className={ROLES_TH}>Members</th>
+                    <th className={ROLES_TH}>Permissions</th>
+                    <th className={`${ROLES_TH} text-right`}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100/80">
+                  {roles.map((role) => {
+                    const modules = getModulesForRole(role);
+                    const permCount = getPermissionCount(role);
+                    const memberCount = role._count?.users || 0;
+                    const isSuperAdmin = role.roleName === 'Super Admin';
 
-                  return (
-                    <tr key={role.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className={`size-2 rounded-full ${getSafeRoleColorClass(role.color)}`} />
-                          <div>
-                            <div className="font-medium text-slate-900">{role.roleName}</div>
-                            {role.description && (
-                              <div className="text-xs text-slate-500 mt-0.5">{role.description}</div>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className={`size-6 rounded-full ${getSafeRoleColorClass(role.color)}`} />
-                      </td>
-                      <td className="px-6 py-4">
-                        <button
-                          onClick={() => handleMembersClick(role)}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors cursor-pointer"
-                        >
-                          <Users size={12} />
-                          {memberCount}
-                        </button>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="space-y-2">
-                          <div className="text-sm text-slate-900 font-medium">
-                            {permCount} permission{permCount !== 1 ? 's' : ''}
-                          </div>
-                          {modules.length > 0 && (
-                            <div className="flex flex-wrap gap-1.5">
-                              {modules.map((module) => (
-                                <span
-                                  key={module}
-                                  className="px-2 py-0.5 text-xs font-medium rounded-full bg-slate-100 text-slate-600"
-                                >
-                                  {module}
-                                </span>
-                              ))}
+                    return (
+                      <tr key={role.id} className={ROLES_TR}>
+                        <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                          <div className="flex items-center gap-3">
+                            <div className={`size-2 shrink-0 rounded-full ${getSafeRoleColorClass(role.color)}`} />
+                            <div>
+                              <div className="text-xs font-semibold text-slate-900">{role.roleName}</div>
+                              {role.description ? (
+                                <div className="mt-0.5 text-[10px] text-slate-500">{role.description}</div>
+                              ) : null}
                             </div>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center justify-end gap-2">
+                          </div>
+                        </td>
+                        <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                          <div className={`size-6 rounded-full ${getSafeRoleColorClass(role.color)}`} />
+                        </td>
+                        <td className="px-3 py-3 sm:px-4 sm:py-3.5">
                           <button
-                            onClick={() => handleEdit(role)}
-                            className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-600 hover:text-slate-900"
-                            title="Edit"
+                            type="button"
+                            onClick={() => handleMembersClick(role)}
+                            className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-800 ring-1 ring-indigo-100/80 transition-colors hover:bg-indigo-100/80"
                           >
-                            <Edit size={16} />
+                            <Users size={12} />
+                            {memberCount}
                           </button>
-                          {!isSuperAdmin && (
-                            <>
-                              {deleteConfirm === role.id ? (
-                                <div className="flex items-center gap-2">
+                        </td>
+                        <td className="px-3 py-3 sm:px-4 sm:py-3.5">
+                          <div className="space-y-2">
+                            <div className="text-xs font-semibold text-slate-900">
+                              {permCount} permission{permCount !== 1 ? 's' : ''}
+                            </div>
+                            {modules.length > 0 ? (
+                              <div className="flex flex-wrap gap-1.5">
+                                {modules.map((module) => (
+                                  <span
+                                    key={module}
+                                    className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 ring-1 ring-slate-200/80"
+                                  >
+                                    {module}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        </td>
+                        <td className="px-3 py-3 text-right sm:px-4 sm:py-3.5">
+                          <div className="inline-flex items-center justify-end gap-0.5 rounded-2xl bg-slate-100/70 p-1 ring-1 ring-slate-200/60">
+                            <button
+                              type="button"
+                              onClick={() => handleEdit(role)}
+                              className="flex h-8 w-8 items-center justify-center rounded-xl text-amber-600 transition-all hover:bg-white hover:text-amber-800 hover:shadow-sm"
+                              title="Edit"
+                            >
+                              <Edit size={16} strokeWidth={2.25} />
+                            </button>
+                            {!isSuperAdmin ? (
+                              <>
+                                {deleteConfirm === role.id ? (
+                                  <div className="flex items-center gap-1 pl-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDelete(role)}
+                                      className="rounded-lg bg-rose-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-rose-700"
+                                    >
+                                      Confirm
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setDeleteConfirm(null)}
+                                      className="rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-slate-200"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                ) : (
                                   <button
+                                    type="button"
                                     onClick={() => handleDelete(role)}
-                                    className="px-3 py-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+                                    className="flex h-8 w-8 items-center justify-center rounded-xl text-rose-500 transition-all hover:bg-white hover:text-rose-700 hover:shadow-sm"
+                                    title="Delete"
                                   >
-                                    Confirm
+                                    <Trash2 size={16} strokeWidth={2.25} />
                                   </button>
-                                  <button
-                                    onClick={() => setDeleteConfirm(null)}
-                                    className="px-3 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
-                                  >
-                                    Cancel
-                                  </button>
-                                </div>
-                              ) : (
-                                <button
-                                  onClick={() => handleDelete(role)}
-                                  className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-600 hover:text-red-600"
-                                  title="Delete"
-                                >
-                                  <Trash2 size={16} />
-                                </button>
-                              )}
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                                )}
+                              </>
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
           </div>
-        )}
+        </div>
       </div>
 
       {/* Drawers */}

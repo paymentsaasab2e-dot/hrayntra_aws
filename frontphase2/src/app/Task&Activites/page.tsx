@@ -18,8 +18,10 @@ import {
   Pencil,
   AlertTriangle,
   Download,
+  RefreshCcw,
+  XCircle,
 } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast, Toaster } from 'sonner';
 import { downloadCsv, csvDate } from '../../utils/csv';
 import { motion, AnimatePresence } from 'motion/react';
 import { ImageWithFallback } from '../../components/ImageWithFallback';
@@ -39,6 +41,13 @@ import type { BackendCandidate, BackendClient, BackendInterviewListItem, Backend
 import { requestConfirm, requestError } from '../../lib/appDialog';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { TableSkeleton } from '../../components/ui/Skeleton';
+import {
+  PH2_TABLE_CARD_CLASS,
+  PH2_TABLE_CARD_FOOTER_CLASS,
+  PH2_TOOLBAR_ROW_CLASS,
+  PH2_TOOLBAR_SELECT_CLASS,
+} from '../../components/layout/Ph2ModulePageLayout';
+import { SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
 
 // --- Types ---
 
@@ -112,14 +121,14 @@ const MOCK_ACTIVITIES: Record<string, Activity[]> = {
 
 // --- Components ---
 
-const SummaryCard = ({ label, count, icon: Icon, color }: { label: string, count: number, icon: any, color: string }) => (
-  <div className="bg-white p-4 rounded-xl border border-gray-200 flex items-center gap-4 shadow-sm hover:shadow-md transition-shadow cursor-default">
-    <div className={`w-10 h-10 rounded-lg ${color} flex items-center justify-center`}>
+const SummaryCard = ({ label, count, icon: Icon, color }: { label: string; count: number; icon: any; color: string }) => (
+  <div className="flex items-center gap-3 rounded-xl border border-indigo-100/60 bg-white/70 p-4 shadow-[0_8px_28px_-14px_rgba(59,130,246,0.14)] backdrop-blur-sm transition-shadow hover:shadow-[0_12px_36px_-12px_rgba(79,70,229,0.14)]">
+    <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg ${color}`}>
       <Icon size={20} />
     </div>
-    <div>
-      <div className="text-2xl font-bold text-gray-900">{count}</div>
-      <div className="text-xs font-medium text-gray-500 uppercase tracking-wider">{label}</div>
+    <div className="min-w-0">
+      <div className="text-lg font-bold text-slate-900">{count}</div>
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
     </div>
   </div>
 );
@@ -185,120 +194,100 @@ function buildMonthGrid(monthAnchor: Date): Date[] {
   });
 }
 
-const FilterBar = ({
-  onAddTask,
-  onOpenSLAAlerts,
-  slaOverdueCount = 0,
+const TasksFilterToolbar = ({
   todayOnly,
   priority,
   assignedTo,
   assigneeOptions,
+  searchQuery,
   onTodayToggle,
   onPriorityChange,
   onAssignedToChange,
+  onSearchChange,
   onClearFilters,
+  hasActiveFilters,
+  totalCount,
+  viewSegmented,
 }: {
-  onAddTask: () => void;
-  onOpenSLAAlerts?: () => void;
-  slaOverdueCount?: number;
   todayOnly: boolean;
   priority: string;
   assignedTo: string;
   assigneeOptions: string[];
+  searchQuery: string;
   onTodayToggle: () => void;
   onPriorityChange: (value: string) => void;
   onAssignedToChange: (value: string) => void;
+  onSearchChange: (value: string) => void;
   onClearFilters: () => void;
+  hasActiveFilters: boolean;
+  totalCount: number;
+  viewSegmented: React.ReactNode;
 }) => (
-  <div className="flex items-center justify-between py-4 border-b border-gray-200 gap-4 flex-wrap">
-    <div className="flex items-center gap-3">
+  <div className="flex w-full flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+    <div className="relative w-full lg:max-w-md lg:flex-1">
+      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-indigo-400" strokeWidth={2.25} />
+      <input
+        type="text"
+        placeholder="Search title, related record, or owner…"
+        value={searchQuery}
+        onChange={(e) => onSearchChange(e.target.value)}
+        className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+      />
+    </div>
+    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
+      {viewSegmented}
       <button
         type="button"
         onClick={onTodayToggle}
-        className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${
+        className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-all ${
           todayOnly
-            ? 'border-blue-500 bg-blue-50 text-blue-700'
-            : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+            ? 'border-indigo-300 bg-indigo-100/80 text-indigo-900'
+            : 'border-indigo-100/90 bg-white/95 text-slate-700 shadow-sm ring-1 ring-indigo-100/40 hover:bg-indigo-50/50'
         }`}
       >
-        <CalendarIcon size={16} />
-        <span>Today</span>
+        <CalendarIcon size={14} />
+        Today
       </button>
-
-      <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600">
-        <select
-          value={priority}
-          onChange={(e) => onPriorityChange(e.target.value)}
-          className="bg-transparent outline-none"
-        >
-          <option value="">Priority</option>
-          <option value="High">High</option>
-          <option value="Medium">Medium</option>
-          <option value="Low">Low</option>
-        </select>
-      </div>
-
-      <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600">
-        <select
-          value={assignedTo}
-          onChange={(e) => onAssignedToChange(e.target.value)}
-          className="bg-transparent outline-none"
-        >
-          <option value="">Assigned to</option>
-          {assigneeOptions.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <button
-        type="button"
-        onClick={onClearFilters}
-        className="text-sm font-medium text-blue-600 hover:text-blue-700 ml-2"
+      <select
+        value={priority}
+        onChange={(e) => onPriorityChange(e.target.value)}
+        className={PH2_TOOLBAR_SELECT_CLASS}
       >
-        Clear Filters
-      </button>
-    </div>
-
-    <div className="flex items-center gap-3">
-      {onOpenSLAAlerts != null && (
+        <option value="">All priorities</option>
+        <option value="High">High</option>
+        <option value="Medium">Medium</option>
+        <option value="Low">Low</option>
+      </select>
+      <select
+        value={assignedTo}
+        onChange={(e) => onAssignedToChange(e.target.value)}
+        className={PH2_TOOLBAR_SELECT_CLASS}
+      >
+        <option value="">All assignees</option>
+        {assigneeOptions.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+      {hasActiveFilters ? (
         <button
           type="button"
-          onClick={onOpenSLAAlerts}
-          className="relative flex items-center gap-2 bg-white border border-gray-200 rounded-lg pl-3 pr-3 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:border-red-200 focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500 transition-colors"
-          title="View all SLA alerts"
+          onClick={onClearFilters}
+          className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
         >
-          <AlertTriangle size={18} className="text-red-500" />
-          <span className="font-medium">SLA Alerts</span>
-          {slaOverdueCount > 0 && (
-            <span className="min-w-[20px] h-5 px-1.5 flex items-center justify-center rounded-full bg-red-500 text-white text-xs font-bold">
-              {slaOverdueCount > 99 ? '99+' : slaOverdueCount}
-            </span>
-          )}
+          <XCircle size={15} className="shrink-0 text-rose-500" strokeWidth={2.35} />
+          Clear
         </button>
-      )}
-      <div className="relative">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-        <input
-          type="text"
-          placeholder="Search Related..."
-          className="pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm w-48 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-        />
-      </div>
-      <button
-        onClick={onAddTask}
-        className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-blue-700 shadow-sm active:scale-95 transition-all"
-      >
-        <Plus size={18} />
-        Create Task
-      </button>
+      ) : null}
+      <span className="whitespace-nowrap text-[11px] font-medium text-slate-500">
+        Total: <span className="font-semibold text-slate-800">{totalCount}</span>
+      </span>
     </div>
   </div>
 );
 
-const CalendarView = ({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (task: Task) => void }) => {
+const CalendarView = ({ tasks, onTaskClick, shellClassName = '' }: { tasks: Task[]; onTaskClick: (task: Task) => void; shellClassName?: string }) => {
   const [activeMonth, setActiveMonth] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -325,7 +314,7 @@ const CalendarView = ({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (tas
   };
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl shadow-sm mt-6 overflow-hidden">
+    <div className={`overflow-hidden border border-gray-200 bg-white shadow-sm ${shellClassName}`}>
       <div className="flex items-center justify-between gap-4 px-5 py-4 border-b border-gray-100">
         <div>
           <h2 className="text-lg font-bold text-gray-900">Calendar</h2>
@@ -463,6 +452,7 @@ export default function App() {
     todayOnly: false,
     priority: '',
     assignedTo: '',
+    search: '',
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -746,9 +736,20 @@ export default function App() {
       if (filters.todayOnly && task.dueDate !== todayString) return false;
       if (filters.priority && task.priority !== filters.priority) return false;
       if (filters.assignedTo && task.owner.name !== filters.assignedTo) return false;
+      const q = filters.search.trim().toLowerCase();
+      if (q) {
+        const relatedLabel =
+          task.relatedTo.type === 'Job' && jobTitleById[task.relatedTo.id]
+            ? jobTitleById[task.relatedTo.id]
+            : task.relatedTo.name;
+        const hay = [task.title, relatedLabel, task.relatedTo.type, task.owner.name, task.type, task.status]
+          .join(' ')
+          .toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
       return true;
     });
-  }, [filters, tasks]);
+  }, [filters, tasks, jobTitleById]);
 
   const totalPages = Math.max(Math.ceil(filteredTasks.length / pageSize), 1);
   const visibleTasks = filteredTasks.slice((currentPage - 1) * pageSize, currentPage * pageSize);
@@ -763,7 +764,7 @@ export default function App() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [filters.todayOnly, filters.priority, filters.assignedTo]);
+  }, [filters.todayOnly, filters.priority, filters.assignedTo, filters.search]);
 
   const assigneeOptions = useMemo(() => {
     return Array.from(new Set(tasks.map((task) => task.owner.name))).sort();
@@ -775,6 +776,7 @@ export default function App() {
       todayOnly: false,
       priority: '',
       assignedTo: '',
+      search: '',
     });
   };
 
@@ -917,17 +919,117 @@ export default function App() {
     setDrawerOpen(true);
   };
 
-  return (
-    <div className="min-h-screen bg-[#f8fafc]">
-      <main className="p-8">
-          {/* Top Bar with Title and View Toggle */}
-          <div className="flex items-center justify-between mb-8">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Tasks & Activities</h1>
-              <p className="text-sm text-gray-500">Manage your daily recruitment workflow and follow-ups.</p>
-            </div>
+  const hasToolbarFilters = Boolean(
+    filters.search.trim() || filters.todayOnly || filters.priority || filters.assignedTo
+  );
 
-            <div className="flex items-center gap-3">
+  const viewSegmented = (
+    <div className="inline-flex w-fit items-center rounded-lg border border-indigo-100/90 bg-white/95 p-0.5 shadow-sm ring-1 ring-indigo-100/40">
+      <button
+        type="button"
+        onClick={() => setView('list')}
+        className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap transition-all ${
+          view === 'list'
+            ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-sm'
+            : 'text-slate-600 hover:bg-indigo-50/50'
+        }`}
+      >
+        <ListIcon size={14} className="shrink-0" />
+        List
+      </button>
+      <button
+        type="button"
+        onClick={() => setView('calendar')}
+        className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap transition-all ${
+          view === 'calendar'
+            ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-sm'
+            : 'text-slate-600 hover:bg-indigo-50/50'
+        }`}
+      >
+        <CalendarIcon size={14} className="shrink-0" />
+        Calendar
+      </button>
+    </div>
+  );
+
+  const tasksToolbar = (
+    <TasksFilterToolbar
+      todayOnly={filters.todayOnly}
+      priority={filters.priority}
+      assignedTo={filters.assignedTo}
+      assigneeOptions={assigneeOptions}
+      searchQuery={filters.search}
+      onSearchChange={(search) => {
+        setCurrentPage(1);
+        setFilters((prev) => ({ ...prev, search }));
+      }}
+      onTodayToggle={() => {
+        setCurrentPage(1);
+        setFilters((prev) => ({ ...prev, todayOnly: !prev.todayOnly }));
+      }}
+      onPriorityChange={(priority) => {
+        setCurrentPage(1);
+        setFilters((prev) => ({ ...prev, priority }));
+      }}
+      onAssignedToChange={(assignedTo) => {
+        setCurrentPage(1);
+        setFilters((prev) => ({ ...prev, assignedTo }));
+      }}
+      onClearFilters={clearFilters}
+      hasActiveFilters={hasToolbarFilters}
+      totalCount={filteredTasks.length}
+      viewSegmented={viewSegmented}
+    />
+  );
+
+  return (
+    <>
+      <Toaster position="top-right" richColors style={{ top: '5rem' }} />
+      <div className="w-full min-h-screen overflow-hidden text-slate-900">
+        <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+          <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">
+            <div className="flex items-start gap-2.5 sm:gap-3">
+              <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 via-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20">
+                <CheckSquare className="h-5 w-5" strokeWidth={2.2} />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold leading-tight tracking-tight text-slate-900 sm:text-[1.35rem]">Tasks & Activities</h1>
+                <p className="mt-0.5 max-w-xl text-xs text-slate-500">Manage your daily recruitment workflow and follow-ups.</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    setLoading(true);
+                    await refreshTasksAndStats();
+                  } catch {
+                    /* ignore */
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                disabled={loading}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98] disabled:opacity-50"
+                title="Refresh"
+              >
+                <RefreshCcw size={16} strokeWidth={2.25} className={loading ? 'animate-spin' : ''} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setSlaDrawerOpen(true)}
+                className="relative inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-indigo-200/80 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-800 shadow-sm transition-all hover:border-red-200/80 hover:bg-red-50/40"
+                title="View all SLA alerts"
+              >
+                <AlertTriangle size={16} className="text-red-500" />
+                <span>SLA</span>
+                {slaOverdueCount > 0 ? (
+                  <span className="flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                    {slaOverdueCount > 99 ? '99+' : slaOverdueCount}
+                  </span>
+                ) : null}
+              </button>
               <button
                 type="button"
                 onClick={() => {
@@ -951,68 +1053,44 @@ export default function App() {
                   );
                   toast.success(`Exported ${filteredTasks.length} task${filteredTasks.length === 1 ? '' : 's'} to CSV`);
                 }}
-                className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+                className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98]"
                 title="Export visible tasks to CSV"
               >
-                <Download size={16} />
-                Export
+                <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
+                <span>Export</span>
               </button>
-
-              <div className="flex items-center bg-white p-1 rounded-xl border border-gray-200 shadow-sm">
-                <button
-                  onClick={() => setView('list')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${view === 'list' ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                  <ListIcon size={18} />
-                  List View
-                </button>
-                <button
-                  onClick={() => setView('calendar')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${view === 'calendar' ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                  <CalendarIcon size={18} />
-                  Calendar
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={openCreateTask}
+                className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-3.5 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/30 transition-all hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 active:scale-[0.98]"
+              >
+                <Plus size={16} className="text-white" strokeWidth={2.5} />
+                <span>Create task</span>
+              </button>
             </div>
-          </div>
+          </header>
 
-          {/* Status Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-8">
-            <SummaryCard label="Pending" count={statusSummaryCounts.Pending} icon={Clock} color="bg-amber-100 text-amber-600" />
-            <SummaryCard label="In Progress" count={statusSummaryCounts['In Progress']} icon={Pencil} color="bg-blue-100 text-blue-600" />
-            <SummaryCard label="Completed" count={statusSummaryCounts.Completed} icon={CheckSquare} color="bg-emerald-100 text-emerald-600" />
-            <SummaryCard label="Cancelled" count={statusSummaryCounts.Cancelled} icon={X} color="bg-rose-100 text-rose-600" />
-          </div>
-
-          {/* Filters */}
-          <FilterBar
-            onAddTask={openCreateTask}
-            onOpenSLAAlerts={() => setSlaDrawerOpen(true)}
-            slaOverdueCount={slaOverdueCount}
-            todayOnly={filters.todayOnly}
-            priority={filters.priority}
-            assignedTo={filters.assignedTo}
-            assigneeOptions={assigneeOptions}
-            onTodayToggle={() => {
-              setCurrentPage(1);
-              setFilters((prev) => ({ ...prev, todayOnly: !prev.todayOnly }));
-            }}
-            onPriorityChange={(priority) => {
-              setCurrentPage(1);
-              setFilters((prev) => ({ ...prev, priority }));
-            }}
-            onAssignedToChange={(assignedTo) => {
-              setCurrentPage(1);
-              setFilters((prev) => ({ ...prev, assignedTo }));
-            }}
-            onClearFilters={clearFilters}
-          />
+          <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
+            <div className="mx-auto max-w-[1600px]">
+              <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4">
+                {loading && tasks.length === 0 ? (
+                  (['blue', 'cyan', 'orange', 'purple'] as SummaryCardColor[]).map((c, i) => <SummaryCardSkeleton key={i} color={c} />)
+                ) : (
+                  <>
+                    <SummaryCard label="Pending" count={statusSummaryCounts.Pending} icon={Clock} color="bg-amber-100 text-amber-600" />
+                    <SummaryCard label="In Progress" count={statusSummaryCounts['In Progress']} icon={Pencil} color="bg-blue-100 text-blue-600" />
+                    <SummaryCard label="Completed" count={statusSummaryCounts.Completed} icon={CheckSquare} color="bg-emerald-100 text-emerald-600" />
+                    <SummaryCard label="Cancelled" count={statusSummaryCounts.Cancelled} icon={X} color="bg-rose-100 text-rose-600" />
+                  </>
+                )}
+              </div>
 
           {/* Main Content */}
           {view === 'list' ? (
-            <div className="bg-white border border-gray-200 rounded-xl shadow-sm mt-6 overflow-hidden">
-              <div className="overflow-x-auto">
+            <div className={PH2_TABLE_CARD_CLASS}>
+              <div className={PH2_TOOLBAR_ROW_CLASS}>{tasksToolbar}</div>
+              <div className="overflow-hidden">
+                <div className="no-scrollbar overflow-x-auto">
               <table className="w-full min-w-[1180px] text-left">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50/50">
@@ -1143,8 +1221,9 @@ export default function App() {
                   )}
                 </tbody>
               </table>
+                </div>
               </div>
-              <div className="flex items-center justify-between gap-4 border-t border-[#E5E7EB] px-5 py-4">
+              <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
                 <PaginationAll
                   initialPage={currentPage}
                   totalPages={Math.max(totalPages, 1)}
@@ -1156,8 +1235,17 @@ export default function App() {
               </div>
             </div>
           ) : (
-            <CalendarView tasks={filteredTasks} onTaskClick={handleRowClick} />
+            <div className={PH2_TABLE_CARD_CLASS}>
+              <div className={PH2_TOOLBAR_ROW_CLASS}>{tasksToolbar}</div>
+              <CalendarView
+                tasks={filteredTasks}
+                onTaskClick={handleRowClick}
+                shellClassName="rounded-b-xl border-0 border-t border-gray-200 shadow-none"
+              />
+            </div>
           )}
+            </div>
+          </div>
       </main>
 
       <AnimatePresence>
@@ -1405,5 +1493,6 @@ export default function App() {
         )}
       </AnimatePresence>
     </div>
+    </>
   );
 }

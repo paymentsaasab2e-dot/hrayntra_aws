@@ -5,9 +5,9 @@ import {
   Plus, 
   LayoutGrid, 
   List, 
-  Filter, 
   RefreshCcw, 
-  ChevronDown, 
+  Search,
+  XCircle,
   Eye, 
   Pencil,
   UserPlus, 
@@ -30,7 +30,7 @@ import { formatDateTimeDMY } from '../../utils/dateDisplay';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import PaginationAll from '../../components/PaginationAll';
 import { requestConfirm, requestError } from '../../lib/appDialog';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
 import { Toaster, toast } from 'sonner';
 import { CreateTaskModal } from '../../components/CreateTaskModal';
 import AddCandidateDrawer from '../../components/candidates/AddCandidateDrawer';
@@ -68,7 +68,14 @@ import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib
 import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { TableSkeleton } from '../../components/ui/Skeleton';
-import { SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
+import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
+import {
+  Ph2ModulePageLayout,
+  PH2_TABLE_CARD_CLASS,
+  PH2_TABLE_CARD_FOOTER_CLASS,
+  PH2_TOOLBAR_ROW_CLASS,
+  PH2_TOOLBAR_SELECT_CLASS,
+} from '../../components/layout/Ph2ModulePageLayout';
 
 // Force CSR so the page hydrates skeleton placeholders before the first data
 // fetch resolves — every interactive bit on this tab is client-driven.
@@ -237,13 +244,18 @@ interface JobsBoardViewProps {
 
 // No fallback mock data - use empty array if API fails
 
-// Stats will be loaded from API
-const STATS_CONFIG = [
-  { key: 'activeJobs', label: 'Active Jobs', color: 'text-blue-600', bg: 'bg-blue-50', icon: Briefcase },
-  { key: 'newJobsThisWeek', label: 'New Jobs (This Week)', color: 'text-green-600', bg: 'bg-green-50', icon: Plus },
-  { key: 'appliedCandidates', label: 'Candidates Applied', color: 'text-amber-600', bg: 'bg-amber-50', icon: Users },
-  { key: 'nearSla', label: 'Near SLA', color: 'text-red-600', bg: 'bg-red-50', icon: Clock },
-  { key: 'closedThisMonth', label: 'Closed This Month', color: 'text-gray-600', bg: 'bg-gray-50', icon: CheckCircle2 },
+// Stats from API — tiles use <SummaryCard /> so height/layout match Leads.
+const STATS_CONFIG: Array<{
+  key: keyof JobMetrics;
+  label: string;
+  icon: typeof Briefcase;
+  color: SummaryCardColor;
+}> = [
+  { key: 'activeJobs', label: 'Active jobs', icon: Briefcase, color: 'blue' },
+  { key: 'newJobsThisWeek', label: 'New this week', icon: Plus, color: 'green' },
+  { key: 'appliedCandidates', label: 'Applied', icon: Users, color: 'orange' },
+  { key: 'nearSla', label: 'Near SLA', icon: Clock, color: 'rose' },
+  { key: 'closedThisMonth', label: 'Closed (month)', icon: CheckCircle2, color: 'purple' },
 ];
 
 const JobStatusPill = ({ status }: JobStatusPillProps) => {
@@ -328,163 +340,176 @@ const PipelineSnapshot = ({ applied, interviewed, offered, joined, stages }: Pip
 };
 
 const JobsListView = ({ jobs, onJobClick, onEditJob, onAddCandidate, onDeleteJob, deletingJobId, canUpdateJob, canDeleteJob, canAddCandidate, statusEdit, onStatusChange, onRemarkChange, onSaveStatusEdit, onCancelStatusEdit }: JobsListViewProps) => (
-  <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-    <table className="w-full text-left border-collapse">
-      <thead className="bg-gray-50 sticky top-0 z-10">
-        <tr>
-          <th className="p-4 w-10">
-            <input type="checkbox" className="rounded border-gray-300" />
-          </th>
-          <th className="p-4 text-xs font-bold text-gray-500 uppercase">Job Title & ID</th>
-          <th className="p-4 text-xs font-bold text-gray-500 uppercase">Client & Location</th>
-          <th className="p-4 text-xs font-bold text-gray-500 uppercase">Status</th>
-          <th className="p-4 text-xs font-bold text-gray-500 uppercase">Pipeline</th>
-          <th className="p-4 text-xs font-bold text-gray-500 uppercase">Details</th>
-          <th className="p-4 text-xs font-bold text-gray-500 uppercase text-right">Actions</th>
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-gray-100">
-        {jobs.map((job) => (
-          <tr
-            key={job.id}
-            className="hover:bg-gray-50/50 transition-colors group"
-          >
-            <td className="p-4" onClick={(e) => e.stopPropagation()}>
-              <input type="checkbox" className="rounded border-gray-300" />
-            </td>
-            <td className="p-4">
-              <div className="flex flex-col">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => onJobClick?.(job)}
-                    className="font-semibold text-gray-900 text-left hover:text-blue-600 transition-colors"
-                    title="View job details"
-                  >
-                    {job.title}
-                  </button>
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <FileText size={14} className="text-gray-400 cursor-default" />
-                    <BrainCircuit size={14} className="text-purple-400 hover:text-purple-600 cursor-pointer" />
-                  </div>
-                </div>
-              </div>
-            </td>
-            <td className="p-4">
-              <div className="flex flex-col">
-                <span className="text-sm font-medium text-gray-700">{job.client}</span>
-                <div className="flex items-center gap-1 text-xs text-gray-400">
-                  <MapPin size={12} />
-                  <span>{job.location}</span>
-                </div>
-              </div>
-            </td>
-            <td className="p-4" onClick={(e) => e.stopPropagation()}>
-              <div className="flex flex-col gap-2">
-                {canUpdateJob ? (
-                  <select
-                    className="px-3 py-1 rounded-full border border-slate-300 bg-white text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
-                    value={job.status}
-                    onChange={(e) =>
-                      onStatusChange(job.id, e.target.value as JobStatus)
-                    }
-                  >
-                    <option value="Active">Active</option>
-                    <option value="On Hold">On Hold</option>
-                    <option value="Closed">Closed</option>
-                  </select>
-                ) : (
-                  <JobStatusPill status={job.status} />
-                )}
-
-                {canUpdateJob && statusEdit.jobId === job.id && (
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      placeholder="Add remark for this status change"
-                      className="flex-1 px-2 py-1 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                      value={statusEdit.remark}
-                      onChange={(e) => onRemarkChange(e.target.value)}
-                    />
-                    <button
-                      type="button"
-                      className="px-2 py-1 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
-                      onClick={onSaveStatusEdit}
-                    >
-                      Save
-                    </button>
-                    <button
-                      type="button"
-                      className="px-2 py-1 text-xs font-medium text-slate-600 bg-slate-100 rounded-md hover:bg-slate-200"
-                      onClick={onCancelStatusEdit}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                )}
-              </div>
-            </td>
-            <td className="p-4">
-              <PipelineSnapshot
-                applied={job.applied}
-                interviewed={job.interviewed}
-                offered={job.offered}
-                joined={job.joined}
-                stages={job.pipelineStages}
-              />
-            </td>
-            <td className="p-4">
-              <div className="flex flex-col">
-                <span className="text-[11px] text-gray-400 uppercase font-bold tracking-wider">Recruiter</span>
-                <span className="text-xs text-gray-700">{job.owner}</span>
-                <span className="text-[11px] text-gray-400 mt-1">{job.createdDate}</span>
-              </div>
-            </td>
-            <td className="p-4 text-right" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-center justify-end gap-1">
-                <button type="button" onClick={() => onJobClick?.(job)} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-blue-600 transition-colors" title="Preview job">
-                  <Eye size={16} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onEditJob?.(job)}
-                  className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-amber-600 transition-colors"
-                  title="Edit job"
-                >
-                  <Pencil size={16} />
-                </button>
-                {canAddCandidate && (
-                  <button
-                    type="button"
-                    onClick={() => onAddCandidate?.(job)}
-                    className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-blue-600 transition-colors"
-                    title="Add Candidate"
-                  >
-                    <UserPlus size={16} />
-                  </button>
-                )}
-                {canDeleteJob && onDeleteJob && (
-                  <button 
-                    type="button"
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      await onDeleteJob(job.id, job.title);
-                    }}
-                    disabled={deletingJobId === job.id}
-                    className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" 
-                    title="Delete Job"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                )}
-              </div>
-            </td>
+  <div className="overflow-hidden">
+    <div className="no-scrollbar overflow-x-auto">
+      <table className="w-full min-w-[760px] text-left border-collapse">
+        <thead>
+          <tr className="sticky top-0 z-10 border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em]">
+            <th className="px-3 py-2 sm:px-4 w-10 first:pl-4">
+              <input type="checkbox" className="rounded border-slate-300" aria-label="Select all" />
+            </th>
+            <th className="px-3 py-2 sm:px-4">Job title</th>
+            <th className="px-3 py-2 sm:px-4">Client & location</th>
+            <th className="px-3 py-2 sm:px-4">Status</th>
+            <th className="px-3 py-2 sm:px-4">Pipeline</th>
+            <th className="px-3 py-2 sm:px-4">Details</th>
+            <th className="px-3 py-2 sm:px-4 text-right">Actions</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
-    <div className="p-4 border-t border-gray-100 text-sm text-gray-500">
-      {jobs.length === 0 && <span>No jobs found in the database yet.</span>}
+        </thead>
+        <tbody className="divide-y divide-slate-100/80">
+          {jobs.length === 0 ? (
+            <tr>
+              <td colSpan={7} className="px-4 py-12 text-center">
+                <p className="text-xs font-medium text-slate-500">No jobs match your filters</p>
+                <p className="mt-1 text-[11px] text-slate-400">Try adjusting search or clear filters</p>
+              </td>
+            </tr>
+          ) : (
+            jobs.map((job) => (
+              <tr
+                key={job.id}
+                className="group transition-colors duration-200 even:bg-slate-50/35 hover:bg-indigo-50/45"
+              >
+                <td className="px-3 py-2 sm:px-4" onClick={(e) => e.stopPropagation()}>
+                  <input type="checkbox" className="rounded border-slate-300" aria-label={`Select ${job.title}`} />
+                </td>
+                <td className="px-3 py-2 sm:px-4">
+                  <div className="flex flex-col">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onJobClick?.(job)}
+                        className="text-left text-xs font-semibold text-slate-900 hover:text-indigo-700 transition-colors line-clamp-1"
+                        title="View job details"
+                      >
+                        {job.title}
+                      </button>
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <FileText size={14} className="text-slate-400 cursor-default" />
+                        <BrainCircuit size={14} className="text-violet-500 hover:text-violet-700 cursor-pointer" />
+                      </div>
+                    </div>
+                  </div>
+                </td>
+                <td className="px-3 py-2 sm:px-4">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-xs font-medium text-slate-800">{job.client}</span>
+                    <div className="flex items-center gap-1 text-[10px] text-slate-500">
+                      <MapPin size={12} className="shrink-0" />
+                      <span>{job.location}</span>
+                    </div>
+                  </div>
+                </td>
+                <td className="px-3 py-2 sm:px-4" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex flex-col gap-2">
+                    {canUpdateJob ? (
+                      <select
+                        className="max-w-[10rem] rounded-full border-0 bg-slate-100/80 px-2 py-1 text-[11px] font-semibold text-slate-800 ring-1 ring-slate-200/90 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer hover:bg-slate-100"
+                        value={job.status}
+                        onChange={(e) =>
+                          onStatusChange(job.id, e.target.value as JobStatus)
+                        }
+                      >
+                        <option value="Active">Active</option>
+                        <option value="On Hold">On Hold</option>
+                        <option value="Closed">Closed</option>
+                      </select>
+                    ) : (
+                      <JobStatusPill status={job.status} />
+                    )}
+
+                    {canUpdateJob && statusEdit.jobId === job.id && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <input
+                          type="text"
+                          placeholder="Remark for status change"
+                          className="min-w-0 flex-1 px-2 py-1 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-400"
+                          value={statusEdit.remark}
+                          onChange={(e) => onRemarkChange(e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className="px-2 py-1 text-xs font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700"
+                          onClick={onSaveStatusEdit}
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          className="px-2 py-1 text-xs font-medium text-slate-600 bg-slate-100 rounded-md hover:bg-slate-200"
+                          onClick={onCancelStatusEdit}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </td>
+                <td className="px-3 py-2 sm:px-4">
+                  <PipelineSnapshot
+                    applied={job.applied}
+                    interviewed={job.interviewed}
+                    offered={job.offered}
+                    joined={job.joined}
+                    stages={job.pipelineStages}
+                  />
+                </td>
+                <td className="px-3 py-2 sm:px-4">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Recruiter</span>
+                    <span className="text-xs text-slate-700">{job.owner}</span>
+                    <span className="text-[10px] text-slate-500">{job.createdDate}</span>
+                  </div>
+                </td>
+                <td className="px-3 py-2 sm:px-4 text-right" onClick={(e) => e.stopPropagation()}>
+                  <div className="inline-flex items-center justify-end gap-0.5 rounded-2xl bg-slate-100/70 p-0.5 ring-1 ring-slate-200/60">
+                    <button
+                      type="button"
+                      onClick={() => onJobClick?.(job)}
+                      className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-500 hover:bg-white hover:text-indigo-600 hover:shadow-sm transition-all"
+                      title="Preview job"
+                    >
+                      <Eye size={15} strokeWidth={2.25} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onEditJob?.(job)}
+                      className="flex h-7 w-7 items-center justify-center rounded-lg text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
+                      title="Edit job"
+                    >
+                      <Pencil size={15} strokeWidth={2.25} />
+                    </button>
+                    {canAddCandidate && (
+                      <button
+                        type="button"
+                        onClick={() => onAddCandidate?.(job)}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg text-emerald-600 hover:bg-white hover:text-emerald-800 hover:shadow-sm transition-all"
+                        title="Add candidate"
+                      >
+                        <UserPlus size={15} strokeWidth={2.35} />
+                      </button>
+                    )}
+                    {canDeleteJob && onDeleteJob && (
+                      <button
+                        type="button"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          await onDeleteJob(job.id, job.title);
+                        }}
+                        disabled={deletingJobId === job.id}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg text-rose-500 hover:bg-white hover:text-rose-800 hover:shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Delete job"
+                      >
+                        <Trash2 size={15} strokeWidth={2.35} />
+                      </button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
     </div>
   </div>
 );
@@ -780,7 +805,6 @@ export default function JobsPage() {
   const canAddCandidate = hasPermission('add_candidate');
   const canCreateInterview = hasPermission('interviews_create');
   const [view, setView] = useState<'list' | 'board'>('list');
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [searchFilter, setSearchFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [clientFilterId, setClientFilterId] = useState('');
@@ -1681,296 +1705,259 @@ export default function JobsPage() {
   };
 
   return (
-    <div className="w-full min-h-screen bg-gray-50 font-sans text-gray-900">
-      {/* Content Area */}
-      <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-          <div className="max-w-[1440px] mx-auto space-y-8">
-            
-            {/* Page Header */}
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="space-y-1 min-w-0">
-                <h1 className="text-3xl font-bold tracking-tight text-gray-900">Jobs</h1>
-                <p className="text-gray-500">
-                  All jobs from the database are loaded here.
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 shrink-0">
-                <div className="bg-white p-0.5 rounded-lg border border-gray-200 inline-flex items-center shadow-sm">
-                  <button
-                    type="button"
-                    onClick={() => setView('list')}
-                    className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all ${view === 'list' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'}`}
-                  >
-                    <List size={14} className="shrink-0" />
-                    List View
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setView('board')}
-                    className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all ${view === 'board' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'}`}
-                  >
-                    <LayoutGrid size={14} className="shrink-0" />
-                    Board View
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void reloadMyJobsAndMetrics()}
-                  className="inline-flex items-center justify-center p-1.5 bg-white border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors shadow-sm"
-                  title="Reload jobs"
-                >
-                  <RefreshCcw size={15} className="shrink-0" />
-                </button>
-
-                {canDeleteJob && (
-                  <button
-                    type="button"
-                    onClick={() => setRecycleBinDrawerOpen(true)}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
-                    title="Deleted jobs"
-                  >
-                    <Inbox size={18} strokeWidth={2} />
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  onClick={handleExportJobsCsv}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-lg text-xs font-semibold whitespace-nowrap hover:bg-gray-50 transition-all shadow-sm"
-                  title="Export visible jobs to CSV"
-                >
-                  <Download size={14} className="shrink-0" />
-                  Export
-                </button>
-
-                {canCreateJob && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDuplicateFromJobId(null);
-                      setCreateJobDrawerOpen(true);
-                    }}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-semibold whitespace-nowrap hover:bg-blue-700 transition-all shadow-sm shadow-blue-200/50"
-                  >
-                    <Plus size={15} className="shrink-0" />
-                    Create Job
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Quick Metrics */}
-            <div className="grid grid-cols-5 gap-4">
-              {STATS_CONFIG.map((statConfig, i) => {
-                const value = jobMetrics ? (jobMetrics as any)[statConfig.key] || 0 : 0;
-                const StatIcon = statConfig.icon;
-                return (
-                  <div key={i} className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow group cursor-default">
-                    <div className="flex items-start justify-between mb-4">
-                      <div className={`${statConfig.bg} ${statConfig.color} p-2.5 rounded-xl transition-transform group-hover:scale-110`}>
-                        <StatIcon size={22} />
-                      </div>
-                      <div className="text-xs font-bold text-gray-400 bg-gray-50 px-2 py-1 rounded">
-                        {loadingMetrics ? 'Loading...' : 'Live'}
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <p className="text-2xl font-bold text-gray-900">{loadingMetrics ? '-' : value}</p>
-                      <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">{statConfig.label}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Filters Row */}
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={searchFilter}
-                      onChange={(e) => {
-                        setSearchFilter(e.target.value);
-                        setCurrentPage(1);
-                      }}
-                      placeholder="Search jobs, client, location"
-                      className="w-72 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+    <>
+      <Toaster position="top-right" richColors />
+      <Ph2ModulePageLayout
+        title="Jobs"
+        subtitle="All jobs from the database are loaded here."
+        icon={<Briefcase className="h-5 w-5" strokeWidth={2.2} />}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void reloadMyJobsAndMetrics()}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98]"
+              title="Refresh jobs"
+            >
+              <RefreshCcw size={16} strokeWidth={2.25} className="shrink-0" />
+            </button>
+            {canDeleteJob ? (
+              <button
+                type="button"
+                onClick={() => setRecycleBinDrawerOpen(true)}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98]"
+                title="Deleted jobs"
+              >
+                <Inbox size={17} strokeWidth={2.25} />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={handleExportJobsCsv}
+              className="bg-white hover:bg-indigo-50/90 text-indigo-900 px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] border border-indigo-200/70 hover:border-indigo-300 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
+              title="Export visible jobs to CSV"
+            >
+              <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
+              <span>Export</span>
+            </button>
+            {canCreateJob ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setDuplicateFromJobId(null);
+                  setCreateJobDrawerOpen(true);
+                }}
+                className="bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 text-white px-3.5 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-lg shadow-indigo-500/30 active:scale-[0.98]"
+              >
+                <Plus size={16} className="text-white" strokeWidth={2.5} />
+                <span>Create Job</span>
+              </button>
+            ) : null}
+          </div>
+        }
+      >
+        <div className="mx-auto w-full max-w-[1600px]">
+          <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-5">
+            {loadingMetrics
+              ? STATS_CONFIG.map((statConfig, i) => <SummaryCardSkeleton key={i} color={statConfig.color} />)
+              : STATS_CONFIG.map((statConfig) => {
+                  const value = jobMetrics ? (jobMetrics as any)[statConfig.key] || 0 : 0;
+                  const StatIcon = statConfig.icon;
+                  return (
+                    <SummaryCard
+                      key={statConfig.key}
+                      label={statConfig.label}
+                      count={value}
+                      color={statConfig.color}
+                      icon={<StatIcon size={16} strokeWidth={2.35} />}
                     />
-                  </div>
-                  <button 
-                    onClick={() => setIsFilterOpen(!isFilterOpen)}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-xl border font-bold text-sm transition-all ${isFilterOpen ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'}`}
-                  >
-                    <Filter size={18} />
-                    Filters
-                    {isFilterOpen ? <ChevronDown size={16} className="rotate-180" /> : <ChevronDown size={16} />}
-                  </button>
-                  {statusFilter && (
-                    <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-full border border-blue-200 text-xs text-blue-700">
-                      <span className="font-bold">Status: {statusFilter.replace('_', ' ')}</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setStatusFilter('');
-                          setCurrentPage(1);
-                        }}
-                        className="hover:text-red-500"
-                      >
-                        x
-                      </button>
-                    </div>
-                  )}
-                  {hasActiveFilters && (
+                  );
+                })}
+          </div>
+
+          {loading ? (
+            view === 'list' ? (
+              <div className={PH2_TABLE_CARD_CLASS}>
+                <div className={PH2_TOOLBAR_ROW_CLASS}>
+                  <div className="h-9 w-full max-w-md animate-pulse rounded-xl bg-white/80 ring-1 ring-indigo-100/80 lg:flex-1" />
+                  <div className="h-9 w-32 animate-pulse rounded-lg bg-indigo-50/60" />
+                </div>
+                <TableSkeleton rows={8} columns={7} />
+              </div>
+            ) : (
+              <div className={PH2_TABLE_CARD_CLASS}>
+                <div className="p-10 text-center text-sm font-medium text-slate-500">Loading board…</div>
+              </div>
+            )
+          ) : (
+            <div className={PH2_TABLE_CARD_CLASS}>
+              <div className={PH2_TOOLBAR_ROW_CLASS}>
+                <div className="relative w-full lg:max-w-md lg:flex-1">
+                  <Search
+                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400"
+                    size={16}
+                    strokeWidth={2.25}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Search jobs, client, location…"
+                    value={searchFilter}
+                    onChange={(e) => {
+                      setSearchFilter(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                  />
+                </div>
+                <div className="flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-center lg:justify-end">
+                  <div className="inline-flex w-fit items-center rounded-lg border border-indigo-100/90 bg-white/95 p-0.5 shadow-sm ring-1 ring-indigo-100/40">
                     <button
                       type="button"
-                      onClick={() => {
-                        setSearchFilter('');
-                        setStatusFilter('');
-                        setClientFilterId('');
-                        setRecruiterFilterId('');
+                      onClick={() => setView('list')}
+                      className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap transition-all ${
+                        view === 'list'
+                          ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-sm'
+                          : 'text-slate-600 hover:bg-indigo-50/50'
+                      }`}
+                    >
+                      <List size={14} className="shrink-0" />
+                      List
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setView('board')}
+                      className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap transition-all ${
+                        view === 'board'
+                          ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-sm'
+                          : 'text-slate-600 hover:bg-indigo-50/50'
+                      }`}
+                    >
+                      <LayoutGrid size={14} className="shrink-0" />
+                      Board
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                    <select
+                      className={PH2_TOOLBAR_SELECT_CLASS}
+                      value={statusFilter}
+                      onChange={(e) => {
+                        setStatusFilter(e.target.value);
                         setCurrentPage(1);
                       }}
-                      className="text-xs font-bold text-blue-600 hover:underline"
                     >
-                      Clear All
-                    </button>
-                  )}
+                      <option value="">All statuses</option>
+                      <option value="OPEN">Active (open)</option>
+                      <option value="ON_HOLD">On hold</option>
+                      <option value="CLOSED">Closed</option>
+                      <option value="DRAFT">Draft</option>
+                      <option value="FILLED">Filled</option>
+                    </select>
+                    <select
+                      className={PH2_TOOLBAR_SELECT_CLASS}
+                      value={clientFilterId}
+                      onChange={(e) => {
+                        setClientFilterId(e.target.value);
+                        setCurrentPage(1);
+                      }}
+                    >
+                      <option value="">All clients</option>
+                      {clientOptions.map((client) => (
+                        <option key={client.id} value={client.id}>
+                          {client.name}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      className={PH2_TOOLBAR_SELECT_CLASS}
+                      value={recruiterFilterId}
+                      onChange={(e) => {
+                        setRecruiterFilterId(e.target.value);
+                        setCurrentPage(1);
+                      }}
+                    >
+                      <option value="">All recruiters</option>
+                      {recruiterOptions.map((recruiter) => (
+                        <option key={recruiter.id} value={recruiter.id}>
+                          {recruiter.name}
+                        </option>
+                      ))}
+                    </select>
+                    {hasActiveFilters ? (
+                      <button
+                        type="button"
+                        className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
+                        onClick={() => {
+                          setSearchFilter('');
+                          setStatusFilter('');
+                          setClientFilterId('');
+                          setRecruiterFilterId('');
+                          setCurrentPage(1);
+                        }}
+                      >
+                        <XCircle size={15} className="shrink-0 text-rose-500" strokeWidth={2.35} />
+                        Clear
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
-                
               </div>
 
-              <AnimatePresence>
-                {isFilterOpen && (
-                  <motion.div 
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    className="overflow-hidden"
-                  >
-                    <div className="bg-white p-6 rounded-2xl border border-gray-200 grid grid-cols-1 md:grid-cols-3 gap-4 shadow-sm">
-                      <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500 uppercase">Job Status</label>
-                        <select
-                          value={statusFilter}
-                          onChange={(e) => {
-                            setStatusFilter(e.target.value);
-                            setCurrentPage(1);
-                          }}
-                          className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                        >
-                          <option value="">All Statuses</option>
-                          <option value="OPEN">Active (Open)</option>
-                          <option value="ON_HOLD">On Hold</option>
-                          <option value="CLOSED">Closed</option>
-                          <option value="DRAFT">Draft</option>
-                          <option value="FILLED">Filled</option>
-                        </select>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500 uppercase">Client</label>
-                        <select
-                          value={clientFilterId}
-                          onChange={(e) => {
-                            setClientFilterId(e.target.value);
-                            setCurrentPage(1);
-                          }}
-                          className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                        >
-                          <option value="">All Clients</option>
-                          {clientOptions.map((client) => (
-                            <option key={client.id} value={client.id}>
-                              {client.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500 uppercase">Recruiter</label>
-                        <select
-                          value={recruiterFilterId}
-                          onChange={(e) => {
-                            setRecruiterFilterId(e.target.value);
-                            setCurrentPage(1);
-                          }}
-                          className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                        >
-                          <option value="">All Recruiters</option>
-                          {recruiterOptions.map((recruiter) => (
-                            <option key={recruiter.id} value={recruiter.id}>
-                              {recruiter.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-
-            {/* View Switcher Content */}
-            <motion.div
-              key={view}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3 }}
-            >
-              {error && (
-                <div className="mb-3 p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800">
-                  {error}
-                </div>
-              )}
-              {loading ? (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-                    {(['blue', 'orange', 'purple', 'green', 'gray'] as SummaryCardColor[]).map((c, i) => (
-                      <SummaryCardSkeleton key={i} color={c} />
-                    ))}
-                  </div>
-                  <TableSkeleton rows={8} columns={7} />
-                </div>
-              ) : view === 'list' ? (
-                <>
-                  <JobsListView 
-                    jobs={jobs} 
-                    onJobClick={openJobDrawer} 
-                    onEditJob={canUpdateJob ? (job) => {
-                      setEditingJobId(job.id);
-                      setEditJobDrawerOpen(true);
-                    } : undefined}
-                    onAddCandidate={handleAddCandidateForJob}
-                    onDeleteJob={canDeleteJob ? handleDeleteJob : undefined} 
-                    deletingJobId={deletingJobId}
-                    canUpdateJob={canUpdateJob}
-                    canDeleteJob={canDeleteJob}
-                    canAddCandidate={canAddCandidate}
-                    statusEdit={statusEdit}
-                    onStatusChange={handleInlineStatusChange}
-                    onRemarkChange={handleRemarkChange}
-                    onSaveStatusEdit={handleSaveStatusEdit}
-                    onCancelStatusEdit={handleCancelStatusEdit}
-                  />
-                  
-                  <div className="mt-4 w-full">
-                    <PaginationAll
-                      initialPage={currentPage}
-                      totalPages={Math.ceil(totalEntries / pageSize)}
-                      totalCount={totalEntries}
-                      pageSize={pageSize}
-                      itemLabel="jobs"
-                      onPageChange={setCurrentPage}
-                    />
-                  </div>
-                </>
+              {error ? (
+                <div className="p-10 text-center text-sm font-medium text-rose-600">Error: {error}</div>
               ) : (
-                <JobsBoardView jobs={jobs} onJobClick={openJobDrawer} canAssignJob={canAssignJob} />
+                <motion.div
+                  key={view}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.22 }}
+                >
+                  {view === 'list' ? (
+                    <>
+                      <JobsListView
+                        jobs={jobs}
+                        onJobClick={openJobDrawer}
+                        onEditJob={
+                          canUpdateJob
+                            ? (job) => {
+                                setEditingJobId(job.id);
+                                setEditJobDrawerOpen(true);
+                              }
+                            : undefined
+                        }
+                        onAddCandidate={handleAddCandidateForJob}
+                        onDeleteJob={canDeleteJob ? handleDeleteJob : undefined}
+                        deletingJobId={deletingJobId}
+                        canUpdateJob={canUpdateJob}
+                        canDeleteJob={canDeleteJob}
+                        canAddCandidate={canAddCandidate}
+                        statusEdit={statusEdit}
+                        onStatusChange={handleInlineStatusChange}
+                        onRemarkChange={handleRemarkChange}
+                        onSaveStatusEdit={handleSaveStatusEdit}
+                        onCancelStatusEdit={handleCancelStatusEdit}
+                      />
+                      <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
+                        <PaginationAll
+                          initialPage={currentPage}
+                          totalPages={Math.ceil(totalEntries / pageSize)}
+                          totalCount={totalEntries}
+                          pageSize={pageSize}
+                          itemLabel="jobs"
+                          onPageChange={setCurrentPage}
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <div className="p-2 sm:p-3">
+                      <JobsBoardView jobs={jobs} onJobClick={openJobDrawer} canAssignJob={canAssignJob} />
+                    </div>
+                  )}
+                </motion.div>
               )}
-            </motion.div>
-
-          </div>
+            </div>
+          )}
         </div>
+      </Ph2ModulePageLayout>
 
       <CreateJobDrawer
         isOpen={canCreateJob && createJobDrawerOpen}
@@ -2355,8 +2342,6 @@ export default function JobsPage() {
           onRestored={() => void reloadMyJobsAndMetrics()}
         />
       )}
-      <Toaster position="top-right" richColors />
-
       <style dangerouslySetInnerHTML={{ __html: `
         .custom-scrollbar::-webkit-scrollbar {
           width: 6px;
@@ -2376,7 +2361,7 @@ export default function JobsPage() {
           display: none;
         }
       `}} />
-    </div>
+    </>
   );
 }
 

@@ -38,6 +38,9 @@ import {
   Trophy,
   AlertCircle,
   Inbox,
+  RefreshCcw,
+  XCircle,
+  Users,
 } from 'lucide-react';
 import { downloadCsv } from '../../utils/csv';
 import { CreateTaskModal } from '../../components/CreateTaskModal';
@@ -75,6 +78,12 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
+import {
+  PH2_TABLE_CARD_CLASS,
+  PH2_TABLE_CARD_FOOTER_CLASS,
+  PH2_TOOLBAR_ROW_CLASS,
+  PH2_TOOLBAR_SELECT_CLASS,
+} from '../../components/layout/Ph2ModulePageLayout';
 
 export const dynamic = 'force-dynamic';
 
@@ -998,6 +1007,17 @@ function CandidatesPageContent() {
     setStageStatsRefreshTick((current) => current + 1);
   }, []);
 
+  const hasToolbarFilters = Boolean(
+    filters.search.trim() || filters.assignedToId || filters.status || activeStage !== 'all',
+  );
+
+  const handleClearToolbar = useCallback(() => {
+    setFilters({ search: '', assignedToId: '', status: '' });
+    setActiveStage('all');
+    setCurrentPage(1);
+    refreshStats();
+  }, [refreshStats]);
+
   // Update URL params when filters or stage change
   useEffect(() => {
     const params = new URLSearchParams();
@@ -1460,25 +1480,127 @@ function CandidatesPageContent() {
   }, []);
 
   return (
-    <div className="w-full min-h-screen bg-gray-50 font-sans text-gray-900">
-      <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-        <div className="mx-auto max-w-[1440px] space-y-8">
-          {/* Pipeline Tabs */}
-          <StageTabs
-            activeStage={activeStage}
-            stats={stageStats}
-            loading={stageStatsLoading}
-            onStageChange={(stage) => {
-              setActiveStage(stage);
-              setFilters((prev) => ({ ...prev, status: stage === 'all' ? '' : stage }));
-              setStageStatsRefreshTick((current) => current + 1);
-            }}
-          />
+    <>
+      <Toaster position="top-right" richColors style={{ top: '5rem' }} />
+      <div className="w-full min-h-screen overflow-hidden text-slate-900">
+        <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+          <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">
+            <div className="flex items-start gap-2.5 sm:gap-3">
+              <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 via-blue-600 to-indigo-600 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20">
+                <Users className="h-5 w-5" strokeWidth={2.2} />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold leading-tight tracking-tight text-slate-900 sm:text-[1.35rem]">
+                  Candidates
+                </h1>
+                <p className="mt-0.5 max-w-xl text-xs text-slate-500">
+                  View and manage every candidate in the pool — search, filter, and open profiles in one place.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  refreshStats();
+                  void loadCandidates();
+                }}
+                disabled={loading}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98] disabled:opacity-50"
+                title="Refresh"
+              >
+                <RefreshCcw size={16} strokeWidth={2.25} className={loading ? 'animate-spin' : ''} />
+              </button>
+              {canDeleteCandidate ? (
+                <button
+                  type="button"
+                  onClick={() => setRecycleBinModuleOpen(true)}
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98]"
+                  title="Deleted candidates"
+                >
+                  <Inbox size={17} strokeWidth={2.25} />
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => {
+                  if (filteredCandidates.length === 0) {
+                    toast.message('No candidates to export with current filters.');
+                    return;
+                  }
+                  downloadCsv<Candidate>(
+                    `candidates-${new Date().toISOString().slice(0, 10)}.csv`,
+                    [
+                      { id: 'name', accessor: (c) => c.name },
+                      { id: 'email', accessor: (c) => c.email || '' },
+                      { id: 'phone', accessor: (c) => c.phone || '' },
+                      { id: 'designation', accessor: (c) => c.designation || '' },
+                      { id: 'company', accessor: (c) => c.company || '' },
+                      { id: 'experience', accessor: (c) => c.experience ?? '' },
+                      { id: 'location', accessor: (c) => c.location || '' },
+                      { id: 'stage', accessor: (c) => c.stage || '' },
+                      { id: 'owner', accessor: (c) => c.owner || '' },
+                      { id: 'lastActivity', accessor: (c) => c.lastActivity || '' },
+                      { id: 'hotlist', accessor: (c) => (c.hotlist ? 'true' : 'false') },
+                      { id: 'noticePeriod', accessor: (c) => c.noticePeriod || '' },
+                      { id: 'currentSalary', accessor: (c) => c.salary?.current || '' },
+                      { id: 'expectedSalary', accessor: (c) => c.salary?.expected || '' },
+                      { id: 'source', accessor: (c) => c.source || '' },
+                      { id: 'rating', accessor: (c) => c.rating ?? '' },
+                      { id: 'skills', accessor: (c) => (c.skills || []).join('; ') },
+                      { id: 'assignedJobs', accessor: (c) => (c.assignedJobs || []).join('; ') },
+                    ],
+                    filteredCandidates,
+                  );
+                  toast.success(
+                    `Exported ${filteredCandidates.length} candidate${filteredCandidates.length === 1 ? '' : 's'} to CSV`,
+                  );
+                }}
+                className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
+                title="Export visible candidates to CSV"
+              >
+                <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
+                <span>Export</span>
+              </button>
+              {canCreateCandidate ? (
+                <button
+                  type="button"
+                  onClick={() => openCandidateDrawer('resume')}
+                  className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98]"
+                >
+                  <Upload size={16} className="text-indigo-600" strokeWidth={2.25} />
+                  <span>Upload</span>
+                </button>
+              ) : null}
+              {canCreateCandidate ? (
+                <button
+                  type="button"
+                  onClick={() => openCandidateDrawer('manual')}
+                  className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-3.5 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/30 transition-all hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 active:scale-[0.98]"
+                >
+                  <Plus size={16} className="text-white" strokeWidth={2.5} />
+                  <span>Add candidate</span>
+                </button>
+              ) : null}
+            </div>
+          </header>
 
-          {/* KPI cards — same Leads-style colored cards used across the
-              other list pages so the candidate tab feels consistent. Each
-              card is clickable and toggles the matching stage filter. */}
-          <div className="grid grid-cols-2 gap-3 sm:gap-4 sm:grid-cols-3 lg:grid-cols-5">
+          <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
+            <div className="mx-auto max-w-[1600px]">
+              <div className="mb-4">
+                <StageTabs
+                  activeStage={activeStage}
+                  stats={stageStats}
+                  loading={stageStatsLoading}
+                  onStageChange={(stage) => {
+                    setActiveStage(stage);
+                    setFilters((prev) => ({ ...prev, status: stage === 'all' ? '' : stage }));
+                    setStageStatsRefreshTick((current) => current + 1);
+                  }}
+                />
+              </div>
+
+              <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-5">
             {stageStatsLoading || !stageStats ? (
               (['blue', 'yellow', 'purple', 'green', 'cyan'] as SummaryCardColor[]).map((c, i) => (
                 <SummaryCardSkeleton key={i} color={c} />
@@ -1549,322 +1671,301 @@ function CandidatesPageContent() {
             )}
           </div>
 
-          {/* Content Body */}
-          <div className="flex-1 flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="px-6 py-4 flex items-center justify-between border-b border-slate-200">
-            <div className="flex items-center gap-4">
-              <div>
-                <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                  All candidates
-                  <span className="text-sm font-normal text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full">
-                    {totalEntries} shown
-                  </span>
-                </h1>
-                <p className="text-xs text-slate-500 max-w-xl mt-0.5">
-                  View and manage every candidate available in the system.
-                </p>
-              </div>
-
-              <div className="h-6 w-px bg-slate-200" />
-              
-              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
-                <button 
-                  onClick={() => setViewMode('list')}
-                  className={`p-2 rounded-lg transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
-                >
-                  <List size={20} strokeWidth={viewMode === 'list' ? 2.5 : 2} />
-                </button>
-                <button 
-                  onClick={() => setViewMode('grid')}
-                  className={`p-2 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
-                >
-                  <LayoutGrid size={20} strokeWidth={viewMode === 'grid' ? 2.5 : 2} />
-                </button>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3">
-              {canDeleteCandidate && (
-                <button
-                  type="button"
-                  onClick={() => setRecycleBinModuleOpen(true)}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
-                  title="Deleted candidates"
-                >
-                  <Inbox size={18} strokeWidth={2} />
-                </button>
-              )}
-              {canCreateCandidate && (
-                <button
-                  onClick={() => {
-                    openCandidateDrawer('resume');
-                  }}
-                  className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
-                >
-                  <Upload size={16} />
-                  Upload Resume
-                </button>
-              )}
-              {canCreateCandidate && (
-                <button
-                  onClick={() => {
-                    openCandidateDrawer('csv');
-                  }}
-                  className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
-                >
-                  <FileSpreadsheet size={16} />
-                  Bulk CSV
-                </button>
-              )}
-              {canCreateCandidate && (
-                <button
-                  onClick={() => {
-                    openCandidateDrawer('bulkResume');
-                  }}
-                  className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
-                >
-                  <FileText size={16} />
-                  Bulk CV Upload
-                </button>
-              )}
-              {canCreateCandidate && (
-                <button
-                  type="button"
-                  onClick={() => setFailedResumesDrawerOpen(true)}
-                  className={`relative flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold shadow-sm transition-colors ${
-                    failedBulkResumeCount > 0
-                      ? 'border-red-200 bg-red-50 text-red-800 hover:bg-red-100'
-                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  <AlertCircle size={16} className={failedBulkResumeCount > 0 ? 'text-red-600' : 'text-slate-500'} />
-                  Failed resumes
-                  {failedBulkResumeCount > 0 ? (
-                    <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white">
-                      {failedBulkResumeCount > 99 ? '99+' : failedBulkResumeCount}
-                    </span>
+              <div className={PH2_TABLE_CARD_CLASS}>
+                <div className={PH2_TOOLBAR_ROW_CLASS}>
+                  <div className="flex w-full flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="relative w-full lg:max-w-md lg:flex-1">
+                      <Search
+                        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400"
+                        size={16}
+                        strokeWidth={2.25}
+                      />
+                      <input
+                        type="text"
+                        placeholder="Search by name or email…"
+                        value={filters.search}
+                        onChange={(e) => {
+                          setCurrentPage(1);
+                          setFilters((prev) => ({ ...prev, search: e.target.value }));
+                        }}
+                        className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
+                      <div className="inline-flex w-fit items-center rounded-lg border border-indigo-100/90 bg-white/95 p-0.5 shadow-sm ring-1 ring-indigo-100/40">
+                        <button
+                          type="button"
+                          onClick={() => setViewMode('list')}
+                          className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap transition-all ${
+                            viewMode === 'list'
+                              ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-sm'
+                              : 'text-slate-600 hover:bg-indigo-50/50'
+                          }`}
+                        >
+                          <List size={14} className="shrink-0" />
+                          List
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setViewMode('grid')}
+                          className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap transition-all ${
+                            viewMode === 'grid'
+                              ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-sm'
+                              : 'text-slate-600 hover:bg-indigo-50/50'
+                          }`}
+                        >
+                          <LayoutGrid size={14} className="shrink-0" />
+                          Grid
+                        </button>
+                      </div>
+                      <select
+                        className={PH2_TOOLBAR_SELECT_CLASS}
+                        value={filters.assignedToId}
+                        onChange={(e) => {
+                          setCurrentPage(1);
+                          setFilters((prev) => ({ ...prev, assignedToId: e.target.value }));
+                        }}
+                      >
+                        <option value="">All recruiters</option>
+                        {pipelineRecruiters.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.name}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => setIsFilterOpen(true)}
+                        className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold shadow-sm transition-colors ${
+                          isFilterOpen
+                            ? 'border-indigo-300 bg-indigo-100/70 text-indigo-900 hover:bg-indigo-100'
+                            : 'border-indigo-100/90 bg-white/95 text-slate-800 hover:bg-indigo-50/40'
+                        }`}
+                      >
+                        <Filter className="h-3.5 w-3.5 shrink-0 text-slate-600" strokeWidth={2.25} />
+                        Filters
+                        {isFilterOpen ? (
+                          <span className="inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-indigo-600 px-1 text-[9px] font-bold text-white">
+                            ON
+                          </span>
+                        ) : null}
+                      </button>
+                      {hasToolbarFilters ? (
+                        <button
+                          type="button"
+                          className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
+                          onClick={handleClearToolbar}
+                        >
+                          <XCircle size={15} className="shrink-0 text-rose-500" strokeWidth={2.35} />
+                          Clear
+                        </button>
+                      ) : null}
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                        {totalEntries} total
+                      </span>
+                    </div>
+                  </div>
+                  {canCreateCandidate ? (
+                    <div className="flex flex-wrap items-center gap-2 border-t border-indigo-100/40 pt-3">
+                      <button
+                        type="button"
+                        onClick={() => openCandidateDrawer('csv')}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-100/90 bg-white/90 px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-indigo-50/50"
+                      >
+                        <FileSpreadsheet size={14} />
+                        Bulk CSV
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openCandidateDrawer('bulkResume')}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-100/90 bg-white/90 px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-indigo-50/50"
+                      >
+                        <FileText size={14} />
+                        Bulk CV
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFailedResumesDrawerOpen(true)}
+                        className={`relative inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold shadow-sm transition-colors ${
+                          failedBulkResumeCount > 0
+                            ? 'border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100'
+                            : 'border-indigo-100/90 bg-white/90 text-slate-700 hover:bg-indigo-50/50'
+                        }`}
+                      >
+                        <AlertCircle size={14} />
+                        Failed resumes
+                        {failedBulkResumeCount > 0 ? (
+                          <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-600 px-0.5 text-[9px] font-bold text-white">
+                            {failedBulkResumeCount > 99 ? '99+' : failedBulkResumeCount}
+                          </span>
+                        ) : null}
+                      </button>
+                    </div>
                   ) : null}
-                </button>
-              )}
-              {canCreateCandidate && (
-                <button
-                  onClick={() => {
-                    openCandidateDrawer('manual');
-                  }}
-                  className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-blue-100 transition-colors hover:bg-blue-700"
-                >
-                  <Plus size={16} />
-                  Add Candidate
-                </button>
-              )}
-              <button
-                onClick={() => {
-                  if (filteredCandidates.length === 0) {
-                    toast.message('No candidates to export with current filters.');
-                    return;
-                  }
-                  downloadCsv<Candidate>(
-                    `candidates-${new Date().toISOString().slice(0, 10)}.csv`,
-                    [
-                      { id: 'name', accessor: (c) => c.name },
-                      { id: 'email', accessor: (c) => c.email || '' },
-                      { id: 'phone', accessor: (c) => c.phone || '' },
-                      { id: 'designation', accessor: (c) => c.designation || '' },
-                      { id: 'company', accessor: (c) => c.company || '' },
-                      { id: 'experience', accessor: (c) => c.experience ?? '' },
-                      { id: 'location', accessor: (c) => c.location || '' },
-                      { id: 'stage', accessor: (c) => c.stage || '' },
-                      { id: 'owner', accessor: (c) => c.owner || '' },
-                      { id: 'lastActivity', accessor: (c) => c.lastActivity || '' },
-                      { id: 'hotlist', accessor: (c) => (c.hotlist ? 'true' : 'false') },
-                      { id: 'noticePeriod', accessor: (c) => c.noticePeriod || '' },
-                      { id: 'currentSalary', accessor: (c) => c.salary?.current || '' },
-                      { id: 'expectedSalary', accessor: (c) => c.salary?.expected || '' },
-                      { id: 'source', accessor: (c) => c.source || '' },
-                      { id: 'rating', accessor: (c) => c.rating ?? '' },
-                      { id: 'skills', accessor: (c) => (c.skills || []).join('; ') },
-                      { id: 'assignedJobs', accessor: (c) => (c.assignedJobs || []).join('; ') },
-                    ],
-                    filteredCandidates,
-                  );
-                  toast.success(
-                    `Exported ${filteredCandidates.length} candidate${filteredCandidates.length === 1 ? '' : 's'} to CSV`
-                  );
-                }}
-                className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
-                title="Export candidates to CSV"
-              >
-                <Download size={16} />
-                Export
-              </button>
-              <button 
-                onClick={() => setIsFilterOpen(true)}
-                className={`flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border transition-all ${
-                  isFilterOpen 
-                    ? 'bg-blue-50 border-blue-200 text-blue-600' 
-                    : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                }`}
-              >
-                <Filter size={16} />
-                Filters
-                {isFilterOpen && <span className="w-2 h-2 bg-blue-600 rounded-full" />}
-              </button>
-            </div>
-          </div>
-
-            </div>
-
-            <div className="flex-1 overflow-auto bg-white">
-            {error && (
-              <div className="m-4 p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800">
-                {error}
-              </div>
-            )}
-            {loading ? (
-              <div className="p-4">
-                <TableSkeleton rows={8} columns={7} />
-              </div>
-            ) : viewMode === 'list' ? (
-              <>
-                <BulkActions
-                  selectedIds={selectedIds}
-                  onMoveStage={canUpdateCandidate ? openBulkMoveStageModal : undefined}
-                  onDelete={canDeleteCandidate ? async (ids) => {
-                    if (
-                      !(await requestConfirm(
-                        `Move ${ids.length} candidate(s) to the Recycle Bin? You can restore them later from Recycle Bin.`
-                      ))
-                    ) {
-                      return;
-                    }
-                    try {
-                      await Promise.all(ids.map((candidateId) => apiDeleteCandidate(candidateId)));
-                      toast.success(
-                        `${ids.length} candidate${ids.length === 1 ? '' : 's'} moved to Recycle Bin`
-                      );
-                      setSelectedIds([]);
-                      if (typeof window !== 'undefined') {
-                        window.dispatchEvent(new CustomEvent(RECYCLE_BIN_SYNC_EVENT));
-                      }
-                      await loadCandidates();
-                      refreshStats();
-                    } catch (err: any) {
-                      await loadCandidates({ silent: true });
-                      refreshStats();
-                      toast.error(err?.message || 'Failed to delete candidates');
-                    }
-                  } : undefined}
-                  onAssignRecruiter={canAssignCandidate ? openBulkAssignModal : undefined}
-                  onSendEmail={async (ids) => {
-                    toast.info(`Send email to ${ids.length} candidate(s) - Feature coming soon`);
-                  }}
-                  onAddTag={canUpdateCandidate ? async (ids) => {
-                    const tag = prompt('Enter tag name:');
-                    if (tag) {
-                      try {
-                        await apiBulkActionCandidates('add_tag', ids, { tag });
-                        toast.success(`Added tag "${tag}" to ${ids.length} candidate(s)`);
-                        setSelectedIds([]);
-                        loadCandidates();
-                      } catch (err: any) {
-                        toast.error(err?.message || 'Failed to add tag');
-                      }
-                    }
-                  } : undefined}
-                  onExport={canExportCandidate ? async (ids) => {
-                    try {
-                      const res = await apiBulkActionCandidates('export', ids);
-                      const candidates = res.data?.candidates || [];
-                      // Convert to CSV
-                      const headers = ['ID', 'First Name', 'Last Name', 'Email', 'Phone', 'Company', 'Title', 'Experience', 'Location', 'Status', 'Source', 'Created At'];
-                      const rows = candidates.map((c: any) => [
-                        c.id,
-                        c.firstName || '',
-                        c.lastName || '',
-                        c.email || '',
-                        c.phone || '',
-                        c.currentCompany || '',
-                        c.currentTitle || '',
-                        c.experience || '',
-                        c.location || '',
-                        c.status || '',
-                        c.source || '',
-                        c.createdAt || '',
-                      ]);
-                      const csv = [headers, ...rows]
-                        .map((r) =>
-                          r
-                            .map((cell: unknown) => `"${String(cell).replace(/"/g, '""')}"`)
-                            .join(',')
-                        )
-                        .join('\n');
-                      const blob = new Blob([csv], { type: 'text/csv' });
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement('a');
-                      a.href = url;
-                      a.download = `candidates-export-${new Date().toISOString().split('T')[0]}.csv`;
-                      a.click();
-                      URL.revokeObjectURL(url);
-                      toast.success(`Exported ${candidates.length} candidate(s)`);
-                    } catch (err: any) {
-                      toast.error(err?.message || 'Failed to export candidates');
-                    }
-                  } : undefined}
-                  onReject={canUpdateCandidate ? async (ids) => {
-                    if (!(await requestConfirm(`Are you sure you want to reject ${ids.length} candidate(s)?`))) return;
-                    const reason = prompt('Enter rejection reason (optional):') || 'Bulk rejection';
-                    try {
-                      await apiBulkActionCandidates('reject', ids, { reason });
-                      toast.success(`Rejected ${ids.length} candidate(s)`);
-                      setSelectedIds([]);
-                      loadCandidates();
-                    } catch (err: any) {
-                      toast.error(err?.message || 'Failed to reject candidates');
-                    }
-                  } : undefined}
-                  onDeselect={() => setSelectedIds([])}
-                />
-                <CandidateTable
-                  candidates={filteredCandidates}
-                  selectedIds={selectedIds}
-                  onToggleSelect={handleToggleSelect}
-                  onToggleSelectAll={handleToggleSelectAll}
-                  onViewProfile={handleViewProfile}
-                  onWhatsAppCandidate={handleWhatsAppCandidate}
-                  onEditCandidate={handleEditCandidate}
-                  onDeleteCandidate={canDeleteCandidate ? handleDeleteCandidate : undefined}
-                  deletingCandidateId={deletingCandidateId}
-                  stageOptionsByJobId={inlineStageOptionsByJobId}
-                  stageOptionsLoadingJobId={inlineStageOptionsLoadingJobId}
-                  movingCandidateId={inlineStageUpdatingCandidateId}
-                  onLoadStageOptions={canUpdateCandidate ? loadInlineStageOptionsForCandidate : undefined}
-                  onChangeCandidateStage={canUpdateCandidate ? handleInlineCandidateStageChange : undefined}
-                />
-                
-                <div className="mt-4 w-full px-4 pb-4">
-                  <PaginationAll
-                    initialPage={currentPage}
-                    totalPages={Math.ceil(totalEntries / pageSize)}
-                    totalCount={totalEntries}
-                    pageSize={pageSize}
-                    itemLabel="candidates"
-                    onPageChange={setCurrentPage}
-                  />
                 </div>
-              </>
-            ) : (
-              <div className="px-4 pb-4">
-                <CandidateGrid
-                  candidates={filteredCandidates}
-                  selectedIds={selectedIds}
-                  onToggleSelect={handleToggleSelect}
-                  onViewProfile={handleViewProfile}
-                />
+
+                {error ? (
+                  <div className="p-10 text-center text-sm font-medium text-rose-600">Error: {error}</div>
+                ) : loading ? (
+                  <div className="p-2">
+                    <TableSkeleton rows={8} columns={7} />
+                  </div>
+                ) : viewMode === 'list' ? (
+                  <>
+                    <BulkActions
+                      selectedIds={selectedIds}
+                      onMoveStage={canUpdateCandidate ? openBulkMoveStageModal : undefined}
+                      onDelete={canDeleteCandidate ? async (ids) => {
+                        if (
+                          !(await requestConfirm(
+                            `Move ${ids.length} candidate(s) to the Recycle Bin? You can restore them later from Recycle Bin.`,
+                          ))
+                        ) {
+                          return;
+                        }
+                        try {
+                          await Promise.all(ids.map((candidateId) => apiDeleteCandidate(candidateId)));
+                          toast.success(
+                            `${ids.length} candidate${ids.length === 1 ? '' : 's'} moved to Recycle Bin`,
+                          );
+                          setSelectedIds([]);
+                          if (typeof window !== 'undefined') {
+                            window.dispatchEvent(new CustomEvent(RECYCLE_BIN_SYNC_EVENT));
+                          }
+                          await loadCandidates();
+                          refreshStats();
+                        } catch (err: any) {
+                          await loadCandidates({ silent: true });
+                          refreshStats();
+                          toast.error(err?.message || 'Failed to delete candidates');
+                        }
+                      } : undefined}
+                      onAssignRecruiter={canAssignCandidate ? openBulkAssignModal : undefined}
+                      onSendEmail={async (ids) => {
+                        toast.info(`Send email to ${ids.length} candidate(s) - Feature coming soon`);
+                      }}
+                      onAddTag={canUpdateCandidate ? async (ids) => {
+                        const tag = prompt('Enter tag name:');
+                        if (tag) {
+                          try {
+                            await apiBulkActionCandidates('add_tag', ids, { tag });
+                            toast.success(`Added tag "${tag}" to ${ids.length} candidate(s)`);
+                            setSelectedIds([]);
+                            loadCandidates();
+                          } catch (err: any) {
+                            toast.error(err?.message || 'Failed to add tag');
+                          }
+                        }
+                      } : undefined}
+                      onExport={canExportCandidate ? async (ids) => {
+                        try {
+                          const res = await apiBulkActionCandidates('export', ids);
+                          const candidates = res.data?.candidates || [];
+                          const headers = [
+                            'ID',
+                            'First Name',
+                            'Last Name',
+                            'Email',
+                            'Phone',
+                            'Company',
+                            'Title',
+                            'Experience',
+                            'Location',
+                            'Status',
+                            'Source',
+                            'Created At',
+                          ];
+                          const rows = candidates.map((c: any) => [
+                            c.id,
+                            c.firstName || '',
+                            c.lastName || '',
+                            c.email || '',
+                            c.phone || '',
+                            c.currentCompany || '',
+                            c.currentTitle || '',
+                            c.experience || '',
+                            c.location || '',
+                            c.status || '',
+                            c.source || '',
+                            c.createdAt || '',
+                          ]);
+                          const csv = [headers, ...rows]
+                            .map((r) =>
+                              r.map((cell: unknown) => `"${String(cell).replace(/"/g, '""')}"`).join(','),
+                            )
+                            .join('\n');
+                          const blob = new Blob([csv], { type: 'text/csv' });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `candidates-export-${new Date().toISOString().split('T')[0]}.csv`;
+                          a.click();
+                          URL.revokeObjectURL(url);
+                          toast.success(`Exported ${candidates.length} candidate(s)`);
+                        } catch (err: any) {
+                          toast.error(err?.message || 'Failed to export candidates');
+                        }
+                      } : undefined}
+                      onReject={canUpdateCandidate ? async (ids) => {
+                        if (!(await requestConfirm(`Are you sure you want to reject ${ids.length} candidate(s)?`)))
+                          return;
+                        const reason = prompt('Enter rejection reason (optional):') || 'Bulk rejection';
+                        try {
+                          await apiBulkActionCandidates('reject', ids, { reason });
+                          toast.success(`Rejected ${ids.length} candidate(s)`);
+                          setSelectedIds([]);
+                          loadCandidates();
+                        } catch (err: any) {
+                          toast.error(err?.message || 'Failed to reject candidates');
+                        }
+                      } : undefined}
+                      onDeselect={() => setSelectedIds([])}
+                    />
+                    <div className="overflow-hidden">
+                      <div className="no-scrollbar overflow-x-auto">
+                        <CandidateTable
+                          candidates={filteredCandidates}
+                          selectedIds={selectedIds}
+                          onToggleSelect={handleToggleSelect}
+                          onToggleSelectAll={handleToggleSelectAll}
+                          onViewProfile={handleViewProfile}
+                          onWhatsAppCandidate={handleWhatsAppCandidate}
+                          onEditCandidate={handleEditCandidate}
+                          onDeleteCandidate={canDeleteCandidate ? handleDeleteCandidate : undefined}
+                          deletingCandidateId={deletingCandidateId}
+                          stageOptionsByJobId={inlineStageOptionsByJobId}
+                          stageOptionsLoadingJobId={inlineStageOptionsLoadingJobId}
+                          movingCandidateId={inlineStageUpdatingCandidateId}
+                          onLoadStageOptions={canUpdateCandidate ? loadInlineStageOptionsForCandidate : undefined}
+                          onChangeCandidateStage={canUpdateCandidate ? handleInlineCandidateStageChange : undefined}
+                        />
+                      </div>
+                    </div>
+                    <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
+                      <PaginationAll
+                        initialPage={currentPage}
+                        totalPages={Math.ceil(totalEntries / pageSize)}
+                        totalCount={totalEntries}
+                        pageSize={pageSize}
+                        itemLabel="candidates"
+                        onPageChange={setCurrentPage}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <div className="p-2 sm:p-3">
+                    <CandidateGrid
+                      candidates={filteredCandidates}
+                      selectedIds={selectedIds}
+                      onToggleSelect={handleToggleSelect}
+                      onViewProfile={handleViewProfile}
+                    />
+                  </div>
+                )}
               </div>
-            )}
             </div>
           </div>
-        </div>
+        </main>
       <FilterDrawer 
         isOpen={isFilterOpen} 
         onClose={() => setIsFilterOpen(false)}
@@ -2248,8 +2349,8 @@ function CandidatesPageContent() {
         editModalOpenToken={candidateEditOpenToken}
       />
 
-      <Toaster position="top-right" richColors />
     </div>
+    </>
   );
 }
 

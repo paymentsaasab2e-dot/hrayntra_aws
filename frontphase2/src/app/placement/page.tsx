@@ -2,8 +2,7 @@
 
 import React, { Suspense, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { Download, Plus, Trophy } from 'lucide-react';
-import { PageHeaderTitle } from '../../components/ui/PageHeaderTitle';
+import { Download, Plus, RefreshCcw, Trophy } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { FiltersBar } from '../../components/placements/FiltersBar';
 import { KPICards } from '../../components/placements/KPICards';
@@ -16,6 +15,13 @@ import { usePlacements } from '../../hooks/usePlacements';
 import type { Placement, PlacementFilters } from '../../types/placement';
 import { usePermissions } from '../../hooks/usePermissions';
 import { requestConfirm } from '../../lib/appDialog';
+import PaginationAll from '../../components/PaginationAll';
+import {
+  PH2_TABLE_CARD_CLASS,
+  PH2_TABLE_CARD_FOOTER_CLASS,
+  PH2_TOOLBAR_ROW_CLASS,
+} from '../../components/layout/Ph2ModulePageLayout';
+import { SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
 
 export const dynamic = 'force-dynamic';
 
@@ -91,6 +97,7 @@ function PlacementsPageContent() {
     requestReplacement,
     deletePlacement,
     exportPlacements,
+    refresh,
   } = usePlacements(filters);
 
   useEffect(() => {
@@ -143,20 +150,31 @@ function PlacementsPageContent() {
   }, [createPrefill.shouldOpen]);
 
   return (
-    <div className="min-h-screen w-full bg-[#F8F9FB] text-[#111827]">
-      <Toaster position="top-right" richColors />
-      <main className="p-8">
-        <div className="mx-auto max-w-7xl space-y-6">
-          <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
-            <PageHeaderTitle
-              title="Placements"
-              subtitle="Manage and track candidates who have accepted offers."
-              icon={<Trophy className="h-6 w-6" strokeWidth={2.2} />}
-              gradient="emerald"
-            />
-
-            <div className="flex flex-wrap items-center gap-3">
-              {canExportData && (
+    <>
+      <Toaster position="top-right" richColors style={{ top: '5rem' }} />
+      <div className="w-full min-h-screen overflow-hidden text-slate-900">
+        <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+          <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">
+            <div className="flex items-start gap-2.5 sm:gap-3">
+              <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 via-teal-600 to-cyan-600 text-white shadow-lg shadow-emerald-500/25 ring-1 ring-white/20">
+                <Trophy className="h-5 w-5" strokeWidth={2.2} />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold leading-tight tracking-tight text-slate-900 sm:text-[1.35rem]">Placements</h1>
+                <p className="mt-0.5 max-w-xl text-xs text-slate-500">Manage and track candidates who have accepted offers.</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void refresh()}
+                disabled={loading}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98] disabled:opacity-50"
+                title="Refresh"
+              >
+                <RefreshCcw size={16} strokeWidth={2.25} className={loading ? 'animate-spin' : ''} />
+              </button>
+              {canExportData ? (
                 <button
                   type="button"
                   onClick={async () => {
@@ -173,73 +191,129 @@ function PlacementsPageContent() {
                       toast.error(exportError.message || 'Failed to export placements');
                     }
                   }}
-                  className="inline-flex items-center gap-2 rounded-xl border border-[#D1D5DB] bg-white px-4 py-2.5 text-sm font-medium text-[#374151] hover:bg-[#F9FAFB]"
+                  className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
                 >
-                  <Download className="h-4 w-4" />
-                  Export Data
+                  <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
+                  <span>Export</span>
                 </button>
-              )}
-              {canCreatePlacement && (
+              ) : null}
+              {canCreatePlacement ? (
                 <button
                   type="button"
                   onClick={() => setCreateOpen(true)}
-                  className="inline-flex items-center gap-2 rounded-xl bg-[#2563EB] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#1D4ED8]"
+                  className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-3.5 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/30 transition-all hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 active:scale-[0.98]"
                 >
-                  <Plus className="h-4 w-4" />
-                  Add Manual Placement
+                  <Plus size={16} className="text-white" strokeWidth={2.5} />
+                  <span>Add manual placement</span>
                 </button>
-              )}
+              ) : null}
+            </div>
+          </header>
+
+          <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
+            <div className="mx-auto max-w-[1600px]">
+              <div className="mb-5">
+                {loading ? (
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-5">
+                    {(['blue', 'cyan', 'orange', 'purple', 'green'] as SummaryCardColor[]).map((c, i) => (
+                      <SummaryCardSkeleton key={i} color={c} />
+                    ))}
+                  </div>
+                ) : (
+                  <KPICards stats={stats} />
+                )}
+              </div>
+
+              <div className={PH2_TABLE_CARD_CLASS}>
+                <div className={PH2_TOOLBAR_ROW_CLASS}>
+                  <p className="max-w-xl text-xs text-slate-600">
+                    Filter by client, status, employment type, and offer date range. Use <span className="font-semibold text-slate-800">Clear</span> when
+                    filters are active.
+                  </p>
+                </div>
+
+                <div className="border-b border-indigo-100/40 px-3 py-3 sm:px-4">
+                  <FiltersBar
+                    embedded
+                    totalCount={pagination.total}
+                    filters={filters}
+                    searchValue={searchValue}
+                    clientOptions={clientOptions}
+                    recruiterOptions={recruiterOptions}
+                    onSearchChange={setSearchValue}
+                    onFilterChange={updateFilters}
+                    onReset={() => router.replace(pathname)}
+                  />
+                </div>
+
+                {error ? (
+                  <div className="px-4 py-10 text-center text-sm font-medium text-rose-600">Error: {error}</div>
+                ) : (
+                  <>
+                    <div className="overflow-hidden">
+                      <div className="no-scrollbar overflow-x-auto">
+                        <PlacementsTable
+                          embedded
+                          data={placements}
+                          pagination={pagination}
+                          isLoading={loading}
+                          sortBy={filters.sortBy}
+                          sortOrder={filters.sortOrder}
+                          onSort={(column) =>
+                            updateFilters({
+                              sortBy: column,
+                              sortOrder: filters.sortBy === column && filters.sortOrder === 'desc' ? 'asc' : 'desc',
+                            })
+                          }
+                          onView={(placement) => router.push(`/placements/${placement.id}`)}
+                          onMarkJoined={canUpdatePlacement ? (placement) => setJoinedPlacement(placement) : undefined}
+                          onMarkFailed={
+                            canUpdatePlacement
+                              ? (placement, mode) => {
+                                  setFailedPlacement(placement);
+                                  setFailedMode(mode);
+                                }
+                              : undefined
+                          }
+                          onRequestReplacement={
+                            canUpdatePlacement ? (placement) => setReplacementPlacement(placement) : undefined
+                          }
+                          onDelete={
+                            canDeletePlacement
+                              ? async (placement) => {
+                                  if (!(await requestConfirm('Delete this placement?'))) return;
+                                  try {
+                                    await deletePlacement(placement.id);
+                                    toast.success('Placement deleted successfully');
+                                  } catch (deleteError: any) {
+                                    toast.error(deleteError.message || 'Failed to delete placement');
+                                  }
+                                }
+                              : undefined
+                          }
+                          onPageChange={(page) => updateFilters({ page })}
+                        />
+                      </div>
+                    </div>
+
+                    {!loading && placements.length > 0 ? (
+                      <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
+                        <PaginationAll
+                          initialPage={pagination.page}
+                          totalPages={Math.max(pagination.totalPages, 1)}
+                          totalCount={pagination.total}
+                          pageSize={pagination.limit}
+                          itemLabel="placements"
+                          onPageChange={(page) => updateFilters({ page })}
+                        />
+                      </div>
+                    ) : null}
+                  </>
+                )}
+              </div>
             </div>
           </div>
-
-          <KPICards stats={stats} />
-
-          <FiltersBar
-            filters={filters}
-            searchValue={searchValue}
-            clientOptions={clientOptions}
-            recruiterOptions={recruiterOptions}
-            onSearchChange={setSearchValue}
-            onFilterChange={updateFilters}
-            onReset={() => router.replace(pathname)}
-          />
-
-          {error ? (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
-          ) : null}
-
-          <PlacementsTable
-            data={placements}
-            pagination={pagination}
-            isLoading={loading}
-            sortBy={filters.sortBy}
-            sortOrder={filters.sortOrder}
-            onSort={(column) =>
-              updateFilters({
-                sortBy: column,
-                sortOrder: filters.sortBy === column && filters.sortOrder === 'desc' ? 'asc' : 'desc',
-              })
-            }
-            onView={(placement) => router.push(`/placements/${placement.id}`)}
-            onMarkJoined={canUpdatePlacement ? (placement) => setJoinedPlacement(placement) : undefined}
-            onMarkFailed={canUpdatePlacement ? (placement, mode) => {
-              setFailedPlacement(placement);
-              setFailedMode(mode);
-            } : undefined}
-            onRequestReplacement={canUpdatePlacement ? (placement) => setReplacementPlacement(placement) : undefined}
-            onDelete={canDeletePlacement ? async (placement) => {
-              if (!(await requestConfirm('Delete this placement?'))) return;
-              try {
-                await deletePlacement(placement.id);
-                toast.success('Placement deleted successfully');
-              } catch (deleteError: any) {
-                toast.error(deleteError.message || 'Failed to delete placement');
-              }
-            } : undefined}
-            onPageChange={(page) => updateFilters({ page })}
-          />
-        </div>
-      </main>
+        </main>
 
       <CreatePlacementDrawer
         isOpen={canCreatePlacement && createOpen}
@@ -313,6 +387,7 @@ function PlacementsPageContent() {
         }}
       />
     </div>
+    </>
   );
 }
 

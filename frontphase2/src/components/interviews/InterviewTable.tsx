@@ -81,6 +81,8 @@ interface InterviewTableProps {
   onMarkInterviewCompleted?: (interview: Interview) => void;
   onRejectCandidate: (interview: Interview) => void;
   onPageChange: (page: number) => void;
+  /** Parent renders pagination in a shared card footer (Leads-style layout). */
+  hidePagination?: boolean;
 }
 
 const statusClasses = {
@@ -113,6 +115,7 @@ export function InterviewTable({
   onMarkInterviewCompleted,
   onRejectCandidate,
   onPageChange,
+  hidePagination = false,
 }: InterviewTableProps) {
   const groups = useMemo(() => groupInterviewsForTable(interviews), [interviews]);
   const allIdsOnPage = useMemo(() => interviews.map((i) => i.id), [interviews]);
@@ -269,12 +272,12 @@ export function InterviewTable({
   const displayTotal = totalEntries > 0 ? totalEntries : interviews.length;
 
   return (
-    <div className="rounded-2xl border border-[#E5E7EB] bg-white shadow-sm">
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-left text-sm">
-          <thead className="border-b border-[#E5E7EB] bg-[#F9FAFB]">
-            <tr className="text-[11px] uppercase tracking-[0.12em] text-[#6B7280]">
-              <th className="px-4 py-3">
+    <div className={hidePagination ? 'overflow-hidden' : 'overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-sm'}>
+      <div className={hidePagination ? 'no-scrollbar overflow-x-auto' : 'overflow-x-auto'}>
+        <table className="min-w-full border-collapse text-left text-sm">
+          <thead>
+            <tr className="sticky top-0 z-10 border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-[9px] font-bold uppercase tracking-[0.12em] text-indigo-950/45">
+              <th className="w-10 px-3 py-2 first:pl-4 sm:px-4">
                 <input
                   type="checkbox"
                   checked={allSelected}
@@ -282,20 +285,23 @@ export function InterviewTable({
                   className="size-4 rounded border-[#D1D5DB] text-[#2563EB]"
                 />
               </th>
-              <th className="px-4 py-3">Candidate</th>
-              <th className="px-4 py-3">Job / Client</th>
-              <th className="min-w-[7.5rem] max-w-[12rem] px-2 py-3" title="Click R1, R2, ... to open that round in the drawer; hover for schedule details">
+              <th className="px-3 py-2 sm:px-4">Candidate</th>
+              <th className="px-3 py-2 sm:px-4">Job / client</th>
+              <th
+                className="min-w-[7.5rem] max-w-[12rem] px-2 py-2 sm:py-2"
+                title="Click R1, R2, ... to open that round in the drawer; hover for schedule details"
+              >
                 Round
               </th>
-              <th className="w-[6rem] min-w-[5.5rem] max-w-[7rem] shrink-0 px-3 py-3 text-center" title="Interviewers">
+              <th className="w-[6rem] min-w-[5.5rem] max-w-[7rem] shrink-0 px-3 py-2 text-center sm:py-2" title="Interviewers">
                 INT
               </th>
-              <th className="min-w-[16rem] border-l border-[#E5E7EB] pl-12 pr-4 py-3">Status</th>
-              <th className="px-4 py-3">Actions</th>
+              <th className="min-w-[16rem] border-l border-indigo-100/40 pl-10 pr-3 py-2 sm:pl-12 sm:pr-4 sm:py-2">Status</th>
+              <th className="px-3 py-2 text-right sm:px-4">Actions</th>
             </tr>
           </thead>
 
-          <tbody className="divide-y divide-[#F3F4F6]">
+          <tbody className="divide-y divide-slate-100/80">
             {groups.map((group) => {
               const { rounds } = group;
               const primary = representativeInterview(rounds);
@@ -317,8 +323,11 @@ export function InterviewTable({
               };
 
               return (
-                <tr key={group.key} className="align-top transition-colors hover:bg-[#F9FAFB]">
-                  <td className="px-4 py-2.5" onClick={(event) => event.stopPropagation()}>
+                <tr
+                  key={group.key}
+                  className="align-top transition-colors duration-200 even:bg-slate-50/35 hover:bg-indigo-50/45"
+                >
+                  <td className="px-3 py-2.5 first:pl-4 sm:px-4" onClick={(event) => event.stopPropagation()}>
                     <input
                       type="checkbox"
                       checked={everySelected}
@@ -330,7 +339,7 @@ export function InterviewTable({
                       title="Select all rounds for this candidate & job"
                     />
                   </td>
-                  <td className="px-4 py-2.5">
+                  <td className="px-3 py-2.5 sm:px-4">
                     <div className="flex items-center gap-2.5">
                       <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[11px] font-semibold text-[#2563EB]">
                         {primary.candidate.name
@@ -358,11 +367,11 @@ export function InterviewTable({
                       </div>
                     </div>
                   </td>
-                  <td className="max-w-[10rem] px-4 py-2.5">
+                  <td className="max-w-[10rem] px-3 py-2.5 sm:px-4">
                     <div className="truncate text-[12px] font-semibold text-[#111827]">{primary.job.title}</div>
                     <div className="truncate text-[11px] text-[#6B7280]">{primary.job.client}</div>
                   </td>
-                  <td className="min-w-[7.5rem] max-w-[12rem] px-2 py-2.5">
+                  <td className="min-w-[7.5rem] max-w-[12rem] px-2 py-2.5 sm:py-2.5">
                     <div className="flex flex-row flex-wrap items-center gap-1">
                       {rounds.map((interview, index) => (
                         <button
@@ -381,7 +390,7 @@ export function InterviewTable({
                       ))}
                     </div>
                   </td>
-                  <td className="w-[6rem] min-w-[5.5rem] max-w-[7rem] shrink-0 px-3 py-2.5">
+                  <td className="w-[6rem] min-w-[5.5rem] max-w-[7rem] shrink-0 px-3 py-2.5 sm:py-2.5">
                     <div className="flex items-center justify-center">
                       {panelMerged.slice(0, 3).map((member, index) => (
                         <div
@@ -400,7 +409,7 @@ export function InterviewTable({
                       ) : null}
                     </div>
                   </td>
-                  <td className="min-w-[16rem] border-l border-[#F3F4F6] pl-12 pr-4 py-2.5">
+                  <td className="min-w-[16rem] border-l border-slate-100/90 pl-10 pr-3 py-2.5 sm:pl-12 sm:pr-4 sm:py-2.5">
                     <div className="flex flex-col gap-y-0.5 leading-tight">
                       {rounds.map((interview, index) => (
                         <div
@@ -430,7 +439,7 @@ export function InterviewTable({
                       </div>
                     ) : null}
                   </td>
-                  <td className="px-4 py-2.5" onClick={(event) => event.stopPropagation()}>
+                  <td className="px-3 py-2.5 text-right sm:px-4" onClick={(event) => event.stopPropagation()}>
                     <div className="flex flex-col items-start gap-1.5 sm:flex-row sm:items-center sm:gap-1">
                       <button
                         type="button"
@@ -483,16 +492,18 @@ export function InterviewTable({
           </tbody>
         </table>
       </div>
-      <div className="flex w-full items-center border-t border-[#E5E7EB] px-5 py-4">
-        <PaginationAll
-          initialPage={page}
-          totalPages={Math.max(totalPages, 1)}
-          totalCount={displayTotal}
-          pageSize={pageSize}
-          itemLabel="interviews"
-          onPageChange={onPageChange}
-        />
-      </div>
+      {!hidePagination ? (
+        <div className="flex w-full items-center border-t border-indigo-100/50 bg-gradient-to-r from-slate-50/40 via-white to-indigo-50/25 px-3 py-2 sm:px-4">
+          <PaginationAll
+            initialPage={page}
+            totalPages={Math.max(totalPages, 1)}
+            totalCount={displayTotal}
+            pageSize={pageSize}
+            itemLabel="interviews"
+            onPageChange={onPageChange}
+          />
+        </div>
+      ) : null}
       {roundMenuPortal}
     </div>
   );

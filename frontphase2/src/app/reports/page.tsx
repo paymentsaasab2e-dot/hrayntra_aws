@@ -13,9 +13,11 @@ import {
   FileText,
   Mail,
   Phone,
+  RefreshCcw,
   Target,
   TrendingUp,
   Users,
+  XCircle,
 } from 'lucide-react';
 import {
   Area,
@@ -41,7 +43,13 @@ import { AnimatePresence, motion } from 'motion/react';
 import { apiFetch } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
-import { Skeleton, PageSkeleton } from '../../components/ui/Skeleton';
+import { SkeletonCard } from '../../components/ui/Skeleton';
+import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
+import {
+  PH2_TABLE_CARD_CLASS,
+  PH2_TOOLBAR_ROW_CLASS,
+  PH2_TOOLBAR_SELECT_CLASS,
+} from '../../components/layout/Ph2ModulePageLayout';
 
 type ReportTab =
   | 'Recruitment Performance'
@@ -173,6 +181,14 @@ const DEFAULT_FILTERS: FiltersState = {
 
 const CHART_COLORS = ['#2563eb', '#8b5cf6', '#f59e0b', '#10b981', '#ef4444', '#0f172a'];
 
+/** Table header row — aligned with Leads list chrome. */
+const REPORTS_TABLE_HEAD_ROW =
+  'bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em]';
+
+const REPORTS_TABLE_TH = 'px-4 py-3 text-left first:pl-6 last:pr-6';
+
+const REPORTS_TABLE_BODY_ROW = 'transition-colors even:bg-slate-50/35 hover:bg-indigo-50/45';
+
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -206,47 +222,20 @@ function buildDownloadHref(fileUrl: string, filename: string) {
 }
 
 const Card = ({ title, children, className = '' }: { title?: string; children: React.ReactNode; className?: string }) => (
-  <div className={`overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm ${className}`}>
+  <div
+    className={`mb-4 overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm transition-shadow hover:shadow-[0_16px_48px_-14px_rgba(79,70,229,0.16)] ${className}`}
+  >
     {title ? (
-      <div className="border-b border-slate-100 px-6 py-4">
-        <h3 className="font-semibold text-slate-800">{title}</h3>
+      <div className="border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/20 to-violet-50/15 px-5 py-3 sm:px-6">
+        <h3 className="text-sm font-semibold tracking-tight text-slate-900">{title}</h3>
       </div>
     ) : null}
-    <div className="p-6">{children}</div>
-  </div>
-);
-
-const KPICard = ({
-  label,
-  value,
-  icon: Icon,
-  color,
-}: {
-  label: string;
-  value: string | number;
-  icon: any;
-  color: string;
-}) => (
-  <Card>
-    <div className="mb-4 flex items-center justify-between">
-      <div className={`rounded-lg ${color} bg-opacity-10 p-2`}>
-        <Icon size={20} className={color.replace('bg-', 'text-')} />
-      </div>
-    </div>
-    <div className="text-2xl font-bold text-slate-900">{value}</div>
-    <div className="mt-1 text-sm text-slate-500">{label}</div>
-  </Card>
-);
-
-const SectionHeader = ({ title, subtitle }: { title: string; subtitle?: string }) => (
-  <div className="mb-6">
-    <h2 className="text-xl font-bold text-slate-900">{title}</h2>
-    {subtitle ? <p className="mt-1 text-sm text-slate-500">{subtitle}</p> : null}
+    <div className="p-5 sm:p-6">{children}</div>
   </div>
 );
 
 const EmptyState = ({ text }: { text: string }) => (
-  <div className="flex min-h-[180px] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500">
+  <div className="flex min-h-[180px] items-center justify-center rounded-xl border border-dashed border-indigo-100/80 bg-indigo-50/20 text-sm text-slate-500">
     {text}
   </div>
 );
@@ -278,13 +267,43 @@ function ReportsContent({
     case 'Recruitment Performance':
       return (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-6">
-            <KPICard label="Total Open Jobs" value={formatNumber(summary.recruitmentPerformance.kpis.totalOpenJobs)} icon={Briefcase} color="bg-blue-600" />
-            <KPICard label="Active Candidates" value={formatNumber(summary.recruitmentPerformance.kpis.activeCandidates)} icon={Users} color="bg-purple-600" />
-            <KPICard label="Interviews" value={formatNumber(summary.recruitmentPerformance.kpis.interviews)} icon={Calendar} color="bg-orange-600" />
-            <KPICard label="Offers Released" value={formatNumber(summary.recruitmentPerformance.kpis.offersReleased)} icon={FileText} color="bg-indigo-600" />
-            <KPICard label="Placements" value={formatNumber(summary.recruitmentPerformance.kpis.placements)} icon={CheckCircle2} color="bg-green-600" />
-            <KPICard label="Conversion %" value={`${summary.recruitmentPerformance.kpis.conversionPct}%`} icon={TrendingUp} color="bg-pink-600" />
+          <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-6">
+            <SummaryCard
+              label="Total open jobs"
+              count={formatNumber(summary.recruitmentPerformance.kpis.totalOpenJobs)}
+              color="blue"
+              icon={<Briefcase size={16} strokeWidth={2.35} />}
+            />
+            <SummaryCard
+              label="Active candidates"
+              count={formatNumber(summary.recruitmentPerformance.kpis.activeCandidates)}
+              color="purple"
+              icon={<Users size={16} strokeWidth={2.35} />}
+            />
+            <SummaryCard
+              label="Interviews"
+              count={formatNumber(summary.recruitmentPerformance.kpis.interviews)}
+              color="orange"
+              icon={<Calendar size={16} strokeWidth={2.35} />}
+            />
+            <SummaryCard
+              label="Offers released"
+              count={formatNumber(summary.recruitmentPerformance.kpis.offersReleased)}
+              color="indigo"
+              icon={<FileText size={16} strokeWidth={2.35} />}
+            />
+            <SummaryCard
+              label="Placements"
+              count={formatNumber(summary.recruitmentPerformance.kpis.placements)}
+              color="green"
+              icon={<CheckCircle2 size={16} strokeWidth={2.35} />}
+            />
+            <SummaryCard
+              label="Conversion %"
+              count={`${summary.recruitmentPerformance.kpis.conversionPct}%`}
+              color="rose"
+              icon={<TrendingUp size={16} strokeWidth={2.35} />}
+            />
           </div>
           <Card title="Recruitment Activity Overview">
             {summary.recruitmentPerformance.trend.length ? (
@@ -353,25 +372,27 @@ function ReportsContent({
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           <Card className="lg:col-span-2" title="Active Job Status">
             {summary.jobsClients.jobs.length ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
+              <div className="no-scrollbar overflow-x-auto">
+                <table className="w-full min-w-[640px] text-left">
                   <thead>
-                    <tr className="border-b border-slate-100">
-                      <th className="pb-4 pt-0 text-sm font-semibold text-slate-600">Job Title</th>
-                      <th className="pb-4 pt-0 text-sm font-semibold text-slate-600">Client</th>
-                      <th className="pb-4 pt-0 text-sm font-semibold text-slate-600">Status</th>
-                      <th className="pb-4 pt-0 text-sm font-semibold text-slate-600">Candidates</th>
-                      <th className="pb-4 pt-0 text-sm font-semibold text-slate-600">Aging</th>
+                    <tr className={REPORTS_TABLE_HEAD_ROW}>
+                      <th className={REPORTS_TABLE_TH}>Job Title</th>
+                      <th className={REPORTS_TABLE_TH}>Client</th>
+                      <th className={REPORTS_TABLE_TH}>Status</th>
+                      <th className={REPORTS_TABLE_TH}>Candidates</th>
+                      <th className={REPORTS_TABLE_TH}>Aging</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-50">
+                  <tbody className="divide-y divide-slate-100/80">
                     {summary.jobsClients.jobs.map((job) => (
-                      <tr key={job.id} className="hover:bg-slate-50">
-                        <td className="py-4 text-sm font-medium text-slate-900">{job.title}</td>
-                        <td className="py-4 text-sm text-slate-600">{job.client}</td>
-                        <td className="py-4 text-xs"><span className="rounded-full bg-slate-100 px-2 py-1 font-medium text-slate-700">{job.status}</span></td>
-                        <td className="py-4 text-sm text-slate-600">{formatNumber(job.count)}</td>
-                        <td className="py-4 text-sm text-slate-600">{job.aging}</td>
+                      <tr key={job.id} className={REPORTS_TABLE_BODY_ROW}>
+                        <td className="px-4 py-3 text-sm font-medium text-slate-900 first:pl-6 last:pr-6">{job.title}</td>
+                        <td className="px-4 py-3 text-sm text-slate-600">{job.client}</td>
+                        <td className="px-4 py-3 text-xs">
+                          <span className="rounded-full bg-indigo-50 px-2 py-1 font-medium text-indigo-800 ring-1 ring-indigo-100/80">{job.status}</span>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-slate-600">{formatNumber(job.count)}</td>
+                        <td className="px-4 py-3 text-sm text-slate-600">{job.aging}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -496,10 +517,25 @@ function ReportsContent({
     case 'Placements & Revenue':
       return (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-            <KPICard label="Total Placements" value={formatNumber(summary.placementsRevenue.kpis.totalPlacements)} icon={Target} color="bg-green-600" />
-            <KPICard label="Total Revenue" value={formatCurrency(summary.placementsRevenue.kpis.totalRevenue)} icon={TrendingUp} color="bg-blue-600" />
-            <KPICard label="Avg. Billing" value={formatCurrency(summary.placementsRevenue.kpis.avgBilling)} icon={BarChart3} color="bg-indigo-600" />
+          <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-3">
+            <SummaryCard
+              label="Total placements"
+              count={formatNumber(summary.placementsRevenue.kpis.totalPlacements)}
+              color="green"
+              icon={<Target size={16} strokeWidth={2.35} />}
+            />
+            <SummaryCard
+              label="Total revenue"
+              count={formatCurrency(summary.placementsRevenue.kpis.totalRevenue)}
+              color="blue"
+              icon={<TrendingUp size={16} strokeWidth={2.35} />}
+            />
+            <SummaryCard
+              label="Avg. billing"
+              count={formatCurrency(summary.placementsRevenue.kpis.avgBilling)}
+              color="indigo"
+              icon={<BarChart3 size={16} strokeWidth={2.35} />}
+            />
           </div>
           <Card title="Revenue Trend">
             {summary.placementsRevenue.trend.length ? (
@@ -531,33 +567,35 @@ function ReportsContent({
       return (
         <Card title="Recruiter Leaderboard">
           {summary.teamPerformance.leaderboard.length ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
+            <div className="no-scrollbar overflow-x-auto">
+              <table className="w-full min-w-[720px] text-left">
                 <thead>
-                  <tr className="border-b border-slate-100">
-                    <th className="pb-4 pt-0 text-sm font-semibold text-slate-600">Rank</th>
-                    <th className="pb-4 pt-0 text-sm font-semibold text-slate-600">Recruiter</th>
-                    <th className="pb-4 pt-0 text-sm font-semibold text-slate-600">Jobs Handled</th>
-                    <th className="pb-4 pt-0 text-sm font-semibold text-slate-600">Submissions</th>
-                    <th className="pb-4 pt-0 text-sm font-semibold text-slate-600">Interviews</th>
-                    <th className="pb-4 pt-0 text-sm font-semibold text-slate-600">Placements</th>
-                    <th className="pb-4 pt-0 text-sm font-semibold text-slate-600">Action</th>
+                  <tr className={REPORTS_TABLE_HEAD_ROW}>
+                    <th className={REPORTS_TABLE_TH}>Rank</th>
+                    <th className={REPORTS_TABLE_TH}>Recruiter</th>
+                    <th className={REPORTS_TABLE_TH}>Jobs Handled</th>
+                    <th className={REPORTS_TABLE_TH}>Submissions</th>
+                    <th className={REPORTS_TABLE_TH}>Interviews</th>
+                    <th className={REPORTS_TABLE_TH}>Placements</th>
+                    <th className={`${REPORTS_TABLE_TH} text-right`}>Action</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50">
+                <tbody className="divide-y divide-slate-100/80">
                   {summary.teamPerformance.leaderboard.map((recruiter) => (
-                    <tr key={recruiter.id} className="hover:bg-slate-50">
-                      <td className="py-4 text-sm">
+                    <tr key={recruiter.id} className={REPORTS_TABLE_BODY_ROW}>
+                      <td className="px-4 py-3 text-sm first:pl-6 last:pr-6">
                         <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${recruiter.rank === 1 ? 'bg-yellow-100 text-yellow-700' : recruiter.rank === 2 ? 'bg-slate-200 text-slate-700' : recruiter.rank === 3 ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-500'}`}>
                           {recruiter.rank}
                         </span>
                       </td>
-                      <td className="py-4 text-sm font-medium text-slate-900">{recruiter.name}</td>
-                      <td className="py-4 text-sm text-slate-600">{formatNumber(recruiter.jobs)}</td>
-                      <td className="py-4 text-sm text-slate-600">{formatNumber(recruiter.submissions)}</td>
-                      <td className="py-4 text-sm text-slate-600">{formatNumber(recruiter.interviews)}</td>
-                      <td className="py-4 text-sm font-semibold text-blue-600">{formatNumber(recruiter.placements)}</td>
-                      <td className="py-4"><ChevronRight size={18} className="text-slate-400" /></td>
+                      <td className="px-4 py-3 text-sm font-medium text-slate-900">{recruiter.name}</td>
+                      <td className="px-4 py-3 text-sm text-slate-600">{formatNumber(recruiter.jobs)}</td>
+                      <td className="px-4 py-3 text-sm text-slate-600">{formatNumber(recruiter.submissions)}</td>
+                      <td className="px-4 py-3 text-sm text-slate-600">{formatNumber(recruiter.interviews)}</td>
+                      <td className="px-4 py-3 text-sm font-semibold text-indigo-600">{formatNumber(recruiter.placements)}</td>
+                      <td className="px-4 py-3 text-right last:pr-6">
+                        <ChevronRight size={18} className="ml-auto text-slate-400" />
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -572,11 +610,31 @@ function ReportsContent({
     case 'Activity & Productivity':
       return (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-4">
-            <KPICard label="Calls Made" value={formatNumber(summary.activityProductivity.kpis.callsMade)} icon={Phone} color="bg-blue-600" />
-            <KPICard label="Emails Sent" value={formatNumber(summary.activityProductivity.kpis.emailsSent)} icon={Mail} color="bg-purple-600" />
-            <KPICard label="Tasks Completed" value={formatNumber(summary.activityProductivity.kpis.tasksCompleted)} icon={CheckCircle2} color="bg-green-600" />
-            <KPICard label="Overdue Tasks" value={formatNumber(summary.activityProductivity.kpis.overdueTasks)} icon={Clock} color="bg-red-600" />
+          <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4">
+            <SummaryCard
+              label="Calls made"
+              count={formatNumber(summary.activityProductivity.kpis.callsMade)}
+              color="blue"
+              icon={<Phone size={16} strokeWidth={2.35} />}
+            />
+            <SummaryCard
+              label="Emails sent"
+              count={formatNumber(summary.activityProductivity.kpis.emailsSent)}
+              color="purple"
+              icon={<Mail size={16} strokeWidth={2.35} />}
+            />
+            <SummaryCard
+              label="Tasks completed"
+              count={formatNumber(summary.activityProductivity.kpis.tasksCompleted)}
+              color="green"
+              icon={<CheckCircle2 size={16} strokeWidth={2.35} />}
+            />
+            <SummaryCard
+              label="Overdue tasks"
+              count={formatNumber(summary.activityProductivity.kpis.overdueTasks)}
+              color="rose"
+              icon={<Clock size={16} strokeWidth={2.35} />}
+            />
           </div>
           <Card title="Daily Activity Trend">
             {summary.activityProductivity.trend.length ? (
@@ -609,7 +667,7 @@ function ReportsContent({
               <div>
                 <label className="mb-2 block text-sm font-medium text-slate-700">Data Source</label>
                 <select
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none transition-all focus:ring-2 focus:ring-blue-500"
+                  className={`${PH2_TOOLBAR_SELECT_CLASS} h-9 w-full`}
                   value={customSource}
                   onChange={(event) => setCustomSource(event.target.value)}
                 >
@@ -651,29 +709,33 @@ function ReportsContent({
                 <button
                   onClick={onGenerateCustom}
                   disabled={customLoading}
-                  className="w-full rounded-lg bg-blue-600 py-2 font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="w-full rounded-lg bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 py-2.5 text-xs font-semibold text-white shadow-lg shadow-indigo-500/30 transition-all hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 disabled:cursor-not-allowed disabled:opacity-60 active:scale-[0.98]"
                 >
-                  {customLoading ? 'Generating...' : 'Generate Report'}
+                  {customLoading ? 'Generating…' : 'Generate report'}
                 </button>
               )}
             </div>
           </Card>
           <Card className="lg:col-span-2" title="Report Preview">
             {customDataset && customDataset.rows.length ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
+              <div className="no-scrollbar overflow-x-auto">
+                <table className="w-full min-w-[480px] text-left">
                   <thead>
-                    <tr className="border-b border-slate-100">
+                    <tr className={REPORTS_TABLE_HEAD_ROW}>
                       {customDataset.columns.map((column) => (
-                        <th key={column} className="pb-3 pr-4 text-sm font-semibold text-slate-600">{column}</th>
+                        <th key={column} className={REPORTS_TABLE_TH}>
+                          {column}
+                        </th>
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-50">
+                  <tbody className="divide-y divide-slate-100/80">
                     {customDataset.rows.slice(0, 15).map((row, index) => (
-                      <tr key={`${customDataset.entity}-${index}`}>
+                      <tr key={`${customDataset.entity}-${index}`} className={REPORTS_TABLE_BODY_ROW}>
                         {customDataset.columns.map((column) => (
-                          <td key={column} className="py-3 pr-4 text-sm text-slate-700">{String(row[column] ?? '')}</td>
+                          <td key={column} className="px-4 py-3 pr-4 text-sm text-slate-700 first:pl-6 last:pr-6">
+                            {String(row[column] ?? '')}
+                          </td>
                         ))}
                       </tr>
                     ))}
@@ -707,6 +769,7 @@ export default function ReportsPage() {
   const [customDataset, setCustomDataset] = useState<DatasetResponse | null>(null);
   const [customColumns, setCustomColumns] = useState<string[]>([]);
   const [customLoading, setCustomLoading] = useState(false);
+  const [pullRefreshing, setPullRefreshing] = useState(false);
 
   const loadSummary = async (filters: FiltersState, opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
@@ -794,161 +857,226 @@ export default function ReportsPage() {
     }
   };
 
+  const handlePullRefresh = async () => {
+    setPullRefreshing(true);
+    try {
+      await loadSummary(appliedFilters, { silent: true });
+    } finally {
+      setPullRefreshing(false);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-[#F8FAFC] font-sans text-slate-900">
-      <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-8 py-4 shadow-sm">
-        <div className="flex flex-wrap items-center gap-4">
-          <select
-            value={draftFilters.dateRange}
-            onChange={(event) => {
-              const value = event.target.value;
-              setDraftFilters((prev) => ({ ...prev, dateRange: value }));
-              setAppliedFilters((prev) => ({ ...prev, dateRange: value }));
-            }}
-            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none transition-all focus:ring-2 focus:ring-blue-500"
-          >
-            {(summary?.options.dateRanges || [{ value: 'last_30_days', label: 'Last 30 Days' }]).map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-
-          <select
-            value={draftFilters.clientId}
-            onChange={(event) => {
-              const value = event.target.value;
-              setDraftFilters((prev) => ({ ...prev, clientId: value }));
-              setAppliedFilters((prev) => ({ ...prev, clientId: value }));
-            }}
-            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none transition-all focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="">All Clients</option>
-            {(summary?.options.clients || []).map((client) => (
-              <option key={client.id} value={client.id}>{client.name}</option>
-            ))}
-          </select>
-
-          <select
-            value={draftFilters.jobId}
-            onChange={(event) => {
-              const value = event.target.value;
-              setDraftFilters((prev) => ({ ...prev, jobId: value }));
-              setAppliedFilters((prev) => ({ ...prev, jobId: value }));
-            }}
-            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none transition-all focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="">All Jobs</option>
-            {(summary?.options.jobs || []).map((job) => (
-              <option key={job.id} value={job.id}>{job.name}</option>
-            ))}
-          </select>
-
-          <select
-            value={draftFilters.recruiterId}
-            onChange={(event) => {
-              const value = event.target.value;
-              setDraftFilters((prev) => ({ ...prev, recruiterId: value }));
-              setAppliedFilters((prev) => ({ ...prev, recruiterId: value }));
-            }}
-            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none transition-all focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="">All Recruiters</option>
-            {(summary?.options.recruiters || []).map((recruiter) => (
-              <option key={recruiter.id} value={recruiter.id}>{recruiter.name}</option>
-            ))}
-          </select>
-
-          <div className="ml-auto flex items-center gap-2">
-            <button
-              onClick={() => setAppliedFilters(draftFilters)}
-              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition-all hover:bg-slate-800"
-            >
-              Apply Filters
-            </button>
-            <button
-              onClick={() => {
-                setDraftFilters(DEFAULT_FILTERS);
-                setAppliedFilters(DEFAULT_FILTERS);
-              }}
-              className="px-4 py-2 text-sm font-medium text-slate-500 transition-colors hover:text-slate-900"
-            >
-              Reset
-            </button>
+    <div className="w-full min-h-screen overflow-hidden text-slate-900">
+      <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+        <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">
+          <div className="flex items-start gap-2.5 sm:gap-3">
+            <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20">
+              <BarChart3 className="h-5 w-5" strokeWidth={2.2} />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold leading-tight tracking-tight text-slate-900 sm:text-[1.35rem]">Reports</h1>
+              <p className="mt-0.5 max-w-2xl text-xs text-slate-500">
+                <span className="font-semibold text-slate-700">{activeTab}</span>
+                <span className="text-slate-400"> · </span>
+                Analytics and exports for your recruitment pipeline.
+              </p>
+            </div>
           </div>
-        </div>
-      </div>
-
-      <div className="flex overflow-x-auto border-b border-slate-200 bg-white px-8 no-scrollbar">
-        {TABS.map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`relative whitespace-nowrap border-b-2 px-4 py-4 text-sm font-medium transition-all ${activeTab === tab ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-          >
-            {tab}
-            {activeTab === tab ? <motion.div layoutId="activeTab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" /> : null}
-          </button>
-        ))}
-      </div>
-
-      <div className="p-8">
-        <div className="mb-8 flex items-center justify-between gap-4">
-          <SectionHeader
-            title={activeTab}
-            subtitle={`Detailed insights and performance data for ${activeTab.toLowerCase()}.`}
-          />
-
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handlePullRefresh()}
+              disabled={pullRefreshing || loading}
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98] disabled:opacity-50"
+              title="Refresh data"
+            >
+              <RefreshCcw size={16} strokeWidth={2.25} className={pullRefreshing ? 'animate-spin' : ''} />
+            </button>
             {canExportData && (
               <button
+                type="button"
                 onClick={() => void handleExport('csv')}
                 disabled={!!exporting}
-                className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition-all hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <Download size={16} /> {exporting === 'csv' ? 'Exporting...' : 'Export CSV'}
+                <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
+                <span>{exporting === 'csv' ? 'Exporting…' : 'Export CSV'}</span>
               </button>
             )}
             {canExportData && (
               <button
+                type="button"
                 onClick={() => void handleExport('pdf')}
                 disabled={!!exporting}
-                className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition-all hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <FileText size={16} /> {exporting === 'pdf' ? 'Exporting...' : 'PDF Report'}
+                <FileText size={16} className="text-indigo-600" strokeWidth={2.25} />
+                <span>{exporting === 'pdf' ? 'Exporting…' : 'PDF report'}</span>
               </button>
             )}
           </div>
+        </header>
+
+        <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
+          <div className="mx-auto max-w-[1600px]">
+            <div className={PH2_TABLE_CARD_CLASS}>
+              <div className={PH2_TOOLBAR_ROW_CLASS}>
+                <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:max-w-none lg:flex-1 lg:justify-between">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={draftFilters.dateRange}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setDraftFilters((prev) => ({ ...prev, dateRange: value }));
+                      }}
+                      className={PH2_TOOLBAR_SELECT_CLASS}
+                    >
+                      {(summary?.options.dateRanges || [{ value: 'last_30_days', label: 'Last 30 Days' }]).map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={draftFilters.clientId}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setDraftFilters((prev) => ({ ...prev, clientId: value }));
+                      }}
+                      className={PH2_TOOLBAR_SELECT_CLASS}
+                    >
+                      <option value="">All Clients</option>
+                      {(summary?.options.clients || []).map((client) => (
+                        <option key={client.id} value={client.id}>
+                          {client.name}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={draftFilters.jobId}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setDraftFilters((prev) => ({ ...prev, jobId: value }));
+                      }}
+                      className={PH2_TOOLBAR_SELECT_CLASS}
+                    >
+                      <option value="">All Jobs</option>
+                      {(summary?.options.jobs || []).map((job) => (
+                        <option key={job.id} value={job.id}>
+                          {job.name}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={draftFilters.recruiterId}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setDraftFilters((prev) => ({ ...prev, recruiterId: value }));
+                      }}
+                      className={PH2_TOOLBAR_SELECT_CLASS}
+                    >
+                      <option value="">All Recruiters</option>
+                      {(summary?.options.recruiters || []).map((recruiter) => (
+                        <option key={recruiter.id} value={recruiter.id}>
+                          {recruiter.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setAppliedFilters({ ...draftFilters })}
+                      className="rounded-lg bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-3.5 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/30 transition-all hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 active:scale-[0.98]"
+                    >
+                      Apply filters
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDraftFilters(DEFAULT_FILTERS);
+                        setAppliedFilters(DEFAULT_FILTERS);
+                      }}
+                      className="inline-flex items-center gap-1 rounded-lg px-2.5 py-2 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
+                    >
+                      <XCircle size={15} className="shrink-0 text-rose-500" strokeWidth={2.35} />
+                      Reset
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="no-scrollbar flex overflow-x-auto border-b border-indigo-100/40 bg-white/40 px-1 sm:px-2">
+                {TABS.map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => setActiveTab(tab)}
+                    className={`relative whitespace-nowrap px-3 py-3 text-xs font-semibold transition-all sm:px-4 sm:text-sm ${
+                      activeTab === tab
+                        ? 'text-indigo-700'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    {tab}
+                    {activeTab === tab ? (
+                      <motion.div layoutId="reportsActiveTab" className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-indigo-600 sm:left-3 sm:right-3" />
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+
+              <div className="p-4 sm:p-5 lg:p-6">
+                {error ? (
+                  <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+                ) : null}
+
+                {loading ? (
+                  <div className="space-y-6" role="status" aria-label="Loading report data">
+                    <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-6">
+                      {(['blue', 'cyan', 'orange', 'indigo', 'green', 'rose'] as SummaryCardColor[]).map((c, i) => (
+                        <SummaryCardSkeleton key={i} color={c} />
+                      ))}
+                    </div>
+                    <SkeletonCard
+                      heightClass="h-[280px]"
+                      lines={4}
+                      className="overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm"
+                    />
+                  </div>
+                ) : (
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={activeTab}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      <ReportsContent
+                        activeTab={activeTab}
+                        summary={summary}
+                        customSource={customSource}
+                        setCustomSource={setCustomSource}
+                        customDataset={customDataset}
+                        customColumns={customColumns}
+                        setCustomColumns={setCustomColumns}
+                        customLoading={customLoading}
+                        onGenerateCustom={canCreateReports ? () => void generateCustomPreview() : undefined}
+                      />
+                    </motion.div>
+                  </AnimatePresence>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
-
-        {error ? (
-          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
-        ) : null}
-
-        {loading ? (
-          <PageSkeleton kpiCount={6} />
-        ) : (
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={activeTab}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.2 }}
-            >
-              <ReportsContent
-                activeTab={activeTab}
-                summary={summary}
-                customSource={customSource}
-                setCustomSource={setCustomSource}
-                customDataset={customDataset}
-                customColumns={customColumns}
-                setCustomColumns={setCustomColumns}
-                customLoading={customLoading}
-                onGenerateCustom={canCreateReports ? () => void generateCustomPreview() : undefined}
-              />
-            </motion.div>
-          </AnimatePresence>
-        )}
-      </div>
+      </main>
     </div>
   );
 }
