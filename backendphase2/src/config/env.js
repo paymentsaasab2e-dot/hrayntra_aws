@@ -166,8 +166,13 @@ export const env = {
   SMTP_USER: process.env.SMTP_USER,
   SMTP_PASS: process.env.SMTP_PASS,
 
-  /** Comma-separated emails allowed to call POST /api/v1/hq/provision-tenant. Empty = any super admin (dev default). */
-  HRAYNTRA_PLATFORM_PROVISION_EMAILS: process.env.HRAYNTRA_PLATFORM_PROVISION_EMAILS || '',
+  /**
+   * Comma-separated emails allowed for all HQ APIs (list tenants, provision, assign plan, delete).
+   * Defaults to the seeded HRYANTRA platform super admin. Override to add more operators, or set
+   * explicitly in .env for staging/production.
+   */
+  HRAYNTRA_PLATFORM_PROVISION_EMAILS:
+    process.env.HRAYNTRA_PLATFORM_PROVISION_EMAILS || 'superadmin@saasa.com',
 
   // AI summary + in-app assistant chat
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,

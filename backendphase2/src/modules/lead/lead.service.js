@@ -23,6 +23,34 @@ function normalizeOtherDetails(value) {
   return normalized.length ? normalized : null;
 }
 
+/** Strip NBSP (Excel) and trim — used for import + URL checks. */
+function stripNbsp(value) {
+  if (value === undefined || value === null) return '';
+  return String(value).replace(/\u00a0/g, ' ');
+}
+
+const IMPORT_WEB_TLD_RE = /\.(com|net|org|io|co|cm|uk|eu|fr|de|au|ca|in|biz|info|app|dev)(\/|$|\?|#|:)/i;
+const IMPORT_WEB_TLD_END_RE = /\.(com|net|org|io|co|cm|uk|eu|fr|de|au|ca|in|biz|info|app|dev)$/i;
+
+/** True if the string looks like a real web address (not a plain company name). */
+function isLikelyWebAddress(raw) {
+  const s = stripNbsp(raw).trim();
+  if (!s) return false;
+  if (/^https?:\/\//i.test(s)) return true;
+  if (/^www\./i.test(s)) return true;
+  if (IMPORT_WEB_TLD_RE.test(s) || IMPORT_WEB_TLD_END_RE.test(s)) return true;
+  return false;
+}
+
+function normalizeImportColumnHeader(value = '') {
+  return stripNbsp(value)
+    .trim()
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ');
+}
+
 function buildLeadAccessWhere(id, req) {
   if (canViewAllLeads(req) || !req?.user?.id) {
     return { id };
@@ -219,24 +247,27 @@ export const leadService = {
   async create(data) {
     const normalizeNullableString = (value) => {
       if (value === undefined || value === null) return null;
-      const normalized = String(value).trim();
+      const normalized = stripNbsp(value).trim();
       return normalized || null;
     };
     const normalizeRequiredLeadField = (value) => normalizeNullableString(value) || '';
 
-    const normalizedCompanyLinks = Array.isArray(data.companyLinks)
-      ? data.companyLinks.map((item) => String(item).trim()).filter(Boolean)
+    const rawCompanyLinkSources = Array.isArray(data.companyLinks)
+      ? data.companyLinks.map((item) => stripNbsp(String(item)).trim()).filter(Boolean)
       : String(data.website || '')
           .split('\n')
-          .map((item) => item.trim())
+          .map((item) => stripNbsp(item).trim())
           .filter(Boolean);
+
+    const normalizedCompanyLinks = rawCompanyLinkSources.filter(isLikelyWebAddress);
 
     const normalizedContactPerson = normalizeNullableString(data.contactPerson) || normalizeNullableString(data.directorName);
     const normalizedDirectorSalutation = normalizeNullableString(data.directorSalutation);
     const normalizedIndustry = normalizeNullableString(data.industry) || normalizeNullableString(data.sector);
     const normalizedCompanySize = normalizeNullableString(data.companySize) || normalizeNullableString(data.teamName);
     const normalizedInterestedNeeds = normalizeNullableString(data.interestedNeeds) || normalizeNullableString(data.servicesNeeded);
-    const normalizedNotes = normalizeNullableString(data.notes) || normalizeNullableString(data.expectedBusinessValue);
+    const normalizedNotes = normalizeNullableString(data.notes);
+    const normalizedExpectedBusinessValue = normalizeNullableString(data.expectedBusinessValue);
     const resolvedAssignedToId = await resolveAssignedToId(data.assignedToId || data.assignedToName);
     const resolvedAssignedToIds = Array.isArray(data.assignedToIds)
       ? await resolveAssignedToIds(data.assignedToIds)
@@ -244,10 +275,18 @@ export const leadService = {
     const normalizedOtherDetails = normalizeOtherDetails(data.otherDetails);
 
     // Map frontend fields to backend model
+    const websiteInput = normalizeNullableString(data.website);
+    const websiteClean = websiteInput && isLikelyWebAddress(websiteInput) ? websiteInput : null;
+    const linkedInInput = normalizeNullableString(data.linkedIn);
+    const linkedInClean =
+      linkedInInput && (isLikelyWebAddress(linkedInInput) || linkedInInput.toLowerCase().includes('linkedin.com'))
+        ? linkedInInput
+        : null;
+
     const leadData = {
       companyName: normalizeRequiredLeadField(data.companyName),
       contactPerson: normalizeRequiredLeadField(normalizedContactPerson),
-      directorName: normalizeNullableString(data.directorName) || normalizedContactPerson || null,
+      directorName: normalizeNullableString(data.directorName) || null,
       directorSalutation: normalizedDirectorSalutation || null,
       email: normalizeRequiredLeadField(normalizeNullableString(data.email)?.toLowerCase()),
       phone: normalizeNullableString(data.phone),
@@ -258,15 +297,15 @@ export const leadService = {
       interestedNeeds: normalizedInterestedNeeds || null,
       servicesNeeded: data.servicesNeeded || normalizedInterestedNeeds || null,
       notes: normalizedNotes || null,
-      expectedBusinessValue: data.expectedBusinessValue || normalizedNotes || null,
+      expectedBusinessValue: normalizedExpectedBusinessValue || null,
       // Extended company fields
       industry: normalizedIndustry || null,
       sector: data.sector || normalizedIndustry || null,
       companySize: normalizedCompanySize || null,
       teamName: data.teamName || normalizedCompanySize || null,
-      website: normalizeNullableString(data.website) || normalizedCompanyLinks.join('\n') || null,
+      website: websiteClean || (normalizedCompanyLinks.length ? normalizedCompanyLinks[0] : null),
       companyLinks: normalizedCompanyLinks,
-      linkedIn: normalizeNullableString(data.linkedIn),
+      linkedIn: linkedInClean,
       location: normalizeNullableString(data.location),
       // Extended contact fields
       designation: normalizeNullableString(data.designation),
@@ -368,7 +407,10 @@ export const leadService = {
     // Map frontend fields to backend model
     const updateData = {};
     const normalizedCompanyLinks = Array.isArray(data.companyLinks)
-      ? data.companyLinks.map((item) => String(item).trim()).filter(Boolean)
+      ? data.companyLinks
+          .map((item) => stripNbsp(String(item)).trim())
+          .filter(Boolean)
+          .filter(isLikelyWebAddress)
       : undefined;
     const normalizedOtherDetails = data.otherDetails !== undefined ? normalizeOtherDetails(data.otherDetails) : undefined;
     const resolvedAssignedToId =
@@ -398,7 +440,6 @@ export const leadService = {
     if (data.interestedNeeds === undefined && data.servicesNeeded !== undefined) updateData.interestedNeeds = data.servicesNeeded || null;
     if (data.notes !== undefined) updateData.notes = data.notes || null;
     if (data.expectedBusinessValue !== undefined) updateData.expectedBusinessValue = data.expectedBusinessValue || null;
-    if (data.notes === undefined && data.expectedBusinessValue !== undefined) updateData.notes = data.expectedBusinessValue || null;
     // Extended company fields
     if (data.industry !== undefined) updateData.industry = data.industry || null;
     if (data.sector !== undefined) updateData.sector = data.sector || null;
@@ -409,7 +450,9 @@ export const leadService = {
     if (data.website !== undefined) updateData.website = data.website || null;
     if (normalizedCompanyLinks !== undefined) {
       updateData.companyLinks = normalizedCompanyLinks;
-      if (data.website === undefined) updateData.website = normalizedCompanyLinks.join('\n') || null;
+      if (data.website === undefined) {
+        updateData.website = normalizedCompanyLinks.length ? normalizedCompanyLinks[0] : null;
+      }
     }
     if (data.linkedIn !== undefined) updateData.linkedIn = data.linkedIn || null;
     if (data.location !== undefined) updateData.location = data.location || null;
@@ -980,38 +1023,44 @@ export const leadService = {
       errors: [],
     };
 
+    const EBV_IMPORT_HEADERS = new Set(['expected business value', 'expected value', 'business value']);
+    const CAMPAIGN_IMPORT_HEADERS = new Set(['campaign', 'campaign name']);
+
     for (let index = 0; index < rows.length; index += 1) {
       const row = rows[index] || {};
 
-      const normalizeNullableString = (value) => {
-        if (value === undefined || value === null) return null;
-        const normalized = String(value).trim();
-        return normalized || null;
+      const cleanMapped = (crmFieldKey) => {
+        const column = mapping[crmFieldKey];
+        if (!column || typeof column !== 'string') return null;
+        const raw = row[column];
+        if (raw === undefined || raw === null) return null;
+        const s = stripNbsp(String(raw)).trim();
+        return s === '' ? null : s;
       };
 
-      const getValue = (key) => {
-        const column = mapping[key];
-        if (!column) return null;
-        return normalizeNullableString(row[column]);
+      const mappedHeaderNorm = (crmFieldKey) => {
+        const column = mapping[crmFieldKey];
+        if (!column || typeof column !== 'string') return null;
+        return normalizeImportColumnHeader(column);
       };
 
-      const extractLinksFromRow = () =>
-        Object.values(row)
-          .flatMap((value) => String(value ?? '').match(/https?:\/\/[^\s,|]+/gi) || [])
-          .map((value) => value.trim())
-          .filter(Boolean);
+      const valueIfHeaderIn = (crmFieldKey, allowedHeaders) => {
+        const h = mappedHeaderNorm(crmFieldKey);
+        if (!h || !allowedHeaders.has(h)) return null;
+        return cleanMapped(crmFieldKey);
+      };
 
-      const normalizePriority = (value) => {
-        const normalized = String(value || '').trim().toLowerCase();
-        if (!normalized) return undefined;
-        if (['high', 'hot', 'warm'].includes(normalized)) return 'High';
-        if (['medium', 'med', 'moderate'].includes(normalized)) return 'Medium';
-        if (['low', 'cold'].includes(normalized)) return 'Low';
-        return undefined;
+      const normalizeImportPriority = (value) => {
+        const n = stripNbsp(value).trim().toLowerCase();
+        if (!n) return 'Low';
+        if (n === 'cold' || n === 'low') return 'Low';
+        if (n === 'warm' || n === 'medium' || n === 'med' || n === 'moderate') return 'Medium';
+        if (n === 'hot' || n === 'high') return 'High';
+        return 'Low';
       };
 
       const normalizeStatus = (value) => {
-        const normalized = String(value || '').trim().toLowerCase();
+        const normalized = stripNbsp(value).trim().toLowerCase();
         if (!normalized) return undefined;
         if (normalized === 'new') return 'New';
         if (normalized === 'contacted') return 'Contacted';
@@ -1022,7 +1071,7 @@ export const leadService = {
       };
 
       const normalizeType = (value) => {
-        const normalized = String(value || '').trim().toLowerCase();
+        const normalized = stripNbsp(value).trim().toLowerCase();
         if (!normalized) return undefined;
         if (normalized === 'company') return 'Company';
         if (normalized === 'individual') return 'Individual';
@@ -1031,7 +1080,7 @@ export const leadService = {
       };
 
       const normalizeSource = (value) => {
-        const normalized = String(value || '').trim().toLowerCase();
+        const normalized = stripNbsp(value).trim().toLowerCase();
         if (!normalized) return undefined;
         if (normalized === 'website') return 'Website';
         if (normalized === 'linkedin') return 'LinkedIn';
@@ -1042,55 +1091,80 @@ export const leadService = {
       };
 
       const parseDateValue = (value) => {
-        if (!value) return undefined;
-        const parsed = new Date(value);
+        if (value === undefined || value === null) return undefined;
+        const s = stripNbsp(String(value)).trim();
+        if (!s) return undefined;
+        const parsed = new Date(s);
         return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
       };
 
-      const companyName = getValue('companyName');
-      const contactPerson = getValue('contactPerson');
-      const email = getValue('email')?.toLowerCase() || null;
+      const companyName = cleanMapped('companyName');
+      const contactPerson = cleanMapped('contactPerson');
+      const directorName = cleanMapped('directorName');
+      const emailRaw = cleanMapped('email');
+      const email = emailRaw ? emailRaw.toLowerCase() : null;
+      const phone = cleanMapped('phone');
 
-      const detectedLinks = extractLinksFromRow();
-      const websiteValue = getValue('website');
-      const linkedInValue = getValue('linkedIn') || detectedLinks.find((link) => link.toLowerCase().includes('linkedin.com')) || '';
-      const genericWebsiteValue =
-        websiteValue ||
-        detectedLinks.find((link) => !link.toLowerCase().includes('linkedin.com')) ||
-        '';
-      const companyLinks = [genericWebsiteValue, linkedInValue].filter(Boolean);
+      const websiteRaw = cleanMapped('website');
+      const website = websiteRaw && isLikelyWebAddress(websiteRaw) ? websiteRaw : null;
+
+      const linkedInRaw = cleanMapped('linkedIn');
+      const linkedIn =
+        linkedInRaw && (isLikelyWebAddress(linkedInRaw) || linkedInRaw.toLowerCase().includes('linkedin.com'))
+          ? linkedInRaw
+          : null;
+
+      const companyLinks = [website, linkedIn].filter(Boolean);
+
+      const sectorVal = cleanMapped('industry');
+      const servicesVal = cleanMapped('interestedNeeds');
+      const expectedBusinessValue = valueIfHeaderIn('expectedBusinessValue', EBV_IMPORT_HEADERS);
+      const campaignName = valueIfHeaderIn('campaignName', CAMPAIGN_IMPORT_HEADERS);
+
+      const countryRaw = cleanMapped('country');
+      const country = countryRaw || 'Cameroon';
 
       const payload = {
         companyName,
         contactPerson,
-        directorName: contactPerson,
-        directorSalutation: getValue('directorSalutation') || null,
+        directorName: directorName || null,
+        directorSalutation: cleanMapped('directorSalutation'),
         email,
-        phone: getValue('phone') || null,
-        type: normalizeType(getValue('type')) || 'Company',
-        source: normalizeSource(getValue('source')) || 'Website',
-        status: normalizeStatus(getValue('status')) || 'New',
-        priority: normalizePriority(getValue('priority')) || 'Medium',
-        interestedNeeds: getValue('interestedNeeds') || null,
-        servicesNeeded: getValue('interestedNeeds') || null,
-        notes: getValue('notes') || null,
-        expectedBusinessValue: getValue('notes') || null,
-        industry: getValue('industry') || null,
-        sector: getValue('industry') || null,
-        companySize: getValue('companySize') || null,
-        teamName: getValue('companySize') || null,
-        website: genericWebsiteValue || null,
-        linkedIn: linkedInValue || null,
-        companyLinks: companyLinks.length ? companyLinks : [],
-        location: getValue('location') || null,
-        designation: getValue('designation') || null,
-        city: getValue('city') || null,
-        country: getValue('country') || null,
-        state: getValue('state') || null,
-        latitude: (() => { const n = Number(getValue('latitude')); return Number.isFinite(n) ? n : null; })(),
-        longitude: (() => { const n = Number(getValue('longitude')); return Number.isFinite(n) ? n : null; })(),
-        campaignName: getValue('campaignName') || null,
-        nextFollowUp: parseDateValue(getValue('nextFollowUpDue')) || null,
+        phone,
+        type: normalizeType(cleanMapped('type')) || 'Company',
+        source: normalizeSource(cleanMapped('source')) || 'Website',
+        status: normalizeStatus(cleanMapped('status')) || 'New',
+        priority: normalizeImportPriority(cleanMapped('priority') || ''),
+        interestedNeeds: servicesVal,
+        servicesNeeded: servicesVal,
+        notes: cleanMapped('notes'),
+        expectedBusinessValue,
+        industry: sectorVal,
+        sector: sectorVal,
+        companySize: cleanMapped('companySize'),
+        teamName: cleanMapped('companySize'),
+        website,
+        linkedIn,
+        companyLinks,
+        location: cleanMapped('location'),
+        designation: cleanMapped('designation'),
+        city: cleanMapped('city'),
+        country,
+        state: cleanMapped('state'),
+        latitude: (() => {
+          const n = Number(cleanMapped('latitude'));
+          return Number.isFinite(n) ? n : null;
+        })(),
+        longitude: (() => {
+          const n = Number(cleanMapped('longitude'));
+          return Number.isFinite(n) ? n : null;
+        })(),
+        campaignName,
+        nextFollowUp: parseDateValue(cleanMapped('nextFollowUpDue')) || null,
+        sourceWebsiteUrl: null,
+        sourceLinkedInUrl: null,
+        sourceEmail: null,
+        referralName: null,
         performedById,
       };
 
@@ -1111,6 +1185,7 @@ export const leadService = {
         const existing = duplicateChecks.length > 0
           ? await prisma.lead.findFirst({
               where: {
+                isDeleted: { not: true },
                 OR: duplicateChecks,
               },
             })

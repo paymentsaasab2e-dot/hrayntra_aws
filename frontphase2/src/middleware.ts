@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-// Routes that don't require authentication
-const PUBLIC_ROUTES = ['/login', '/hq', '/reset-password', '/api', '/client-review'];
+// Routes that don't require authentication (/hq requires login + platform allowlist — see app/hq/layout.tsx)
+const PUBLIC_ROUTES = ['/login', '/reset-password', '/api', '/client-review'];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
