@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { Eye, Pencil, Briefcase, Check, Trash2, Upload, ArrowUp, ArrowDown } from 'lucide-react';
-import { ImageWithFallback } from './ImageWithFallback';
+import { TableBrandAvatar } from './ui/TableBrandAvatar';
 import type { Client, ClientStage } from '@/app/client/types';
 import { apiUpdateClient, filesApiUpload } from '../lib/api';
 import { requestError, requestWarning } from '../lib/appDialog';
@@ -172,8 +172,20 @@ export function ClientTable({
                 </td>
                 <td className="px-3 sm:px-4 py-2">
                   <div className="flex items-center gap-2.5">
-                    <div className="relative h-8 w-8 shrink-0 overflow-hidden rounded-full border border-slate-200/90 bg-gradient-to-br from-slate-100 to-slate-50 ring-1 ring-slate-200/80 group/logo">
-                      <ImageWithFallback src={client.logo} alt={client.name} className="h-full w-full object-cover" />
+                    <div className="relative h-8 w-8 shrink-0 overflow-visible rounded-full group/logo">
+                      <TableBrandAvatar
+                        src={client.logo}
+                        name={client.name}
+                        size="md"
+                        showStatusDot={client.stage === 'Active' || client.stage === 'Hot Clients 🔥'}
+                        statusDotTitle={
+                          client.stage === 'Hot Clients 🔥'
+                            ? 'Hot client'
+                            : client.stage === 'Active'
+                              ? 'Active client'
+                              : 'Active account'
+                        }
+                      />
                       <button
                         type="button"
                         onClick={(e) => {
@@ -213,10 +225,12 @@ export function ClientTable({
                 </td>
                 <td className="px-3 sm:px-4 py-2">
                   <div className="flex items-center gap-2">
-                    <ImageWithFallback
+                    <TableBrandAvatar
                       src={client.owner.avatar}
+                      name={client.owner.name}
+                      size="xs"
+                      showStatusDot={false}
                       alt={client.owner.name}
-                      className="h-6 w-6 shrink-0 rounded-full border border-slate-200 object-cover"
                     />
                     <span className="text-[11px] font-medium text-slate-700">{client.owner.name}</span>
                   </div>

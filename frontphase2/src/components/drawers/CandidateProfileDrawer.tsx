@@ -3290,7 +3290,7 @@ export function CandidateProfileDrawer({
                   animate={{ x: 0 }}
                   exit={{ x: '100%' }}
                   transition={{ type: 'tween', duration: 0.16 }}
-                  className="fixed inset-y-0 right-0 z-[75] flex w-full max-w-full sm:max-w-[680px]"
+                  className="fixed inset-y-0 right-0 z-[75] flex h-full w-full flex-col sm:max-w-[680px]"
                 >
                   <div className="flex h-full w-full flex-col bg-white shadow-2xl">
                     <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 sm:px-6">
@@ -3513,7 +3513,7 @@ export function CandidateProfileDrawer({
               />
 
               <motion.aside
-                className="fixed inset-y-0 right-0 z-50 flex w-full max-w-full sm:max-w-[680px]"
+                className="fixed inset-y-0 right-0 z-50 flex h-full w-full flex-col sm:max-w-[680px]"
                 initial={{ x: '100%' }}
                 animate={{ x: 0 }}
                 exit={{ x: '100%' }}

@@ -5,7 +5,8 @@ import * as XLSX from 'xlsx';
 
 const LEAD_IMPORT_FIELD_ALIASES = {
   companyName: ['company', 'company name', 'lead company', 'client', 'organization', 'organisation'],
-  contactPerson: ['contact person', 'contact', 'director name', 'primary contact'],
+  contactPerson: ['name', 'contact person', 'contact', 'primary contact'],
+  directorName: ['director name', 'director'],
   email: ['email', 'email address', 'contact email'],
   phone: ['phone', 'phone number', 'mobile', 'mobile number', 'contact number'],
   type: ['type', 'lead type'],
@@ -13,6 +14,7 @@ const LEAD_IMPORT_FIELD_ALIASES = {
   status: ['status', 'lead status'],
   priority: ['priority', 'interest level', 'lead priority'],
   interestedNeeds: ['services needed', 'service needed', 'interested needs', 'requirements', 'needs'],
+  expectedBusinessValue: ['expected business value', 'expected value', 'business value'],
   notes: ['notes', 'remarks', 'comments'],
   industry: ['industry', 'sector', 'business type'],
   companySize: ['team name', 'company size', 'team'],
@@ -28,6 +30,7 @@ const LEAD_IMPORT_FIELD_ALIASES = {
 
 const normalizeHeader = (value = '') =>
   String(value)
+    .replace(/\u00a0/g, ' ')
     .trim()
     .replace(/([a-z])([A-Z])/g, '$1 $2')
     .toLowerCase()
@@ -41,6 +44,8 @@ const suggestLeadImportMapping = (columns = []) => {
     normalized: normalizeHeader(column),
   }));
 
+  const PARTIAL_MATCH_EXCLUDED_ALIASES = new Set(['name']);
+
   Object.entries(LEAD_IMPORT_FIELD_ALIASES).forEach(([fieldId, aliases]) => {
     const normalizedAliases = aliases.map((alias) => normalizeHeader(alias));
     const exact = normalizedColumns.find(({ normalized }) => normalizedAliases.includes(normalized));
@@ -50,7 +55,10 @@ const suggestLeadImportMapping = (columns = []) => {
     }
 
     const partial = normalizedColumns.find(({ normalized }) =>
-      normalizedAliases.some((alias) => normalized.includes(alias) || alias.includes(normalized))
+      normalizedAliases.some((alias) => {
+        if (PARTIAL_MATCH_EXCLUDED_ALIASES.has(alias)) return false;
+        return normalized.includes(alias) || alias.includes(normalized);
+      })
     );
     if (partial) {
       mapping[fieldId] = partial.column;

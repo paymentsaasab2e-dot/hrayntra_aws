@@ -83,7 +83,7 @@ export function FeedbackModal({ isOpen, interview, onClose, onSubmit }: Feedback
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'tween', duration: 0.25 }}
-            className="absolute right-0 top-0 z-10 flex h-full w-full flex-col bg-white shadow-2xl sm:max-w-[680px]"
+            className="absolute right-0 top-0 z-10 flex h-full w-full flex-col border-l border-slate-200 bg-white shadow-2xl sm:max-w-[600px]"
           >
             <div className="flex items-center justify-between border-b border-[#E5E7EB] px-6 py-4">
               <div>

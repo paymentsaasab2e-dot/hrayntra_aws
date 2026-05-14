@@ -56,6 +56,12 @@ export function ImportContactsDrawer({ isOpen, onClose, onSuccess }: ImportConta
   const [isImporting, setIsImporting] = useState(false);
   const [parseError, setParseError] = useState('');
 
+  const hasParsedFile =
+    Boolean(fileName) &&
+    !parseError &&
+    !isParsing &&
+    (Boolean(sheetName) || fileColumns.length > 0 || totalRows > 0);
+
   const reset = () => {
     setStep(1);
     setFileName('');
@@ -193,52 +199,58 @@ export function ImportContactsDrawer({ isOpen, onClose, onSuccess }: ImportConta
           </button>
         </div>
 
-        <div className="shrink-0 px-5 pt-4 pb-2">
-          <div className="flex items-center gap-2">
-            {[1, 2, 3].map((s) => (
-              <React.Fragment key={s}>
-                <div
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium ${
-                    step === s ? 'bg-blue-600 text-white' : step > s ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
-                  }`}
-                >
-                  {step > s ? <CheckCircle size={16} /> : null}
-                  <span>Step {s}</span>
-                </div>
-                {s < 3 && <ChevronRight size={16} className="text-slate-300" />}
-              </React.Fragment>
-            ))}
+        <div className="shrink-0 border-b border-slate-200 px-5 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              {[1, 2, 3].map((s) => (
+                <React.Fragment key={s}>
+                  <div
+                    className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ${
+                      step === s
+                        ? 'bg-blue-600 text-white'
+                        : step > s
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : 'bg-slate-100 text-slate-500'
+                    }`}
+                  >
+                    {step > s ? <CheckCircle size={16} /> : null}
+                    <span>Step {s}</span>
+                  </div>
+                  {s < 3 ? <ChevronRight size={16} className="shrink-0 text-slate-300" /> : null}
+                </React.Fragment>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={handleDownloadTemplate}
+              className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-800"
+            >
+              <Download size={16} className="text-blue-600" />
+              Download template
+            </button>
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto bg-slate-50/30 p-5">
           {step === 1 && (
             <div className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={handleDownloadTemplate}
-                  className="flex flex-col items-start gap-2 rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm transition-colors hover:border-blue-300 hover:bg-blue-50/40"
-                >
-                  <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-                    <Download size={18} />
-                  </span>
-                  <span className="text-sm font-bold text-slate-900">Download sample CSV</span>
-                  <span className="text-xs text-slate-500">
-                    Pre-built template with the exact column names the importer expects.
-                  </span>
-                </button>
+              <div
+                className={`rounded-xl border p-5 shadow-sm transition-colors ${
+                  hasParsedFile
+                    ? 'border-blue-300 bg-blue-50/80 ring-1 ring-blue-200/90'
+                    : 'border-slate-200 bg-white'
+                }`}
+              >
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Upload file</h4>
+                <p className="text-sm text-slate-600 mb-4">Upload a CSV or Excel file containing your contact data.</p>
                 <label
                   htmlFor="contacts-import-file"
-                  className="flex flex-col items-start gap-2 rounded-xl border border-slate-200 bg-white p-5 text-left shadow-sm transition-colors hover:border-blue-300 hover:bg-blue-50/40 cursor-pointer"
+                  className={`relative flex cursor-pointer rounded-xl border-2 p-8 transition-colors ${
+                    hasParsedFile
+                      ? 'border-solid border-blue-500 bg-blue-100/50 hover:border-blue-600 hover:bg-blue-100/70'
+                      : 'border-dashed border-slate-200 bg-slate-50/50 hover:border-slate-300 hover:bg-slate-50/80'
+                  }`}
                 >
-                  <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
-                    <Upload size={18} />
-                  </span>
-                  <span className="text-sm font-bold text-slate-900">Upload CSV / XLSX</span>
-                  <span className="text-xs text-slate-500">
-                    Pick a file from your computer; we&rsquo;ll parse it and let you map columns.
-                  </span>
                   <input
                     id="contacts-import-file"
                     type="file"
@@ -246,33 +258,35 @@ export function ImportContactsDrawer({ isOpen, onClose, onSuccess }: ImportConta
                     className="sr-only"
                     onChange={(e) => handleFileChange(e.target.files?.[0])}
                   />
-                </label>
-              </div>
-
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Or drag &amp; drop here</h4>
-                <p className="text-sm text-slate-600 mb-4">Upload a CSV or Excel file containing your contact data.</p>
-                <label className="relative flex rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-8 cursor-pointer hover:border-slate-300 hover:bg-slate-50/80 transition-colors">
-                  <input
-                    type="file"
-                    accept=".csv,.xlsx,.xls"
-                    className="sr-only"
-                    onChange={(e) => handleFileChange(e.target.files?.[0])}
-                  />
                   <div className="flex flex-col items-center justify-center gap-2 w-full">
-                    <Upload size={32} className="text-slate-400" />
-                    <span className="text-sm font-medium text-slate-600">
+                    <Upload
+                      size={32}
+                      className={hasParsedFile ? 'text-blue-600' : 'text-slate-400'}
+                    />
+                    <span
+                      className={`text-sm font-medium ${
+                        hasParsedFile ? 'text-blue-900' : 'text-slate-600'
+                      }`}
+                    >
                       {fileName || (isParsing ? 'Reading file...' : 'Click or drag CSV / XLSX file')}
                     </span>
-                    <span className="text-xs text-slate-400">CSV, XLSX up to 10MB</span>
+                    <span className={`text-xs ${hasParsedFile ? 'text-blue-800/90' : 'text-slate-400'}`}>
+                      CSV, XLSX up to 10MB
+                    </span>
                   </div>
                 </label>
                 {parseError ? <p className="mt-3 text-sm text-red-600">{parseError}</p> : null}
                 {sheetName ? (
-                  <p className="mt-3 text-sm text-slate-500">
-                    Parsed sheet: <span className="font-medium text-slate-700">{sheetName}</span> with{' '}
-                    <span className="font-medium text-slate-700">{totalRows}</span> rows
-                  </p>
+                  <div
+                    className={`mt-4 rounded-lg border px-4 py-3 text-sm ${
+                      hasParsedFile
+                        ? 'border-blue-200 bg-blue-50 text-blue-900'
+                        : 'border-transparent bg-transparent text-slate-500'
+                    }`}
+                  >
+                    Parsed sheet: <span className="font-semibold">{sheetName}</span> with{' '}
+                    <span className="font-semibold">{totalRows}</span> rows
+                  </div>
                 ) : null}
               </div>
             </div>

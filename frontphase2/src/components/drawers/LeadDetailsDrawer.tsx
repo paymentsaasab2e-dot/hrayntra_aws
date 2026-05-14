@@ -1370,7 +1370,7 @@ export function LeadDetailsDrawer({
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="fixed right-0 top-0 h-full w-1/2 bg-white shadow-2xl z-50 pointer-events-auto border-l border-slate-200 flex flex-col"
+            className="fixed right-0 top-0 h-full w-1/2 max-w-2xl bg-white shadow-2xl z-50 pointer-events-auto border-l border-slate-200 flex flex-col"
           >
           {/* Header */}
           <div className="p-5 border-b border-slate-200 flex items-start justify-between gap-3 shrink-0 bg-white">
@@ -4236,7 +4236,7 @@ export function LeadDetailsDrawer({
                 animate={{ x: 0 }}
                 exit={{ x: '100%' }}
                 transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-                className="fixed right-0 top-0 z-[70] h-full w-1/2 bg-white shadow-2xl border-l border-slate-200 flex flex-col"
+                className="fixed right-0 top-0 z-[70] h-full w-1/2 max-w-2xl bg-white shadow-2xl border-l border-slate-200 flex flex-col"
               >
                 <div className="border-b border-slate-200 bg-white p-5">
                   <div className="flex items-start justify-between gap-3">

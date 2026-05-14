@@ -12,7 +12,6 @@ import {
   CheckCircle,
   XCircle,
   Phone,
-  Building2,
   Target,
   Trash2,
   Check,
@@ -48,6 +47,7 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
+import { TableBrandAvatar } from '../../components/ui/TableBrandAvatar';
 import { requestError } from '../../lib/appDialog';
 
 // Force CSR — every interactive bit on this tab is client-driven.
@@ -1490,8 +1490,13 @@ export default function RecruitmentAgencyDashboard() {
                             </td>
                             <td className="px-3 sm:px-4 py-2">
                               <div className="flex items-start gap-2">
-                                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-slate-100 to-slate-50 ring-1 ring-slate-200/80 text-slate-500">
-                                  <Building2 size={14} strokeWidth={2.25} />
+                                <span className="mt-0.5 shrink-0">
+                                  <TableBrandAvatar
+                                    name={lead.companyName}
+                                    size="sm"
+                                    showStatusDot={lead.status !== 'Lost'}
+                                    statusDotTitle={`Lead: ${lead.status}`}
+                                  />
                                 </span>
                                 <div className="min-w-0 flex flex-col gap-0.5">
                                 <button
