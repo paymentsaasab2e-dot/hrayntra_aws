@@ -12,7 +12,8 @@ function stripCopySuffix(lastName) {
   return String(lastName || '').replace(/\s+copy\s+\d+$/i, '').trim();
 }
 
-const notDeletedClause = {
+/** Active (non–recycle-bin) candidates — reuse anywhere we must not treat soft-deleted rows as duplicates. */
+export const notDeletedClause = {
   OR: [{ isDeleted: false }, { isDeleted: null }],
 };
 
@@ -115,21 +116,20 @@ export async function nextCopyLastNameForBulk(firstName, currentLastName) {
 export async function nextUniqueEmailVariant(email) {
   const norm = normalizeEmail(email);
   if (!norm || !norm.includes('@')) {
-    const fallback = `bulkcv-${Date.now().toString(36)}@noemail.hrayntra.local`;
-    console.log('[bulk-cv] synthetic email (no valid base)', fallback);
-    return fallback;
+    return null;
   }
   const [local, domain] = norm.split('@');
-  if (!domain) {
-    const fallback = `bulkcv-${Date.now().toString(36)}@noemail.hrayntra.local`;
-    return fallback;
+  if (!local || !domain) {
+    return null;
   }
 
   for (let n = 1; n <= 80; n += 1) {
     const candidateEmail =
       n === 1 ? `${local}+bulkcv@${domain}` : `${local}+bulkcv${n}@${domain}`;
     const exists = await prisma.candidate.findFirst({
-      where: { email: { equals: candidateEmail, mode: 'insensitive' } },
+      where: {
+        AND: [notDeletedClause, { email: { equals: candidateEmail, mode: 'insensitive' } }],
+      },
       select: { id: true },
     });
     if (!exists) {
@@ -138,7 +138,18 @@ export async function nextUniqueEmailVariant(email) {
     }
   }
 
-  const fallback = `bulkcv-${Date.now().toString(36)}@noemail.hrayntra.local`;
-  console.log('[bulk-cv] synthetic email (variants exhausted)', fallback);
-  return fallback;
+  const stamp = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  const stampEmail = `${local}+bulkcv${stamp}@${domain}`;
+  const stampExists = await prisma.candidate.findFirst({
+    where: {
+      AND: [notDeletedClause, { email: { equals: stampEmail, mode: 'insensitive' } }],
+    },
+    select: { id: true },
+  });
+  if (!stampExists) {
+    console.log('[bulk-cv] assign unique email stamp variant', stampEmail);
+    return stampEmail;
+  }
+  console.warn('[bulk-cv] could not assign unique email variant');
+  return null;
 }

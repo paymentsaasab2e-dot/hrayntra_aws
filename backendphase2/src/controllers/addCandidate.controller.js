@@ -15,6 +15,7 @@ import {
   findExistingCandidateDuplicate,
   nextCopyLastNameForBulk,
   nextUniqueEmailVariant,
+  notDeletedClause,
 } from '../services/bulkCvDuplicate.service.js';
 import { hardDeleteCandidateById } from '../services/bulkCvHardDelete.service.js';
 import { waitBulkCvDuplicateDecision } from '../socket/bulkCvDuplicateWait.registry.js';
@@ -42,6 +43,14 @@ const DEFAULT_TAGS = [
 const STAGE_ORDER = ['Applied', 'Screening', 'Shortlist', 'Interview', 'Offer', 'Hired'];
 function normalizeEmail(email = '') {
   return String(email).trim().toLowerCase();
+}
+
+/** Non-empty trimmed lowercased email, or null (never store empty string on Candidate). */
+function normalizeCandidateEmail(value) {
+  if (value === undefined || value === null) return null;
+  const trimmed = String(value).trim();
+  if (!trimmed) return null;
+  return trimmed.toLowerCase();
 }
 
 /**
@@ -168,7 +177,6 @@ function validateCreateCandidatePayload(body) {
   const requiredFields = [
     ['firstName', 'First name is required'],
     ['lastName', 'Last name is required'],
-    ['email', 'Email is required'],
     ['experience', 'Experience is required'],
     ['source', 'Source is required'],
   ];
@@ -722,20 +730,28 @@ export const addCandidateController = {
         });
       }
 
-      const email = normalizeEmail(req.body.email);
-      // email is not @unique on Candidate (Mongo null-email uniqueness); use findFirst
-      const existing = await prisma.candidate.findFirst({
-        where: { email },
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          email: true,
-          stage: true,
-          currentTitle: true,
-          currentCompany: true,
-        },
-      });
+      const email = normalizeCandidateEmail(req.body.email);
+      // Only check email duplicates when a real email is present — `where: { email: null }`
+      // would otherwise match unrelated profiles with no email.
+      const existing = email
+        ? await prisma.candidate.findFirst({
+            where: {
+              AND: [
+                notDeletedClause,
+                { email: { equals: email, mode: 'insensitive' } },
+              ],
+            },
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              stage: true,
+              currentTitle: true,
+              currentCompany: true,
+            },
+          })
+        : null;
 
       const recruiterId = req.body.recruiterId || req.user.id;
       const creatorId = req.user.id;
@@ -1317,7 +1333,16 @@ export const addCandidateController = {
       }
 
       const existing = await prisma.candidate.findFirst({
-        where: email ? { email } : { phone },
+        where: email
+          ? {
+              AND: [
+                notDeletedClause,
+                { email: { equals: email, mode: 'insensitive' } },
+              ],
+            }
+          : {
+              AND: [notDeletedClause, { phone }],
+            },
         select: {
           id: true,
           firstName: true,
@@ -1503,7 +1528,12 @@ export const addCandidateController = {
         }
 
         const duplicate = await prisma.candidate.findFirst({
-          where: { email },
+          where: {
+            AND: [
+              notDeletedClause,
+              { email: { equals: email, mode: 'insensitive' } },
+            ],
+          },
           select: { id: true },
         });
 
