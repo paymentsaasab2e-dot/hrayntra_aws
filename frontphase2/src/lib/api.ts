@@ -1479,7 +1479,7 @@ export const apiDeleteCandidate = async (id: string) => {
 export interface AddCandidatePayload {
   firstName: string;
   lastName: string;
-  email: string;
+  email: string | null;
   phone?: string;
   currentCompany?: string;
   designation?: string;

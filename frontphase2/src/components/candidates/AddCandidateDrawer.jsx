@@ -1109,35 +1109,16 @@ export default function AddCandidateDrawer({
   // ─────────────────────────────────────────────────────────────────────────
   // Bulk CV identity fallback
   //
-  // Many CVs (especially non-English ones) don't include an email address, and
-  // some skip the candidate's name entirely. The backend's `validateCreateCandidatePayload`
-  // requires firstName / lastName / email, but the underlying Prisma `Candidate`
-  // model treats them as nullable. Rather than fail the file with "Missing email",
-  // we synthesize sensible placeholders from the file name + a unique stub email
-  // so the candidate is created and the recruiter can edit the row afterwards.
-  //
-  // The placeholder email uses the `noemail.hrayntra.local` domain plus a
-  // per-file random suffix so duplicate-check (`prisma.candidate.findFirst({ where: { email } })`)
-  // never matches across CVs.
+  // Many CVs omit an email. We do not invent placeholder emails — the API stores
+  // `null` when none is parsed. Names may still be derived from the file name when
+  // the parser returns blanks so create validation (first/last name) can succeed.
   // ─────────────────────────────────────────────────────────────────────────
-  const generatePlaceholderEmail = (fileName) => {
-    const slug = String(fileName || 'cv')
-      .replace(/\.[^.]+$/, '')
-      .replace(/[^a-z0-9]+/gi, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 32)
-      .toLowerCase() || 'cv';
-    const ts = Date.now().toString(36);
-    const rand = Math.random().toString(36).slice(2, 6);
-    return `noemail-${slug}-${ts}${rand}@noemail.hrayntra.local`;
-  };
-
   const deriveBulkResumeIdentity = (parsed, file) => {
+    const trimmedEmail = String(parsed?.email || '').trim();
     const identity = {
       firstName: String(parsed?.firstName || '').trim(),
       lastName: String(parsed?.lastName || '').trim(),
-      email: String(parsed?.email || '').trim(),
-      syntheticEmail: false,
+      email: trimmedEmail || null,
       syntheticName: false,
     };
 
@@ -1155,11 +1136,6 @@ export default function AddCandidateDrawer({
       identity.syntheticName = true;
     }
 
-    if (!identity.email) {
-      identity.email = generatePlaceholderEmail(file?.name);
-      identity.syntheticEmail = true;
-    }
-
     return identity;
   };
 
@@ -1169,10 +1145,14 @@ export default function AddCandidateDrawer({
       [parsedCandidate.city, parsedCandidate.country].filter(Boolean).join(', ') ||
       undefined;
 
+    const rawEmail = parsedCandidate.email;
+    const trimmedEmail =
+      rawEmail === undefined || rawEmail === null ? '' : String(rawEmail).trim();
+
     return {
       firstName: parsedCandidate.firstName || '',
       lastName: parsedCandidate.lastName || '',
-      email: parsedCandidate.email || '',
+      email: trimmedEmail === '' ? null : trimmedEmail,
       phone: parsedCandidate.phone ? String(parsedCandidate.phone).trim() : undefined,
       currentCompany: parsedCandidate.currentCompany || undefined,
       currentDesignation: parsedCandidate.currentDesignation || parsedCandidate.designation || undefined,
@@ -1402,7 +1382,6 @@ export default function AddCandidateDrawer({
           }
 
           const placeholderParts = [];
-          if (identity.syntheticEmail) placeholderParts.push('email');
           if (identity.syntheticName) placeholderParts.push('name');
           let successMessage = placeholderParts.length
             ? `Created — placeholder ${placeholderParts.join(' & ')} added (please update)`
@@ -1420,7 +1399,10 @@ export default function AddCandidateDrawer({
             status: 'created',
             duplicateResolution,
             candidateName:
-              `${savedFirst} ${savedLast}`.trim() || candidate.email || enrichedCandidate.email || 'Candidate',
+              `${savedFirst} ${savedLast}`.trim() ||
+              candidate.email ||
+              enrichedCandidate.email ||
+              'Candidate',
             message: successMessage,
           };
         } catch (error) {
