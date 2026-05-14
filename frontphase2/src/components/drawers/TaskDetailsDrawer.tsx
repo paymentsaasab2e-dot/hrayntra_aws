@@ -26,6 +26,7 @@ import {
   Eye,
   Send,
 } from 'lucide-react';
+import { formatDateDMY, formatDateTimeDMY } from '../../utils/dateDisplay';
 import { TaskSLAAlertBadge, TaskSLAAlertsPanel, getDaysOverdue } from '../TaskSLAAlerts';
 import { ImageWithFallback } from '../ImageWithFallback';
 import { TaskForm } from '../TaskForm';
@@ -557,7 +558,7 @@ export function TaskDetailsDrawer({
         if (isLocalUploadsUrl(attachmentUrl)) {
           return buildTaskAttachmentProxyHref(`/api/v1/tasks/${task.id}/attachments/${filename}`, filename);
         }
-        if (parsed.host.includes('cloudinary.com')) {
+        if (/cloudinary\.com|amazonaws\.com/i.test(parsed.host)) {
           return cloudinaryViewableUrl(attachmentUrl);
         }
       } catch {
@@ -596,7 +597,7 @@ export function TaskDetailsDrawer({
         if (parsed.pathname.startsWith('/uploads/')) {
           return buildTaskAttachmentProxyHref(`/api/v1/tasks/${task.id}/attachments/${filename}`, filename);
         }
-        if (parsed.host.includes('cloudinary.com')) {
+        if (/cloudinary\.com|amazonaws\.com/i.test(parsed.host)) {
           return cloudinaryViewableUrl(filename);
         }
       } catch {
@@ -1336,7 +1337,7 @@ export function TaskDetailsDrawer({
                               <div key={i} className="text-sm text-slate-700 bg-slate-50 rounded-lg p-3 border border-slate-100">
                                 <p className="whitespace-pre-wrap">{note}</p>
                                 <p className="text-xs text-slate-400 mt-1">
-                                  Added {new Date().toLocaleDateString()}
+                                  Added {formatDateDMY(new Date())}
                                 </p>
                               </div>
                             ))}
@@ -1408,7 +1409,7 @@ export function TaskDetailsDrawer({
                             chatMessages.map((msg: any) => {
                               const senderName = msg.sender?.name || msg.sender?.email || 'Unknown User';
                               const messageBody = msg.body || '';
-                              const createdAt = msg.createdAt ? new Date(msg.createdAt).toLocaleString() : '';
+                              const createdAt = msg.createdAt ? formatDateTimeDMY(msg.createdAt) : '';
                               
                               return (
                                 <div key={msg.id || `msg-${msg.createdAt}-${Math.random()}`} className="text-xs text-slate-700">

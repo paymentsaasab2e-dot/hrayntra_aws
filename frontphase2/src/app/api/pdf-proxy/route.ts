@@ -4,6 +4,27 @@ import crypto from 'crypto';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+function isAllowedS3PdfUrl(url: string): boolean {
+  const bucket = process.env.NEXT_PUBLIC_AWS_BUCKET_NAME || '';
+  if (!bucket) return false;
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:') return false;
+    if (!/\.pdf($|[?#])/i.test(u.pathname)) return false;
+    if (u.hostname === `${bucket}.s3.amazonaws.com`) return true;
+    if (u.hostname.startsWith(`${bucket}.s3.`)) return true;
+    if (u.hostname.startsWith('s3.') && u.pathname.startsWith(`/${bucket}/`)) return true;
+    const pub = process.env.NEXT_PUBLIC_AWS_S3_PUBLIC_BASE_URL;
+    if (pub) {
+      const b = new URL(pub);
+      if (u.hostname === b.hostname) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 function isAllowedCloudinaryPdfUrl(url: string): boolean {
   try {
     const u = new URL(url);
@@ -109,8 +130,29 @@ export async function GET(req: NextRequest) {
     return new NextResponse('Invalid url', { status: 400 });
   }
 
-  if (!isAllowedCloudinaryPdfUrl(decoded)) {
+  if (!isAllowedCloudinaryPdfUrl(decoded) && !isAllowedS3PdfUrl(decoded)) {
     return new NextResponse('Forbidden', { status: 403 });
+  }
+
+  if (isAllowedS3PdfUrl(decoded)) {
+    const upstream = await fetch(decoded, {
+      redirect: 'follow',
+      headers: { Accept: 'application/pdf,*/*' },
+    });
+    if (!upstream.ok) {
+      return new NextResponse(`Failed to fetch PDF (upstream ${upstream.status})`, { status: 500 });
+    }
+    const contentType = upstream.headers.get('content-type') || '';
+    if (!contentType.toLowerCase().includes('pdf')) {
+      return new NextResponse('Not a valid PDF', { status: 400 });
+    }
+    return new NextResponse(upstream.body, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': 'inline',
+      },
+    });
   }
 
   const signed = buildSignedDeliveryUrl(decoded);

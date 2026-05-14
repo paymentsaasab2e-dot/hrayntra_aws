@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { Calendar, FileText, Plus, Pencil, Sparkles, StickyNote, Trash2, X } from 'lucide-react';
 import { ImageWithFallback } from '../ImageWithFallback';
 import { apiAddCandidateNote, apiDeleteCandidateNote, apiGetCandidate, apiUpdateCandidateNote } from '../../lib/api';
+import { formatDateTimeDMY } from '../../utils/dateDisplay';
 import type { MatchCandidate } from './types';
 
 interface ProfileDrawerProps {
@@ -69,7 +70,7 @@ export default function ProfileDrawer({
       ? backendCandidate.internalNotes.map((note: any) => ({
           id: note.id,
           text: note.text || note.content || '',
-          createdAt: new Date(note.createdAt).toLocaleString(),
+          createdAt: formatDateTimeDMY(note.createdAt),
           author: note.recruiter?.name || 'You',
         }))
       : [];

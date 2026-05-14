@@ -164,6 +164,20 @@ export interface Client {
   activityList?: ClientActivityItem[];
   notesList?: ClientNote[];
   fileList?: ClientFile[];
+  /** Smart-location autofill metadata (shared with Lead). */
+  city?: string;
+  state?: string;
+  country?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  /** Salutation captured on the Add Client form alongside the primary director. */
+  directorSalutation?: string | null;
+  /** Lead-style status snapshot. The Add Client form (mirroring Add Lead) writes here. */
+  leadStatusValue?: string | null;
+  /** Agreements & Terms — single primary document uploaded against the client. */
+  agreementsFileName?: string | null;
+  agreementsFileUrl?: string | null;
+  agreementsUploadedAt?: string | null;
 }
 
 export const INITIAL_CLIENTS: Client[] = [

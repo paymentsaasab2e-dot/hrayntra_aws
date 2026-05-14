@@ -111,8 +111,8 @@ async function resolveJobIdForStageSync(candidateId, data) {
   // send `jobId`, but the tenant candidate still carries `assignedJobs[]`.
   // Without a jobId the portal `Application` row + pipeline never sync —
   // the job portal keeps showing "Interview" forever.
-  const cand = await prisma.candidate.findUnique({
-    where: { id: candidateId },
+  const cand = await prisma.candidate.findFirst({
+    where: { id: candidateId, isDeleted: { not: true } },
     select: { assignedJobs: true },
   });
   const fromAssigned = Array.isArray(cand?.assignedJobs)
@@ -523,6 +523,9 @@ async function getCandidateOrThrow(id) {
   });
 
   if (candidate) {
+    if (candidate.isDeleted === true) {
+      throw new Error('Candidate not found');
+    }
     return candidate;
   }
 
@@ -775,11 +778,26 @@ async function getVisibleTenantJobIds(req, mine) {
   }
 
   const jobs = await prisma.job.findMany({
-    where: jobWhere,
+    where: { ...jobWhere, isDeleted: { not: true } },
     select: { id: true },
   });
 
   return jobs.map((job) => job.id);
+}
+
+/**
+ * Portal DB candidates never carry the tenant CRM `isDeleted` flag. After a tenant soft-deletes
+ * a candidate, the portal row can still exist — merge paths must drop those ids so deleted
+ * candidates never reappear in lists, stats, or exports.
+ */
+async function collectSoftDeletedTenantCandidateIds(portalCandidateIds) {
+  const ids = [...new Set((portalCandidateIds || []).map((id) => String(id || '').trim()).filter(Boolean))];
+  if (!ids.length) return new Set();
+  const rows = await prisma.candidate.findMany({
+    where: { id: { in: ids }, isDeleted: true },
+    select: { id: true },
+  });
+  return new Set(rows.map((r) => r.id));
 }
 
 async function fetchPortalCandidatesForTenant(req, { status, stage, assignedToId, search, mine }) {
@@ -865,6 +883,10 @@ export const candidateService = {
     if (assignedToId) where.assignedToId = assignedToId;
 
     const andParts = [];
+    // Recycle Bin: hide soft-deleted rows from the normal Candidates page.
+    // `not: true` matches false, null, and missing-field documents (legacy rows from before
+    // the soft-delete column existed) without tripping Prisma's "Argument isDeleted is missing".
+    andParts.push({ isDeleted: { not: true } });
     const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
     const canViewAllCandidates =
       canViewAllAssignments(req) || hasAnyPermissionScope(req, ['view_all_candidates']);
@@ -908,8 +930,16 @@ export const candidateService = {
         fetchPortalCandidatesForTenant(req, { status, stage, assignedToId, search, mine }),
       ]);
 
+      // Recycle Bin: the portal-DB copy of a candidate stays around when the tenant flips
+      // isDeleted=true. Look up any tenant rows for the IDs the portal returned that are
+      // soft-deleted and drop them from the merged map so the Candidates page hides them.
+      const softDeletedTenantIds = await collectSoftDeletedTenantCandidateIds(
+        portalCandidates.map((c) => c.id)
+      );
+
       const mergedById = new Map();
       for (const candidate of portalCandidates) {
+        if (softDeletedTenantIds.has(candidate.id)) continue;
         mergedById.set(candidate.id, candidate);
       }
       for (const candidate of tenantCandidates) {
@@ -1016,12 +1046,20 @@ export const candidateService = {
       accessScope = accessScope ? { AND: [accessScope, assignedScope] } : assignedScope;
     }
 
+    const baseTenantWhere = { id, isDeleted: { not: true } };
     let candidate = await prisma.candidate.findFirst({
-      where: accessScope ? { AND: [{ id }, accessScope] } : { id },
+      where: accessScope ? { AND: [baseTenantWhere, accessScope] } : baseTenantWhere,
       include: candidateDetailInclude,
     });
 
     if (!candidate && isTenantScopedRequest()) {
+      const tombstone = await prisma.candidate.findFirst({
+        where: { id, isDeleted: true },
+        select: { id: true },
+      });
+      if (tombstone) {
+        return null;
+      }
       const portalPrisma = getJobPortalPrismaClient();
       candidate = await portalPrisma.candidate.findFirst({
         where: accessScope ? { AND: [{ id }, accessScope] } : { id },
@@ -1224,9 +1262,172 @@ export const candidateService = {
     return updated;
   },
 
-  async delete(id) {
-    const deletedCount = await prisma.$transaction(async (tx) => {
-      // Orphaned activity rows (no FK cascade) — remove so DB stays clean
+  async delete(id, performedById = null) {
+    // Soft delete — keeps related rows (interviews, placements, pipeline entries, applications)
+    // intact so the Recycle Bin restore brings the full candidate back.
+    //
+    // The Candidates page merges tenant + job-portal candidates. A row that only lives in the
+    // portal DB has no tenant document to flip `isDeleted` on, so we must materialize it into
+    // the tenant first; otherwise the soft-delete silently no-ops, the row keeps re-appearing
+    // from the portal merge, and the Recycle Bin stays empty.
+    const tenantRow = await prisma.candidate.findUnique({
+      where: { id },
+      select: { id: true, isDeleted: true, deletedAt: true },
+    });
+
+    if (tenantRow?.isDeleted === true) {
+      if (tenantRow.deletedAt) {
+        // Already in the Recycle Bin — make this idempotent so the UI still sees success.
+        return { message: 'Candidate already in Recycle Bin' };
+      }
+      // Tombstone left behind by a previous purge — re-stamp delete metadata so it shows
+      // up in the Recycle Bin again instead of staying invisibly tombstoned forever.
+      await prisma.candidate.update({
+        where: { id },
+        data: { deletedAt: new Date(), deletedBy: performedById || null },
+      });
+      return { message: 'Candidate moved to Recycle Bin' };
+    }
+
+    if (!tenantRow) {
+      // Portal-only candidate — bring it into the tenant DB so the tombstone is persisted.
+      if (!isTenantScopedRequest()) {
+        throw new Error('Candidate not found');
+      }
+      let portalPrisma = null;
+      try {
+        portalPrisma = getJobPortalPrismaClient();
+      } catch {
+        portalPrisma = null;
+      }
+      const portalRow = portalPrisma
+        ? await portalPrisma.candidate.findUnique({ where: { id } })
+        : null;
+      if (!portalRow) {
+        throw new Error('Candidate not found');
+      }
+      await materializePortalCandidateIntoTenant(portalRow);
+    }
+
+    await prisma.candidate.update({
+      where: { id },
+      data: {
+        isDeleted: true,
+        deletedAt: new Date(),
+        deletedBy: performedById || null,
+      },
+    });
+    return { message: 'Candidate moved to Recycle Bin' };
+  },
+
+  /**
+   * Recycle Bin — list soft-deleted candidates (newest first). Scope:
+   * - admins / view_all_candidates: all deleted
+   * - everyone else: deleted candidates they created, are assigned to, or deleted themselves
+   *
+   * Purged candidates keep `isDeleted=true` as a tombstone (so the portal merge never
+   * resurrects them on the Candidates page) but clear `deletedAt`, so we exclude rows
+   * with `deletedAt: null` to keep the Recycle Bin showing only currently-restorable
+   * candidates.
+   */
+  async listTrash(req) {
+    const page = Math.max(Number.parseInt(String(req.query?.page ?? '1'), 10) || 1, 1);
+    const limit = Math.min(
+      Math.max(Number.parseInt(String(req.query?.limit ?? '50'), 10) || 50, 1),
+      500
+    );
+    const skip = (page - 1) * limit;
+
+    const andParts = [{ isDeleted: true, deletedAt: { not: null } }];
+    const canViewAll =
+      canViewAllAssignments(req) || hasAnyPermissionScope(req, ['view_all_candidates']);
+    if (!canViewAll && req?.user?.id) {
+      andParts.push({
+        OR: [
+          { createdById: req.user.id },
+          { assignedToId: req.user.id },
+          { deletedBy: req.user.id },
+        ],
+      });
+    }
+    const where = { AND: andParts };
+
+    const [candidates, total] = await Promise.all([
+      prisma.candidate.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { deletedAt: 'desc' },
+        include: candidateListInclude,
+      }),
+      prisma.candidate.count({ where }),
+    ]);
+    return formatPaginationResponse(candidates, page, limit, total);
+  },
+
+  /** Recycle Bin — restore a soft-deleted candidate. */
+  async restore(id /*, performedById */) {
+    const candidate = await prisma.candidate.findFirst({
+      where: { id, isDeleted: true },
+      select: { id: true },
+    });
+    if (!candidate) {
+      throw new Error('Deleted candidate not found');
+    }
+    await prisma.candidate.update({
+      where: { id },
+      data: { isDeleted: false, deletedAt: null, deletedBy: null },
+    });
+    return { message: 'Candidate restored' };
+  },
+
+  /**
+   * Recycle Bin — permanently delete a soft-deleted candidate.
+   *
+   * The Candidates page merges tenant + job-portal candidates. If we physically drop the
+   * tenant row, the portal copy survives and the candidate reappears on `/candidate`. To
+   * keep "permanent delete" hidden from every list:
+   *   - Wipe all tenant-side relations (activities, matches, pipeline entries, interviews,
+   *     placements, applications, files, lead references).
+   *   - Null out PII fields on the candidate row for data minimization.
+   *   - Keep the row as a permanent tombstone (`isDeleted: true`, `deletedAt: null`).
+   * The `deletedAt: null` marker excludes the row from the Recycle Bin list, while
+   * `isDeleted: true` keeps the portal merge dropping it forever.
+   */
+  /**
+   * Bulk permanent-delete (Recycle Bin → Delete forever). Iterates over the supplied
+   * ids and delegates to `purge` so PII wipe + tombstone logic stays consistent. We
+   * intentionally process sequentially: each purge runs its own Prisma transaction
+   * and Mongo doesn't love a flurry of overlapping transactions in the same tenant
+   * DB. Returns per-id success/failure so the UI can show "deleted X of Y".
+   */
+  async bulkPurge(ids) {
+    const unique = Array.from(new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean)));
+    if (!unique.length) {
+      return { success: 0, failed: 0, failures: [] };
+    }
+    let success = 0;
+    const failures = [];
+    for (const candidateId of unique) {
+      try {
+        await this.purge(candidateId);
+        success += 1;
+      } catch (err) {
+        failures.push({ id: candidateId, message: err?.message || 'Failed to purge candidate' });
+      }
+    }
+    return { success, failed: failures.length, failures };
+  },
+
+  async purge(id) {
+    const candidate = await prisma.candidate.findFirst({
+      where: { id, isDeleted: true },
+      select: { id: true },
+    });
+    if (!candidate) {
+      throw new Error('Deleted candidate not found');
+    }
+    await prisma.$transaction(async (tx) => {
       await tx.activity.deleteMany({
         where: {
           OR: [
@@ -1235,22 +1436,63 @@ export const candidateService = {
           ],
         },
       });
-
-      // Leads store converted candidate id without a Prisma FK — clear reference
       await tx.lead.updateMany({
         where: { convertedToCandidateId: id },
         data: { convertedToCandidateId: null },
       });
+      // Best-effort tenant relation cleanup. Each model has its own onDelete cascade in the
+      // schema so manual cleanup is only needed where there's no FK (or where we want the
+      // candidate row to survive as a tombstone). `try/catch` keeps purge resilient against
+      // schemas that don't carry every relation in every tenant DB.
+      const safeDeleteMany = async (delegateName, args) => {
+        try {
+          if (tx[delegateName]?.deleteMany) {
+            await tx[delegateName].deleteMany(args);
+          }
+        } catch (err) {
+          console.warn(`[candidate.purge] ${delegateName}.deleteMany failed:`, err?.message || err);
+        }
+      };
+      await safeDeleteMany('match', { where: { candidateId: id } });
+      await safeDeleteMany('pipelineEntry', { where: { candidateId: id } });
+      await safeDeleteMany('interview', { where: { candidateId: id } });
+      await safeDeleteMany('placement', { where: { candidateId: id } });
+      await safeDeleteMany('application', { where: { candidateId: id } });
+      await safeDeleteMany('candidateFile', { where: { candidateId: id } });
 
-      const result = await tx.candidate.deleteMany({ where: { id } });
-      return result.count;
+      // Tombstone — keeps `isDeleted: true` so the portal merge drops this id permanently
+      // for this tenant. `deletedAt: null` removes it from the Recycle Bin too.
+      await tx.candidate.update({
+        where: { id },
+        data: {
+          isDeleted: true,
+          deletedAt: null,
+          deletedBy: null,
+          firstName: null,
+          lastName: null,
+          email: null,
+          phone: null,
+          linkedIn: null,
+          resume: null,
+          resumeUrl: null,
+          avatar: null,
+          notes: null,
+          recruiterNotes: null,
+          cvSummary: null,
+          cvEducationEntries: null,
+          cvWorkExperienceEntries: null,
+          cvPortfolioLinks: null,
+          assignedJobs: [],
+          skills: [],
+          recruiterSkills: [],
+          certifications: [],
+          certificationsList: [],
+          languages: [],
+          recruiterLanguages: [],
+        },
+      });
     });
-
-    if (deletedCount === 0) {
-      return { message: 'Candidate already deleted' };
-    }
-
-    return { message: 'Candidate deleted successfully' };
+    return { message: 'Candidate permanently deleted' };
   },
 
   async addNote(candidateId, data, userId) {
@@ -2175,8 +2417,10 @@ export const candidateService = {
       'Rejected',
     ];
 
+    // Recycle Bin: don't count soft-deleted candidates in the stage stats.
+    const scopedStatsWhere = { AND: [scopeWhere || {}, { isDeleted: { not: true } }] };
     let scopedCandidates = await prisma.candidate.findMany({
-      where: scopeWhere || {},
+      where: scopedStatsWhere,
       select: { id: true, stage: true },
     });
 
@@ -2188,8 +2432,13 @@ export const candidateService = {
         search: undefined,
         mine,
       });
+      // Same Recycle Bin guard as getAll(): drop portal entries whose tenant row is soft-deleted.
+      const softDeletedTenantIds = await collectSoftDeletedTenantCandidateIds(
+        portalCandidates.map((c) => c.id)
+      );
       const byId = new Map(scopedCandidates.map((candidate) => [candidate.id, candidate]));
       for (const portalCandidate of portalCandidates) {
+        if (softDeletedTenantIds.has(portalCandidate.id)) continue;
         if (!byId.has(portalCandidate.id)) {
           byId.set(portalCandidate.id, { id: portalCandidate.id, stage: portalCandidate.stage || null });
         }
@@ -2250,12 +2499,12 @@ export const candidateService = {
         }
 
         const updated = await prisma.candidate.updateMany({
-          where: { id: { in: candidateIds } },
+          where: { id: { in: candidateIds }, isDeleted: { not: true } },
           data: { assignedToId: primaryRecruiterId },
         });
 
         const assignedCandidates = await prisma.candidate.findMany({
-          where: { id: { in: candidateIds } },
+          where: { id: { in: candidateIds }, isDeleted: { not: true } },
           select: {
             id: true,
             firstName: true,
@@ -2368,7 +2617,7 @@ export const candidateService = {
       case 'reject': {
         const reason = payload?.reason || 'Bulk rejection';
         const updated = await prisma.candidate.updateMany({
-          where: { id: { in: candidateIds } },
+          where: { id: { in: candidateIds }, isDeleted: { not: true } },
           data: { status: 'REJECTED' },
         });
         // Log rejection for each candidate
@@ -2400,7 +2649,7 @@ export const candidateService = {
       case 'export': {
         // Return candidates for export
         const candidates = await prisma.candidate.findMany({
-          where: { id: { in: candidateIds } },
+          where: { id: { in: candidateIds }, isDeleted: { not: true } },
           select: {
             id: true,
             firstName: true,

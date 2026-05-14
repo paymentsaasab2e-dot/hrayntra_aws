@@ -25,6 +25,7 @@ import {
   type AppNotification,
   type AppNotificationCategory,
 } from '../lib/api';
+import { formatDateDMY } from '../utils/dateDisplay';
 
 interface NotificationDrawerProps {
   isOpen: boolean;
@@ -55,7 +56,7 @@ function formatTimestamp(value: string): string {
   if (min < 60) return `${min}m ago`;
   if (hr < 24) return `${hr}h ago`;
   if (day < 7) return `${day}d ago`;
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return formatDateDMY(date);
 }
 
 function categoryAccent(category: string): { tile: string; bar: string } {

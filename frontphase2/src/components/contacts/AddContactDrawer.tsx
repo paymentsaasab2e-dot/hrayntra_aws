@@ -12,6 +12,7 @@ import {
   type CreateContactData,
   type BackendContact,
 } from '../../lib/api';
+import { NAME_SALUTATION_OPTIONS, formatDirectorDisplay } from '../../constants/salutations';
 
 interface AddContactDrawerProps {
   isOpen: boolean;
@@ -21,6 +22,7 @@ interface AddContactDrawerProps {
 
 export function AddContactDrawer({ isOpen, onClose, onSuccess }: AddContactDrawerProps) {
   const [formData, setFormData] = useState<CreateContactData>({
+    salutation: '',
     firstName: '',
     lastName: '',
     email: '',
@@ -68,6 +70,7 @@ export function AddContactDrawer({ isOpen, onClose, onSuccess }: AddContactDrawe
     } else {
       // Reset form when closed
       setFormData({
+        salutation: '',
         firstName: '',
         lastName: '',
         email: '',
@@ -90,7 +93,10 @@ export function AddContactDrawer({ isOpen, onClose, onSuccess }: AddContactDrawe
   const handleEmailBlur = async () => {
     if (formData.email) {
       try {
-        const response = await apiDetectContactDuplicates(formData.email, `${formData.firstName} ${formData.lastName}`);
+        const response = await apiDetectContactDuplicates(
+          formData.email,
+          formatDirectorDisplay(formData.salutation, `${formData.firstName} ${formData.lastName}`.trim())
+        );
         if (response.data?.duplicates && response.data.duplicates.length > 0) {
           setDuplicateWarning(response.data.duplicates[0].contact);
         } else {
@@ -182,7 +188,10 @@ export function AddContactDrawer({ isOpen, onClose, onSuccess }: AddContactDrawe
                         A contact with this email already exists:
                       </p>
                       <p className="text-sm text-amber-800">
-                        {duplicateWarning.firstName} {duplicateWarning.lastName}
+                        {formatDirectorDisplay(
+                          duplicateWarning.salutation,
+                          `${duplicateWarning.firstName} ${duplicateWarning.lastName}`.trim()
+                        )}
                         {duplicateWarning.company && ` • ${duplicateWarning.company.companyName}`}
                       </p>
                       <div className="flex items-center gap-2 mt-3">
@@ -212,8 +221,23 @@ export function AddContactDrawer({ isOpen, onClose, onSuccess }: AddContactDrawe
                 {/* Basic Info */}
                 <div>
                   <h3 className="text-sm font-semibold text-gray-700 mb-3">Basic Information</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
+                  <div className="grid grid-cols-12 gap-4">
+                    <div className="col-span-12 sm:col-span-3">
+                      <label className="block text-xs font-medium text-gray-700 mb-1.5">Salutation</label>
+                      <select
+                        value={formData.salutation ?? ''}
+                        onChange={(e) => setFormData({ ...formData, salutation: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                        aria-label="Salutation"
+                      >
+                        {NAME_SALUTATION_OPTIONS.map((opt) => (
+                          <option key={opt.value || 'none'} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="col-span-12 sm:col-span-4">
                       <label className="block text-xs font-medium text-gray-700 mb-1.5">
                         First Name <span className="text-red-500">*</span>
                       </label>
@@ -229,7 +253,7 @@ export function AddContactDrawer({ isOpen, onClose, onSuccess }: AddContactDrawe
                         <p className="mt-1 text-xs text-red-600">{errors.firstName}</p>
                       )}
                     </div>
-                    <div>
+                    <div className="col-span-12 sm:col-span-5">
                       <label className="block text-xs font-medium text-gray-700 mb-1.5">
                         Last Name <span className="text-red-500">*</span>
                       </label>

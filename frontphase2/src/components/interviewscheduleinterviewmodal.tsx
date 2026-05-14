@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { X, ChevronDown, Plus, Sparkles, ChevronLeft, ChevronRight, Video, MapPin, Copy, Mail, MessageCircle, Calendar, Clock, Info, Check, CheckCircle2 } from 'lucide-react';
+import { X, ChevronDown, Plus, Sparkles, ChevronLeft, ChevronRight, Video, MapPin, Copy, Mail, Calendar, Clock, Info, Check, CheckCircle2 } from 'lucide-react';
+import { WhatsAppIcon } from './icons/WhatsAppIcon';
 
 interface ScheduleInterviewModalProps {
   isOpen: boolean;
@@ -817,7 +818,7 @@ Good luck! 🎯`);
                 <div>
                   <div className="bg-[#e5ddd5] rounded-lg p-4 shadow-sm" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'100\' height=\'100\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cpath d=\'M0 0h100v100H0z\' fill=\'%23e5ddd5\'/%3E%3C/svg%3E")' }}>
                     <div className="flex items-center gap-2 mb-4 pb-3">
-                      <MessageCircle className="w-5 h-5 text-green-600" />
+                      <WhatsAppIcon className="text-green-600" size={20} />
                       <h4 className="font-semibold text-gray-900">WhatsApp Preview</h4>
                     </div>
                     
@@ -1005,7 +1006,7 @@ Good luck! 🎯`);
                           </div>
                           <div className="flex items-center gap-2">
                             <Check className="w-4 h-4 text-green-600" />
-                            <MessageCircle className="w-4 h-4 text-green-600" />
+                            <WhatsAppIcon className="text-green-600" size={16} />
                             <span className="text-sm text-gray-700">WhatsApp: Enabled</span>
                           </div>
                         </div>

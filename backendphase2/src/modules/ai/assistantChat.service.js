@@ -1,5 +1,5 @@
-import OpenAI from 'openai';
 import { env } from '../../config/env.js';
+import { chatCompletionWithFallback, hasLlmProvider } from '../../services/llmChatFallback.service.js';
 import {
   executeAssistantActionTool,
   executeAssistantDataTool,
@@ -9,8 +9,6 @@ import {
   safeSerialize,
 } from './assistantDataTools.js';
 import { buildReportFile, reportService } from '../report/report.service.js';
-
-const openai = env.OPENAI_API_KEY ? new OpenAI({ apiKey: env.OPENAI_API_KEY }) : null;
 
 const MAX_MESSAGES = 24;
 const MAX_CONTENT_LENGTH = 8000;
@@ -1377,8 +1375,8 @@ export async function runAssistantChat(messages, user, context = {}) {
     }
   }
 
-  if (!openai) {
-    const err = new Error('AI assistant is not configured. Set OPENAI_API_KEY on the server.');
+  if (!hasLlmProvider()) {
+    const err = new Error('AI assistant is not configured. Set OPENAI_API_KEY and/or MISTRAL_API_KEY on the server.');
     err.code = 'AI_NOT_CONFIGURED';
     throw err;
   }
@@ -1389,14 +1387,17 @@ export async function runAssistantChat(messages, user, context = {}) {
   let failedActionToolResult = null;
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
-    const response = await openai.chat.completions.create({
-      model,
-      messages: apiMessages,
-      tools: [QUERY_RECRUITMENT_DATA_TOOL, EXECUTE_RECRUITMENT_ACTION_TOOL, GENERATE_REPORT_FILE_TOOL],
-      tool_choice: 'auto',
-      max_tokens: 2400,
-      temperature: 0.35,
-    });
+    const response = await chatCompletionWithFallback(
+      {
+        model,
+        messages: apiMessages,
+        tools: [QUERY_RECRUITMENT_DATA_TOOL, EXECUTE_RECRUITMENT_ACTION_TOOL, GENERATE_REPORT_FILE_TOOL],
+        tool_choice: 'auto',
+        max_tokens: 2400,
+        temperature: 0.35,
+      },
+      'assistant-chat'
+    );
 
     const msg = response.choices?.[0]?.message;
     if (!msg) {

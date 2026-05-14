@@ -49,79 +49,79 @@ model User {
   commissionEarned Float? // Commission earned
   commissionRate   Float? // Commission rate percentage
   performanceData  Json? // Performance chart data
-  
+
   // New team management fields
-  firstName        String?
-  lastName         String?
-  designation      String?
-  location         String?
-  status           UserStatus? @default(ACTIVE)
-  departmentId     String?     @db.ObjectId
-  roleId           String?     @db.ObjectId
-  managerId        String?     @db.ObjectId
-  
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  firstName    String?
+  lastName     String?
+  designation  String?
+  location     String?
+  status       UserStatus? @default(ACTIVE)
+  departmentId String?     @db.ObjectId
+  roleId       String?     @db.ObjectId
+  managerId    String?     @db.ObjectId
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  departmentRelation Department?  @relation(fields: [departmentId], references: [id])
-  systemRole         SystemRole?  @relation(fields: [roleId], references: [id])
-  managerRelation    User?        @relation("UserManager", fields: [managerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  subordinates       User[]        @relation("UserManager")
-  credential       UserCredential?
-  activities       UserActivity[]
-  tasks            TeamTask[]
-  targets          TeamTarget[]
-  commissions      Commission[]
-  assignedCandidates Candidate[]
-  createdCandidates  Candidate[]         @relation("CandidateCreator")
-  assignedJobsRel    Job[]               @relation("JobAssignee")
-  createdJobs        Job[]               @relation("JobCreator")
-  assignedLeads      Lead[]
-  assignedClientsRel Client[]            @relation("ClientAssignee")
-  createdClients     Client[]            @relation("ClientCreator")
-  assignedTasks      Task[]              @relation("TaskAssignee")
-  createdTasks       Task[]              @relation("TaskCreator")
-  createdActivities  Activity[]
-  scheduledMeetings  ScheduledMeeting[] @relation("ScheduledMeetingCreator")
-  cancelledMeetings  ScheduledMeeting[] @relation("ScheduledMeetingCanceller")
-  teamMemberships    TeamMember[]
-  sentMessages       Message[]
-  threadParticipants ThreadParticipant[]
-  createdReports     Report[]
-  recruitedPlacements   Placement[]             @relation("PlacementRecruiter")
-  placementCommissions  PlacementCommission[]   @relation("PlacementCommissionRecruiter")
-  uploadedPlacementDocs PlacementDocument[]     @relation("PlacementDocumentUploader")
-  placementLogs         PlacementActivityLog[]  @relation("PlacementActivityActor")
-  leadInterviews     Interview[]             @relation("InterviewLeadInterviewer")
-  createdInterviews  Interview[]             @relation("InterviewCreator")
-  interviewPanels    InterviewPanel[]
-  interviewFeedbacks InterviewFeedback[]     @relation("InterviewFeedbackAuthor")
-  interviewNotes     InterviewNote[]         @relation("InterviewNoteAuthor")
-  interviewLogs      InterviewActivityLog[]  @relation("InterviewActivityActor")
-  createdMatches     Match[]
-  pipelineMovedBy    PipelineEntry[]
-  settings           Setting[]
-  createdClientNotes ClientNote[]
-  createdClientFiles ClientFile[]
-  linkedinToken      LinkedInToken?
-  createdJobNotes    JobNote[]
-  createdJobFiles    JobFile[]
-  createdLeadNotes   LeadNote[]
-  createdLeadFiles   LeadFile[]
-  createdCandidateFiles CandidateFile[]
-  createdInterviewFiles InterviewFile[]
-  createdTaskFiles   TaskFile[] @relation("TaskFileUploader")
-  ownedContacts      Contact[]  @relation("ContactOwner")
-  contactNotes       ContactNote[] @relation("ContactNoteAuthor")
-  contactActivities  ContactActivity[] @relation("ContactActivityUser")
+  departmentRelation     Department?            @relation(fields: [departmentId], references: [id])
+  systemRole             SystemRole?            @relation(fields: [roleId], references: [id])
+  managerRelation        User?                  @relation("UserManager", fields: [managerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  subordinates           User[]                 @relation("UserManager")
+  credential             UserCredential?
+  activities             UserActivity[]
+  tasks                  TeamTask[]
+  targets                TeamTarget[]
+  commissions            Commission[]
+  assignedCandidates     Candidate[]
+  createdCandidates      Candidate[]            @relation("CandidateCreator")
+  assignedJobsRel        Job[]                  @relation("JobAssignee")
+  createdJobs            Job[]                  @relation("JobCreator")
+  assignedLeads          Lead[]
+  assignedClientsRel     Client[]               @relation("ClientAssignee")
+  createdClients         Client[]               @relation("ClientCreator")
+  assignedTasks          Task[]                 @relation("TaskAssignee")
+  createdTasks           Task[]                 @relation("TaskCreator")
+  createdActivities      Activity[]
+  scheduledMeetings      ScheduledMeeting[]     @relation("ScheduledMeetingCreator")
+  cancelledMeetings      ScheduledMeeting[]     @relation("ScheduledMeetingCanceller")
+  teamMemberships        TeamMember[]
+  sentMessages           Message[]
+  threadParticipants     ThreadParticipant[]
+  createdReports         Report[]
+  recruitedPlacements    Placement[]            @relation("PlacementRecruiter")
+  placementCommissions   PlacementCommission[]  @relation("PlacementCommissionRecruiter")
+  uploadedPlacementDocs  PlacementDocument[]    @relation("PlacementDocumentUploader")
+  placementLogs          PlacementActivityLog[] @relation("PlacementActivityActor")
+  leadInterviews         Interview[]            @relation("InterviewLeadInterviewer")
+  createdInterviews      Interview[]            @relation("InterviewCreator")
+  interviewPanels        InterviewPanel[]
+  interviewFeedbacks     InterviewFeedback[]    @relation("InterviewFeedbackAuthor")
+  interviewNotes         InterviewNote[]        @relation("InterviewNoteAuthor")
+  interviewLogs          InterviewActivityLog[] @relation("InterviewActivityActor")
+  createdMatches         Match[]
+  pipelineMovedBy        PipelineEntry[]
+  settings               Setting[]
+  createdClientNotes     ClientNote[]
+  createdClientFiles     ClientFile[]
+  linkedinToken          LinkedInToken?
+  createdJobNotes        JobNote[]
+  createdJobFiles        JobFile[]
+  createdLeadNotes       LeadNote[]
+  createdLeadFiles       LeadFile[]
+  createdCandidateFiles  CandidateFile[]
+  createdInterviewFiles  InterviewFile[]
+  createdTaskFiles       TaskFile[]             @relation("TaskFileUploader")
+  ownedContacts          Contact[]              @relation("ContactOwner")
+  contactNotes           ContactNote[]          @relation("ContactNoteAuthor")
+  contactActivities      ContactActivity[]      @relation("ContactActivityUser")
   assistantPageHistories AssistantPageHistory[]
-  undoActions           Undo[]
+  undoActions            Undo[]
 
-  userOAuthTokens               UserOAuthTokens?
-  userCommunicationPreferences  UserCommunicationPreferences?
-  jobBoardIntegrations          JobBoardIntegration[]
-  integrationConnections        IntegrationConnection[]
+  userOAuthTokens              UserOAuthTokens?
+  userCommunicationPreferences UserCommunicationPreferences?
+  jobBoardIntegrations         JobBoardIntegration[]
+  integrationConnections       IntegrationConnection[]
 
   @@index([role])
   @@index([roleId])
@@ -181,19 +181,35 @@ model Client {
   createdById  String?      @db.ObjectId // CRM user who created / sourced the client (still visible to them after reassignment)
 
   // Extended fields from frontend (Company Snapshot section)
-  companySize     String? // Company size (e.g., "1-50", "51-200", "201-500")
-  hiringLocations String? // Comma-separated list of hiring locations
-  linkedin        String? // LinkedIn company page URL
-  timezone        String? // Timezone (e.g., "PST (UTC-8)")
-  clientSince     DateTime? // Date when client relationship started (displayed as "Client since")
-  servicesNeeded  String? // Services requested by the client
+  companySize           String? // Company size (e.g., "1-50", "51-200", "201-500")
+  hiringLocations       String? // Comma-separated list of hiring locations
+  linkedin              String? // LinkedIn company page URL
+  timezone              String? // Timezone (e.g., "PST (UTC-8)")
+  clientSince           DateTime? // Date when client relationship started (displayed as "Client since")
+  servicesNeeded        String? // Services requested by the client
   expectedBusinessValue String? // Expected business value from lead conversion or manual entry
-  leadStatus      String? // Source lead/import status for overview display
+  leadStatus            String? // Source lead/import status for overview display
 
   // Relationship & Ownership section
   priority        String? // Priority level (High, Medium, Low)
   sla             String? // SLA / Response expectations (e.g., "48h response")
   nextFollowUpDue DateTime? // Next follow-up date
+
+  // Smart-location autofill metadata (mirrors Lead so the Add Client form can share the same
+  // LocationAutocomplete widget). All optional.
+  city               String?
+  state              String?
+  country            String?
+  latitude           Float?
+  longitude          Float?
+  /// Salutation captured alongside the primary director on the Add Client form.
+  directorSalutation String?
+
+  // Agreements & Terms (single primary document attached during onboarding)
+  // Detailed multi-document history continues to live in ClientFile.
+  agreementsFileName   String?
+  agreementsFileUrl    String?
+  agreementsUploadedAt DateTime?
 
   // Performance metrics (calculated/display fields from drawer)
   avgTimeToFill       String? // Average time to fill positions
@@ -215,26 +231,36 @@ model Client {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Soft-delete / Recycle Bin metadata. Hard delete is replaced with isDeleted=true so the
+  // record can be restored from the Recycle Bin page. Stored as nullable Boolean because
+  // legacy MongoDB documents created before this field existed don't carry it — Prisma
+  // would otherwise crash with "Argument `isDeleted` is missing" when deserializing them.
+  // Treat null/undefined as "not deleted" in queries (use { isDeleted: { not: true } }).
+  isDeleted Boolean?  @default(false)
+  deletedAt DateTime?
+  deletedBy String?
+
   // Embedded address (flexible JSON structure for address details)
   address Json?
 
   // Relations
-  assignedTo     User?           @relation("ClientAssignee", fields: [assignedToId], references: [id])
-  createdBy      User?           @relation("ClientCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  contacts       Contact[] // Client contacts
-  jobs           Job[] // Jobs posted by client
-  leads          Lead[] // Leads converted to this client
-  placements     Placement[] // Placements made for this client
-  billingRecords BillingRecord[] // Billing/invoice records
-  interviews     Interview[] // Interviews scheduled with client
-  notes          ClientNote[] // Client notes
-  files          ClientFile[] // Client files/documents
+  assignedTo        User?              @relation("ClientAssignee", fields: [assignedToId], references: [id])
+  createdBy         User?              @relation("ClientCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  contacts          Contact[] // Client contacts
+  jobs              Job[] // Jobs posted by client
+  leads             Lead[] // Leads converted to this client
+  placements        Placement[] // Placements made for this client
+  billingRecords    BillingRecord[] // Billing/invoice records
+  interviews        Interview[] // Interviews scheduled with client
+  notes             ClientNote[] // Client notes
+  files             ClientFile[] // Client files/documents
   scheduledMeetings ScheduledMeeting[] // Scheduled meetings/follow-ups
-  activities     Activity[] // Activities related to this client (via entityType=CLIENT and entityId)
+  activities        Activity[] // Activities related to this client (via entityType=CLIENT and entityId)
 
   @@index([status])
   @@index([assignedToId])
   @@index([createdById])
+  @@index([isDeleted])
   @@map("clients")
 }
 
@@ -278,9 +304,9 @@ model ClientFile {
 }
 
 model ScheduledMeeting {
-  id            String   @id @default(auto()) @map("_id") @db.ObjectId
-  clientId      String   @db.ObjectId
-  scheduledById String   @db.ObjectId
+  id            String                 @id @default(auto()) @map("_id") @db.ObjectId
+  clientId      String                 @db.ObjectId
+  scheduledById String                 @db.ObjectId
   meetingType   String // Call, WhatsApp, Email, Meeting, Follow-up
   scheduledAt   DateTime // Combined date and time
   reminder      String? // 10 minutes before, 30 minutes before, 1 hour before, 1 day before
@@ -288,13 +314,13 @@ model ScheduledMeeting {
   status        ScheduledMeetingStatus @default(SCHEDULED) // SCHEDULED, COMPLETED, CANCELLED, RESCHEDULED
   completedAt   DateTime?
   cancelledAt   DateTime?
-  cancelledBy   String?  @db.ObjectId
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  cancelledBy   String?                @db.ObjectId
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
 
-  client      Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  scheduledBy User   @relation("ScheduledMeetingCreator", fields: [scheduledById], references: [id])
-  cancelledByUser User? @relation("ScheduledMeetingCanceller", fields: [cancelledBy], references: [id])
+  client          Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  scheduledBy     User   @relation("ScheduledMeetingCreator", fields: [scheduledById], references: [id])
+  cancelledByUser User?  @relation("ScheduledMeetingCanceller", fields: [cancelledBy], references: [id])
 
   @@index([clientId])
   @@index([scheduledById])
@@ -329,30 +355,31 @@ enum ContactStatus {
 }
 
 model Contact {
-  id                String              @id @default(auto()) @map("_id") @db.ObjectId
-  firstName         String
-  lastName          String
-  email             String              @unique
-  phone             String?
-  companyId         String?             @db.ObjectId
-  designation       String?
-  department        String?
-  location          String?
-  linkedinUrl       String?
-  contactType       ContactType         @default(CLIENT)
-  status            ContactStatus       @default(ACTIVE)
-  ownerId           String?             @db.ObjectId
-  avatarUrl         String?
-  tags              String[]
-  associatedJobIds  String[]            @db.ObjectId
-  lastContacted     DateTime?
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  id               String        @id @default(auto()) @map("_id") @db.ObjectId
+  salutation       String?
+  firstName        String
+  lastName         String
+  email            String        @unique
+  phone            String?
+  companyId        String?       @db.ObjectId
+  designation      String?
+  department       String?
+  location         String?
+  linkedinUrl      String?
+  contactType      ContactType   @default(CLIENT)
+  status           ContactStatus @default(ACTIVE)
+  ownerId          String?       @db.ObjectId
+  avatarUrl        String?
+  tags             String[]
+  associatedJobIds String[]      @db.ObjectId
+  lastContacted    DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 
-  company       Client?                @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  owner         User?                  @relation("ContactOwner", fields: [ownerId], references: [id], onDelete: SetNull)
-  notes         ContactNote[]
-  activities   ContactActivity[]
+  company        Client?                @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  owner          User?                  @relation("ContactOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  notes          ContactNote[]
+  activities     ContactActivity[]
   communications ContactCommunication[]
 
   @@index([companyId])
@@ -363,13 +390,13 @@ model Contact {
 }
 
 model ContactNote {
-  id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  contactId   String   @db.ObjectId
-  contact     Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  note        String
-  authorId    String   @db.ObjectId
-  author      User     @relation("ContactNoteAuthor", fields: [authorId], references: [id])
-  createdAt   DateTime @default(now())
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  contactId String   @db.ObjectId
+  contact   Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  note      String
+  authorId  String   @db.ObjectId
+  author    User     @relation("ContactNoteAuthor", fields: [authorId], references: [id])
+  createdAt DateTime @default(now())
 
   @@index([contactId])
   @@map("contact_notes")
@@ -391,14 +418,14 @@ model ContactActivity {
 }
 
 model ContactCommunication {
-  id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  contactId   String   @db.ObjectId
-  contact     Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  type        String   // email, call, whatsapp, meeting
-  subject     String?
-  message     String
-  direction   String   // inbound, outbound
-  timestamp   DateTime @default(now())
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  contactId String   @db.ObjectId
+  contact   Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  type      String // email, call, whatsapp, meeting
+  subject   String?
+  message   String
+  direction String // inbound, outbound
+  timestamp DateTime @default(now())
 
   @@index([contactId])
   @@index([timestamp])
@@ -429,66 +456,77 @@ enum CandidateStatus {
 }
 
 model Candidate {
-  id             String          @id @default(auto()) @map("_id") @db.ObjectId
+  id                      String          @id @default(auto()) @map("_id") @db.ObjectId
   // Legacy Mongo rows may contain nulls; make nullable to prevent Prisma conversion crashes.
-  firstName      String?
-  lastName       String?
+  firstName               String?
+  lastName                String?
   // Not @unique: MongoDB unique indexes treat many `null` emails as duplicates (E11000).
   // Enforce unique non-null emails in application code (e.g. candidate create/import).
-  email          String?
-  phone          String?
-  linkedIn       String?
-  resume         String?
-  resumeUrl      String?
-  skills         String[]
-  recruiterSkills String[]       @default([])
-  experience     Int?
-  experienceYears Int?
-  currentTitle   String?
-  currentCompany String?
-  location       String?
-  address        String?
-  addressLine    String?
-  city           String?
-  country        String?
-  status         CandidateStatus @default(NEW)
-  recruiterStatus String?
-  source         String?
-  assignedToId   String?         @db.ObjectId
+  email                   String?
+  phone                   String?
+  linkedIn                String?
+  resume                  String?
+  resumeUrl               String?
+  skills                  String[]
+  recruiterSkills         String[]        @default([])
+  experience              Int?
+  experienceYears         Int?
+  currentTitle            String?
+  currentCompany          String?
+  location                String?
+  address                 String?
+  addressLine             String?
+  city                    String?
+  country                 String?
+  status                  CandidateStatus @default(NEW)
+  recruiterStatus         String?
+  source                  String?
+  assignedToId            String?         @db.ObjectId
   // Recruiter who created this profile (used for "my candidates" on /candidate)
-  createdById    String?         @db.ObjectId
-  rating         Int?
-  availability   String?
-  noticePeriod   String?
-  hotlist        Boolean         @default(false)
-  avatar         String?
+  createdById             String?         @db.ObjectId
+  rating                  Int?
+  availability            String?
+  noticePeriod            String?
+  hotlist                 Boolean         @default(false)
+  avatar                  String?
   // Extended fields from frontend
-  designation    String? // Current designation
-  expectedSalary Int?
-  currentSalary  Int?
-  education      String?
-  recruiterEducation String?
-  certifications String[]
-  certificationsList String[]    @default([])
-  languages      String[]
-  recruiterLanguages String[]    @default([])
-  portfolio      String?
-  website        String?
-  notes          String?
-  recruiterNotes String?
-  cvSummary      String?
-  cvEducationEntries Json?
+  designation             String? // Current designation
+  expectedSalary          Int?
+  currentSalary           Int?
+  education               String?
+  recruiterEducation      String?
+  certifications          String[]
+  certificationsList      String[]        @default([])
+  languages               String[]
+  recruiterLanguages      String[]        @default([])
+  portfolio               String?
+  website                 String?
+  notes                   String?
+  recruiterNotes          String?
+  cvSummary               String?
+  cvEducationEntries      Json?
   cvWorkExperienceEntries Json?
-  cvPortfolioLinks Json?
-  preferredLocation String?
-  assignedJobs   String[] // Array of job IDs
-  stage          String? // Applied, Shortlist, Screening, Interviewing, Offered, Hired, Rejected
-  lastActivity   DateTime?
-  createdAt      DateTime?
-  updatedAt      DateTime?
+  cvPortfolioLinks        Json?
+  /// Parsed CV sections that do not map to standard fields (awards, volunteer work, etc.)
+  extraData               Json?
+  preferredLocation       String?
+  assignedJobs            String[] // Array of job IDs
+  stage                   String? // Applied, Shortlist, Screening, Interviewing, Offered, Hired, Rejected
+  lastActivity            DateTime?
+  createdAt               DateTime?
+  updatedAt               DateTime?
 
   // Embedded salary
   salary Json?
+
+  // Soft-delete / Recycle Bin metadata. Hard delete is replaced with isDeleted=true so the
+  // candidate can be restored from the Recycle Bin page. Stored as nullable Boolean because
+  // legacy MongoDB documents created before this field existed don't carry it — Prisma
+  // would otherwise crash with "Argument `isDeleted` is missing" when deserializing them.
+  // Treat null/undefined as "not deleted" in queries (use { isDeleted: { not: true } }).
+  isDeleted Boolean?  @default(false)
+  deletedAt DateTime?
+  deletedBy String?
 
   // Relations
   assignedTo      User?           @relation(fields: [assignedToId], references: [id])
@@ -503,6 +541,7 @@ model Candidate {
   @@index([status])
   @@index([assignedToId])
   @@index([createdById])
+  @@index([isDeleted])
   @@map("candidates")
 }
 
@@ -510,15 +549,15 @@ model CandidateFile {
   id           String   @id @default(auto()) @map("_id") @db.ObjectId
   candidateId  String   @db.ObjectId
   fileName     String
-  fileType     String   // Resume, Portfolio, Offer, Other
+  fileType     String // Resume, Portfolio, Offer, Other
   fileUrl      String?
   uploadedById String   @db.ObjectId
   uploadDate   DateTime @default(now())
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
-  uploadedBy  User      @relation(fields: [uploadedById], references: [id])
+  candidate  Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  uploadedBy User      @relation(fields: [uploadedById], references: [id])
 
   @@index([candidateId])
   @@map("candidate_files")
@@ -544,63 +583,72 @@ enum JobStatus {
 }
 
 model Job {
-  id                  String    @id @default(auto()) @map("_id") @db.ObjectId
-  title               String
-  description         String?
-  requirements        String[]
-  skills              String[]
+  id                       String    @id @default(auto()) @map("_id") @db.ObjectId
+  title                    String
+  description              String?
+  requirements             String[]
+  skills                   String[]
   // Location & classification from CreateJobDrawer
-  location            String?
-  type                JobType   @default(FULL_TIME)
-  status              JobStatus @default(DRAFT)
+  location                 String?
+  type                     JobType   @default(FULL_TIME)
+  status                   JobStatus @default(DRAFT)
   // Some legacy rows may exist with `clientId: null` (after schema evolution).
   // Make it optional so listing jobs doesn't crash.
-  clientId            String?   @db.ObjectId
-  assignedToId        String?   @db.ObjectId
+  clientId                 String?   @db.ObjectId
+  assignedToId             String?   @db.ObjectId
   // User who created this job (used for "my jobs" on /job)
-  createdById         String?   @db.ObjectId
-  openings            Int       @default(1)
+  createdById              String?   @db.ObjectId
+  openings                 Int       @default(1)
   // Extended fields from frontend (ClientDetailsDrawer Jobs tab)
-  overview            String?
-  keyResponsibilities String[]
-  preferredSkills     String[]
-  experienceRequired  String?
-  education           String?
-  benefits            String[]
-  postedDate          DateTime?
-  hiringManager       String? // Hiring manager name (from contacts)
-  hiringManagerId     String?   @db.ObjectId // Reference to Contact if available
-  department          String?
+  overview                 String?
+  keyResponsibilities      String[]
+  preferredSkills          String[]
+  experienceRequired       String?
+  education                String?
+  benefits                 String[]
+  postedDate               DateTime?
+  hiringManager            String? // Hiring manager name (from contacts)
+  hiringManagerId          String?   @db.ObjectId // Reference to Contact if available
+  department               String?
   // UI specific metadata (not yet used in analytics, but stored for completeness)
-  jobCategory         String?
-  jobLocationType     String? // e.g. On-site, Remote, Hybrid
-  hot                 Boolean   @default(false)
-  aiMatch             Boolean   @default(false)
-  noCandidates        Boolean   @default(false)
-  slaRisk             Boolean   @default(false)
-  expectedClosureDate DateTime? // Expected closure date from drawer
-  jdFileName          String? // Job description file name
-  workMode            String? // Onsite, Remote, Hybrid
-  priority            String? // Low, Medium, High, Urgent
-  visibility          String? // Internal, Public
-  distributionPlatforms Json? // Distribution platforms (careerPage, linkedIn, naukri, indeed, internalDatabase)
-  supportingRecruiters String[] @default([]) // Array of supporting recruiter user IDs
-  applicationFormEnabled Boolean @default(false) // Enable job application form
-  applicationFormLogo String? // Logo option: account, company, none
-  applicationFormQuestions String[] @default([]) // Array of custom application form questions
-  applicationFormNote String? // Note for candidates
+  jobCategory              String?
+  jobLocationType          String? // e.g. On-site, Remote, Hybrid
+  hot                      Boolean   @default(false)
+  aiMatch                  Boolean   @default(false)
+  noCandidates             Boolean   @default(false)
+  slaRisk                  Boolean   @default(false)
+  expectedClosureDate      DateTime? // Expected closure date from drawer
+  jdFileName               String? // Job description file name
+  workMode                 String? // Onsite, Remote, Hybrid
+  priority                 String? // Low, Medium, High, Urgent
+  visibility               String? // Internal, Public
+  distributionPlatforms    Json? // Distribution platforms (careerPage, linkedIn, naukri, indeed, internalDatabase)
+  supportingRecruiters     String[]  @default([]) // Array of supporting recruiter user IDs
+  applicationFormEnabled   Boolean   @default(false) // Enable job application form
+  applicationFormLogo      String? // Logo option: account, company, none
+  applicationFormQuestions String[]  @default([]) // Array of custom application form questions
+  applicationFormNote      String? // Note for candidates
   // Origin tenant identifier — written when the CRM mirrors a job to the portal DB.
   // The job-portal backend (backend1) reads this on every apply so it knows which
   // tenant DB (`rus01`, `agency2`, ...) to mirror the new Application/Match into.
   // Multi-agency safe: each portal Job carries its own origin and the apply
   // webhook routes into the correct tenant.
-  tenantDbName        String?
+  tenantDbName             String?
   // Legacy documents may contain null timestamps; make optional to avoid Prisma conversion crashes.
-  createdAt           DateTime? @default(now())
-  updatedAt           DateTime? @updatedAt
+  createdAt                DateTime? @default(now())
+  updatedAt                DateTime? @updatedAt
 
   // Embedded salary
   salary Json?
+
+  // Soft-delete / Recycle Bin metadata. Hard delete is replaced with isDeleted=true so the
+  // job can be restored from the Recycle Bin page. Stored as nullable Boolean because
+  // legacy MongoDB documents created before this field existed don't carry it — Prisma
+  // would otherwise crash with "Argument `isDeleted` is missing" when deserializing them.
+  // Treat null/undefined as "not deleted" in queries (use { isDeleted: { not: true } }).
+  isDeleted Boolean?  @default(false)
+  deletedAt DateTime?
+  deletedBy String?
 
   // Relations
   client         Client?         @relation(fields: [clientId], references: [id], onDelete: SetNull)
@@ -618,6 +666,7 @@ model Job {
   @@index([clientId])
   @@index([assignedToId])
   @@index([createdById])
+  @@index([isDeleted])
   @@map("jobs")
 }
 
@@ -698,6 +747,8 @@ model Lead {
   companyName            String?
   contactPerson          String?
   directorName           String?
+  /// e.g. Mr, Mrs, Dr — shown with director / contact name
+  directorSalutation     String?
   email                  String?
   phone                  String?
   type                   LeadType   @default(Company)
@@ -721,6 +772,10 @@ model Lead {
   designation            String?
   country                String?
   city                   String?
+  /// Smart-location autofill (Nominatim/OpenStreetMap). Optional metadata.
+  state                  String?
+  latitude               Float?
+  longitude              Float?
   // Lead management fields
   campaignName           String?
   campaignLink           String?
@@ -732,12 +787,26 @@ model Lead {
   lastFollowUp           DateTime?
   nextFollowUp           DateTime?
   lostReason             String? // Reason when marked as lost
+  // Agreements & Terms uploaded against the lead (single primary doc).
+  // Detailed multi-document history continues to live in LeadFile.
+  agreementsFileName     String?
+  agreementsFileUrl      String?
+  agreementsUploadedAt   DateTime?
   // Relations
   assignedToId           String?    @db.ObjectId
+  /// Multi-assignee support — full list (assignedToId stays the primary owner).
+  assignedToIds          String[]   @db.ObjectId
   convertedToClientId    String?    @db.ObjectId
   convertedToCandidateId String?    @db.ObjectId
   convertedAt            DateTime?
-  isDeleted              Boolean    @default(false)
+  // Soft-delete / Recycle Bin metadata. Hard delete is replaced with isDeleted=true so the
+  // lead can be restored from the Recycle Bin page. Stored as nullable Boolean because
+  // legacy MongoDB documents created before this field existed don't carry it — Prisma
+  // would otherwise crash with "Argument `isDeleted` is missing" when deserializing them.
+  // Treat null/undefined as "not deleted" in queries (use { isDeleted: { not: true } }).
+  isDeleted              Boolean?   @default(false)
+  deletedAt              DateTime?
+  deletedBy              String?
   orgId                  String?
   createdBy              String?
   createdAt              DateTime   @default(now())
@@ -784,15 +853,15 @@ model LeadFile {
   id           String   @id @default(auto()) @map("_id") @db.ObjectId
   leadId       String   @db.ObjectId
   fileName     String
-  fileType     String   // Contract, Proposal, Other, etc.
+  fileType     String // Contract, Proposal, Other, etc.
   fileUrl      String?
   uploadedById String   @db.ObjectId
   uploadDate   DateTime @default(now())
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  lead        Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  uploadedBy  User @relation(fields: [uploadedById], references: [id])
+  lead       Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  uploadedBy User @relation(fields: [uploadedById], references: [id])
 
   @@index([leadId])
   @@map("lead_files")
@@ -802,15 +871,15 @@ model LeadFile {
 // Serves: pipeline
 
 model PipelineStage {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  name      String
-  order     Int
-  color     String?
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  name       String
+  order      Int
+  color      String?
   /// Canonical bucket for automation: APPLIED | SCREENING | INTERVIEW | OFFER | HIRED | REJECTED (optional; name substring fallback if null)
   systemRole String?
-  jobId     String   @db.ObjectId
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  jobId      String   @db.ObjectId
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   job     Job             @relation(fields: [jobId], references: [id], onDelete: Cascade)
   entries PipelineEntry[]
@@ -884,8 +953,8 @@ model Application {
   offerDetails     String?
   screeningAnswers Json?
 
-  candidate Candidate              @relation(fields: [candidateId], references: [id], onDelete: Cascade)
-  job       Job                    @relation(fields: [jobId], references: [id])
+  candidate Candidate             @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  job       Job                   @relation(fields: [jobId], references: [id])
   timeline  ApplicationTimeline[]
 
   @@unique([candidateId, jobId])
@@ -969,18 +1038,18 @@ enum FeedbackStatus {
 }
 
 model Interview {
-  id            String          @id @default(auto()) @map("_id") @db.ObjectId
-  candidateId   String          @db.ObjectId
-  jobId         String          @db.ObjectId
-  clientId      String          @db.ObjectId
-  interviewerId String?         @db.ObjectId
-  createdById   String?         @db.ObjectId
+  id            String           @id @default(auto()) @map("_id") @db.ObjectId
+  candidateId   String           @db.ObjectId
+  jobId         String           @db.ObjectId
+  clientId      String           @db.ObjectId
+  interviewerId String?          @db.ObjectId
+  createdById   String?          @db.ObjectId
   scheduledAt   DateTime
-  duration      Int             @default(60)
-  type          InterviewType   @default(VIDEO)
+  duration      Int              @default(60)
+  type          InterviewType    @default(VIDEO)
   mode          InterviewMode?
   platform      MeetingPlatform?
-  status        InterviewStatus @default(SCHEDULED)
+  status        InterviewStatus  @default(SCHEDULED)
   location      String?
   meetingLink   String?
   notes         String?
@@ -988,19 +1057,19 @@ model Interview {
   timezone      String? // IST GMT+5:30, EST GMT-5:00, etc.
   instructions  String? // Candidate instructions
   panelIds      String[] // Array of interviewer user IDs
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
 
-  candidate      Candidate               @relation(fields: [candidateId], references: [id], onDelete: Cascade)
-  job            Job                     @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  client         Client                  @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  interviewer    User?                   @relation("InterviewLeadInterviewer", fields: [interviewerId], references: [id])
-  createdBy      User?                   @relation("InterviewCreator", fields: [createdById], references: [id])
-  panel          InterviewPanel[]
+  candidate       Candidate              @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  job             Job                    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  client          Client                 @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  interviewer     User?                  @relation("InterviewLeadInterviewer", fields: [interviewerId], references: [id])
+  createdBy       User?                  @relation("InterviewCreator", fields: [createdById], references: [id])
+  panel           InterviewPanel[]
   feedbackEntries InterviewFeedback[]
-  interviewNotes InterviewNote[]
-  activityLogs   InterviewActivityLog[]
-  files          InterviewFile[]
+  interviewNotes  InterviewNote[]
+  activityLogs    InterviewActivityLog[]
+  files           InterviewFile[]
 
   @@index([candidateId])
   @@index([jobId])
@@ -1014,26 +1083,26 @@ model InterviewFile {
   id           String   @id @default(auto()) @map("_id") @db.ObjectId
   interviewId  String   @db.ObjectId
   fileName     String
-  fileType     String   // Recording, Notes, Other
+  fileType     String // Recording, Notes, Other
   fileUrl      String?
   uploadedById String   @db.ObjectId
   uploadDate   DateTime @default(now())
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
-  uploadedBy  User      @relation(fields: [uploadedById], references: [id])
+  interview  Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  uploadedBy User      @relation(fields: [uploadedById], references: [id])
 
   @@index([interviewId])
   @@map("interview_files")
 }
 
 model InterviewPanel {
-  id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  interviewId String   @db.ObjectId
-  userId      String   @db.ObjectId
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  interviewId String    @db.ObjectId
+  userId      String    @db.ObjectId
   role        PanelRole
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
 
   interview Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
   user      User      @relation(fields: [userId], references: [id])
@@ -1156,37 +1225,37 @@ enum DocumentType {
 }
 
 model Placement {
-  id               String          @id @default(auto()) @map("_id") @db.ObjectId
-  candidateId      String          @db.ObjectId
-  jobId            String          @db.ObjectId
-  clientId         String          @db.ObjectId
-  recruiterId      String?         @db.ObjectId
-  startDate        DateTime
-  endDate          DateTime?
-  offerDate        DateTime? // Date offer was made
-  joiningDate      DateTime? // Actual joining date
-  actualJoiningDate DateTime?
-  salary           Float?
-  salaryOffered    Float?
-  fee              Float?
-  placementFee     Float?
-  feeType          FeeType         @default(FLAT)
-  commissionPercentage Float       @default(20)
-  revenue          Float?
-  status           PlacementStatus @default(PENDING)
-  failureReason    String?
-  billingStatus    String? // Pending Invoice, Invoiced, Paid
-  warrantyDaysLeft Int? // Guarantee period days remaining
-  employmentType   EmploymentType?
-  notes            String?
-  deletedAt        DateTime?
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  id                   String          @id @default(auto()) @map("_id") @db.ObjectId
+  candidateId          String          @db.ObjectId
+  jobId                String          @db.ObjectId
+  clientId             String          @db.ObjectId
+  recruiterId          String?         @db.ObjectId
+  startDate            DateTime
+  endDate              DateTime?
+  offerDate            DateTime? // Date offer was made
+  joiningDate          DateTime? // Actual joining date
+  actualJoiningDate    DateTime?
+  salary               Float?
+  salaryOffered        Float?
+  fee                  Float?
+  placementFee         Float?
+  feeType              FeeType         @default(FLAT)
+  commissionPercentage Float           @default(20)
+  revenue              Float?
+  status               PlacementStatus @default(PENDING)
+  failureReason        String?
+  billingStatus        String? // Pending Invoice, Invoiced, Paid
+  warrantyDaysLeft     Int? // Guarantee period days remaining
+  employmentType       EmploymentType?
+  notes                String?
+  deletedAt            DateTime?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
 
-  candidate      Candidate            @relation(fields: [candidateId], references: [id], onDelete: Cascade)
-  job            Job                  @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  client         Client               @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  recruiter      User?                @relation("PlacementRecruiter", fields: [recruiterId], references: [id])
+  candidate      Candidate              @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  job            Job                    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  client         Client                 @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  recruiter      User?                  @relation("PlacementRecruiter", fields: [recruiterId], references: [id])
   billingRecords BillingRecord[]
   billing        PlacementBilling[]
   commission     PlacementCommission[]
@@ -1362,8 +1431,8 @@ model Task {
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
-  assignedTo User @relation("TaskAssignee", fields: [assignedToId], references: [id])
-  createdBy  User @relation("TaskCreator", fields: [createdById], references: [id])
+  assignedTo User       @relation("TaskAssignee", fields: [assignedToId], references: [id])
+  createdBy  User       @relation("TaskCreator", fields: [createdById], references: [id])
   files      TaskFile[] // Task files/attachments
 
   @@index([assignedToId])
@@ -1380,8 +1449,8 @@ model TaskFile {
   taskId       String   @db.ObjectId
   fileName     String
   fileType     String? // Document, Image, PDF, Other
-  fileUrl      String   // Path to file on server or external URL
-  fileSize     Int?     // File size in bytes
+  fileUrl      String // Path to file on server or external URL
+  fileSize     Int? // File size in bytes
   uploadedById String   @db.ObjectId
   uploadDate   DateTime @default(now())
   createdAt    DateTime @default(now())
@@ -1448,19 +1517,19 @@ enum NotificationCategory {
 }
 
 model Notification {
-  id           String               @id @default(auto()) @map("_id") @db.ObjectId
-  userId       String               @db.ObjectId
-  category     NotificationCategory @default(SYSTEM)
-  title        String
-  description  String?
-  actionLabel  String?
-  actionPath   String?
-  entityType   String?
-  entityId     String?
-  metadata     Json?
-  isRead       Boolean              @default(false)
-  readAt       DateTime?
-  createdAt    DateTime             @default(now())
+  id          String               @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String               @db.ObjectId
+  category    NotificationCategory @default(SYSTEM)
+  title       String
+  description String?
+  actionLabel String?
+  actionPath  String?
+  entityType  String?
+  entityId    String?
+  metadata    Json?
+  isRead      Boolean              @default(false)
+  readAt      DateTime?
+  createdAt   DateTime             @default(now())
 
   @@index([userId])
   @@index([userId, isRead])
@@ -1629,20 +1698,20 @@ model UserOAuthTokens {
 }
 
 model IntegrationConnection {
-  id           String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId       String   @db.ObjectId
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id           String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String    @db.ObjectId
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   provider     String
   accessToken  String?
   refreshToken String?
   expiryDate   DateTime?
-  scope        String[] @default([])
+  scope        String[]  @default([])
   accountEmail String?
   accountName  String?
   accountId    String?
   metadata     Json?
-  connectedAt  DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  connectedAt  DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   @@unique([userId, provider])
   @@index([userId])
@@ -1694,12 +1763,12 @@ model JobBoardIntegration {
 model LinkedInToken {
   id          String   @id @default(auto()) @map("_id") @db.ObjectId
   userId      String   @unique @db.ObjectId
-  linkedinSub String   // LinkedIn user ID (sub from userinfo)
-  accessToken String   // Encrypted access token
+  linkedinSub String // LinkedIn user ID (sub from userinfo)
+  accessToken String // Encrypted access token
   expiresAt   DateTime // Token expiration (60 days from LinkedIn)
-  name        String?  // LinkedIn display name
-  email       String?  // From userinfo when available
-  picture     String?  // LinkedIn profile picture URL
+  name        String? // LinkedIn display name
+  email       String? // From userinfo when available
+  picture     String? // LinkedIn profile picture URL
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -1747,7 +1816,7 @@ model SystemRole {
   id          String   @id @default(auto()) @map("_id") @db.ObjectId
   roleName    String   @unique
   description String?
-  color       String   // Color name like "purple", "blue", etc.
+  color       String // Color name like "purple", "blue", etc.
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -1758,12 +1827,12 @@ model SystemRole {
 }
 
 model Permission {
-  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
   permissionName String   @unique
-  module        String
-  description   String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  module         String
+  description    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   rolePermissions RolePermission[]
 
@@ -1777,43 +1846,43 @@ model RolePermission {
   permissionId String   @db.ObjectId
   createdAt    DateTime @default(now())
 
-  role       SystemRole  @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  permission Permission  @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  role       SystemRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
 
   @@unique([roleId, permissionId])
   @@map("role_permissions")
 }
 
 model UserCredential {
-  id              String    @id @default(auto()) @map("_id") @db.ObjectId
-  userId          String    @unique @db.ObjectId
-  loginId         String    @unique
-  hashedPassword  String
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId           String    @unique @db.ObjectId
+  loginId          String    @unique
+  hashedPassword   String
   tempPasswordFlag Boolean   @default(true)
-  inviteToken     String?
-  inviteSentAt    DateTime?
-  inviteExpiresAt DateTime?
-  lastLoginAt     DateTime?
-  failedAttempts  Int       @default(0)
-  isLocked        Boolean   @default(false)
-  createdBy       String?   @db.ObjectId
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  inviteToken      String?
+  inviteSentAt     DateTime?
+  inviteExpiresAt  DateTime?
+  lastLoginAt      DateTime?
+  failedAttempts   Int       @default(0)
+  isLocked         Boolean   @default(false)
+  createdBy        String?   @db.ObjectId
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   loginHistory LoginHistory[]
 
-  @@map("user_credentials")
   @@index([createdBy])
+  @@map("user_credentials")
 }
 
 model LoginHistory {
-  id         String       @id @default(auto()) @map("_id") @db.ObjectId
-  credentialId String     @db.ObjectId
-  ipAddress  String?
-  device     String?
-  outcome    LoginOutcome
-  timestamp  DateTime     @default(now())
+  id           String       @id @default(auto()) @map("_id") @db.ObjectId
+  credentialId String       @db.ObjectId
+  ipAddress    String?
+  device       String?
+  outcome      LoginOutcome
+  timestamp    DateTime     @default(now())
 
   credential UserCredential @relation(fields: [credentialId], references: [id], onDelete: Cascade)
 
@@ -1823,11 +1892,11 @@ model LoginHistory {
 }
 
 model UserActivity {
-  id       String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId   String   @db.ObjectId
-  action   String
-  module   String
-  metadata Json?
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  action    String
+  module    String
+  metadata  Json?
   timestamp DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1856,13 +1925,13 @@ model TeamTask {
 }
 
 model TeamTarget {
-  id         String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId     String   @db.ObjectId
-  targetType String
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String   @db.ObjectId
+  targetType  String
   targetValue Float
-  period     String
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  period      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -1872,14 +1941,14 @@ model TeamTarget {
 }
 
 model Commission {
-  id              String          @id @default(auto()) @map("_id") @db.ObjectId
-  userId          String          @db.ObjectId
-  placementId     String          // Changed from String? to String as per requirements
+  id               String           @id @default(auto()) @map("_id") @db.ObjectId
+  userId           String           @db.ObjectId
+  placementId      String // Changed from String? to String as per requirements
   commissionAmount Float
-  commissionPct   Float
-  status          CommissionStatus @default(PENDING)
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  commissionPct    Float
+  status           CommissionStatus @default(PENDING)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -1892,20 +1961,20 @@ model Commission {
 // Serves: ai assistant undo / persistent memory
 
 model Undo {
-  id               String   @id @default(auto()) @map("_id") @db.ObjectId
-  actionId         String   @unique
-  userId           String   @db.ObjectId
-  module           String
-  action           String   // DELETE | UPDATE | RESTORE | BULK_DELETE
-  endpoint         String
-  method           String
-  targetIds        String[]
-  reverseData      Json?
-  uiReverse        Json?
-  expiresAt        DateTime
-  createdAt        DateTime @default(now())
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  actionId    String   @unique
+  userId      String   @db.ObjectId
+  module      String
+  action      String // DELETE | UPDATE | RESTORE | BULK_DELETE
+  endpoint    String
+  method      String
+  targetIds   String[]
+  reverseData Json?
+  uiReverse   Json?
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
 
-  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([expiresAt])
   @@map("aria_undo_stack")

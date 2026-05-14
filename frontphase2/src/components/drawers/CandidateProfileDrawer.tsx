@@ -6,6 +6,7 @@ import {
   cloudinaryPdfViewerHref,
   buildFileHref,
 } from '../../utils/cloudinaryUrls';
+import { formatDateDMY, formatDateTimeDMY } from '../../utils/dateDisplay';
 import { AnimatePresence, motion } from 'motion/react';
 import { requestSuccess } from '../../lib/appDialog';
 import {
@@ -37,6 +38,7 @@ import {
   Video,
   X,
 } from 'lucide-react';
+import { ImageWithFallback, initialsFromDisplayName } from '../ImageWithFallback';
 import { getCandidateStageBadgeClasses, getCandidateStageLabel } from '../../utils/candidateStage';
 import type { LucideIcon } from 'lucide-react';
 import { useFiles } from '../../hooks/useFiles';
@@ -658,11 +660,7 @@ function formatTimelineDateLabel(value: string) {
   if (targetKey === today.toDateString()) return 'Today';
   if (targetKey === yesterday.toDateString()) return 'Yesterday';
 
-  return target.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  return formatDateDMY(target);
 }
 
 function getTimelineConfig(
@@ -734,11 +732,7 @@ function formatRelativeTime(value: string) {
   const diffDays = Math.floor(diffHours / 24);
   if (diffDays < 7) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
 
-  return new Date(value).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  return formatDateDMY(new Date(value));
 }
 
 interface CandidateTagSystemProps {
@@ -1329,11 +1323,7 @@ function ScheduleInterviewModal({
       } else {
         await Promise.resolve(onSchedule?.(payload));
       }
-      const prettyDate = new Date(`${date}T00:00:00`).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      });
+      const prettyDate = formatDateDMY(new Date(`${date}T00:00:00`));
       onScheduledSuccess?.(editInterview?.id ? `Interview updated (${status})` : `Interview scheduled for ${prettyDate} at ${time}`);
       onClose();
     } finally {
@@ -3533,17 +3523,12 @@ export function CandidateProfileDrawer({
               <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 backdrop-blur">
                 <div className="flex items-start justify-between gap-4 px-5 py-5 sm:px-6">
                   <div className="flex min-w-0 gap-4">
-                    {candidate.avatar ? (
-                      <img
-                        src={candidate.avatar}
-                        alt={candidate.name}
-                        className="h-16 w-16 rounded-2xl object-cover ring-1 ring-slate-200"
-                      />
-                    ) : (
-                      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-100 text-lg font-bold text-blue-700">
-                        {getInitials(candidate.name)}
-                      </div>
-                    )}
+                    <ImageWithFallback
+                      src={candidate.avatar || ''}
+                      fallbackInitials={initialsFromDisplayName(candidate.name)}
+                      alt={candidate.name}
+                      className="h-16 w-16 shrink-0 rounded-2xl object-cover text-lg ring-1 ring-slate-200"
+                    />
 
                     <div className="min-w-0">
                       <h2 className="truncate text-2xl font-bold text-slate-900">{candidate.name}</h2>
@@ -4310,7 +4295,7 @@ export function CandidateProfileDrawer({
                                             ) : null}
                                           </div>
                                           <span className="text-xs text-slate-500">
-                                            {new Date(item.timestamp).toLocaleString()}
+                                            {formatDateTimeDMY(item.timestamp)}
                                           </span>
                                         </div>
 

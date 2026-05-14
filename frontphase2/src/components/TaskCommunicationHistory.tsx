@@ -4,12 +4,13 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Mail,
   Phone,
-  MessageCircle,
   FileText,
   MessageSquare,
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
+import { formatDateDMY } from '../utils/dateDisplay';
+import { WhatsAppIcon } from './icons/WhatsAppIcon';
 import type { TaskCommunicationEntry, TaskCommunicationType } from '../app/Task&Activites/types';
 
 export interface TaskCommunicationHistoryProps {
@@ -21,7 +22,7 @@ export interface TaskCommunicationHistoryProps {
 const TYPE_CONFIG: Record<TaskCommunicationType, { label: string; icon: React.ComponentType<{ size?: number; className?: string }>; iconBg: string }> = {
   email: { label: 'Email', icon: Mail as React.ComponentType<{ size?: number; className?: string }>, iconBg: 'bg-amber-500 text-white' },
   call: { label: 'Call', icon: Phone as React.ComponentType<{ size?: number; className?: string }>, iconBg: 'bg-blue-600 text-white' },
-  whatsapp: { label: 'WhatsApp', icon: MessageCircle as React.ComponentType<{ size?: number; className?: string }>, iconBg: 'bg-emerald-600 text-white' },
+  whatsapp: { label: 'WhatsApp', icon: WhatsAppIcon as React.ComponentType<{ size?: number; className?: string }>, iconBg: 'bg-emerald-600 text-white' },
   note: { label: 'Note', icon: FileText as React.ComponentType<{ size?: number; className?: string }>, iconBg: 'bg-slate-600 text-white' },
   comment: { label: 'Comment', icon: MessageSquare as React.ComponentType<{ size?: number; className?: string }>, iconBg: 'bg-violet-500 text-white' },
 };
@@ -35,8 +36,7 @@ const FILTER_OPTIONS: { id: 'all' | TaskCommunicationType; label: string }[] = [
 ];
 
 function formatDate(timestamp: string): string {
-  const d = new Date(timestamp);
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return formatDateDMY(timestamp);
 }
 
 function CommunicationEntryCard({ entry }: { entry: TaskCommunicationEntry }) {

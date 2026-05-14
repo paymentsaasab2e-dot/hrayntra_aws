@@ -30,7 +30,13 @@ function buildLeadAccessWhere(id, req) {
   return {
     AND: [
       { id },
-      { OR: [{ assignedToId: req.user.id }, { createdBy: req.user.id }] },
+      {
+        OR: [
+          { assignedToId: req.user.id },
+          { assignedToIds: { has: req.user.id } },
+          { createdBy: req.user.id },
+        ],
+      },
     ],
   };
 }
@@ -61,6 +67,54 @@ async function resolveAssignedToId(value) {
   return userByIdentity?.id || null;
 }
 
+/**
+ * Resolve a list of ids/emails/names to **deduped** ObjectIds, preserving
+ * input order. Used by multi-assignee fields (`assignedToIds`).
+ */
+async function resolveAssignedToIds(values) {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const value of values) {
+    const id = await resolveAssignedToId(value);
+    if (id && !seen.has(id)) {
+      seen.add(id);
+      out.push(id);
+    }
+  }
+  return out;
+}
+
+/** Hydrate lead.assignedToUsers from `assignedToIds` (single query per page). */
+async function attachAssignees(leads) {
+  const isArray = Array.isArray(leads);
+  const list = isArray ? leads : [leads];
+  const allIds = new Set();
+  for (const lead of list) {
+    if (!lead) continue;
+    const ids = Array.isArray(lead.assignedToIds) ? lead.assignedToIds : [];
+    for (const id of ids) if (id) allIds.add(id);
+    if (lead.assignedToId) allIds.add(lead.assignedToId);
+  }
+  if (allIds.size === 0) {
+    for (const lead of list) if (lead) lead.assignedToUsers = lead.assignedToUsers || [];
+    return isArray ? list : list[0];
+  }
+  const users = await prisma.user.findMany({
+    where: { id: { in: Array.from(allIds) } },
+    select: { id: true, name: true, email: true, avatar: true },
+  });
+  const byId = new Map(users.map((u) => [u.id, u]));
+  for (const lead of list) {
+    if (!lead) continue;
+    const ids = Array.isArray(lead.assignedToIds) && lead.assignedToIds.length
+      ? lead.assignedToIds
+      : (lead.assignedToId ? [lead.assignedToId] : []);
+    lead.assignedToUsers = ids.map((id) => byId.get(id)).filter(Boolean);
+  }
+  return isArray ? list : list[0];
+}
+
 export const leadService = {
   async getAll(req) {
     // Default page size higher than generic API (10): assignees and super admins must see assigned leads
@@ -75,9 +129,18 @@ export const leadService = {
     if (source) baseFilters.source = source;
     if (type) baseFilters.type = type;
     if (priority) baseFilters.priority = priority;
-    if (assignedToId) baseFilters.assignedToId = assignedToId;
+    if (assignedToId) {
+      baseFilters.OR = [
+        { assignedToId },
+        { assignedToIds: { has: assignedToId } },
+      ];
+    }
 
     const andParts = [{ ...baseFilters }];
+    // Recycle Bin: hide soft-deleted rows from the normal Leads page (always opt-in via /trash).
+    // `not: true` matches false, null, and missing-field documents (legacy rows from before
+    // the soft-delete column existed) without tripping Prisma's "Argument isDeleted is missing".
+    andParts.push({ isDeleted: { not: true } });
     if (search) {
       andParts.push({
         OR: [
@@ -90,7 +153,11 @@ export const leadService = {
     }
     if (!canViewAllLeads(req) && req.user?.id) {
       andParts.push({
-        OR: [{ assignedToId: req.user.id }, { createdBy: req.user.id }],
+        OR: [
+          { assignedToId: req.user.id },
+          { assignedToIds: { has: req.user.id } },
+          { createdBy: req.user.id },
+        ],
       });
     }
 
@@ -120,13 +187,14 @@ export const leadService = {
       prisma.lead.count({ where }),
     ]);
 
+    await attachAssignees(leads);
     return formatPaginationResponse(leads, page, limit, total);
   },
 
   async getById(id, req = null) {
     const where = buildLeadAccessWhere(id, req);
 
-    return prisma.lead.findFirst({
+    const lead = await prisma.lead.findFirst({
       where,
       include: {
         assignedTo: {
@@ -143,6 +211,9 @@ export const leadService = {
         },
       },
     });
+    if (!lead) return null;
+    await attachAssignees(lead);
+    return lead;
   },
 
   async create(data) {
@@ -161,11 +232,15 @@ export const leadService = {
           .filter(Boolean);
 
     const normalizedContactPerson = normalizeNullableString(data.contactPerson) || normalizeNullableString(data.directorName);
+    const normalizedDirectorSalutation = normalizeNullableString(data.directorSalutation);
     const normalizedIndustry = normalizeNullableString(data.industry) || normalizeNullableString(data.sector);
     const normalizedCompanySize = normalizeNullableString(data.companySize) || normalizeNullableString(data.teamName);
     const normalizedInterestedNeeds = normalizeNullableString(data.interestedNeeds) || normalizeNullableString(data.servicesNeeded);
     const normalizedNotes = normalizeNullableString(data.notes) || normalizeNullableString(data.expectedBusinessValue);
     const resolvedAssignedToId = await resolveAssignedToId(data.assignedToId || data.assignedToName);
+    const resolvedAssignedToIds = Array.isArray(data.assignedToIds)
+      ? await resolveAssignedToIds(data.assignedToIds)
+      : [];
     const normalizedOtherDetails = normalizeOtherDetails(data.otherDetails);
 
     // Map frontend fields to backend model
@@ -173,6 +248,7 @@ export const leadService = {
       companyName: normalizeRequiredLeadField(data.companyName),
       contactPerson: normalizeRequiredLeadField(normalizedContactPerson),
       directorName: normalizeNullableString(data.directorName) || normalizedContactPerson || null,
+      directorSalutation: normalizedDirectorSalutation || null,
       email: normalizeRequiredLeadField(normalizeNullableString(data.email)?.toLowerCase()),
       phone: normalizeNullableString(data.phone),
       type: data.type || 'Company',
@@ -196,6 +272,10 @@ export const leadService = {
       designation: normalizeNullableString(data.designation),
       country: normalizeNullableString(data.country),
       city: normalizeNullableString(data.city),
+      // Smart-location autofill metadata (Nominatim) — all optional.
+      state: normalizeNullableString(data.state),
+      latitude: Number.isFinite(Number(data.latitude)) ? Number(data.latitude) : null,
+      longitude: Number.isFinite(Number(data.longitude)) ? Number(data.longitude) : null,
       // Lead management fields
       campaignName: normalizeNullableString(data.campaignName),
       campaignLink: normalizeNullableString(data.campaignLink),
@@ -206,10 +286,27 @@ export const leadService = {
       otherDetails: normalizedOtherDetails,
       lastFollowUp: data.lastFollowUp ? new Date(data.lastFollowUp) : null,
       nextFollowUp: data.nextFollowUp ? new Date(data.nextFollowUp) : null,
+      // Agreements & Terms — single primary document attached during onboarding.
+      agreementsFileName: normalizeNullableString(data.agreementsFileName),
+      agreementsFileUrl: normalizeNullableString(data.agreementsFileUrl),
+      agreementsUploadedAt: data.agreementsUploadedAt
+        ? new Date(data.agreementsUploadedAt)
+        : (normalizeNullableString(data.agreementsFileUrl) ? new Date() : null),
       // Relations
       assignedToId:
         resolvedAssignedToId ||
+        resolvedAssignedToIds[0] ||
         (data.performedByRole === 'SUPER_ADMIN' && data.performedById ? data.performedById : null),
+      assignedToIds: (() => {
+        if (resolvedAssignedToIds.length > 0) {
+          const out = [...resolvedAssignedToIds];
+          if (resolvedAssignedToId && !out.includes(resolvedAssignedToId)) out.unshift(resolvedAssignedToId);
+          return out;
+        }
+        if (resolvedAssignedToId) return [resolvedAssignedToId];
+        if (data.performedByRole === 'SUPER_ADMIN' && data.performedById) return [String(data.performedById)];
+        return [];
+      })(),
       createdBy: data.performedById ? String(data.performedById) : null,
     };
 
@@ -224,6 +321,8 @@ export const leadService = {
         },
       },
     });
+
+    await attachAssignees(lead);
 
     // Log the created lead
     dbLogger.logCreate('Lead', lead);
@@ -276,10 +375,17 @@ export const leadService = {
       data.assignedToId !== undefined || data.assignedToName !== undefined
         ? await resolveAssignedToId(data.assignedToId || data.assignedToName)
         : undefined;
+    const resolvedAssignedToIdsUpdate = Array.isArray(data.assignedToIds)
+      ? await resolveAssignedToIds(data.assignedToIds)
+      : undefined;
     
     if (data.companyName !== undefined) updateData.companyName = data.companyName || '';
     if (data.contactPerson !== undefined) updateData.contactPerson = data.contactPerson || '';
     if (data.directorName !== undefined) updateData.directorName = data.directorName || null;
+    if (data.directorSalutation !== undefined) {
+      const s = data.directorSalutation == null ? '' : String(data.directorSalutation).trim();
+      updateData.directorSalutation = s || null;
+    }
     if (data.contactPerson === undefined && data.directorName !== undefined) updateData.contactPerson = data.directorName || '';
     if (data.email !== undefined) updateData.email = data.email || '';
     if (data.phone !== undefined) updateData.phone = data.phone || null;
@@ -311,6 +417,15 @@ export const leadService = {
     if (data.designation !== undefined) updateData.designation = data.designation || null;
     if (data.country !== undefined) updateData.country = data.country || null;
     if (data.city !== undefined) updateData.city = data.city || null;
+    if (data.state !== undefined) updateData.state = data.state || null;
+    if (data.latitude !== undefined) {
+      const n = Number(data.latitude);
+      updateData.latitude = Number.isFinite(n) ? n : null;
+    }
+    if (data.longitude !== undefined) {
+      const n = Number(data.longitude);
+      updateData.longitude = Number.isFinite(n) ? n : null;
+    }
     // Lead management fields
     if (data.campaignName !== undefined) updateData.campaignName = data.campaignName || null;
     if (data.campaignLink !== undefined) updateData.campaignLink = data.campaignLink || null;
@@ -322,9 +437,38 @@ export const leadService = {
     if (data.lastFollowUp !== undefined) updateData.lastFollowUp = data.lastFollowUp ? new Date(data.lastFollowUp) : null;
     if (data.nextFollowUp !== undefined) updateData.nextFollowUp = data.nextFollowUp ? new Date(data.nextFollowUp) : null;
     if (data.lostReason !== undefined) updateData.lostReason = data.lostReason || null;
+    // Agreements & Terms — only touch when the field was sent.
+    if (data.agreementsFileName !== undefined) {
+      updateData.agreementsFileName = data.agreementsFileName || null;
+    }
+    if (data.agreementsFileUrl !== undefined) {
+      updateData.agreementsFileUrl = data.agreementsFileUrl || null;
+      if (data.agreementsUploadedAt === undefined) {
+        updateData.agreementsUploadedAt = data.agreementsFileUrl ? new Date() : null;
+      }
+    }
+    if (data.agreementsUploadedAt !== undefined) {
+      updateData.agreementsUploadedAt = data.agreementsUploadedAt
+        ? new Date(data.agreementsUploadedAt)
+        : null;
+    }
     // Relations
-    if (data.assignedToId !== undefined || data.assignedToName !== undefined) {
+    if (resolvedAssignedToIdsUpdate !== undefined) {
+      // Multi-assignee: array drives both list + primary owner.
+      const next = [...resolvedAssignedToIdsUpdate];
+      const explicitPrimary = resolvedAssignedToId !== undefined ? resolvedAssignedToId : undefined;
+      if (explicitPrimary && !next.includes(explicitPrimary)) next.unshift(explicitPrimary);
+      updateData.assignedToIds = next;
+      updateData.assignedToId = explicitPrimary ?? next[0] ?? null;
+    } else if (data.assignedToId !== undefined || data.assignedToName !== undefined) {
+      // Single-assignee legacy path — mirror into the list so reads stay in sync.
       updateData.assignedToId = resolvedAssignedToId ?? null;
+      const existing = Array.isArray(currentLead.assignedToIds) ? currentLead.assignedToIds : [];
+      if (resolvedAssignedToId) {
+        updateData.assignedToIds = [resolvedAssignedToId, ...existing.filter((id) => id !== resolvedAssignedToId)];
+      } else {
+        updateData.assignedToIds = [];
+      }
     }
     if (data.convertedToClientId !== undefined) updateData.convertedToClientId = data.convertedToClientId || null;
     if (data.convertedToCandidateId !== undefined) updateData.convertedToCandidateId = data.convertedToCandidateId || null;
@@ -342,6 +486,8 @@ export const leadService = {
         },
       },
     });
+
+    await attachAssignees(updated);
 
     // Log the updated lead
     dbLogger.logUpdate('Lead', id, updated);
@@ -497,7 +643,11 @@ export const leadService = {
       const url = String(f.fileUrl || '').trim();
       const name = String(f.fileName || '');
       if (!/^https?:\/\//i.test(url)) continue;
-      if (imgExt.test(name) || /\/image\/upload|res\.cloudinary\.com[^/]*\/image\//i.test(url)) {
+      if (
+        imgExt.test(name) ||
+        /\/image\/upload|res\.cloudinary\.com[^/]*\/image\//i.test(url) ||
+        /\.s3[.-][^/]*amazonaws\.com\/.+\.(png|jpe?g|gif|webp)($|[?#])/i.test(url)
+      ) {
         return url;
       }
     }
@@ -623,6 +773,7 @@ export const leadService = {
         
         await prisma.contact.create({
           data: {
+            salutation: lead.directorSalutation ? String(lead.directorSalutation).trim() || null : null,
             firstName: firstName,
             lastName: lastName,
             email: lead.email.toLowerCase().trim(),
@@ -666,6 +817,8 @@ export const leadService = {
   },
 
   async delete(id, performedById, req = null) {
+    // Soft delete — flips isDeleted=true and stamps deletedAt/deletedBy so the row
+    // shows up on the Recycle Bin page and can be restored.
     const lead = await prisma.lead.findFirst({
       where: buildLeadAccessWhere(id, req),
     });
@@ -673,7 +826,14 @@ export const leadService = {
       throw new Error('Lead not found');
     }
 
-    await prisma.lead.delete({ where: { id } });
+    await prisma.lead.update({
+      where: { id },
+      data: {
+        isDeleted: true,
+        deletedAt: new Date(),
+        deletedBy: performedById || null,
+      },
+    });
 
     // Create activity log
     if (performedById) {
@@ -682,10 +842,11 @@ export const leadService = {
           entityId: id,
           performedById,
           action: 'Lead Deleted',
-          description: `Lead "${lead.companyName}" was deleted`,
+          description: `Lead "${lead.companyName}" was moved to Recycle Bin`,
           metadata: {
             companyName: lead.companyName,
             contactPerson: lead.contactPerson,
+            softDelete: true,
           },
         });
       } catch (err) {
@@ -693,7 +854,120 @@ export const leadService = {
       }
     }
 
-    return { message: 'Lead deleted successfully' };
+    return { message: 'Lead moved to Recycle Bin' };
+  },
+
+  /**
+   * Recycle Bin — list soft-deleted leads (newest first).
+   * Scope mirrors getAll: assignees see only their own deleted records, admins see all.
+   */
+  async listTrash(req) {
+    const page = Math.max(Number.parseInt(String(req.query.page ?? '1'), 10) || 1, 1);
+    const limit = Math.min(Math.max(Number.parseInt(String(req.query.limit ?? '50'), 10) || 50, 1), 500);
+    const skip = (page - 1) * limit;
+
+    const andParts = [{ isDeleted: true }];
+    if (!canViewAllLeads(req) && req.user?.id) {
+      andParts.push({
+        OR: [
+          { assignedToId: req.user.id },
+          { assignedToIds: { has: req.user.id } },
+          { createdBy: req.user.id },
+          { deletedBy: req.user.id },
+        ],
+      });
+    }
+    const where = { AND: andParts };
+
+    const [leads, total] = await Promise.all([
+      prisma.lead.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { deletedAt: 'desc' },
+        include: {
+          assignedTo: { select: { id: true, name: true, email: true, avatar: true } },
+        },
+      }),
+      prisma.lead.count({ where }),
+    ]);
+    await attachAssignees(leads);
+    return formatPaginationResponse(leads, page, limit, total);
+  },
+
+  /** Recycle Bin — restore a soft-deleted lead. */
+  async restore(id, performedById, req = null) {
+    const lead = await prisma.lead.findFirst({
+      where: { id, isDeleted: true },
+    });
+    if (!lead) {
+      throw new Error('Deleted lead not found');
+    }
+    await prisma.lead.update({
+      where: { id },
+      data: { isDeleted: false, deletedAt: null, deletedBy: null },
+    });
+    if (performedById) {
+      try {
+        await activityService.logLeadActivity({
+          entityId: id,
+          performedById,
+          action: 'Lead Restored',
+          description: `Lead "${lead.companyName}" was restored from the Recycle Bin`,
+          metadata: { companyName: lead.companyName },
+        });
+      } catch (err) {
+        console.error('Failed to create activity log:', err);
+      }
+    }
+    return { message: 'Lead restored' };
+  },
+
+  /** Recycle Bin — permanently delete a soft-deleted lead. */
+  /**
+   * Bulk permanent-delete (Recycle Bin → Delete forever). Sequential so each lead's
+   * transactional cleanup is isolated.
+   */
+  async bulkPurge(ids, performedById, req = null) {
+    const unique = Array.from(new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean)));
+    if (!unique.length) {
+      return { success: 0, failed: 0, failures: [] };
+    }
+    let success = 0;
+    const failures = [];
+    for (const leadId of unique) {
+      try {
+        await this.purge(leadId, performedById, req);
+        success += 1;
+      } catch (err) {
+        failures.push({ id: leadId, message: err?.message || 'Failed to purge lead' });
+      }
+    }
+    return { success, failed: failures.length, failures };
+  },
+
+  async purge(id, performedById, req = null) {
+    const lead = await prisma.lead.findFirst({
+      where: { id, isDeleted: true },
+    });
+    if (!lead) {
+      throw new Error('Deleted lead not found');
+    }
+    await prisma.lead.delete({ where: { id } });
+    if (performedById) {
+      try {
+        await activityService.logLeadActivity({
+          entityId: id,
+          performedById,
+          action: 'Lead Purged',
+          description: `Lead "${lead.companyName}" was permanently deleted`,
+          metadata: { companyName: lead.companyName },
+        });
+      } catch (err) {
+        console.error('Failed to create activity log:', err);
+      }
+    }
+    return { message: 'Lead permanently deleted' };
   },
 
   async importLeads({ rows = [], mapping = {}, duplicateRule = 'skip', performedById, performedByRole }) {
@@ -790,6 +1064,7 @@ export const leadService = {
         companyName,
         contactPerson,
         directorName: contactPerson,
+        directorSalutation: getValue('directorSalutation') || null,
         email,
         phone: getValue('phone') || null,
         type: normalizeType(getValue('type')) || 'Company',
@@ -811,6 +1086,9 @@ export const leadService = {
         designation: getValue('designation') || null,
         city: getValue('city') || null,
         country: getValue('country') || null,
+        state: getValue('state') || null,
+        latitude: (() => { const n = Number(getValue('latitude')); return Number.isFinite(n) ? n : null; })(),
+        longitude: (() => { const n = Number(getValue('longitude')); return Number.isFinite(n) ? n : null; })(),
         campaignName: getValue('campaignName') || null,
         nextFollowUp: parseDateValue(getValue('nextFollowUpDue')) || null,
         performedById,

@@ -24,6 +24,8 @@ import {
   getCachedOrgSubscriptionPlanName,
   ORG_RECRUITMENT_CACHE_EVENT,
 } from '../lib/api';
+import { formatDirectorDisplay } from '../constants/salutations';
+import { formatDateDMY, formatDateTimeDMY } from '../utils/dateDisplay';
 import { NotificationDrawer } from './NotificationDrawer';
 import { 
   Search, 
@@ -51,7 +53,8 @@ import {
   User,
   LogOut,
   Repeat,
-  DollarSign
+  DollarSign,
+  Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -767,7 +770,10 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
           const leadItems = extractListItems<any>(leadRes).map((lead: any) => ({
             id: String(lead.id),
             title: String(lead.companyName || lead.contactPerson || lead.email || 'Lead'),
-            subtitle: [lead.contactPerson, lead.email].filter(Boolean).join(' • ') || 'Lead record',
+            subtitle:
+              [formatDirectorDisplay(lead.directorSalutation, lead.directorName || lead.contactPerson), lead.email]
+                .filter(Boolean)
+                .join(' • ') || 'Lead record',
             kind: 'Lead',
             href: `/leads?leadId=${encodeURIComponent(String(lead.id))}`,
           }));
@@ -818,7 +824,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
             return {
               id: String(iv.id),
               title: candidateName ? `${candidateName} • ${jobTitle}` : String(jobTitle),
-              subtitle: [iv.round, iv.status, iv.scheduledAt ? new Date(iv.scheduledAt).toLocaleString() : null]
+              subtitle: [iv.round, iv.status, iv.scheduledAt ? formatDateTimeDMY(iv.scheduledAt) : null]
                 .filter(Boolean)
                 .join(' • ') || 'Interview',
               kind: 'Interview',
@@ -838,7 +844,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
             .map((t: any) => ({
               id: String(t.id),
               title: String(t.title || 'Task'),
-              subtitle: [t.status, t.priority, t.dueDate ? new Date(t.dueDate).toLocaleDateString() : null]
+              subtitle: [t.status, t.priority, t.dueDate ? formatDateDMY(t.dueDate) : null]
                 .filter(Boolean)
                 .join(' • ') || 'Task',
               kind: 'Task',
@@ -1131,6 +1137,20 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
           {/* Billing - show if Super Admin or has access_billing */}
           {(mounted && billingNavEnabled && (showAll || hasPermission('access_billing'))) && (
             <NavItem icon={CreditCard} label="Billing" href="/billing" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="amber" />
+          )}
+
+          {/* Recycle Bin — soft-deleted leads / clients / candidates / jobs land here.
+              Visible to anyone with delete permission on at least one of those modules so the
+              menu surfaces alongside the relevant deletion actions. */}
+          {(mounted && (showAll || hasAnyPermission([
+            'leads_delete',
+            'clients_delete',
+            'candidates_delete',
+            'delete_candidate',
+            'jobs_delete',
+            'delete_job',
+          ]))) && (
+            <NavItem icon={Trash2} label="Recycle Bin" href="/recycle-bin" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="slate" />
           )}
 
           <div className="h-4" />

@@ -2,7 +2,6 @@ import React from 'react';
 import {
   Eye,
   Phone,
-  MessageSquare,
   Pencil,
   UserPlus,
   ArrowRight,
@@ -13,13 +12,14 @@ import {
   Trash2,
   Loader2,
 } from 'lucide-react';
-import { ImageWithFallback } from '../../../components/ImageWithFallback';
+import { ImageWithFallback, initialsFromDisplayName } from '../../../components/ImageWithFallback';
 import { getCandidateStageLabel } from '../../../utils/candidateStage';
+import { WhatsAppIcon } from '../../../components/icons/WhatsAppIcon';
 
 export interface Candidate {
   id: string;
   name: string;
-  avatar: string;
+  avatar: string | null;
   designation: string;
   company: string;
   experience: number;
@@ -131,7 +131,8 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                   <div className="flex items-center gap-3">
                     <div className="relative">
                       <ImageWithFallback 
-                        src={candidate.avatar} 
+                        src={candidate.avatar || ''} 
+                        fallbackInitials={initialsFromDisplayName(candidate.name)}
                         className="w-10 h-10 rounded-full object-cover ring-2 ring-white"
                         alt={candidate.name}
                       />
@@ -223,7 +224,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                           onWhatsAppCandidate?.(candidate);
                         }}
                       >
-                        <MessageSquare size={16} strokeWidth={2.25} />
+                        <WhatsAppIcon size={16} />
                       </button>
                       <button
                         type="button"

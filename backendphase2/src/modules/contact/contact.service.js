@@ -23,6 +23,7 @@ export const contactService = {
       where.OR = [
         { firstName: { contains: search } },
         { lastName: { contains: search } },
+        { salutation: { contains: search } },
         { email: { contains: search } },
       ];
       
@@ -180,6 +181,7 @@ export const contactService = {
     const contactData = {
       firstName: data.firstName,
       lastName: data.lastName,
+      salutation: data.salutation != null && String(data.salutation).trim() ? String(data.salutation).trim() : null,
       email: data.email?.toLowerCase().trim() || null,
       phone: data.phone || null,
       companyId: data.companyId || null,
@@ -229,6 +231,9 @@ export const contactService = {
 
     if (data.firstName !== undefined) updateData.firstName = data.firstName;
     if (data.lastName !== undefined) updateData.lastName = data.lastName;
+    if (data.salutation !== undefined) {
+      updateData.salutation = data.salutation != null && String(data.salutation).trim() ? String(data.salutation).trim() : null;
+    }
     if (data.email !== undefined) {
       // Check for duplicate email if changing
       const existing = await prisma.contact.findFirst({

@@ -198,16 +198,20 @@ defaultClient.$connect().catch((error) => {
 function getScopedClient() {
   const store = tenantContext.getStore();
   const tenantDbName = String(store?.tenantDbName || '').trim();
-  
+
   if (tenantDbName) {
     const tenantDbUrl = buildTenantDatabaseUrl(tenantDbName);
     if (tenantDbUrl) {
-      console.log(`[prisma] Scoped to: ${tenantDbName}`);
+      if (process.env.PRISMA_TENANT_DEBUG === 'true') {
+        console.log(`[prisma] Scoped to: ${tenantDbName}`);
+      }
       return getClientForUrl(tenantDbUrl);
     }
   }
 
-  console.log('[prisma] Falling back to defaultClient');
+  if (process.env.PRISMA_TENANT_DEBUG === 'true') {
+    console.log('[prisma] Falling back to defaultClient');
+  }
   return defaultClient;
 }
 

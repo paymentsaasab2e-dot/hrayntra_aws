@@ -3,6 +3,7 @@ import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { env } from '../config/env.js';
 import { authMiddleware } from '../middleware/auth.middleware.js';
 import { addCandidateController } from '../controllers/addCandidate.controller.js';
 
@@ -59,13 +60,13 @@ const fileFilter = (req, file, cb) => {
 const resumeUpload = multer({
   storage: tempStorage,
   fileFilter,
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: env.RESUME_MAX_FILE_BYTES },
 });
 
 const candidateFileUpload = multer({
   storage: multer.memoryStorage(),
   fileFilter,
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: env.RESUME_MAX_FILE_BYTES },
 });
 
 const csvUpload = multer({
@@ -79,6 +80,11 @@ router.use(authMiddleware);
 
 router.post('/candidates/create', addCandidateController.createCandidate);
 router.post('/candidates/parse-resume', resumeUpload.single('resume'), addCandidateController.parseResume);
+router.post(
+  '/candidates/bulk-cv/process-file',
+  resumeUpload.single('resume'),
+  addCandidateController.bulkCvProcessFile
+);
 router.post('/candidates/import-linkedin', addCandidateController.importLinkedIn);
 router.get('/candidates/check-duplicate', addCandidateController.checkDuplicate);
 router.post('/candidates/bulk-import', csvUpload.single('csvFile'), addCandidateController.bulkImport);

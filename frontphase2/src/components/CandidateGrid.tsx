@@ -3,15 +3,15 @@ import {
   Eye, 
   FileText, 
   Mail, 
-  MessageSquare, 
   Star, 
   MapPin, 
   Briefcase, 
   Clock,
   MoreVertical
 } from 'lucide-react';
-import { ImageWithFallback } from './ImageWithFallback';
+import { ImageWithFallback, initialsFromDisplayName } from './ImageWithFallback';
 import { Candidate } from './CandidateTable';
+import { WhatsAppIcon } from './icons/WhatsAppIcon';
 
 interface CandidateGridProps {
   candidates: Candidate[];
@@ -67,7 +67,8 @@ export const CandidateGrid: React.FC<CandidateGridProps> = ({
           <div className="p-6 flex flex-col items-center text-center">
             <div className="relative mb-4">
               <ImageWithFallback 
-                src={candidate.avatar} 
+                src={candidate.avatar || ''} 
+                fallbackInitials={initialsFromDisplayName(candidate.name)}
                 className="w-20 h-20 rounded-2xl object-cover ring-4 ring-white shadow-md"
                 alt={candidate.name}
               />
@@ -120,7 +121,7 @@ export const CandidateGrid: React.FC<CandidateGridProps> = ({
             
             <div className="flex items-center gap-1">
               <button className="p-2 text-slate-500 hover:text-green-600 hover:bg-white rounded-lg transition-all shadow-sm border border-transparent hover:border-slate-200" title="WhatsApp">
-                <MessageSquare size={16} />
+                <WhatsAppIcon size={16} />
               </button>
               <button className="p-2 text-slate-500 hover:text-blue-600 hover:bg-white rounded-lg transition-all shadow-sm border border-transparent hover:border-slate-200" title="Email">
                 <Mail size={16} />

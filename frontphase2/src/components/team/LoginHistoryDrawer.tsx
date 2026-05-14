@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { getLoginHistory } from '../../lib/api/teamApi';
 import type { LoginHistory } from '../../types/team';
 import { PortalHost } from './PortalHost';
+import { formatDateTimeDMY } from '../../utils/dateDisplay';
 
 interface LoginHistoryDrawerProps {
   isOpen: boolean;
@@ -48,8 +49,7 @@ export const LoginHistoryDrawer: React.FC<LoginHistoryDrawerProps> = ({ isOpen, 
   }, [isOpen, memberId, loadHistory]);
 
   const formatDateTime = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleString();
+    return formatDateTimeDMY(dateString);
   };
 
   const getOutcomeBadge = (outcome: string) => {

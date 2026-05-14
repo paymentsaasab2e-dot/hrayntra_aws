@@ -2,11 +2,14 @@
 
 import React, { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { X, Mail, Phone, MapPin, Linkedin, Edit, Trash2, MessageSquare } from 'lucide-react';
+import { X, Mail, Phone, MapPin, Linkedin, Edit, Trash2 } from 'lucide-react';
 import { ImageWithFallback } from '../ImageWithFallback';
+import { WhatsAppIcon } from '../icons/WhatsAppIcon';
 import type { BackendContact } from '../../lib/api';
 import { ContactTypeBadge } from './ContactTypeBadge';
 import { OwnerAvatar } from './OwnerAvatar';
+import { formatDirectorDisplay } from '../../constants/salutations';
+import { formatDateTimeDMY } from '../../utils/dateDisplay';
 
 interface ContactDetailDrawerProps {
   contact: BackendContact | null;
@@ -30,7 +33,7 @@ export function ContactDetailDrawer({ contact, isOpen, onClose, onEdit, onDelete
 
     const phone = rawPhone.startsWith('+') ? rawPhone.slice(1) : rawPhone;
     const message = encodeURIComponent(
-      `Hi ${contact.firstName} ${contact.lastName},`
+      `Hi ${formatDirectorDisplay(contact.salutation, `${contact.firstName} ${contact.lastName}`.trim())},`
     );
     window.open(`https://wa.me/${phone}?text=${message}`, '_blank', 'noopener,noreferrer');
   };
@@ -84,7 +87,7 @@ export function ContactDetailDrawer({ contact, isOpen, onClose, onEdit, onDelete
                 />
                 <div className="flex-1">
                   <h3 className="text-lg font-bold text-gray-900">
-                    {contact.firstName} {contact.lastName}
+                    {formatDirectorDisplay(contact.salutation, `${contact.firstName} ${contact.lastName}`.trim())}
                   </h3>
                   <p className="text-sm text-gray-500 mt-1">{contact.designation || 'No designation'}</p>
                   {contact.company && (
@@ -145,10 +148,10 @@ export function ContactDetailDrawer({ contact, isOpen, onClose, onEdit, onDelete
               <div className="grid grid-cols-1 gap-2 mb-6">
                 <button
                   onClick={openWhatsApp}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-100"
+                  className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 rounded-lg text-sm font-medium hover:bg-emerald-100"
                 >
-                  <MessageSquare size={16} />
-                  Send Message
+                  <WhatsAppIcon size={16} />
+                  Send WhatsApp
                 </button>
               </div>
 
@@ -217,7 +220,7 @@ export function ContactDetailDrawer({ contact, isOpen, onClose, onEdit, onDelete
                           <div key={activity.id} className="border-l-2 border-blue-200 pl-4 py-2">
                             <p className="text-sm font-medium text-gray-900">{activity.description}</p>
                             <p className="text-xs text-gray-500 mt-1">
-                              {new Date(activity.timestamp).toLocaleString()}
+                              {formatDateTimeDMY(activity.timestamp)}
                             </p>
                           </div>
                         ))
@@ -237,7 +240,7 @@ export function ContactDetailDrawer({ contact, isOpen, onClose, onEdit, onDelete
                                 {comm.type} • {comm.direction}
                               </span>
                               <span className="text-xs text-gray-500">
-                                {new Date(comm.timestamp).toLocaleString()}
+                                {formatDateTimeDMY(comm.timestamp)}
                               </span>
                             </div>
                             {comm.subject && (

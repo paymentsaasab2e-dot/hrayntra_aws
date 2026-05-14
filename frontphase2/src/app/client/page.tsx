@@ -26,6 +26,7 @@ import {
   FolderOpen,
 } from 'lucide-react';
 import { downloadCsv, csvDate } from '../../utils/csv';
+import { formatDateDMY } from '../../utils/dateDisplay';
 import { ClientTable } from '../../components/ClientTable';
 import {
   ClientFilterDrawer,
@@ -179,7 +180,7 @@ function mapBackendClientToFrontend(backendClient: BackendClient): Client {
       name: backendClient.assignedTo.name,
       avatar: backendClient.assignedTo.avatar || '',
     } : { name: 'Unassigned', avatar: '' },
-    lastActivity: backendClient.updatedAt ? new Date(backendClient.updatedAt).toLocaleDateString() : 'Never',
+    lastActivity: backendClient.updatedAt ? formatDateDMY(backendClient.updatedAt) : 'Never',
     logo: backendClient.logo || '',
     revenue: backendClient.revenueGenerated || undefined,
     companySize: backendClient.companySize || undefined,
@@ -190,10 +191,20 @@ function mapBackendClientToFrontend(backendClient: BackendClient): Client {
     website: backendClient.website || undefined,
     linkedin: backendClient.linkedin || undefined,
     timezone: backendClient.timezone || undefined,
-    clientSince: backendClient.clientSince ? new Date(backendClient.clientSince).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : undefined,
+    clientSince: backendClient.clientSince ? formatDateDMY(backendClient.clientSince) : undefined,
     priority: backendClient.priority as Client['priority'] || undefined,
     sla: backendClient.sla || undefined,
-    nextFollowUpDue: backendClient.nextFollowUpDue ? new Date(backendClient.nextFollowUpDue).toLocaleDateString() : undefined,
+    nextFollowUpDue: backendClient.nextFollowUpDue ? formatDateDMY(backendClient.nextFollowUpDue) : undefined,
+    agreementsFileName: backendClient.agreementsFileName || undefined,
+    agreementsFileUrl: backendClient.agreementsFileUrl || undefined,
+    agreementsUploadedAt: backendClient.agreementsUploadedAt || undefined,
+    city: backendClient.city || undefined,
+    state: backendClient.state || undefined,
+    country: backendClient.country || undefined,
+    latitude: typeof backendClient.latitude === 'number' ? backendClient.latitude : undefined,
+    longitude: typeof backendClient.longitude === 'number' ? backendClient.longitude : undefined,
+    directorSalutation: backendClient.directorSalutation || undefined,
+    leadStatusValue: backendClient.leadStatus || undefined,
     avgTimeToFill: backendClient.avgTimeToFill || undefined,
     healthStatus: backendClient.healthStatus as Client['healthStatus'] || undefined,
     billingTotalRevenue: backendClient.billingTotalRevenue || undefined,
@@ -203,9 +214,9 @@ function mapBackendClientToFrontend(backendClient: BackendClient): Client {
       ? backendClient.contacts.map((contact, index) => {
           const fullName = [contact.firstName, contact.lastName].filter(Boolean).join(' ').trim();
           const lastContacted = contact.lastContacted
-            ? new Date(contact.lastContacted).toLocaleDateString()
+            ? formatDateDMY(contact.lastContacted)
             : contact.createdAt
-              ? new Date(contact.createdAt).toLocaleDateString()
+              ? formatDateDMY(contact.createdAt)
               : 'Never';
           const normalizedDepartment = ['HR', 'Hiring', 'Hiring Manager', 'Finance', 'Other'].includes(
             String(contact.department || '')

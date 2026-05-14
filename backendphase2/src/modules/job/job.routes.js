@@ -12,6 +12,11 @@ router.use(authMiddleware);
 
 router.get('/', requireAnyPermission(['jobs_read', 'view_jobs']), jobController.getAll);
 router.get('/metrics', requireAnyPermission(['jobs_read', 'view_jobs']), jobController.getMetrics);
+// Recycle Bin endpoints — registered BEFORE the `/:id` routes so '/trash' isn't read as an id.
+router.get('/trash', requireAnyPermission(['jobs_read', 'view_jobs', 'jobs_delete', 'delete_job']), jobController.listTrash);
+router.post('/trash/bulk-purge', requireAnyPermission(['jobs_delete', 'delete_job']), jobController.bulkPurge);
+router.post('/:id/restore', requireAnyPermission(['jobs_update', 'edit_job', 'jobs_create', 'create_job']), jobController.restore);
+router.delete('/:id/purge', requireAnyPermission(['jobs_delete', 'delete_job']), jobController.purge);
 router.get('/:id', requireAnyPermission(['jobs_read', 'view_jobs']), jobController.getById);
 router.post('/', requireAnyPermission(['jobs_create', 'create_job']), jobController.create);
 router.patch('/:id', requireAnyPermission(['jobs_update', 'edit_job', 'assign_job']), jobController.update);

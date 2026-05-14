@@ -20,9 +20,27 @@ const CLOUDINARY_HOST = /^https:\/\/res\.cloudinary\.com\//i;
  */
 export function cloudinaryPdfViewerHref(url: string): string {
   const base = (url.split('#')[0] || '').trim();
-  if (!CLOUDINARY_HOST.test(base)) return url.trim();
-  if (!/\.pdf($|[?#])/i.test(base)) return url.trim();
-  return `/api/pdf-proxy?url=${encodeURIComponent(base)}`;
+  if (CLOUDINARY_HOST.test(base) && /\.pdf($|[?#])/i.test(base)) {
+    return `/api/pdf-proxy?url=${encodeURIComponent(base)}`;
+  }
+  const bucket = process.env.NEXT_PUBLIC_AWS_BUCKET_NAME || '';
+  if (bucket && /\.pdf($|[?#])/i.test(base) && base.includes('amazonaws.com')) {
+    const host = (() => {
+      try {
+        return new URL(base).hostname;
+      } catch {
+        return '';
+      }
+    })();
+    if (
+      host === `${bucket}.s3.amazonaws.com` ||
+      host.startsWith(`${bucket}.s3.`) ||
+      (host.startsWith('s3.') && base.includes(`/${bucket}/`))
+    ) {
+      return `/api/pdf-proxy?url=${encodeURIComponent(base)}`;
+    }
+  }
+  return url.trim();
 }
 
 /** Same-origin proxy URL for iframe / in-app PDF viewer (never embed raw Cloudinary URL). */

@@ -2,6 +2,7 @@ import React from 'react';
 import { DollarSign, CheckCircle2, Clock, Filter, Download, Search, MoreVertical } from 'lucide-react';
 import { MOCK_TEAM, Badge, IconButton } from './TeamComponents';
 import { ImageWithFallback } from './ImageWithFallback';
+import { formatDateDMY } from '../utils/dateDisplay';
 
 export const CommissionView = () => {
   const commissions = [
@@ -80,7 +81,7 @@ export const CommissionView = () => {
                     </span>
                   </td>
                   <td className="px-6 py-4 text-sm text-slate-500">
-                    {new Date(item.date).toLocaleDateString()}
+                    {formatDateDMY(item.date)}
                   </td>
                   <td className="px-6 py-4 text-right">
                     {item.status === 'Pending' ? (

@@ -3,7 +3,7 @@ const { isPortalPlaceholderFullName } = require('../utils/portal-profile-placeho
 const { parseResumeFromBuffer } = require('../services/resume-parser.service');
 const { convertToLaTeX } = require('../services/cv-parser.service');
 const { Proficiency } = require('@prisma/client');
-const { uploadBufferToCloudinary } = require('../lib/cloudinary');
+const { uploadBufferToCloudinary } = require('../lib/s3');
 
 function normalizeGender(value) {
   if (!value) return null;
@@ -299,6 +299,7 @@ async function uploadCV(req, res) {
       resourceType: 'raw',
       publicId: `${candidateId}_${timestamp}_${sanitizedOriginalName}`,
       originalFilename: file.originalname,
+      candidateId,
     });
 
     // Save generated LaTeX in cloud storage too
@@ -308,6 +309,7 @@ async function uploadCV(req, res) {
       resourceType: 'raw',
       publicId: `${candidateId}_${timestamp}_cv_tex`,
       originalFilename: `${candidateId}_cv.tex`,
+      candidateId,
     });
 
     // Store or update Resume record

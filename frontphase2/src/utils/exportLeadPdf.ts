@@ -8,6 +8,8 @@
  * share with the lead.
  */
 import type { Lead, Activity as LeadActivity } from '../app/leads/types';
+import { formatDirectorDisplay } from '../constants/salutations';
+import { formatDateTimeDMY } from './dateDisplay';
 
 function escapeHtml(value: unknown): string {
   if (value === null || value === undefined) return '';
@@ -21,17 +23,8 @@ function escapeHtml(value: unknown): string {
 
 function formatDateTime(value: string | null | undefined): string {
   if (!value) return '—';
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return String(value);
-  return parsed.toLocaleString(undefined, {
-    weekday: 'short',
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
+  const out = formatDateTimeDMY(value);
+  return out || String(value);
 }
 
 function row(label: string, value: unknown): string {
@@ -109,7 +102,7 @@ export function exportLeadAsPdf(lead: Lead): void {
     return;
   }
 
-  const generatedAt = new Date().toLocaleString();
+  const generatedAt = formatDateTimeDMY(new Date());
 
   const html = `<!doctype html>
 <html lang="en">
@@ -186,7 +179,7 @@ export function exportLeadAsPdf(lead: Lead): void {
     <table>
       ${row('Contact Person', lead.contactPerson)}
       ${row('Designation', lead.designation)}
-      ${row('Director', lead.directorName)}
+      ${row('Director', formatDirectorDisplay(lead.directorSalutation, lead.directorName || lead.contactPerson))}
       ${row('Email', lead.email)}
       ${row('Phone', lead.phone)}
       ${row('Team Name', lead.teamName)}

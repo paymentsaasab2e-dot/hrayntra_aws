@@ -305,10 +305,7 @@ const CalendarView = ({ tasks, onTaskClick }: { tasks: Task[]; onTaskClick: (tas
   });
 
   const todayKey = toLocalDateKey(new Date());
-  const monthLabel = activeMonth.toLocaleDateString('en-US', {
-    month: 'long',
-    year: 'numeric',
-  });
+  const monthLabel = `${String(activeMonth.getMonth() + 1).padStart(2, '0')}/${activeMonth.getFullYear()}`;
 
   const tasksByDate = useMemo(() => {
     return tasks.reduce<Record<string, Task[]>>((acc, task) => {

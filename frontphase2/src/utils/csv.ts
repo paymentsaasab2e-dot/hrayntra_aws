@@ -124,21 +124,21 @@ export function downloadSampleCsv(
   triggerCsvDownload(filename, buildCsvText(ids, matrix));
 }
 
+import { formatDateDMY, formatDateTimeDMY } from './dateDisplay';
+
 /**
- * Convenience: format a JavaScript value (Date, ISO string) as a short
- * human-readable date for CSV cells. Returns empty when value is missing.
+ * Convenience: format a JavaScript value (Date, ISO string) as **DD/MM/YYYY**
+ * for CSV cells (phase 2 display standard). Returns empty when value is missing.
  */
 export function csvDate(value: unknown): string {
   if (!value) return '';
-  const date = value instanceof Date ? value : new Date(String(value));
-  if (Number.isNaN(date.getTime())) return String(value);
-  return date.toISOString().slice(0, 10);
+  const out = formatDateDMY(value);
+  return out || String(value);
 }
 
-/** Like csvDate but keeps the time component. */
+/** Like csvDate but includes local time: **DD/MM/YYYY, h:mm am/pm**. */
 export function csvDateTime(value: unknown): string {
   if (!value) return '';
-  const date = value instanceof Date ? value : new Date(String(value));
-  if (Number.isNaN(date.getTime())) return String(value);
-  return date.toISOString();
+  const out = formatDateTimeDMY(value);
+  return out || String(value);
 }

@@ -1,8 +1,19 @@
+import http from 'http';
+import { Server } from 'socket.io';
 import app from './app.js';
 import { env } from './config/env.js';
 import { prisma } from './config/prisma.js';
+import { attachBulkCvSocket } from './socket/bulkCvSocket.js';
 
 const PORT = env.PORT || 5001;
+
+const SOCKET_CORS_ORIGINS = (
+  process.env.FRONTEND_URLS ||
+  `${env.FRONTEND_URL},http://localhost:3000,http://localhost:3001,https://frontendphase2.vercel.app,https://phase2.saasab2e.com`
+)
+  .split(',')
+  .map((v) => v.trim())
+  .filter(Boolean);
 
 if (!prisma) {
   console.error('Prisma client is not initialized. Server cannot start.');
@@ -27,7 +38,18 @@ prisma
   });
 
 function startServer() {
-  const server = app.listen(PORT, () => {
+  const httpServer = http.createServer(app);
+
+  const io = new Server(httpServer, {
+    cors: {
+      origin: SOCKET_CORS_ORIGINS,
+      credentials: true,
+    },
+  });
+  attachBulkCvSocket(io);
+  console.log('[bulk-cv] Socket.IO attached for duplicate resolution');
+
+  const server = httpServer.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`Environment: ${env.NODE_ENV}`);
     console.log(`Health check: http://localhost:${PORT}/health`);

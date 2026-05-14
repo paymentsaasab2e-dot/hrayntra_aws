@@ -1,4 +1,5 @@
 import type { BackendTask } from './api';
+import { formatDateTimeDMY } from '../utils/dateDisplay';
 import type { Task, TaskForDrawer, TaskStatus, TaskPriority, TaskType, TaskRelatedTo } from '../app/Task&Activites/types';
 
 /**
@@ -124,11 +125,11 @@ export function transformBackendTaskToDrawer(
     reminder: backendTask.reminder || undefined,
     lastUpdated: {
       by: backendTask.createdBy.name,
-      at: new Date(backendTask.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+      at: formatDateTimeDMY(backendTask.updatedAt),
     },
     createdBy: {
       name: backendTask.createdBy.name,
-      at: new Date(backendTask.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+      at: formatDateTimeDMY(backendTask.createdAt),
     },
     notes: backendTask.notes.length > 0 ? backendTask.notes : undefined,
     attachments: (() => {

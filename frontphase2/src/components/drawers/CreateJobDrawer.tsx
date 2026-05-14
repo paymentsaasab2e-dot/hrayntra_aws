@@ -14,7 +14,6 @@ import {
   Linkedin,
   Twitter,
   Facebook,
-  MessageCircle,
   ExternalLink,
   AlertCircle,
   User,
@@ -35,6 +34,7 @@ import {
   type BackendUser,
 } from '../../lib/api';
 import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
+import { WhatsAppIcon } from '../icons/WhatsAppIcon';
 import { LinkedInConnect } from '../LinkedInConnect';
 import { LinkedInPostPreview } from '../LinkedInPostPreview';
 import { useLinkedIn } from '../../hooks/useLinkedIn';
@@ -556,12 +556,21 @@ export function CreateJobDrawer({
         throw new Error('Job data not found');
       }
       
-      // Parse salary from JSON
       const salary = job.salary || {};
       const salaryType = salary.type || 'Annual Salary';
       const currency = salary.currency || 'Rupees (₹ - India)';
-      const minSalary = salary.min ? String(salary.min) : '';
-      const maxSalary = salary.max ? String(salary.max) : '';
+      let minSalary = salary.min != null ? String(salary.min) : '';
+      let maxSalary = salary.max != null ? String(salary.max) : '';
+      if (!minSalary && !maxSalary && typeof salary.amount === 'string') {
+        const m = salary.amount.match(/^\s*(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)\s*$/);
+        if (m) {
+          minSalary = m[1];
+          maxSalary = m[2];
+        } else {
+          const single = salary.amount.match(/^\s*(\d+(?:\.\d+)?)\s*$/);
+          if (single) minSalary = single[1];
+        }
+      }
       
       // Parse experience - format: "2-8" or "2" or "2-"
       const experienceRequired = job.experienceRequired || '';
@@ -1363,13 +1372,21 @@ export function CreateJobDrawer({
               ? `${formData.educationalQualification} - ${formData.educationalSpecialization}`
               : formData.educationalQualification)
           : undefined,
-        // Salary as JSON
-        salary: formData.salaryInput
-          ? {
-              amount: formData.salaryInput,
-              currency: formData.currency,
-            }
-          : undefined,
+        salary: (() => {
+          const minNum = formData.minSalary !== '' ? Number(formData.minSalary) : NaN;
+          const maxNum = formData.maxSalary !== '' ? Number(formData.maxSalary) : NaN;
+          const hasMin = Number.isFinite(minNum);
+          const hasMax = Number.isFinite(maxNum);
+          if (!hasMin && !hasMax && !formData.salaryInput) return undefined;
+          return {
+            min: hasMin ? minNum : undefined,
+            max: hasMax ? maxNum : undefined,
+            currency: formData.currency || undefined,
+            type: formData.salaryType || undefined,
+            // legacy free-form (kept so AI/preview screens keep working)
+            amount: formData.salaryInput || undefined,
+          };
+        })(),
         benefits,
         jobLocationType: formData.jobLocationType || undefined,
         workMode: formData.jobLocationType || undefined,
@@ -1784,7 +1801,7 @@ export function CreateJobDrawer({
 
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-2">Salary</label>
-                      <div className="grid grid-cols-[220px_1fr] gap-3">
+                      <div className="grid grid-cols-[180px_1fr_auto_1fr] items-center gap-3">
                         <select
                           value={formData.currency}
                           onChange={(e) => setFormData(prev => ({ ...prev, currency: e.target.value }))}
@@ -1796,10 +1813,20 @@ export function CreateJobDrawer({
                           <option>Pound (£ - UK)</option>
                         </select>
                         <input
-                          type="text"
-                          value={formData.salaryInput}
-                          onChange={(e) => setFormData(prev => ({ ...prev, salaryInput: e.target.value }))}
-                          placeholder="Enter salary"
+                          type="number"
+                          min={0}
+                          value={formData.minSalary}
+                          onChange={(e) => setFormData(prev => ({ ...prev, minSalary: e.target.value }))}
+                          placeholder="Min"
+                          className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                        />
+                        <span className="px-1 text-sm font-semibold text-slate-500">-</span>
+                        <input
+                          type="number"
+                          min={0}
+                          value={formData.maxSalary}
+                          onChange={(e) => setFormData(prev => ({ ...prev, maxSalary: e.target.value }))}
+                          placeholder="Max"
                           className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                         />
                       </div>
@@ -2024,51 +2051,6 @@ export function CreateJobDrawer({
                       </select>
                     </div>
 
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">
-                        Currency
-                        <span className="text-xs text-slate-500 ml-1">(Required To Post On Partner Job Boards)</span>
-                      </label>
-                      <select
-                        value={formData.currency}
-                        onChange={(e) => setFormData(prev => ({ ...prev, currency: e.target.value }))}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                      >
-                        <option>Rupees (₹ - India)</option>
-                        <option>US Dollar ($ - USA)</option>
-                        <option>Euro (€ - Europe)</option>
-                        <option>Pound (£ - UK)</option>
-                      </select>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">
-                          Minimum Salary
-                          <span className="text-xs text-slate-500 ml-1">(Required To Post On Partner Job Boards)</span>
-                        </label>
-                        <input
-                          type="number"
-                          value={formData.minSalary}
-                          onChange={(e) => setFormData(prev => ({ ...prev, minSalary: e.target.value }))}
-                          placeholder="600000"
-                          className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">
-                          Maximum Salary
-                          <span className="text-xs text-slate-500 ml-1">(Required To Post On Partner Job Boards)</span>
-                        </label>
-                        <input
-                          type="number"
-                          value={formData.maxSalary}
-                          onChange={(e) => setFormData(prev => ({ ...prev, maxSalary: e.target.value }))}
-                          placeholder="800000"
-                          className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                        />
-                      </div>
-                    </div>
 
                     {/* Education Fields */}
                     <div className="grid grid-cols-2 gap-4">
@@ -2941,7 +2923,7 @@ export function CreateJobDrawer({
                       <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center">
-                            <MessageCircle size={20} className="text-green-600" />
+                            <WhatsAppIcon size={20} className="text-green-600" />
                           </div>
                           <div>
                             <h4 className="text-sm font-bold text-slate-900">WhatsApp Business</h4>
@@ -3192,7 +3174,15 @@ export function CreateJobDrawer({
                                     <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                                       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Salary</p>
                                       <p className="mt-2 text-sm font-medium text-slate-900">
-                                        {formData.salaryInput ? `${formData.currency} ${formData.salaryInput}` : aiDraftData.salary || '-'}
+                                        {(() => {
+                                          const min = formData.minSalary;
+                                          const max = formData.maxSalary;
+                                          if (min && max) return `${formData.currency} ${min} - ${max}`;
+                                          if (min) return `${formData.currency} ${min}`;
+                                          if (max) return `${formData.currency} ${max}`;
+                                          if (formData.salaryInput) return `${formData.currency} ${formData.salaryInput}`;
+                                          return aiDraftData.salary || '-';
+                                        })()}
                                       </p>
                                     </div>
                                   </div>

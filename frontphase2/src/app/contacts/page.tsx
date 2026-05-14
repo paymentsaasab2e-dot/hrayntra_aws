@@ -135,6 +135,7 @@ function ContactsPageContent() {
       const search = filters.search?.trim().toLowerCase();
       if (search) {
         const haystack = [
+          contact.salutation,
           contact.firstName,
           contact.lastName,
           contact.email,

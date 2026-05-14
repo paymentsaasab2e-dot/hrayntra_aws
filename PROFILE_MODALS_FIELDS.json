@@ -51,7 +51,7 @@
             "fieldName": "dob",
             "type": "string",
             "required": false,
-            "description": "Date of birth (formatted string)"
+            "description": "Date of birth: Phase 1 BasicInfoModal uses one DD/MM/YYYY field (calendar or typed); persisted as ISO YYYY-MM-DD"
           },
           {
             "fieldName": "country",

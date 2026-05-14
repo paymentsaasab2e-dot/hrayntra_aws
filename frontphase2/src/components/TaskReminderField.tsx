@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { ChevronDown, Bell, Mail, MessageCircle } from 'lucide-react';
+import { ChevronDown, Bell, Mail } from 'lucide-react';
 import { REMINDER_OPTIONS, REMINDER_CHANNEL_OPTIONS, type ReminderChannel } from '../app/Task&Activites/types';
 import { clampDateToMinLocal, getLocalDateInputMinToday, getLocalTimeInputMinNow } from '../utils/dateInputConstraints';
+import { formatDateTimeDMY } from '../utils/dateDisplay';
+import { WhatsAppIcon } from './icons/WhatsAppIcon';
 
 /** Parsed custom reminder: value starts with "custom:" then ISO date-time, optionally ":channel" */
 function parseCustomReminder(value: string): { date: string; time: string; channel: ReminderChannel } | null {
@@ -33,7 +35,7 @@ function formatReminderHuman(value: string): string {
   try {
     const d = new Date(`${custom.date}T${custom.time}`);
     if (isNaN(d.getTime())) return 'Custom';
-    return d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+    return formatDateTimeDMY(d);
   } catch {
     return 'Custom';
   }
@@ -64,7 +66,7 @@ export interface TaskReminderFieldProps {
 const CHANNEL_ICONS: Record<ReminderChannel, React.ComponentType<{ size?: number; className?: string }>> = {
   notification: Bell as React.ComponentType<{ size?: number; className?: string }>,
   email: Mail as React.ComponentType<{ size?: number; className?: string }>,
-  whatsapp: MessageCircle as React.ComponentType<{ size?: number; className?: string }>,
+  whatsapp: WhatsAppIcon as React.ComponentType<{ size?: number; className?: string }>,
 };
 
 export function TaskReminderField({

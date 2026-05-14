@@ -25,6 +25,7 @@ import {
   Trash2
 } from 'lucide-react';
 import { downloadCsv, csvDate } from '../../utils/csv';
+import { formatDateTimeDMY } from '../../utils/dateDisplay';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import PaginationAll from '../../components/PaginationAll';
 import { requestConfirm, requestError } from '../../lib/appDialog';
@@ -696,15 +697,7 @@ function toJobCandidateItemFromApplied(match: any, fallbackRecruiter = '-'): Job
     score: typeof match.score === 'number' ? `${Math.round(match.score)}%` : '-',
     recruiter: match.createdBy?.name || fallbackRecruiter,
     interviewStatus: 'Not scheduled',
-    lastActivity: match.createdAt
-      ? new Date(match.createdAt).toLocaleString('en-US', {
-          month: 'short',
-          day: 'numeric',
-          hour: 'numeric',
-          minute: '2-digit',
-          hour12: true,
-        })
-      : '-',
+    lastActivity: match.createdAt ? formatDateTimeDMY(match.createdAt) : '-',
   };
 }
 
@@ -718,21 +711,9 @@ function toJobCandidateItemFromAssigned(candidate: BackendCandidate): JobCandida
     recruiter: candidate.assignedTo?.name || '-',
     interviewStatus: 'Not scheduled',
     lastActivity: candidate.updatedAt
-      ? new Date(candidate.updatedAt).toLocaleString('en-US', {
-          month: 'short',
-          day: 'numeric',
-          hour: 'numeric',
-          minute: '2-digit',
-          hour12: true,
-        })
+      ? formatDateTimeDMY(candidate.updatedAt)
       : candidate.createdAt
-      ? new Date(candidate.createdAt).toLocaleString('en-US', {
-          month: 'short',
-          day: 'numeric',
-          hour: 'numeric',
-          minute: '2-digit',
-          hour12: true,
-        })
+      ? formatDateTimeDMY(candidate.createdAt)
       : '-',
   };
 }

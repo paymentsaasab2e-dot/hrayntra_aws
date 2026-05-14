@@ -31,6 +31,7 @@ import {
   AreaChart,
   Area,
 } from 'recharts';
+import { formatDateDMY, formatDateTimeDMY } from '../../utils/dateDisplay';
 import { ImageWithFallback } from '../../components/ImageWithFallback';
 import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
@@ -850,12 +851,7 @@ export default function DashboardPage() {
     return list.slice(0, 4);
   }, [jobMetrics, placementStats, showJobs, showPlacements, showTasks, taskStats]);
 
-  const todayLabel = new Date().toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  const todayLabel = `${new Date().toLocaleDateString('en-GB', { weekday: 'short' })}, ${formatDateDMY(new Date())}`;
 
   const taskPriorityClass: Record<string, string> = {
     HIGH: 'bg-red-50 text-red-600 border border-red-100',
@@ -1133,7 +1129,7 @@ export default function DashboardPage() {
                         <div className="mt-1 flex items-center gap-2">
                           <Clock size={12} className="text-slate-400" />
                           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                            {new Date(item.dueDate).toLocaleString()}
+                            {formatDateTimeDMY(item.dueDate)}
                             {item.dueTime ? ` · ${item.dueTime}` : ''}
                           </span>
                         </div>
@@ -1343,7 +1339,7 @@ export default function DashboardPage() {
                           ) : null}
                         </p>
                         <p className="mt-1 text-[9px] font-black uppercase tracking-widest text-slate-400">
-                          {new Date(item.createdAt).toLocaleString()}
+                          {formatDateTimeDMY(item.createdAt)}
                         </p>
                       </div>
                     </div>

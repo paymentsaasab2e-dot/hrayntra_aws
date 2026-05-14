@@ -11,8 +11,7 @@ export default function Home() {
     const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
     
     if (token) {
-      // If authenticated, go to leads
-      router.push('/leads');
+      router.push('/dashboard');
     } else {
       // If not authenticated, go to login
       router.push('/login');

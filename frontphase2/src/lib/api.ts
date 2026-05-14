@@ -29,6 +29,18 @@ export function buildApiUrl(path: string): string {
   return `${API_BASE}${normalizedPath}`;
 }
 
+/** Socket.IO (same host as API in local dev; override with NEXT_PUBLIC_SOCKET_URL in prod if needed). */
+export function buildSocketBaseUrl(): string {
+  if (typeof window === 'undefined') return '';
+  const local =
+    window.location.hostname === 'localhost' ||
+    window.location.hostname === '127.0.0.1' ||
+    window.location.hostname.endsWith('.local');
+  if (local) return 'http://127.0.0.1:5001';
+  const fromEnv = typeof process.env.NEXT_PUBLIC_SOCKET_URL === 'string' && process.env.NEXT_PUBLIC_SOCKET_URL.trim();
+  return fromEnv || 'https://api2.hryantra.com';
+}
+
 type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 
 export interface ApiResponse<T> {
@@ -666,6 +678,23 @@ export async function apiFetchFormData<T>(
   }
 
   return json as ApiResponse<T>;
+}
+
+export async function apiBulkCvProcessFile(
+  file: File,
+  sessionId: string,
+  fileIndex: number,
+  options: { signal?: AbortSignal } = {}
+) {
+  const formData = new FormData();
+  formData.append('sessionId', sessionId);
+  formData.append('fileIndex', String(fileIndex));
+  formData.append('resume', file);
+  return apiFetchFormData<Record<string, unknown>>('/candidates/bulk-cv/process-file', formData, {
+    method: 'POST',
+    auth: true,
+    signal: options.signal,
+  });
 }
 
 // ────────────────────────────────────────────────────────────
@@ -1503,6 +1532,7 @@ export interface AddCandidatePayload {
   preferredLocation?: string;
   address?: string;
   website?: string;
+  extraData?: Record<string, unknown>;
   resume?: string;
   duplicateAction?: 'create' | 'updateExisting' | 'createAnyway';
 }
@@ -1561,6 +1591,8 @@ export interface ImportedProfileData {
   };
   resumeUrl?: string | null;
   resumeFileName?: string | null;
+  /** Cloudinary (or other HTTPS) URL for a photo extracted from the CV PDF; null if none. */
+  profilePhotoUrl?: string | null;
   educationEntries?: Array<{
     degree?: string;
     institution?: string;
@@ -1579,6 +1611,10 @@ export interface ImportedProfileData {
     type?: string;
     url?: string;
   }>;
+  githubUrl?: string;
+  extraData?: Record<string, unknown>;
+  rawEmailsFound?: string[];
+  rawPhonesFound?: string[];
   tempFilePath?: string;
   parsedAt?: string;
   importedAt?: string;
@@ -1628,20 +1664,28 @@ export interface ClientImportExecuteResult {
 export type LeadImportPreviewResult = ClientImportPreviewResult;
 export type LeadImportExecuteResult = ClientImportExecuteResult;
 
-export const apiCreateCandidateFromDrawer = async (payload: AddCandidatePayload) => {
+export const apiCreateCandidateFromDrawer = async (
+  payload: AddCandidatePayload,
+  options: { signal?: AbortSignal } = {}
+) => {
   return apiFetch<BackendCandidate>('/candidates/create', {
     method: 'POST',
     body: payload,
     auth: true,
+    signal: options.signal,
   });
 };
 
-export const apiParseCandidateResume = async (file: File) => {
+export const apiParseCandidateResume = async (
+  file: File,
+  options: { signal?: AbortSignal } = {}
+) => {
   const formData = new FormData();
   formData.append('resume', file);
   return apiFetchFormData<ImportedProfileData>('/candidates/parse-resume', formData, {
     method: 'POST',
     auth: true,
+    signal: options.signal,
   });
 };
 
@@ -1662,12 +1706,17 @@ export const apiCheckCandidateDuplicate = async (params: { email?: string; phone
   });
 };
 
-export const apiUploadCandidateResumeFile = async (candidateId: string, file: File) => {
+export const apiUploadCandidateResumeFile = async (
+  candidateId: string,
+  file: File,
+  options: { signal?: AbortSignal } = {}
+) => {
   const formData = new FormData();
   formData.append('resume', file);
   return apiFetchFormData<BackendCandidate>(`/candidates/${candidateId}/files`, formData, {
     method: 'POST',
     auth: true,
+    signal: options.signal,
   });
 };
 
@@ -2681,6 +2730,8 @@ export interface BackendLead {
   id: string;
   companyName: string | null;
   contactPerson: string | null;
+  directorName?: string | null;
+  directorSalutation?: string | null;
   email: string | null;
   phone?: string | null;
   type: 'Company' | 'Individual' | 'Referral';
@@ -2697,6 +2748,10 @@ export interface BackendLead {
   designation?: string | null;
   country?: string | null;
   city?: string | null;
+  /** Smart-location autofill metadata sourced from OpenStreetMap/Nominatim. */
+  state?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
   campaignName?: string | null;
   campaignLink?: string | null;
   referralName?: string | null;
@@ -2707,12 +2762,25 @@ export interface BackendLead {
   lastFollowUp?: string | null;
   nextFollowUp?: string | null;
   lostReason?: string | null;
+  /** Agreements & Terms — single primary document uploaded against the lead. */
+  agreementsFileName?: string | null;
+  agreementsFileUrl?: string | null;
+  agreementsUploadedAt?: string | null;
   assignedTo?: {
     id: string;
     name: string;
     email: string;
     avatar?: string | null;
   } | null;
+  /** Multi-assignee — all team members the lead is shared with. */
+  assignedToIds?: string[];
+  /** Hydrated user records for `assignedToIds`, ordered to match. */
+  assignedToUsers?: Array<{
+    id: string;
+    name: string;
+    email: string;
+    avatar?: string | null;
+  }>;
   createdAt: string;
   updatedAt: string;
 }
@@ -2721,6 +2789,7 @@ export interface CreateLeadData {
   companyName?: string | null;
   contactPerson?: string | null;
   directorName?: string;
+  directorSalutation?: string | null;
   email?: string | null;
   phone?: string;
   type?: 'Company' | 'Individual' | 'Referral';
@@ -2742,6 +2811,10 @@ export interface CreateLeadData {
   designation?: string;
   country?: string;
   city?: string;
+  /** Smart-location autofill metadata. Latitude/Longitude are decimal degrees. */
+  state?: string;
+  latitude?: number | null;
+  longitude?: number | null;
   campaignName?: string;
   campaignLink?: string;
   referralName?: string;
@@ -2752,7 +2825,13 @@ export interface CreateLeadData {
   lastFollowUp?: string;
   nextFollowUp?: string;
   lostReason?: string;
+  /** Agreements & Terms — single primary document uploaded against the lead. */
+  agreementsFileName?: string | null;
+  agreementsFileUrl?: string | null;
+  agreementsUploadedAt?: string | null;
   assignedToId?: string;
+  /** Multi-assignee list. First item also written to `assignedToId` (primary). */
+  assignedToIds?: string[];
   /**
    * Optional remark when changing status from the leads table.
    * Used only for activity logging; not stored directly on the Lead model.
@@ -2878,6 +2957,18 @@ export interface BackendClient {
   priority?: string | null;
   sla?: string | null;
   nextFollowUpDue?: string | null;
+  /** Smart-location autofill metadata (shared with Lead). */
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  /** Salutation captured on the Add Client form alongside the primary director. */
+  directorSalutation?: string | null;
+  /** Agreements & Terms — single primary document uploaded against the client. */
+  agreementsFileName?: string | null;
+  agreementsFileUrl?: string | null;
+  agreementsUploadedAt?: string | null;
   avgTimeToFill?: string | null;
   healthStatus?: string | null;
   revenueGenerated?: string | null;
@@ -3351,6 +3442,7 @@ export const apiGetJobActivities = async (jobId: string) => {
 
 export interface BackendContact {
   id: string;
+  salutation?: string | null;
   firstName: string;
   lastName: string;
   email: string | null;
@@ -3444,6 +3536,7 @@ export interface ContactFilters {
 }
 
 export interface CreateContactData {
+  salutation?: string;
   firstName: string;
   lastName: string;
   email?: string;
@@ -3640,6 +3733,8 @@ export interface CreateClientData {
   logo?: string;
   location?: string;
   status?: 'ACTIVE' | 'PROSPECT' | 'ON_HOLD' | 'INACTIVE';
+  /** Lead-style status snapshot. The Add Client form (mirroring Add Lead) writes here. */
+  leadStatus?: string;
   assignedToId?: string;
   companySize?: string;
   hiringLocations?: string;
@@ -3649,6 +3744,19 @@ export interface CreateClientData {
   timezone?: string;
   priority?: string;
   sla?: string;
+  nextFollowUpDue?: string | null;
+  /** Smart-location autofill metadata (shared with Lead). */
+  city?: string;
+  state?: string;
+  country?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  /** Salutation captured on the Add Client form alongside the primary director. */
+  directorSalutation?: string;
+  /** Agreements & Terms — single primary document uploaded against the client. */
+  agreementsFileName?: string | null;
+  agreementsFileUrl?: string | null;
+  agreementsUploadedAt?: string | null;
 }
 
 export interface UpdateClientData {
@@ -3658,15 +3766,30 @@ export interface UpdateClientData {
   logo?: string;
   location?: string;
   status?: 'ACTIVE' | 'PROSPECT' | 'ON_HOLD' | 'INACTIVE';
-  assignedToId?: string;
-  companySize?: string;
-  hiringLocations?: string;
-  servicesNeeded?: string;
-  expectedBusinessValue?: string;
-  linkedin?: string;
-  timezone?: string;
-  priority?: string;
-  sla?: string;
+  /** Lead-style status snapshot. The Add Client form (mirroring Add Lead) writes here. */
+  leadStatus?: string | null;
+  assignedToId?: string | null;
+  companySize?: string | null;
+  hiringLocations?: string | null;
+  servicesNeeded?: string | null;
+  expectedBusinessValue?: string | null;
+  linkedin?: string | null;
+  timezone?: string | null;
+  priority?: string | null;
+  sla?: string | null;
+  nextFollowUpDue?: string | null;
+  /** Smart-location autofill metadata (shared with Lead). */
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  /** Salutation captured on the Add Client form alongside the primary director. */
+  directorSalutation?: string | null;
+  /** Agreements & Terms — single primary document uploaded against the client. */
+  agreementsFileName?: string | null;
+  agreementsFileUrl?: string | null;
+  agreementsUploadedAt?: string | null;
 }
 
 export const apiCreateClient = async (data: CreateClientData) => {
@@ -5085,3 +5208,93 @@ export async function apiCreateNotification(payload: {
   emitNotificationsUpdated();
   return res;
 }
+
+// ────────────────────────────────────────────────────────────
+// Recycle Bin — soft-deleted records (leads / clients / candidates / jobs).
+// Backed by GET /trash, POST /:id/restore, DELETE /:id/purge per entity module.
+// ────────────────────────────────────────────────────────────
+
+/** Lightweight shape every Recycle Bin row exposes (raw backend payload still flows through). */
+export interface TrashRow {
+  id: string;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
+  /** Pre-formatted name for the UI; computed from each entity's primary label field. */
+  displayName?: string;
+  /** Short secondary line (e.g. email, client name). */
+  subtitle?: string;
+  /** Pass-through original payload for entity-specific UIs. */
+  raw?: unknown;
+}
+
+function buildTrashQuery(opts: { page?: number; limit?: number } = {}) {
+  const params = new URLSearchParams();
+  if (opts.page) params.set('page', String(opts.page));
+  if (opts.limit) params.set('limit', String(opts.limit));
+  const qs = params.toString();
+  return qs ? `?${qs}` : '';
+}
+
+export const apiGetLeadsTrash = async (opts: { page?: number; limit?: number } = {}) => {
+  return apiFetch<any>(`/leads/trash${buildTrashQuery(opts)}`, { method: 'GET', auth: true });
+};
+export const apiRestoreLead = async (id: string) => {
+  return apiFetch<{ message: string }>(`/leads/${id}/restore`, { method: 'POST', auth: true });
+};
+export const apiPurgeLead = async (id: string) => {
+  return apiFetch<{ message: string }>(`/leads/${id}/purge`, { method: 'DELETE', auth: true });
+};
+export const apiBulkPurgeLeads = async (ids: string[]) => {
+  return apiFetch<{ success: number; failed: number; failures: { id: string; message: string }[] }>(
+    '/leads/trash/bulk-purge',
+    { method: 'POST', auth: true, body: { ids } }
+  );
+};
+
+export const apiGetClientsTrash = async (opts: { page?: number; limit?: number } = {}) => {
+  return apiFetch<any>(`/clients/trash${buildTrashQuery(opts)}`, { method: 'GET', auth: true });
+};
+export const apiRestoreClient = async (id: string) => {
+  return apiFetch<{ message: string }>(`/clients/${id}/restore`, { method: 'POST', auth: true });
+};
+export const apiPurgeClient = async (id: string) => {
+  return apiFetch<{ message: string }>(`/clients/${id}/purge`, { method: 'DELETE', auth: true });
+};
+export const apiBulkPurgeClients = async (ids: string[]) => {
+  return apiFetch<{ success: number; failed: number; failures: { id: string; message: string }[] }>(
+    '/clients/trash/bulk-purge',
+    { method: 'POST', auth: true, body: { ids } }
+  );
+};
+
+export const apiGetCandidatesTrash = async (opts: { page?: number; limit?: number } = {}) => {
+  return apiFetch<any>(`/candidates/trash${buildTrashQuery(opts)}`, { method: 'GET', auth: true });
+};
+export const apiRestoreCandidate = async (id: string) => {
+  return apiFetch<{ message: string }>(`/candidates/${id}/restore`, { method: 'POST', auth: true });
+};
+export const apiPurgeCandidate = async (id: string) => {
+  return apiFetch<{ message: string }>(`/candidates/${id}/purge`, { method: 'DELETE', auth: true });
+};
+export const apiBulkPurgeCandidates = async (ids: string[]) => {
+  return apiFetch<{ success: number; failed: number; failures: { id: string; message: string }[] }>(
+    '/candidates/trash/bulk-purge',
+    { method: 'POST', auth: true, body: { ids } }
+  );
+};
+
+export const apiGetJobsTrash = async (opts: { page?: number; limit?: number } = {}) => {
+  return apiFetch<any>(`/jobs/trash${buildTrashQuery(opts)}`, { method: 'GET', auth: true });
+};
+export const apiRestoreJob = async (id: string) => {
+  return apiFetch<{ message: string }>(`/jobs/${id}/restore`, { method: 'POST', auth: true });
+};
+export const apiPurgeJob = async (id: string) => {
+  return apiFetch<{ message: string }>(`/jobs/${id}/purge`, { method: 'DELETE', auth: true });
+};
+export const apiBulkPurgeJobs = async (ids: string[]) => {
+  return apiFetch<{ success: number; failed: number; failures: { id: string; message: string }[] }>(
+    '/jobs/trash/bulk-purge',
+    { method: 'POST', auth: true, body: { ids } }
+  );
+};

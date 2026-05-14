@@ -9,6 +9,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { Contact } from './ContactMockData';
 import { ImageWithFallback } from './ImageWithFallback';
+import { WhatsAppIcon } from './icons/WhatsAppIcon';
 
 interface ContactDetailPanelProps {
   contact: Contact | null;
@@ -101,7 +102,7 @@ export const ContactDetailPanel: React.FC<ContactDetailPanelProps> = ({ contact,
                     <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider mb-1">Phone</p>
                     <p className="text-sm text-slate-900 flex items-center gap-2">
                       {contact.phone}
-                      <MessageSquare size={14} className="text-emerald-500" />
+                      <WhatsAppIcon size={14} className="text-emerald-500" />
                     </p>
                   </div>
                   <div>

@@ -80,11 +80,19 @@ export const env = {
     process.env.BACKEND_PUBLIC_URL ||
     `http://localhost:${parseInt(process.env.PORT || '5001', 10)}`,
   
-  // Cloudinary
-  CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME,
-  CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY,
-  CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET,
-  
+  // AWS S3 (uploads — replaces Cloudinary)
+  AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID,
+  AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY,
+  AWS_REGION: process.env.AWS_REGION,
+  AWS_BUCKET_NAME: process.env.AWS_BUCKET_NAME,
+  /**
+   * First segment after `uploads/` (default `phase2`). Keys: uploads/{phase}/tenants/{tenant}/jobportal/…
+   * Tenant comes from JWT / x-tenant-db-name / request context — not from this env var.
+   */
+  AWS_S3_APP_FOLDER: process.env.AWS_S3_APP_FOLDER || 'phase2',
+  /** Optional object ACL (e.g. public-read); use `none` to omit (BucketOwnerEnforced + bucket policy). */
+  AWS_S3_UPLOAD_ACL: process.env.AWS_S3_UPLOAD_ACL || '',
+
   // Gemini API
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   
@@ -165,6 +173,25 @@ export const env = {
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   /** Optional; default gpt-4o-mini in assistantChat.service */
   OPENAI_ASSISTANT_MODEL: process.env.OPENAI_ASSISTANT_MODEL,
+  /** Fallback when OpenAI fails or is unset (OpenAI-compatible Mistral Chat API). */
+  MISTRAL_API_KEY: process.env.MISTRAL_API_KEY,
+  /** e.g. mistral-small-latest, mistral-large-latest */
+  MISTRAL_CHAT_MODEL: process.env.MISTRAL_CHAT_MODEL,
+  /** Override only if Mistral moves the base path; default https://api.mistral.ai/v1 */
+  MISTRAL_API_BASE_URL: process.env.MISTRAL_API_BASE_URL,
   /** If "true", assistant DB tools ignore role scoping (single-tenant / demo only). */
   ASSISTANT_FULL_DB_ACCESS: process.env.ASSISTANT_FULL_DB_ACCESS,
+
+  /**
+   * Max upload size for resume/CV routes (parse-resume, bulk-cv, candidate resume file).
+   * Default 25MB. Set RESUME_MAX_FILE_BYTES in .env to override (bytes).
+   */
+  RESUME_MAX_FILE_BYTES: (() => {
+    const raw = process.env.RESUME_MAX_FILE_BYTES;
+    if (raw != null && String(raw).trim() !== '') {
+      const n = parseInt(String(raw).trim(), 10);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    return 25 * 1024 * 1024;
+  })(),
 };

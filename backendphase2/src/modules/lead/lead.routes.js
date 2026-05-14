@@ -10,6 +10,11 @@ const importUpload = multer({ storage: multer.memoryStorage(), limits: { fileSiz
 router.use(authMiddleware);
 
 router.get('/', requireAnyPermission(['leads_read']), leadController.getAll);
+// Recycle Bin endpoints — registered BEFORE the `/:id` routes so '/trash' isn't read as an id.
+router.get('/trash', requireAnyPermission(['leads_read', 'leads_delete']), leadController.listTrash);
+router.post('/trash/bulk-purge', requireAnyPermission(['leads_delete']), leadController.bulkPurge);
+router.post('/:id/restore', requireAnyPermission(['leads_update', 'leads_create']), leadController.restore);
+router.delete('/:id/purge', requireAnyPermission(['leads_delete']), leadController.purge);
 router.post('/import/preview', requireAnyPermission(['leads_create']), importUpload.single('file'), leadController.previewImport);
 router.post('/import', requireAnyPermission(['leads_create']), leadController.importLeads);
 router.get('/:id', requireAnyPermission(['leads_read']), leadController.getById);

@@ -19,6 +19,7 @@ import {
   type UnifiedCalendarEventType,
   type UnifiedCalendarResponse,
 } from '../../lib/api';
+import { formatDateDMY } from '../../utils/dateDisplay';
 
 const weekdayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -87,9 +88,10 @@ function isSameDay(left: Date, right: Date) {
 
 function formatEventTime(event: UnifiedCalendarEvent) {
   if (event.allDay) return 'All day';
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat('en-GB', {
     hour: 'numeric',
     minute: '2-digit',
+    hour12: true,
   }).format(new Date(event.start));
 }
 
@@ -275,17 +277,10 @@ export default function CalendarPage() {
     setSelectedDate(today);
   };
 
-  const monthLabel = new Intl.DateTimeFormat(undefined, {
-    month: 'long',
-    year: 'numeric',
-  }).format(currentMonth);
+  const monthLabel = `${String(currentMonth.getMonth() + 1).padStart(2, '0')}/${currentMonth.getFullYear()}`;
 
-  const selectedDayLabel = new Intl.DateTimeFormat(undefined, {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  }).format(selectedDate);
+  const weekday = selectedDate.toLocaleDateString('en-GB', { weekday: 'long' });
+  const selectedDayLabel = `${weekday}, ${formatDateDMY(selectedDate)}`;
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] p-6 md:p-8">

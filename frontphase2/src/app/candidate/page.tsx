@@ -36,6 +36,7 @@ import { CreateTaskModal } from '../../components/CreateTaskModal';
 import { Toaster, toast } from 'sonner';
 import PaginationAll from '../../components/PaginationAll';
 import { requestConfirm } from '../../lib/appDialog';
+import { RECYCLE_BIN_SYNC_EVENT } from '../../constants/recycleBin';
 import { MY_JOBS_LIST_PARAMS } from '../../lib/myJobsListParams';
 import {
   apiAddCandidateNote,
@@ -1276,30 +1277,38 @@ function CandidatesPageContent() {
         toast.error('This candidate cannot be deleted (invalid id).');
         return;
       }
-      if (!(await requestConfirm('Permanently delete this candidate? This cannot be undone.'))) {
+      if (
+        !(await requestConfirm(
+          'Move this candidate to the Recycle Bin? You can restore them later from Recycle Bin.'
+        ))
+      ) {
         return;
       }
       try {
         setDeletingCandidateId(candidate.id);
-        // Remove from UI immediately; silent refetch syncs with DB after delete
-        setCandidates((prev) => prev.filter((c) => c.id !== candidate.id));
         await apiDeleteCandidate(candidate.id);
-        toast.success('Candidate removed');
+        setCandidates((prev) => prev.filter((c) => c.id !== candidate.id));
+        toast.success('Candidate moved to Recycle Bin');
         setSelectedIds((prev) => prev.filter((id) => id !== candidate.id));
         if (selectedCandidateProfile?.id === candidate.id) {
           setCandidateDrawerOpen(false);
           setSelectedCandidateProfile(null);
         }
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent(RECYCLE_BIN_SYNC_EVENT));
+        }
         await loadCandidates({ silent: true });
+        refreshStats();
       } catch (err: unknown) {
         await loadCandidates({ silent: true });
+        refreshStats();
         const msg = err instanceof Error ? err.message : 'Failed to delete candidate';
         toast.error(msg);
       } finally {
         setDeletingCandidateId(null);
       }
     },
-    [loadCandidates, selectedCandidateProfile?.id]
+    [loadCandidates, refreshStats, selectedCandidateProfile?.id]
   );
 
   const handleViewProfile = async (candidate: Candidate) => {
@@ -1653,13 +1662,27 @@ function CandidatesPageContent() {
                   selectedIds={selectedIds}
                   onMoveStage={canUpdateCandidate ? openBulkMoveStageModal : undefined}
                   onDelete={canDeleteCandidate ? async (ids) => {
-                    if (!(await requestConfirm(`Are you sure you want to permanently delete ${ids.length} candidate(s)?`))) return;
+                    if (
+                      !(await requestConfirm(
+                        `Move ${ids.length} candidate(s) to the Recycle Bin? You can restore them later from Recycle Bin.`
+                      ))
+                    ) {
+                      return;
+                    }
                     try {
                       await Promise.all(ids.map((candidateId) => apiDeleteCandidate(candidateId)));
-                      toast.success(`Deleted ${ids.length} candidate(s)`);
+                      toast.success(
+                        `${ids.length} candidate${ids.length === 1 ? '' : 's'} moved to Recycle Bin`
+                      );
                       setSelectedIds([]);
+                      if (typeof window !== 'undefined') {
+                        window.dispatchEvent(new CustomEvent(RECYCLE_BIN_SYNC_EVENT));
+                      }
                       await loadCandidates();
+                      refreshStats();
                     } catch (err: any) {
+                      await loadCandidates({ silent: true });
+                      refreshStats();
                       toast.error(err?.message || 'Failed to delete candidates');
                     }
                   } : undefined}

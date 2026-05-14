@@ -1,4 +1,5 @@
 import type { EmploymentType, PlacementStatus } from '../types/placement';
+import { formatDateDMY } from './dateDisplay';
 
 export function getStatusBadgeStyle(status: PlacementStatus) {
   switch (status) {
@@ -45,11 +46,7 @@ export function formatCurrency(amount?: number | null) {
 
 export function formatPlacementDate(date?: string | Date | null) {
   if (!date) return '—';
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  }).format(new Date(date));
+  return formatDateDMY(date) || '—';
 }
 
 export function calculatePlacementFee(salary: number, pct: number) {

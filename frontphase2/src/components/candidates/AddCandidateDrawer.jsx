@@ -8,12 +8,14 @@ import {
   FileSpreadsheet,
   FileText,
   Loader2,
+  StopCircle,
   Upload,
   UserRound,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
+  apiBulkCvProcessFile,
   apiBulkImportCandidates,
   apiCheckCandidateDuplicate,
   apiCreateCandidateFromDrawer,
@@ -22,8 +24,19 @@ import {
   apiGetUsers,
   apiParseCandidateResume,
   apiUploadCandidateResumeFile,
+  buildSocketBaseUrl,
 } from '@/lib/api';
 import { MY_JOBS_LIST_PARAMS } from '@/lib/myJobsListParams';
+
+/** Align with backend `RESUME_MAX_FILE_BYTES` (default 25MB). Optional: NEXT_PUBLIC_RESUME_MAX_FILE_BYTES (bytes). */
+const MAX_RESUME_FILE_BYTES = (() => {
+  if (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_RESUME_MAX_FILE_BYTES) {
+    const n = parseInt(String(process.env.NEXT_PUBLIC_RESUME_MAX_FILE_BYTES).trim(), 10);
+    if (Number.isFinite(n) && n >= 5 * 1024 * 1024) return n;
+  }
+  return 25 * 1024 * 1024;
+})();
+const MAX_RESUME_FILE_LABEL = `${Math.round(MAX_RESUME_FILE_BYTES / (1024 * 1024))}MB`;
 
 const METHOD_TABS = [
   { key: 'manual', label: 'Manual Entry' },
@@ -101,6 +114,7 @@ const DEFAULT_FORM_DATA = {
   portfolioUrl: '',
   skills: [],
   initialNote: '',
+  avatar: '',
 };
 
 function extractItems(payload) {
@@ -586,6 +600,19 @@ export default function AddCandidateDrawer({
   const [bulkResumePhase, setBulkResumePhase] = useState('upload');
   const [bulkResumeProgress, setBulkResumeProgress] = useState({ current: 0, total: 0 });
   const [bulkResumeResults, setBulkResumeResults] = useState([]);
+  const [bulkCvSummary, setBulkCvSummary] = useState(null);
+  // Stop-parsing flag for the bulk CV uploader. We mirror state + ref so the running
+  // import loop can pick up the change immediately while the UI re-renders to show
+  // a "Stopping…" state on the Stop button. `bulkResumeAbortRef` holds the
+  // AbortController used to also cancel the in-flight HTTP request so the user does
+  // not have to wait for the current (potentially 8s) parse-resume call to finish.
+  const [bulkResumeStopRequested, setBulkResumeStopRequested] = useState(false);
+  const bulkResumeStopRequestedRef = useRef(false);
+  const bulkResumeAbortRef = useRef(null);
+  const bulkCvSocketRef = useRef(null);
+  const bulkCvSessionIdRef = useRef('');
+  const bulkCvCurrentFileIndexRef = useRef(-1);
+  const [bulkDuplicateModal, setBulkDuplicateModal] = useState(null);
   const fieldRefs = useRef({});
   const importProgressRef = useRef(null);
   /** Last chosen resume File (manual step or parse); survives edge cases around save. */
@@ -708,12 +735,65 @@ export default function AddCandidateDrawer({
     setBulkResumePhase('upload');
     setBulkResumeProgress({ current: 0, total: 0 });
     setBulkResumeResults([]);
+    setBulkResumeStopRequested(false);
+    bulkResumeStopRequestedRef.current = false;
+    // Abort any leftover in-flight import (defensive: resetForNext is also called
+    // on tab change / close, and we don't want a stale controller to silently keep
+    // running on the network).
+    try {
+      bulkResumeAbortRef.current?.abort();
+    } catch (_abortError) {
+      // ignore
+    }
+    bulkResumeAbortRef.current = null;
+    try {
+      bulkCvSocketRef.current?.disconnect();
+    } catch (_e) {
+      /* ignore */
+    }
+    bulkCvSocketRef.current = null;
+    bulkCvSessionIdRef.current = '';
+    bulkCvCurrentFileIndexRef.current = -1;
+    setBulkDuplicateModal(null);
     if (nextTab) setActiveTab(nextTab);
   };
 
+  // Bulk CV parsing must not be killed mid-loop by a stray backdrop click — abandoning the
+  // loop would leave partially-created candidates without showing the user what finished
+  // and what didn't. While `bulkResumePhase === 'importing'` the drawer ignores backdrop /
+  // X / Cancel clicks; users have to use the explicit "Stop parsing" button instead.
+  const isBulkResumeBusy = activeTab === 'bulkResume' && bulkResumePhase === 'importing';
+
   const handleDrawerClose = () => {
+    if (isBulkResumeBusy) return;
     resetForNext(activeTab);
     onClose();
+  };
+
+  const handleStopBulkResume = () => {
+    if (!isBulkResumeBusy || bulkResumeStopRequestedRef.current) return;
+    bulkResumeStopRequestedRef.current = true;
+    setBulkResumeStopRequested(true);
+    const sid = bulkCvSessionIdRef.current;
+    const idx = bulkCvCurrentFileIndexRef.current;
+    if (sid && idx >= 0 && bulkCvSocketRef.current) {
+      try {
+        bulkCvSocketRef.current.emit('duplicate_decision', {
+          sessionId: sid,
+          fileIndex: idx,
+          decision: 'cancel',
+        });
+      } catch (_e) {
+        /* ignore */
+      }
+    }
+    // Abort the in-flight HTTP request so the current parse/create call is killed
+    // immediately instead of waiting for it to resolve.
+    try {
+      bulkResumeAbortRef.current?.abort();
+    } catch (_abortError) {
+      // ignore – the controller may already be aborted or garbage-collected
+    }
   };
 
   const handleTabChange = (nextTab) => {
@@ -906,6 +986,12 @@ export default function AddCandidateDrawer({
       skills: Array.isArray(data.skills) ? data.skills.slice(0, 10) : [],
       tags: Array.isArray(data.tags) ? data.tags.slice(0, 10) : [],
       initialNote: importedSummary,
+      avatar:
+        typeof data.profilePhotoUrl === 'string' && data.profilePhotoUrl.trim()
+          ? data.profilePhotoUrl.trim()
+          : typeof data.avatar === 'string' && data.avatar.trim()
+            ? data.avatar.trim()
+            : '',
     };
 
     setFormData((prev) => ({
@@ -925,8 +1011,8 @@ export default function AddCandidateDrawer({
 
   const handleResumeFile = async (file) => {
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      setEntryError('Resume must be 5MB or smaller.');
+    if (file.size > MAX_RESUME_FILE_BYTES) {
+      setEntryError(`Resume must be ${MAX_RESUME_FILE_LABEL} or smaller.`);
       return;
     }
 
@@ -1001,6 +1087,63 @@ export default function AddCandidateDrawer({
     }
   };
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Bulk CV identity fallback
+  //
+  // Many CVs (especially non-English ones) don't include an email address, and
+  // some skip the candidate's name entirely. The backend's `validateCreateCandidatePayload`
+  // requires firstName / lastName / email, but the underlying Prisma `Candidate`
+  // model treats them as nullable. Rather than fail the file with "Missing email",
+  // we synthesize sensible placeholders from the file name + a unique stub email
+  // so the candidate is created and the recruiter can edit the row afterwards.
+  //
+  // The placeholder email uses the `noemail.hrayntra.local` domain plus a
+  // per-file random suffix so duplicate-check (`prisma.candidate.findFirst({ where: { email } })`)
+  // never matches across CVs.
+  // ─────────────────────────────────────────────────────────────────────────
+  const generatePlaceholderEmail = (fileName) => {
+    const slug = String(fileName || 'cv')
+      .replace(/\.[^.]+$/, '')
+      .replace(/[^a-z0-9]+/gi, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 32)
+      .toLowerCase() || 'cv';
+    const ts = Date.now().toString(36);
+    const rand = Math.random().toString(36).slice(2, 6);
+    return `noemail-${slug}-${ts}${rand}@noemail.hrayntra.local`;
+  };
+
+  const deriveBulkResumeIdentity = (parsed, file) => {
+    const identity = {
+      firstName: String(parsed?.firstName || '').trim(),
+      lastName: String(parsed?.lastName || '').trim(),
+      email: String(parsed?.email || '').trim(),
+      syntheticEmail: false,
+      syntheticName: false,
+    };
+
+    if (!identity.firstName || !identity.lastName) {
+      const base = String(file?.name || '')
+        .replace(/\.[^.]+$/, '')
+        .replace(/^[0-9_,\-\s]+/, '')
+        .replace(/(^|\s)(cv|resume)\b/gi, ' ')
+        .replace(/[_,\-]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      const tokens = base.split(' ').filter(Boolean);
+      if (!identity.firstName) identity.firstName = tokens.shift() || 'Unknown';
+      if (!identity.lastName) identity.lastName = tokens.join(' ') || 'Candidate';
+      identity.syntheticName = true;
+    }
+
+    if (!identity.email) {
+      identity.email = generatePlaceholderEmail(file?.name);
+      identity.syntheticEmail = true;
+    }
+
+    return identity;
+  };
+
   const buildBulkResumePayload = (parsedCandidate) => {
     const preferredLocation =
       parsedCandidate.location ||
@@ -1011,7 +1154,7 @@ export default function AddCandidateDrawer({
       firstName: parsedCandidate.firstName || '',
       lastName: parsedCandidate.lastName || '',
       email: parsedCandidate.email || '',
-      phone: String(parsedCandidate.phone || '').replace(/[^\d]/g, '') || undefined,
+      phone: parsedCandidate.phone ? String(parsedCandidate.phone).trim() : undefined,
       currentCompany: parsedCandidate.currentCompany || undefined,
       currentDesignation: parsedCandidate.currentDesignation || parsedCandidate.designation || undefined,
       designation: parsedCandidate.currentDesignation || parsedCandidate.designation || undefined,
@@ -1021,6 +1164,7 @@ export default function AddCandidateDrawer({
           : Number(parsedCandidate.experience) || 0,
       location: preferredLocation || undefined,
       linkedinUrl: parsedCandidate.linkedinUrl || undefined,
+      website: parsedCandidate.githubUrl || undefined,
       jobId: formData.jobId || undefined,
       source: parsedCandidate.source || 'Other',
       priority: parsedCandidate.priority || 'Medium',
@@ -1035,7 +1179,7 @@ export default function AddCandidateDrawer({
         parsedCandidate.currentSalary == null || parsedCandidate.currentSalary === ''
           ? undefined
           : Number(parsedCandidate.currentSalary),
-      currency: parsedCandidate.currency || 'INR',
+      currency: parsedCandidate.currency || undefined,
       portfolioUrl: parsedCandidate.portfolioUrl || undefined,
       education: parsedCandidate.education || undefined,
       certifications: Array.isArray(parsedCandidate.certifications) ? parsedCandidate.certifications : undefined,
@@ -1046,7 +1190,17 @@ export default function AddCandidateDrawer({
       cvWorkExperienceEntries: Array.isArray(parsedCandidate.workExperienceEntries)
         ? parsedCandidate.workExperienceEntries
         : undefined,
-      cvPortfolioLinks: Array.isArray(parsedCandidate.portfolioLinks) ? parsedCandidate.portfolioLinks : undefined,
+      cvPortfolioLinks: (() => {
+        const raw = Array.isArray(parsedCandidate.portfolioLinks) ? [...parsedCandidate.portfolioLinks] : [];
+        if (parsedCandidate.githubUrl && !raw.some((l) => String(l?.url || '').includes('github.com'))) {
+          raw.push({ type: 'GitHub', url: parsedCandidate.githubUrl });
+        }
+        return raw.length ? raw : undefined;
+      })(),
+      extraData:
+        parsedCandidate.extraData && typeof parsedCandidate.extraData === 'object' && !Array.isArray(parsedCandidate.extraData)
+          ? parsedCandidate.extraData
+          : undefined,
       city: parsedCandidate.city || undefined,
       country: parsedCandidate.country || undefined,
       preferredLocation,
@@ -1054,6 +1208,10 @@ export default function AddCandidateDrawer({
       skills: Array.isArray(parsedCandidate.skills) ? parsedCandidate.skills.slice(0, 10) : undefined,
       tags: Array.isArray(parsedCandidate.tags) ? parsedCandidate.tags.slice(0, 10) : undefined,
       resume: parsedCandidate.resumeUrl || undefined,
+      avatar: (() => {
+        const u = String(parsedCandidate.profilePhotoUrl || parsedCandidate.avatar || '').trim();
+        return /^https?:\/\//i.test(u) ? u : undefined;
+      })(),
       duplicateAction: 'create',
     };
   };
@@ -1061,83 +1219,254 @@ export default function AddCandidateDrawer({
   const handleBulkResumeSelected = (fileList) => {
     const files = Array.from(fileList || []).filter(Boolean);
     if (!files.length) return;
+    const tooLarge = files.filter((f) => f.size > MAX_RESUME_FILE_BYTES);
+    if (tooLarge.length) {
+      setEntryError(
+        `${tooLarge.length} file(s) exceed ${MAX_RESUME_FILE_LABEL} each: ${tooLarge.map((f) => f.name).join(', ')}`
+      );
+      return;
+    }
     setEntryError('');
     setBulkResumeFiles(files);
     setBulkResumePhase('preview');
     setBulkResumeResults([]);
+    setBulkCvSummary(null);
     setBulkResumeProgress({ current: 0, total: files.length });
   };
 
   const handleBulkResumeImport = async () => {
     if (!bulkResumeFiles.length) return;
 
+    bulkResumeStopRequestedRef.current = false;
+    setBulkResumeStopRequested(false);
+    bulkResumeAbortRef.current = new AbortController();
+    const abortSignal = bulkResumeAbortRef.current.signal;
+
     setBulkResumePhase('importing');
     setBulkResumeProgress({ current: 0, total: bulkResumeFiles.length });
-    setBulkResumeResults([]);
+    setBulkCvSummary(null);
+    const slotResults = bulkResumeFiles.map((f) => ({
+      fileName: f.name,
+      status: 'processing',
+      message: 'Queued…',
+    }));
+    setBulkResumeResults(slotResults);
 
-    const results = [];
+    const batchStart = Date.now();
     let createdCount = 0;
+    let stoppedEarly = false;
     const backgroundUploads = [];
 
-    for (let index = 0; index < bulkResumeFiles.length; index += 1) {
-      const file = bulkResumeFiles[index];
+    const isAbortError = (err) =>
+      !!err && (err.name === 'AbortError' || /aborted|abort/i.test(String(err?.message || '')));
 
-      try {
-        const parsedResponse = await apiParseCandidateResume(file);
-        const parsedCandidate = parsedResponse.data || {};
-        const missingRequired = [];
-        if (!String(parsedCandidate.firstName || '').trim()) missingRequired.push('first name');
-        if (!String(parsedCandidate.lastName || '').trim()) missingRequired.push('last name');
-        if (!String(parsedCandidate.email || '').trim()) missingRequired.push('email');
+    const bumpProgress = () => {
+      setBulkResumeProgress((prev) => ({
+        current: Math.min(prev.total, prev.current + 1),
+        total: prev.total,
+      }));
+    };
 
-        if (missingRequired.length) {
-          results.push({
-            fileName: file.name,
-            status: 'failed',
-            message: `Missing ${missingRequired.join(', ')}`,
-          });
-          setBulkResumeProgress({ current: index + 1, total: bulkResumeFiles.length });
-          continue;
-        }
+    const sessionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 11)}`;
+    bulkCvSessionIdRef.current = sessionId;
 
-        const createResponse = await apiCreateCandidateFromDrawer(buildBulkResumePayload(parsedCandidate));
-        const candidate = createResponse.data;
-
-        const bulkCandidateId = candidate.id || candidate._id;
-        if (file && bulkCandidateId && !isPersistableRemoteResumeUrl(parsedCandidate?.resumeUrl)) {
-          backgroundUploads.push(
-            apiUploadCandidateResumeFile(bulkCandidateId, file).catch((uploadError) => {
-              console.error('Resume upload failed after candidate creation:', uploadError);
-            })
-          );
-        }
-
-        createdCount += 1;
-        results.push({
-          fileName: file.name,
-          status: 'created',
-          candidateName:
-            `${parsedCandidate.firstName || ''} ${parsedCandidate.lastName || ''}`.trim() || candidate.email || 'Candidate',
-          message: 'Candidate created successfully',
-        });
-      } catch (error) {
-        results.push({
-          fileName: file.name,
-          status: 'failed',
-          message: error.message || 'Failed to create candidate',
-        });
+    let socket = null;
+    try {
+      const { io } = await import('socket.io-client');
+      const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+      const tenantDbName =
+        typeof window !== 'undefined' ? String(localStorage.getItem('tenantDbName') || '').trim() : '';
+      if (!token) {
+        throw new Error('Not logged in — cannot run bulk CV with duplicate detection.');
       }
+      socket = io(buildSocketBaseUrl(), {
+        auth: { token, ...(tenantDbName ? { tenantDbName } : {}) },
+        transports: ['websocket', 'polling'],
+      });
+      bulkCvSocketRef.current = socket;
 
-      setBulkResumeResults([...results]);
-      setBulkResumeProgress({ current: index + 1, total: bulkResumeFiles.length });
+      await new Promise((resolve, reject) => {
+        const t = window.setTimeout(() => reject(new Error('Socket connection timeout')), 15000);
+        socket.once('connect', () => {
+          window.clearTimeout(t);
+          resolve();
+        });
+        socket.once('connect_error', (err) => {
+          window.clearTimeout(t);
+          reject(err);
+        });
+      });
+
+      socket.emit('bulk_cv_join', { sessionId });
+      socket.on('duplicate_found', (payload) => {
+        setBulkDuplicateModal(payload);
+      });
+    } catch (socketErr) {
+      console.error('[bulk-cv] Socket init failed', socketErr);
+      setBulkResumePhase('preview');
+      setEntryError(
+        socketErr?.message ||
+          'Could not connect for duplicate detection. Check that the API server is running and Socket.IO is enabled.'
+      );
+      try {
+        socket?.disconnect();
+      } catch (_e) {
+        /* ignore */
+      }
+      bulkCvSocketRef.current = null;
+      bulkCvSessionIdRef.current = '';
+      return;
     }
 
-    setBulkResumeResults(results);
+    try {
+      for (let index = 0; index < bulkResumeFiles.length; index += 1) {
+        const file = bulkResumeFiles[index];
+
+        if (bulkResumeStopRequestedRef.current) {
+          stoppedEarly = true;
+          slotResults[index] = {
+            fileName: file.name,
+            status: 'failed',
+            message: 'Stopped by user',
+          };
+          setBulkResumeResults([...slotResults]);
+          bumpProgress();
+          break;
+        }
+
+        bulkCvCurrentFileIndexRef.current = index;
+        slotResults[index] = { ...slotResults[index], status: 'processing', message: 'Parsing CV…' };
+        setBulkResumeResults([...slotResults]);
+
+        try {
+          const parsedResponse = await apiBulkCvProcessFile(file, sessionId, index, { signal: abortSignal });
+          const envelope = parsedResponse.data || {};
+
+          if (envelope?.skipped) {
+            slotResults[index] = {
+              fileName: file.name,
+              status: 'skipped',
+              message: 'Skipped — duplicate (you chose not to import this CV)',
+            };
+            setBulkResumeResults([...slotResults]);
+            bumpProgress();
+            continue;
+          }
+
+          const parsedCandidate = envelope.normalized || {};
+          const duplicateResolution = envelope.duplicateResolution || null;
+          const identity = deriveBulkResumeIdentity(parsedCandidate, file);
+          const enrichedCandidate = {
+            ...parsedCandidate,
+            firstName: identity.firstName,
+            lastName: identity.lastName,
+            email: identity.email,
+          };
+
+          const createResponse = await apiCreateCandidateFromDrawer(
+            buildBulkResumePayload(enrichedCandidate),
+            { signal: abortSignal }
+          );
+          const candidate = createResponse.data;
+
+          const bulkCandidateId = candidate.id || candidate._id;
+          if (file && bulkCandidateId && !isPersistableRemoteResumeUrl(parsedCandidate?.resumeUrl)) {
+            backgroundUploads.push(
+              apiUploadCandidateResumeFile(bulkCandidateId, file, { signal: abortSignal }).catch((uploadError) => {
+                if (!isAbortError(uploadError)) {
+                  console.error('Resume upload failed after candidate creation:', uploadError);
+                }
+              })
+            );
+          }
+
+          const placeholderParts = [];
+          if (identity.syntheticEmail) placeholderParts.push('email');
+          if (identity.syntheticName) placeholderParts.push('name');
+          let successMessage = placeholderParts.length
+            ? `Created — placeholder ${placeholderParts.join(' & ')} added (please update)`
+            : 'Candidate created successfully';
+          if (duplicateResolution === 'replaced') {
+            successMessage = 'Replaced — existing candidate removed; new profile saved';
+          } else if (duplicateResolution === 'create_anyway') {
+            successMessage = 'Saved as copy — duplicate resolved with a new last name / email variant';
+          }
+
+          createdCount += 1;
+          slotResults[index] = {
+            fileName: file.name,
+            status: 'created',
+            duplicateResolution,
+            candidateName:
+              `${identity.firstName || ''} ${identity.lastName || ''}`.trim() || candidate.email || 'Candidate',
+            message: successMessage,
+          };
+        } catch (error) {
+          if (isAbortError(error) || bulkResumeStopRequestedRef.current) {
+            stoppedEarly = true;
+            slotResults[index] = {
+              fileName: file.name,
+              status: 'failed',
+              message: 'Stopped by user',
+            };
+          } else {
+            slotResults[index] = {
+              fileName: file.name,
+              status: 'failed',
+              message: error.message || 'Failed to create candidate',
+            };
+          }
+        }
+
+        setBulkResumeResults([...slotResults]);
+        bumpProgress();
+      }
+    } finally {
+      setBulkDuplicateModal(null);
+      bulkCvCurrentFileIndexRef.current = -1;
+      try {
+        socket?.disconnect();
+      } catch (_e) {
+        /* ignore */
+      }
+      bulkCvSocketRef.current = null;
+      bulkCvSessionIdRef.current = '';
+    }
+
+    const elapsed = Date.now() - batchStart;
+    const succeeded = slotResults.filter((item) => item.status === 'created').length;
+    const failed = slotResults.filter((item) => item.status === 'failed').length;
+    const skipped = slotResults.filter((item) => item.status === 'skipped').length;
+    const failures = slotResults
+      .filter((item) => item.status === 'failed')
+      .map((item) => ({ fileName: item.fileName, reason: item.message }));
+
+    setBulkCvSummary({
+      totalReceived: bulkResumeFiles.length,
+      succeeded,
+      failed,
+      skipped,
+      failures,
+      durationMs: elapsed,
+    });
+    console.log(
+      `[bulk-cv] done in ${elapsed}ms | files=${bulkResumeFiles.length} ok=${succeeded} skip=${skipped} fail=${failed}`
+    );
+
     setBulkResumePhase('complete');
+    setBulkResumeStopRequested(false);
+    bulkResumeStopRequestedRef.current = false;
+    bulkResumeAbortRef.current = null;
+
     if (createdCount > 0) {
-      toast.success(`${createdCount} candidate${createdCount === 1 ? '' : 's'} created from CV upload`);
+      const suffix = stoppedEarly ? ' (stopped early)' : '';
+      toast.success(
+        `${createdCount} candidate${createdCount === 1 ? '' : 's'} created from CV upload${suffix}`
+      );
       notifyCandidatesChanged();
       onSuccess?.(null);
+    } else if (stoppedEarly) {
+      toast.info('Bulk CV parsing stopped');
     }
     void Promise.allSettled(backgroundUploads).then(() => {
       notifyCandidatesChanged();
@@ -1164,6 +1493,9 @@ export default function AddCandidateDrawer({
     country: parsedData?.country || undefined,
     preferredLocation: parsedData?.location || formData.location || undefined,
     resume: parsedData?.resumeUrl || undefined,
+    avatar: [formData.avatar, parsedData?.profilePhotoUrl, parsedData?.avatar]
+      .map((x) => String(x || '').trim())
+      .find((x) => /^https?:\/\//i.test(x)),
     duplicateAction,
   });
 
@@ -1405,11 +1737,168 @@ export default function AddCandidateDrawer({
   const drawerTitle = DRAWER_TITLES[activeTab] || DRAWER_TITLES.manual;
   const drawerDescription = DRAWER_DESCRIPTIONS[activeTab] || DRAWER_DESCRIPTIONS.manual;
 
+  const formatExistingCandidateDate = (value) => {
+    if (value == null || value === '') return '—';
+    try {
+      return new Date(value).toLocaleString();
+    } catch {
+      return '—';
+    }
+  };
+
+  const emitBulkDuplicateDecision = (decision) => {
+    const modal = bulkDuplicateModal;
+    if (!modal) return;
+    const sid = bulkCvSessionIdRef.current;
+    setBulkDuplicateModal(null);
+    try {
+      bulkCvSocketRef.current?.emit('duplicate_decision', {
+        sessionId: sid,
+        fileIndex: modal.fileIndex,
+        decision,
+      });
+    } catch (_e) {
+      /* ignore */
+    }
+  };
+
+  const bulkResumeResultRowClass = (result) => {
+    if (result.status === 'created') {
+      if (result.duplicateResolution === 'replaced') {
+        return 'border border-violet-200 bg-white text-violet-800';
+      }
+      if (result.duplicateResolution === 'create_anyway') {
+        return 'border border-sky-200 bg-white text-sky-800';
+      }
+      return 'border border-emerald-200 bg-white text-emerald-700';
+    }
+    if (result.status === 'skipped') {
+      return 'border border-slate-200 bg-white text-slate-700';
+    }
+    if (result.status === 'processing') {
+      return 'border border-amber-200 bg-white text-amber-800';
+    }
+    return 'border border-red-200 bg-white text-red-700';
+  };
+
+  const bulkResumeCompleteCardClass = (result) => {
+    if (result.status === 'created') {
+      if (result.duplicateResolution === 'replaced') return 'border-violet-200 bg-violet-50';
+      if (result.duplicateResolution === 'create_anyway') return 'border-sky-200 bg-sky-50';
+      return 'border-emerald-200 bg-emerald-50';
+    }
+    if (result.status === 'skipped') return 'border-slate-200 bg-slate-50';
+    if (result.status === 'processing') return 'border-amber-200 bg-amber-50';
+    return 'border-red-200 bg-red-50';
+  };
+
+  const bulkResumeStatusPill = (result) => {
+    if (result.status === 'skipped') {
+      return { label: 'skipped', className: 'bg-slate-100 text-slate-700' };
+    }
+    if (result.status === 'created' && result.duplicateResolution === 'replaced') {
+      return { label: 'replaced', className: 'bg-violet-100 text-violet-800' };
+    }
+    if (result.status === 'created' && result.duplicateResolution === 'create_anyway') {
+      return { label: 'saved as copy', className: 'bg-sky-100 text-sky-800' };
+    }
+    if (result.status === 'created') {
+      return { label: 'created', className: 'bg-emerald-100 text-emerald-700' };
+    }
+    return { label: result.status, className: 'bg-red-100 text-red-700' };
+  };
+
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[90]">
-      <div className="absolute inset-0 bg-slate-900/50" onClick={handleDrawerClose} />
+      {bulkDuplicateModal ? (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/70 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="bulk-dup-title"
+        >
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+            <h3 id="bulk-dup-title" className="text-base font-semibold text-slate-900">
+              Possible duplicate candidate
+            </h3>
+            <p className="mt-1 text-xs text-slate-500">
+              File: <span className="font-medium text-slate-700">{bulkDuplicateModal.fileName}</span>
+            </p>
+
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <div className="rounded-xl border border-blue-100 bg-blue-50/80 p-3 text-sm">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">From this CV</p>
+                <p className="mt-2 font-medium text-slate-900">
+                  {(bulkDuplicateModal.newCandidate?.firstName || '').trim()}{' '}
+                  {(bulkDuplicateModal.newCandidate?.lastName || '').trim()}
+                </p>
+                <p className="mt-1 text-xs text-slate-600">{bulkDuplicateModal.newCandidate?.email || '—'}</p>
+              </div>
+              <div className="rounded-xl border border-amber-100 bg-amber-50/80 p-3 text-sm">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">Already in database</p>
+                <p className="mt-2 font-medium text-slate-900">
+                  {(bulkDuplicateModal.existingCandidate?.firstName || '').trim()}{' '}
+                  {(bulkDuplicateModal.existingCandidate?.lastName || '').trim()}
+                </p>
+                <p className="mt-1 text-xs text-slate-600">{bulkDuplicateModal.existingCandidate?.email || '—'}</p>
+                <p className="mt-1 text-xs text-slate-600">
+                  Role: {bulkDuplicateModal.existingCandidate?.designation || '—'}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Added: {formatExistingCandidateDate(bulkDuplicateModal.existingCandidate?.createdAt)}
+                </p>
+              </div>
+            </div>
+
+            <p className="mt-4 text-xs text-slate-600">
+              Parsing is paused until you choose. The batch will skip this file automatically if no choice is made within
+              about five minutes.
+            </p>
+
+            <div className="mt-5 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => emitBulkDuplicateDecision('create_anyway')}
+                className="w-full rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-left text-sm font-semibold text-sky-900 transition hover:bg-sky-100"
+              >
+                Create anyway
+                <span className="mt-1 block text-xs font-normal text-sky-800">
+                  Saves a new candidate with “copy 1”, “copy 2”, … on the last name (and a unique email if the email
+                  matched).
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => emitBulkDuplicateDecision('replace')}
+                className="w-full rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-left text-sm font-semibold text-violet-900 transition hover:bg-violet-100"
+              >
+                Replace existing
+                <span className="mt-1 block text-xs font-normal text-violet-800">
+                  Permanently deletes the existing candidate and all linked records, then imports this CV as the new
+                  profile.
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => emitBulkDuplicateDecision('cancel')}
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
+              >
+                Skip this CV
+                <span className="mt-1 block text-xs font-normal text-slate-600">
+                  Does not parse or save this file; continues with the next CV in the batch.
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <div
+        className={`absolute inset-0 bg-slate-900/50 ${isBulkResumeBusy ? 'cursor-not-allowed' : ''}`}
+        onClick={handleDrawerClose}
+      />
 
       <div
         className={`absolute inset-x-0 bottom-0 h-[92vh] rounded-t-2xl bg-white shadow-2xl transition-transform duration-300 sm:inset-y-0 sm:right-0 sm:left-auto sm:h-full sm:w-[520px] sm:rounded-none ${
@@ -1421,11 +1910,22 @@ export default function AddCandidateDrawer({
             <h2 className="text-base font-medium text-slate-900">{drawerTitle}</h2>
             <p className="mt-0.5 text-xs text-slate-500">{drawerDescription}</p>
             {inlineSuccess ? <p className="mt-1 text-xs font-medium text-emerald-600">{inlineSuccess}</p> : null}
+            {isBulkResumeBusy ? (
+              <p className="mt-1 text-xs font-medium text-blue-600">
+                Parsing in progress — close is disabled. Use “Stop parsing” to cancel.
+              </p>
+            ) : null}
           </div>
           <button
             type="button"
             onClick={handleDrawerClose}
-            className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            disabled={isBulkResumeBusy}
+            title={isBulkResumeBusy ? 'Parsing in progress — stop parsing first' : 'Close'}
+            className={`rounded-full p-2 transition ${
+              isBulkResumeBusy
+                ? 'cursor-not-allowed text-slate-300'
+                : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700'
+            }`}
           >
             <X size={18} />
           </button>
@@ -1502,7 +2002,7 @@ export default function AddCandidateDrawer({
                 <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-6 py-8 text-center">
                   <Upload size={24} className="mb-3 text-slate-400" />
                   <p className="text-sm font-medium text-slate-700">Drag resume here or click to browse</p>
-                  <p className="mt-1 text-xs text-slate-500">PDF, DOC, DOCX · Max 5MB</p>
+                  <p className="mt-1 text-xs text-slate-500">PDF, DOC, DOCX · Max {MAX_RESUME_FILE_LABEL}</p>
                   <input
                     type="file"
                     accept=".pdf,.doc,.docx"
@@ -1805,7 +2305,9 @@ export default function AddCandidateDrawer({
                 <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center">
                   <Upload size={26} className="mb-3 text-slate-400" />
                   <p className="text-sm font-medium text-slate-700">Upload multiple CV files at once</p>
-                  <p className="mt-1 text-xs text-slate-500">PDF, DOC, DOCX · max 5MB each · candidates will be created automatically</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    PDF, DOC, DOCX · max {MAX_RESUME_FILE_LABEL} each · candidates will be created automatically
+                  </p>
                   <input
                     type="file"
                     accept=".pdf,.doc,.docx"
@@ -1840,14 +2342,33 @@ export default function AddCandidateDrawer({
 
               {bulkResumePhase === 'importing' ? (
                 <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-5">
-                  <div className="flex items-center gap-3 text-blue-700">
-                    <Loader2 size={18} className="animate-spin" />
-                    <div>
-                      <p className="text-sm font-semibold">Creating candidates from uploaded CVs...</p>
-                      <p className="text-xs text-blue-600">
-                        Processed {bulkResumeProgress.current} of {bulkResumeProgress.total}
-                      </p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3 text-blue-700">
+                      <Loader2 size={18} className="animate-spin" />
+                      <div>
+                        <p className="text-sm font-semibold">
+                          {bulkResumeStopRequested
+                            ? 'Stopping after current file...'
+                            : 'Creating candidates from uploaded CVs...'}
+                        </p>
+                        <p className="text-xs text-blue-600">
+                          Processed {bulkResumeProgress.current} of {bulkResumeProgress.total}
+                        </p>
+                      </div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={handleStopBulkResume}
+                      disabled={bulkResumeStopRequested}
+                      className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
+                        bulkResumeStopRequested
+                          ? 'cursor-not-allowed border-red-200 bg-red-50 text-red-400'
+                          : 'border-red-200 bg-white text-red-600 hover:bg-red-50'
+                      }`}
+                    >
+                      <StopCircle size={14} />
+                      {bulkResumeStopRequested ? 'Stopping…' : 'Stop parsing'}
+                    </button>
                   </div>
                   <div className="mt-4 h-2 overflow-hidden rounded-full bg-blue-100">
                     <div
@@ -1862,11 +2383,7 @@ export default function AddCandidateDrawer({
                       {bulkResumeResults.map((result, index) => (
                         <div
                           key={`${result.fileName}-${index}`}
-                          className={`rounded-xl px-4 py-3 text-sm ${
-                            result.status === 'created'
-                              ? 'border border-emerald-200 bg-white text-emerald-700'
-                              : 'border border-red-200 bg-white text-red-700'
-                          }`}
+                          className={`rounded-xl px-4 py-3 text-sm ${bulkResumeResultRowClass(result)}`}
                         >
                           <p className="font-medium">{result.fileName}</p>
                           <p className="mt-1 text-xs">{result.message}</p>
@@ -1881,60 +2398,79 @@ export default function AddCandidateDrawer({
                 <div className="space-y-4">
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Bulk CV Upload Result</p>
-                    <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
                       <div className="rounded-xl bg-white p-3">
                         <p className="text-xs text-slate-500">Total Files</p>
-                        <p className="mt-1 text-lg font-semibold text-slate-900">{bulkResumeResults.length}</p>
+                        <p className="mt-1 text-lg font-semibold text-slate-900">
+                          {bulkCvSummary?.totalReceived ?? bulkResumeResults.length}
+                        </p>
                       </div>
                       <div className="rounded-xl bg-white p-3">
                         <p className="text-xs text-slate-500">Created</p>
                         <p className="mt-1 text-lg font-semibold text-emerald-600">
-                          {bulkResumeResults.filter((item) => item.status === 'created').length}
+                          {bulkCvSummary?.succeeded ?? bulkResumeResults.filter((item) => item.status === 'created').length}
+                        </p>
+                      </div>
+                      <div className="rounded-xl bg-white p-3">
+                        <p className="text-xs text-slate-500">Skipped</p>
+                        <p className="mt-1 text-lg font-semibold text-slate-600">
+                          {bulkCvSummary?.skipped ?? bulkResumeResults.filter((item) => item.status === 'skipped').length}
                         </p>
                       </div>
                       <div className="rounded-xl bg-white p-3">
                         <p className="text-xs text-slate-500">Failed</p>
                         <p className="mt-1 text-lg font-semibold text-red-600">
-                          {bulkResumeResults.filter((item) => item.status === 'failed').length}
+                          {bulkCvSummary?.failed ?? bulkResumeResults.filter((item) => item.status === 'failed').length}
                         </p>
                       </div>
                       <div className="rounded-xl bg-white p-3">
-                        <p className="text-xs text-slate-500">Recruiter</p>
-                        <p className="mt-1 text-sm font-semibold text-slate-900">{currentUser?.name || 'You'}</p>
+                        <p className="text-xs text-slate-500">Batch time</p>
+                        <p className="mt-1 text-sm font-semibold text-slate-900">
+                          {bulkCvSummary?.durationMs != null
+                            ? `${(bulkCvSummary.durationMs / 1000).toFixed(1)}s`
+                            : '—'}
+                        </p>
                       </div>
                     </div>
+                    {bulkCvSummary?.failures?.length ? (
+                      <div className="mt-3 rounded-xl border border-red-100 bg-white p-3 text-xs text-red-800">
+                        <p className="font-semibold text-red-900">Failures</p>
+                        <ul className="mt-2 list-inside list-disc space-y-1">
+                          {bulkCvSummary.failures.map((f) => (
+                            <li key={f.fileName}>
+                              <span className="font-medium">{f.fileName}</span> — {f.reason}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="max-h-80 space-y-2 overflow-y-auto">
-                    {bulkResumeResults.map((result, index) => (
-                      <div
-                        key={`${result.fileName}-${index}`}
-                        className={`rounded-xl border px-4 py-3 ${
-                          result.status === 'created'
-                            ? 'border-emerald-200 bg-emerald-50'
-                            : 'border-red-200 bg-red-50'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-semibold text-slate-900">{result.fileName}</p>
-                            {result.candidateName ? (
-                              <p className="mt-1 text-xs text-slate-600">{result.candidateName}</p>
-                            ) : null}
+                    {bulkResumeResults.map((result, index) => {
+                      const pill = bulkResumeStatusPill(result);
+                      return (
+                        <div
+                          key={`${result.fileName}-${index}`}
+                          className={`rounded-xl border px-4 py-3 ${bulkResumeCompleteCardClass(result)}`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-semibold text-slate-900">{result.fileName}</p>
+                              {result.candidateName ? (
+                                <p className="mt-1 text-xs text-slate-600">{result.candidateName}</p>
+                              ) : null}
+                            </div>
+                            <span
+                              className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${pill.className}`}
+                            >
+                              {pill.label}
+                            </span>
                           </div>
-                          <span
-                            className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${
-                              result.status === 'created'
-                                ? 'bg-emerald-100 text-emerald-700'
-                                : 'bg-red-100 text-red-700'
-                            }`}
-                          >
-                            {result.status}
-                          </span>
+                          <p className="mt-2 text-xs text-slate-600">{result.message}</p>
                         </div>
-                        <p className="mt-2 text-xs text-slate-600">{result.message}</p>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               ) : null}
@@ -2401,7 +2937,7 @@ export default function AddCandidateDrawer({
                         <label className="flex cursor-pointer items-center justify-between rounded-2xl border border-dashed border-slate-300 px-4 py-4">
                           <div>
                             <p className="text-sm font-medium text-slate-700">Upload Resume</p>
-                            <p className="text-xs text-slate-500">PDF, DOC, DOCX · 5MB</p>
+                            <p className="text-xs text-slate-500">PDF, DOC, DOCX · {MAX_RESUME_FILE_LABEL}</p>
                           </div>
                           <span className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white">Choose File</span>
                           <input
@@ -2523,7 +3059,13 @@ export default function AddCandidateDrawer({
               <button
                 type="button"
                 onClick={handleDrawerClose}
-                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700"
+                disabled={isBulkResumeBusy}
+                title={isBulkResumeBusy ? 'Parsing in progress — stop parsing first' : ''}
+                className={`rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium ${
+                  isBulkResumeBusy
+                    ? 'cursor-not-allowed text-slate-400'
+                    : 'text-slate-700'
+                }`}
               >
                 {bulkResumePhase === 'complete' ? 'Done' : 'Cancel'}
               </button>
@@ -2534,6 +3076,21 @@ export default function AddCandidateDrawer({
                   className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white"
                 >
                   Create {bulkResumeFiles.length} Candidates →
+                </button>
+              ) : null}
+              {bulkResumePhase === 'importing' ? (
+                <button
+                  type="button"
+                  onClick={handleStopBulkResume}
+                  disabled={bulkResumeStopRequested}
+                  className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition ${
+                    bulkResumeStopRequested
+                      ? 'cursor-not-allowed bg-red-300'
+                      : 'bg-red-600 hover:bg-red-700'
+                  }`}
+                >
+                  <StopCircle size={16} />
+                  {bulkResumeStopRequested ? 'Stopping…' : 'Stop parsing'}
                 </button>
               ) : null}
               {bulkResumePhase === 'complete' ? (

@@ -29,6 +29,7 @@ import { EditMemberModal } from '../../../components/team/EditMemberModal';
 import { GenerateCredentialsModal } from '../../../components/team/GenerateCredentialsModal';
 import { LoginHistoryDrawer } from '../../../components/team/LoginHistoryDrawer';
 import type { TeamMemberDetail } from '../../../types/team';
+import { formatDateDMY, formatDateTimeDMY } from '../../../utils/dateDisplay';
 
 export default function TeamMemberProfilePage() {
   const params = useParams();
@@ -268,7 +269,7 @@ export default function TeamMemberProfilePage() {
                               <p className="text-xs text-slate-500 mt-1">{activity.module}</p>
                             </div>
                             <span className="text-xs text-slate-400">
-                              {new Date(activity.timestamp).toLocaleDateString()}
+                              {formatDateDMY(activity.timestamp)}
                             </span>
                           </div>
                         </div>
@@ -368,7 +369,7 @@ export default function TeamMemberProfilePage() {
                     <div>
                       <label className="text-xs font-semibold text-slate-700">Last Login</label>
                       <p className="text-sm text-slate-600 mt-1">
-                        {new Date(member.credential.lastLoginAt).toLocaleString()}
+                        {formatDateTimeDMY(member.credential.lastLoginAt)}
                       </p>
                     </div>
                   )}

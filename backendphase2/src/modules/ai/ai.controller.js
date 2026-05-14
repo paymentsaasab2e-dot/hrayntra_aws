@@ -1,6 +1,6 @@
-import OpenAI from 'openai';
 import { sendResponse, sendError } from '../../utils/response.js';
 import { env } from '../../config/env.js';
+import { chatCompletionWithFallback, hasLlmProvider } from '../../services/llmChatFallback.service.js';
 import { runAssistantChat } from './assistantChat.service.js';
 import {
   deleteAssistantHistory,
@@ -15,7 +15,6 @@ import { taskService } from '../task/task.service.js';
 import { placementService } from '../placement/placement.service.js';
 import { undoService } from './undo.service.js';
 
-const openai = env.OPENAI_API_KEY ? new OpenAI({ apiKey: env.OPENAI_API_KEY }) : null;
 const jobDescriptionJsonSchema = {
   name: 'job_description_payload',
   schema: {
@@ -249,7 +248,7 @@ export const aiController = {
         return sendError(res, 400, 'Job title is required');
       }
 
-      if (!openai) {
+      if (!hasLlmProvider()) {
         return sendError(res, 503, 'AI job description generator is not configured');
       }
 
@@ -274,26 +273,29 @@ export const aiController = {
         .filter(Boolean)
         .join(' ');
 
-      const completion = await openai.chat.completions.create({
-        model: env.OPENAI_ASSISTANT_MODEL || 'gpt-4o-mini',
-        temperature: 0.4,
-        max_tokens: 1800,
-        response_format: {
-          type: 'json_schema',
-          json_schema: jobDescriptionJsonSchema,
+      const completion = await chatCompletionWithFallback(
+        {
+          model: env.OPENAI_ASSISTANT_MODEL || 'gpt-4o-mini',
+          temperature: 0.4,
+          max_tokens: 1800,
+          response_format: {
+            type: 'json_schema',
+            json_schema: jobDescriptionJsonSchema,
+          },
+          messages: [
+            {
+              role: 'system',
+              content:
+                'You write professional, realistic recruitment copy for ATS software. Keep the output practical, skimmable, and ready to paste into a job description editor. Always return valid JSON matching the schema.',
+            },
+            {
+              role: 'user',
+              content: promptParts,
+            },
+          ],
         },
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You write professional, realistic recruitment copy for ATS software. Keep the output practical, skimmable, and ready to paste into a job description editor. Always return valid JSON matching the schema.',
-          },
-          {
-            role: 'user',
-            content: promptParts,
-          },
-        ],
-      });
+        'ai-job-description'
+      );
 
       const raw = completion.choices?.[0]?.message?.content?.trim();
       const parsed = raw ? JSON.parse(raw) : null;
@@ -330,39 +332,42 @@ export const aiController = {
         return sendError(res, 400, 'Lead prompt is required');
       }
 
-      if (!openai) {
+      if (!hasLlmProvider()) {
         return sendError(res, 503, 'AI lead generator is not configured');
       }
 
-      const completion = await openai.chat.completions.create({
-        model: env.OPENAI_ASSISTANT_MODEL || 'gpt-4o-mini',
-        temperature: 0.2,
-        max_tokens: 1600,
-        response_format: {
-          type: 'json_schema',
-          json_schema: leadDetailsJsonSchema,
+      const completion = await chatCompletionWithFallback(
+        {
+          model: env.OPENAI_ASSISTANT_MODEL || 'gpt-4o-mini',
+          temperature: 0.2,
+          max_tokens: 1600,
+          response_format: {
+            type: 'json_schema',
+            json_schema: leadDetailsJsonSchema,
+          },
+          messages: [
+            {
+              role: 'system',
+              content:
+                'You are an ATS lead creation assistant. Analyze all user-provided lead information and optimize it into a clean structured lead payload for a recruitment CRM. Do not ask follow-up questions. Infer sensible defaults when data is missing. Keep required business fields populated with realistic values. Allowed enums: type => Company|Individual|Referral. source => Website|LinkedIn|Email|Referral|Campaign. status => New|Contacted|Qualified|Converted|Lost. priority => High|Medium|Low. Dates must be YYYY-MM-DD or empty string. If a field is unknown, return empty string. Preserve any assignedToId passed from the form unless the prompt clearly overrides it.',
+            },
+            {
+              role: 'user',
+              content: [
+                'Optimize this lead for our Add Lead drawer and return only valid JSON matching the schema.',
+                `User input:\n${String(prompt || '').trim()}`,
+                `Current form values:\n${JSON.stringify(currentForm || {}, null, 2)}`,
+                'Map hiring requirements or requested services into interestedNeeds.',
+                'Map business context or expected value notes into notes.',
+                'If website, linkedin, email source, or campaign links are mentioned, place them in the most relevant URL fields.',
+                'Any useful prompt data that does not fit our standard lead fields must go into otherDetails as label/value pairs.',
+                'Do not return markdown.',
+              ].join('\n\n'),
+            },
+          ],
         },
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You are an ATS lead creation assistant. Analyze all user-provided lead information and optimize it into a clean structured lead payload for a recruitment CRM. Do not ask follow-up questions. Infer sensible defaults when data is missing. Keep required business fields populated with realistic values. Allowed enums: type => Company|Individual|Referral. source => Website|LinkedIn|Email|Referral|Campaign. status => New|Contacted|Qualified|Converted|Lost. priority => High|Medium|Low. Dates must be YYYY-MM-DD or empty string. If a field is unknown, return empty string. Preserve any assignedToId passed from the form unless the prompt clearly overrides it.',
-          },
-          {
-            role: 'user',
-            content: [
-              'Optimize this lead for our Add Lead drawer and return only valid JSON matching the schema.',
-              `User input:\n${String(prompt || '').trim()}`,
-              `Current form values:\n${JSON.stringify(currentForm || {}, null, 2)}`,
-              'Map hiring requirements or requested services into interestedNeeds.',
-              'Map business context or expected value notes into notes.',
-              'If website, linkedin, email source, or campaign links are mentioned, place them in the most relevant URL fields.',
-              'Any useful prompt data that does not fit our standard lead fields must go into otherDetails as label/value pairs.',
-              'Do not return markdown.',
-            ].join('\n\n'),
-          },
-        ],
-      });
+        'ai-lead-details'
+      );
 
       const raw = completion.choices?.[0]?.message?.content?.trim();
       const parsed = raw ? JSON.parse(raw) : null;
