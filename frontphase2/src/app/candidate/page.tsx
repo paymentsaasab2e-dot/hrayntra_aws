@@ -7,6 +7,12 @@ import { CandidateGrid } from './components/CandidateGrid';
 import { FilterDrawer } from './components/FilterDrawer';
 import { BulkActions } from './components/BulkActions';
 import AddCandidateDrawer from '../../components/candidates/AddCandidateDrawer';
+import FailedBulkResumesDrawer from '../../components/candidates/FailedBulkResumesDrawer';
+import ModuleRecycleBinDrawer from '../../components/ModuleRecycleBinDrawer';
+import {
+  FAILED_BULK_RESUMES_CHANGED,
+  getActiveFailedBulkResumes,
+} from '../../lib/failedBulkResumesStore';
 import {
   CandidateProfileDrawer,
   type CandidateInterviewerOption,
@@ -30,6 +36,8 @@ import {
   CalendarClock,
   CheckCircle2,
   Trophy,
+  AlertCircle,
+  Inbox,
 } from 'lucide-react';
 import { downloadCsv } from '../../utils/csv';
 import { CreateTaskModal } from '../../components/CreateTaskModal';
@@ -659,6 +667,10 @@ function CandidatesPageContent() {
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [isAddCandidateOpen, setIsAddCandidateOpen] = useState(false);
   const [candidateDrawerInitialTab, setCandidateDrawerInitialTab] = useState('manual');
+  const [failedResumesDrawerOpen, setFailedResumesDrawerOpen] = useState(false);
+  const [pendingBulkRetryFile, setPendingBulkRetryFile] = useState<File | null>(null);
+  const [failedBulkResumeCount, setFailedBulkResumeCount] = useState(0);
+  const [recycleBinModuleOpen, setRecycleBinModuleOpen] = useState(false);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -720,6 +732,33 @@ function CandidatesPageContent() {
 
   const openCandidateDrawer = useCallback((tab: 'manual' | 'resume' | 'csv' | 'bulkResume') => {
     setCandidateDrawerInitialTab(tab);
+    setIsAddCandidateOpen(true);
+  }, []);
+
+  const refreshFailedBulkResumeCount = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    setFailedBulkResumeCount(getActiveFailedBulkResumes().length);
+  }, []);
+
+  useEffect(() => {
+    refreshFailedBulkResumeCount();
+  }, [refreshFailedBulkResumeCount]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onFailedBulkChanged = () => refreshFailedBulkResumeCount();
+    window.addEventListener(FAILED_BULK_RESUMES_CHANGED, onFailedBulkChanged);
+    return () => window.removeEventListener(FAILED_BULK_RESUMES_CHANGED, onFailedBulkChanged);
+  }, [refreshFailedBulkResumeCount]);
+
+  const handleBulkRetryFileConsumed = useCallback(() => {
+    setPendingBulkRetryFile(null);
+  }, []);
+
+  const handleFailedResumeReupload = useCallback((file: File) => {
+    setPendingBulkRetryFile(file);
+    setFailedResumesDrawerOpen(false);
+    setCandidateDrawerInitialTab('bulkResume');
     setIsAddCandidateOpen(true);
   }, []);
 
@@ -1545,6 +1584,16 @@ function CandidatesPageContent() {
             </div>
 
             <div className="flex items-center gap-3">
+              {canDeleteCandidate && (
+                <button
+                  type="button"
+                  onClick={() => setRecycleBinModuleOpen(true)}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+                  title="Deleted candidates"
+                >
+                  <Inbox size={18} strokeWidth={2} />
+                </button>
+              )}
               {canCreateCandidate && (
                 <button
                   onClick={() => {
@@ -1576,6 +1625,25 @@ function CandidatesPageContent() {
                 >
                   <FileText size={16} />
                   Bulk CV Upload
+                </button>
+              )}
+              {canCreateCandidate && (
+                <button
+                  type="button"
+                  onClick={() => setFailedResumesDrawerOpen(true)}
+                  className={`relative flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold shadow-sm transition-colors ${
+                    failedBulkResumeCount > 0
+                      ? 'border-red-200 bg-red-50 text-red-800 hover:bg-red-100'
+                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  <AlertCircle size={16} className={failedBulkResumeCount > 0 ? 'text-red-600' : 'text-slate-500'} />
+                  Failed resumes
+                  {failedBulkResumeCount > 0 ? (
+                    <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white">
+                      {failedBulkResumeCount > 99 ? '99+' : failedBulkResumeCount}
+                    </span>
+                  ) : null}
                 </button>
               )}
               {canCreateCandidate && (
@@ -1823,7 +1891,29 @@ function CandidatesPageContent() {
         currentUser={currentUser || { _id: '', name: 'You', email: '', role: 'RECRUITER' }}
         initialTab={candidateDrawerInitialTab}
         showMethodTabs={false}
+        pendingBulkRetryFile={pendingBulkRetryFile}
+        onBulkRetryFileConsumed={handleBulkRetryFileConsumed}
       />
+
+      {canCreateCandidate ? (
+        <FailedBulkResumesDrawer
+          isOpen={failedResumesDrawerOpen}
+          onClose={() => setFailedResumesDrawerOpen(false)}
+          onReupload={handleFailedResumeReupload}
+        />
+      ) : null}
+
+      {canDeleteCandidate && (
+        <ModuleRecycleBinDrawer
+          isOpen={recycleBinModuleOpen}
+          onClose={() => setRecycleBinModuleOpen(false)}
+          kind="candidates"
+          onRestored={() => {
+            void loadCandidates({ silent: true });
+            refreshStats();
+          }}
+        />
+      )}
 
       {canUpdateCandidate && bulkMoveStageOpen ? (
         <div className="fixed inset-0 z-[120] flex items-center justify-center px-4">
