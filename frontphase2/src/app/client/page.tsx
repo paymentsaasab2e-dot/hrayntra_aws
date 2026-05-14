@@ -8,16 +8,9 @@ import {
   Upload,
   Download,
   RefreshCcw,
-  MoreVertical,
   Search,
   Filter,
-  Grid2x2,
-  List,
   Building2,
-  AlertCircle,
-  X,
-  Trash2,
-  UserPlus,
   BadgeCheck,
   Users,
   Briefcase,
@@ -25,6 +18,7 @@ import {
   Flame,
   FolderOpen,
   Inbox,
+  XCircle,
 } from 'lucide-react';
 import { downloadCsv, csvDate } from '../../utils/csv';
 import { formatDateDMY } from '../../utils/dateDisplay';
@@ -54,6 +48,10 @@ import { TableSkeleton } from '../../components/ui/Skeleton';
 // Force client-side render so the page hydrates skeletons before the data fetch
 // resolves — every interactive bit on this tab is client-driven anyway.
 export const dynamic = 'force-dynamic';
+
+/** Toolbar selects / filter chip — matches Leads page for one visual system. */
+const CLIENT_TOOLBAR_SELECT =
+  'rounded-lg border border-indigo-100/90 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 cursor-pointer hover:border-indigo-200/90 hover:bg-indigo-50/40';
 
 function filterClientsByTab(clients: Client[], activeTab: string): Client[] {
   switch (activeTab) {
@@ -92,15 +90,15 @@ const StatusCards = ({
     color: SummaryCardColor;
     icon: React.ReactNode;
   }> = [
-    { id: 'all', label: 'All Clients', count: counts.all, color: 'indigo', icon: <FolderOpen size={18} strokeWidth={2.35} /> },
-    { id: 'active', label: 'Active', count: counts.active, color: 'blue', icon: <Users size={18} strokeWidth={2.35} /> },
-    { id: 'on-hold', label: 'On Hold', count: counts['on-hold'], color: 'orange', icon: <Briefcase size={18} strokeWidth={2.35} /> },
-    { id: 'inactive', label: 'Inactive', count: counts.inactive, color: 'gray', icon: <BadgeInfo size={18} strokeWidth={2.35} /> },
-    { id: 'hot', label: 'Hot', count: counts.hot, color: 'purple', icon: <Flame size={18} strokeWidth={2.35} /> },
+    { id: 'all', label: 'All Clients', count: counts.all, color: 'indigo', icon: <FolderOpen size={16} strokeWidth={2.35} /> },
+    { id: 'active', label: 'Active', count: counts.active, color: 'blue', icon: <Users size={16} strokeWidth={2.35} /> },
+    { id: 'on-hold', label: 'On Hold', count: counts['on-hold'], color: 'orange', icon: <Briefcase size={16} strokeWidth={2.35} /> },
+    { id: 'inactive', label: 'Inactive', count: counts.inactive, color: 'gray', icon: <BadgeInfo size={16} strokeWidth={2.35} /> },
+    { id: 'hot', label: 'Hot', count: counts.hot, color: 'purple', icon: <Flame size={16} strokeWidth={2.35} /> },
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-3 mb-6 sm:grid-cols-3 lg:grid-cols-5 lg:gap-4">
+    <div className="grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-3 lg:grid-cols-5 mb-5">
       {cards.map((card) => (
         <SummaryCard
           key={card.id}
@@ -118,7 +116,7 @@ const StatusCards = ({
 
 /** Skeleton mirror of the StatusCards strip — used while clients fetch. */
 const StatusCardsSkeleton = () => (
-  <div className="grid grid-cols-2 gap-3 mb-6 sm:grid-cols-3 lg:grid-cols-5 lg:gap-4">
+  <div className="grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-3 lg:grid-cols-5 mb-5">
     {(['indigo', 'blue', 'orange', 'gray', 'purple'] as SummaryCardColor[]).map((color, i) => (
       <SummaryCardSkeleton key={i} color={color} />
     ))}
@@ -577,56 +575,65 @@ export default function App() {
     toast.success(`Exported ${rowsToExport.length} client${rowsToExport.length === 1 ? '' : 's'} to CSV`);
   };
 
+  const handleClearToolbar = useCallback(() => {
+    setCurrentPage(1);
+    setSearchQuery('');
+    setDebouncedSearchQuery('');
+    setAdvancedFilters(DEFAULT_CLIENT_FILTERS);
+    setActiveTab('all');
+  }, []);
+
   return (
-    <div className="w-full min-h-screen bg-slate-50">
-      <div className="mx-auto w-full max-w-7xl p-6 sm:p-8">
-        <div className="mb-8 flex flex-col justify-between gap-4 md:flex-row md:items-start">
-          <div className="flex items-start gap-3 sm:gap-4">
-            <div className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-500/20 text-blue-600 sm:h-12 sm:w-12">
-              <Building2 className="h-6 w-6" strokeWidth={2.25} />
+    <div className="w-full min-h-screen overflow-hidden text-slate-900">
+      <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <header className="min-h-[4.5rem] flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-3 shrink-0 border-b border-indigo-100/50 bg-white/80 backdrop-blur-md shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)]">
+          <div className="flex items-start gap-2.5 sm:gap-3">
+            <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20">
+              <Building2 className="h-5 w-5" strokeWidth={2.2} />
             </div>
             <div>
-              <p className="mb-0.5 text-xs font-bold uppercase tracking-wider text-slate-400">Recruitment Hub / CRM</p>
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Clients</h1>
-              <p className="mt-1 max-w-lg text-sm text-slate-500">
+              <h1 className="text-xl sm:text-[1.35rem] font-bold tracking-tight text-slate-900 leading-tight">Clients</h1>
+              <p className="text-xs text-slate-500 max-w-xl">
                 Manage your client relationships, track stages, and open roles in one place.
               </p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2 md:gap-3">
+          <div className="flex items-center gap-2">
             {canOpenClientTrash && (
               <button
                 type="button"
                 onClick={() => setRecycleBinDrawerOpen(true)}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98]"
                 title="Deleted clients"
               >
-                <Inbox className="h-5 w-5" strokeWidth={2} />
+                <Inbox size={17} strokeWidth={2.25} />
               </button>
             )}
             <button
               type="button"
               onClick={handleRefresh}
               disabled={loading}
-              className="rounded-lg border border-slate-200 bg-white p-2.5 text-slate-600 shadow-sm transition-colors hover:bg-slate-50 disabled:opacity-60"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98] disabled:opacity-50"
               title="Refresh"
             >
-              <RefreshCcw className={`h-5 w-5 ${loading ? 'animate-spin' : ''}`} strokeWidth={2} />
+              <RefreshCcw size={16} strokeWidth={2.25} className={loading ? 'animate-spin' : ''} />
             </button>
             <button
               type="button"
               onClick={handleExportClientsCsv}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+              className="bg-white hover:bg-indigo-50/90 text-indigo-900 px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] border border-indigo-200/70 hover:border-indigo-300 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
               title="Export visible clients to CSV"
             >
-              <Download className="h-4 w-4 text-slate-600" strokeWidth={2} /> Export
+              <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
+              <span>Export</span>
             </button>
             <button
               type="button"
               onClick={() => setShowImportDrawer(true)}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+              className="bg-white hover:bg-indigo-50/90 text-indigo-900 px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] border border-indigo-200/70 hover:border-indigo-300 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
             >
-              <Upload className="h-4 w-4 text-slate-600" strokeWidth={2} /> Import
+              <Upload size={16} className="text-indigo-600" strokeWidth={2.25} />
+              <span>Import</span>
             </button>
             <button
               type="button"
@@ -634,189 +641,232 @@ export default function App() {
                 setSelectedClient(null);
                 setShowAddClientDrawer(true);
               }}
-              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
+              className="bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 text-white px-3.5 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-lg shadow-indigo-500/30 active:scale-[0.98]"
             >
-              <Plus className="h-5 w-5" strokeWidth={2.5} /> Add Client
+              <Plus size={16} className="text-white" strokeWidth={2.5} />
+              <span>Add Client</span>
             </button>
           </div>
-        </div>
+        </header>
 
-        <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-center">
-          <div className="relative min-w-0 flex-1">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" strokeWidth={2} />
-            <input
-              type="text"
-              placeholder="Search by client name..."
-              value={searchQuery}
-              onChange={(e) => {
-                setCurrentPage(1);
-                setSearchQuery(e.target.value);
-              }}
-              className="h-11 w-full rounded-lg border border-slate-200 bg-white pl-10 pr-4 text-sm text-slate-800 shadow-sm placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-            />
-          </div>
-          <button
-            type="button"
-            onClick={() => setIsFilterOpen(true)}
-            className={`inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-lg border px-4 text-sm font-semibold shadow-sm transition-colors ${
-              filtersActive
-                ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
-                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-            }`}
-          >
-            <Filter className={`h-4 w-4 ${filtersActive ? 'text-blue-600' : 'text-slate-600'}`} strokeWidth={2} />
-            Filter
-            {filtersActive && (
-              <span className="ml-1 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-blue-600 px-1.5 text-[10px] font-bold text-white">
-                ON
-              </span>
-            )}
-          </button>
-        </div>
+        <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
+          {loading ? <StatusCardsSkeleton /> : <StatusCards activeTab={activeTab} onTabChange={setActiveTab} counts={tabCounts} />}
 
-        {loading ? <StatusCardsSkeleton /> : (
-          <StatusCards activeTab={activeTab} onTabChange={setActiveTab} counts={tabCounts} />
-        )}
-
-        {loading ? (
-          <TableSkeleton rows={8} columns={7} />
-        ) : error && !loading ? (
-          <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-sm font-medium text-red-600 shadow-sm">
-            Error: {error}
-          </div>
-        ) : isEmpty ? (
-          <EmptyState
-            onImportClick={() => setShowImportDrawer(true)}
-            onCreateClick={() => {
-              setSelectedClient(null);
-              setShowAddClientDrawer(true);
-            }}
-          />
-        ) : (
-          <>
-           
-            
-            <ClientTable
-              clients={pagedClients}
-              selectedIds={selectedClients}
-              onSelectionChange={setSelectedClients}
-              onSelectClient={(client) => {
-                setSelectedClientDrawerMode('view');
-                setSelectedClient(client);
-              }}
-              onEditClient={(client) => {
-                setSelectedClientDrawerMode('edit');
-                setSelectedClient(client);
-              }}
-              onDeleteClient={handleDeleteClient}
-              onLogoUpdated={handleRefresh}
-              canCreateJob={canCreateJob}
-              onCreateJob={(client) => {
-                if (!canCreateJob) {
-                  toast.error("You don't have permission to create jobs.");
-                  return;
-                }
-                setClientIdForJob(client.id);
-                setShowCreateJobDrawer(true);
-              }}
-              clientNameSortOrder={clientNameSortOrder}
-              onToggleClientNameSortOrder={() => {
-                setClientNameSortOrder((current) => (current === 'asc' ? 'desc' : 'asc'));
-              }}
-            />
-
-            <div className="mt-4 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-              <PaginationAll
-                initialPage={currentPage}
-                totalPages={Math.max(1, Math.ceil(sortedClients.length / DISPLAY_PAGE_SIZE))}
-                totalCount={sortedClients.length}
-                pageSize={DISPLAY_PAGE_SIZE}
-                itemLabel="clients"
-                onPageChange={setCurrentPage}
-              />
+          {loading ? (
+            <div className="mb-4 overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm">
+              <div className="border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 p-3 sm:p-4">
+                <div className="h-9 max-w-md rounded-xl bg-white/80 ring-1 ring-indigo-100/80 animate-pulse" />
+              </div>
+              <TableSkeleton rows={8} columns={7} />
             </div>
-          </>
-        )}
-      </div>
+          ) : error && !loading ? (
+            <div className="mb-4 overflow-hidden rounded-xl border border-rose-200/70 bg-white p-8 text-center text-xs font-medium text-rose-600 shadow-sm">
+              Error: {error}
+            </div>
+          ) : isEmpty ? (
+            <EmptyState
+              onImportClick={() => setShowImportDrawer(true)}
+              onCreateClick={() => {
+                setSelectedClient(null);
+                setShowAddClientDrawer(true);
+              }}
+            />
+          ) : (
+            <div className="mb-4 overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm transition-shadow hover:shadow-[0_16px_48px_-14px_rgba(79,70,229,0.16)]">
+              <div className="p-3 sm:p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20">
+                <div className="relative w-full lg:max-w-md lg:flex-1">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400" size={16} strokeWidth={2.25} />
+                  <input
+                    type="text"
+                    placeholder="Search by client name..."
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setCurrentPage(1);
+                      setSearchQuery(e.target.value);
+                    }}
+                    className="w-full h-9 pl-10 pr-3 bg-white/95 border border-indigo-100/90 rounded-xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-300 transition-all [box-shadow:inset_0_1px_2px_rgba(15,23,42,0.04)]"
+                  />
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                  <select
+                    className={CLIENT_TOOLBAR_SELECT}
+                    value={activeTab}
+                    onChange={(e) => {
+                      setCurrentPage(1);
+                      setActiveTab(e.target.value);
+                    }}
+                  >
+                    <option value="all">All stages</option>
+                    <option value="active">Active</option>
+                    <option value="on-hold">On hold</option>
+                    <option value="inactive">Inactive</option>
+                    <option value="hot">Hot</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setIsFilterOpen(true)}
+                    className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 font-semibold text-xs shadow-sm transition-colors ${
+                      filtersActive
+                        ? 'border-indigo-300 bg-indigo-100/70 text-indigo-900 hover:bg-indigo-100'
+                        : 'border-indigo-100/90 bg-white/95 text-slate-800 hover:bg-indigo-50/40'
+                    }`}
+                  >
+                    <Filter className={`h-3.5 w-3.5 shrink-0 ${filtersActive ? 'text-indigo-600' : 'text-slate-600'}`} strokeWidth={2.25} />
+                    Filter
+                    {filtersActive && (
+                      <span className="inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-indigo-600 px-1 text-[9px] font-bold text-white">
+                        ON
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    className="text-xs text-rose-600 hover:text-rose-700 font-semibold px-2 py-1.5 rounded-lg hover:bg-rose-50 flex items-center gap-1 transition-colors"
+                    onClick={handleClearToolbar}
+                  >
+                    <XCircle size={15} className="text-rose-500 shrink-0" strokeWidth={2.35} />
+                    Clear
+                  </button>
+                </div>
+              </div>
 
-      <ClientDetailsDrawer
-        client={selectedClient}
-        isAddMode={showAddClientDrawer}
-        initialMode={selectedClientDrawerMode}
-        onClose={() => {
-          setSelectedClient(null);
-          setSelectedClientDrawerMode('view');
-          setShowAddClientDrawer(false);
-          if (searchParams.get('clientId')) {
-            const sp = new URLSearchParams(searchParams.toString());
-            sp.delete('clientId');
-            pendingDeepLinkClientIdRef.current = null;
-            const qs = sp.toString();
-            router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-          }
-        }}
-        onDelete={(id) => { setSelectedClient(null); handleDeleteClient(id); }}
-        onClientCreated={() => {
-          setShowAddClientDrawer(false);
-          setSelectedClient(null);
-          setActiveTab('all');
-          setSelectedClients([]);
-          setSearchQuery('');
-          setDebouncedSearchQuery('');
-          setCurrentPage(1);
-          void fetchClients({ page: 1, search: '' });
-        }}
-        onJobCreated={handleRefresh}
-      />
-      <CreateJobDrawer
-        isOpen={showCreateJobDrawer}
-        onClose={() => { setShowCreateJobDrawer(false); setClientIdForJob(null); }}
-        onJobCreated={() => { setShowCreateJobDrawer(false); setClientIdForJob(null); handleRefresh(); }}
-        defaultClientId={clientIdForJob}
-      />
-      <ClientFilterDrawer
-        isOpen={isFilterOpen}
-        value={advancedFilters}
-        industryOptions={industryOptions}
-        currentUserName={currentUserName}
-        onApply={(next) => setAdvancedFilters(next)}
-        onClose={() => setIsFilterOpen(false)}
-      />
-      <ClientImportDrawer
-        isOpen={showImportDrawer}
-        onClose={() => setShowImportDrawer(false)}
-        onImportComplete={(result) => {
-          setActiveTab('all');
-          setSelectedClients([]);
-          setSearchQuery('');
-          setDebouncedSearchQuery('');
-          setCurrentPage(1);
-          void fetchClients({ page: 1, search: '' });
-          const created = result.created || 0;
-          const updated = result.updated || 0;
-          const skipped = result.skipped || 0;
-          const failed = result.failed || 0;
-          const parts = [];
-          if (created > 0) parts.push(`${created} created`);
-          if (updated > 0) parts.push(`${updated} updated`);
-          if (skipped > 0) parts.push(`${skipped} skipped`);
-          if (failed > 0) parts.push(`${failed} failed`);
-          toast.success(
-            parts.length > 0
-              ? `Clients imported successfully (${parts.join(', ')})`
-              : 'Clients imported successfully'
-          );
-        }}
-      />
+              <div className="overflow-hidden">
+                <div className="no-scrollbar overflow-x-auto">
+                  <ClientTable
+                    clients={pagedClients}
+                    selectedIds={selectedClients}
+                    onSelectionChange={setSelectedClients}
+                    onSelectClient={(client) => {
+                      setSelectedClientDrawerMode('view');
+                      setSelectedClient(client);
+                    }}
+                    onEditClient={(client) => {
+                      setSelectedClientDrawerMode('edit');
+                      setSelectedClient(client);
+                    }}
+                    onDeleteClient={handleDeleteClient}
+                    onLogoUpdated={handleRefresh}
+                    canCreateJob={canCreateJob}
+                    onCreateJob={(client) => {
+                      if (!canCreateJob) {
+                        toast.error("You don't have permission to create jobs.");
+                        return;
+                      }
+                      setClientIdForJob(client.id);
+                      setShowCreateJobDrawer(true);
+                    }}
+                    clientNameSortOrder={clientNameSortOrder}
+                    onToggleClientNameSortOrder={() => {
+                      setClientNameSortOrder((current) => (current === 'asc' ? 'desc' : 'asc'));
+                    }}
+                  />
+                </div>
+              </div>
 
-      {canOpenClientTrash && (
-        <ModuleRecycleBinDrawer
-          isOpen={recycleBinDrawerOpen}
-          onClose={() => setRecycleBinDrawerOpen(false)}
-          kind="clients"
-          onRestored={() => void handleRefresh()}
+              <div className="mt-0 w-full border-t border-indigo-100/50 bg-gradient-to-r from-slate-50/40 via-white to-indigo-50/25 px-3 py-2 sm:px-4">
+                <PaginationAll
+                  initialPage={currentPage}
+                  totalPages={Math.max(1, Math.ceil(sortedClients.length / DISPLAY_PAGE_SIZE))}
+                  totalCount={sortedClients.length}
+                  pageSize={DISPLAY_PAGE_SIZE}
+                  itemLabel="clients"
+                  onPageChange={setCurrentPage}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        <ClientDetailsDrawer
+          client={selectedClient}
+          isAddMode={showAddClientDrawer}
+          initialMode={selectedClientDrawerMode}
+          onClose={() => {
+            setSelectedClient(null);
+            setSelectedClientDrawerMode('view');
+            setShowAddClientDrawer(false);
+            if (searchParams.get('clientId')) {
+              const sp = new URLSearchParams(searchParams.toString());
+              sp.delete('clientId');
+              pendingDeepLinkClientIdRef.current = null;
+              const qs = sp.toString();
+              router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+            }
+          }}
+          onDelete={(id) => {
+            setSelectedClient(null);
+            handleDeleteClient(id);
+          }}
+          onClientCreated={() => {
+            setShowAddClientDrawer(false);
+            setSelectedClient(null);
+            setActiveTab('all');
+            setSelectedClients([]);
+            setSearchQuery('');
+            setDebouncedSearchQuery('');
+            setCurrentPage(1);
+            void fetchClients({ page: 1, search: '' });
+          }}
+          onJobCreated={handleRefresh}
         />
-      )}
+        <CreateJobDrawer
+          isOpen={showCreateJobDrawer}
+          onClose={() => {
+            setShowCreateJobDrawer(false);
+            setClientIdForJob(null);
+          }}
+          onJobCreated={() => {
+            setShowCreateJobDrawer(false);
+            setClientIdForJob(null);
+            handleRefresh();
+          }}
+          defaultClientId={clientIdForJob}
+        />
+        <ClientFilterDrawer
+          isOpen={isFilterOpen}
+          value={advancedFilters}
+          industryOptions={industryOptions}
+          currentUserName={currentUserName}
+          onApply={(next) => setAdvancedFilters(next)}
+          onClose={() => setIsFilterOpen(false)}
+        />
+        <ClientImportDrawer
+          isOpen={showImportDrawer}
+          onClose={() => setShowImportDrawer(false)}
+          onImportComplete={(result) => {
+            setActiveTab('all');
+            setSelectedClients([]);
+            setSearchQuery('');
+            setDebouncedSearchQuery('');
+            setCurrentPage(1);
+            void fetchClients({ page: 1, search: '' });
+            const created = result.created || 0;
+            const updated = result.updated || 0;
+            const skipped = result.skipped || 0;
+            const failed = result.failed || 0;
+            const parts = [];
+            if (created > 0) parts.push(`${created} created`);
+            if (updated > 0) parts.push(`${updated} updated`);
+            if (skipped > 0) parts.push(`${skipped} skipped`);
+            if (failed > 0) parts.push(`${failed} failed`);
+            toast.success(
+              parts.length > 0
+                ? `Clients imported successfully (${parts.join(', ')})`
+                : 'Clients imported successfully'
+            );
+          }}
+        />
+
+        {canOpenClientTrash && (
+          <ModuleRecycleBinDrawer
+            isOpen={recycleBinDrawerOpen}
+            onClose={() => setRecycleBinDrawerOpen(false)}
+            kind="clients"
+            onRestored={() => void handleRefresh()}
+          />
+        )}
+
+      </main>
 
       {selectedClients.length > 0 && (
         <div className="fixed bottom-6 left-1/2 z-40 w-[min(94vw,980px)] -translate-x-1/2 rounded-2xl border border-slate-800 bg-slate-950/95 px-4 py-3 text-white shadow-2xl backdrop-blur">

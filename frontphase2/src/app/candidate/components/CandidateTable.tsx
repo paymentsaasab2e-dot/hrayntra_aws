@@ -90,12 +90,12 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
   const allSelected = candidates.length > 0 && selectedIds.length === candidates.length;
 
   return (
-    <div className="bg-white overflow-hidden">
+    <div className="overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse">
-          <thead className="bg-slate-50 border-b border-slate-200">
-            <tr>
-              <th className="px-6 py-4 w-10">
+        <table className="w-full min-w-[760px] border-collapse text-left">
+          <thead>
+            <tr className="sticky top-0 z-10 border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-[9px] font-bold uppercase tracking-[0.12em] text-indigo-950/45">
+              <th className="w-10 px-3 py-2 first:pl-4 sm:px-4">
                 <input 
                   type="checkbox" 
                   checked={allSelected}
@@ -103,23 +103,23 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                   className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                 />
               </th>
-              <th className="px-4 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Candidate Name</th>
-              <th className="px-4 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Designation / Company</th>
-              <th className="px-4 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-center">Exp</th>
-              <th className="px-4 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Location</th>
-              <th className="px-4 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Assigned Job</th>
-              <th className="px-4 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Stage</th>
-              <th className="px-4 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Owner</th>
-              <th className="px-4 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Quick Actions</th>
+              <th className="px-3 py-2 sm:px-4">Candidate</th>
+              <th className="px-3 py-2 sm:px-4">Role / company</th>
+              <th className="px-3 py-2 text-center sm:px-4">Exp</th>
+              <th className="px-3 py-2 sm:px-4">Location</th>
+              <th className="px-3 py-2 sm:px-4">Assigned job</th>
+              <th className="px-3 py-2 sm:px-4">Stage</th>
+              <th className="px-3 py-2 sm:px-4">Owner</th>
+              <th className="px-3 py-2 text-right sm:px-4">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-slate-100/80">
             {candidates.map((candidate) => (
               <tr 
                 key={candidate.id} 
-                className={`hover:bg-slate-50/80 transition-colors ${selectedIds.includes(candidate.id) ? 'bg-blue-50/50' : ''}`}
+                className={`transition-colors duration-200 hover:bg-indigo-50/45 ${selectedIds.includes(candidate.id) ? 'bg-indigo-50/90' : 'even:bg-slate-50/35'}`}
               >
-                <td className="px-6 py-4">
+                <td className="px-3 py-2.5 first:pl-4 sm:px-4 sm:py-3">
                   <input 
                     type="checkbox" 
                     checked={selectedIds.includes(candidate.id)}
@@ -127,7 +127,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                     className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                   />
                 </td>
-                <td className="px-4 py-4">
+                <td className="px-3 py-2.5 sm:px-4 sm:py-3">
                   <div className="flex items-center gap-3">
                     <div className="relative">
                       <ImageWithFallback 
@@ -159,22 +159,22 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                     </div>
                   </div>
                 </td>
-                <td className="px-4 py-4">
+                <td className="px-3 py-2.5 sm:px-4 sm:py-3">
                   <div>
                     <p className="text-sm text-slate-700 font-medium truncate max-w-[130px]">{candidate.designation}</p>
                     <p className="text-xs text-slate-500 truncate max-w-[130px]">{candidate.company}</p>
                   </div>
                 </td>
-                <td className="px-4 py-4 text-center">
+                <td className="px-3 py-2.5 text-center sm:px-4 sm:py-3">
                   <span className="text-sm font-medium text-slate-600">{candidate.experience}y</span>
                 </td>
-                <td className="px-4 py-4">
+                <td className="px-3 py-2.5 sm:px-4 sm:py-3">
                   <div className="flex items-center gap-1.5 text-slate-500">
                     <MapPin size={14} className="shrink-0" />
                     <span className="text-sm truncate max-w-[100px]">{candidate.location}</span>
                   </div>
                 </td>
-                <td className="px-4 py-4">
+                <td className="px-3 py-2.5 sm:px-4 sm:py-3">
                   <div className="flex items-center gap-2">
                     <Briefcase size={14} className="text-slate-400 shrink-0" />
                     <p className="text-sm text-slate-600 truncate max-w-[120px] font-medium">
@@ -182,7 +182,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                     </p>
                   </div>
                 </td>
-                <td className="px-4 py-4">
+                <td className="px-3 py-2.5 sm:px-4 sm:py-3">
                   {/* Stage is read-only on the list — recruiters change it from the candidate
                       edit drawer / profile drawer instead of inline. Keeping it as a chip avoids
                       accidental moves and matches the rest of the row's look-and-feel. */}
@@ -192,7 +192,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                     {getCandidateStageLabel(candidate.stage)}
                   </span>
                 </td>
-                <td className="px-4 py-4">
+                <td className="px-3 py-2.5 sm:px-4 sm:py-3">
                   <div className="flex items-center gap-2">
                     <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-[10px] font-bold">
                       {candidate.owner.split(' ').map(n => n[0]).join('')}
@@ -200,7 +200,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                     <span className="text-sm text-slate-600 truncate max-w-[80px]">{candidate.owner}</span>
                   </div>
                 </td>
-                <td className="px-4 py-4 text-right">
+                <td className="px-3 py-2.5 text-right sm:px-4 sm:py-3">
                   {/* Colored action icons — matches the design used on the
                       Leads / Clients tabs so each verb has its own hue:
                       view = blue, message = emerald, edit = amber,

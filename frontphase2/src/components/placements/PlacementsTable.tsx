@@ -19,6 +19,7 @@ import {
 } from '../../utils/placements';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import PaginationAll from '../PaginationAll';
+import { TableSkeleton } from '../ui/Skeleton';
 
 interface PlacementsTableProps {
   data: Placement[];
@@ -38,6 +39,8 @@ interface PlacementsTableProps {
   onRequestReplacement?: (placement: Placement) => void;
   onDelete?: (placement: Placement) => void;
   onPageChange: (page: number) => void;
+  /** Parent provides frosted card + footer pagination (Leads-style). */
+  embedded?: boolean;
 }
 
 function SortableHeader({
@@ -233,6 +236,7 @@ export function PlacementsTable({
   onRequestReplacement,
   onDelete,
   onPageChange,
+  embedded = false,
 }: PlacementsTableProps) {
   // Offer-letter URLs returned by the backend look like `/uploads/...` —
   // they're served from the API host, not the Next.js dev origin. Resolve
@@ -248,6 +252,9 @@ export function PlacementsTable({
   );
 
   if (isLoading) {
+    if (embedded) {
+      return <TableSkeleton rows={8} columns={6} />;
+    }
     return (
       <div className="overflow-hidden rounded-xl bg-white shadow-sm">
         <div className="space-y-3 p-6">
@@ -260,6 +267,14 @@ export function PlacementsTable({
   }
 
   if (!data.length) {
+    if (embedded) {
+      return (
+        <div className="px-4 py-14 text-center">
+          <p className="text-sm font-semibold text-slate-800">No placements found</p>
+          <p className="mt-1 text-xs text-slate-500">Try adjusting filters or add a manual placement.</p>
+        </div>
+      );
+    }
     return (
       <div className="rounded-xl border border-dashed border-gray-300 bg-white px-6 py-12 text-center shadow-sm">
         <p className="text-lg font-semibold text-[#111827]">No placements found</p>
@@ -268,35 +283,45 @@ export function PlacementsTable({
     );
   }
 
+  const outerWrap = embedded ? 'overflow-hidden' : 'overflow-hidden rounded-xl bg-white shadow-sm';
+  const theadRow = embedded
+    ? 'sticky top-0 z-10 border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-[9px] font-bold uppercase tracking-[0.12em] text-indigo-950/45'
+    : 'bg-gray-50 text-xs font-medium uppercase tracking-wide text-gray-500';
+  const thPad = embedded ? 'px-3 py-2 sm:px-4' : 'px-6 py-4';
+  const tdPad = embedded ? 'px-3 py-2.5 sm:px-4' : 'px-6 py-4';
+  const rowClass = embedded
+    ? 'border-b border-slate-100/90 transition-colors duration-200 even:bg-slate-50/35 hover:bg-indigo-50/45'
+    : 'border-b border-gray-100 transition-colors hover:bg-gray-50';
+
   return (
-    <div className="overflow-hidden rounded-xl bg-white shadow-sm">
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-left">
-          <thead className="bg-gray-50 text-xs font-medium uppercase tracking-wide text-gray-500">
-            <tr>
-              <th className="px-6 py-4">Candidate</th>
-              <th className="px-6 py-4">Client / Job</th>
-              <th className="px-6 py-4">Recruiter</th>
-              <th className="px-6 py-4">
+    <div className={outerWrap}>
+      <div className={embedded ? 'no-scrollbar overflow-x-auto' : 'overflow-x-auto'}>
+        <table className="min-w-full border-collapse text-left">
+          <thead>
+            <tr className={theadRow}>
+              <th className={thPad}>Candidate</th>
+              <th className={thPad}>Client / Job</th>
+              <th className={thPad}>Recruiter</th>
+              <th className={thPad}>
                 <SortableHeader label="Offer Date" column="offerDate" sortBy={sortBy} onSort={onSort} />
               </th>
-              <th className="px-6 py-4">
+              <th className={thPad}>
                 <SortableHeader label="Joining Date" column="joiningDate" sortBy={sortBy} onSort={onSort} />
               </th>
-              <th className="px-6 py-4">Type</th>
-              <th className="px-6 py-4">Status</th>
-              <th className="px-6 py-4 text-right">Actions</th>
+              <th className={thPad}>Type</th>
+              <th className={thPad}>Status</th>
+              <th className={`${thPad} text-right`}>Actions</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className={embedded ? 'divide-y divide-slate-100/80' : undefined}>
             {data.map((placement) => {
               const statusStyle = getStatusBadgeStyle(placement.status);
               const typeStyle = getEmploymentTypeBadgeStyle(placement.employmentType);
               const canMarkJoinedStatus = ['OFFER_ACCEPTED', 'JOINING_SCHEDULED'].includes(placement.status);
 
               return (
-                <tr key={placement.id} className="border-b border-gray-100 transition-colors hover:bg-gray-50">
-                  <td className="px-6 py-4">
+                <tr key={placement.id} className={rowClass}>
+                  <td className={tdPad}>
                     <div className="flex items-center gap-3">
                       <div className="h-10 w-10 overflow-hidden rounded-full border border-gray-200">
                         <ImageWithFallback
@@ -313,11 +338,6 @@ export function PlacementsTable({
                         >
                           {`${placement.candidate.firstName} ${placement.candidate.lastName}`.trim()}
                         </button>
-                        {/* Only surface the payment status when it carries real signal
-                            (PAID / OVERDUE). The placement lifecycle (Offer Accepted
-                            → Joined → …) already lives in the Status column on the
-                            right, so we no longer render a default "PENDING" chip
-                            that lingers even after the candidate joins. */}
                         {placement.paymentStatus === 'PAID' || placement.paymentStatus === 'OVERDUE' ? (
                           <div className="mt-1">
                             <span
@@ -335,30 +355,30 @@ export function PlacementsTable({
                     </div>
                   </td>
 
-                  <td className="px-6 py-4">
+                  <td className={tdPad}>
                     <div>
                       <p className="font-medium text-[#111827]">{placement.client.companyName}</p>
                       <p className="text-sm text-[#6B7280]">{placement.job.title}</p>
                     </div>
                   </td>
 
-                  <td className="px-6 py-4 text-sm text-[#111827]">{placement.recruiter?.name || '—'}</td>
-                  <td className="px-6 py-4 text-sm text-[#111827]">{formatPlacementDate(placement.offerDate)}</td>
-                  <td className="px-6 py-4 text-sm text-[#111827]">{formatPlacementDate(placement.joiningDate)}</td>
+                  <td className={`${tdPad} text-sm text-[#111827]`}>{placement.recruiter?.name || '—'}</td>
+                  <td className={`${tdPad} text-sm text-[#111827]`}>{formatPlacementDate(placement.offerDate)}</td>
+                  <td className={`${tdPad} text-sm text-[#111827]`}>{formatPlacementDate(placement.joiningDate)}</td>
 
-                  <td className="px-6 py-4">
+                  <td className={tdPad}>
                     <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${typeStyle.bg} ${typeStyle.text}`}>
                       {placement.employmentType || '—'}
                     </span>
                   </td>
 
-                  <td className="px-6 py-4">
+                  <td className={tdPad}>
                     <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusStyle.bg} ${statusStyle.text}`}>
                       {getPlacementStatusLabel(placement.status)}
                     </span>
                   </td>
 
-                  <td className="px-6 py-4">
+                  <td className={tdPad}>
                     <div className="flex items-center justify-end gap-1" onClick={(event) => event.stopPropagation()}>
                       <button
                         type="button"
@@ -411,16 +431,18 @@ export function PlacementsTable({
         </table>
       </div>
 
-      <div className="flex w-full items-center border-t border-gray-100 px-6 py-4">
-        <PaginationAll
-          initialPage={pagination.page}
-          totalPages={pagination.totalPages}
-          totalCount={pagination.total}
-          pageSize={pagination.limit}
-          itemLabel="placements"
-          onPageChange={onPageChange}
-        />
-      </div>
+      {!embedded ? (
+        <div className="flex w-full items-center border-t border-gray-100 px-6 py-4">
+          <PaginationAll
+            initialPage={pagination.page}
+            totalPages={pagination.totalPages}
+            totalCount={pagination.total}
+            pageSize={pagination.limit}
+            itemLabel="placements"
+            onPageChange={onPageChange}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

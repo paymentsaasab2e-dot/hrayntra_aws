@@ -527,6 +527,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
   const navScrollRef = useRef<HTMLDivElement>(null);
+  const asideRef = useRef<HTMLElement | null>(null);
   const searchTimerRef = useRef<number | null>(null);
   const searchRequestSeqRef = useRef(0);
   const hasRestoredScrollRef = useRef(false);
@@ -658,6 +659,62 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
       // Ignore storage failures.
     }
   };
+
+  // Keep wheel / trackpad scroll on the fixed sidebar from bubbling to `motion.main`
+  // (phase 2 shell uses overflow-y-auto on main). Native non-passive listener is required
+  // so preventDefault works at scroll boundaries and over the non-scroll footer.
+  useEffect(() => {
+    const aside = asideRef.current;
+    if (!aside) {
+      return;
+    }
+
+    const handleWheel = (e: WheelEvent) => {
+      const nav = navScrollRef.current;
+      if (!nav) {
+        e.preventDefault();
+        return;
+      }
+
+      // Horizontal trackpad scroll should not move the main surface horizontally.
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        e.preventDefault();
+        return;
+      }
+
+      const navRect = nav.getBoundingClientRect();
+      const overNav = e.clientY >= navRect.top && e.clientY <= navRect.bottom;
+
+      if (!overNav) {
+        e.preventDefault();
+        return;
+      }
+
+      const { scrollTop, scrollHeight, clientHeight } = nav;
+      const eps = 2;
+      const canScrollUp = scrollTop > eps;
+      const canScrollDown = scrollTop + clientHeight < scrollHeight - eps;
+      const hasOverflow = scrollHeight > clientHeight + eps;
+
+      if (!hasOverflow) {
+        e.preventDefault();
+        return;
+      }
+
+      const dy = e.deltaY;
+      if (dy < 0 && !canScrollUp) {
+        e.preventDefault();
+        return;
+      }
+      if (dy > 0 && !canScrollDown) {
+        e.preventDefault();
+        return;
+      }
+    };
+
+    aside.addEventListener('wheel', handleWheel, { passive: false });
+    return () => aside.removeEventListener('wheel', handleWheel);
+  }, []);
 
   useEffect(() => {
     let ignore = false;
@@ -1051,10 +1108,11 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
 
       {/* ── Sidebar ────────────────────────────────────────────────────── */}
       <motion.aside
+        ref={asideRef}
         initial={false}
         animate={{ width: SIDEBAR_W }}
         transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
-        className="fixed left-0 top-14 flex flex-col z-40 overflow-hidden"
+        className="ph2-sidenav-aside fixed left-0 top-14 flex flex-col z-40 overflow-hidden"
         style={{
           height: 'calc(100vh - 56px)',
           backgroundColor: '#0b1220',
@@ -1065,8 +1123,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
         <div
           ref={navScrollRef}
           onScroll={persistScrollPosition}
-          className="flex-1 overflow-y-auto overflow-x-hidden py-2"
-          style={{ scrollbarWidth: 'none' }}
+          className="sidenav-scrollbar flex-1 overflow-y-auto overflow-x-hidden py-2"
         >
           {/* Dashboard - always show */}
           <NavItem icon={LayoutDashboard} label="Dashboard" href="/dashboard" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="sky" />

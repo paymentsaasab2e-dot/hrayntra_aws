@@ -115,7 +115,7 @@ export function ClientTable({
   };
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+    <>
       <input
         ref={fileInputRef}
         type="file"
@@ -123,54 +123,56 @@ export function ClientTable({
         onChange={handleLogoFileChange}
         className="hidden"
       />
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-left">
+      <div className="no-scrollbar overflow-x-auto">
+        <table className="w-full min-w-[760px] border-collapse text-left">
           <thead>
-            <tr className="border-b border-slate-200 bg-slate-100/50">
-              <th className="w-10 px-4 py-4">
+            <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em]">
+              <th className="w-10 px-3 sm:px-4 py-2 first:pl-4">
                 <CustomCheckbox
                   checked={selectedIds.length === clients.length && clients.length > 0}
                   onChange={toggleSelectAll}
                 />
               </th>
-              <th className="px-4 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">
+              <th className="px-3 sm:px-4 py-2">
                 <button
                   type="button"
                   onClick={onToggleClientNameSortOrder}
-                  className="flex cursor-pointer items-center gap-1 transition-colors hover:text-slate-800"
+                  className="flex cursor-pointer items-center gap-1 text-indigo-950/55 transition-colors hover:text-indigo-900"
                   title={`Sort client names ${clientNameSortOrder === 'asc' ? 'descending' : 'ascending'}`}
                 >
                   <span>Client Name</span>
                   {clientNameSortOrder === 'asc' ? (
-                    <ArrowUp className="h-3.5 w-3.5 text-slate-400" strokeWidth={2.5} />
+                    <ArrowUp className="h-3 w-3 text-indigo-400/90" strokeWidth={2.5} />
                   ) : (
-                    <ArrowDown className="h-3.5 w-3.5 text-slate-400" strokeWidth={2.5} />
+                    <ArrowDown className="h-3 w-3 text-indigo-400/90" strokeWidth={2.5} />
                   )}
                 </button>
               </th>
-              <th className="px-4 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">Industry</th>
-              <th className="px-4 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">Location</th>
-              <th className="px-4 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">Stage</th>
-              <th className="px-4 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">Recruiter</th>
-              <th className="px-4 py-4 text-xs font-bold uppercase tracking-wider text-slate-500">Last Activity</th>
-              <th className="px-4 py-4 text-right text-xs font-bold uppercase tracking-wider text-slate-500">Actions</th>
+              <th className="px-3 sm:px-4 py-2">Industry</th>
+              <th className="px-3 sm:px-4 py-2">Location</th>
+              <th className="px-3 sm:px-4 py-2">Stage</th>
+              <th className="px-3 sm:px-4 py-2">Recruiter</th>
+              <th className="px-3 sm:px-4 py-2">Last Activity</th>
+              <th className="px-3 sm:px-4 py-2 text-right">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-slate-100/80">
             {clients.map((client) => (
               <tr
                 key={client.id}
-                className={`group transition-colors hover:bg-slate-50/90 ${selectedIds.includes(client.id) ? 'bg-blue-50/70' : ''}`}
+                className={`group transition-colors duration-200 even:bg-slate-50/35 hover:bg-indigo-50/45 ${
+                  selectedIds.includes(client.id) ? 'bg-indigo-50/90 hover:bg-indigo-50/95' : ''
+                }`}
               >
-                <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
+                <td className="px-3 sm:px-4 py-2" onClick={(e) => e.stopPropagation()}>
                   <CustomCheckbox
                     checked={selectedIds.includes(client.id)}
                     onChange={() => toggleSelect(client.id)}
                   />
                 </td>
-                <td className="px-4 py-4">
-                  <div className="flex items-center gap-3">
-                    <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-blue-500/10 group/logo">
+                <td className="px-3 sm:px-4 py-2">
+                  <div className="flex items-center gap-2.5">
+                    <div className="relative h-8 w-8 shrink-0 overflow-hidden rounded-full border border-slate-200/90 bg-gradient-to-br from-slate-100 to-slate-50 ring-1 ring-slate-200/80 group/logo">
                       <ImageWithFallback src={client.logo} alt={client.name} className="h-full w-full object-cover" />
                       <button
                         type="button"
@@ -192,7 +194,7 @@ export function ClientTable({
                       <button
                         type="button"
                         onClick={() => onSelectClient?.(client)}
-                        className="block truncate text-left text-sm font-semibold text-slate-900 transition-colors hover:text-blue-600"
+                        className="block truncate text-left text-xs font-semibold text-slate-900 transition-colors hover:text-indigo-700"
                         title="View client details"
                       >
                         {client.name}
@@ -200,43 +202,43 @@ export function ClientTable({
                     </div>
                   </div>
                 </td>
-                <td className="px-4 py-4 text-sm text-slate-600">{client.industry}</td>
-                <td className="px-4 py-4 text-sm text-slate-600">{client.location}</td>
-                <td className="px-4 py-4">
+                <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">{client.industry}</td>
+                <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">{client.location}</td>
+                <td className="px-3 sm:px-4 py-2">
                   <span
                     className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${stageColors[client.stage] ?? 'bg-slate-500/15 text-slate-700'}`}
                   >
                     {client.stage}
                   </span>
                 </td>
-                <td className="px-4 py-4">
+                <td className="px-3 sm:px-4 py-2">
                   <div className="flex items-center gap-2">
                     <ImageWithFallback
                       src={client.owner.avatar}
                       alt={client.owner.name}
-                      className="h-7 w-7 shrink-0 rounded-full border border-slate-200 object-cover"
+                      className="h-6 w-6 shrink-0 rounded-full border border-slate-200 object-cover"
                     />
-                    <span className="text-xs font-medium text-slate-700">{client.owner.name}</span>
+                    <span className="text-[11px] font-medium text-slate-700">{client.owner.name}</span>
                   </div>
                 </td>
-                <td className="px-4 py-4 text-xs text-slate-500">{client.lastActivity}</td>
-                <td className="px-4 py-4 text-right" onClick={(e) => e.stopPropagation()}>
-                  <div className="inline-flex items-center justify-end gap-1 rounded-lg border border-slate-200 bg-slate-50/80 p-1">
+                <td className="px-3 sm:px-4 py-2 text-[11px] text-slate-500">{client.lastActivity}</td>
+                <td className="px-3 sm:px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
+                  <div className="inline-flex items-center justify-end gap-0.5 rounded-xl bg-slate-100/70 p-0.5 ring-1 ring-slate-200/60">
                     <button
                       type="button"
                       onClick={() => onSelectClient?.(client)}
-                      className="flex h-8 w-8 items-center justify-center rounded-md border border-transparent bg-white text-blue-600 shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50"
+                      className="flex h-7 w-7 items-center justify-center rounded-lg text-blue-600 hover:bg-white hover:text-blue-700 hover:shadow-sm transition-all"
                       title="View Details"
                     >
-                      <Eye className="h-4 w-4" strokeWidth={2.25} />
+                      <Eye size={15} strokeWidth={2.35} />
                     </button>
                     <button
                       type="button"
                       onClick={() => onEditClient?.(client)}
-                      className="flex h-8 w-8 items-center justify-center rounded-md border border-transparent bg-white text-emerald-600 shadow-sm transition-colors hover:border-emerald-200 hover:bg-emerald-50"
+                      className="flex h-7 w-7 items-center justify-center rounded-lg text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
                       title="Edit Client"
                     >
-                      <Pencil className="h-4 w-4" strokeWidth={2.25} />
+                      <Pencil size={15} strokeWidth={2.35} />
                     </button>
                     <button
                       type="button"
@@ -245,24 +247,24 @@ export function ClientTable({
                         onCreateJob?.(client);
                       }}
                       disabled={!canCreateJob}
-                      className={`flex h-8 w-8 items-center justify-center rounded-md border border-transparent bg-white shadow-sm transition-colors ${
+                      className={`flex h-7 w-7 items-center justify-center rounded-lg transition-all ${
                         canCreateJob
-                          ? 'text-orange-500 hover:border-orange-200 hover:bg-orange-50'
+                          ? 'text-orange-600 hover:bg-white hover:text-orange-800 hover:shadow-sm'
                           : 'cursor-not-allowed text-slate-300'
                       }`}
                       title={canCreateJob ? 'Create Job for Client' : "You don't have permission to create jobs"}
                       aria-disabled={!canCreateJob}
                     >
-                      <Briefcase className="h-4 w-4" strokeWidth={2.25} />
+                      <Briefcase size={15} strokeWidth={2.35} />
                     </button>
                     {onDeleteClient && (
                       <button
                         type="button"
                         onClick={() => onDeleteClient(client.id)}
-                        className="flex h-8 w-8 items-center justify-center rounded-md border border-transparent bg-white text-red-600 shadow-sm transition-colors hover:border-red-200 hover:bg-red-50"
+                        className="flex h-7 w-7 items-center justify-center rounded-lg text-rose-500 hover:bg-white hover:text-rose-800 hover:shadow-sm transition-all"
                         title="Delete Client"
                       >
-                        <Trash2 className="h-4 w-4" strokeWidth={2.25} />
+                        <Trash2 size={15} strokeWidth={2.35} />
                       </button>
                     )}
                   </div>
@@ -272,6 +274,6 @@ export function ClientTable({
           </tbody>
         </table>
       </div>
-    </div>
+    </>
   );
 }

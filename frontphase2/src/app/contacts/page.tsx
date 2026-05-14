@@ -2,7 +2,7 @@
 
 import React, { Suspense, useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { Plus, Upload, Download, CheckSquare, MoreVertical } from 'lucide-react';
+import { Plus, Upload, Download, RefreshCcw, BookUser } from 'lucide-react';
 import { downloadCsv } from '../../utils/csv';
 import { Toaster, toast } from 'sonner';
 import {
@@ -26,6 +26,10 @@ import { MergeContactsDrawer } from '../../components/contacts/MergeContactsDraw
 import { BulkActionsBar } from '../../components/contacts/BulkActionsBar';
 import { requestConfirm } from '../../lib/appDialog';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
+import {
+  Ph2ModulePageLayout,
+  PH2_TABLE_CARD_CLASS,
+} from '../../components/layout/Ph2ModulePageLayout';
 
 export const dynamic = 'force-dynamic';
 
@@ -344,142 +348,159 @@ function ContactsPageContent() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F8F9FB]">
+    <>
       <Toaster position="top-right" richColors />
-      
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-8 py-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Contacts</h1>
-            <p className="text-sm text-gray-500 mt-1">Manage client stakeholders, vendors, and hiring partners.</p>
-          </div>
-          
-          <div className="flex items-center gap-3">
+      <Ph2ModulePageLayout
+        title="Contacts"
+        subtitle="Manage client stakeholders, vendors, and hiring partners."
+        icon={<BookUser className="h-5 w-5" strokeWidth={2.2} />}
+        actions={
+          <>
             <button
-              onClick={() => setIsImportDrawerOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-50 rounded-lg text-sm font-medium transition-colors"
+              type="button"
+              onClick={() => void loadContactsData()}
+              disabled={loading}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98] disabled:opacity-50"
+              title="Refresh"
             >
-              <Upload size={16} />
-              Import
+              <RefreshCcw size={16} strokeWidth={2.25} className={loading ? 'animate-spin' : ''} />
             </button>
             <button
+              type="button"
               onClick={handleExport}
-              className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-50 rounded-lg text-sm font-medium transition-colors"
+              className="bg-white hover:bg-indigo-50/90 text-indigo-900 px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] border border-indigo-200/70 hover:border-indigo-300 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
+              title="Export contacts to CSV"
             >
-              <Download size={16} />
-              Export
+              <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
+              <span>Export</span>
             </button>
             <button
-              onClick={() => setIsAddDrawerOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm"
+              type="button"
+              onClick={() => setIsImportDrawerOpen(true)}
+              className="bg-white hover:bg-indigo-50/90 text-indigo-900 px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] border border-indigo-200/70 hover:border-indigo-300 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
             >
-              <Plus size={18} />
-              Add Contact
+              <Upload size={16} className="text-indigo-600" strokeWidth={2.25} />
+              <span>Import</span>
             </button>
+            <button
+              type="button"
+              onClick={() => setIsAddDrawerOpen(true)}
+              className="bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 text-white px-3.5 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-lg shadow-indigo-500/30 active:scale-[0.98]"
+            >
+              <Plus size={16} className="text-white" strokeWidth={2.5} />
+              <span>Add Contact</span>
+            </button>
+          </>
+        }
+        belowScroll={
+          <>
+            <ContactDetailDrawer
+              contact={selectedContact}
+              isOpen={Boolean(selectedContact) && !isEditDrawerOpen}
+              onClose={handleCloseDrawer}
+              onEdit={() => setIsEditDrawerOpen(true)}
+              onDelete={handleDelete}
+            />
+
+            <AddContactDrawer
+              isOpen={isAddDrawerOpen}
+              onClose={() => setIsAddDrawerOpen(false)}
+              onSuccess={async (contact) => {
+                setIsAddDrawerOpen(false);
+                if (contact && contactMatchesFilters(contact)) {
+                  applyOptimisticContact(contact);
+                }
+                void loadContactsData({ silent: true });
+              }}
+            />
+
+            <EditContactDrawer
+              contact={selectedContact}
+              isOpen={isEditDrawerOpen}
+              onClose={() => {
+                setIsEditDrawerOpen(false);
+                setSelectedContact(null);
+              }}
+              onSuccess={async (contact) => {
+                setIsEditDrawerOpen(false);
+                toast.success('Contact updated successfully');
+                if (contact) {
+                  applyOptimisticContactUpdate(contact);
+                }
+                void loadContactsData({ silent: true });
+              }}
+            />
+
+            <ImportContactsDrawer
+              isOpen={isImportDrawerOpen}
+              onClose={() => setIsImportDrawerOpen(false)}
+              onSuccess={async () => {
+                setIsImportDrawerOpen(false);
+                toast.success('Contacts imported successfully');
+                await loadContactsData();
+              }}
+            />
+
+            <MergeContactsDrawer
+              isOpen={isMergeDrawerOpen}
+              onClose={() => setIsMergeDrawerOpen(false)}
+              onSuccess={async () => {
+                setIsMergeDrawerOpen(false);
+                toast.success('Contacts merged successfully');
+                await loadContactsData();
+              }}
+            />
+          </>
+        }
+      >
+        {stats ? (
+          <div className="mb-5">
+            <ContactsKPICards stats={stats} />
           </div>
+        ) : null}
+
+        <div className={PH2_TABLE_CARD_CLASS}>
+          <div className="border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 p-3 sm:p-4">
+            <ContactsFilterBar
+              embedded
+              filters={filters}
+              totalCount={pagination.total}
+              onFilterChange={updateFilters}
+              onClearFilters={() => router.push('/contacts')}
+            />
+          </div>
+
+          <ContactsTable
+            contacts={contacts}
+            loading={loading}
+            selectedIds={selectedContactIds}
+            onSelectIds={setSelectedContactIds}
+            onRowClick={handleRowClick}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+            pagination={pagination}
+            onPageChange={(page) => updateFilters({ page, limit: 10 })}
+          />
         </div>
-      </div>
+      </Ph2ModulePageLayout>
 
-      <div className="p-8 space-y-6">
-        {/* KPI Cards */}
-        {stats && <ContactsKPICards stats={stats} />}
-
-        {/* Filters */}
-        <ContactsFilterBar
-          filters={filters}
-          totalCount={pagination.total}
-          onFilterChange={updateFilters}
-          onClearFilters={() => router.push('/contacts')}
-        />
-
-        {/* Bulk Actions Bar */}
-        {selectedContactIds.size > 0 && (
+      {selectedContactIds.size > 0 ? (
+        <div className="fixed bottom-6 left-1/2 z-40 w-[min(94vw,980px)] max-h-[min(42vh,420px)] -translate-x-1/2 overflow-y-auto rounded-2xl border border-slate-800 bg-slate-950/95 px-4 py-3 text-white shadow-2xl backdrop-blur">
           <BulkActionsBar
             selectedCount={selectedContactIds.size}
             onBulkAction={handleBulkAction}
             onClearSelection={() => setSelectedContactIds(new Set())}
+            variant="compact"
           />
-        )}
-
-        {/* Table */}
-        <ContactsTable
-          contacts={contacts}
-          loading={loading}
-          selectedIds={selectedContactIds}
-          onSelectIds={setSelectedContactIds}
-          onRowClick={handleRowClick}
-          onEdit={handleEdit}
-          onDelete={handleDelete}
-          pagination={pagination}
-          onPageChange={(page) => updateFilters({ page, limit: 10 })}
-        />
-      </div>
-
-      {/* Drawers */}
-      <ContactDetailDrawer
-        contact={selectedContact}
-        isOpen={Boolean(selectedContact) && !isEditDrawerOpen}
-        onClose={handleCloseDrawer}
-        onEdit={() => setIsEditDrawerOpen(true)}
-        onDelete={handleDelete}
-      />
-
-      <AddContactDrawer
-        isOpen={isAddDrawerOpen}
-        onClose={() => setIsAddDrawerOpen(false)}
-        onSuccess={async (contact) => {
-          setIsAddDrawerOpen(false);
-          if (contact && contactMatchesFilters(contact)) {
-            applyOptimisticContact(contact);
-          }
-          void loadContactsData({ silent: true });
-        }}
-      />
-
-      <EditContactDrawer
-        contact={selectedContact}
-        isOpen={isEditDrawerOpen}
-        onClose={() => {
-          setIsEditDrawerOpen(false);
-          setSelectedContact(null);
-        }}
-        onSuccess={async (contact) => {
-          setIsEditDrawerOpen(false);
-          toast.success('Contact updated successfully');
-          if (contact) {
-            applyOptimisticContactUpdate(contact);
-          }
-          void loadContactsData({ silent: true });
-        }}
-      />
-
-      <ImportContactsDrawer
-        isOpen={isImportDrawerOpen}
-        onClose={() => setIsImportDrawerOpen(false)}
-        onSuccess={async () => {
-          setIsImportDrawerOpen(false);
-          toast.success('Contacts imported successfully');
-          await loadContactsData();
-        }}
-      />
-
-      <MergeContactsDrawer
-        isOpen={isMergeDrawerOpen}
-        onClose={() => setIsMergeDrawerOpen(false)}
-        onSuccess={async () => {
-          setIsMergeDrawerOpen(false);
-          toast.success('Contacts merged successfully');
-          await loadContactsData();
-        }}
-      />
-    </div>
+        </div>
+      ) : null}
+    </>
   );
 }
 
 export default function ContactsPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-[#F8F9FB] flex items-center justify-center text-gray-500">Loading contacts...</div>}>
+    <Suspense fallback={<div className="min-h-screen bg-slate-50 flex items-center justify-center text-slate-500">Loading contacts...</div>}>
       <ContactsPageContent />
     </Suspense>
   );

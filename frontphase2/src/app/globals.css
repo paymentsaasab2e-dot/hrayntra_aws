@@ -2,19 +2,111 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ─── Phase 2 theme tokens & shared surfaces ─────────────────────────────── */
+/* ─── Phase 2 theme tokens & shared surfaces ───────────────────────────────
+   Most UI uses Tailwind `rem` utilities — they follow --ph2-root-font-pct on html.
+   Headings below use :where() so any `text-*` class on the same tag still wins.
+   Optional: add class `ph2-subtitle` under page titles; tune via --ph2-subtitle-*.
+────────────────────────────────────────────────────────────────────────── */
 @layer base {
   :root {
     --ph2-accent-primary: 37 99 235;
     --ph2-accent-teal: 13 148 136;
     --ph2-radius-card: 1rem;
+
+    /** Overall rem scale (Tailwind spacing + text-sm / text-base / etc.). */
+    --ph2-root-font-pct: 82%;
+
+    /** App font — edit stack here only (matches existing Arimo shell layouts). */
+    --ph2-font-sans: "Arimo", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
+      "Segoe UI Symbol", "Noto Color Emoji";
+    --ph2-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+
+    /** Multiply all semantic h1–h6 sizes below (1 = default ramp). */
+    --ph2-heading-scale: 1;
+    --ph2-h1-size: calc(1.625rem * var(--ph2-heading-scale));
+    --ph2-h2-size: calc(1.375rem * var(--ph2-heading-scale));
+    --ph2-h3-size: calc(1.25rem * var(--ph2-heading-scale));
+    --ph2-h4-size: calc(1.125rem * var(--ph2-heading-scale));
+    --ph2-h5-size: calc(1.0625rem * var(--ph2-heading-scale));
+    --ph2-h6-size: calc(1rem * var(--ph2-heading-scale));
+
+    /** Class `.ph2-subtitle` — supporting line under a heading. */
+    --ph2-subtitle-size: 0.875rem;
+    --ph2-subtitle-leading: 1.45;
+    --ph2-subtitle-color: 100 116 139;
+
+    /** `.ph2-card` / `.ph2-card-sm` padding & radius (only affects those classes). */
+    --ph2-card-padding: 1.25rem;
+    --ph2-card-sm-padding: 1rem;
+    --ph2-radius-card-lg: 1rem;
+    --ph2-radius-card-sm: 0.75rem;
+  }
+
+  html {
+    font-size: var(--ph2-root-font-pct);
+    font-family: var(--ph2-font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    font-family: inherit;
+  }
+
+  :where(h1) {
+    font-size: var(--ph2-h1-size);
+    line-height: 1.2;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  :where(h2) {
+    font-size: var(--ph2-h2-size);
+    line-height: 1.25;
+    font-weight: 600;
+    letter-spacing: -0.018em;
+  }
+  :where(h3) {
+    font-size: var(--ph2-h3-size);
+    line-height: 1.3;
+    font-weight: 600;
+    letter-spacing: -0.012em;
+  }
+  :where(h4) {
+    font-size: var(--ph2-h4-size);
+    line-height: 1.35;
+    font-weight: 600;
+  }
+  :where(h5) {
+    font-size: var(--ph2-h5-size);
+    line-height: 1.4;
+    font-weight: 600;
+  }
+  :where(h6) {
+    font-size: var(--ph2-h6-size);
+    line-height: 1.4;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+
+  :where(code, kbd, samp, pre) {
+    font-family: var(--ph2-font-mono);
+  }
+}
+
+@media print {
+  html {
+    font-size: 100% !important;
   }
 }
 
 @layer components {
   /** Standard elevated panel — use on dashboards, lists, drawers */
   .ph2-card {
-    @apply rounded-2xl border border-slate-200/95 bg-white shadow-ph2-card transition-all duration-200;
+    @apply border border-slate-200/95 bg-white shadow-ph2-card transition-all duration-200;
+    border-radius: var(--ph2-radius-card-lg);
+    padding: var(--ph2-card-padding);
   }
   .ph2-card:hover {
     @apply border-blue-200/90 shadow-ph2-card-hover;
@@ -22,10 +114,19 @@
 
   /** Compact variant */
   .ph2-card-sm {
-    @apply rounded-xl border border-slate-200/95 bg-white shadow-ph2-card transition-all duration-200;
+    @apply border border-slate-200/95 bg-white shadow-ph2-card transition-all duration-200;
+    border-radius: var(--ph2-radius-card-sm);
+    padding: var(--ph2-card-sm-padding);
   }
   .ph2-card-sm:hover {
     @apply border-blue-200/80 shadow-md;
+  }
+
+  /** Optional subtitle under a title — size/color from :root tokens. */
+  .ph2-subtitle {
+    font-size: var(--ph2-subtitle-size);
+    line-height: var(--ph2-subtitle-leading);
+    color: rgb(var(--ph2-subtitle-color) / 0.95);
   }
 
   /** Icon badge for KPI / stat rows */
@@ -80,6 +181,68 @@
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+/* Phase 2 sidebar: do not chain wheel/overscroll to the main column behind it */
+.ph2-sidenav-aside {
+  overscroll-behavior: contain;
+}
+
+/* Sidebar (Sidenav) — always show a thin scrollbar on the dark rail */
+.sidenav-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.55) rgba(255, 255, 255, 0.06);
+  overscroll-behavior-y: contain;
+}
+
+.sidenav-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.sidenav-scrollbar::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+}
+
+.sidenav-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.45);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.sidenav-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(186, 198, 212, 0.65);
+  background-clip: padding-box;
+}
+
+/* Leads table — visible horizontal scrollbar in bottom dock (synced with table scroll) */
+.leads-hscroll-dock {
+  scrollbar-width: auto;
+  scrollbar-color: rgb(129 140 248 / 0.55) rgb(99 102 241 / 0.08);
+  overscroll-behavior-x: contain;
+}
+
+.leads-hscroll-dock::-webkit-scrollbar {
+  height: 12px;
+}
+
+.leads-hscroll-dock::-webkit-scrollbar-track {
+  background: rgb(238 242 255 / 0.9);
+  border-radius: 999px;
+  margin: 0 4px;
+}
+
+.leads-hscroll-dock::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgb(129 140 248 / 0.75), rgb(99 102 241 / 0.65));
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+.leads-hscroll-dock::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgb(99 102 241 / 0.9), rgb(79 70 229 / 0.85));
+  background-clip: padding-box;
 }
 
 /* Line clamp utility */

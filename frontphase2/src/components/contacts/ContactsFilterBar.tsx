@@ -10,9 +10,17 @@ interface ContactsFilterBarProps {
   totalCount: number;
   onFilterChange: (filters: Partial<ContactFilters>) => void;
   onClearFilters: () => void;
+  /** When true, omit outer white card (used inside module table card toolbar). */
+  embedded?: boolean;
 }
 
-export function ContactsFilterBar({ filters, totalCount, onFilterChange, onClearFilters }: ContactsFilterBarProps) {
+export function ContactsFilterBar({
+  filters,
+  totalCount,
+  onFilterChange,
+  onClearFilters,
+  embedded = false,
+}: ContactsFilterBarProps) {
   const [clients, setClients] = useState<Array<{ id: string; companyName: string }>>([]);
   const [owners, setOwners] = useState<Array<{ id: string; name: string }>>([]);
   const [isDropdownOpen, setIsDropdownOpen] = useState<string | null>(null);
@@ -107,8 +115,12 @@ export function ContactsFilterBar({ filters, totalCount, onFilterChange, onClear
     );
   };
 
+  const shell = embedded
+    ? 'rounded-none border-0 bg-transparent p-0'
+    : 'bg-white border border-gray-200 rounded-xl p-4';
+
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4">
+    <div className={shell}>
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-2 text-gray-400 mr-2">

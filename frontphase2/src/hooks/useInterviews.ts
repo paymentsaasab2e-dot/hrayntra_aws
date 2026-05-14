@@ -594,7 +594,7 @@ export function useInterviews() {
               : undefined,
           jobId:
             filters.clientJob !== 'All Clients'
-              ? jobOptions.find((job) => `${job.client} â€¢ ${job.title}` === filters.clientJob)?.id
+              ? jobOptions.find((job) => `${job.client} • ${job.title}` === filters.clientJob)?.id
               : undefined,
           search: searchQuery || undefined,
         });
@@ -721,6 +721,7 @@ export function useInterviews() {
     pagination,
     setPagination,
     totalPages,
+    totalEntries,
     selectedIds,
     setSelectedIds,
     searchQuery,
