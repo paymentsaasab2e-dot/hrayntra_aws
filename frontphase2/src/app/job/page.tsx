@@ -22,7 +22,8 @@ import {
   MoreHorizontal,
   CheckSquare,
   Download,
-  Trash2
+  Trash2,
+  Inbox,
 } from 'lucide-react';
 import { downloadCsv, csvDate } from '../../utils/csv';
 import { formatDateTimeDMY } from '../../utils/dateDisplay';
@@ -36,6 +37,7 @@ import AddCandidateDrawer from '../../components/candidates/AddCandidateDrawer';
 import { JobDetailsDrawer, type JobForDrawer, type JobCandidateItem } from '../../components/drawers/JobDetailsDrawer';
 import { ScheduleInterviewModal } from '../../components/interviews/ScheduleInterviewModal';
 import { CreateJobDrawer } from '../../components/drawers/CreateJobDrawer';
+import ModuleRecycleBinDrawer from '../../components/ModuleRecycleBinDrawer';
 import { StatusChangeService } from '../../components/StatusChangeService';
 import {
   apiAddCandidateToPipeline,
@@ -787,6 +789,7 @@ export default function JobsPage() {
   const [recruiterOptions, setRecruiterOptions] = useState<Array<{ id: string; name: string }>>([]);
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [createJobDrawerOpen, setCreateJobDrawerOpen] = useState(false);
+  const [recycleBinDrawerOpen, setRecycleBinDrawerOpen] = useState(false);
   const [duplicateFromJobId, setDuplicateFromJobId] = useState<string | null>(null);
   const [addCandidateDrawerOpen, setAddCandidateDrawerOpen] = useState(false);
   /** Chooser shown before the Add Candidate drawer asking the recruiter
@@ -1719,6 +1722,17 @@ export default function JobsPage() {
                   <RefreshCcw size={15} className="shrink-0" />
                 </button>
 
+                {canDeleteJob && (
+                  <button
+                    type="button"
+                    onClick={() => setRecycleBinDrawerOpen(true)}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
+                    title="Deleted jobs"
+                  >
+                    <Inbox size={18} strokeWidth={2} />
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={handleExportJobsCsv}
@@ -2333,6 +2347,14 @@ export default function JobsPage() {
         defaultJobId={selectedJobForCandidate?.id || ''}
         lockJobSelection
       />
+      {canDeleteJob && (
+        <ModuleRecycleBinDrawer
+          isOpen={recycleBinDrawerOpen}
+          onClose={() => setRecycleBinDrawerOpen(false)}
+          kind="jobs"
+          onRestored={() => void reloadMyJobsAndMetrics()}
+        />
+      )}
       <Toaster position="top-right" richColors />
 
       <style dangerouslySetInnerHTML={{ __html: `

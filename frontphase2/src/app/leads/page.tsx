@@ -18,6 +18,7 @@ import {
   Check,
   BadgeCheck,
   X,
+  Inbox,
 } from 'lucide-react';
 import { downloadCsv, csvDate } from '../../utils/csv';
 import { formatDateDMY } from '../../utils/dateDisplay';
@@ -26,6 +27,7 @@ import { AssigneeAvatars } from './AssigneeAvatars';
 import { SourceCell } from './SourceCell';
 import { LeadDetailsDrawer } from '../../components/drawers/LeadDetailsDrawer';
 import { LeadImportDrawer } from '../../components/drawers/LeadImportDrawer';
+import ModuleRecycleBinDrawer from '../../components/ModuleRecycleBinDrawer';
 import AriaChat from '../../components/AriaChat';
 import PaginationAll from '../../components/PaginationAll';
 import type { Lead, LeadStatus, Priority } from './types';
@@ -370,6 +372,7 @@ export default function RecruitmentAgencyDashboard() {
   const [selectedLeadDrawerMode, setSelectedLeadDrawerMode] = useState<'view' | 'edit'>('view');
   const [addLeadDrawerOpen, setAddLeadDrawerOpen] = useState(false);
   const [importDrawerOpen, setImportDrawerOpen] = useState(false);
+  const [recycleBinDrawerOpen, setRecycleBinDrawerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<LeadStatus | 'All'>('All');
   const [sourceFilter, setSourceFilter] = useState('');
@@ -1174,6 +1177,16 @@ export default function RecruitmentAgencyDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            {canDeleteLead && (
+              <button
+                type="button"
+                onClick={() => setRecycleBinDrawerOpen(true)}
+                className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98]"
+                title="Deleted leads"
+              >
+                <Inbox size={20} strokeWidth={2.25} />
+              </button>
+            )}
             {isAuthenticated === false && (
               <a
                 href="/login"
@@ -1793,6 +1806,14 @@ export default function RecruitmentAgencyDashboard() {
               </div>
             </div>
           </div>
+        )}
+        {canDeleteLead && (
+          <ModuleRecycleBinDrawer
+            isOpen={recycleBinDrawerOpen}
+            onClose={() => setRecycleBinDrawerOpen(false)}
+            kind="leads"
+            onRestored={() => void handleRefresh({ silent: true })}
+          />
         )}
         <AriaChat currentPage="leads" />
       </main>

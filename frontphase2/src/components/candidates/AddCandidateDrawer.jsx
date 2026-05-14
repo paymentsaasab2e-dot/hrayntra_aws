@@ -27,6 +27,7 @@ import {
   buildSocketBaseUrl,
 } from '@/lib/api';
 import { MY_JOBS_LIST_PARAMS } from '@/lib/myJobsListParams';
+import { addFailedBulkResumeRecords, removeFailedBulkResumesByFileName } from '@/lib/failedBulkResumesStore';
 
 /** Align with backend `RESUME_MAX_FILE_BYTES` (default 25MB). Optional: NEXT_PUBLIC_RESUME_MAX_FILE_BYTES (bytes). */
 const MAX_RESUME_FILE_BYTES = (() => {
@@ -569,6 +570,9 @@ export default function AddCandidateDrawer({
   defaultJobId = '',
   lockJobSelection = false,
   showMethodTabs = true,
+  /** When set (e.g. from Failed resumes → Re-upload), opens Bulk CV with this single file once. */
+  pendingBulkRetryFile = null,
+  onBulkRetryFileConsumed,
 }) {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [currentStep, setCurrentStep] = useState(1);
@@ -651,6 +655,21 @@ export default function AddCandidateDrawer({
     if (!isOpen) return;
     setActiveTab(initialTab || 'manual');
   }, [initialTab, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !pendingBulkRetryFile) return;
+    const file = pendingBulkRetryFile;
+    setEntryError('');
+    setActiveTab('bulkResume');
+    setBulkResumeFiles([file]);
+    setBulkResumePhase('preview');
+    setBulkResumeResults([]);
+    setBulkCvSummary(null);
+    setBulkResumeProgress({ current: 0, total: 1 });
+    if (typeof onBulkRetryFileConsumed === 'function') {
+      onBulkRetryFileConsumed();
+    }
+  }, [isOpen, pendingBulkRetryFile, onBulkRetryFileConsumed]);
 
   useEffect(() => {
     if (!isOpen || !normalizedDefaultJobId) return;
@@ -1368,6 +1387,8 @@ export default function AddCandidateDrawer({
             { signal: abortSignal }
           );
           const candidate = createResponse.data;
+          const savedFirst = String(candidate?.firstName || enrichedCandidate.firstName || '').trim();
+          const savedLast = String(candidate?.lastName || enrichedCandidate.lastName || '').trim();
 
           const bulkCandidateId = candidate.id || candidate._id;
           if (file && bulkCandidateId && !isPersistableRemoteResumeUrl(parsedCandidate?.resumeUrl)) {
@@ -1393,12 +1414,13 @@ export default function AddCandidateDrawer({
           }
 
           createdCount += 1;
+          removeFailedBulkResumesByFileName(file.name);
           slotResults[index] = {
             fileName: file.name,
             status: 'created',
             duplicateResolution,
             candidateName:
-              `${identity.firstName || ''} ${identity.lastName || ''}`.trim() || candidate.email || 'Candidate',
+              `${savedFirst} ${savedLast}`.trim() || candidate.email || enrichedCandidate.email || 'Candidate',
             message: successMessage,
           };
         } catch (error) {
@@ -1449,6 +1471,9 @@ export default function AddCandidateDrawer({
       failures,
       durationMs: elapsed,
     });
+    if (failures.length) {
+      addFailedBulkResumeRecords(failures);
+    }
     console.log(
       `[bulk-cv] done in ${elapsed}ms | files=${bulkResumeFiles.length} ok=${succeeded} skip=${skipped} fail=${failed}`
     );
@@ -1805,6 +1830,9 @@ export default function AddCandidateDrawer({
     if (result.status === 'created') {
       return { label: 'created', className: 'bg-emerald-100 text-emerald-700' };
     }
+    if (result.status === 'failed') {
+      return { label: 'Failed', className: 'bg-red-100 text-red-700' };
+    }
     return { label: result.status, className: 'bg-red-100 text-red-700' };
   };
 
@@ -1853,42 +1881,30 @@ export default function AddCandidateDrawer({
             </div>
 
             <p className="mt-4 text-xs text-slate-600">
-              Parsing is paused until you choose. The batch will skip this file automatically if no choice is made within
-              about five minutes.
+              Parsing is paused until you choose. If you do nothing for ~5 minutes, this file is skipped.
             </p>
 
             <div className="mt-5 flex flex-col gap-2">
               <button
                 type="button"
                 onClick={() => emitBulkDuplicateDecision('create_anyway')}
-                className="w-full rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-left text-sm font-semibold text-sky-900 transition hover:bg-sky-100"
+                className="w-full rounded-xl border border-sky-200 bg-sky-50 px-4 py-2.5 text-center text-sm font-semibold text-sky-900 transition hover:bg-sky-100"
               >
                 Create anyway
-                <span className="mt-1 block text-xs font-normal text-sky-800">
-                  Saves a new candidate with “copy 1”, “copy 2”, … on the last name (and a unique email if the email
-                  matched).
-                </span>
               </button>
               <button
                 type="button"
                 onClick={() => emitBulkDuplicateDecision('replace')}
-                className="w-full rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-left text-sm font-semibold text-violet-900 transition hover:bg-violet-100"
+                className="w-full rounded-xl border border-violet-200 bg-violet-50 px-4 py-2.5 text-center text-sm font-semibold text-violet-900 transition hover:bg-violet-100"
               >
                 Replace existing
-                <span className="mt-1 block text-xs font-normal text-violet-800">
-                  Permanently deletes the existing candidate and all linked records, then imports this CV as the new
-                  profile.
-                </span>
               </button>
               <button
                 type="button"
                 onClick={() => emitBulkDuplicateDecision('cancel')}
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-center text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
               >
                 Skip this CV
-                <span className="mt-1 block text-xs font-normal text-slate-600">
-                  Does not parse or save this file; continues with the next CV in the batch.
-                </span>
               </button>
             </div>
           </div>

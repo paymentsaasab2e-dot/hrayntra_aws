@@ -1647,7 +1647,7 @@ ${capped}
   const completion = await chatCompletionWithFallback(
     {
       model: env.OPENAI_ASSISTANT_MODEL || 'gpt-4o-mini',
-      temperature: 0.1,
+      temperature: 0,
       response_format: { type: 'json_object' },
       messages: [
         {
@@ -2150,6 +2150,17 @@ export async function finalizeCvPipelineFromStage5(
   const gh = normalizedData.githubUrl;
   if (gh && !normalizedData.portfolioLinks.some((p) => p.url?.includes('github.com'))) {
     normalizedData.portfolioLinks = [...normalizedData.portfolioLinks, { type: 'GitHub', url: gh }];
+  }
+
+  // Bulk CV "create_anyway": mergeAiWithFallback prefers AI fields, which can restore the original
+  // duplicate email/name from the CV text. Re-apply explicit identityPatch on the outbound payload.
+  if (identityPatch && typeof identityPatch === 'object') {
+    const fn = identityPatch.firstName != null ? String(identityPatch.firstName).trim() : '';
+    const ln = identityPatch.lastName != null ? String(identityPatch.lastName).trim() : '';
+    const em = identityPatch.email != null ? String(identityPatch.email).trim() : '';
+    if (fn) normalizedData.firstName = fn;
+    if (ln) normalizedData.lastName = ln;
+    if (em) normalizedData.email = em;
   }
 
   const pickSrc = (aiKey, fbKey) => {

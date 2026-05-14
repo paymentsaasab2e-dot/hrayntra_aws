@@ -24,6 +24,7 @@ import {
   BadgeInfo,
   Flame,
   FolderOpen,
+  Inbox,
 } from 'lucide-react';
 import { downloadCsv, csvDate } from '../../utils/csv';
 import { formatDateDMY } from '../../utils/dateDisplay';
@@ -37,6 +38,7 @@ import {
 } from '../../components/drawers/ClientFilterDrawer';
 import { ClientDetailsDrawer } from '../../components/drawers/ClientDetailsDrawer';
 import { ClientImportDrawer } from '../../components/drawers/ClientImportDrawer';
+import ModuleRecycleBinDrawer from '../../components/ModuleRecycleBinDrawer';
 import { CreateJobDrawer } from '../../components/drawers/CreateJobDrawer';
 import PaginationAll from '../../components/PaginationAll';
 import { INITIAL_CLIENTS } from './types';
@@ -258,6 +260,7 @@ export default function App() {
   const searchParams = useSearchParams();
   const { hasAnyPermission } = usePermissions();
   const canCreateJob = hasAnyPermission(['jobs_create', 'create_job']);
+  const canOpenClientTrash = hasAnyPermission(['clients_delete']);
   const [activeTab, setActiveTab] = useState('all');
   const [clientNameSortOrder, setClientNameSortOrder] = useState<'asc' | 'desc'>('asc');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -282,6 +285,7 @@ export default function App() {
   const [clientIdForJob, setClientIdForJob] = useState<string | null>(null);
   const [isEmpty, setIsEmpty] = useState(false);
   const [showImportDrawer, setShowImportDrawer] = useState(false);
+  const [recycleBinDrawerOpen, setRecycleBinDrawerOpen] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -590,6 +594,16 @@ export default function App() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2 md:gap-3">
+            {canOpenClientTrash && (
+              <button
+                type="button"
+                onClick={() => setRecycleBinDrawerOpen(true)}
+                className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+                title="Deleted clients"
+              >
+                <Inbox className="h-5 w-5" strokeWidth={2} />
+              </button>
+            )}
             <button
               type="button"
               onClick={handleRefresh}
@@ -794,6 +808,15 @@ export default function App() {
           );
         }}
       />
+
+      {canOpenClientTrash && (
+        <ModuleRecycleBinDrawer
+          isOpen={recycleBinDrawerOpen}
+          onClose={() => setRecycleBinDrawerOpen(false)}
+          kind="clients"
+          onRestored={() => void handleRefresh()}
+        />
+      )}
 
       {selectedClients.length > 0 && (
         <div className="fixed bottom-6 left-1/2 z-40 w-[min(94vw,980px)] -translate-x-1/2 rounded-2xl border border-slate-800 bg-slate-950/95 px-4 py-3 text-white shadow-2xl backdrop-blur">

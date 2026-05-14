@@ -44,6 +44,24 @@ function normalizeEmail(email = '') {
   return String(email).trim().toLowerCase();
 }
 
+/**
+ * Bulk CV "create anyway": reuse the single LLM parse from this request and only change
+ * identity fields. A second finalize/LLM run for the same file produced different
+ * designation, experience, and location because models are not fully deterministic.
+ */
+function applyBulkCreateAnywayIdentityPatch(normalized, patch) {
+  if (!normalized || typeof normalized !== 'object') return normalized;
+  const out =
+    typeof structuredClone === 'function'
+      ? structuredClone(normalized)
+      : JSON.parse(JSON.stringify(normalized));
+  if (!patch || typeof patch !== 'object') return out;
+  if (patch.firstName != null && String(patch.firstName).trim()) out.firstName = String(patch.firstName).trim();
+  if (patch.lastName != null && String(patch.lastName).trim()) out.lastName = String(patch.lastName).trim();
+  if (patch.email != null && String(patch.email).trim()) out.email = String(patch.email).trim();
+  return out;
+}
+
 function normalizePhone(phone = '') {
   return String(phone).trim();
 }
@@ -522,7 +540,7 @@ ${cleanedText.slice(0, 18000)}
   const completion = await chatCompletionWithFallback(
     {
       model: env.OPENAI_ASSISTANT_MODEL || 'gpt-4o-mini',
-      temperature: 0.1,
+      temperature: 0,
       response_format: { type: 'json_object' },
       messages: [
         {
@@ -1119,6 +1137,11 @@ export const addCandidateController = {
 
       let identityPatch = null;
       let duplicateResolution = null;
+      const tenantDbName =
+        String(req.user?.tenantDbName || req.headers['x-tenant-db-name'] || '').trim() || undefined;
+      const candidateIdForUpload = req.body?.candidateId || userId;
+
+      let normalizedData;
 
       if (dup) {
         const io = getBulkCvIo();
@@ -1133,6 +1156,14 @@ export const addCandidateController = {
 
         const existing = dup.candidate;
         const decisionPromise = waitBulkCvDuplicateDecision(userId, sessionId, fileIndex);
+        const finalizePromise = finalizeCvPipelineFromStage5(
+          file,
+          candidateIdForUpload,
+          stage4,
+          null,
+          tenantDbName
+        );
+
         emitBulkCvDuplicateFound(userId, sessionId, {
           fileIndex,
           fileName: file.originalname || file.filename || 'resume',
@@ -1152,7 +1183,15 @@ export const addCandidateController = {
           match: dup.match,
         });
 
-        const decisionRaw = await decisionPromise;
+        let decisionRaw;
+        let preNormalized;
+        try {
+          [decisionRaw, preNormalized] = await Promise.all([decisionPromise, finalizePromise]);
+        } catch (parallelErr) {
+          console.error('[bulk-cv] duplicate branch finalize/decision failed', parallelErr?.message || parallelErr);
+          throw parallelErr;
+        }
+
         const decision = String(decisionRaw || 'cancel').trim();
         console.log('[bulk-cv] user decision', { file: file.originalname, fileIndex, decision });
 
@@ -1173,13 +1212,17 @@ export const addCandidateController = {
           console.log('[bulk-cv] REPLACE: hard-deleting existing candidate', existing.id);
           await hardDeleteCandidateById(existing.id);
           duplicateResolution = 'replaced';
+          normalizedData = preNormalized;
         } else if (decision === 'create_anyway') {
-          const newLast = await nextCopyLastNameForBulk(fb.firstName, fb.lastName);
+          const fnForCopy = String(preNormalized?.firstName || fb.firstName || '').trim();
+          const lnForCopy = String(preNormalized?.lastName || fb.lastName || '').trim();
+          const newLast = await nextCopyLastNameForBulk(fnForCopy, lnForCopy);
           identityPatch = { lastName: newLast };
           if (dup.match === 'email') {
-            identityPatch.email = await nextUniqueEmailVariant(fb.email);
+            identityPatch.email = await nextUniqueEmailVariant(preNormalized?.email || fb.email);
           }
           duplicateResolution = 'create_anyway';
+          normalizedData = applyBulkCreateAnywayIdentityPatch(preNormalized, identityPatch);
         } else {
           console.warn('[bulk-cv] unknown decision, treating as cancel', decision);
           safeUnlink();
@@ -1193,15 +1236,15 @@ export const addCandidateController = {
             },
           });
         }
+      } else {
+        normalizedData = await finalizeCvPipelineFromStage5(
+          file,
+          candidateIdForUpload,
+          stage4,
+          null,
+          tenantDbName
+        );
       }
-
-      const normalizedData = await finalizeCvPipelineFromStage5(
-        file,
-        req.body?.candidateId || userId,
-        stage4,
-        identityPatch,
-        String(req.user?.tenantDbName || req.headers['x-tenant-db-name'] || '').trim() || undefined
-      );
 
       safeUnlink();
 

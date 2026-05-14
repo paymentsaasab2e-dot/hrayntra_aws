@@ -24,6 +24,7 @@ import {
   Loader2,
   AlertTriangle,
   Inbox,
+  FileText,
 } from 'lucide-react';
 import {
   apiGetLeadsTrash,
@@ -46,6 +47,13 @@ import {
 import { requestConfirm, requestError, requestSuccess } from '../../lib/appDialog';
 import { formatDateTimeDMY } from '../../utils/dateDisplay';
 import { RECYCLE_BIN_SYNC_EVENT } from '../../constants/recycleBin';
+import {
+  FAILED_BULK_RESUMES_CHANGED,
+  getTrashedFailedBulkResumes,
+  purgeFailedBulkResumeFromTrash,
+  restoreFailedBulkResumeFromTrash,
+  type TrashedFailedBulkResume,
+} from '../../lib/failedBulkResumesStore';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -202,6 +210,42 @@ const SECTION_CONFIG: SectionConfig[] = [
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function RecycleBinPage() {
+  const [failedBulkLocalTrash, setFailedBulkLocalTrash] = useState<TrashedFailedBulkResume[]>([]);
+  const [failedBulkLocalExpanded, setFailedBulkLocalExpanded] = useState(true);
+  const [failedBulkLocalPending, setFailedBulkLocalPending] = useState<
+    Record<string, 'restore' | 'purge' | undefined>
+  >({});
+  const [failedBulkSelected, setFailedBulkSelected] = useState<Set<string>>(new Set());
+  const [failedBulkBulkBusy, setFailedBulkBulkBusy] = useState(false);
+
+  const refreshFailedBulkLocalTrash = useCallback(() => {
+    setFailedBulkLocalTrash(getTrashedFailedBulkResumes());
+    setFailedBulkSelected((prev) => {
+      const visible = new Set(getTrashedFailedBulkResumes().map((r) => r.id));
+      if (!prev.size) return prev;
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (visible.has(id)) next.add(id);
+      });
+      return next.size === prev.size ? prev : next;
+    });
+  }, []);
+
+  useEffect(() => {
+    refreshFailedBulkLocalTrash();
+  }, [refreshFailedBulkLocalTrash]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onLocalTrashSync = () => refreshFailedBulkLocalTrash();
+    window.addEventListener(FAILED_BULK_RESUMES_CHANGED, onLocalTrashSync);
+    window.addEventListener(RECYCLE_BIN_SYNC_EVENT, onLocalTrashSync);
+    return () => {
+      window.removeEventListener(FAILED_BULK_RESUMES_CHANGED, onLocalTrashSync);
+      window.removeEventListener(RECYCLE_BIN_SYNC_EVENT, onLocalTrashSync);
+    };
+  }, [refreshFailedBulkLocalTrash]);
+
   const initialSections = useMemo<Record<EntityKind, SectionState>>(
     () => ({
       leads: { loading: true, error: null, items: [], total: 0, expanded: true },
@@ -223,11 +267,11 @@ export default function RecycleBinPage() {
     candidates: new Set(),
     jobs: new Set(),
   });
-  const [bulkBusy, setBulkBusy] = useState<Record<EntityKind, boolean>>({
-    leads: false,
-    clients: false,
-    candidates: false,
-    jobs: false,
+  const [bulkOp, setBulkOp] = useState<Record<EntityKind, 'restore' | 'purge' | null>>({
+    leads: null,
+    clients: null,
+    candidates: null,
+    jobs: null,
   });
 
   const loadSection = useCallback(async (cfg: SectionConfig) => {
@@ -375,6 +419,55 @@ export default function RecycleBinPage() {
     }
   };
 
+  const handleBulkRestore = async (cfg: SectionConfig) => {
+    const ids = Array.from(selected[cfg.key]);
+    if (!ids.length) return;
+    const count = ids.length;
+    const ok = await requestConfirm(
+      `Restore ${count} ${count === 1 ? cfg.singular : cfg.label.toLowerCase()}? They will reappear in ${cfg.label}.`,
+      { confirmLabel: 'Restore', cancelLabel: 'Cancel' }
+    );
+    if (!ok) return;
+    setBulkOp((b) => ({ ...b, [cfg.key]: 'restore' }));
+    try {
+      const results = await Promise.allSettled(ids.map((id) => cfg.restore(id)));
+      const restoredIds: string[] = [];
+      results.forEach((r, i) => {
+        if (r.status === 'fulfilled') restoredIds.push(ids[i]);
+      });
+      const failed = ids.length - restoredIds.length;
+      setSections((prev) => ({
+        ...prev,
+        [cfg.key]: {
+          ...prev[cfg.key],
+          items: prev[cfg.key].items.filter((it) => !restoredIds.includes(it.id)),
+          total: Math.max(0, prev[cfg.key].total - restoredIds.length),
+        },
+      }));
+      setSelected((prev) => {
+        const next = new Set(prev[cfg.key]);
+        restoredIds.forEach((id) => next.delete(id));
+        return { ...prev, [cfg.key]: next };
+      });
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent(RECYCLE_BIN_SYNC_EVENT));
+      }
+      if (failed === 0) {
+        void requestSuccess(
+          `Restored ${restoredIds.length} ${restoredIds.length === 1 ? cfg.singular : cfg.label.toLowerCase()}`
+        );
+      } else {
+        void requestError(
+          `${restoredIds.length} restored, ${failed} failed. Failed rows stay in the list — try again or restore one by one.`
+        );
+      }
+    } catch (err: any) {
+      void requestError(err?.message || 'Bulk restore failed');
+    } finally {
+      setBulkOp((b) => ({ ...b, [cfg.key]: null }));
+    }
+  };
+
   const handleBulkPurge = async (cfg: SectionConfig) => {
     const ids = Array.from(selected[cfg.key]);
     if (!ids.length) return;
@@ -384,7 +477,7 @@ export default function RecycleBinPage() {
       { confirmLabel: 'Delete forever', cancelLabel: 'Cancel', tone: 'error' }
     );
     if (!ok) return;
-    setBulkBusy((b) => ({ ...b, [cfg.key]: true }));
+    setBulkOp((b) => ({ ...b, [cfg.key]: 'purge' }));
     try {
       const response: any = await cfg.bulkPurge(ids);
       const result = response?.data ?? response ?? {};
@@ -420,11 +513,78 @@ export default function RecycleBinPage() {
     } catch (err: any) {
       void requestError(err?.message || 'Bulk delete failed');
     } finally {
-      setBulkBusy((b) => ({ ...b, [cfg.key]: false }));
+      setBulkOp((b) => ({ ...b, [cfg.key]: null }));
     }
   };
 
-  const totalDeleted = SECTION_CONFIG.reduce((sum, cfg) => sum + sections[cfg.key].items.length, 0);
+  const toggleFailedBulkSelection = (id: string) => {
+    setFailedBulkSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllFailedBulk = () => {
+    setFailedBulkSelected((prev) => {
+      const all = failedBulkLocalTrash.map((r) => r.id);
+      if (!all.length) return new Set();
+      const allSelected = all.length > 0 && all.every((id) => prev.has(id));
+      return allSelected ? new Set() : new Set(all);
+    });
+  };
+
+  const clearFailedBulkSelection = () => setFailedBulkSelected(new Set());
+
+  const handleBulkRestoreFailedBulkLocal = async () => {
+    const ids = Array.from(failedBulkSelected);
+    if (!ids.length) return;
+    const ok = await requestConfirm(
+      `Restore ${ids.length} failed CV ${ids.length === 1 ? 'entry' : 'entries'} to the Failed resumes list on Candidates?`,
+      { confirmLabel: 'Restore', cancelLabel: 'Cancel' }
+    );
+    if (!ok) return;
+    setFailedBulkBulkBusy(true);
+    try {
+      for (const id of ids) {
+        restoreFailedBulkResumeFromTrash(id);
+      }
+      refreshFailedBulkLocalTrash();
+      clearFailedBulkSelection();
+      void requestSuccess(`Restored ${ids.length} ${ids.length === 1 ? 'entry' : 'entries'}`);
+    } catch (err: any) {
+      void requestError(err?.message || 'Bulk restore failed');
+    } finally {
+      setFailedBulkBulkBusy(false);
+    }
+  };
+
+  const handleBulkPurgeFailedBulkLocal = async () => {
+    const ids = Array.from(failedBulkSelected);
+    if (!ids.length) return;
+    const ok = await requestConfirm(
+      `Permanently delete ${ids.length} ${ids.length === 1 ? 'entry' : 'entries'} from this device? This cannot be undone.`,
+      { confirmLabel: 'Delete forever', cancelLabel: 'Cancel', tone: 'error' }
+    );
+    if (!ok) return;
+    setFailedBulkBulkBusy(true);
+    try {
+      for (const id of ids) {
+        purgeFailedBulkResumeFromTrash(id);
+      }
+      refreshFailedBulkLocalTrash();
+      clearFailedBulkSelection();
+      void requestSuccess(`Permanently deleted ${ids.length} ${ids.length === 1 ? 'entry' : 'entries'}`);
+    } catch (err: any) {
+      void requestError(err?.message || 'Bulk delete failed');
+    } finally {
+      setFailedBulkBulkBusy(false);
+    }
+  };
+
+  const totalDeleted =
+    SECTION_CONFIG.reduce((sum, cfg) => sum + sections[cfg.key].items.length, 0) + failedBulkLocalTrash.length;
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -438,8 +598,10 @@ export default function RecycleBinPage() {
             <h1 className="text-2xl font-bold text-slate-900">Recycle Bin</h1>
           </div>
           <p className="text-sm text-slate-500 max-w-2xl">
-            Anything you delete from Leads, Clients, Candidates, or Jobs lands here. You can restore
-            it back to its module or permanently delete it. Permanent deletion can not be undone.
+            Anything you delete from Leads, Clients, Candidates, or Jobs lands here. Failed bulk CV
+            rows you remove from the Candidates page are stored locally in your browser until you
+            restore or delete them forever. You can restore records back to their module or
+            permanently delete them. Permanent deletion cannot be undone.
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -462,43 +624,322 @@ export default function RecycleBinPage() {
 
       {/* ── Sections ───────────────────────────────────────────────────── */}
       <div className="space-y-4">
+        <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-col border-b border-slate-100 sm:flex-row sm:items-stretch">
+            <button
+              type="button"
+              onClick={() => setFailedBulkLocalExpanded((v) => !v)}
+              className="flex flex-1 items-center justify-between gap-3 p-4 text-left transition-colors hover:bg-slate-50/50 sm:min-w-0"
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-rose-50 text-rose-600">
+                  <FileText size={16} />
+                </span>
+                <div className="min-w-0">
+                  <h2 className="text-sm font-bold text-slate-900">Failed bulk CV (this browser)</h2>
+                  <p className="text-xs text-slate-500">
+                    {failedBulkLocalTrash.length}{' '}
+                    {failedBulkLocalTrash.length === 1 ? 'entry' : 'entries'} removed from the Failed resumes list
+                  </p>
+                </div>
+              </div>
+              {failedBulkLocalExpanded ? (
+                <ChevronDown size={18} className="shrink-0 text-slate-400" />
+              ) : (
+                <ChevronRight size={18} className="shrink-0 text-slate-400" />
+              )}
+            </button>
+            {failedBulkLocalTrash.length > 0 ? (
+              <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/50 px-3 py-2.5 sm:border-l sm:border-t-0 sm:px-3">
+                <button
+                  type="button"
+                  onClick={() => void handleBulkRestoreFailedBulkLocal()}
+                  disabled={failedBulkBulkBusy || failedBulkSelected.size === 0}
+                  title={
+                    failedBulkSelected.size === 0
+                      ? 'Select one or more rows below'
+                      : `Restore ${failedBulkSelected.size} selected`
+                  }
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {failedBulkBulkBusy ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <RefreshCcw size={14} />
+                  )}
+                  Bulk restore
+                  {failedBulkSelected.size > 0 ? ` (${failedBulkSelected.size})` : ''}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleBulkPurgeFailedBulkLocal()}
+                  disabled={failedBulkBulkBusy || failedBulkSelected.size === 0}
+                  title={
+                    failedBulkSelected.size === 0
+                      ? 'Select one or more rows below'
+                      : `Delete ${failedBulkSelected.size} selected forever`
+                  }
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {failedBulkBulkBusy ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <Trash2 size={14} />
+                  )}
+                  Bulk delete
+                  {failedBulkSelected.size > 0 ? ` (${failedBulkSelected.size})` : ''}
+                </button>
+              </div>
+            ) : null}
+          </div>
+          {failedBulkLocalExpanded ? (
+            <div className="border-t border-slate-100">
+              {failedBulkLocalTrash.length === 0 ? (
+                <div className="px-4 py-10 text-center text-sm text-slate-500">
+                  No failed CV rows in the bin. Delete one from Candidates → Failed resumes to see it here.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  {failedBulkSelected.size > 0 ? (
+                    <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/80 px-4 py-2 text-sm">
+                      <span className="font-medium text-slate-700">
+                        {failedBulkSelected.size} selected — use{' '}
+                        <span className="font-semibold text-slate-900">Bulk restore</span> or{' '}
+                        <span className="font-semibold text-slate-900">Bulk delete</span> in the card header
+                      </span>
+                      <button
+                        type="button"
+                        onClick={clearFailedBulkSelection}
+                        disabled={failedBulkBulkBusy}
+                        className="text-xs font-semibold text-slate-500 hover:text-slate-800 disabled:opacity-50"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  ) : null}
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="bg-slate-50/60 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                        <th className="px-4 py-2.5 w-10">
+                          <input
+                            type="checkbox"
+                            aria-label="Select all failed CV rows"
+                            checked={
+                              failedBulkLocalTrash.length > 0 &&
+                              failedBulkLocalTrash.every((r) => failedBulkSelected.has(r.id))
+                            }
+                            ref={(el) => {
+                              if (!el) return;
+                              const n = failedBulkLocalTrash.length;
+                              const c = failedBulkSelected.size;
+                              el.indeterminate = c > 0 && c < n;
+                            }}
+                            onChange={() => toggleSelectAllFailedBulk()}
+                            disabled={failedBulkBulkBusy}
+                            className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500 cursor-pointer"
+                          />
+                        </th>
+                        <th className="px-4 py-2.5">File</th>
+                        <th className="px-4 py-2.5">Failure reason</th>
+                        <th className="px-4 py-2.5">Removed</th>
+                        <th className="px-4 py-2.5 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {failedBulkLocalTrash.map((row) => {
+                        const rowPending = failedBulkLocalPending[row.id];
+                        const isSel = failedBulkSelected.has(row.id);
+                        return (
+                          <tr
+                            key={row.id}
+                            className={`hover:bg-slate-50/50 ${isSel ? 'bg-violet-50/40' : ''}`}
+                          >
+                            <td className="px-4 py-3">
+                              <input
+                                type="checkbox"
+                                aria-label={`Select ${row.fileName}`}
+                                checked={isSel}
+                                onChange={() => toggleFailedBulkSelection(row.id)}
+                                disabled={failedBulkBulkBusy || !!rowPending}
+                                className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500 cursor-pointer"
+                              />
+                            </td>
+                            <td className="px-4 py-3 font-medium text-slate-900">{row.fileName}</td>
+                            <td className="max-w-[280px] truncate px-4 py-3 text-slate-500" title={row.reason}>
+                              {row.reason}
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-3 text-slate-500">
+                              {row.trashedAt ? formatDateTimeDMY(row.trashedAt) : '—'}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  type="button"
+                                  disabled={!!rowPending || failedBulkBulkBusy}
+                                  onClick={async () => {
+                                    const ok = await requestConfirm(
+                                      `Put "${row.fileName}" back on the Failed resumes list on the Candidates page?`,
+                                      { confirmLabel: 'Restore', cancelLabel: 'Cancel' }
+                                    );
+                                    if (!ok) return;
+                                    setFailedBulkLocalPending((p) => ({ ...p, [row.id]: 'restore' }));
+                                    try {
+                                      restoreFailedBulkResumeFromTrash(row.id);
+                                      refreshFailedBulkLocalTrash();
+                                      void requestSuccess(`Restored "${row.fileName}" to Failed resumes`);
+                                    } catch (err: any) {
+                                      void requestError(err?.message || 'Failed to restore');
+                                    } finally {
+                                      setFailedBulkLocalPending((p) => {
+                                        const n = { ...p };
+                                        delete n[row.id];
+                                        return n;
+                                      });
+                                    }
+                                  }}
+                                  className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {rowPending === 'restore' ? (
+                                    <Loader2 size={12} className="animate-spin" />
+                                  ) : (
+                                    <RefreshCcw size={12} />
+                                  )}
+                                  Restore
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={!!rowPending || failedBulkBulkBusy}
+                                  onClick={async () => {
+                                    const ok = await requestConfirm(
+                                      `Permanently remove "${row.fileName}" from this device? This cannot be undone.`,
+                                      { confirmLabel: 'Delete forever', cancelLabel: 'Cancel', tone: 'error' }
+                                    );
+                                    if (!ok) return;
+                                    setFailedBulkLocalPending((p) => ({ ...p, [row.id]: 'purge' }));
+                                    try {
+                                      purgeFailedBulkResumeFromTrash(row.id);
+                                      refreshFailedBulkLocalTrash();
+                                      void requestSuccess(`Removed "${row.fileName}" permanently`);
+                                    } catch (err: any) {
+                                      void requestError(err?.message || 'Failed to delete');
+                                    } finally {
+                                      setFailedBulkLocalPending((p) => {
+                                        const n = { ...p };
+                                        delete n[row.id];
+                                        return n;
+                                      });
+                                    }
+                                  }}
+                                  className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-700 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {rowPending === 'purge' ? (
+                                    <Loader2 size={12} className="animate-spin" />
+                                  ) : (
+                                    <Trash2 size={12} />
+                                  )}
+                                  Delete forever
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ) : null}
+        </section>
+
         {SECTION_CONFIG.map((cfg) => {
           const state = sections[cfg.key];
           const Icon = cfg.icon;
+          const sectionSelected = selected[cfg.key];
+          const selectedCount = sectionSelected.size;
+          const busy = bulkOp[cfg.key] !== null;
+          const restoring = bulkOp[cfg.key] === 'restore';
+          const purging = bulkOp[cfg.key] === 'purge';
+          const showBulkInHeader = !state.loading && !state.error && state.items.length > 0;
+
           return (
             <section
               key={cfg.key}
               className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden"
             >
-              <button
-                type="button"
-                onClick={() => toggleSection(cfg.key)}
-                className="w-full flex items-center justify-between gap-3 p-4 text-left hover:bg-slate-50/50 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <span className={`inline-flex h-9 w-9 items-center justify-center rounded-lg ${cfg.accent}`}>
-                    <Icon size={16} />
-                  </span>
-                  <div>
-                    <h2 className="text-sm font-bold text-slate-900">{cfg.label}</h2>
-                    <p className="text-xs text-slate-500">
-                      {state.loading
-                        ? 'Loading…'
-                        : state.error
-                          ? state.error
-                          : `${state.items.length} deleted ${cfg.label.toLowerCase()}`}
-                    </p>
+              <div className="flex flex-col border-b border-slate-100 sm:flex-row sm:items-stretch">
+                <button
+                  type="button"
+                  onClick={() => toggleSection(cfg.key)}
+                  className="flex flex-1 items-center justify-between gap-3 p-4 text-left transition-colors hover:bg-slate-50/50 sm:min-w-0"
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${cfg.accent}`}>
+                      <Icon size={16} />
+                    </span>
+                    <div className="min-w-0">
+                      <h2 className="text-sm font-bold text-slate-900">{cfg.label}</h2>
+                      <p className="text-xs text-slate-500">
+                        {state.loading
+                          ? 'Loading…'
+                          : state.error
+                            ? state.error
+                            : `${state.items.length} deleted ${cfg.label.toLowerCase()}`}
+                      </p>
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  {state.loading && <Loader2 size={16} className="animate-spin text-slate-400" />}
-                  {state.expanded ? (
-                    <ChevronDown size={18} className="text-slate-400" />
-                  ) : (
-                    <ChevronRight size={18} className="text-slate-400" />
-                  )}
-                </div>
-              </button>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {state.loading && <Loader2 size={16} className="animate-spin text-slate-400" />}
+                    {state.expanded ? (
+                      <ChevronDown size={18} className="text-slate-400" />
+                    ) : (
+                      <ChevronRight size={18} className="text-slate-400" />
+                    )}
+                  </div>
+                </button>
+                {showBulkInHeader ? (
+                  <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/50 px-3 py-2.5 sm:border-l sm:border-t-0">
+                    <button
+                      type="button"
+                      onClick={() => void handleBulkRestore(cfg)}
+                      disabled={busy || selectedCount === 0}
+                      title={
+                        selectedCount === 0
+                          ? 'Select rows below or use the header checkbox to select all'
+                          : `Restore ${selectedCount} selected`
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {restoring ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : (
+                        <RefreshCcw size={14} />
+                      )}
+                      Bulk restore
+                      {selectedCount > 0 ? ` (${selectedCount})` : ''}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleBulkPurge(cfg)}
+                      disabled={busy || selectedCount === 0}
+                      title={
+                        selectedCount === 0
+                          ? 'Select rows below or use the header checkbox to select all'
+                          : `Permanently delete ${selectedCount} selected`
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {purging ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : (
+                        <Trash2 size={14} />
+                      )}
+                      Bulk delete
+                      {selectedCount > 0 ? ` (${selectedCount})` : ''}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
 
               {state.expanded && (
                 <div className="border-t border-slate-100">
@@ -518,45 +959,28 @@ export default function RecycleBinPage() {
                     </div>
                   ) : (
                     (() => {
-                      const sectionSelected = selected[cfg.key];
-                      const selectedCount = sectionSelected.size;
                       const allChecked =
                         state.items.length > 0 && state.items.every((it) => sectionSelected.has(it.id));
                       const someChecked = selectedCount > 0 && !allChecked;
-                      const busy = bulkBusy[cfg.key];
                       return (
                         <>
-                          {selectedCount > 0 && (
-                            <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-red-50/70 border-b border-red-100">
-                              <div className="flex items-center gap-3 text-sm">
-                                <span className="font-semibold text-red-700">
-                                  {selectedCount} selected
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => clearSelection(cfg.key)}
-                                  disabled={busy}
-                                  className="text-xs font-medium text-slate-500 hover:text-slate-700 disabled:opacity-60"
-                                >
-                                  Clear
-                                </button>
-                              </div>
+                          {selectedCount > 0 ? (
+                            <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/80 px-4 py-2 text-sm">
+                              <span className="font-medium text-slate-700">
+                                {selectedCount} selected — use{' '}
+                                <span className="font-semibold text-slate-900">Bulk restore</span> or{' '}
+                                <span className="font-semibold text-slate-900">Bulk delete</span> in the card header
+                              </span>
                               <button
                                 type="button"
-                                onClick={() => handleBulkPurge(cfg)}
+                                onClick={() => clearSelection(cfg.key)}
                                 disabled={busy}
-                                className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed"
-                                title={`Permanently delete ${selectedCount} ${selectedCount === 1 ? cfg.singular : cfg.label.toLowerCase()}`}
+                                className="text-xs font-semibold text-slate-500 hover:text-slate-800 disabled:opacity-50"
                               >
-                                {busy ? (
-                                  <Loader2 size={12} className="animate-spin" />
-                                ) : (
-                                  <Trash2 size={12} />
-                                )}
-                                Delete forever ({selectedCount})
+                                Clear
                               </button>
                             </div>
-                          )}
+                          ) : null}
                           <div className="overflow-x-auto">
                             <table className="min-w-full text-sm">
                               <thead>
