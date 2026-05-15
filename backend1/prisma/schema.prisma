@@ -684,7 +684,10 @@ model CandidateVaccination {
   vaccinationStatus   String
   vaccineType         String?
   lastVaccinationDate String?
+  validityMonth       String?
+  validityYear        String?
   certificate         String?
+  documents           String[]  @default([])
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
@@ -1375,6 +1378,53 @@ model LmsInterviewReport {
 
   @@map("lms_interview_reports")
   @@index([candidateId])
+}
+
+// ============================================================
+// CANDIDATE COMMON (separate Mongo DB: candidatecommon)
+// Full Phase 1 snapshots for cross-tenant AI matching in Phase 2.
+// ============================================================
+
+model CandidateCommon {
+  id                      String    @id @map("_id") @db.ObjectId
+  candidateId             String    @unique @db.ObjectId
+  isVerified              Boolean   @default(false)
+  firstName               String?
+  lastName                String?
+  email                   String?
+  phone                   String?
+  linkedIn                String?
+  resumeUrl               String?
+  skills                  String[]  @default([])
+  recruiterSkills         String[]  @default([])
+  experience              Int?
+  experienceYears         Int?
+  currentTitle            String?
+  currentCompany          String?
+  location                String?
+  city                    String?
+  country                 String?
+  designation             String?
+  cvSummary               String?
+  notes                   String?
+  recruiterNotes          String?
+  certifications          String[]  @default([])
+  certificationsList      String[]  @default([])
+  cvEducationEntries      Json?
+  cvWorkExperienceEntries Json?
+  cvPortfolioLinks        Json?
+  assignedJobs            String[]  @default([])
+  matchJobIds             String[]  @default([])
+  stage                   String?
+  source                  String?   @default("phase1")
+  lastLoginAt             DateTime?
+  syncedAt                DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  @@index([assignedJobs])
+  @@index([matchJobIds])
+  @@index([isVerified])
+  @@map("candidate_commons")
 }
 
 // ============================================================

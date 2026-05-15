@@ -291,7 +291,9 @@ export const leadService = {
       email: normalizeRequiredLeadField(normalizeNullableString(data.email)?.toLowerCase()),
       phone: normalizeNullableString(data.phone),
       type: data.type || 'Company',
-      source: data.source || 'Website',
+      source: ['Website', 'LinkedIn', 'Email', 'Referral', 'Campaign'].includes(data.source)
+        ? data.source
+        : null,
       status: data.status || 'New',
       priority: data.priority || 'Medium',
       interestedNeeds: normalizedInterestedNeeds || null,
@@ -432,7 +434,15 @@ export const leadService = {
     if (data.email !== undefined) updateData.email = data.email || '';
     if (data.phone !== undefined) updateData.phone = data.phone || null;
     if (data.type !== undefined) updateData.type = data.type;
-    if (data.source !== undefined) updateData.source = data.source;
+    if (data.source !== undefined) {
+      const s = data.source;
+      updateData.source =
+        s == null || s === ''
+          ? null
+          : ['Website', 'LinkedIn', 'Email', 'Referral', 'Campaign'].includes(s)
+            ? s
+            : null;
+    }
     if (data.status !== undefined) updateData.status = data.status;
     if (data.priority !== undefined) updateData.priority = data.priority;
     if (data.interestedNeeds !== undefined) updateData.interestedNeeds = data.interestedNeeds || null;
@@ -516,6 +526,67 @@ export const leadService = {
     if (data.convertedToClientId !== undefined) updateData.convertedToClientId = data.convertedToClientId || null;
     if (data.convertedToCandidateId !== undefined) updateData.convertedToCandidateId = data.convertedToCandidateId || null;
     if (data.convertedAt !== undefined) updateData.convertedAt = data.convertedAt ? new Date(data.convertedAt) : null;
+
+    // Status → Converted without a linked client: create Client + link (same as POST /leads/:id/convert).
+    if (data.status === 'Converted' && !currentLead.convertedToClientId) {
+      const performedById = data.performedById || req?.user?.id || null;
+      await this.convertToClient(id, {
+        performedById,
+        assignedToId: data.assignedToId !== undefined ? data.assignedToId : currentLead.assignedToId,
+        companyName: data.companyName !== undefined ? data.companyName : currentLead.companyName || undefined,
+        industry: data.industry !== undefined ? data.industry : currentLead.industry,
+        website: data.website !== undefined ? data.website : currentLead.website,
+        companySize:
+          (data.teamName !== undefined ? data.teamName : null) ||
+          (data.companySize !== undefined ? data.companySize : null) ||
+          currentLead.teamName ||
+          currentLead.companySize,
+        linkedin: data.linkedIn !== undefined ? data.linkedIn : currentLead.linkedIn,
+        location: data.location !== undefined ? data.location : currentLead.location,
+        address:
+          (data.location !== undefined ? data.location : null) ||
+          currentLead.location ||
+          (currentLead.city && currentLead.country ? `${currentLead.city}, ${currentLead.country}` : currentLead.city || currentLead.country) ||
+          undefined,
+        hiringLocations:
+          currentLead.city && currentLead.country
+            ? `${currentLead.city}, ${currentLead.country}`
+            : currentLead.city || currentLead.country || undefined,
+        priority: currentLead.priority
+          ? `${String(currentLead.priority).charAt(0)}${String(currentLead.priority).slice(1).toLowerCase()}`
+          : data.priority !== undefined
+            ? `${String(data.priority).charAt(0)}${String(data.priority).slice(1).toLowerCase()}`
+            : undefined,
+        servicesNeeded:
+          (data.servicesNeeded !== undefined ? data.servicesNeeded : null) ||
+          (data.interestedNeeds !== undefined ? data.interestedNeeds : null) ||
+          currentLead.servicesNeeded ||
+          currentLead.interestedNeeds,
+        expectedBusinessValue:
+          (data.expectedBusinessValue !== undefined ? data.expectedBusinessValue : null) ||
+          currentLead.expectedBusinessValue ||
+          currentLead.notes,
+      });
+      delete updateData.status;
+      delete updateData.convertedToClientId;
+      delete updateData.convertedAt;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      const refreshed = await prisma.lead.findFirst({
+        where: buildLeadAccessWhere(id, req),
+        include: {
+          assignedTo: {
+            select: { id: true, name: true, email: true, avatar: true },
+          },
+        },
+      });
+      if (!refreshed) {
+        throw new Error('Lead not found');
+      }
+      await attachAssignees(refreshed);
+      return refreshed;
+    }
 
     // Log the update data in JSON format
     dbLogger.logUpdate('Lead', id, updateData);
@@ -711,6 +782,15 @@ export const leadService = {
       throw new Error('Lead not found');
     }
 
+    if (lead.convertedToClientId) {
+      const existingClient = await prisma.client.findUnique({
+        where: { id: lead.convertedToClientId },
+      });
+      if (existingClient) {
+        return existingClient;
+      }
+    }
+
     // Log the lead data to see what we're working with
     console.log('\n=== LEAD DATA BEING CONVERTED ===');
     console.log(JSON.stringify({
@@ -751,7 +831,7 @@ export const leadService = {
         : this.inferLogoUrlFromLeadFiles(lead.files || []);
 
     const clientCreateData = {
-      companyName: clientData.companyName || lead.companyName,
+      companyName: String(clientData.companyName || lead.companyName || lead.contactPerson || 'Client').trim() || 'Client',
       industry: clientData.industry || lead.industry,
       website: clientData.website || lead.website,
       logo: leadInferredLogo || null,
@@ -1132,7 +1212,7 @@ export const leadService = {
         email,
         phone,
         type: normalizeType(cleanMapped('type')) || 'Company',
-        source: normalizeSource(cleanMapped('source')) || 'Website',
+        source: normalizeSource(cleanMapped('source')) ?? null,
         status: normalizeStatus(cleanMapped('status')) || 'New',
         priority: normalizeImportPriority(cleanMapped('priority') || ''),
         interestedNeeds: servicesVal,

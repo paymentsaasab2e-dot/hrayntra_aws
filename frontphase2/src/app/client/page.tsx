@@ -35,6 +35,7 @@ import { ClientImportDrawer } from '../../components/drawers/ClientImportDrawer'
 import ModuleRecycleBinDrawer from '../../components/ModuleRecycleBinDrawer';
 import { CreateJobDrawer } from '../../components/drawers/CreateJobDrawer';
 import PaginationAll from '../../components/PaginationAll';
+import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 import { INITIAL_CLIENTS } from './types';
 import type { Client } from './types';
 import { apiGetClients, apiGetClient, apiDeleteClient, apiUpdateClient, type BackendClient, type BackendUser, type UpdateClientData } from '../../lib/api';
@@ -250,7 +251,6 @@ function extractBackendClients(responseData: unknown): BackendClient[] {
 }
 
 export default function App() {
-  const DISPLAY_PAGE_SIZE = 10;
   const FETCH_LIMIT = 500;
   const SEARCH_DEBOUNCE_MS = 350;
   const router = useRouter();
@@ -294,6 +294,7 @@ export default function App() {
   const [bulkAssignedTo, setBulkAssignedTo] = useState('');
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState<TablePageSize>(10);
   const pendingDeepLinkClientIdRef = useRef<string | null>(null);
 
   const advancedFilteredClients = useMemo(
@@ -313,9 +314,9 @@ export default function App() {
     return list;
   }, [filteredClients, clientNameSortOrder]);
   const pagedClients = useMemo(() => {
-    const start = (currentPage - 1) * DISPLAY_PAGE_SIZE;
-    return sortedClients.slice(start, start + DISPLAY_PAGE_SIZE);
-  }, [sortedClients, currentPage]);
+    const start = (currentPage - 1) * pageSize;
+    return sortedClients.slice(start, start + pageSize);
+  }, [sortedClients, currentPage, pageSize]);
   const tabCounts = useMemo(
     () => ({
       all: advancedFilteredClients.length,
@@ -345,11 +346,11 @@ export default function App() {
   }, [advancedFilters]);
 
   useEffect(() => {
-    const totalPages = Math.max(1, Math.ceil(sortedClients.length / DISPLAY_PAGE_SIZE));
+    const totalPages = Math.max(1, Math.ceil(sortedClients.length / pageSize));
     if (currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
-  }, [currentPage, sortedClients.length]);
+  }, [currentPage, sortedClients.length, pageSize]);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -766,9 +767,15 @@ export default function App() {
               <div className="mt-0 w-full border-t border-indigo-100/50 bg-gradient-to-r from-slate-50/40 via-white to-indigo-50/25 px-3 py-2 sm:px-4">
                 <PaginationAll
                   initialPage={currentPage}
-                  totalPages={Math.max(1, Math.ceil(sortedClients.length / DISPLAY_PAGE_SIZE))}
+                  totalPages={Math.max(1, Math.ceil(sortedClients.length / pageSize))}
                   totalCount={sortedClients.length}
-                  pageSize={DISPLAY_PAGE_SIZE}
+                  pageSize={pageSize}
+                  pageSizeOptions={[...TABLE_PAGE_SIZE_OPTIONS]}
+                  onPageSizeChange={(n) => {
+                    if (!(TABLE_PAGE_SIZE_OPTIONS as readonly number[]).includes(n)) return;
+                    setPageSize(n as TablePageSize);
+                    setCurrentPage(1);
+                  }}
                   itemLabel="clients"
                   onPageChange={setCurrentPage}
                 />

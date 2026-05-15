@@ -30,6 +30,7 @@ import { apiRejectCandidate } from '../../lib/api';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import { SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
 import PaginationAll from '../../components/PaginationAll';
+import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 import {
   PH2_TABLE_CARD_CLASS,
   PH2_TABLE_CARD_FOOTER_CLASS,
@@ -589,6 +590,15 @@ export default function InterviewsPage() {
                           totalPages={Math.max(totalPages, 1)}
                           totalCount={totalEntries}
                           pageSize={pagination.pageSize}
+                          pageSizeOptions={[...TABLE_PAGE_SIZE_OPTIONS]}
+                          onPageSizeChange={(n) => {
+                            if (!(TABLE_PAGE_SIZE_OPTIONS as readonly number[]).includes(n)) return;
+                            setPagination((current) => ({
+                              ...current,
+                              pageSize: n as TablePageSize,
+                              page: 1,
+                            }));
+                          }}
                           itemLabel="interviews"
                           onPageChange={(page) => setPagination((current) => ({ ...current, page }))}
                         />

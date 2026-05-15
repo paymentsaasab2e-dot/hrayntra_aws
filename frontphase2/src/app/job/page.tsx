@@ -29,6 +29,7 @@ import { downloadCsv, csvDate } from '../../utils/csv';
 import { formatDateTimeDMY } from '../../utils/dateDisplay';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import PaginationAll from '../../components/PaginationAll';
+import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 import { requestConfirm, requestError } from '../../lib/appDialog';
 import { motion } from 'motion/react';
 import { Toaster, toast } from 'sonner';
@@ -831,7 +832,7 @@ export default function JobsPage() {
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const pendingDeepLinkJobIdRef = useRef<string | null>(null);
   const [currentPage, setCurrentPage] = useState(DEFAULT_PAGE);
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [pageSize, setPageSize] = useState<TablePageSize>(DEFAULT_PAGE_SIZE);
   const [jobs, setJobs] = useState<Job[]>(() => {
     try {
       if (typeof window === 'undefined') return [];
@@ -1939,9 +1940,15 @@ export default function JobsPage() {
                       <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
                         <PaginationAll
                           initialPage={currentPage}
-                          totalPages={Math.ceil(totalEntries / pageSize)}
+                          totalPages={Math.max(1, Math.ceil(totalEntries / pageSize))}
                           totalCount={totalEntries}
                           pageSize={pageSize}
+                          pageSizeOptions={[...TABLE_PAGE_SIZE_OPTIONS]}
+                          onPageSizeChange={(n) => {
+                            if (!(TABLE_PAGE_SIZE_OPTIONS as readonly number[]).includes(n)) return;
+                            setPageSize(n as TablePageSize);
+                            setCurrentPage(1);
+                          }}
                           itemLabel="jobs"
                           onPageChange={setCurrentPage}
                         />

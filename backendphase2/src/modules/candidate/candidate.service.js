@@ -1,5 +1,9 @@
 import { prisma, getActiveTenantDbName, getJobPortalPrismaClient } from '../../config/prisma.js';
 import {
+  fetchCandidateCommonForMatchPipeline,
+  fetchCandidateCommonForTenant,
+} from '../../services/candidateCommon/candidateCommonPool.service.js';
+import {
   PIPELINE_STAGES,
   mapStageNameToPipelineBucket,
   updateCandidateStage,
@@ -18,6 +22,7 @@ import {
   createUserNotification,
   pushPortalNotification,
 } from '../notification/notification.service.js';
+import { AI_MATCH_AUTHOR_WHERE } from '../match/matchQueryHelpers.js';
 
 const CANDIDATE_ACTIVITY_ENTITY = 'CANDIDATE';
 const NOTE_ACTIVITY_KIND = 'candidate-note';
@@ -84,6 +89,28 @@ const candidateListInclude = {
   },
 };
 
+function pickFirstNonEmpty(...values) {
+  for (const value of values) {
+    if (value === null || value === undefined) continue;
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed) return trimmed;
+      continue;
+    }
+    if (typeof value === 'number') {
+      if (Number.isFinite(value)) return value;
+      continue;
+    }
+    if (Array.isArray(value)) {
+      if (value.length) return value;
+      continue;
+    }
+    return value;
+  }
+  return null;
+}
+
+/** Prefer non-empty portal/common Phase 1 fields over sparse tenant CRM stubs (same Mongo id). */
 function mergePortalAndTenantCandidateRow(portalRow, tenantRow) {
   if (!tenantRow) return portalRow;
   if (!portalRow) return tenantRow;
@@ -91,11 +118,53 @@ function mergePortalAndTenantCandidateRow(portalRow, tenantRow) {
     ...(Array.isArray(portalRow.assignedJobs) ? portalRow.assignedJobs : []),
     ...(Array.isArray(tenantRow.assignedJobs) ? tenantRow.assignedJobs : []),
   ].map(String).filter(Boolean));
-  return {
-    ...portalRow,
-    ...tenantRow,
-    assignedJobs: Array.from(jobSet),
-  };
+
+  const scalarKeys = [
+    'firstName',
+    'lastName',
+    'email',
+    'phone',
+    'linkedIn',
+    'resume',
+    'resumeUrl',
+    'experience',
+    'experienceYears',
+    'currentTitle',
+    'currentCompany',
+    'location',
+    'address',
+    'addressLine',
+    'city',
+    'country',
+    'designation',
+    'cvSummary',
+    'notes',
+    'recruiterNotes',
+    'education',
+    'recruiterEducation',
+  ];
+  const arrayKeys = [
+    'skills',
+    'recruiterSkills',
+    'languages',
+    'recruiterLanguages',
+    'certifications',
+    'certificationsList',
+  ];
+  const richKeys = ['cvEducationEntries', 'cvWorkExperienceEntries', 'cvPortfolioLinks'];
+
+  const merged = { ...tenantRow, ...portalRow, assignedJobs: Array.from(jobSet) };
+  for (const key of scalarKeys) {
+    merged[key] = pickFirstNonEmpty(tenantRow[key], portalRow[key]);
+  }
+  for (const key of arrayKeys) {
+    merged[key] = pickFirstNonEmpty(tenantRow[key], portalRow[key]);
+  }
+  for (const key of richKeys) {
+    merged[key] = pickFirstNonEmpty(tenantRow[key], portalRow[key]);
+  }
+  merged.source = pickFirstNonEmpty(tenantRow.source, portalRow.source);
+  return merged;
 }
 
 async function resolveJobIdForStageSync(candidateId, data) {
@@ -510,6 +579,73 @@ async function materializePortalCandidateIntoTenant(portalRow) {
   });
 }
 
+/** Full upsert for AI match: restore tombstoned ids and write Phase 1 / portal profile fields. */
+async function materializeCandidateForMatch(poolRow) {
+  const assignedJobs = Array.isArray(poolRow.assignedJobs) ? poolRow.assignedJobs : [];
+  const skills =
+    Array.isArray(poolRow.recruiterSkills) && poolRow.recruiterSkills.length
+      ? poolRow.recruiterSkills
+      : Array.isArray(poolRow.skills)
+        ? poolRow.skills
+        : [];
+  const languages = Array.isArray(poolRow.languages) ? poolRow.languages : [];
+  const recruiterLanguages = Array.isArray(poolRow.recruiterLanguages) ? poolRow.recruiterLanguages : [];
+
+  const baseData = {
+    firstName: poolRow.firstName ?? null,
+    lastName: poolRow.lastName ?? null,
+    email: poolRow.email ?? null,
+    phone: poolRow.phone ?? null,
+    linkedIn: poolRow.linkedIn ?? null,
+    resume: poolRow.resume ?? poolRow.resumeUrl ?? null,
+    resumeUrl: poolRow.resumeUrl ?? null,
+    skills,
+    recruiterSkills: Array.isArray(poolRow.recruiterSkills) ? poolRow.recruiterSkills : [],
+    experience: poolRow.experience ?? poolRow.experienceYears ?? null,
+    experienceYears: poolRow.experienceYears ?? null,
+    currentTitle: poolRow.currentTitle ?? null,
+    currentCompany: poolRow.currentCompany ?? null,
+    location: poolRow.location ?? null,
+    address: poolRow.address ?? poolRow.addressLine ?? null,
+    addressLine: poolRow.addressLine ?? null,
+    city: poolRow.city ?? null,
+    country: poolRow.country ?? null,
+    status: 'ACTIVE',
+    recruiterStatus: poolRow.recruiterStatus ?? null,
+    source: poolRow.source ?? 'phase1',
+    assignedJobs,
+    stage: poolRow.stage ?? 'Applied',
+    lastActivity: poolRow.lastActivity ?? new Date(),
+    languages,
+    recruiterLanguages,
+    notes: poolRow.notes ?? poolRow.recruiterNotes ?? null,
+    recruiterNotes: poolRow.recruiterNotes ?? null,
+    education: poolRow.education ?? poolRow.recruiterEducation ?? null,
+    recruiterEducation: poolRow.recruiterEducation ?? null,
+    certifications: Array.isArray(poolRow.certifications) ? poolRow.certifications : [],
+    certificationsList: Array.isArray(poolRow.certificationsList) ? poolRow.certificationsList : [],
+    cvSummary: poolRow.cvSummary ?? null,
+    cvEducationEntries: poolRow.cvEducationEntries ?? null,
+    cvWorkExperienceEntries: poolRow.cvWorkExperienceEntries ?? null,
+    cvPortfolioLinks: poolRow.cvPortfolioLinks ?? null,
+    portfolio: poolRow.portfolio ?? null,
+    website: poolRow.website ?? null,
+    preferredLocation: poolRow.preferredLocation ?? null,
+    isDeleted: false,
+    deletedAt: null,
+    deletedBy: null,
+  };
+
+  return prisma.candidate.upsert({
+    where: { id: poolRow.id },
+    create: {
+      id: poolRow.id,
+      ...baseData,
+    },
+    update: baseData,
+  });
+}
+
 /**
  * Resolve a candidate by id from the tenant DB, falling back to the job-portal DB and
  * materializing the row into the tenant on demand. The merged candidate list view shows
@@ -545,30 +681,147 @@ async function getCandidateOrThrow(id) {
   return materializePortalCandidateIntoTenant(portalRow);
 }
 
+/**
+ * Pool for AI match pipeline: tenant NEW/ACTIVE + candidatecommon (Phase 1 snapshots)
+ * + optional job-portal merge. Excludes AI-rejected rows for this job.
+ */
+async function loadMatchPipelineCandidatePool(req, jobId) {
+  const jobIdStr = String(jobId || '').trim();
+  if (!jobIdStr) {
+    return {
+      candidates: [],
+      tenantCount: 0,
+      commonCount: 0,
+      portalCount: 0,
+      mergedCount: 0,
+      phase1TombstoneReincluded: 0,
+      commonIncluded: false,
+      portalIncluded: false,
+    };
+  }
+
+  const includeCommon =
+    process.env.MATCH_INCLUDE_CANDIDATE_COMMON !== 'false' &&
+    process.env.MATCH_INCLUDE_CANDIDATE_COMMON !== '0';
+  const includePortal =
+    process.env.MATCH_INCLUDE_PORTAL_CANDIDATES !== 'false' &&
+    process.env.MATCH_INCLUDE_PORTAL_CANDIDATES !== '0';
+
+  const tenantCandidates = await prisma.candidate.findMany({
+    where: {
+      isDeleted: { not: true },
+      status: { in: ['NEW', 'ACTIVE'] },
+    },
+  });
+
+  let commonCandidates = [];
+  const commonIncluded = includeCommon && isTenantScopedRequest();
+  if (commonIncluded) {
+    commonCandidates = await fetchCandidateCommonForMatchPipeline(req);
+  }
+
+  let portalCandidates = [];
+  const portalIncluded = includePortal && isTenantScopedRequest();
+  if (portalIncluded) {
+    const portalPrisma = getJobPortalPrismaClient();
+    const portalLimit = Math.min(5000, Math.max(1, Number(process.env.MATCH_PORTAL_POOL_MAX || 500) || 500));
+    portalCandidates = await portalPrisma.candidate.findMany({
+      take: portalLimit,
+      orderBy: { updatedAt: 'desc' },
+    });
+  }
+
+  const portalIdsForTombstone = [
+    ...portalCandidates.map((c) => c.id),
+    ...commonCandidates.map((c) => c.id),
+  ];
+  const softDeletedTenantIds = portalIdsForTombstone.length
+    ? await collectSoftDeletedTenantCandidateIds(portalIdsForTombstone)
+    : new Set();
+
+  const mergedById = new Map();
+  // Phase 1 snapshots stay eligible for AI matching even when tenant has a recycle-bin tombstone.
+  for (const candidate of commonCandidates) {
+    mergedById.set(candidate.id, candidate);
+  }
+  let phase1TombstoneReincluded = 0;
+  for (const candidate of commonCandidates) {
+    if (softDeletedTenantIds.has(candidate.id)) phase1TombstoneReincluded += 1;
+  }
+  for (const candidate of portalCandidates) {
+    if (softDeletedTenantIds.has(candidate.id) && !mergedById.has(candidate.id)) continue;
+    const prior = mergedById.get(candidate.id);
+    mergedById.set(
+      candidate.id,
+      prior ? mergePortalAndTenantCandidateRow(candidate, prior) : candidate
+    );
+  }
+  for (const candidate of tenantCandidates) {
+    const prior = mergedById.get(candidate.id);
+    mergedById.set(
+      candidate.id,
+      prior ? mergePortalAndTenantCandidateRow(prior, candidate) : candidate
+    );
+  }
+
+  let merged = Array.from(mergedById.values());
+  if (merged.length) {
+    const rejected = await prisma.match.findMany({
+      where: {
+        jobId: jobIdStr,
+        status: 'REJECTED',
+        createdById: AI_MATCH_AUTHOR_WHERE,
+        candidateId: { in: merged.map((c) => c.id) },
+      },
+      select: { candidateId: true },
+    });
+    const rejectedIds = new Set(rejected.map((r) => r.candidateId));
+    merged = merged.filter((c) => !rejectedIds.has(c.id));
+  }
+
+  return {
+    candidates: merged,
+    tenantCount: tenantCandidates.length,
+    commonCount: commonCandidates.length,
+    portalCount: portalCandidates.length,
+    mergedCount: merged.length,
+    phase1TombstoneReincluded,
+    commonIncluded,
+    portalIncluded,
+  };
+}
+
+/**
+ * Ensure a scored candidate exists in the tenant DB before writing a Match row.
+ * @returns {{ id: string, materialized: boolean } | null}
+ */
+async function ensureCandidateMaterializedForMatch(candidateRow) {
+  if (!candidateRow?.id) return null;
+  if (!isTenantScopedRequest()) return null;
+
+  const existing = await prisma.candidate.findUnique({
+    where: { id: candidateRow.id },
+    select: { id: true, isDeleted: true },
+  });
+  if (existing?.isDeleted === true) {
+    const row = await materializeCandidateForMatch(candidateRow);
+    if (!row?.id) return null;
+    return { id: row.id, materialized: true };
+  }
+  if (existing) return { id: existing.id, materialized: false };
+
+  const row = await materializeCandidateForMatch(candidateRow);
+  if (!row?.id) return null;
+  return { id: row.id, materialized: true };
+}
+
 // Exposed for cross-module callers (e.g. services/interview.service.js) so they can
 // rely on the same portal→tenant materialization as the candidate module routes.
-export { getCandidateOrThrow };
-
-function pickFirstNonEmpty(...values) {
-  for (const value of values) {
-    if (value === null || value === undefined) continue;
-    if (typeof value === 'string') {
-      const trimmed = value.trim();
-      if (trimmed) return trimmed;
-      continue;
-    }
-    if (typeof value === 'number') {
-      if (Number.isFinite(value)) return value;
-      continue;
-    }
-    if (Array.isArray(value)) {
-      if (value.length) return value;
-      continue;
-    }
-    return value;
-  }
-  return null;
-}
+export {
+  getCandidateOrThrow,
+  loadMatchPipelineCandidatePool,
+  ensureCandidateMaterializedForMatch,
+};
 
 function normalizePortalWorkMode(value) {
   const raw = String(value || '').trim().toUpperCase();

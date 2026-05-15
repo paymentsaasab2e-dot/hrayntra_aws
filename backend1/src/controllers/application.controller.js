@@ -1,5 +1,6 @@
 const { prisma } = require('../lib/prisma');
 const { createCandidateNotification } = require('../services/notification.service');
+const { scheduleCandidateCommonSync } = require('../services/candidateCommonSync.service');
 
 /** True for Prisma Mongo write conflicts / transient transaction failures (case + message fallbacks). */
 function isMongoTransientWriteConflict(e) {
@@ -568,6 +569,8 @@ async function syncApplicationToRecruiterView(candidateId, job) {
       lastActivity: new Date(),
     },
   });
+
+  scheduleCandidateCommonSync(candidateId);
 
   const existingMatch = await prisma.match.findFirst({
     where: { candidateId, jobId: job.id },

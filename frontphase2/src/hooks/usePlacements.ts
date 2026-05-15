@@ -23,6 +23,7 @@ import type {
   PlacementStats,
   RequestReplacementPayload,
 } from '../types/placement';
+import { coerceTablePageSize } from '../constants/tablePagination';
 
 function unwrapCollection<T>(value: T[] | { data?: T[]; pagination?: any } | undefined | null): T[] {
   if (Array.isArray(value)) return value;
@@ -42,7 +43,7 @@ export function usePlacements(filters: PlacementFilters) {
   const [pagination, setPagination] = useState({
     total: 0,
     page: Number(filters.page || 1),
-    limit: Number(filters.limit || 20),
+    limit: coerceTablePageSize(filters.limit, 10),
     totalPages: 1,
   });
   const [loading, setLoading] = useState(true);
@@ -72,7 +73,7 @@ export function usePlacements(filters: PlacementFilters) {
         (payload && !Array.isArray(payload) && payload.pagination) || {
           total: 0,
           page: Number(filters.page || 1),
-          limit: Number(filters.limit || 20),
+          limit: coerceTablePageSize(filters.limit, 10),
           totalPages: 1,
         }
       );

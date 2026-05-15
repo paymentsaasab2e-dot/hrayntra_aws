@@ -2566,6 +2566,8 @@ export interface BackendMatch {
   noticePeriod: string;
   status: string;
   matchSource: 'ai' | 'manual';
+  /** True when match came from Phase 1 / candidatecommon pool. */
+  isPhase1Candidate?: boolean;
   explanation: {
     skills: boolean | 'partial';
     experience: boolean | 'partial';
@@ -2575,14 +2577,25 @@ export interface BackendMatch {
     matchedSkills: string[];
     missingSkills: string[];
     roleRequirement: string;
-    /** Present when AI tab uses backend1-style job match engine (deterministic + GPT blend). */
+    /** Optional server-provided band; UI can derive from score if absent. */
+    scoreBand?: string;
+    /** Present when AI tab uses the 4-pass HR matching pipeline (v1). */
     aiEngine?: {
       deterministicScore: number;
       aiScore: number | null;
       verdict: string;
       confidenceLevel: string;
       confidenceScore: number;
-      breakdown?: Record<string, number>;
+      breakdown?: {
+        skills?: number;
+        experience?: number;
+        semantic?: number;
+        cultural?: number;
+      } & Record<string, number>;
+      pipelineWeights?: { p1?: number; p2?: number; p3?: number; p4?: number };
+      suggestion?: string;
+      runId?: string;
+      formula?: string;
     };
   };
   currentTitle: string;
@@ -2618,6 +2631,11 @@ export async function apiGetMatches(params: {
   candidateId?: string;
   status?: string;
   minScore?: number;
+  /** Set to `'1'` to run the 4-pass AI pipeline (Scores + persist). Omit for list-only fetch. */
+  runPipeline?: string;
+  /** Set to `'1'` to bypass the 24h server-side evaluation cache and re-run the pipeline. */
+  refresh?: string;
+  forceRefresh?: string;
   source?: 'ai' | 'manual';
   saved?: boolean;
   page?: number;
@@ -2735,7 +2753,7 @@ export interface BackendLead {
   email: string | null;
   phone?: string | null;
   type: 'Company' | 'Individual' | 'Referral';
-  source: 'Website' | 'LinkedIn' | 'Email' | 'Referral' | 'Campaign';
+  source?: 'Website' | 'LinkedIn' | 'Email' | 'Referral' | 'Campaign' | null;
   status: 'New' | 'Contacted' | 'Qualified' | 'Converted' | 'Lost';
   priority: 'High' | 'Medium' | 'Low';
   interestedNeeds?: string | null;

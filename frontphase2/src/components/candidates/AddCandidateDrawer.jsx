@@ -616,6 +616,10 @@ export default function AddCandidateDrawer({
   const bulkCvSocketRef = useRef(null);
   const bulkCvSessionIdRef = useRef('');
   const bulkCvCurrentFileIndexRef = useRef(-1);
+  /** Parallel bulk parse: duplicate modals must queue so each fileIndex gets a user decision. */
+  const bulkCvDupQueueRef = useRef([]);
+  const bulkCvDupShowingRef = useRef(false);
+  const bulkCvDupAwaitingIndicesRef = useRef(new Set());
   const [bulkDuplicateModal, setBulkDuplicateModal] = useState(null);
   const fieldRefs = useRef({});
   const importProgressRef = useRef(null);
@@ -773,6 +777,9 @@ export default function AddCandidateDrawer({
     bulkCvSocketRef.current = null;
     bulkCvSessionIdRef.current = '';
     bulkCvCurrentFileIndexRef.current = -1;
+    bulkCvDupQueueRef.current = [];
+    bulkCvDupShowingRef.current = false;
+    bulkCvDupAwaitingIndicesRef.current.clear();
     setBulkDuplicateModal(null);
     if (nextTab) setActiveTab(nextTab);
   };
@@ -794,18 +801,30 @@ export default function AddCandidateDrawer({
     bulkResumeStopRequestedRef.current = true;
     setBulkResumeStopRequested(true);
     const sid = bulkCvSessionIdRef.current;
-    const idx = bulkCvCurrentFileIndexRef.current;
-    if (sid && idx >= 0 && bulkCvSocketRef.current) {
-      try {
-        bulkCvSocketRef.current.emit('duplicate_decision', {
-          sessionId: sid,
-          fileIndex: idx,
-          decision: 'cancel',
-        });
-      } catch (_e) {
-        /* ignore */
+    const socket = bulkCvSocketRef.current;
+    if (sid && socket) {
+      const indices = new Set(bulkCvDupAwaitingIndicesRef.current);
+      const modalIdx = bulkDuplicateModal?.fileIndex;
+      if (modalIdx !== undefined && modalIdx !== null) indices.add(modalIdx);
+      bulkCvDupQueueRef.current.forEach((p) => {
+        if (p?.fileIndex !== undefined && p?.fileIndex !== null) indices.add(p.fileIndex);
+      });
+      for (const fileIndex of indices) {
+        try {
+          socket.emit('duplicate_decision', {
+            sessionId: sid,
+            fileIndex,
+            decision: 'cancel',
+          });
+        } catch (_e) {
+          /* ignore */
+        }
       }
     }
+    bulkCvDupAwaitingIndicesRef.current.clear();
+    bulkCvDupQueueRef.current = [];
+    bulkCvDupShowingRef.current = false;
+    setBulkDuplicateModal(null);
     // Abort the in-flight HTTP request so the current parse/create call is killed
     // immediately instead of waiting for it to resolve.
     try {
@@ -1244,12 +1263,12 @@ export default function AddCandidateDrawer({
     setBulkResumePhase('importing');
     setBulkResumeProgress({ current: 0, total: bulkResumeFiles.length });
     setBulkCvSummary(null);
-    const slotResults = bulkResumeFiles.map((f) => ({
+    const initialBulkRows = bulkResumeFiles.map((f) => ({
       fileName: f.name,
       status: 'processing',
       message: 'Queued…',
     }));
-    setBulkResumeResults(slotResults);
+    setBulkResumeResults(initialBulkRows);
 
     const batchStart = Date.now();
     let createdCount = 0;
@@ -1265,6 +1284,14 @@ export default function AddCandidateDrawer({
         total: prev.total,
       }));
     };
+
+    const rawConc = Number(
+      typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_BULK_CV_CONCURRENCY : NaN
+    );
+    const BULK_CV_CONCURRENCY = Math.min(
+      6,
+      Math.max(1, Number.isFinite(rawConc) && rawConc > 0 ? Math.floor(rawConc) : 3)
+    );
 
     const sessionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 11)}`;
     bulkCvSessionIdRef.current = sessionId;
@@ -1298,7 +1325,15 @@ export default function AddCandidateDrawer({
 
       socket.emit('bulk_cv_join', { sessionId });
       socket.on('duplicate_found', (payload) => {
-        setBulkDuplicateModal(payload);
+        if (payload?.fileIndex !== undefined && payload?.fileIndex !== null) {
+          bulkCvDupAwaitingIndicesRef.current.add(payload.fileIndex);
+        }
+        if (!bulkCvDupShowingRef.current) {
+          bulkCvDupShowingRef.current = true;
+          setBulkDuplicateModal(payload);
+        } else {
+          bulkCvDupQueueRef.current.push(payload);
+        }
       });
     } catch (socketErr) {
       console.error('[bulk-cv] Socket init failed', socketErr);
@@ -1317,115 +1352,149 @@ export default function AddCandidateDrawer({
       return;
     }
 
-    try {
-      for (let index = 0; index < bulkResumeFiles.length; index += 1) {
-        const file = bulkResumeFiles[index];
+    const fileCount = bulkResumeFiles.length;
+    const outcomes = new Array(fileCount).fill(null);
+    let nextFileIndex = 0;
 
-        if (bulkResumeStopRequestedRef.current) {
+    const markFinalRow = (index, row) => {
+      outcomes[index] = row;
+      setBulkResumeResults((prev) => {
+        const next = [...prev];
+        next[index] = row;
+        return next;
+      });
+      bumpProgress();
+    };
+
+    const processIndex = async (index) => {
+      const file = bulkResumeFiles[index];
+
+      if (bulkResumeStopRequestedRef.current) {
+        stoppedEarly = true;
+        markFinalRow(index, {
+          fileName: file.name,
+          status: 'failed',
+          message: 'Stopped by user',
+        });
+        return;
+      }
+
+      setBulkResumeResults((prev) => {
+        const next = [...prev];
+        next[index] = { ...next[index], status: 'processing', message: 'Parsing CV…' };
+        return next;
+      });
+
+      try {
+        const parsedResponse = await apiBulkCvProcessFile(file, sessionId, index, { signal: abortSignal });
+        const envelope = parsedResponse.data || {};
+
+        if (envelope?.skipped) {
+          markFinalRow(index, {
+            fileName: file.name,
+            status: 'skipped',
+            message: 'Skipped — duplicate (you chose not to import this CV)',
+          });
+          return;
+        }
+
+        const parsedCandidate = envelope.normalized || {};
+        const duplicateResolution = envelope.duplicateResolution || null;
+        const identity = deriveBulkResumeIdentity(parsedCandidate, file);
+        const enrichedCandidate = {
+          ...parsedCandidate,
+          firstName: identity.firstName,
+          lastName: identity.lastName,
+          email: identity.email,
+        };
+
+        const createResponse = await apiCreateCandidateFromDrawer(
+          buildBulkResumePayload(enrichedCandidate),
+          { signal: abortSignal }
+        );
+        const candidate = createResponse.data;
+        const savedFirst = String(candidate?.firstName || enrichedCandidate.firstName || '').trim();
+        const savedLast = String(candidate?.lastName || enrichedCandidate.lastName || '').trim();
+
+        const bulkCandidateId = candidate.id || candidate._id;
+        if (file && bulkCandidateId && !isPersistableRemoteResumeUrl(parsedCandidate?.resumeUrl)) {
+          backgroundUploads.push(
+            apiUploadCandidateResumeFile(bulkCandidateId, file, { signal: abortSignal }).catch((uploadError) => {
+              if (!isAbortError(uploadError)) {
+                console.error('Resume upload failed after candidate creation:', uploadError);
+              }
+            })
+          );
+        }
+
+        const placeholderParts = [];
+        if (identity.syntheticName) placeholderParts.push('name');
+        let successMessage = placeholderParts.length
+          ? `Created — placeholder ${placeholderParts.join(' & ')} added (please update)`
+          : 'Candidate created successfully';
+        if (duplicateResolution === 'replaced') {
+          successMessage = 'Replaced — existing candidate removed; new profile saved';
+        } else if (duplicateResolution === 'create_anyway') {
+          successMessage = 'Saved as copy — duplicate resolved with a new last name / email variant';
+        }
+
+        createdCount += 1;
+        removeFailedBulkResumesByFileName(file.name);
+        markFinalRow(index, {
+          fileName: file.name,
+          status: 'created',
+          duplicateResolution,
+          candidateName:
+            `${savedFirst} ${savedLast}`.trim() ||
+            candidate.email ||
+            enrichedCandidate.email ||
+            'Candidate',
+          message: successMessage,
+        });
+      } catch (error) {
+        if (isAbortError(error) || bulkResumeStopRequestedRef.current) {
           stoppedEarly = true;
-          slotResults[index] = {
+          markFinalRow(index, {
             fileName: file.name,
             status: 'failed',
             message: 'Stopped by user',
-          };
-          setBulkResumeResults([...slotResults]);
-          bumpProgress();
-          break;
-        }
-
-        bulkCvCurrentFileIndexRef.current = index;
-        slotResults[index] = { ...slotResults[index], status: 'processing', message: 'Parsing CV…' };
-        setBulkResumeResults([...slotResults]);
-
-        try {
-          const parsedResponse = await apiBulkCvProcessFile(file, sessionId, index, { signal: abortSignal });
-          const envelope = parsedResponse.data || {};
-
-          if (envelope?.skipped) {
-            slotResults[index] = {
-              fileName: file.name,
-              status: 'skipped',
-              message: 'Skipped — duplicate (you chose not to import this CV)',
-            };
-            setBulkResumeResults([...slotResults]);
-            bumpProgress();
-            continue;
-          }
-
-          const parsedCandidate = envelope.normalized || {};
-          const duplicateResolution = envelope.duplicateResolution || null;
-          const identity = deriveBulkResumeIdentity(parsedCandidate, file);
-          const enrichedCandidate = {
-            ...parsedCandidate,
-            firstName: identity.firstName,
-            lastName: identity.lastName,
-            email: identity.email,
-          };
-
-          const createResponse = await apiCreateCandidateFromDrawer(
-            buildBulkResumePayload(enrichedCandidate),
-            { signal: abortSignal }
-          );
-          const candidate = createResponse.data;
-          const savedFirst = String(candidate?.firstName || enrichedCandidate.firstName || '').trim();
-          const savedLast = String(candidate?.lastName || enrichedCandidate.lastName || '').trim();
-
-          const bulkCandidateId = candidate.id || candidate._id;
-          if (file && bulkCandidateId && !isPersistableRemoteResumeUrl(parsedCandidate?.resumeUrl)) {
-            backgroundUploads.push(
-              apiUploadCandidateResumeFile(bulkCandidateId, file, { signal: abortSignal }).catch((uploadError) => {
-                if (!isAbortError(uploadError)) {
-                  console.error('Resume upload failed after candidate creation:', uploadError);
-                }
-              })
-            );
-          }
-
-          const placeholderParts = [];
-          if (identity.syntheticName) placeholderParts.push('name');
-          let successMessage = placeholderParts.length
-            ? `Created — placeholder ${placeholderParts.join(' & ')} added (please update)`
-            : 'Candidate created successfully';
-          if (duplicateResolution === 'replaced') {
-            successMessage = 'Replaced — existing candidate removed; new profile saved';
-          } else if (duplicateResolution === 'create_anyway') {
-            successMessage = 'Saved as copy — duplicate resolved with a new last name / email variant';
-          }
-
-          createdCount += 1;
-          removeFailedBulkResumesByFileName(file.name);
-          slotResults[index] = {
+          });
+        } else {
+          markFinalRow(index, {
             fileName: file.name,
-            status: 'created',
-            duplicateResolution,
-            candidateName:
-              `${savedFirst} ${savedLast}`.trim() ||
-              candidate.email ||
-              enrichedCandidate.email ||
-              'Candidate',
-            message: successMessage,
-          };
-        } catch (error) {
-          if (isAbortError(error) || bulkResumeStopRequestedRef.current) {
-            stoppedEarly = true;
-            slotResults[index] = {
-              fileName: file.name,
-              status: 'failed',
-              message: 'Stopped by user',
-            };
-          } else {
-            slotResults[index] = {
-              fileName: file.name,
-              status: 'failed',
-              message: error.message || 'Failed to create candidate',
-            };
-          }
+            status: 'failed',
+            message: error.message || 'Failed to create candidate',
+          });
         }
+      }
+    };
 
-        setBulkResumeResults([...slotResults]);
-        bumpProgress();
+    async function poolWorker() {
+      while (true) {
+        const index = nextFileIndex++;
+        if (index >= fileCount) return;
+        await processIndex(index);
+      }
+    }
+
+    try {
+      const poolSize = Math.min(BULK_CV_CONCURRENCY, fileCount);
+      await Promise.all(Array.from({ length: poolSize }, () => poolWorker()));
+
+      for (let i = 0; i < fileCount; i += 1) {
+        if (outcomes[i] != null) continue;
+        const f = bulkResumeFiles[i];
+        stoppedEarly = stoppedEarly || bulkResumeStopRequestedRef.current;
+        markFinalRow(i, {
+          fileName: f.name,
+          status: 'failed',
+          message: bulkResumeStopRequestedRef.current ? 'Stopped by user' : 'Not processed',
+        });
       }
     } finally {
+      bulkCvDupQueueRef.current = [];
+      bulkCvDupAwaitingIndicesRef.current.clear();
+      bulkCvDupShowingRef.current = false;
       setBulkDuplicateModal(null);
       bulkCvCurrentFileIndexRef.current = -1;
       try {
@@ -1437,6 +1506,11 @@ export default function AddCandidateDrawer({
       bulkCvSessionIdRef.current = '';
     }
 
+    const slotResults = bulkResumeFiles.map((f, i) =>
+      outcomes[i] != null
+        ? outcomes[i]
+        : { fileName: f.name, status: 'failed', message: 'Not processed' }
+    );
     const elapsed = Date.now() - batchStart;
     const succeeded = slotResults.filter((item) => item.status === 'created').length;
     const failed = slotResults.filter((item) => item.status === 'failed').length;
@@ -1757,7 +1831,9 @@ export default function AddCandidateDrawer({
     const modal = bulkDuplicateModal;
     if (!modal) return;
     const sid = bulkCvSessionIdRef.current;
-    setBulkDuplicateModal(null);
+    if (modal.fileIndex !== undefined && modal.fileIndex !== null) {
+      bulkCvDupAwaitingIndicesRef.current.delete(modal.fileIndex);
+    }
     try {
       bulkCvSocketRef.current?.emit('duplicate_decision', {
         sessionId: sid,
@@ -1766,6 +1842,13 @@ export default function AddCandidateDrawer({
       });
     } catch (_e) {
       /* ignore */
+    }
+    const next = bulkCvDupQueueRef.current.shift();
+    if (next) {
+      setBulkDuplicateModal(next);
+    } else {
+      bulkCvDupShowingRef.current = false;
+      setBulkDuplicateModal(null);
     }
   };
 

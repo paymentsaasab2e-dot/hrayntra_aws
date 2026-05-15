@@ -14,6 +14,7 @@ import { candidateService } from '../candidate/candidate.service.js';
 import { taskService } from '../task/task.service.js';
 import { placementService } from '../placement/placement.service.js';
 import { undoService } from './undo.service.js';
+import * as locationResolveService from '../../services/locationResolve.service.js';
 
 const jobDescriptionJsonSchema = {
   name: 'job_description_payload',
@@ -382,6 +383,41 @@ export const aiController = {
       return sendError(res, 500, error.message || 'Failed to generate lead details', error);
     }
   },
+  async searchLocations(req, res) {
+    try {
+      const q = String(req.query?.q || req.query?.query || '').trim();
+      if (q.length < 2) {
+        return sendResponse(res, 200, 'OK', { suggestions: [] });
+      }
+      const limit = Math.min(Math.max(parseInt(String(req.query?.limit || '8'), 10) || 8, 1), 20);
+      const suggestions = await locationResolveService.searchLocations(q, { limit });
+      return sendResponse(res, 200, 'OK', { suggestions });
+    } catch (error) {
+      console.error('[searchLocations]', error);
+      return sendError(res, 500, error.message || 'Location search failed', error);
+    }
+  },
+
+  async resolveLocation(req, res) {
+    try {
+      const query = String(req.body?.query || req.body?.location || '').trim();
+      if (query.length < 2) {
+        return sendError(res, 400, 'Location must be at least 2 characters');
+      }
+      const resolved = await locationResolveService.resolveLocation(query);
+      return sendResponse(res, 200, 'Location resolved', resolved);
+    } catch (error) {
+      if (error.code === 'VALIDATION') {
+        return sendError(res, 400, error.message);
+      }
+      if (error.code === 'NOT_FOUND') {
+        return sendError(res, 404, error.message);
+      }
+      console.error('[resolveLocation]', error);
+      return sendError(res, 500, error.message || 'Location resolve failed', error);
+    }
+  },
+
   async executeUndo(req, res) {
     try {
       const { actionId } = req.body || {};

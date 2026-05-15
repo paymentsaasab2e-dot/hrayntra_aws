@@ -27,6 +27,7 @@ import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { useRouter } from 'next/navigation';
 import PaginationAll from '../../components/PaginationAll';
+import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 import InvoiceActivityDrawer from '../../components/billing/InvoiceActivityDrawer';
 import {
   SUPPORTED_CURRENCIES,
@@ -122,8 +123,6 @@ const DEFAULT_FILTERS: FiltersState = {
   invoiceStatus: '',
   search: '',
 };
-
-const BILLING_PAGE_SIZE = 10;
 
 const TAB_EXPORT_KEY: Record<BillingTab, string> = {
   Invoices: 'invoices',
@@ -348,6 +347,7 @@ export default function BillingPage() {
   const [data, setData] = useState<SummaryResponse | null>(null);
   const [settingsForm, setSettingsForm] = useState<BillingSettings | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState<TablePageSize>(10);
   const [loading, setLoading] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
   const [exporting, setExporting] = useState<string | null>(null);
@@ -471,8 +471,8 @@ export default function BillingPage() {
       ? []
       : DEFAULT_COLUMNS[activeTab];
 
-  const totalPages = Math.max(Math.ceil(tableRows.length / BILLING_PAGE_SIZE), 1);
-  const visibleRows = tableRows.slice((currentPage - 1) * BILLING_PAGE_SIZE, currentPage * BILLING_PAGE_SIZE);
+  const totalPages = Math.max(Math.ceil(tableRows.length / pageSize), 1);
+  const visibleRows = tableRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -731,7 +731,13 @@ export default function BillingPage() {
                   initialPage={currentPage}
                   totalPages={Math.max(totalPages, 1)}
                   totalCount={tableRows.length}
-                  pageSize={BILLING_PAGE_SIZE}
+                  pageSize={pageSize}
+                  pageSizeOptions={[...TABLE_PAGE_SIZE_OPTIONS]}
+                  onPageSizeChange={(n) => {
+                    if (!(TABLE_PAGE_SIZE_OPTIONS as readonly number[]).includes(n)) return;
+                    setPageSize(n as TablePageSize);
+                    setCurrentPage(1);
+                  }}
                   itemLabel="records"
                   onPageChange={setCurrentPage}
                 />

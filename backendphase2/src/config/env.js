@@ -40,6 +40,11 @@ export const env = {
   HEADQUARTERS_DATABASE_URL: process.env.HEADQUARTERS_DATABASE_URL,
   /** Job portal Mongo URL (applications + portal candidates). Falls back to DATABASE_URL when unset. */
   JOB_PORTAL_DATABASE_URL: process.env.JOB_PORTAL_DATABASE_URL,
+  /**
+   * Shared Phase 1 candidate snapshots (`candidatecommon` Mongo DB).
+   * Falls back to same host as DATABASE_URL with db name `candidatecommon`.
+   */
+  CANDIDATE_COMMON_DATABASE_URL: process.env.CANDIDATE_COMMON_DATABASE_URL,
   /** Shared secret for POST /api/v1/internal/sync-portal-application */
   PHASE2_PORTAL_SYNC_SECRET: process.env.PHASE2_PORTAL_SYNC_SECRET,
   /**

@@ -23,6 +23,7 @@ Plain-language list of what the apps do with AI, and the **strongest model choic
 
 ## Phase 2 (ATS / CRM — `backendphase2`)
 
+- **Job ↔ candidate matching (Matches page, `jobMatchEngine`)** — See **[MATCHING_PIPELINE_PHASE2_ADAPTED.md](./MATCHING_PIPELINE_PHASE2_ADAPTED.md)** for what the DB stores, how `GET /matches?source=ai` scores rows, and how that maps to the generic multi-pass pipeline spec.
 - **Read resume text and fill candidate fields (bulk + single upload)** — **Best model:** `gpt-4.1` or `gpt-4o` (OpenAI). Fallback in app: Mistral via `MISTRAL_CHAT_MODEL` — use **`mistral-large-latest`** if you want strongest Mistral.
 - **Floating in-app assistant (asks data, runs tools, proposes CRM actions)** — **Best model:** `gpt-4.1` or `gpt-4o` (best tool + JSON discipline). Set `OPENAI_ASSISTANT_MODEL` to that id.
 - **AI write / polish a job description + structured form fields (JSON schema)** — **Best model:** `gpt-4.1` or `gpt-4o` (schema mode is an OpenAI path today).

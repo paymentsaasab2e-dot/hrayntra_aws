@@ -702,7 +702,7 @@ export function validateCvUploadFile(file) {
   }
 
   if (!MIME_TO_EXTENSIONS[mime]) {
-    return {
+  return {
       ok: false,
       message: `Unsupported MIME type "${mime}" for ${name}. Allowed: PDF, DOC, DOCX, TXT.`,
     };
@@ -1851,13 +1851,36 @@ export async function runCvPipelineThroughStage4(file) {
         return { status: 'rejected', reason };
       }
     }
-    /** Run passes 1→4 sequentially — parallel pdf.js + pdf-parse hits DataCloneError / worker races in Node. */
-    const settled = [
-      await settlePass(() => pdfPass1Default(buffer)),
-      await settlePass(() => pdfPass2RawItemDump(buffer)),
-      await settlePass(() => pdfPass3PositionSorted(buffer)),
-      await settlePass(() => pdfPass4OcrTesseract(file.path)),
-    ];
+    /**
+     * Pass 1 first (pdf-parse only). Then run in parallel:
+     * - Branch A: Pass 2 → Pass 3 (pdf.js, serialized via runWithIsolatedPdfJsWorker) → profile photo (pdf.js).
+     * - Branch B: Pass 4 OCR (pdf-parse + Tesseract, separate code path).
+     * Same four text passes + same photo extraction as before; wall time ≈ t1 + max(t2+t3+tPhoto, t4).
+     */
+    const settled1 = await settlePass(() => pdfPass1Default(buffer));
+    const [pass23Photo, settled4] = await Promise.all([
+      (async () => {
+        const s2 = await settlePass(() => pdfPass2RawItemDump(buffer));
+        const s3 = await settlePass(() => pdfPass3PositionSorted(buffer));
+        try {
+          extractedProfilePhoto = await extractCvProfilePhotoFromPdfBuffer(buffer);
+          logNarrative([
+            '',
+            extractedProfilePhoto?.buffer?.length
+              ? `Embedded profile image: ✅ extracted (${extractedProfilePhoto.filename}, ${(
+                  extractedProfilePhoto.buffer.length / 1024
+                ).toFixed(1)} KB)`
+              : 'Embedded profile image: ⚪ none (no suitable embedded raster on page 1)',
+          ]);
+        } catch (photoErr) {
+          extractedProfilePhoto = null;
+          logNarrative(['', `Embedded profile image: ❌ failed — ${photoErr?.message || photoErr}`]);
+        }
+        return { s2, s3 };
+      })(),
+      settlePass(() => pdfPass4OcrTesseract(file.path)),
+    ]);
+    const settled = [settled1, pass23Photo.s2, pass23Photo.s3, settled4];
     const text1 = settled[0].status === 'fulfilled' ? settled[0].value : '';
     const text2 = settled[1].status === 'fulfilled' ? settled[1].value : '';
     const text3 = settled[2].status === 'fulfilled' ? settled[2].value : '';
@@ -1892,20 +1915,6 @@ export async function runCvPipelineThroughStage4(file) {
       `Email found in combined text: ${emailInCombined ? '✅ YES' : '❌ NO'}`,
       `Phone found in combined text: ${phoneInCombined ? '✅ YES' : '❌ NO'}`,
     ]);
-
-    try {
-      extractedProfilePhoto = await extractCvProfilePhotoFromPdfBuffer(buffer);
-      logNarrative([
-        '',
-        extractedProfilePhoto?.buffer?.length
-          ? `Embedded profile image: ✅ extracted (${extractedProfilePhoto.filename}, ${(
-              extractedProfilePhoto.buffer.length / 1024
-            ).toFixed(1)} KB)`
-          : 'Embedded profile image: ⚪ none (no suitable embedded raster on page 1)',
-      ]);
-    } catch (photoErr) {
-      logNarrative(['', `Embedded profile image: ❌ failed — ${photoErr?.message || photoErr}`]);
-    }
   } else {
     logStageBanner(2, 'Text Extraction Engine');
     if (
@@ -2123,7 +2132,7 @@ export async function finalizeCvPipelineFromStage5(
     aiMeta.validJson && aiParsed ? 'AI returned valid JSON ✅' : 'AI returned valid JSON ❌ (using Stage 4 fallback where needed)',
   ]);
   if (aiParsed && aiMeta.validJson) {
-    console.log('');
+  console.log('');
     console.log('AI result:');
     console.log(safeJsonForLog(aiParsed));
   }

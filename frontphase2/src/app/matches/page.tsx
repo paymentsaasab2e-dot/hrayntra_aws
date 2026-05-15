@@ -2,9 +2,9 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Download, Mail, MessageSquare, Trash2, UserPlus } from 'lucide-react';
+import { Download, Mail, MessageSquare, Sparkles, Trash2, UserPlus, RefreshCw, GitMerge } from 'lucide-react';
 import { downloadCsv } from '../../utils/csv';
-import TopBar from '../../components/matches/TopBar';
+import { Toaster } from 'sonner';
 import AIManualToggle from '../../components/matches/AIManualToggle';
 import JobSelector from '../../components/matches/JobSelector';
 import FilterBar from '../../components/matches/FilterBar';
@@ -16,34 +16,54 @@ import PipelineModal from '../../components/matches/PipelineModal';
 import SubmitModal from '../../components/matches/SubmitModal';
 import RejectModal from '../../components/matches/RejectModal';
 import DuplicateAlert from '../../components/matches/DuplicateAlert';
-import ProfileDrawer from '../../components/matches/ProfileDrawer';
+import {
+  CandidateProfileDrawer,
+  type CandidateProfileDrawerData,
+  type CandidatePipelineJobOption,
+  type CandidatePipelineRecruiterOption,
+  type CandidateTagItem,
+} from '../../components/drawers/CandidateProfileDrawer';
 import type { MatchCandidate, MatchFilters, MatchJob, MatchMode, OpenModal } from '../../components/matches/types';
-import { 
+import { AI_SCORE_TIERS, computeAiTierStats } from '../../components/matches/types';
+import {
+  apiAddCandidateNote,
+  apiAddCandidateTag,
   apiAddCandidateToPipeline,
   apiBulkAddMatchesToPipeline,
   apiBulkEmailMatches,
   apiBulkRejectMatches,
   apiCreateMatch,
+  apiDeleteCandidateNote,
+  apiGetCandidate,
   apiGetCandidates,
   apiGetClients,
   apiGetJobs,
   apiGetMatches,
   apiGetUsers,
+  apiPinCandidateNote,
   apiRejectMatch,
   apiSubmitMatch,
   apiToggleSavedMatch,
   apiUpdateCandidate,
+  apiUpdateCandidateNote,
   apiUpdateClient,
   apiUpdateContact,
   apiUpdateJob,
+  apiRemoveCandidateTag,
   type BackendCandidate,
   type BackendClient,
   type BackendJob,
   type BackendMatch,
   type BackendUser,
 } from '../../lib/api';
+import {
+  enrichProfileWithMatchData,
+  extractApiData,
+  getTagColor,
+  isValidObjectId,
+  mapCandidateProfile,
+} from '../../lib/mapCandidateProfile';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
-import { TableSkeleton } from '../../components/ui/Skeleton';
 
 // Show every match candidate by default (AI and manual). Recruiters can
 // tighten filters via the FilterBar; the legacy 75% / 5-10 yrs preset hid
@@ -200,6 +220,7 @@ function mapBackendMatch(match: BackendMatch): MatchCandidate {
     id: match.candidateId,
     matchId: match.id,
     isAppliedCandidate: false,
+    isPhase1Candidate: Boolean(match.isPhase1Candidate),
     name: match.name,
     photo: match.photo,
     initials: match.initials,
@@ -335,7 +356,9 @@ export default function MatchesPage() {
   const [openModal, setOpenModal] = useState<OpenModal>(null);
   const [activeCandidateId, setActiveCandidateId] = useState<string | null>(null);
   const [profileDrawerCandidateId, setProfileDrawerCandidateId] = useState<string | null>(null);
-  const [profileDrawerTab, setProfileDrawerTab] = useState<'overview' | 'resume' | 'ai' | 'notes'>('overview');
+  const [selectedCandidateProfile, setSelectedCandidateProfile] = useState<CandidateProfileDrawerData | null>(null);
+  const [loadingCandidateProfile, setLoadingCandidateProfile] = useState(false);
+  const [availableDrawerTags, setAvailableDrawerTags] = useState<CandidateTagItem[]>([]);
   const [sortBy, setSortBy] = useState('Highest Match');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -345,36 +368,76 @@ export default function MatchesPage() {
   const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
   const [bulkRejectOpen, setBulkRejectOpen] = useState(false);
   const [bulkPipelineOpen, setBulkPipelineOpen] = useState(false);
+  const [aiPipelineRunning, setAiPipelineRunning] = useState(false);
 
   const activeCandidate = useMemo(
     () => candidates.find((candidate) => candidate.id === activeCandidateId) || null,
     [activeCandidateId, candidates]
   );
 
-  const drawerCandidate = useMemo(
+  const drawerMatchCandidate = useMemo(
     () => candidates.find((candidate) => candidate.id === profileDrawerCandidateId) || null,
     [candidates, profileDrawerCandidateId]
   );
 
-  const refreshMatches = useCallback(async () => {
+  const drawerPipelineJobs = useMemo<CandidatePipelineJobOption[]>(
+    () =>
+      jobs.map((job) => ({
+        id: job.id,
+        title: job.title,
+        department: job.client || null,
+      })),
+    [jobs]
+  );
+
+  const drawerRecruiters = useMemo<CandidatePipelineRecruiterOption[]>(
+    () =>
+      recruiters.map((recruiter) => ({
+        id: recruiter.id,
+        name: recruiter.name,
+        avatar: null,
+      })),
+    [recruiters]
+  );
+
+  const currentDrawerUser = useMemo(
+    () => ({
+      id: 'current-user',
+      name: selectedCandidateProfile?.recruiter || 'You',
+      avatar: null as string | null,
+    }),
+    [selectedCandidateProfile?.recruiter]
+  );
+
+  const refreshMatches = useCallback(async (opts?: { forcePipeline?: boolean; runPipeline?: boolean }) => {
     if (!selectedJob) {
       setCandidates([]);
       setSavedMatches([]);
-      return;
+      return [] as MatchCandidate[];
     }
 
     setLoading(true);
     setError(null);
     try {
+      const runPipeline =
+        activeTab === 'ai' && Boolean(opts?.runPipeline || opts?.forcePipeline);
       const [matchesResponse, candidatesResponse] = await Promise.all([
         apiGetMatches({
           jobId: selectedJob.id,
           source: activeTab,
           limit: 100,
+          ...(runPipeline ? { runPipeline: '1' } : {}),
+          ...(opts?.forcePipeline && activeTab === 'ai' ? { refresh: '1' } : {}),
         }),
         apiGetCandidates({ page: 1, limit: 500 }),
       ]);
-      const matchItems = (matchesResponse.data.data || []).map(mapBackendMatch);
+      const matchPayload = matchesResponse.data;
+      const matchRows = Array.isArray(matchPayload)
+        ? matchPayload
+        : Array.isArray(matchPayload?.data)
+          ? matchPayload.data
+          : [];
+      const matchItems = matchRows.map(mapBackendMatch);
 
       const candidatesData =
         (candidatesResponse as any)?.data?.data ||
@@ -388,17 +451,20 @@ export default function MatchesPage() {
         .filter((candidate) => !matchedCandidateIds.has(candidate.id))
         .map((candidate) => mapAppliedCandidate(candidate, selectedJob.id, selectedJob));
 
-      const mergedCandidates = [...matchItems, ...appliedCandidates];
+      const mergedCandidates =
+        activeTab === 'ai' ? matchItems : [...matchItems, ...appliedCandidates];
       setCandidates(mergedCandidates);
       setSavedMatches(
         mergedCandidates
           .filter((candidate) => Boolean(candidate.savedAt))
           .map((candidate) => candidate.id)
       );
+      return mergedCandidates;
     } catch (fetchError: any) {
       setError(fetchError.message || 'Unable to load matches');
       setCandidates([]);
       setSavedMatches([]);
+      return [] as MatchCandidate[];
     } finally {
       setLoading(false);
     }
@@ -459,15 +525,98 @@ export default function MatchesPage() {
   }, [reloadMatchMeta]);
 
   useEffect(() => {
+    if (!selectedJob) return;
     void refreshMatches();
-  }, [refreshMatches]);
+  }, [selectedJob?.id, activeTab, refreshMatches]);
+
+  const handleRunAiMatches = useCallback(async () => {
+    if (!selectedJob || activeTab !== 'ai') return;
+    setAiPipelineRunning(true);
+    setError(null);
+    try {
+      const list = await refreshMatches({ forcePipeline: true, runPipeline: true });
+      const aiOnly = list.filter((c) => !c.isAppliedCandidate);
+      const sorted = [...aiOnly].sort((a, b) => b.score - a.score);
+      const top = sorted[0];
+      const stats = computeAiTierStats(aiOnly);
+      const phase1Count = aiOnly.filter((c) => c.isPhase1Candidate).length;
+      if (top) {
+        const summary = AI_SCORE_TIERS.map((t) => `${t.label}: ${stats[t.id]}`).join(' · ');
+        const phase1Note = phase1Count ? ` · ${phase1Count} Phase 1` : '';
+        setToast(
+          `AI complete — ${aiOnly.length} scored. Top: ${top.name} (${top.score}%). ${summary}${phase1Note}`
+        );
+      } else {
+        setToast('AI matching complete');
+      }
+    } catch (runError: unknown) {
+      setError(runError instanceof Error ? runError.message : 'Unable to run AI matching');
+    } finally {
+      setAiPipelineRunning(false);
+    }
+  }, [activeTab, refreshMatches, selectedJob]);
 
   useEffect(() => {
     setSelectedCandidates([]);
     setExpandedAnalysis(null);
     setActiveCandidateId(null);
     setProfileDrawerCandidateId(null);
+    setSelectedCandidateProfile(null);
   }, [selectedJob?.id, activeTab]);
+
+  const loadCandidateProfile = useCallback(
+    async (candidateId: string, matchCandidate?: MatchCandidate | null) => {
+      if (!isValidObjectId(candidateId)) return null;
+      const backendCandidate = extractApiData<BackendCandidate>(await apiGetCandidate(candidateId));
+      let profile = mapCandidateProfile(backendCandidate);
+      const match =
+        matchCandidate ?? candidates.find((item) => item.id === candidateId) ?? null;
+      profile = enrichProfileWithMatchData(profile, match, selectedJob?.title || null);
+      setSelectedCandidateProfile(profile);
+      if (profile.tags?.length) {
+        setAvailableDrawerTags((prev) => {
+          const merged = [...prev];
+          for (const tag of profile.tags || []) {
+            if (!merged.some((t) => t.id === tag.id || t.label === tag.label)) {
+              merged.push(tag);
+            }
+          }
+          return merged;
+        });
+      }
+      return profile;
+    },
+    [candidates, selectedJob?.title]
+  );
+
+  useEffect(() => {
+    if (!profileDrawerCandidateId) {
+      setSelectedCandidateProfile(null);
+      setLoadingCandidateProfile(false);
+      return;
+    }
+
+    let cancelled = false;
+    const match = candidates.find((item) => item.id === profileDrawerCandidateId) || null;
+    void (async () => {
+      setLoadingCandidateProfile(true);
+      try {
+        await loadCandidateProfile(profileDrawerCandidateId, match);
+      } catch (loadError: unknown) {
+        if (!cancelled) {
+          setError(
+            loadError instanceof Error ? loadError.message : 'Unable to load candidate profile'
+          );
+        }
+      } finally {
+        if (!cancelled) setLoadingCandidateProfile(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [profileDrawerCandidateId, candidates, loadCandidateProfile]);
 
   const handleMatchDataUpdated = useCallback(async () => {
     await reloadMatchMeta();
@@ -476,7 +625,7 @@ export default function MatchesPage() {
 
   useEffect(() => {
     if (!toast) return;
-    const timeout = window.setTimeout(() => setToast(null), 1800);
+    const timeout = window.setTimeout(() => setToast(null), 4500);
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
@@ -565,10 +714,9 @@ export default function MatchesPage() {
 
   const openProfileDrawer = (
     candidateId: string,
-    tab: 'overview' | 'resume' | 'ai' | 'notes' = 'overview'
+    _tab: 'overview' | 'resume' | 'ai' | 'notes' = 'overview'
   ) => {
     setProfileDrawerCandidateId(candidateId);
-    setProfileDrawerTab(tab);
   };
 
   const handleExport = (candidateId: string) => {
@@ -684,65 +832,108 @@ export default function MatchesPage() {
     }
   };
 
-  return (
-    <div className="min-h-screen bg-[#F8F9FA] text-slate-900">
-      <TopBar />
+  const handleExportMatchesCsv = useCallback(() => {
+    const list = filteredCandidates;
+    if (list.length === 0) {
+      setToast('No matches to export with current filters.');
+      return;
+    }
+    downloadCsv<MatchCandidate>(
+      `matches-${selectedJob?.title ? selectedJob.title.toLowerCase().replace(/\s+/g, '-') : 'list'}-${new Date().toISOString().slice(0, 10)}.csv`,
+      [
+        { id: 'name', accessor: (c) => c.name },
+        { id: 'currentTitle', accessor: (c) => c.currentTitle || '' },
+        { id: 'currentCompany', accessor: (c) => c.currentCompany || '' },
+        { id: 'experience', accessor: (c) => c.experience ?? '' },
+        { id: 'location', accessor: (c) => c.location || '' },
+        { id: 'email', accessor: (c) => c.email || '' },
+        { id: 'phone', accessor: (c) => c.phone || '' },
+        { id: 'matchScore', accessor: (c) => c.score ?? '' },
+        { id: 'status', accessor: (c) => c.status || '' },
+        { id: 'saved', accessor: (c) => (savedMatches.includes(c.id) ? 'true' : 'false') },
+        { id: 'skills', accessor: (c) => (c.skills || []).join('; ') },
+        { id: 'savedAt', accessor: (c) => c.savedAt || '' },
+      ],
+      list,
+    );
+    setToast(`Exported ${list.length} match${list.length === 1 ? '' : 'es'} to CSV`);
+  }, [filteredCandidates, savedMatches, selectedJob?.title]);
 
-      <div className="border-b border-[#E5E7EB] bg-white px-6 py-4 sm:px-8">
-        <div className="mx-auto flex max-w-6xl flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-            <AIManualToggle activeTab={activeTab} onChange={setActiveTab} />
-            {selectedJob ? <JobSelector jobs={jobs} selectedJob={selectedJob} onSelect={setSelectedJob} /> : null}
+  return (
+    <div className="w-full min-h-screen overflow-hidden text-slate-900">
+      <Toaster position="top-right" richColors style={{ top: '5rem' }} />
+      <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+        <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">
+          <div className="flex items-start gap-2.5 sm:gap-3">
+            <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 via-indigo-600 to-blue-600 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20">
+              <GitMerge className="h-5 w-5" strokeWidth={2.2} />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold leading-tight tracking-tight text-slate-900 sm:text-[1.35rem]">Matches</h1>
+              <p className="max-w-xl text-xs text-slate-500">
+                Review AI and manual candidates for a job, then submit to client, reject, or send to pipeline
+              </p>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => {
-                const list = filteredCandidates;
-                if (list.length === 0) {
-                  setToast('No matches to export with current filters.');
-                  return;
-                }
-                downloadCsv<MatchCandidate>(
-                  `matches-${selectedJob?.title ? selectedJob.title.toLowerCase().replace(/\s+/g, '-') : 'list'}-${new Date().toISOString().slice(0, 10)}.csv`,
-                  [
-                    { id: 'name', accessor: (c) => c.name },
-                    { id: 'currentTitle', accessor: (c) => c.currentTitle || '' },
-                    { id: 'currentCompany', accessor: (c) => c.currentCompany || '' },
-                    { id: 'experience', accessor: (c) => c.experience ?? '' },
-                    { id: 'location', accessor: (c) => c.location || '' },
-                    { id: 'email', accessor: (c) => c.email || '' },
-                    { id: 'phone', accessor: (c) => c.phone || '' },
-                    { id: 'matchScore', accessor: (c) => c.score ?? '' },
-                    { id: 'status', accessor: (c) => c.status || '' },
-                    { id: 'saved', accessor: (c) => (savedMatches.includes(c.id) ? 'true' : 'false') },
-                    { id: 'skills', accessor: (c) => (c.skills || []).join('; ') },
-                    { id: 'savedAt', accessor: (c) => c.savedAt || '' },
-                  ],
-                  list,
-                );
-                setToast(`Exported ${list.length} match${list.length === 1 ? '' : 'es'} to CSV`);
-              }}
-              className="inline-flex items-center gap-2 rounded-xl border border-[#E5E7EB] bg-white px-4 py-2 text-sm font-medium text-[#374151] shadow-sm hover:bg-[#F9FAFB]"
+              onClick={() => void refreshMatches()}
+              disabled={loading}
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98] disabled:opacity-50"
+              title="Refresh"
+            >
+              <RefreshCw size={16} strokeWidth={2.25} className={loading ? 'animate-spin' : ''} />
+            </button>
+            <button
+              type="button"
+              onClick={handleExportMatchesCsv}
+              className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
               title="Export visible matches to CSV"
             >
-              <Download className="h-4 w-4" />
-              Export
+              <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
+              <span>Export</span>
             </button>
           </div>
-        </div>
-      </div>
+        </header>
 
-      <FilterBar filters={filters} onChange={setFilters} onReset={resetFilters} />
-
-      {error ? (
-        <div className="mx-auto mt-4 max-w-6xl rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-          {error}
+        <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
+          <div className="mb-4 overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm transition-shadow hover:shadow-[0_16px_48px_-14px_rgba(79,70,229,0.16)]">
+            <div className="flex flex-col gap-3 border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 p-3 sm:p-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                <AIManualToggle activeTab={activeTab} onChange={setActiveTab} />
+                {selectedJob ? <JobSelector jobs={jobs} selectedJob={selectedJob} onSelect={setSelectedJob} /> : null}
               </div>
-      ) : null}
+              {activeTab === 'ai' ? (
+                <button
+                  type="button"
+                  onClick={() => void handleRunAiMatches()}
+                  disabled={!selectedJob || loading || aiPipelineRunning}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 via-indigo-600 to-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:from-violet-700 hover:via-indigo-700 hover:to-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  title="Run the 4-pass AI matching pipeline for this job"
+                >
+                  <Sparkles
+                    size={16}
+                    className={aiPipelineRunning ? 'animate-spin' : ''}
+                    strokeWidth={2.25}
+                  />
+                  {aiPipelineRunning ? 'Running AI matches…' : 'Run AI Matches'}
+                </button>
+              ) : null}
+            </div>
 
-      <CandidateList
-        candidates={loading ? [] : filteredCandidates}
+            <FilterBar filters={filters} onChange={setFilters} onReset={resetFilters} embedded />
+
+            {error ? (
+              <div className="mx-3 my-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 sm:mx-4">
+                {error}
+              </div>
+            ) : null}
+
+            <CandidateList
+              candidates={filteredCandidates}
+              embedded
+              loading={loading}
         activeTab={activeTab}
         activeView={activeView}
         selectedCandidates={selectedCandidates}
@@ -818,6 +1009,9 @@ export default function MatchesPage() {
         }
         onResetFilters={resetFilters}
       />
+          </div>
+        </div>
+      </main>
 
       <AnimatePresence>
         {activeView === 'internal' && selectedCandidates.length ? (
@@ -994,11 +1188,78 @@ export default function MatchesPage() {
         onSubmit={handleBulkPipeline}
       />
 
-      <ProfileDrawer
-        isOpen={Boolean(drawerCandidate)}
-        candidate={drawerCandidate}
-        initialTab={profileDrawerTab}
-        onClose={() => setProfileDrawerCandidateId(null)}
+      <CandidateProfileDrawer
+        key={selectedCandidateProfile?.id || profileDrawerCandidateId || 'match-candidate'}
+        isOpen={Boolean(profileDrawerCandidateId)}
+        currentUser={currentDrawerUser}
+        availableTags={availableDrawerTags}
+        jobs={drawerPipelineJobs}
+        recruiters={drawerRecruiters}
+        existingInterviews={selectedCandidateProfile?.scheduledInterviews || []}
+        candidate={
+          loadingCandidateProfile && selectedCandidateProfile
+            ? {
+                ...selectedCandidateProfile,
+                summary: selectedCandidateProfile.summary || 'Loading candidate details...',
+              }
+            : selectedCandidateProfile
+        }
+        onClose={() => {
+          setProfileDrawerCandidateId(null);
+          setSelectedCandidateProfile(null);
+        }}
+        onAddNote={async (candidateId, note) => {
+          await apiAddCandidateNote(candidateId, note);
+          await loadCandidateProfile(candidateId, drawerMatchCandidate);
+        }}
+        onEditNote={async (candidateId, noteId, updatedNote) => {
+          await apiUpdateCandidateNote(candidateId, noteId, updatedNote);
+          await loadCandidateProfile(candidateId, drawerMatchCandidate);
+        }}
+        onDeleteNote={async (candidateId, noteId) => {
+          await apiDeleteCandidateNote(candidateId, noteId);
+          await loadCandidateProfile(candidateId, drawerMatchCandidate);
+        }}
+        onPinNote={async (candidateId, noteId, isPinned) => {
+          await apiPinCandidateNote(candidateId, noteId, isPinned);
+          await loadCandidateProfile(candidateId, drawerMatchCandidate);
+        }}
+        onAddTag={async (candidateId, tag) => {
+          await apiAddCandidateTag(candidateId, tag);
+          await loadCandidateProfile(candidateId, drawerMatchCandidate);
+        }}
+        onRemoveTag={async (candidateId, tagId) => {
+          await apiRemoveCandidateTag(candidateId, tagId);
+          await loadCandidateProfile(candidateId, drawerMatchCandidate);
+        }}
+        onCreateTag={(_, tagName) => {
+          const newTag: CandidateTagItem = {
+            id: `tag-${tagName.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`,
+            label: tagName,
+            color: getTagColor(tagName),
+          };
+          setAvailableDrawerTags((prev) => {
+            if (prev.some((tag) => tag.label.toLowerCase() === tagName.toLowerCase())) return prev;
+            return [...prev, newTag];
+          });
+          return newTag;
+        }}
+        onAddToPipeline={async ({ candidateId, jobId, stage, recruiterId, priority, notes }) => {
+          await apiAddCandidateToPipeline(candidateId, {
+            jobId,
+            stage,
+            recruiterId,
+            priority,
+            notes,
+          });
+          await loadCandidateProfile(candidateId, drawerMatchCandidate);
+          await refreshMatches();
+        }}
+        onUpdateCandidate={async (candidateId, payload) => {
+          await apiUpdateCandidate(candidateId, payload);
+          await loadCandidateProfile(candidateId, drawerMatchCandidate);
+          await refreshMatches();
+        }}
       />
 
       <AnimatePresence>

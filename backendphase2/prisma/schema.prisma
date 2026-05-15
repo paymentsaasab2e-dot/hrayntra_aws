@@ -752,7 +752,8 @@ model Lead {
   email                  String?
   phone                  String?
   type                   LeadType   @default(Company)
-  source                 LeadSource @default(Website)
+  /// When null/omitted, UI shows no source badge (imports with no Source column).
+  source                 LeadSource?
   status                 LeadStatus @default(New)
   priority               Priority   @default(Medium)
   interestedNeeds        String?
@@ -926,6 +927,8 @@ model Match {
   score       Float
   status      MatchStatus @default(SUGGESTED)
   notes       String?
+  /// Full HR pipeline v1 evaluation (passes, weights, suggestion, runId, computedAt).
+  evaluation  Json?
   createdById String?     @db.ObjectId
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
@@ -1978,4 +1981,47 @@ model Undo {
 
   @@index([expiresAt])
   @@map("aria_undo_stack")
+}
+
+/// Phase 1 candidate snapshots in Mongo DB `candidatecommon` (separate connection URL).
+model CandidateCommon {
+  id                      String    @id @map("_id") @db.ObjectId
+  candidateId             String    @unique @db.ObjectId
+  isVerified              Boolean   @default(false)
+  firstName               String?
+  lastName                String?
+  email                   String?
+  phone                   String?
+  linkedIn                String?
+  resumeUrl               String?
+  skills                  String[]  @default([])
+  recruiterSkills         String[]  @default([])
+  experience              Int?
+  experienceYears         Int?
+  currentTitle            String?
+  currentCompany          String?
+  location                String?
+  city                    String?
+  country                 String?
+  designation             String?
+  cvSummary               String?
+  notes                   String?
+  recruiterNotes          String?
+  certifications          String[]  @default([])
+  certificationsList      String[]  @default([])
+  cvEducationEntries      Json?
+  cvWorkExperienceEntries Json?
+  cvPortfolioLinks        Json?
+  assignedJobs            String[]  @default([])
+  matchJobIds             String[]  @default([])
+  stage                   String?
+  source                  String?   @default("phase1")
+  lastLoginAt             DateTime?
+  syncedAt                DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  @@index([assignedJobs])
+  @@index([matchJobIds])
+  @@index([isVerified])
+  @@map("candidate_commons")
 }

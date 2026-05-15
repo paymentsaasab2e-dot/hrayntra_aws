@@ -318,7 +318,7 @@ function buildSections(candidate) {
       key: SECTION_KEYS.VACCINATION,
       label: 'Vaccination',
       completionRule: 'Any saved vaccination object counts as complete.',
-      schemaFields: ['vaccinationStatus', 'vaccineType', 'lastVaccinationDate', 'certificate'],
+      schemaFields: ['vaccinationStatus', 'vaccineType', 'lastVaccinationDate', 'validityMonth', 'validityYear', 'certificate'],
       requiredFields: [],
       missingFields: !vaccination ? ['vaccinationStatus'] : [],
       isComplete: Boolean(vaccination),

@@ -5,6 +5,7 @@ const { sendOTPEmail } = require('../services/email.service');
 const { OtpStatus } = require('@prisma/client');
 const { isPortalPlaceholderFullName } = require('../utils/portal-profile-placeholder.util');
 const jwt = require('jsonwebtoken');
+const { scheduleCandidateCommonSync } = require('../services/candidateCommonSync.service');
 
 async function getOrCreateCandidateByWhatsApp({ candidateId, fullWhatsAppNumber, countryCode }) {
   let candidate = await retryQuery(async () => {
@@ -536,6 +537,8 @@ async function verifyOTP(req, res) {
     } catch (profileSyncError) {
       console.warn('⚠️ Non-critical: Failed to sync profile number:', profileSyncError.message);
     }
+
+    scheduleCandidateCommonSync(candidate.id, { lastLogin: true });
 
     res.json({
       success: true,

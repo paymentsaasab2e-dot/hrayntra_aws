@@ -63,6 +63,27 @@ import { WhatsAppIcon } from '../icons/WhatsAppIcon';
 
 const CALL_OUTCOMES = ['Interested', 'Follow-up Required', 'No Answer', 'Wrong Number', 'Not Interested'];
 
+function mergeLocationFields<
+  T extends {
+    location?: string;
+    city?: string;
+    country?: string;
+    state?: string;
+    latitude?: number;
+    longitude?: number;
+  },
+>(prev: T, selection: LocationSelection): T {
+  return {
+    ...prev,
+    location: selection.location,
+    city: selection.city?.trim() ? selection.city : prev.city ?? '',
+    country: selection.country?.trim() ? selection.country : prev.country ?? '',
+    state: selection.state?.trim() ? selection.state : prev.state ?? '',
+    latitude: selection.latitude,
+    longitude: selection.longitude,
+  };
+}
+
 const STATUS_STYLES: Record<LeadStatus, string> = {
   New: 'bg-blue-50 text-blue-700 border-blue-100',
   Contacted: 'bg-yellow-50 text-yellow-700 border-yellow-100',
@@ -2460,25 +2481,13 @@ export function LeadDetailsDrawer({
                           <LocationAutocomplete
                             value={addLeadForm.location ?? ''}
                             onChange={(next) => setAddLeadForm((p) => ({ ...p, location: next }))}
-                            onSelect={(s: LocationSelection) =>
-                              setAddLeadForm((p) => ({
-                                ...p,
-                                location: s.location,
-                                city: s.city || p.city || '',
-                                country: s.country || p.country || '',
-                                state: s.state || p.state || '',
-                                latitude: s.latitude,
-                                longitude: s.longitude,
-                              }))
-                            }
+                            onSelect={(s) => setAddLeadForm((p) => mergeLocationFields(p, s))}
                             placeholder="Start typing a city, region, or address…"
                           />
-                          {(addLeadForm.state || typeof addLeadForm.latitude === 'number') && (
+                          {(addLeadForm.city || addLeadForm.country || addLeadForm.state) && (
                             <p className="mt-1 text-[11px] text-slate-500">
                               <span className="font-semibold text-emerald-600">Detected</span>{' '}
-                              {[addLeadForm.state, typeof addLeadForm.latitude === 'number' && typeof addLeadForm.longitude === 'number'
-                                ? `${addLeadForm.latitude.toFixed(4)}, ${addLeadForm.longitude.toFixed(4)}`
-                                : null].filter(Boolean).join(' · ')}
+                              {[addLeadForm.city, addLeadForm.state, addLeadForm.country].filter(Boolean).join(', ')}
                             </p>
                           )}
                         </div>
@@ -3223,25 +3232,15 @@ export function LeadDetailsDrawer({
                               <LocationAutocomplete
                                 value={overviewEditForm.location}
                                 onChange={(next) => setOverviewEditForm((p) => ({ ...p, location: next }))}
-                                onSelect={(s: LocationSelection) =>
-                                  setOverviewEditForm((p) => ({
-                                    ...p,
-                                    location: s.location,
-                                    city: s.city || p.city || '',
-                                    country: s.country || p.country || '',
-                                    state: s.state || p.state || '',
-                                    latitude: s.latitude,
-                                    longitude: s.longitude,
-                                  }))
-                                }
+                                onSelect={(s) => setOverviewEditForm((p) => mergeLocationFields(p, s))}
                                 placeholder="Start typing a city, region, or address…"
                               />
-                              {(overviewEditForm.state || typeof overviewEditForm.latitude === 'number') && (
+                              {(overviewEditForm.city || overviewEditForm.country || overviewEditForm.state) && (
                                 <p className="mt-1 text-[11px] text-slate-500">
                                   <span className="font-semibold text-emerald-600">Detected</span>{' '}
-                                  {[overviewEditForm.state, typeof overviewEditForm.latitude === 'number' && typeof overviewEditForm.longitude === 'number'
-                                    ? `${overviewEditForm.latitude.toFixed(4)}, ${overviewEditForm.longitude.toFixed(4)}`
-                                    : null].filter(Boolean).join(' · ')}
+                                  {[overviewEditForm.city, overviewEditForm.state, overviewEditForm.country]
+                                    .filter(Boolean)
+                                    .join(', ')}
                                 </p>
                               )}
                             </div>
@@ -3483,24 +3482,14 @@ export function LeadDetailsDrawer({
                               <LocationAutocomplete
                                 value={overviewEditForm.location}
                                 onChange={(next) => setOverviewEditForm((p) => ({ ...p, location: next }))}
-                                onSelect={(s: LocationSelection) =>
-                                  setOverviewEditForm((p) => ({
-                                    ...p,
-                                    location: s.location,
-                                    city: s.city || p.city || '',
-                                    country: s.country || p.country || '',
-                                    state: s.state || p.state || '',
-                                    latitude: s.latitude,
-                                    longitude: s.longitude,
-                                  }))
-                                }
+                                onSelect={(s) => setOverviewEditForm((p) => mergeLocationFields(p, s))}
                               />
-                              {(overviewEditForm.state || typeof overviewEditForm.latitude === 'number') && (
+                              {(overviewEditForm.city || overviewEditForm.country || overviewEditForm.state) && (
                                 <p className="mt-1 text-[11px] text-slate-500">
                                   <span className="font-semibold text-emerald-600">Detected</span>{' '}
-                                  {[overviewEditForm.state, typeof overviewEditForm.latitude === 'number' && typeof overviewEditForm.longitude === 'number'
-                                    ? `${overviewEditForm.latitude.toFixed(4)}, ${overviewEditForm.longitude.toFixed(4)}`
-                                    : null].filter(Boolean).join(' · ')}
+                                  {[overviewEditForm.city, overviewEditForm.state, overviewEditForm.country]
+                                    .filter(Boolean)
+                                    .join(', ')}
                                 </p>
                               )}
                             </div>

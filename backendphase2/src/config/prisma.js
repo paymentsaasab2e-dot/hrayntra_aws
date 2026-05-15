@@ -273,3 +273,29 @@ export function getJobPortalPrismaClient() {
   }
   return jobPortalClient;
 }
+
+/** Prisma client for Phase 1 candidatecommon DB (full portal snapshots for AI matching). */
+let candidateCommonClient = null;
+
+export function resolveCandidateCommonDatabaseUrl() {
+  const explicit = String(env.CANDIDATE_COMMON_DATABASE_URL || '').trim();
+  if (explicit) return explicit;
+  const base = String(env.DATABASE_URL || '').trim();
+  if (!base) return '';
+  try {
+    const parsed = new URL(base);
+    parsed.pathname = '/candidatecommon';
+    return parsed.toString();
+  } catch {
+    return '';
+  }
+}
+
+export function getCandidateCommonPrismaClient() {
+  const url = resolveCandidateCommonDatabaseUrl();
+  if (!url) return null;
+  if (!candidateCommonClient) {
+    candidateCommonClient = getClientForUrl(url);
+  }
+  return candidateCommonClient;
+}

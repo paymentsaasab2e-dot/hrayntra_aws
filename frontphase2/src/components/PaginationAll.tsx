@@ -8,6 +8,9 @@ interface PaginationProps {
   onPageChange?: (page: number) => void;
   totalCount?: number;
   pageSize?: number;
+  /** When set with `onPageSizeChange`, shows a “rows per page” control next to the range text. */
+  pageSizeOptions?: number[];
+  onPageSizeChange?: (pageSize: number) => void;
   itemLabel?: string;
 }
 
@@ -17,6 +20,8 @@ export default function PaginationAll({
   onPageChange,
   totalCount,
   pageSize,
+  pageSizeOptions,
+  onPageSizeChange,
   itemLabel = 'results',
 }: PaginationProps) {
   const [currentPage, setCurrentPage] = useState(initialPage);
@@ -35,22 +40,48 @@ export default function PaginationAll({
   const safePageSize = Math.max(pageSize || 1, 1);
   const start = hasCount ? Math.min((currentPage - 1) * safePageSize + 1, totalCount || 0) : 0;
   const end = hasCount ? Math.min(currentPage * safePageSize, totalCount || 0) : 0;
+  const showPageSizeSelect =
+    Array.isArray(pageSizeOptions) &&
+    pageSizeOptions.length > 0 &&
+    typeof onPageSizeChange === 'function';
 
   return (
     <nav
       aria-label="Pagination"
       style={{ color: '#000000' }}
-      className="flex w-full flex-nowrap items-center justify-between gap-4 select-none whitespace-nowrap text-sm font-medium"
+      className="flex w-full flex-wrap items-center justify-between gap-3 sm:gap-4 select-none text-sm font-medium"
     >
-      {hasCount ? (
-        <p className="shrink-0 text-sm text-[#6B7280]">
-          Showing <span className="font-semibold text-[#111827]">{start}</span>-
-          <span className="font-semibold text-[#111827]">{end}</span> of{' '}
-          <span className="font-semibold text-[#111827]">{totalCount}</span> {itemLabel}
-        </p>
-      ) : null}
+      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+        {hasCount ? (
+          <p className="shrink-0 text-sm text-[#6B7280] whitespace-nowrap">
+            Showing <span className="font-semibold text-[#111827]">{totalCount === 0 ? 0 : start}</span>-
+            <span className="font-semibold text-[#111827]">{end}</span> of{' '}
+            <span className="font-semibold text-[#111827]">{totalCount}</span> {itemLabel}
+          </p>
+        ) : null}
+        {showPageSizeSelect ? (
+          <label className="flex shrink-0 items-center gap-2 text-sm text-[#6B7280] whitespace-nowrap">
+            <span className="hidden sm:inline">Rows per page</span>
+            <select
+              value={safePageSize}
+              onChange={(e) => {
+                const next = Number.parseInt(e.target.value, 10);
+                if (Number.isFinite(next)) onPageSizeChange(next);
+              }}
+              aria-label="Rows per page"
+              className="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm font-semibold text-[#111827] shadow-sm outline-none transition-colors hover:border-gray-400 focus-visible:ring-2 focus-visible:ring-rose-300 focus-visible:ring-offset-1"
+            >
+              {pageSizeOptions.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+      </div>
 
-      <div className="flex shrink-0 items-center gap-1">
+      <div className="flex shrink-0 flex-nowrap items-center gap-1 whitespace-nowrap">
         <button
           type="button"
           onClick={() => handlePageChange(currentPage - 1)}

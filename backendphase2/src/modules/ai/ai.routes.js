@@ -8,6 +8,8 @@ router.use(authMiddleware);
 
 router.post('/job-description', aiController.generateJobDescription);
 router.post('/lead-details', aiController.generateLeadDetails);
+router.get('/location/search', aiController.searchLocations);
+router.post('/location/resolve', aiController.resolveLocation);
 router.post('/assistant-chat', aiController.assistantChat);
 router.post('/undo', aiController.executeUndo);
 router.get('/assistant-history/:pageKey', aiController.getAssistantHistory);

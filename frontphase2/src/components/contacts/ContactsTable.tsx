@@ -5,6 +5,7 @@ import { CheckSquare, Square, Pencil, Trash2 } from 'lucide-react';
 import { ImageWithFallback } from '../ImageWithFallback';
 import { WhatsAppIcon } from '../icons/WhatsAppIcon';
 import PaginationAll from '../PaginationAll';
+import { TABLE_PAGE_SIZE_OPTIONS } from '../../constants/tablePagination';
 import type { BackendContact } from '../../lib/api';
 import { ContactTypeBadge } from './ContactTypeBadge';
 import { OwnerAvatar } from './OwnerAvatar';
@@ -21,6 +22,7 @@ interface ContactsTableProps {
   onDelete: (contactId: string) => void;
   pagination: { page: number; limit: number; total: number; totalPages: number };
   onPageChange: (page: number) => void;
+  onPageSizeChange?: (limit: number) => void;
 }
 
 export function ContactsTable({
@@ -33,6 +35,7 @@ export function ContactsTable({
   onDelete,
   pagination,
   onPageChange,
+  onPageSizeChange,
 }: ContactsTableProps) {
   const allSelected = contacts.length > 0 && contacts.every((contact) => selectedIds.has(contact.id));
   const someSelected = contacts.some((contact) => selectedIds.has(contact.id));
@@ -280,6 +283,8 @@ export function ContactsTable({
           onPageChange={onPageChange}
           totalCount={pagination.total}
           pageSize={pagination.limit}
+          pageSizeOptions={onPageSizeChange ? [...TABLE_PAGE_SIZE_OPTIONS] : undefined}
+          onPageSizeChange={onPageSizeChange}
           itemLabel="contacts"
         />
       </div>

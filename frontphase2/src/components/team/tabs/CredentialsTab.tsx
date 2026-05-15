@@ -17,6 +17,7 @@ import { MemberProfileDrawer } from '../MemberProfileDrawer';
 import { LoginHistoryDrawer } from '../LoginHistoryDrawer';
 import { GenerateCredentialsDrawer } from '../GenerateCredentialsDrawer';
 import PaginationAll from '../../../components/PaginationAll';
+import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../../constants/tablePagination';
 import { formatDateDMY } from '../../../utils/dateDisplay';
 
 // Color mapping for role colors
@@ -124,7 +125,7 @@ export const CredentialsTab: React.FC = () => {
   const [bulkGenerating, setBulkGenerating] = useState(false);
   const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
   const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 10;
+  const [pageSize, setPageSize] = useState<TablePageSize>(10);
 
   const userIsSuperAdmin = isSuperAdmin();
 
@@ -195,7 +196,7 @@ export const CredentialsTab: React.FC = () => {
   const pagedMembers = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
     return filteredMembers.slice(start, start + pageSize);
-  }, [filteredMembers, currentPage]);
+  }, [filteredMembers, currentPage, pageSize]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -536,6 +537,12 @@ export const CredentialsTab: React.FC = () => {
                 totalPages={Math.max(1, Math.ceil(filteredMembers.length / pageSize))}
                 totalCount={filteredMembers.length}
                 pageSize={pageSize}
+                pageSizeOptions={[...TABLE_PAGE_SIZE_OPTIONS]}
+                onPageSizeChange={(n) => {
+                  if (!(TABLE_PAGE_SIZE_OPTIONS as readonly number[]).includes(n)) return;
+                  setPageSize(n as TablePageSize);
+                  setCurrentPage(1);
+                }}
                 itemLabel="members"
                 onPageChange={setCurrentPage}
               />

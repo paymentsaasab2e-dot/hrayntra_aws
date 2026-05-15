@@ -191,7 +191,7 @@ export function exportLeadAsPdf(lead: Lead): void {
   <h2>Lead Pipeline</h2>
   <table>
     ${row('Status', lead.status)}
-    ${row('Source', lead.source)}
+    ${row('Source', lead.source ?? '')}
     ${row('Type', lead.type)}
     ${row('Priority / Interest', lead.priority)}
     ${row('Interested Needs', lead.interestedNeeds)}

@@ -32,7 +32,7 @@ export interface Lead {
   id: string;
   companyName: string;
   type: LeadType;
-  source: LeadSource;
+  source?: LeadSource | null;
   contactPerson: string;
   directorSalutation?: string;
   directorName?: string;

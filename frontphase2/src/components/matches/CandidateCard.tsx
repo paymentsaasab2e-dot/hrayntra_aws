@@ -98,12 +98,23 @@ export default function CandidateCard({
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-[15px] font-semibold text-slate-900">{candidate.name}</h3>
+                <span
+                  className="rounded-lg bg-[#2563EB] px-2.5 py-1 text-xs font-bold tabular-nums text-white shadow-sm"
+                  title="AI match score"
+                >
+                  {candidate.score}%
+                </span>
                 <span className={`rounded-full border px-2 py-1 text-[10px] font-bold uppercase ${statusColors[candidate.status]}`}>
                   {candidate.status}
                 </span>
                 {candidate.isAppliedCandidate ? (
                   <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-bold uppercase text-amber-700">
                     Already Applied
+                  </span>
+                ) : null}
+                {candidate.isPhase1Candidate && !candidate.isAppliedCandidate ? (
+                  <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-1 text-[10px] font-bold uppercase text-violet-700">
+                    Phase 1
                   </span>
                 ) : null}
               </div>

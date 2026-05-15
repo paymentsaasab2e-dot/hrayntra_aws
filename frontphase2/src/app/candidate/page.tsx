@@ -46,6 +46,7 @@ import { downloadCsv } from '../../utils/csv';
 import { CreateTaskModal } from '../../components/CreateTaskModal';
 import { Toaster, toast } from 'sonner';
 import PaginationAll from '../../components/PaginationAll';
+import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 import { requestConfirm } from '../../lib/appDialog';
 import { RECYCLE_BIN_SYNC_EVENT } from '../../constants/recycleBin';
 import { MY_JOBS_LIST_PARAMS } from '../../lib/myJobsListParams';
@@ -84,13 +85,15 @@ import {
   PH2_TOOLBAR_ROW_CLASS,
   PH2_TOOLBAR_SELECT_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
+import {
+  extractApiData,
+  getTagColor,
+  isValidObjectId,
+  mapBackendStage,
+  mapCandidateProfile,
+} from '../../lib/mapCandidateProfile';
 
 export const dynamic = 'force-dynamic';
-
-/** MongoDB ObjectIDs are 24 hex characters. Avoids invalid ID errors when opening profile. */
-function isValidObjectId(id: string): boolean {
-  return typeof id === 'string' && /^[a-f0-9]{24}$/i.test(id.trim());
-}
 
 function isSuperAdminRole(role?: string | null): boolean {
   const normalized = String(role || '')
@@ -100,41 +103,8 @@ function isSuperAdminRole(role?: string | null): boolean {
   return normalized === 'SUPER_ADMIN';
 }
 
-const TAG_COLOR_PALETTE = [
-  '#2563eb',
-  '#7c3aed',
-  '#059669',
-  '#ea580c',
-  '#dc2626',
-  '#0891b2',
-  '#ca8a04',
-  '#4f46e5',
-];
-
 /** List all candidates for the candidate page. */
 const ALL_CANDIDATES_LIST_PARAMS = { page: 1, limit: 200 };
-
-function getTagColor(label: string) {
-  const seed = label.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  return TAG_COLOR_PALETTE[seed % TAG_COLOR_PALETTE.length];
-}
-
-function mapBackendStage(status: string): string {
-  switch (status) {
-    case 'NEW':
-      return 'Applied';
-    case 'INTERVIEWING':
-      return 'Interviewing';
-    case 'OFFERED':
-      return 'Offered';
-    case 'PLACED':
-      return 'Hired';
-    case 'REJECTED':
-      return 'Rejected';
-    default:
-      return status;
-  }
-}
 
 function mapBackendCandidate(c: BackendCandidate): Candidate {
   const fullName = `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim();
@@ -186,478 +156,6 @@ function mapBackendCandidate(c: BackendCandidate): Candidate {
   };
 }
 
-function formatSalary(
-  salary?: BackendCandidate['salary']
-): { current: string; expected: string } {
-  if (!salary || (salary.min == null && salary.max == null)) {
-    return { current: '', expected: '' };
-  }
-
-  const prefix = salary.currency || '';
-  const min = salary.min != null ? `${prefix}${salary.min}` : '';
-  const max = salary.max != null ? `${prefix}${salary.max}` : '';
-
-  return {
-    current: '',
-    expected: [min, max].filter(Boolean).join(' - '),
-  };
-}
-
-function formatSalaryFrequency(type?: string | null): string {
-  const value = String(type || '').trim().toUpperCase();
-  switch (value) {
-    case 'ANNUAL':
-    case 'ANNUALLY':
-    case 'YEARLY':
-      return 'Annually';
-    case 'MONTHLY':
-      return 'Monthly';
-    case 'HOURLY':
-      return 'Hourly';
-    case 'DAILY':
-      return 'Daily';
-    case 'WEEKLY':
-      return 'Weekly';
-    default:
-      return '';
-  }
-}
-
-function formatCandidateSalaryDisplay(
-  amount: number | null | undefined,
-  currency?: string | null,
-  frequency?: string | null
-): string {
-  if (amount == null || !Number.isFinite(Number(amount))) return '';
-  const num = Number(amount);
-  const currencyCode = String(currency || '').trim();
-  const freqLabel = formatSalaryFrequency(frequency);
-  const formattedNumber = num.toLocaleString();
-  const head = currencyCode ? `${currencyCode} ${formattedNumber}` : formattedNumber;
-  return freqLabel ? `${head} / ${freqLabel}` : head;
-}
-
-function extractApiData<T>(response: { data?: T | { data?: T } } | T): T {
-  if ((response as { data?: T | { data?: T } })?.data) {
-    const payload = (response as { data?: T | { data?: T } }).data;
-    if (payload && typeof payload === 'object' && 'data' in payload) {
-      return (payload as { data?: T }).data as T;
-    }
-    return payload as T;
-  }
-
-  return response as T;
-}
-
-type BackendCandidateInterview = NonNullable<BackendCandidate['interviews']>[number];
-
-function findJobTitleById(jobId: string, matches?: BackendCandidate['matches']): string | undefined {
-  if (!jobId || !Array.isArray(matches)) return undefined;
-  for (const match of matches) {
-    if (match?.job?.id === jobId && match.job.title) {
-      return match.job.title;
-    }
-  }
-  return undefined;
-}
-
-function mapCandidateProfile(c: BackendCandidate): CandidateProfileDrawerData {
-  const namePart = `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim();
-  const emailPart = c.email?.trim() || '';
-  const phonePart = c.phone?.trim() || '';
-  const shortId = c.id && c.id.length >= 6 ? c.id.slice(-6) : c.id;
-  const fullName =
-    namePart ||
-    emailPart ||
-    phonePart ||
-    (shortId ? `Candidate …${shortId}` : 'Candidate');
-  const latestMatch = c.matches?.[0];
-  const latestInterview = c.interviews?.[0];
-  const salary = formatSalary(c.salary);
-  const stage = c.stage || mapBackendStage(c.status);
-  const skillsCount = c.skills?.length || 0;
-  const skillsMatch = Math.min(95, skillsCount > 0 ? 55 + skillsCount * 8 : 38);
-  const experienceFit = Math.min(96, c.experience != null ? 45 + c.experience * 6 : 35);
-  const educationFit = c.currentTitle ? 72 : 48;
-  const keywordMatch = Math.min(
-    94,
-    Math.round((skillsMatch * 0.45) + (experienceFit * 0.35) + (educationFit * 0.2))
-  );
-  const overall = Math.round((skillsMatch + experienceFit + educationFit + keywordMatch) / 4);
-  const insightItems: NonNullable<CandidateProfileDrawerData['aiScore']>['insights'] = [];
-  const backendAi = (c as BackendCandidate).aiCandidateAnalysis;
-  const backendBreakdown = backendAi?.breakdown || {};
-  const aiSkillsMatch =
-    typeof backendBreakdown.skillsMatch === 'number' && Number.isFinite(backendBreakdown.skillsMatch)
-      ? Math.max(0, Math.min(100, Math.round(backendBreakdown.skillsMatch)))
-      : skillsMatch;
-  const aiExperienceFit =
-    typeof backendBreakdown.experienceFit === 'number' && Number.isFinite(backendBreakdown.experienceFit)
-      ? Math.max(0, Math.min(100, Math.round(backendBreakdown.experienceFit)))
-      : experienceFit;
-  const aiEducationFit =
-    typeof backendBreakdown.educationFit === 'number' && Number.isFinite(backendBreakdown.educationFit)
-      ? Math.max(0, Math.min(100, Math.round(backendBreakdown.educationFit)))
-      : educationFit;
-  const aiKeywordMatch =
-    typeof backendBreakdown.keywordMatch === 'number' && Number.isFinite(backendBreakdown.keywordMatch)
-      ? Math.max(0, Math.min(100, Math.round(backendBreakdown.keywordMatch)))
-      : keywordMatch;
-
-  if (skillsCount > 0) {
-    insightItems.push({
-      type: 'strength',
-      text: `${fullName} shows ${skillsCount} relevant skill${skillsCount > 1 ? 's' : ''} in the profile.`,
-    });
-  } else {
-    insightItems.push({
-      type: 'gap',
-      text: 'Skills are missing or incomplete, which may lower the confidence of the screening result.',
-    });
-  }
-
-  if ((c.experience ?? 0) >= 3) {
-    insightItems.push({
-      type: 'strength',
-      text: `Experience level looks aligned with mid-level hiring expectations at ${c.experience} years.`,
-    });
-  } else {
-    insightItems.push({
-      type: 'gap',
-      text: 'Experience appears limited for roles that expect deeper hands-on exposure.',
-    });
-  }
-
-  if (!c.resume) {
-    insightItems.push({
-      type: 'gap',
-      text: 'Resume file is not attached, so profile evaluation is based only on available record data.',
-    });
-  } else {
-    insightItems.push({
-      type: 'strength',
-      text: 'Resume is available for detailed recruiter and AI review.',
-    });
-  }
-
-  const fallbackActivityItems: NonNullable<CandidateProfileDrawerData['activity']> = [
-    {
-      id: `candidate-created-${c.id}`,
-      type: 'note-added',
-      title: 'Candidate profile created',
-      description: `${fullName} was added to the system.`,
-      timestamp: c.createdAt,
-      performedBy: {
-        name: c.assignedTo?.name || 'System',
-      },
-      relatedJob: latestMatch?.job?.title || null,
-    },
-  ];
-
-  if (c.resume) {
-    fallbackActivityItems.push({
-      id: `resume-parsed-${c.id}`,
-      type: 'resume-parsed',
-      title: 'Resume parsed',
-      description: 'Resume file is attached and ready for recruiter review.',
-      timestamp: c.createdAt,
-      performedBy: {
-        name: 'AI Parser',
-      },
-      relatedJob: latestMatch?.job?.title || null,
-    });
-  }
-
-  if (latestMatch) {
-    fallbackActivityItems.push({
-      id: `pipeline-${latestMatch.id}`,
-      type: 'added-to-pipeline',
-      title: 'Added to pipeline',
-      description: `${fullName} was added to the hiring pipeline.`,
-      timestamp: c.createdAt,
-      performedBy: {
-        name: c.assignedTo?.name || 'Recruiter',
-      },
-      relatedJob: latestMatch.job?.title || null,
-    });
-  }
-
-  if (latestInterview?.scheduledAt) {
-    fallbackActivityItems.push({
-      id: `interview-${latestInterview.id}`,
-      type: 'interview-scheduled',
-      title: 'Interview scheduled',
-      description: `Interview status: ${latestInterview.status || 'scheduled'}.`,
-      timestamp: latestInterview.scheduledAt,
-      performedBy: {
-        name: c.assignedTo?.name || 'Recruiter',
-      },
-      relatedJob: latestMatch?.job?.title || null,
-    });
-  }
-
-  const fallbackNotes: NonNullable<CandidateProfileDrawerData['notes']> = [
-    {
-      id: `note-screening-${c.id}`,
-      text: c.resume
-        ? 'Resume reviewed internally. Candidate looks promising for initial recruiter screening.'
-        : 'Profile created, but resume is still missing and needs follow-up.',
-      createdAt: c.createdAt,
-      recruiter: {
-        id: c.assignedTo?.id,
-        name: c.assignedTo?.name || 'Recruiter',
-        avatar: c.assignedTo?.avatar || null,
-      },
-      tags: ['Screening', c.resume ? 'Resume' : 'Follow-up'],
-      isPinned: Boolean(c.resume),
-    },
-  ];
-
-  if (latestInterview?.scheduledAt) {
-    fallbackNotes.push({
-      id: `note-interview-${latestInterview.id}`,
-      text: 'Interview coordination is active. Keep communication warm and confirm availability before the next round.',
-      createdAt: latestInterview.scheduledAt,
-      recruiter: {
-        id: c.assignedTo?.id,
-        name: c.assignedTo?.name || 'Recruiter',
-        avatar: c.assignedTo?.avatar || null,
-      },
-      tags: ['Interview', 'Follow-up'],
-      isPinned: false,
-    });
-  }
-
-  const fallbackTags = Array.from(
-    new Set([
-      ...(c.tags || []),
-      ...(c.skills?.slice(0, 2) || []),
-      (c.experience ?? 0) >= 5 ? 'Senior' : '',
-      c.source?.toLowerCase().includes('referral') ? 'Referral' : '',
-      c.location?.toLowerCase().includes('remote') ? 'Remote Candidate' : '',
-    ].filter(Boolean))
-  ).map((tag) => ({
-    id: `tag-${tag.toLowerCase().replace(/\s+/g, '-')}`,
-    label: tag,
-    color: getTagColor(tag),
-  }));
-
-  const careerPrefs = c.careerPreferences || null;
-  const expectedSalaryFromPrefs = formatCandidateSalaryDisplay(
-    c.expectedSalary ?? careerPrefs?.preferredSalary ?? null,
-    careerPrefs?.preferredCurrency || c.salary?.currency || null,
-    careerPrefs?.preferredSalaryType || null
-  );
-  const expectedSalaryDisplay =
-    expectedSalaryFromPrefs ||
-    salary.expected ||
-    (c.expectedSalary != null && Number.isFinite(Number(c.expectedSalary))
-      ? `${c.salary?.currency || ''} ${Number(c.expectedSalary).toLocaleString()}`.trim()
-      : '');
-
-  return {
-    id: c.id,
-    name: fullName,
-    firstName: c.firstName || null,
-    lastName: c.lastName || null,
-    currentTitle: c.currentTitle || null,
-    currentCompany: c.currentCompany || null,
-    stage,
-    experience: c.experience ?? 0,
-    location: c.location || '—',
-    email: c.email,
-    phone: c.phone || '—',
-    linkedIn: c.linkedIn || null,
-    designation: c.currentTitle || null,
-    expectedSalary: expectedSalaryDisplay || '—',
-    expectedSalaryValue: c.expectedSalary ?? careerPrefs?.preferredSalary ?? null,
-    currentSalaryValue: c.currentSalary ?? careerPrefs?.currentSalary ?? null,
-    salaryCurrency: careerPrefs?.preferredCurrency || c.salary?.currency || 'INR',
-    noticePeriod: c.noticePeriod || careerPrefs?.noticePeriod || '—',
-    // Prefer the explicitly-assigned job (set via the candidate edit modal) over
-    // any pre-existing Match record so changing the assignment reflects in the
-    // drawer + dropdown immediately after save. If the title can't be resolved
-    // locally we leave it empty — the drawer enriches it from the loaded jobs
-    // list before display.
-    assignedJob:
-      (c.assignedJobs?.[0] && findJobTitleById(c.assignedJobs[0], c.matches)) ||
-      latestMatch?.job?.title ||
-      '—',
-    assignedJobId: c.assignedJobs?.[0] || latestMatch?.job?.id || null,
-    assignedJobs: (() => {
-      const seen = new Set<string>();
-      const out: NonNullable<CandidateProfileDrawerData['assignedJobs']> = [];
-      for (const match of c.matches || []) {
-        const id = match.job?.id ? String(match.job.id) : '';
-        const title = String(match.job?.title || '').trim();
-        if (!id && !title) continue;
-        const key = id || title;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push({
-          id: id || null,
-          title: title || 'Untitled job',
-          status: match.status || null,
-        });
-      }
-      const titleArr = Array.isArray(c.assignedJobTitles) ? c.assignedJobTitles : [];
-      const idArr = Array.isArray(c.assignedJobs) ? c.assignedJobs : [];
-      const max = Math.max(titleArr.length, idArr.length);
-      for (let i = 0; i < max; i += 1) {
-        const id = idArr[i] ? String(idArr[i]) : '';
-        const title = String(titleArr[i] || '').trim();
-        if (!id && !title) continue;
-        const key = id || title;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push({
-          id: id || null,
-          title: title || 'Untitled job',
-          status: null,
-        });
-      }
-      return out;
-    })(),
-    recruiter: c.assignedTo?.name || 'Unassigned',
-    recruiterId: c.assignedTo?.id || null,
-    source: c.source || '—',
-    status: c.status || 'NEW',
-    availability:
-      c.availability ||
-      careerPrefs?.availabilityToStart ||
-      (c.status === 'ACTIVE' ? 'available' : c.status === 'PLACED' ? 'unavailable' : 'limited'),
-    resumeUrl: c.resume || c.resumeUrl || null,
-    summary:
-      c.notes?.trim() ||
-      c.cvSummary?.trim() ||
-      (c.skills?.length ? `Skills: ${c.skills.join(', ')}` : null),
-    cvAddress: c.address || null,
-    cvCity: c.city || null,
-    cvCountry: c.country || null,
-    cvAvailability: c.availability || careerPrefs?.availabilityToStart || null,
-    cvExpectedSalary:
-      formatCandidateSalaryDisplay(
-        c.expectedSalary ?? careerPrefs?.preferredSalary ?? null,
-        careerPrefs?.preferredCurrency || c.salary?.currency || null,
-        careerPrefs?.preferredSalaryType || null
-      ) || salary.expected || null,
-    cvCurrentSalary:
-      formatCandidateSalaryDisplay(
-        c.currentSalary ?? careerPrefs?.currentSalary ?? null,
-        careerPrefs?.currentCurrency || careerPrefs?.preferredCurrency || c.salary?.currency || null,
-        careerPrefs?.currentSalaryType || null
-      ) || null,
-    cvEducation: c.education || null,
-    cvEducationEntries: Array.isArray(c.cvEducationEntries) ? c.cvEducationEntries : [],
-    cvWorkExperienceEntries: Array.isArray(c.cvWorkExperienceEntries) ? c.cvWorkExperienceEntries : [],
-    cvPortfolioLinks: c.cvPortfolioLinks || [],
-    cvCertifications:
-      (Array.isArray(c.certifications) && c.certifications.length
-        ? c.certifications
-        : Array.isArray((c as any).certificationsList)
-          ? (c as any).certificationsList
-          : []) || [],
-    cvLanguages:
-      (Array.isArray(c.languages) && c.languages.length
-        ? c.languages
-        : Array.isArray((c as any).recruiterLanguages)
-          ? (c as any).recruiterLanguages
-          : []) || [],
-    cvPortfolio: c.portfolio || null,
-    cvWebsite: c.website || null,
-    cvNotes: c.cvSummary || c.notes || null,
-    cvPreferredLocation:
-      c.preferredLocation ||
-      (Array.isArray(careerPrefs?.preferredLocations) && careerPrefs?.preferredLocations.length
-        ? careerPrefs.preferredLocations[0]
-        : null) ||
-      careerPrefs?.currentLocation ||
-      null,
-    cvSkills:
-      (Array.isArray(c.skills) && c.skills.length
-        ? c.skills
-        : Array.isArray((c as any).recruiterSkills)
-          ? (c as any).recruiterSkills
-          : []) || [],
-    cvSummary: c.cvSummary || null,
-    tags: c.tagObjects?.length ? c.tagObjects : fallbackTags,
-    notes: c.internalNotes?.length ? c.internalNotes : fallbackNotes,
-    files: (c.resume || c.resumeUrl) ? [{ name: 'Resume', url: c.resume || c.resumeUrl }] : [],
-    activity: c.activityFeed?.length ? c.activityFeed : fallbackActivityItems,
-    scheduledInterviews: (c.interviews || [])
-      .filter((interview) => Boolean(interview.scheduledAt))
-      .map((interview, index) => ({
-        id: interview.id,
-        candidateId: c.id,
-        jobId: interview.job?.id || latestMatch?.job?.id || null,
-        jobTitle: interview.job?.title || latestMatch?.job?.title || null,
-        // Backend stores human-friendly type label in `round` (e.g. "HR Screening").
-        // If older records stored numeric rounds, we still fall back safely.
-        type: interview.round || (interview as any).type || interview.status || 'Interview',
-        round: index + 1,
-        date: (interview.scheduledAt || '').split('T')[0] || '',
-        time: interview.scheduledAt
-          ? new Date(interview.scheduledAt).toLocaleTimeString('en-US', {
-              hour: 'numeric',
-              minute: '2-digit',
-            })
-          : '',
-        duration: interview.duration ? `${interview.duration} mins` : '1 hour',
-        mode:
-          interview.mode === 'in-person'
-            ? 'in-person'
-            : interview.mode === 'phone'
-              ? 'phone'
-              : 'video',
-        platform:
-          (interview as BackendCandidateInterview).platform === 'GOOGLE_MEET'
-            ? 'Google Meet'
-            : (interview as BackendCandidateInterview).platform === 'ZOOM'
-              ? 'Zoom'
-              : null,
-        meetingLink: (interview as BackendCandidateInterview).meetingLink || null,
-        location: (interview as BackendCandidateInterview).location || null,
-        phoneNumber: c.phone || null,
-        interviewers: interview.interviewer
-          ? [{ id: interview.interviewer.id, name: interview.interviewer.name, role: 'Interviewer' }]
-          : c.assignedTo
-            ? [{ id: c.assignedTo.id, name: c.assignedTo.name, role: 'Interviewer' }]
-          : [],
-        notes: (interview as BackendCandidateInterview).notes || '',
-        sendCandidateInvite: true,
-        sendInterviewerInvite: true,
-        status:
-          String(interview.status || '').toUpperCase() === 'COMPLETED'
-            ? 'completed'
-            : String(interview.status || '').toUpperCase() === 'CANCELLED'
-              ? 'cancelled'
-              : 'scheduled',
-      })),
-    aiScore: {
-      overall:
-        typeof backendAi?.overall === 'number' && Number.isFinite(backendAi.overall)
-          ? Math.max(0, Math.min(100, Math.round(backendAi.overall)))
-          : overall,
-      source: backendAi?.source || 'estimated',
-      jobTitle: backendAi?.jobTitle || latestMatch?.job?.title || null,
-      breakdown: {
-        skillsMatch: aiSkillsMatch,
-        experienceFit: aiExperienceFit,
-        educationFit: aiEducationFit,
-        keywordMatch: aiKeywordMatch,
-      },
-      insights:
-        Array.isArray(backendAi?.insights) && backendAi.insights.length
-          ? backendAi.insights
-              .filter((item) => item && typeof item === 'object' && typeof item.text === 'string' && item.text.trim().length > 0)
-              .map((item) => ({
-                type: item.type === 'gap' ? 'gap' : 'strength',
-                text: String(item.text),
-              }))
-          : insightItems,
-    },
-  };
-}
 
 function CandidatesPageContent() {
   const router = useRouter();
@@ -711,7 +209,7 @@ function CandidatesPageContent() {
   const [bulkMoveStageSaving, setBulkMoveStageSaving] = useState(false);
   const [deletingCandidateId, setDeletingCandidateId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState<TablePageSize>(10);
   const [totalEntries, setTotalEntries] = useState(0);
   const [stageStatsRefreshTick, setStageStatsRefreshTick] = useState(0);
   // Hoisted stats: drives both the stage tab strip and the KPI card row above
@@ -1588,16 +1086,16 @@ function CandidatesPageContent() {
           <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
             <div className="mx-auto max-w-[1600px]">
               <div className="mb-4">
-                <StageTabs
-                  activeStage={activeStage}
-                  stats={stageStats}
-                  loading={stageStatsLoading}
-                  onStageChange={(stage) => {
-                    setActiveStage(stage);
-                    setFilters((prev) => ({ ...prev, status: stage === 'all' ? '' : stage }));
-                    setStageStatsRefreshTick((current) => current + 1);
-                  }}
-                />
+          <StageTabs
+            activeStage={activeStage}
+            stats={stageStats}
+            loading={stageStatsLoading}
+            onStageChange={(stage) => {
+              setActiveStage(stage);
+              setFilters((prev) => ({ ...prev, status: stage === 'all' ? '' : stage }));
+              setStageStatsRefreshTick((current) => current + 1);
+            }}
+          />
               </div>
 
               <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-5">
@@ -1690,12 +1188,12 @@ function CandidatesPageContent() {
                         }}
                         className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
                       />
-                    </div>
+              </div>
                     <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
                       <div className="inline-flex w-fit items-center rounded-lg border border-indigo-100/90 bg-white/95 p-0.5 shadow-sm ring-1 ring-indigo-100/40">
-                        <button
+                <button 
                           type="button"
-                          onClick={() => setViewMode('list')}
+                  onClick={() => setViewMode('list')}
                           className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap transition-all ${
                             viewMode === 'list'
                               ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-sm'
@@ -1704,10 +1202,10 @@ function CandidatesPageContent() {
                         >
                           <List size={14} className="shrink-0" />
                           List
-                        </button>
-                        <button
+                </button>
+                <button 
                           type="button"
-                          onClick={() => setViewMode('grid')}
+                  onClick={() => setViewMode('grid')}
                           className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap transition-all ${
                             viewMode === 'grid'
                               ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-sm'
@@ -1716,8 +1214,8 @@ function CandidatesPageContent() {
                         >
                           <LayoutGrid size={14} className="shrink-0" />
                           Grid
-                        </button>
-                      </div>
+                </button>
+              </div>
                       <select
                         className={PH2_TOOLBAR_SELECT_CLASS}
                         value={filters.assignedToId}
@@ -1733,7 +1231,7 @@ function CandidatesPageContent() {
                           </option>
                         ))}
                       </select>
-                      <button
+                <button
                         type="button"
                         onClick={() => setIsFilterOpen(true)}
                         className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold shadow-sm transition-colors ${
@@ -1749,16 +1247,16 @@ function CandidatesPageContent() {
                             ON
                           </span>
                         ) : null}
-                      </button>
+                </button>
                       {hasToolbarFilters ? (
-                        <button
+                <button
                           type="button"
                           className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
                           onClick={handleClearToolbar}
                         >
                           <XCircle size={15} className="shrink-0 text-rose-500" strokeWidth={2.35} />
                           Clear
-                        </button>
+                </button>
                       ) : null}
                       <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
                         {totalEntries} total
@@ -1767,23 +1265,23 @@ function CandidatesPageContent() {
                   </div>
                   {canCreateCandidate ? (
                     <div className="flex flex-wrap items-center gap-2 border-t border-indigo-100/40 pt-3">
-                      <button
+                <button
                         type="button"
                         onClick={() => openCandidateDrawer('csv')}
                         className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-100/90 bg-white/90 px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-indigo-50/50"
                       >
                         <FileSpreadsheet size={14} />
                         Bulk CSV
-                      </button>
-                      <button
+                </button>
+              <button
                         type="button"
                         onClick={() => openCandidateDrawer('bulkResume')}
                         className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-100/90 bg-white/90 px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-indigo-50/50"
                       >
                         <FileText size={14} />
                         Bulk CV
-                      </button>
-                      <button
+              </button>
+              <button 
                         type="button"
                         onClick={() => setFailedResumesDrawerOpen(true)}
                         className={`relative inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold shadow-sm transition-colors ${
@@ -1799,68 +1297,68 @@ function CandidatesPageContent() {
                             {failedBulkResumeCount > 99 ? '99+' : failedBulkResumeCount}
                           </span>
                         ) : null}
-                      </button>
-                    </div>
+              </button>
+            </div>
                   ) : null}
-                </div>
+          </div>
 
                 {error ? (
                   <div className="p-10 text-center text-sm font-medium text-rose-600">Error: {error}</div>
                 ) : loading ? (
                   <div className="p-2">
-                    <TableSkeleton rows={8} columns={7} />
-                  </div>
-                ) : viewMode === 'list' ? (
-                  <>
-                    <BulkActions
-                      selectedIds={selectedIds}
-                      onMoveStage={canUpdateCandidate ? openBulkMoveStageModal : undefined}
-                      onDelete={canDeleteCandidate ? async (ids) => {
-                        if (
-                          !(await requestConfirm(
+                <TableSkeleton rows={8} columns={7} />
+              </div>
+            ) : viewMode === 'list' ? (
+              <>
+                <BulkActions
+                  selectedIds={selectedIds}
+                  onMoveStage={canUpdateCandidate ? openBulkMoveStageModal : undefined}
+                  onDelete={canDeleteCandidate ? async (ids) => {
+                    if (
+                      !(await requestConfirm(
                             `Move ${ids.length} candidate(s) to the Recycle Bin? You can restore them later from Recycle Bin.`,
-                          ))
-                        ) {
-                          return;
-                        }
-                        try {
-                          await Promise.all(ids.map((candidateId) => apiDeleteCandidate(candidateId)));
-                          toast.success(
+                      ))
+                    ) {
+                      return;
+                    }
+                    try {
+                      await Promise.all(ids.map((candidateId) => apiDeleteCandidate(candidateId)));
+                      toast.success(
                             `${ids.length} candidate${ids.length === 1 ? '' : 's'} moved to Recycle Bin`,
-                          );
-                          setSelectedIds([]);
-                          if (typeof window !== 'undefined') {
-                            window.dispatchEvent(new CustomEvent(RECYCLE_BIN_SYNC_EVENT));
-                          }
-                          await loadCandidates();
-                          refreshStats();
-                        } catch (err: any) {
-                          await loadCandidates({ silent: true });
-                          refreshStats();
-                          toast.error(err?.message || 'Failed to delete candidates');
-                        }
-                      } : undefined}
-                      onAssignRecruiter={canAssignCandidate ? openBulkAssignModal : undefined}
-                      onSendEmail={async (ids) => {
-                        toast.info(`Send email to ${ids.length} candidate(s) - Feature coming soon`);
-                      }}
-                      onAddTag={canUpdateCandidate ? async (ids) => {
-                        const tag = prompt('Enter tag name:');
-                        if (tag) {
-                          try {
-                            await apiBulkActionCandidates('add_tag', ids, { tag });
-                            toast.success(`Added tag "${tag}" to ${ids.length} candidate(s)`);
-                            setSelectedIds([]);
-                            loadCandidates();
-                          } catch (err: any) {
-                            toast.error(err?.message || 'Failed to add tag');
-                          }
-                        }
-                      } : undefined}
-                      onExport={canExportCandidate ? async (ids) => {
-                        try {
-                          const res = await apiBulkActionCandidates('export', ids);
-                          const candidates = res.data?.candidates || [];
+                      );
+                      setSelectedIds([]);
+                      if (typeof window !== 'undefined') {
+                        window.dispatchEvent(new CustomEvent(RECYCLE_BIN_SYNC_EVENT));
+                      }
+                      await loadCandidates();
+                      refreshStats();
+                    } catch (err: any) {
+                      await loadCandidates({ silent: true });
+                      refreshStats();
+                      toast.error(err?.message || 'Failed to delete candidates');
+                    }
+                  } : undefined}
+                  onAssignRecruiter={canAssignCandidate ? openBulkAssignModal : undefined}
+                  onSendEmail={async (ids) => {
+                    toast.info(`Send email to ${ids.length} candidate(s) - Feature coming soon`);
+                  }}
+                  onAddTag={canUpdateCandidate ? async (ids) => {
+                    const tag = prompt('Enter tag name:');
+                    if (tag) {
+                      try {
+                        await apiBulkActionCandidates('add_tag', ids, { tag });
+                        toast.success(`Added tag "${tag}" to ${ids.length} candidate(s)`);
+                        setSelectedIds([]);
+                        loadCandidates();
+                      } catch (err: any) {
+                        toast.error(err?.message || 'Failed to add tag');
+                      }
+                    }
+                  } : undefined}
+                  onExport={canExportCandidate ? async (ids) => {
+                    try {
+                      const res = await apiBulkActionCandidates('export', ids);
+                      const candidates = res.data?.candidates || [];
                           const headers = [
                             'ID',
                             'First Name',
@@ -1875,96 +1373,102 @@ function CandidatesPageContent() {
                             'Source',
                             'Created At',
                           ];
-                          const rows = candidates.map((c: any) => [
-                            c.id,
-                            c.firstName || '',
-                            c.lastName || '',
-                            c.email || '',
-                            c.phone || '',
-                            c.currentCompany || '',
-                            c.currentTitle || '',
-                            c.experience || '',
-                            c.location || '',
-                            c.status || '',
-                            c.source || '',
-                            c.createdAt || '',
-                          ]);
-                          const csv = [headers, ...rows]
-                            .map((r) =>
+                      const rows = candidates.map((c: any) => [
+                        c.id,
+                        c.firstName || '',
+                        c.lastName || '',
+                        c.email || '',
+                        c.phone || '',
+                        c.currentCompany || '',
+                        c.currentTitle || '',
+                        c.experience || '',
+                        c.location || '',
+                        c.status || '',
+                        c.source || '',
+                        c.createdAt || '',
+                      ]);
+                      const csv = [headers, ...rows]
+                        .map((r) =>
                               r.map((cell: unknown) => `"${String(cell).replace(/"/g, '""')}"`).join(','),
-                            )
-                            .join('\n');
-                          const blob = new Blob([csv], { type: 'text/csv' });
-                          const url = URL.createObjectURL(blob);
-                          const a = document.createElement('a');
-                          a.href = url;
-                          a.download = `candidates-export-${new Date().toISOString().split('T')[0]}.csv`;
-                          a.click();
-                          URL.revokeObjectURL(url);
-                          toast.success(`Exported ${candidates.length} candidate(s)`);
-                        } catch (err: any) {
-                          toast.error(err?.message || 'Failed to export candidates');
-                        }
-                      } : undefined}
-                      onReject={canUpdateCandidate ? async (ids) => {
+                        )
+                        .join('\n');
+                      const blob = new Blob([csv], { type: 'text/csv' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `candidates-export-${new Date().toISOString().split('T')[0]}.csv`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                      toast.success(`Exported ${candidates.length} candidate(s)`);
+                    } catch (err: any) {
+                      toast.error(err?.message || 'Failed to export candidates');
+                    }
+                  } : undefined}
+                  onReject={canUpdateCandidate ? async (ids) => {
                         if (!(await requestConfirm(`Are you sure you want to reject ${ids.length} candidate(s)?`)))
                           return;
-                        const reason = prompt('Enter rejection reason (optional):') || 'Bulk rejection';
-                        try {
-                          await apiBulkActionCandidates('reject', ids, { reason });
-                          toast.success(`Rejected ${ids.length} candidate(s)`);
-                          setSelectedIds([]);
-                          loadCandidates();
-                        } catch (err: any) {
-                          toast.error(err?.message || 'Failed to reject candidates');
-                        }
-                      } : undefined}
-                      onDeselect={() => setSelectedIds([])}
-                    />
+                    const reason = prompt('Enter rejection reason (optional):') || 'Bulk rejection';
+                    try {
+                      await apiBulkActionCandidates('reject', ids, { reason });
+                      toast.success(`Rejected ${ids.length} candidate(s)`);
+                      setSelectedIds([]);
+                      loadCandidates();
+                    } catch (err: any) {
+                      toast.error(err?.message || 'Failed to reject candidates');
+                    }
+                  } : undefined}
+                  onDeselect={() => setSelectedIds([])}
+                />
                     <div className="overflow-hidden">
                       <div className="no-scrollbar overflow-x-auto">
-                        <CandidateTable
-                          candidates={filteredCandidates}
-                          selectedIds={selectedIds}
-                          onToggleSelect={handleToggleSelect}
-                          onToggleSelectAll={handleToggleSelectAll}
-                          onViewProfile={handleViewProfile}
-                          onWhatsAppCandidate={handleWhatsAppCandidate}
-                          onEditCandidate={handleEditCandidate}
-                          onDeleteCandidate={canDeleteCandidate ? handleDeleteCandidate : undefined}
-                          deletingCandidateId={deletingCandidateId}
-                          stageOptionsByJobId={inlineStageOptionsByJobId}
-                          stageOptionsLoadingJobId={inlineStageOptionsLoadingJobId}
-                          movingCandidateId={inlineStageUpdatingCandidateId}
-                          onLoadStageOptions={canUpdateCandidate ? loadInlineStageOptionsForCandidate : undefined}
-                          onChangeCandidateStage={canUpdateCandidate ? handleInlineCandidateStageChange : undefined}
-                        />
+                <CandidateTable
+                  candidates={filteredCandidates}
+                  selectedIds={selectedIds}
+                  onToggleSelect={handleToggleSelect}
+                  onToggleSelectAll={handleToggleSelectAll}
+                  onViewProfile={handleViewProfile}
+                  onWhatsAppCandidate={handleWhatsAppCandidate}
+                  onEditCandidate={handleEditCandidate}
+                  onDeleteCandidate={canDeleteCandidate ? handleDeleteCandidate : undefined}
+                  deletingCandidateId={deletingCandidateId}
+                  stageOptionsByJobId={inlineStageOptionsByJobId}
+                  stageOptionsLoadingJobId={inlineStageOptionsLoadingJobId}
+                  movingCandidateId={inlineStageUpdatingCandidateId}
+                  onLoadStageOptions={canUpdateCandidate ? loadInlineStageOptionsForCandidate : undefined}
+                  onChangeCandidateStage={canUpdateCandidate ? handleInlineCandidateStageChange : undefined}
+                />
                       </div>
                     </div>
                     <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
-                      <PaginationAll
-                        initialPage={currentPage}
-                        totalPages={Math.ceil(totalEntries / pageSize)}
-                        totalCount={totalEntries}
-                        pageSize={pageSize}
-                        itemLabel="candidates"
-                        onPageChange={setCurrentPage}
-                      />
-                    </div>
-                  </>
-                ) : (
+                  <PaginationAll
+                    initialPage={currentPage}
+                    totalPages={Math.max(1, Math.ceil(totalEntries / pageSize))}
+                    totalCount={totalEntries}
+                    pageSize={pageSize}
+                    pageSizeOptions={[...TABLE_PAGE_SIZE_OPTIONS]}
+                    onPageSizeChange={(n) => {
+                      if (!(TABLE_PAGE_SIZE_OPTIONS as readonly number[]).includes(n)) return;
+                      setPageSize(n as TablePageSize);
+                      setCurrentPage(1);
+                    }}
+                    itemLabel="candidates"
+                    onPageChange={setCurrentPage}
+                  />
+                </div>
+              </>
+            ) : (
                   <div className="p-2 sm:p-3">
-                    <CandidateGrid
-                      candidates={filteredCandidates}
-                      selectedIds={selectedIds}
-                      onToggleSelect={handleToggleSelect}
-                      onViewProfile={handleViewProfile}
-                    />
-                  </div>
-                )}
+                <CandidateGrid
+                  candidates={filteredCandidates}
+                  selectedIds={selectedIds}
+                  onToggleSelect={handleToggleSelect}
+                  onViewProfile={handleViewProfile}
+                />
               </div>
+            )}
             </div>
           </div>
+        </div>
         </main>
       <FilterDrawer 
         isOpen={isFilterOpen} 

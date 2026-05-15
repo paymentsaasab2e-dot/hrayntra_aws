@@ -29,7 +29,7 @@ import { LeadImportDrawer } from '../../components/drawers/LeadImportDrawer';
 import ModuleRecycleBinDrawer from '../../components/ModuleRecycleBinDrawer';
 import AriaChat from '../../components/AriaChat';
 import PaginationAll from '../../components/PaginationAll';
-import type { Lead, LeadStatus, Priority } from './types';
+import type { Lead, LeadSource, LeadStatus, Priority } from './types';
 import {
   apiGetLeads,
   apiGetLead,
@@ -48,6 +48,7 @@ import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
 import { TableBrandAvatar } from '../../components/ui/TableBrandAvatar';
+import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 import { requestError } from '../../lib/appDialog';
 
 // Force CSR — every interactive bit on this tab is client-driven.
@@ -268,12 +269,22 @@ const SelectionCheckbox = ({
 );
 
 // Helper function to map backend lead to frontend format
+const VALID_LEAD_SOURCES: LeadSource[] = ['Website', 'LinkedIn', 'Email', 'Referral', 'Campaign'];
+
 function mapBackendLeadToFrontend(backendLead: BackendLead): Lead {
+  const rawSrc = backendLead.source;
+  const source =
+    rawSrc != null &&
+    rawSrc !== '' &&
+    VALID_LEAD_SOURCES.includes(rawSrc as LeadSource)
+      ? (rawSrc as LeadSource)
+      : undefined;
+
   return {
     id: backendLead.id,
     companyName: backendLead.companyName || '',
     type: backendLead.type,
-    source: backendLead.source,
+    source,
     contactPerson: backendLead.contactPerson || '',
     directorSalutation: backendLead.directorSalutation || undefined,
     directorName: backendLead.directorName || undefined,
@@ -355,7 +366,6 @@ function buildLeadMetrics(leadList: Lead[]) {
 }
 
 export default function RecruitmentAgencyDashboard() {
-  const PAGE_SIZE = 10;
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -384,6 +394,7 @@ export default function RecruitmentAgencyDashboard() {
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
   const [highlightedRows, setHighlightedRows] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState<TablePageSize>(10);
   const [totalEntries, setTotalEntries] = useState(0);
   const [deleteConfirmState, setDeleteConfirmState] = useState<{
     mode: 'single' | 'bulk';
@@ -514,8 +525,10 @@ export default function RecruitmentAgencyDashboard() {
         if (!token) {
           // No token - use mock data for now
           console.warn('No authentication token found. Using mock data.');
-          setLeads(INITIAL_LEADS);
-          setTotalEntries(INITIAL_LEADS.length);
+          const total = INITIAL_LEADS.length;
+          setTotalEntries(total);
+          const offset = (currentPage - 1) * pageSize;
+          setLeads(INITIAL_LEADS.slice(offset, offset + pageSize));
           setLoading(false);
           return;
         }
@@ -524,8 +537,10 @@ export default function RecruitmentAgencyDashboard() {
         if (typeof apiGetLeads !== 'function') {
           console.error('apiGetLeads is not a function');
           setError('API function not available');
-          setLeads(INITIAL_LEADS);
-          setTotalEntries(INITIAL_LEADS.length);
+          const total = INITIAL_LEADS.length;
+          setTotalEntries(total);
+          const offset = (currentPage - 1) * pageSize;
+          setLeads(INITIAL_LEADS.slice(offset, offset + pageSize));
           setLoading(false);
           return;
         }
@@ -536,7 +551,7 @@ export default function RecruitmentAgencyDashboard() {
           assignedToId: recruiterFilter || undefined,
           search: searchQuery || undefined,
           page: currentPage,
-          limit: PAGE_SIZE,
+          limit: pageSize,
         });
         
         // Backend returns: { success: true, message: "...", data: { data: [...], pagination: {...} } }
@@ -546,8 +561,10 @@ export default function RecruitmentAgencyDashboard() {
         
         if (!Array.isArray(backendLeads)) {
           console.error('backendLeads is not an array:', backendLeads);
-          setLeads(INITIAL_LEADS);
-          setTotalEntries(INITIAL_LEADS.length);
+          const total = INITIAL_LEADS.length;
+          setTotalEntries(total);
+          const offset = (currentPage - 1) * pageSize;
+          setLeads(INITIAL_LEADS.slice(offset, offset + pageSize));
           return;
         }
         
@@ -566,14 +583,18 @@ export default function RecruitmentAgencyDashboard() {
             err.message?.includes('No token') ||
             err.message?.includes('401')) {
           console.warn('Authentication required. Using mock data. Please log in to access real data.');
-          setLeads(INITIAL_LEADS);
-          setTotalEntries(INITIAL_LEADS.length);
+          const total = INITIAL_LEADS.length;
+          setTotalEntries(total);
+          const offset = (currentPage - 1) * pageSize;
+          setLeads(INITIAL_LEADS.slice(offset, offset + pageSize));
           setError(null); // Don't show error for auth issues, just use mock data
         } else {
           setError(err.message || 'Failed to load leads');
           // Fallback to mock data on error
-          setLeads(INITIAL_LEADS);
-          setTotalEntries(INITIAL_LEADS.length);
+          const total = INITIAL_LEADS.length;
+          setTotalEntries(total);
+          const offset = (currentPage - 1) * pageSize;
+          setLeads(INITIAL_LEADS.slice(offset, offset + pageSize));
         }
       } finally {
         setLoading(false);
@@ -581,7 +602,7 @@ export default function RecruitmentAgencyDashboard() {
     };
 
     fetchLeads();
-  }, [statusFilter, sourceFilter, searchQuery, currentPage, recruiterFilter]);
+  }, [statusFilter, sourceFilter, searchQuery, currentPage, recruiterFilter, pageSize]);
 
   useEffect(() => {
     void loadLeadMetrics();
@@ -877,10 +898,13 @@ export default function RecruitmentAgencyDashboard() {
     leadId: string | null;
     newStatus: LeadStatus | null;
     remark: string;
+    /** Status before the inline change (optimistic UI may already show `newStatus`). */
+    previousStatus: LeadStatus | null;
   }>({
     leadId: null,
     newStatus: null,
     remark: '',
+    previousStatus: null,
   });
 
   const handleInlineStatusChange = (id: string, newStatus: LeadStatus) => {
@@ -895,6 +919,7 @@ export default function RecruitmentAgencyDashboard() {
       leadId: id,
       newStatus,
       remark: '',
+      previousStatus: previousLead?.status ?? null,
     });
   };
 
@@ -907,6 +932,21 @@ export default function RecruitmentAgencyDashboard() {
         statusRemark: statusEdit.remark || undefined,
       });
       await handleRefresh({ silent: true });
+      if (
+        statusEdit.newStatus === 'Converted' &&
+        statusEdit.previousStatus &&
+        statusEdit.previousStatus !== 'Converted'
+      ) {
+        toast.success(
+          'Lead converted. A client record was created — open the Clients page to view it.',
+          {
+            action: {
+              label: 'Open Clients',
+              onClick: () => router.push('/client'),
+            },
+          }
+        );
+      }
     } catch (err: any) {
       console.error('Failed to update lead status with remark:', err);
       void requestError(err.message || 'Failed to update lead status');
@@ -917,12 +957,12 @@ export default function RecruitmentAgencyDashboard() {
         // ignore
       }
     } finally {
-      setStatusEdit({ leadId: null, newStatus: null, remark: '' });
+      setStatusEdit({ leadId: null, newStatus: null, remark: '', previousStatus: null });
     }
   };
 
   const handleCancelStatusEdit = async () => {
-    setStatusEdit({ leadId: null, newStatus: null, remark: '' });
+    setStatusEdit({ leadId: null, newStatus: null, remark: '', previousStatus: null });
     // Reload to ensure UI matches backend
     try {
       await handleRefresh();
@@ -980,9 +1020,10 @@ export default function RecruitmentAgencyDashboard() {
       const response = await apiGetLeads({
         status: statusFilter !== 'All' ? statusFilter : undefined,
         source: sourceFilter || undefined,
+        assignedToId: recruiterFilter || undefined,
         search: searchQuery || undefined,
         page: currentPage,
-        limit: PAGE_SIZE,
+        limit: pageSize,
       });
       
       // Backend returns: { success: true, message: "...", data: { data: [...], pagination: {...} } }
@@ -1067,9 +1108,29 @@ export default function RecruitmentAgencyDashboard() {
 
     try {
       setBulkActionLoading(true);
+      const newlyConvertedCount =
+        updates.status === 'Converted'
+          ? selectedLeadIds.filter((id) => {
+              const row = leads.find((l) => l.id === id);
+              return row && row.status !== 'Converted';
+            }).length
+          : 0;
       await Promise.all(selectedLeadIds.map((id) => apiUpdateLead(id, updates)));
       clearBulkSelection();
       await handleRefresh({ silent: true });
+      if (newlyConvertedCount > 0) {
+        toast.success(
+          newlyConvertedCount === 1
+            ? '1 lead was converted and added as a client.'
+            : `${newlyConvertedCount} leads were converted and added as clients.`,
+          {
+            action: {
+              label: 'Open Clients',
+              onClick: () => router.push('/client'),
+            },
+          }
+        );
+      }
     } catch (err: any) {
       console.error('Failed to bulk update leads:', err);
       void requestError(err.message || 'Failed to update selected leads');
@@ -1094,7 +1155,7 @@ export default function RecruitmentAgencyDashboard() {
     const base = raw && typeof raw === 'object' ? raw : {};
     const source = ['Website', 'LinkedIn', 'Email', 'Referral', 'Campaign'].includes(base.source)
       ? base.source
-      : 'Website';
+      : undefined;
     const type = ['Company', 'Individual', 'Referral'].includes(base.type)
       ? base.type
       : 'Company';
@@ -1667,9 +1728,15 @@ export default function RecruitmentAgencyDashboard() {
               <div className="mt-0 w-full border-t border-indigo-100/50 bg-gradient-to-r from-slate-50/40 via-white to-indigo-50/25 px-3 py-2 sm:px-4">
                 <PaginationAll
                   initialPage={currentPage}
-                  totalPages={Math.ceil(totalEntries / PAGE_SIZE)}
+                  totalPages={Math.max(1, Math.ceil(totalEntries / pageSize))}
                   totalCount={totalEntries}
-                  pageSize={PAGE_SIZE}
+                  pageSize={pageSize}
+                  pageSizeOptions={[...TABLE_PAGE_SIZE_OPTIONS]}
+                  onPageSizeChange={(n) => {
+                    if (!(TABLE_PAGE_SIZE_OPTIONS as readonly number[]).includes(n)) return;
+                    setPageSize(n as TablePageSize);
+                    setCurrentPage(1);
+                  }}
                   itemLabel="leads"
                   onPageChange={setCurrentPage}
                 />
@@ -1713,13 +1780,31 @@ export default function RecruitmentAgencyDashboard() {
             }}
             onUpdateLead={async (updatedLead) => {
               try {
-                if (updatedLead) {
-                  replaceLeadOptimistically(mapBackendLeadToFrontend(updatedLead));
+                const mapped = updatedLead ? mapBackendLeadToFrontend(updatedLead) : null;
+                const prevStatus = mapped ? leads.find((l) => l.id === mapped.id)?.status : undefined;
+                if (mapped) {
+                  replaceLeadOptimistically(mapped);
                 }
                 await handleRefresh({ silent: true });
                 setSelectedLeadId(null);
                 setSelectedLeadDrawerMode('view');
-                toast.success('Lead updated successfully');
+                if (
+                  mapped?.status === 'Converted' &&
+                  prevStatus &&
+                  prevStatus !== 'Converted'
+                ) {
+                  toast.success(
+                    'Lead converted. A client record was created — open the Clients page to view it.',
+                    {
+                      action: {
+                        label: 'Open Clients',
+                        onClick: () => router.push('/client'),
+                      },
+                    }
+                  );
+                } else {
+                  toast.success('Lead updated successfully');
+                }
               } catch (err: any) {
                 console.error('Failed to update lead:', err);
               }
