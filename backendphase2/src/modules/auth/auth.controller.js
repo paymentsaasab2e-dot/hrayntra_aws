@@ -24,7 +24,11 @@ export const authController = {
       if (error.statusCode === 423) {
         return sendError(res, 423, error.message, error);
       }
-      sendError(res, 401, error.message, error);
+      const message =
+        error?.message === 'Invalid credentials'
+          ? 'Invalid email or password'
+          : error.message;
+      sendError(res, 401, message, error);
     }
   },
 

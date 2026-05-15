@@ -22,7 +22,47 @@ const isLocalBrowser =
     window.location.hostname.endsWith('.local'));
 
 // Determination of API base based on environment
-const API_BASE = isLocalBrowser ? LOCAL_API_BASE : PROD_PROXY_BASE;
+function resolveApiBase(): string {
+  if (isLocalBrowser) return LOCAL_API_BASE;
+  const publicApi = process.env.NEXT_PUBLIC_API_URL?.trim();
+  if (publicApi) return publicApi.replace(/\/$/, '');
+  return PROD_PROXY_BASE;
+}
+
+const API_BASE = resolveApiBase();
+
+/** User-facing message for login/signup failures (maps backend + proxy errors). */
+export function formatAuthErrorMessage(
+  err: { status?: number; message?: string } | null | undefined,
+  fallback = 'Failed to sign in. Please try again.'
+): string {
+  const status = err?.status;
+  const raw = String(err?.message || '').trim();
+  const lowered = raw.toLowerCase();
+
+  if (
+    status === 401 ||
+    lowered.includes('invalid credentials') ||
+    lowered.includes('invalid email') ||
+    lowered.includes('invalid password')
+  ) {
+    return 'Invalid email or password.';
+  }
+
+  if (status === 423 || lowered.includes('locked')) {
+    return raw || 'Account is temporarily locked. Try again later.';
+  }
+
+  if (
+    status === 502 ||
+    lowered.includes('backend is unreachable') ||
+    lowered.includes('unable to connect to server')
+  ) {
+    return 'Unable to reach the server. Please try again in a moment.';
+  }
+
+  return raw || fallback;
+}
 
 export function buildApiUrl(path: string): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
@@ -326,7 +366,11 @@ export async function apiFetch<T>(
     if (debugApiLogs && validationIssues.length) {
       console.warn('[apiFetch] validation issues', validationIssues);
     }
-    const error: any = new Error(detailedMsg);
+    const authPaths = ['/auth/login', '/auth/register'];
+    const friendlyMsg = authPaths.some((p) => path === p || path.startsWith(`${p}?`))
+      ? formatAuthErrorMessage({ status: res.status, message: detailedMsg }, detailedMsg)
+      : detailedMsg;
+    const error: any = new Error(friendlyMsg);
     error.status = res.status;
     error.data = json?.data;
     error.raw = json;
@@ -733,11 +777,16 @@ export async function apiLogin(email: string, password: string) {
     }
   }
   const tenantDbNameHint = getTenantDbName();
-  const res = await apiFetch<AuthPayload>('/auth/login', {
-    method: 'POST',
-    body: { email, password },
-    includeTenantHeader: !!tenantDbNameHint,
-  });
+  let res: ApiResponse<AuthPayload>;
+  try {
+    res = await apiFetch<AuthPayload>('/auth/login', {
+      method: 'POST',
+      body: { email, password },
+      includeTenantHeader: !!tenantDbNameHint,
+    });
+  } catch (err: any) {
+    throw new Error(formatAuthErrorMessage(err));
+  }
 
   if (typeof window !== 'undefined') {
     // backendphase2 sometimes returns the JWT as `data.token` (credential login)
