@@ -1,9 +1,14 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { buildApiUrl } from '../lib/api';
+import { useDraggableFixedPosition } from '../hooks/useDraggableFixedPosition';
 
 const ARIA_ENDPOINT = buildApiUrl('/ai/aria');
+const FAB_SIZE = 56;
+const PANEL_WIDTH = 400;
+const PANEL_HEIGHT = 600;
+const PANEL_MIN_HEIGHT = 56;
 
 function getToken() {
   if (typeof window === 'undefined') return null;
@@ -52,6 +57,14 @@ async function parseResponseSafe(res) {
   );
 }
 
+function defaultAriaPosition(width, height) {
+  if (typeof window === 'undefined') return { x: 16, y: 16 };
+  return {
+    x: Math.max(16, window.innerWidth - width - 24),
+    y: Math.max(16, window.innerHeight - height - 24),
+  };
+}
+
 export default function AriaChat({
   currentPage = 'leads',
   onUiPayload,
@@ -68,6 +81,23 @@ export default function AriaChat({
   const fileRef = useRef(null);
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
+
+  const panelHeight = minimized ? PANEL_MIN_HEIGHT : PANEL_HEIGHT;
+  const dragSize = useMemo(
+    () =>
+      open
+        ? { width: PANEL_WIDTH, height: panelHeight }
+        : { width: FAB_SIZE, height: FAB_SIZE },
+    [open, panelHeight],
+  );
+
+  const { mounted, isDragging, dragHandleProps, style: positionStyle } = useDraggableFixedPosition({
+    storageKey: `aria-chat-position-${currentPage}`,
+    size: dragSize,
+    margin: 16,
+    defaultPosition: () => defaultAriaPosition(dragSize.width, dragSize.height),
+    onTap: open ? undefined : () => setOpen(true),
+  });
 
   useEffect(() => {
     if (open && messages.length === 0) {
@@ -253,26 +283,35 @@ export default function AriaChat({
     return `${m}:${String(s).padStart(2, '0')}`;
   };
 
+  if (!mounted) return null;
+
   if (!open) {
     return (
       <button
-        onClick={() => setOpen(true)}
+        type="button"
+        aria-label="Open ARIA assistant"
+        title="Drag to move · Click to open ARIA"
+        onPointerDown={dragHandleProps.onPointerDown}
         style={{
           position: 'fixed',
-          bottom: 24,
-          right: 24,
-          width: 56,
-          height: 56,
+          ...positionStyle,
+          touchAction: 'none',
+          userSelect: 'none',
+          width: FAB_SIZE,
+          height: FAB_SIZE,
           borderRadius: '50%',
           background: '#4f46e5',
           color: '#fff',
           border: 'none',
-          cursor: 'pointer',
           fontSize: 24,
-          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+          boxShadow: isDragging
+            ? '0 8px 24px rgba(79, 70, 229, 0.45)'
+            : '0 4px 12px rgba(0,0,0,0.3)',
           zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
         }}
-        title="Open ARIA"
       >
         ✳️
       </button>
@@ -280,27 +319,53 @@ export default function AriaChat({
   }
 
   return (
-    <div style={{
-      position: 'fixed',
-      bottom: 24,
-      right: 24,
-      width: 400,
-      height: minimized ? 56 : 600,
-      background: '#fff',
-      borderRadius: 16,
-      boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
-      border: '1px solid #e2e8f0',
-      display: 'flex',
-      flexDirection: 'column',
-      zIndex: 9999,
-      overflow: 'hidden',
-    }}>
-      <div style={{ background: '#4f46e5', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
+    <div
+      style={{
+        position: 'fixed',
+        ...positionStyle,
+        width: PANEL_WIDTH,
+        height: panelHeight,
+        background: '#fff',
+        borderRadius: 16,
+        boxShadow: isDragging
+          ? '0 12px 40px rgba(0,0,0,0.22)'
+          : '0 8px 32px rgba(0,0,0,0.18)',
+        border: '1px solid #e2e8f0',
+        display: 'flex',
+        flexDirection: 'column',
+        zIndex: 9999,
+        overflow: 'hidden',
+      }}
+    >
+      <div
+        onPointerDown={dragHandleProps.onPointerDown}
+        title="Drag to move"
+        style={{
+          background: '#4f46e5',
+          padding: '10px 14px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          cursor: isDragging ? 'grabbing' : 'grab',
+          touchAction: 'none',
+          userSelect: 'none',
+        }}
+      >
         <span style={{ color: '#fff', fontWeight: 600, fontSize: 14, flex: 1 }}>ARIA</span>
-        <button onClick={() => setMinimized((m) => !m)} style={{ background: 'none', border: 'none', color: '#c7d2fe', cursor: 'pointer' }}>
+        <button
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => setMinimized((m) => !m)}
+          style={{ background: 'none', border: 'none', color: '#c7d2fe', cursor: 'pointer' }}
+        >
           {minimized ? '▲' : '▼'}
         </button>
-        <button onClick={() => setOpen(false)} style={{ background: 'none', border: 'none', color: '#c7d2fe', cursor: 'pointer' }}>
+        <button
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => setOpen(false)}
+          style={{ background: 'none', border: 'none', color: '#c7d2fe', cursor: 'pointer' }}
+        >
           ×
         </button>
       </div>
@@ -341,6 +406,7 @@ export default function AriaChat({
                           Undo — expires {formatCountdown(undoCountdowns[m.structured.undoPayload.actionId] ?? m.structured.undoPayload.expiresInSeconds ?? 600)}
                         </span>
                         <button
+                          type="button"
                           onClick={() => handleUndo(m.structured.undoPayload.actionId)}
                           style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer' }}
                         >
@@ -353,6 +419,7 @@ export default function AriaChat({
                         {m.structured.chatOutput.suggestions.map((s, i) => (
                           <button
                             key={`${m.id}-s-${i}`}
+                            type="button"
                             onClick={() => handleSuggestionClick(s)}
                             style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 20, padding: '4px 10px', fontSize: 11, color: '#4f46e5', cursor: 'pointer' }}
                           >
@@ -386,8 +453,8 @@ export default function AriaChat({
               disabled={loading}
               style={{ flex: 1, resize: 'none', border: '1px solid #e2e8f0', borderRadius: 10, padding: '8px 10px', fontSize: 13 }}
             />
-            <button onClick={() => fileRef.current?.click()} style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px' }}>📎</button>
-            <button onClick={() => sendMessage()} disabled={loading || !input.trim()} style={{ background: loading || !input.trim() ? '#94a3b8' : '#4f46e5', color: '#fff', border: 'none', borderRadius: 10, padding: '10px 14px' }}>➤</button>
+            <button type="button" onClick={() => fileRef.current?.click()} style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px' }}>📎</button>
+            <button type="button" onClick={() => sendMessage()} disabled={loading || !input.trim()} style={{ background: loading || !input.trim() ? '#94a3b8' : '#4f46e5', color: '#fff', border: 'none', borderRadius: 10, padding: '10px 14px' }}>➤</button>
           </div>
 
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: 'none' }} onChange={handleFileChange} />

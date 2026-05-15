@@ -65,12 +65,12 @@ export default function CandidateList(props: CandidateListProps) {
   const heading = savedOnly
     ? 'Saved Matches'
     : activeTab === 'manual'
-      ? 'Manual Candidates'
+      ? 'AI Applied Matches'
       : 'AI Matches';
   const subtitle = savedOnly
     ? 'Showing only matches you bookmarked. Toggle "Saved only" off in the filter bar to see everyone.'
     : activeTab === 'manual'
-      ? 'Showing hand-picked candidates for this position.'
+      ? 'Tenant candidates assigned to this job. Use Run AI Applied Matches to score.'
       : 'All scored candidates are grouped by match band. Run AI Matches to refresh scores for the selected job.';
 
   const aiTierStats = useMemo(

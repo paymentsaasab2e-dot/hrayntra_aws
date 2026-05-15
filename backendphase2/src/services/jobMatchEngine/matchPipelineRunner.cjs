@@ -120,7 +120,9 @@ async function runMatchPipeline({
   candidates: candidatesOverride,
   poolStats = null,
   materializeCandidate = null,
+  pipelineMode = 'ai',
 }) {
+  const isAppliedPipeline = pipelineMode === 'applied';
   const runId = `run_${Date.now()}`;
   const startTime = Date.now();
 
@@ -218,7 +220,7 @@ async function runMatchPipeline({
 
   stageLogger.stageEnd('STAGE 1', `${pairs.length} pairs ready for scoring`);
 
-  if (!forceRefresh && candidates.length > 0) {
+  if (!forceRefresh && !isAppliedPipeline && candidates.length > 0) {
     const matchCount = await prisma.match.count({
       where: { jobId, createdById: AI_MATCH_AUTHOR_WHERE, status: { not: 'REJECTED' } },
     });
@@ -229,7 +231,11 @@ async function runMatchPipeline({
     });
     const computedAt =
       latest?.evaluation && typeof latest.evaluation === 'object' ? latest.evaluation.computedAt : null;
-    if (computedAt && matchCount >= candidates.length) {
+    const latestIsApplied =
+      latest?.evaluation &&
+      typeof latest.evaluation === 'object' &&
+      latest.evaluation.origin === 'applied';
+    if (computedAt && matchCount >= candidates.length && !latestIsApplied) {
       const age = Date.now() - new Date(computedAt).getTime();
       if (age < 24 * 60 * 60 * 1000) {
         stageLogger.stageStart('PIPELINE CACHE HIT', { computedAt, ageHours: (age / 3600000).toFixed(2) });
@@ -387,13 +393,32 @@ async function runMatchPipeline({
 
   stageLogger.stageStart('STAGE 6 STARTED — Persisting and Delivering Results', {});
 
-  await prisma.match.deleteMany({
-    where: {
-      jobId,
-      createdById: AI_MATCH_AUTHOR_WHERE,
-      status: { not: 'REJECTED' },
-    },
-  });
+  if (isAppliedPipeline) {
+    const candidateIds = candidates.map((c) => c.id).filter(Boolean);
+    if (candidateIds.length) {
+      await prisma.match.deleteMany({
+        where: {
+          jobId,
+          candidateId: { in: candidateIds },
+          createdById: AI_MATCH_AUTHOR_WHERE,
+        },
+      });
+    }
+  } else {
+    const existingAi = await prisma.match.findMany({
+      where: { jobId, createdById: AI_MATCH_AUTHOR_WHERE, status: { not: 'REJECTED' } },
+      select: { id: true, evaluation: true },
+    });
+    const deleteIds = existingAi
+      .filter(
+        (row) =>
+          !(row.evaluation && typeof row.evaluation === 'object' && row.evaluation.origin === 'applied')
+      )
+      .map((row) => row.id);
+    if (deleteIds.length) {
+      await prisma.match.deleteMany({ where: { id: { in: deleteIds } } });
+    }
+  }
 
   const computedAt = new Date().toISOString();
   const toPersist = filtered.visible;
@@ -416,13 +441,18 @@ async function runMatchPipeline({
       engineVersion: '1.0',
       runId,
       computedAt,
-      poolSource: poolStats?.commonIncluded
-        ? 'tenant+common'
-        : poolStats?.portalIncluded
-          ? 'tenant+portal'
+      poolSource: isAppliedPipeline
+        ? 'tenant-applied'
+        : poolStats?.commonIncluded
+          ? 'tenant+common'
+          : poolStats?.portalIncluded
+            ? 'tenant+portal'
+            : 'tenant',
+      origin: isAppliedPipeline
+        ? 'applied'
+        : String(ep.pair.rawCandidate?.source || '').toLowerCase() === 'phase1'
+          ? 'phase1'
           : 'tenant',
-      origin:
-        String(ep.pair.rawCandidate?.source || '').toLowerCase() === 'phase1' ? 'phase1' : 'tenant',
     };
 
     let candidateId = ep.pair.rawCandidate.id;

@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Download, Mail, MessageSquare, Sparkles, Trash2, UserPlus, RefreshCw, GitMerge } from 'lucide-react';
+import { Download, Mail, MessageSquare, Sparkles, Trash2, UserPlus, RefreshCw, GitMerge, Users } from 'lucide-react';
 import { downloadCsv } from '../../utils/csv';
 import { Toaster } from 'sonner';
 import AIManualToggle from '../../components/matches/AIManualToggle';
@@ -216,10 +216,12 @@ function mapRecruiter(user: BackendUser) {
 }
 
 function mapBackendMatch(match: BackendMatch): MatchCandidate {
+  const rawMatchId = String(match.id || '');
+  const pendingApplied = rawMatchId.startsWith('applied-pending-');
   return {
     id: match.candidateId,
-    matchId: match.id,
-    isAppliedCandidate: false,
+    matchId: pendingApplied ? '' : rawMatchId,
+    isAppliedCandidate: Boolean(match.isAppliedCandidate),
     isPhase1Candidate: Boolean(match.isPhase1Candidate),
     name: match.name,
     photo: match.photo,
@@ -369,6 +371,9 @@ export default function MatchesPage() {
   const [bulkRejectOpen, setBulkRejectOpen] = useState(false);
   const [bulkPipelineOpen, setBulkPipelineOpen] = useState(false);
   const [aiPipelineRunning, setAiPipelineRunning] = useState(false);
+  const [appliedPipelineRunning, setAppliedPipelineRunning] = useState(false);
+  const prevActiveTabRef = useRef<MatchMode>(activeTab);
+  const prevSelectedJobIdRef = useRef<string | null>(null);
 
   const activeCandidate = useMemo(
     () => candidates.find((candidate) => candidate.id === activeCandidateId) || null,
@@ -409,50 +414,40 @@ export default function MatchesPage() {
     [selectedCandidateProfile?.recruiter]
   );
 
-  const refreshMatches = useCallback(async (opts?: { forcePipeline?: boolean; runPipeline?: boolean }) => {
+  const refreshMatches = useCallback(async (opts?: {
+    forcePipeline?: boolean;
+    runPipeline?: boolean;
+    source?: MatchMode;
+  }) => {
     if (!selectedJob) {
       setCandidates([]);
       setSavedMatches([]);
       return [] as MatchCandidate[];
     }
 
+    const tab = opts?.source ?? activeTab;
+    const apiSource = tab === 'manual' || tab === 'applied' ? 'applied' : 'ai';
+
     setLoading(true);
     setError(null);
     try {
       const runPipeline =
-        activeTab === 'ai' && Boolean(opts?.runPipeline || opts?.forcePipeline);
-      const [matchesResponse, candidatesResponse] = await Promise.all([
-        apiGetMatches({
-          jobId: selectedJob.id,
-          source: activeTab,
-          limit: 100,
-          ...(runPipeline ? { runPipeline: '1' } : {}),
-          ...(opts?.forcePipeline && activeTab === 'ai' ? { refresh: '1' } : {}),
-        }),
-        apiGetCandidates({ page: 1, limit: 500 }),
-      ]);
+        (apiSource === 'ai' || apiSource === 'applied') &&
+        Boolean(opts?.runPipeline || opts?.forcePipeline);
+      const matchesResponse = await apiGetMatches({
+        jobId: selectedJob.id,
+        source: apiSource,
+        limit: 100,
+        ...(runPipeline ? { runPipeline: '1' } : {}),
+        ...(opts?.forcePipeline && (apiSource === 'ai' || apiSource === 'applied') ? { refresh: '1' } : {}),
+      });
       const matchPayload = matchesResponse.data;
       const matchRows = Array.isArray(matchPayload)
         ? matchPayload
         : Array.isArray(matchPayload?.data)
           ? matchPayload.data
           : [];
-      const matchItems = matchRows.map(mapBackendMatch);
-
-      const candidatesData =
-        (candidatesResponse as any)?.data?.data ||
-        (candidatesResponse as any)?.data?.items ||
-        (candidatesResponse as any)?.data ||
-        [];
-      const allCandidates: BackendCandidate[] = Array.isArray(candidatesData) ? candidatesData : [];
-      const matchedCandidateIds = new Set(matchItems.map((item) => item.id));
-      const appliedCandidates = allCandidates
-        .filter((candidate) => isCandidateAppliedToJob(candidate, selectedJob.id))
-        .filter((candidate) => !matchedCandidateIds.has(candidate.id))
-        .map((candidate) => mapAppliedCandidate(candidate, selectedJob.id, selectedJob));
-
-      const mergedCandidates =
-        activeTab === 'ai' ? matchItems : [...matchItems, ...appliedCandidates];
+      const mergedCandidates = matchRows.map(mapBackendMatch);
       setCandidates(mergedCandidates);
       setSavedMatches(
         mergedCandidates
@@ -524,17 +519,16 @@ export default function MatchesPage() {
     void loadMeta();
   }, [reloadMatchMeta]);
 
-  useEffect(() => {
-    if (!selectedJob) return;
-    void refreshMatches();
-  }, [selectedJob?.id, activeTab, refreshMatches]);
-
   const handleRunAiMatches = useCallback(async () => {
-    if (!selectedJob || activeTab !== 'ai') return;
+    if (!selectedJob) return;
     setAiPipelineRunning(true);
     setError(null);
     try {
-      const list = await refreshMatches({ forcePipeline: true, runPipeline: true });
+      const list = await refreshMatches({
+        forcePipeline: true,
+        runPipeline: true,
+        source: 'ai',
+      });
       const aiOnly = list.filter((c) => !c.isAppliedCandidate);
       const sorted = [...aiOnly].sort((a, b) => b.score - a.score);
       const top = sorted[0];
@@ -554,7 +548,63 @@ export default function MatchesPage() {
     } finally {
       setAiPipelineRunning(false);
     }
-  }, [activeTab, refreshMatches, selectedJob]);
+  }, [refreshMatches, selectedJob]);
+
+  const handleRunAppliedMatches = useCallback(async () => {
+    if (!selectedJob) return;
+    setAppliedPipelineRunning(true);
+    setError(null);
+    try {
+      const list = await refreshMatches({
+        forcePipeline: true,
+        runPipeline: true,
+        source: 'applied',
+      });
+      const appliedOnly = list.filter((c) => c.isAppliedCandidate);
+      const sorted = [...appliedOnly].sort((a, b) => b.score - a.score);
+      const top = sorted[0];
+      if (top && top.score > 0) {
+        setToast(
+          `Applied matching complete — ${appliedOnly.length} candidate(s). Top: ${top.name} (${top.score}%).`
+        );
+      } else if (appliedOnly.length) {
+        setToast(
+          `${appliedOnly.length} applied candidate(s) loaded. Run AI Applied Matches to score them.`
+        );
+      } else {
+        setToast('No candidates assigned to this job in your workspace yet.');
+      }
+    } catch (runError: unknown) {
+      setError(runError instanceof Error ? runError.message : 'Unable to run applied matching');
+    } finally {
+      setAppliedPipelineRunning(false);
+    }
+  }, [refreshMatches, selectedJob]);
+
+  const handleMatchTabChange = useCallback((mode: MatchMode) => {
+    setActiveTab(mode);
+  }, []);
+
+  useEffect(() => {
+    if (!selectedJob) {
+      prevSelectedJobIdRef.current = null;
+      setCandidates([]);
+      setSavedMatches([]);
+      return;
+    }
+
+    const jobChanged = prevSelectedJobIdRef.current !== selectedJob.id;
+    const switchedToAi = prevActiveTabRef.current !== 'ai' && activeTab === 'ai';
+    prevSelectedJobIdRef.current = selectedJob.id;
+    prevActiveTabRef.current = activeTab;
+
+    if (activeTab === 'ai' && (switchedToAi || jobChanged)) {
+      void handleRunAiMatches();
+      return;
+    }
+
+    void refreshMatches({ source: activeTab });
+  }, [selectedJob?.id, activeTab, refreshMatches, handleRunAiMatches, selectedJob]);
 
   useEffect(() => {
     setSelectedCandidates([]);
@@ -871,7 +921,7 @@ export default function MatchesPage() {
             <div>
               <h1 className="text-xl font-bold leading-tight tracking-tight text-slate-900 sm:text-[1.35rem]">Matches</h1>
               <p className="max-w-xl text-xs text-slate-500">
-                Review AI and manual candidates for a job, then submit to client, reject, or send to pipeline
+                Review AI and applied candidates for a job, then submit to client, reject, or send to pipeline
               </p>
             </div>
           </div>
@@ -901,7 +951,7 @@ export default function MatchesPage() {
           <div className="mb-4 overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm transition-shadow hover:shadow-[0_16px_48px_-14px_rgba(79,70,229,0.16)]">
             <div className="flex flex-col gap-3 border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 p-3 sm:p-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-                <AIManualToggle activeTab={activeTab} onChange={setActiveTab} />
+                <AIManualToggle activeTab={activeTab} onChange={handleMatchTabChange} />
                 {selectedJob ? <JobSelector jobs={jobs} selectedJob={selectedJob} onSelect={setSelectedJob} /> : null}
               </div>
               {activeTab === 'ai' ? (
@@ -918,6 +968,22 @@ export default function MatchesPage() {
                     strokeWidth={2.25}
                   />
                   {aiPipelineRunning ? 'Running AI matches…' : 'Run AI Matches'}
+                </button>
+              ) : null}
+              {activeTab === 'manual' ? (
+                <button
+                  type="button"
+                  onClick={() => void handleRunAppliedMatches()}
+                  disabled={!selectedJob || loading || appliedPipelineRunning}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-500/25 transition hover:from-emerald-700 hover:via-teal-700 hover:to-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  title="Score only tenant candidates assigned/applied to this job"
+                >
+                  <Users
+                    size={16}
+                    className={appliedPipelineRunning ? 'animate-spin' : ''}
+                    strokeWidth={2.25}
+                  />
+                  {appliedPipelineRunning ? 'Running applied matches…' : 'Run AI Applied Matches'}
                 </button>
               ) : null}
             </div>

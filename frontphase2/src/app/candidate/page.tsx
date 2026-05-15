@@ -4,7 +4,6 @@ import React, { useState, useMemo, useEffect, useCallback, useRef, Suspense } fr
 import { StageTabs, type CandidateStageStats } from './components/StageTabs';
 import { CandidateTable, Candidate } from './components/CandidateTable';
 import { CandidateGrid } from './components/CandidateGrid';
-import { FilterDrawer } from './components/FilterDrawer';
 import { BulkActions } from './components/BulkActions';
 import AddCandidateDrawer from '../../components/candidates/AddCandidateDrawer';
 import FailedBulkResumesDrawer from '../../components/candidates/FailedBulkResumesDrawer';
@@ -23,7 +22,6 @@ import {
   type CandidateTagItem,
 } from '../../components/drawers/CandidateProfileDrawer';
 import {
-  Filter, 
   LayoutGrid, 
   List, 
   Plus,
@@ -122,6 +120,11 @@ function mapBackendCandidate(c: BackendCandidate): Candidate {
 
   const assignedJobsFromAssignedTitles = (c.assignedJobTitles || []).filter((title) => Boolean(title && title.trim()));
 
+  const hasAssignedJob =
+    (Array.isArray(c.assignedJobs) && c.assignedJobs.some((id) => String(id || '').trim())) ||
+    assignedJobsFromAssignedTitles.length > 0 ||
+    assignedJobsFromMatches.length > 0;
+
   return {
     id: c.id,
     name,
@@ -136,7 +139,7 @@ function mapBackendCandidate(c: BackendCandidate): Candidate {
         : assignedJobsFromMatches.length
           ? assignedJobsFromMatches
           : [],
-    stage: c.stage || mapBackendStage(c.status),
+    stage: hasAssignedJob ? c.stage || mapBackendStage(c.status) : 'New',
     owner: c.assignedTo?.name || 'Unassigned',
     lastActivity: (c.updatedAt || c.createdAt)
       ? (c.updatedAt || c.createdAt).slice(0, 10)
@@ -168,7 +171,6 @@ function CandidatesPageContent() {
   const canAssignCandidate = hasAnyPermission(['candidates_update', 'move_pipeline']);
   const canExportCandidate = hasPermission('export_data');
   const [activeStage, setActiveStage] = useState(searchParams.get('stage') || 'all');
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
@@ -992,7 +994,7 @@ function CandidatesPageContent() {
                   Candidates
                 </h1>
                 <p className="mt-0.5 max-w-xl text-xs text-slate-500">
-                  View and manage every candidate in the pool — search, filter, and open profiles in one place.
+                  View and manage every candidate in the pool — search and open profiles in one place.
                 </p>
               </div>
             </div>
@@ -1018,6 +1020,47 @@ function CandidatesPageContent() {
                 >
                   <Inbox size={17} strokeWidth={2.25} />
                 </button>
+              ) : null}
+              {canCreateCandidate ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => openCandidateDrawer('csv')}
+                    className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98]"
+                  >
+                    <FileSpreadsheet size={16} className="text-indigo-600" strokeWidth={2.25} />
+                    <span>Bulk CSV</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openCandidateDrawer('bulkResume')}
+                    className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98]"
+                  >
+                    <FileText size={16} className="text-indigo-600" strokeWidth={2.25} />
+                    <span>Bulk CV</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFailedResumesDrawerOpen(true)}
+                    className={`relative flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all active:scale-[0.98] ${
+                      failedBulkResumeCount > 0
+                        ? 'border-rose-200 bg-rose-50 text-rose-800 hover:border-rose-300 hover:bg-rose-100'
+                        : 'border-indigo-200/70 bg-white text-indigo-900 hover:border-indigo-300 hover:bg-indigo-50/90'
+                    }`}
+                  >
+                    <AlertCircle
+                      size={16}
+                      className={failedBulkResumeCount > 0 ? 'text-rose-600' : 'text-indigo-600'}
+                      strokeWidth={2.25}
+                    />
+                    <span>Failed resumes</span>
+                    {failedBulkResumeCount > 0 ? (
+                      <span className="ml-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-600 px-1 text-[9px] font-bold text-white">
+                        {failedBulkResumeCount > 99 ? '99+' : failedBulkResumeCount}
+                      </span>
+                    ) : null}
+                  </button>
+                </>
               ) : null}
               <button
                 type="button"
@@ -1231,23 +1274,6 @@ function CandidatesPageContent() {
                           </option>
                         ))}
                       </select>
-                <button
-                        type="button"
-                        onClick={() => setIsFilterOpen(true)}
-                        className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold shadow-sm transition-colors ${
-                          isFilterOpen
-                            ? 'border-indigo-300 bg-indigo-100/70 text-indigo-900 hover:bg-indigo-100'
-                            : 'border-indigo-100/90 bg-white/95 text-slate-800 hover:bg-indigo-50/40'
-                        }`}
-                      >
-                        <Filter className="h-3.5 w-3.5 shrink-0 text-slate-600" strokeWidth={2.25} />
-                        Filters
-                        {isFilterOpen ? (
-                          <span className="inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-indigo-600 px-1 text-[9px] font-bold text-white">
-                            ON
-                          </span>
-                        ) : null}
-                </button>
                       {hasToolbarFilters ? (
                 <button
                           type="button"
@@ -1263,43 +1289,6 @@ function CandidatesPageContent() {
                       </span>
                     </div>
                   </div>
-                  {canCreateCandidate ? (
-                    <div className="flex flex-wrap items-center gap-2 border-t border-indigo-100/40 pt-3">
-                <button
-                        type="button"
-                        onClick={() => openCandidateDrawer('csv')}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-100/90 bg-white/90 px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-indigo-50/50"
-                      >
-                        <FileSpreadsheet size={14} />
-                        Bulk CSV
-                </button>
-              <button
-                        type="button"
-                        onClick={() => openCandidateDrawer('bulkResume')}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-100/90 bg-white/90 px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-indigo-50/50"
-                      >
-                        <FileText size={14} />
-                        Bulk CV
-              </button>
-              <button 
-                        type="button"
-                        onClick={() => setFailedResumesDrawerOpen(true)}
-                        className={`relative inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold shadow-sm transition-colors ${
-                          failedBulkResumeCount > 0
-                            ? 'border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100'
-                            : 'border-indigo-100/90 bg-white/90 text-slate-700 hover:bg-indigo-50/50'
-                        }`}
-                      >
-                        <AlertCircle size={14} />
-                        Failed resumes
-                        {failedBulkResumeCount > 0 ? (
-                          <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-600 px-0.5 text-[9px] font-bold text-white">
-                            {failedBulkResumeCount > 99 ? '99+' : failedBulkResumeCount}
-                          </span>
-                        ) : null}
-              </button>
-            </div>
-                  ) : null}
           </div>
 
                 {error ? (
@@ -1470,16 +1459,6 @@ function CandidatesPageContent() {
           </div>
         </div>
         </main>
-      <FilterDrawer 
-        isOpen={isFilterOpen} 
-        onClose={() => setIsFilterOpen(false)}
-        filters={filters}
-        onFiltersChange={(newFilters) => {
-          setFilters(newFilters);
-          loadCandidates();
-        }}
-      />
-
       <CreateTaskModal
         isOpen={createTaskOpen}
         onClose={() => setCreateTaskOpen(false)}

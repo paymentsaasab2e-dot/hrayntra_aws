@@ -817,9 +817,48 @@ async function ensureCandidateMaterializedForMatch(candidateRow) {
 
 // Exposed for cross-module callers (e.g. services/interview.service.js) so they can
 // rely on the same portal→tenant materialization as the candidate module routes.
+/**
+ * Tenant-only candidates assigned/applied to a specific job (`assignedJobs` contains jobId).
+ * Used by the Matches page "AI Applied Matches" tab — no portal/common pool.
+ */
+async function loadAppliedMatchCandidatePool(req, jobId) {
+  const jobIdStr = String(jobId || '').trim();
+  if (!jobIdStr) {
+    return {
+      candidates: [],
+      tenantCount: 0,
+      commonCount: 0,
+      portalCount: 0,
+      mergedCount: 0,
+      phase1TombstoneReincluded: 0,
+      commonIncluded: false,
+      portalIncluded: false,
+    };
+  }
+
+  const candidates = await prisma.candidate.findMany({
+    where: {
+      isDeleted: { not: true },
+      assignedJobs: { has: jobIdStr },
+    },
+  });
+
+  return {
+    candidates,
+    tenantCount: candidates.length,
+    commonCount: 0,
+    portalCount: 0,
+    mergedCount: candidates.length,
+    phase1TombstoneReincluded: 0,
+    commonIncluded: false,
+    portalIncluded: false,
+  };
+}
+
 export {
   getCandidateOrThrow,
   loadMatchPipelineCandidatePool,
+  loadAppliedMatchCandidatePool,
   ensureCandidateMaterializedForMatch,
 };
 

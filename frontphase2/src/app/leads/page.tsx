@@ -27,7 +27,6 @@ import { SourceCell } from './SourceCell';
 import { LeadDetailsDrawer } from '../../components/drawers/LeadDetailsDrawer';
 import { LeadImportDrawer } from '../../components/drawers/LeadImportDrawer';
 import ModuleRecycleBinDrawer from '../../components/ModuleRecycleBinDrawer';
-import AriaChat from '../../components/AriaChat';
 import PaginationAll from '../../components/PaginationAll';
 import type { Lead, LeadSource, LeadStatus, Priority } from './types';
 import {
@@ -1988,7 +1987,6 @@ export default function RecruitmentAgencyDashboard() {
             onRestored={() => void handleRefresh({ silent: true })}
           />
         )}
-        <AriaChat currentPage="leads" />
       </main>
     </div>
   );

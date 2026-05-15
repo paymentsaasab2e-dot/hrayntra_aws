@@ -2617,6 +2617,8 @@ export interface BackendMatch {
   matchSource: 'ai' | 'manual';
   /** True when match came from Phase 1 / candidatecommon pool. */
   isPhase1Candidate?: boolean;
+  /** True when match is from the applied-candidate pipeline (tenant assigned to job). */
+  isAppliedCandidate?: boolean;
   explanation: {
     skills: boolean | 'partial';
     experience: boolean | 'partial';
@@ -2685,7 +2687,7 @@ export async function apiGetMatches(params: {
   /** Set to `'1'` to bypass the 24h server-side evaluation cache and re-run the pipeline. */
   refresh?: string;
   forceRefresh?: string;
-  source?: 'ai' | 'manual';
+  source?: 'ai' | 'manual' | 'applied';
   saved?: boolean;
   page?: number;
   limit?: number;

@@ -1183,12 +1183,10 @@ export default function AddCandidateDrawer({
       location: preferredLocation || undefined,
       linkedinUrl: parsedCandidate.linkedinUrl || undefined,
       website: parsedCandidate.githubUrl || undefined,
-      jobId: formData.jobId || undefined,
-      source: parsedCandidate.source || 'Other',
+      // Bulk CV: pool-only — no job, owner, or pipeline stage until assigned later.
+      source: 'Bulk CV Upload',
       priority: parsedCandidate.priority || 'Medium',
-      recruiterId: currentUser?._id || undefined,
-      assignedToId: currentUser?._id || undefined,
-      stage: 'Applied',
+      tags: ['New'],
       expectedSalary:
         parsedCandidate.expectedSalary == null || parsedCandidate.expectedSalary === ''
           ? undefined
@@ -1224,7 +1222,6 @@ export default function AddCandidateDrawer({
       preferredLocation,
       noticePeriod: parsedCandidate.noticePeriod || undefined,
       skills: Array.isArray(parsedCandidate.skills) ? parsedCandidate.skills.slice(0, 10) : undefined,
-      tags: Array.isArray(parsedCandidate.tags) ? parsedCandidate.tags.slice(0, 10) : undefined,
       resume: parsedCandidate.resumeUrl || undefined,
       avatar: (() => {
         const u = String(parsedCandidate.profilePhotoUrl || parsedCandidate.avatar || '').trim();
@@ -2404,7 +2401,7 @@ export default function AddCandidateDrawer({
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Ready To Process</p>
                     <p className="mt-1 text-sm text-slate-600">
-                      {bulkResumeFiles.length} CV file{bulkResumeFiles.length === 1 ? '' : 's'} selected. Each file will be parsed and turned into a candidate automatically.
+                      {bulkResumeFiles.length} CV file{bulkResumeFiles.length === 1 ? '' : 's'} selected. Each file will be added to the candidate pool with a &quot;New&quot; tag — no job or owner until you assign them later.
                     </p>
                     <div className="mt-4 max-h-72 space-y-2 overflow-y-auto">
                       {bulkResumeFiles.map((file) => (
