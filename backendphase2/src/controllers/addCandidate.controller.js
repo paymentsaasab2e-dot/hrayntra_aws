@@ -753,9 +753,20 @@ export const addCandidateController = {
           })
         : null;
 
-      const recruiterId = req.body.recruiterId || req.user.id;
+      const isBulkCvPool =
+        !req.body.jobId &&
+        String(req.body.source || '')
+          .trim()
+          .toLowerCase() === 'bulk cv upload';
+      const recruiterId = isBulkCvPool ? null : req.body.recruiterId || req.user.id;
       const creatorId = req.user.id;
-      const stageLabel = getStageLabel(req.body.stage || 'Applied');
+      const stageLabel = isBulkCvPool
+        ? null
+        : req.body.jobId
+          ? getStageLabel(req.body.stage || 'Applied')
+          : req.body.stage
+            ? getStageLabel(req.body.stage)
+            : null;
       const expectedSalary = parsePositiveNumber(req.body.expectedSalary);
       const currentSalary = parsePositiveNumber(req.body.currentSalary);
       const duplicateAction = String(req.body.duplicateAction || 'create');

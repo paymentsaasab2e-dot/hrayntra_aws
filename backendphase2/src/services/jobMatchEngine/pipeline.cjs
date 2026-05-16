@@ -1365,7 +1365,13 @@ async function scoreRecruiterCandidateAgainstJob({ job, candidate, cleanedResume
   };
 }
 
+/** Shared embedding cache for job match semantic pass (pass3) — avoid duplicate API calls. */
+function getSharedEmbeddingCache() {
+  return AI_CACHE.embeddings;
+}
+
 module.exports = {
   runJobMatchingPipeline,
   scoreRecruiterCandidateAgainstJob,
+  getSharedEmbeddingCache,
 };

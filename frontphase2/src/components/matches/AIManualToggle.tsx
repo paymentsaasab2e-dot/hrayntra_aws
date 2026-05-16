@@ -32,7 +32,7 @@ export default function AIManualToggle({ activeTab, onChange }: AIManualTogglePr
         }`}
       >
         <Users size={16} />
-        Manual Matches
+        AI Applied Matches
       </button>
     </div>
   );

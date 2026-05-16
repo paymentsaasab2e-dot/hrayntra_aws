@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { searchLocations, type NominatimSuggestion } from '../lib/nominatim';
+import { apiSearchLocations, type LocationSuggestionDto } from '../lib/location-api';
+
+export type NominatimSuggestion = LocationSuggestionDto;
 
 export interface UseLocationSearchOptions {
   /** Debounce delay in milliseconds. Defaults to 500ms. */
@@ -65,7 +67,7 @@ export function useLocationSearch(
 
     const handle = window.setTimeout(async () => {
       try {
-        const results = await searchLocations(trimmed, {
+        const results = await apiSearchLocations(trimmed, {
           limit,
           signal: controller.signal,
         });

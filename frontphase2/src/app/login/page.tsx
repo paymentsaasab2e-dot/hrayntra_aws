@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Mail, Lock, User, LogIn, UserPlus } from 'lucide-react';
-import { apiLogin, apiRegister, syncTenantDbName } from '../../lib/api';
+import { apiLogin, apiRegister, formatAuthErrorMessage, syncTenantDbName } from '../../lib/api';
 
 type Mode = 'login' | 'signup';
 
@@ -96,7 +96,7 @@ export default function LoginPage() {
         }
       }, 800);
     } catch (err: any) {
-      setError(err?.message || 'Failed to login. Please try again.');
+      setError(formatAuthErrorMessage(err, 'Failed to login. Please try again.'));
     } finally {
       setLoading(false);
       setLoadingMessage('');
@@ -136,7 +136,7 @@ export default function LoginPage() {
         'Account created successfully. Please log in to continue.'
       );
     } catch (err: any) {
-      setError(err?.message || 'Failed to create account. Please try again.');
+      setError(formatAuthErrorMessage(err, 'Failed to create account. Please try again.'));
     } finally {
       setLoading(false);
       setLoadingMessage('');

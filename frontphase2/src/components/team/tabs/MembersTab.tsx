@@ -44,6 +44,7 @@ import { MemberProfileDrawer } from '../MemberProfileDrawer';
 import { usePermissions } from '../../../hooks/usePermissions';
 import { requestConfirm } from '../../../lib/appDialog';
 import PaginationAll from '../../../components/PaginationAll';
+import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../../constants/tablePagination';
 import {
   PH2_TABLE_CARD_CLASS,
   PH2_TOOLBAR_ROW_CLASS,
@@ -127,7 +128,7 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const menuTriggersRef = useRef<Map<string, HTMLButtonElement>>(new Map());
   const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 10;
+  const [pageSize, setPageSize] = useState<TablePageSize>(10);
   const [totalMembers, setTotalMembers] = useState(0);
 
   const positionMenuFromTrigger = useCallback((trigger: HTMLButtonElement | null) => {
@@ -198,7 +199,7 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
       currentPage,
       pageSize,
     ],
-    [debouncedSearch, selectedDepartment, selectedRole, selectedStatus, currentPage]
+    [debouncedSearch, selectedDepartment, selectedRole, selectedStatus, currentPage, pageSize]
   );
 
   const fetchData = useCallback(async () => {
@@ -759,6 +760,12 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
               totalPages={Math.max(1, Math.ceil(totalMembers / pageSize))}
               totalCount={totalMembers}
               pageSize={pageSize}
+              pageSizeOptions={[...TABLE_PAGE_SIZE_OPTIONS]}
+              onPageSizeChange={(n) => {
+                if (!(TABLE_PAGE_SIZE_OPTIONS as readonly number[]).includes(n)) return;
+                setPageSize(n as TablePageSize);
+                setCurrentPage(1);
+              }}
               itemLabel="members"
               onPageChange={setCurrentPage}
             />

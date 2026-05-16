@@ -81,6 +81,9 @@ interface InterviewTableProps {
   onMarkInterviewCompleted?: (interview: Interview) => void;
   onRejectCandidate: (interview: Interview) => void;
   onPageChange: (page: number) => void;
+  /** When set with `pageSizeOptions`, shows rows-per-page control in the table footer. */
+  pageSizeOptions?: number[];
+  onPageSizeChange?: (pageSize: number) => void;
   /** Parent renders pagination in a shared card footer (Leads-style layout). */
   hidePagination?: boolean;
 }
@@ -115,6 +118,8 @@ export function InterviewTable({
   onMarkInterviewCompleted,
   onRejectCandidate,
   onPageChange,
+  pageSizeOptions,
+  onPageSizeChange,
   hidePagination = false,
 }: InterviewTableProps) {
   const groups = useMemo(() => groupInterviewsForTable(interviews), [interviews]);
@@ -499,6 +504,8 @@ export function InterviewTable({
             totalPages={Math.max(totalPages, 1)}
             totalCount={displayTotal}
             pageSize={pageSize}
+            pageSizeOptions={pageSizeOptions}
+            onPageSizeChange={onPageSizeChange}
             itemLabel="interviews"
             onPageChange={onPageChange}
           />

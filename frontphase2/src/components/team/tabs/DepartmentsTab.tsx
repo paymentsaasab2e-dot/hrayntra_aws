@@ -9,6 +9,7 @@ import type { Department } from '../../../types/team';
 import { AddDepartmentDrawer } from '../AddDepartmentDrawer';
 import { DepartmentMembersDrawer } from '../DepartmentMembersDrawer';
 import PaginationAll from '../../../components/PaginationAll';
+import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../../constants/tablePagination';
 import { formatDateDMY } from '../../../utils/dateDisplay';
 
 // Color mapping for role colors
@@ -50,7 +51,7 @@ export const DepartmentsTab: React.FC = () => {
   const [selectedDepartment, setSelectedDepartment] = useState<DepartmentWithMembers | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 10;
+  const [pageSize, setPageSize] = useState<TablePageSize>(10);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -73,7 +74,7 @@ export const DepartmentsTab: React.FC = () => {
   const visibleDepartments = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
     return departments.slice(start, start + pageSize);
-  }, [currentPage, departments]);
+  }, [currentPage, pageSize, departments]);
 
   useEffect(() => {
     const totalPages = Math.max(1, Math.ceil(totalDepartments / pageSize));
@@ -267,6 +268,12 @@ export const DepartmentsTab: React.FC = () => {
                 totalPages={Math.max(1, Math.ceil(totalDepartments / pageSize))}
                 totalCount={totalDepartments}
                 pageSize={pageSize}
+                pageSizeOptions={[...TABLE_PAGE_SIZE_OPTIONS]}
+                onPageSizeChange={(n) => {
+                  if (!(TABLE_PAGE_SIZE_OPTIONS as readonly number[]).includes(n)) return;
+                  setPageSize(n as TablePageSize);
+                  setCurrentPage(1);
+                }}
                 itemLabel="departments"
                 onPageChange={setCurrentPage}
               />

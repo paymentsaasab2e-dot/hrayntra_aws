@@ -9,6 +9,8 @@ import { NAME_SALUTATION_OPTIONS } from '../../constants/salutations';
 import { WhatsAppIcon } from '../icons/WhatsAppIcon';
 import { LeadAssigneesMultiSelect } from './LeadAssigneesMultiSelect';
 import { LocationAutocomplete, type LocationSelection } from '../LocationAutocomplete';
+import { inferTimezoneDisplay, type LocationTimezoneInput } from '../../utils/inferTimezone';
+import { ClientTimezoneSelect } from '../clients/ClientTimezoneSelect';
 import type { TeamMember } from '../../types/team';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -98,6 +100,68 @@ const STAGE_STYLES: Record<ClientStage, string> = {
   Inactive: 'bg-slate-100 text-slate-600 border-slate-200',
   'Hot Clients ðŸ”¥': 'bg-red-100 text-red-700 border-red-200',
 };
+
+type ClientOverviewForm = {
+  companyName: string;
+  logo: string;
+  industry: string;
+  companySize: string;
+  website: string;
+  linkedin: string;
+  location: string;
+  city: string;
+  country: string;
+  countryCode: string;
+  directorName: string;
+  contactEmail: string;
+  contactPhone: string;
+  hiringLocations: string;
+  timezone: string;
+  priority: string;
+  servicesNeeded: string;
+  expectedBusinessValue: string;
+  nextFollowUpDue: string;
+  sla: string;
+  status: 'ACTIVE' | 'ON_HOLD' | 'INACTIVE';
+  assignedToId: string;
+  companyLinks: string[];
+  directorSalutation: string;
+  designation: string;
+  state: string;
+  latitude: number | null;
+  longitude: number | null;
+  leadStatusValue: 'New' | 'Contacted' | 'Qualified' | 'Converted' | 'Lost';
+  assignedToIds: string[];
+  agreementsFileName: string;
+  agreementsFileUrl: string;
+  agreementsUploadedAt: string;
+};
+
+function mergeClientLocationSelection<T extends ClientOverviewForm>(
+  prev: T,
+  selection: LocationSelection,
+): T {
+  const next: T = {
+    ...prev,
+    location: selection.location,
+    city: selection.city?.trim() ? selection.city : prev.city ?? '',
+    country: selection.country?.trim() ? selection.country : prev.country ?? '',
+    countryCode: selection.countryCode?.trim() ? selection.countryCode : prev.countryCode ?? '',
+    state: selection.state?.trim() ? selection.state : prev.state ?? '',
+    latitude: selection.latitude,
+    longitude: selection.longitude,
+  };
+  const autoTimezone = inferTimezoneDisplay({
+    country: next.country,
+    countryCode: next.countryCode,
+    state: next.state,
+    city: next.city,
+    latitude: next.latitude,
+    longitude: next.longitude,
+  });
+  if (autoTimezone) next.timezone = autoTimezone;
+  return next;
+}
 
 const JOB_STATUS_STYLES: Record<JobStatus, string> = {
   Open: 'bg-emerald-100 text-emerald-700 border-emerald-200',
@@ -329,7 +393,8 @@ export function ClientDetailsDrawer({
   });
   const isAddMode = propIsAddMode;
   const [overviewEditMode, setOverviewEditMode] = useState(isAddMode);
-  const [overviewEditForm, setOverviewEditForm] = useState({
+  const timezoneManuallyEditedRef = useRef(false);
+  const [overviewEditForm, setOverviewEditForm] = useState<ClientOverviewForm>({
     companyName: '',
     logo: '',
     industry: '',
@@ -339,6 +404,7 @@ export function ClientDetailsDrawer({
     location: '',
     city: '',
     country: '',
+    countryCode: '',
     directorName: '',
     contactEmail: '',
     contactPhone: '',
@@ -370,6 +436,26 @@ export function ClientDetailsDrawer({
   });
   const clientLogoInputRef = useRef<HTMLInputElement>(null);
   const agreementsInputRef = useRef<HTMLInputElement>(null);
+
+  const patchOverviewWithAutoTimezone = useCallback(
+    (patch: Partial<ClientOverviewForm>, options?: { forceTimezone?: boolean }) => {
+      setOverviewEditForm((prev) => {
+        const next = { ...prev, ...patch };
+        if (!options?.forceTimezone && timezoneManuallyEditedRef.current) return next;
+        const autoTimezone = inferTimezoneDisplay({
+          country: next.country,
+          countryCode: next.countryCode,
+          state: next.state,
+          city: next.city,
+          latitude: next.latitude,
+          longitude: next.longitude,
+        });
+        if (autoTimezone) next.timezone = autoTimezone;
+        return next;
+      });
+    },
+    [],
+  );
   const [uploadingClientLogo, setUploadingClientLogo] = useState(false);
   /** Pending file selected while editing — uploaded after Save (Add) or immediately on Save (Edit). */
   const [pendingAgreementsFile, setPendingAgreementsFile] = useState<File | null>(null);
@@ -994,6 +1080,7 @@ export function ClientDetailsDrawer({
       clientStage = reverseStatusMap[fetchedClient.status] || 'Active';
     }
     
+    timezoneManuallyEditedRef.current = false;
     setOverviewEditForm({
       companyName: fetchedClient?.companyName || client.name || '',
       logo: fetchedClient?.logo || client.logo || '',
@@ -1004,6 +1091,7 @@ export function ClientDetailsDrawer({
       location: fetchedClient?.location || client.location || '',
       city: derivedCity,
       country: derivedCountry,
+      countryCode: fetchedClient?.countryCode || client.countryCode || '',
       directorName: directorNameValue,
       contactEmail: contactEmailValue,
       contactPhone: contactPhoneValue,
@@ -1535,6 +1623,7 @@ export function ClientDetailsDrawer({
   // Reset form when entering add mode
   useEffect(() => {
     if (isAddMode) {
+      timezoneManuallyEditedRef.current = false;
       // Reset form to empty values when opening in add mode
       setOverviewEditForm((prev) => ({
         ...prev,
@@ -1547,6 +1636,7 @@ export function ClientDetailsDrawer({
         location: '',
         city: '',
         country: '',
+        countryCode: '',
         directorName: '',
         contactEmail: '',
         contactPhone: '',
@@ -2097,17 +2187,10 @@ export function ClientDetailsDrawer({
                             <LocationAutocomplete
                               value={overviewEditForm.location ?? ''}
                               onChange={(next) => setOverviewEditForm((p) => ({ ...p, location: next }))}
-                              onSelect={(s: LocationSelection) =>
-                                setOverviewEditForm((p) => ({
-                                  ...p,
-                                  location: s.location,
-                                  city: s.city || p.city || '',
-                                  country: s.country || p.country || '',
-                                  state: s.state || p.state || '',
-                                  latitude: s.latitude,
-                                  longitude: s.longitude,
-                                }))
-                              }
+                              onSelect={(s: LocationSelection) => {
+                                timezoneManuallyEditedRef.current = false;
+                                setOverviewEditForm((p) => mergeClientLocationSelection(p, s));
+                              }}
                               placeholder="Start typing a city, region, or address…"
                             />
                             {(overviewEditForm.state || typeof overviewEditForm.latitude === 'number') && (
@@ -2126,7 +2209,7 @@ export function ClientDetailsDrawer({
                             <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">City</label>
                             <input
                               value={overviewEditForm.city}
-                              onChange={(e) => setOverviewEditForm((p) => ({ ...p, city: e.target.value }))}
+                              onChange={(e) => patchOverviewWithAutoTimezone({ city: e.target.value })}
                               className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                               placeholder="e.g. San Francisco"
                             />
@@ -2135,7 +2218,7 @@ export function ClientDetailsDrawer({
                             <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">State</label>
                             <input
                               value={overviewEditForm.state}
-                              onChange={(e) => setOverviewEditForm((p) => ({ ...p, state: e.target.value }))}
+                              onChange={(e) => patchOverviewWithAutoTimezone({ state: e.target.value })}
                               className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                               placeholder="e.g. California"
                             />
@@ -2144,9 +2227,25 @@ export function ClientDetailsDrawer({
                             <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Country</label>
                             <input
                               value={overviewEditForm.country}
-                              onChange={(e) => setOverviewEditForm((p) => ({ ...p, country: e.target.value }))}
+                              onChange={(e) => patchOverviewWithAutoTimezone({ country: e.target.value })}
                               className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                               placeholder="e.g. United States"
+                            />
+                          </div>
+                          <div>
+                            <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                              <Clock size={12} className="text-slate-400" />
+                              Timezone
+                            </label>
+                            <ClientTimezoneSelect
+                              value={overviewEditForm.timezone}
+                              onManualChange={() => {
+                                timezoneManuallyEditedRef.current = true;
+                              }}
+                              onChange={(timezone) =>
+                                setOverviewEditForm((p) => ({ ...p, timezone }))
+                              }
+                              placeholder="Select timezone…"
                             />
                           </div>
                           <div>
@@ -2426,12 +2525,14 @@ export function ClientDetailsDrawer({
                             </div>
                             <div>
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Timezone</label>
-                              <input
-                                type="text"
+                              <ClientTimezoneSelect
                                 value={overviewEditForm.timezone}
-                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, timezone: e.target.value }))}
-                                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                placeholder="e.g., PST (UTC-8)"
+                                onManualChange={() => {
+                                  timezoneManuallyEditedRef.current = true;
+                                }}
+                                onChange={(timezone) =>
+                                  setOverviewEditForm((p) => ({ ...p, timezone }))
+                                }
                               />
                             </div>
                           </div>
@@ -3164,17 +3265,10 @@ export function ClientDetailsDrawer({
                                 <LocationAutocomplete
                                   value={overviewEditForm.location ?? ''}
                                   onChange={(next) => setOverviewEditForm((p) => ({ ...p, location: next }))}
-                                  onSelect={(s: LocationSelection) =>
-                                    setOverviewEditForm((p) => ({
-                                      ...p,
-                                      location: s.location,
-                                      city: s.city || p.city || '',
-                                      country: s.country || p.country || '',
-                                      state: s.state || p.state || '',
-                                      latitude: s.latitude,
-                                      longitude: s.longitude,
-                                    }))
-                                  }
+                                  onSelect={(s: LocationSelection) => {
+                                    timezoneManuallyEditedRef.current = false;
+                                    setOverviewEditForm((p) => mergeClientLocationSelection(p, s));
+                                  }}
                                   placeholder="Start typing a city, region, or address…"
                                 />
                                 {(overviewEditForm.state || typeof overviewEditForm.latitude === 'number') && (
@@ -3193,7 +3287,7 @@ export function ClientDetailsDrawer({
                                 <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">City</label>
                                 <input
                                   value={overviewEditForm.city}
-                                  onChange={(e) => setOverviewEditForm((p) => ({ ...p, city: e.target.value }))}
+                                  onChange={(e) => patchOverviewWithAutoTimezone({ city: e.target.value })}
                                   className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                                   placeholder="e.g. San Francisco"
                                 />
@@ -3202,7 +3296,7 @@ export function ClientDetailsDrawer({
                                 <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">State</label>
                                 <input
                                   value={overviewEditForm.state}
-                                  onChange={(e) => setOverviewEditForm((p) => ({ ...p, state: e.target.value }))}
+                                  onChange={(e) => patchOverviewWithAutoTimezone({ state: e.target.value })}
                                   className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                                   placeholder="e.g. California"
                                 />
@@ -3211,9 +3305,25 @@ export function ClientDetailsDrawer({
                                 <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Country</label>
                                 <input
                                   value={overviewEditForm.country}
-                                  onChange={(e) => setOverviewEditForm((p) => ({ ...p, country: e.target.value }))}
+                                  onChange={(e) => patchOverviewWithAutoTimezone({ country: e.target.value })}
                                   className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                                   placeholder="e.g. United States"
+                                />
+                              </div>
+                              <div>
+                                <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                                  <Clock size={12} className="text-slate-400" />
+                                  Timezone
+                                </label>
+                                <ClientTimezoneSelect
+                                  value={overviewEditForm.timezone}
+                                  onManualChange={() => {
+                                    timezoneManuallyEditedRef.current = true;
+                                  }}
+                                  onChange={(timezone) =>
+                                    setOverviewEditForm((p) => ({ ...p, timezone }))
+                                  }
+                                  placeholder="Select timezone…"
                                 />
                               </div>
                               <div>
@@ -3444,11 +3554,11 @@ export function ClientDetailsDrawer({
                               </div>
                               <div>
                                 <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">City</label>
-                                <input type="text" value={overviewEditForm.city} onChange={(e) => setOverviewEditForm((p) => ({ ...p, city: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                                <input type="text" value={overviewEditForm.city} onChange={(e) => patchOverviewWithAutoTimezone({ city: e.target.value })} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
                               </div>
                               <div>
                                 <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Country</label>
-                                <input type="text" value={overviewEditForm.country} onChange={(e) => setOverviewEditForm((p) => ({ ...p, country: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                                <input type="text" value={overviewEditForm.country} onChange={(e) => patchOverviewWithAutoTimezone({ country: e.target.value })} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
                               </div>
                               <div>
                                 <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Sector</label>
@@ -3716,11 +3826,14 @@ export function ClientDetailsDrawer({
                               </div>
                               <div>
                                 <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Timezone</label>
-                                <input
-                                  type="text"
+                                <ClientTimezoneSelect
                                   value={overviewEditForm.timezone}
-                                  onChange={(e) => setOverviewEditForm((p) => ({ ...p, timezone: e.target.value }))}
-                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                  onManualChange={() => {
+                                    timezoneManuallyEditedRef.current = true;
+                                  }}
+                                  onChange={(timezone) =>
+                                    setOverviewEditForm((p) => ({ ...p, timezone }))
+                                  }
                                 />
                               </div>
                             </div>

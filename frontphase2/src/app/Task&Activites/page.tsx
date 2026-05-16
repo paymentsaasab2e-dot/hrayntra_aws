@@ -26,6 +26,7 @@ import { downloadCsv, csvDate } from '../../utils/csv';
 import { motion, AnimatePresence } from 'motion/react';
 import { ImageWithFallback } from '../../components/ImageWithFallback';
 import PaginationAll from '../../components/PaginationAll';
+import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 import { TaskDetailsDrawer, type TaskForDrawer, type TaskActivityItem } from '../../components/drawers/TaskDetailsDrawer';
 import { TaskSLAAlertBadge, TaskSLAAlertsPanel } from '../../components/TaskSLAAlerts';
 import {
@@ -55,8 +56,6 @@ type TaskType = 'Call' | 'Email' | 'Interview' | 'Follow-up' | 'Meeting' | 'Note
 type Priority = 'Low' | 'Medium' | 'High';
 type Status = 'Pending' | 'Completed' | 'Overdue';
 type TaskStatusSummary = 'Pending' | 'In Progress' | 'Completed' | 'Cancelled';
-
-const DEFAULT_PAGE_SIZE = 10;
 
 interface RelatedTo {
   id: string;
@@ -445,7 +444,7 @@ export default function App() {
   const [clientNameById, setClientNameById] = useState<Record<string, string>>({});
   const [interviewNameById, setInterviewNameById] = useState<Record<string, string>>({});
   const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = DEFAULT_PAGE_SIZE;
+  const [pageSize, setPageSize] = useState<TablePageSize>(10);
   const [showTaskSuccessToast, setShowTaskSuccessToast] = useState(false);
   const [taskSuccessToastMessage, setTaskSuccessToastMessage] = useState('Task created successfully');
   const [filters, setFilters] = useState({
@@ -1229,6 +1228,12 @@ export default function App() {
                   totalPages={Math.max(totalPages, 1)}
                   totalCount={filteredTasks.length}
                   pageSize={pageSize}
+                  pageSizeOptions={[...TABLE_PAGE_SIZE_OPTIONS]}
+                  onPageSizeChange={(n) => {
+                    if (!(TABLE_PAGE_SIZE_OPTIONS as readonly number[]).includes(n)) return;
+                    setPageSize(n as TablePageSize);
+                    setCurrentPage(1);
+                  }}
                   itemLabel="tasks"
                   onPageChange={setCurrentPage}
                 />

@@ -367,7 +367,16 @@ async function getProfileData(req, res) {
         vaccinationStatus: candidate.vaccination.vaccinationStatus || '',
         vaccineType: candidate.vaccination.vaccineType || undefined,
         lastVaccinationDate: candidate.vaccination.lastVaccinationDate || undefined,
+        validityMonth: candidate.vaccination.validityMonth || undefined,
+        validityYear: candidate.vaccination.validityYear || undefined,
         certificate: candidate.vaccination.certificate || undefined,
+        documents: (() => {
+          const docs = Array.isArray(candidate.vaccination.documents)
+            ? candidate.vaccination.documents.filter(Boolean)
+            : [];
+          if (docs.length > 0) return docs;
+          return candidate.vaccination.certificate ? [candidate.vaccination.certificate] : [];
+        })(),
       } : null,
     };
 
@@ -627,6 +636,13 @@ async function updatePersonalInfo(req, res) {
     };
     
     logProfileSave('Personal Information', 'upserted', candidateId, logData);
+
+    try {
+      const { scheduleCandidateCommonSync } = require('../services/candidateCommonSync.service');
+      scheduleCandidateCommonSync(candidateId);
+    } catch (commonSyncErr) {
+      console.warn('[candidateCommon] profile sync skipped:', commonSyncErr?.message);
+    }
 
     res.json({
       success: true,
@@ -3253,18 +3269,25 @@ async function saveVaccination(req, res) {
       return res.status(400).json({ success: false, message: 'Candidate ID is required' });
     }
 
-    // Process certificate - convert File object to URL if needed
-    let certificateUrl = null;
-    if (vaccination.certificate) {
+    const documentUrls = Array.isArray(vaccination.documents)
+      ? vaccination.documents.filter((u) => typeof u === 'string' && u.trim())
+      : [];
+
+    let certificateUrl = documentUrls[0] || null;
+    if (!certificateUrl && vaccination.certificate) {
       if (typeof vaccination.certificate === 'string') {
         certificateUrl = vaccination.certificate;
-      } else if (vaccination.certificate.url) {
+      } else if (vaccination.certificate?.url) {
         certificateUrl = vaccination.certificate.url;
-      } else if (vaccination.certificate instanceof File || vaccination.certificate.name) {
-        // This should have been uploaded already, but handle it gracefully
-        certificateUrl = typeof vaccination.certificate === 'string' ? vaccination.certificate : null;
       }
     }
+
+    const allDocuments =
+      documentUrls.length > 0
+        ? documentUrls
+        : certificateUrl
+          ? [certificateUrl]
+          : [];
 
     await prisma.candidateVaccination.upsert({
       where: { candidateId },
@@ -3272,14 +3295,20 @@ async function saveVaccination(req, res) {
         vaccinationStatus: vaccination.vaccinationStatus || '',
         vaccineType: vaccination.vaccineType || null,
         lastVaccinationDate: vaccination.lastVaccinationDate || null,
-        certificate: certificateUrl,
+        validityMonth: vaccination.validityMonth || null,
+        validityYear: vaccination.validityYear || null,
+        certificate: allDocuments[0] || null,
+        documents: allDocuments,
       },
       create: {
         candidateId,
         vaccinationStatus: vaccination.vaccinationStatus || '',
         vaccineType: vaccination.vaccineType || null,
         lastVaccinationDate: vaccination.lastVaccinationDate || null,
-        certificate: certificateUrl,
+        validityMonth: vaccination.validityMonth || null,
+        validityYear: vaccination.validityYear || null,
+        certificate: allDocuments[0] || null,
+        documents: allDocuments,
       },
     });
 
@@ -3288,7 +3317,10 @@ async function saveVaccination(req, res) {
       vaccinationStatus: vaccination.vaccinationStatus || '',
       vaccineType: vaccination.vaccineType || null,
       lastVaccinationDate: vaccination.lastVaccinationDate || null,
-      hasCertificate: !!certificateUrl,
+      validityMonth: vaccination.validityMonth || null,
+      validityYear: vaccination.validityYear || null,
+      hasCertificate: allDocuments.length > 0,
+      documentCount: allDocuments.length,
     };
 
     logProfileSave('Vaccination', 'upserted', candidateId, logData);

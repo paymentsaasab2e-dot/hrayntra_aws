@@ -30,6 +30,7 @@ import {
   Ph2ModulePageLayout,
   PH2_TABLE_CARD_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
+import { coerceTablePageSize } from '../../constants/tablePagination';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,7 +63,7 @@ function ContactsPageContent() {
       recentlyContacted: (searchParams.get('recentlyContacted') as '7d' | '30d' | 'all') || undefined,
       search: searchParams.get('search') || undefined,
       page: Number(searchParams.get('page')) || 1,
-      limit: Number(searchParams.get('limit')) || 10,
+      limit: coerceTablePageSize(searchParams.get('limit'), 10),
     };
   }, [searchParams]);
 
@@ -479,7 +480,8 @@ function ContactsPageContent() {
             onEdit={handleEdit}
             onDelete={handleDelete}
             pagination={pagination}
-            onPageChange={(page) => updateFilters({ page, limit: 10 })}
+            onPageChange={(page) => updateFilters({ page, limit: pagination.limit })}
+            onPageSizeChange={(limit) => updateFilters({ page: 1, limit })}
           />
         </div>
       </Ph2ModulePageLayout>

@@ -383,11 +383,36 @@ function splitCandidateName(candidate: CandidateProfileDrawerData) {
   };
 }
 
+/** CV JSON may store list fields as strings; coerce before .map(). */
+function normalizeStringList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item ?? '').trim()).filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    if (trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) return normalizeStringList(parsed);
+      } catch {
+        /* plain text */
+      }
+    }
+    return trimmed
+      .split(/[;\n]/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
 function formatEducationEntriesForEditor(
   entries?: CandidateProfileDrawerData['cvEducationEntries']
 ) {
-  if (!entries?.length) return '';
-  return entries
+  const list = Array.isArray(entries) ? entries : [];
+  if (!list.length) return '';
+  return list
     .map((item) =>
       [item.degree, item.institution, item.startYear, item.endYear]
         .map((part) => String(part || '').trim())
@@ -401,17 +426,17 @@ function formatEducationEntriesForEditor(
 function formatWorkExperienceEntriesForEditor(
   entries?: CandidateProfileDrawerData['cvWorkExperienceEntries']
 ) {
-  if (!entries?.length) return '';
-  return entries
+  const list = Array.isArray(entries) ? entries : [];
+  if (!list.length) return '';
+  return list
     .map((item) => {
       const header = [item.title, item.company, item.location, item.startDate, item.endDate]
         .map((part) => String(part || '').trim())
         .filter(Boolean)
         .join(' | ');
-      const responsibilities = (item.responsibilities || [])
-        .map((responsibility) => String(responsibility || '').trim())
-        .filter(Boolean)
-        .join('; ');
+      const responsibilities = normalizeStringList(
+        item.responsibilities ?? (item as { description?: unknown }).description
+      ).join('; ');
 
       return [header, responsibilities].filter(Boolean).join('\n');
     })
@@ -4044,13 +4069,21 @@ export function CandidateProfileDrawer({
                                   .filter(Boolean)
                                   .join(' • ') || 'Details unavailable'}
                               </p>
-                              {item.responsibilities?.length ? (
-                                <ul className="mt-3 space-y-1 text-sm text-slate-700">
-                                  {item.responsibilities.map((responsibility, responsibilityIndex) => (
-                                    <li key={`${item.title || 'work'}-${responsibilityIndex}`}>• {responsibility}</li>
-                                  ))}
-                                </ul>
-                              ) : null}
+                              {(() => {
+                                const responsibilityItems = normalizeStringList(
+                                  item.responsibilities ??
+                                    (item as { description?: unknown }).description
+                                );
+                                return responsibilityItems.length ? (
+                                  <ul className="mt-3 space-y-1 text-sm text-slate-700">
+                                    {responsibilityItems.map((responsibility, responsibilityIndex) => (
+                                      <li key={`${item.title || 'work'}-${responsibilityIndex}`}>
+                                        • {responsibility}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : null;
+                              })()}
                             </div>
                           ))}
                         </div>

@@ -6,6 +6,8 @@ interface FilterBarProps {
   filters: MatchFilters;
   onChange: (filters: MatchFilters) => void;
   onReset: () => void;
+  /** When true, sits inside a module card (no full-bleed white bar). */
+  embedded?: boolean;
 }
 
 function FilterDropdown({
@@ -45,9 +47,15 @@ function FilterDropdown({
   );
 }
 
-export default function FilterBar({ filters, onChange, onReset }: FilterBarProps) {
+export default function FilterBar({ filters, onChange, onReset, embedded }: FilterBarProps) {
   return (
-    <div className="border-b border-[#E5E7EB] bg-white px-6 py-4 sm:px-8">
+    <div
+      className={
+        embedded
+          ? 'border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/40 via-white to-indigo-50/20 px-3 py-3 sm:px-4'
+          : 'border-b border-[#E5E7EB] bg-white px-6 py-4 sm:px-8'
+      }
+    >
       <div className="flex flex-wrap items-center gap-4">
         <div className="flex items-center gap-2">
           <Filter size={16} className="text-slate-400" />

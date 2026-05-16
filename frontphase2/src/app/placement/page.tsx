@@ -16,6 +16,7 @@ import type { Placement, PlacementFilters } from '../../types/placement';
 import { usePermissions } from '../../hooks/usePermissions';
 import { requestConfirm } from '../../lib/appDialog';
 import PaginationAll from '../../components/PaginationAll';
+import { coerceTablePageSize, TABLE_PAGE_SIZE_OPTIONS } from '../../constants/tablePagination';
 import {
   PH2_TABLE_CARD_CLASS,
   PH2_TABLE_CARD_FOOTER_CLASS,
@@ -28,7 +29,7 @@ export const dynamic = 'force-dynamic';
 function getFiltersFromParams(searchParams: URLSearchParams): PlacementFilters {
   return {
     page: Number(searchParams.get('page') || 1),
-    limit: Number(searchParams.get('limit') || 20),
+    limit: coerceTablePageSize(searchParams.get('limit'), 10),
     search: searchParams.get('search') || '',
     status: (searchParams.get('status') || '') as any,
     companyId: searchParams.get('companyId') || '',
@@ -303,6 +304,11 @@ function PlacementsPageContent() {
                           totalPages={Math.max(pagination.totalPages, 1)}
                           totalCount={pagination.total}
                           pageSize={pagination.limit}
+                          pageSizeOptions={[...TABLE_PAGE_SIZE_OPTIONS]}
+                          onPageSizeChange={(n) => {
+                            if (!(TABLE_PAGE_SIZE_OPTIONS as readonly number[]).includes(n)) return;
+                            updateFilters({ limit: n, page: 1 });
+                          }}
                           itemLabel="placements"
                           onPageChange={(page) => updateFilters({ page })}
                         />

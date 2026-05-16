@@ -1,7 +1,12 @@
 import { prisma } from '../../config/prisma.js';
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
 import { canViewAllAssignments, hasAnyPermission } from '../../utils/permissionScope.js';
-import { candidateService } from '../candidate/candidate.service.js';
+import {
+  candidateService,
+  loadMatchPipelineCandidatePool,
+  loadAppliedMatchCandidatePool,
+  ensureCandidateMaterializedForMatch,
+} from '../candidate/candidate.service.js';
 import { sendMatchSubmissionEmail } from '../../emails/email.service.js';
 import { env } from '../../config/env.js';
 import { createRequire } from 'module';
@@ -9,6 +14,7 @@ import {
   createClientReviewToken,
   normalizeSubmissionType,
 } from '../../services/interview.service.js';
+import { AI_MATCH_AUTHOR_WHERE, MANUAL_MATCH_AUTHOR_WHERE } from './matchQueryHelpers.js';
 
 // Mirror of the interview drawer's purpose codes. Keeping the resolution
 // logic here means a match-submitted-to-client carries the same UX (tag
@@ -194,40 +200,6 @@ function mapSubmittedHistory(activities, jobId) {
   };
 }
 
-/** Merge portal-style AI+deterministic job match engine output into list row (same blend as backend1). */
-function mergeRecruiterAiEngineIntoRow(row, engine, jobEngine) {
-  const jobSkillCount = Array.isArray(jobEngine?.skills) ? jobEngine.skills.length : 0;
-  const half = Math.max(1, Math.ceil(jobSkillCount / 2));
-  const matched = engine.matchedSkills || row.explanation?.matchedSkills || [];
-  const missing = engine.missingSkills || row.explanation?.missingSkills || [];
-  const text =
-    engine.explanationSummary ||
-    (engine.aiAnalysis && typeof engine.aiAnalysis.summary === 'string' ? engine.aiAnalysis.summary : '') ||
-    row.explanation?.text;
-
-  return {
-    ...row,
-    score: Math.round(Number(engine.finalScore ?? row.score)),
-    matchSource: 'ai',
-    explanation: {
-      ...row.explanation,
-      skills: matched.length >= half ? true : matched.length ? 'partial' : false,
-      text: text || row.explanation?.text,
-      matchedSkills: matched.slice(0, 10),
-      missingSkills: missing.slice(0, 10),
-      roleRequirement: engine.verdict || row.explanation?.roleRequirement,
-      aiEngine: {
-        deterministicScore: engine.deterministicScore,
-        aiScore: engine.aiScore,
-        verdict: engine.verdict,
-        confidenceLevel: engine.confidenceLevel,
-        confidenceScore: engine.confidenceScore,
-        breakdown: engine.breakdown,
-      },
-    },
-  };
-}
-
 function getClientRecipients(client) {
   const contacts = Array.isArray(client?.contacts) ? client.contacts : [];
   const contactsWithEmail = contacts.filter((contact) => contact?.email);
@@ -268,7 +240,49 @@ function mapMatchRecord(match, activitiesByCandidateId) {
   const candidate = match.candidate;
   const job = match.job;
   const activities = activitiesByCandidateId.get(candidate.id) || [];
-  const explanation = buildExplanation(match, candidate, job);
+  let explanation = buildExplanation(match, candidate, job);
+  let score = Math.round(Number(match.score || 0));
+
+  if (match.evaluation && typeof match.evaluation === 'object') {
+    const ev = match.evaluation;
+    const final = Number(ev.finalScore ?? ev.merged?.finalScore ?? match.score) || 0;
+    const p1 = ev.pass1?.score ?? 0;
+    const p2 = ev.pass2?.score ?? 0;
+    const p3 = ev.pass3?.score ?? 0;
+    const p4 = ev.pass4?.skipped ? null : ev.pass4?.score ?? 0;
+    explanation = {
+      ...explanation,
+      text: String(ev.suggestion || explanation.text),
+      scoreBand: ev.band || ev.merged?.band || explanation.scoreBand,
+      matchedSkills:
+        Array.isArray(ev.pass1?.matchedRequired) && ev.pass1.matchedRequired.length
+          ? ev.pass1.matchedRequired.slice(0, 10)
+          : explanation.matchedSkills,
+      missingSkills:
+        Array.isArray(ev.pass1?.missingRequired) && ev.pass1.missingRequired.length
+          ? ev.pass1.missingRequired.slice(0, 10)
+          : explanation.missingSkills,
+      aiEngine: {
+        deterministicScore: p1,
+        aiScore: p3,
+        verdict: ev.band || ev.merged?.band || 'Fit',
+        confidenceLevel: final >= 80 ? 'high' : final >= 60 ? 'medium' : 'low',
+        confidenceScore: final,
+        breakdown: {
+          skills: p1,
+          experience: p2,
+          semantic: p3,
+          cultural: p4 == null ? 0 : p4,
+        },
+        pipelineWeights: ev.weights || ev.merged?.weights,
+        suggestion: ev.suggestion,
+        runId: ev.runId,
+        formula: ev.merged?.formula,
+      },
+    };
+    score = Math.round(final);
+  }
+
   const salary = parseSalary(candidate.salary);
   const displayStatus = deriveDisplayStatus(match, candidate, activities, job.id);
 
@@ -279,7 +293,7 @@ function mapMatchRecord(match, activitiesByCandidateId) {
     name: `${candidate.firstName} ${candidate.lastName}`.trim(),
     photo: candidate.avatar || '',
     initials: buildInitials(candidate.firstName, candidate.lastName),
-    score: Math.round(Number(match.score || 0)),
+    score,
     skills: candidate.skills || [],
     experience: candidate.experience || 0,
     location: candidate.location || 'Location unavailable',
@@ -301,7 +315,20 @@ function mapMatchRecord(match, activitiesByCandidateId) {
     activity: mapActivity(activities),
     submittedHistory: mapSubmittedHistory(activities, job.id),
     matchRating: null,
+    isPhase1Candidate:
+      (match.evaluation &&
+        typeof match.evaluation === 'object' &&
+        match.evaluation.origin === 'phase1') ||
+      String(candidate.source || '').toLowerCase() === 'phase1',
+    isAppliedCandidate:
+      match.evaluation &&
+      typeof match.evaluation === 'object' &&
+      match.evaluation.origin === 'applied',
   };
+}
+
+function isAppliedPipelineEvaluation(evaluation) {
+  return evaluation && typeof evaluation === 'object' && evaluation.origin === 'applied';
 }
 
 export const matchService = {
@@ -313,9 +340,20 @@ export const matchService = {
     if (jobId) where.jobId = jobId;
     if (candidateId) where.candidateId = candidateId;
     if (status) where.status = status;
-    if (minScore) where.score = { gte: parseFloat(minScore) };
-    if (source === 'manual') where.createdById = { not: null };
-    if (source === 'ai') where.createdById = null;
+    if (minScore !== undefined && minScore !== null && minScore !== '') {
+      const parsed = parseFloat(minScore);
+      if (Number.isFinite(parsed)) where.score = { gte: parsed };
+    }
+    if (source === 'manual') where.createdById = MANUAL_MATCH_AUTHOR_WHERE;
+    if (source === 'ai') where.createdById = AI_MATCH_AUTHOR_WHERE;
+    if (source === 'applied' && jobId) {
+      where.createdById = AI_MATCH_AUTHOR_WHERE;
+      where.candidate = {
+        is: {
+          assignedJobs: { has: String(jobId) },
+        },
+      };
+    }
     if (saved === 'true') {
       where.candidate = {
         is: {
@@ -330,7 +368,62 @@ export const matchService = {
         ? { AND: [where, visibilityScope] }
         : visibilityScope || where;
 
-    const [matches, total] = await Promise.all([
+    const pipelineRequested =
+      req.query.runPipeline === '1' || req.query.refresh === '1' || req.query.forceRefresh === '1';
+
+    const shouldRunAiPipeline = String(source) === 'ai' && jobId && pipelineRequested;
+    const shouldRunAppliedPipeline = String(source) === 'applied' && jobId && pipelineRequested;
+
+    if (shouldRunAiPipeline || shouldRunAppliedPipeline) {
+      try {
+        const { runMatchPipeline } = require('../../services/jobMatchEngine/matchPipelineRunner.cjs');
+        const forceRefresh = req.query.refresh === '1' || req.query.forceRefresh === '1';
+        const suggestionMin = Number(process.env.MATCH_SUGGESTION_MIN_SCORE || 50);
+        const minForPipeline = minScore ? parseFloat(minScore) : suggestionMin;
+
+        if (shouldRunAppliedPipeline) {
+          const pool = await loadAppliedMatchCandidatePool(req, String(jobId));
+          console.log(
+            `[matchService] Applied pool: tenant-assigned=${pool.mergedCount} (job ${jobId})`
+          );
+          await runMatchPipeline({
+            jobId: String(jobId),
+            prisma,
+            minScore: Number.isFinite(minForPipeline) ? minForPipeline : suggestionMin,
+            forceRefresh,
+            candidates: pool.candidates,
+            poolStats: pool,
+            pipelineMode: 'applied',
+            materializeCandidate: ensureCandidateMaterializedForMatch,
+          });
+        } else {
+          const pool = await loadMatchPipelineCandidatePool(req, String(jobId));
+          if (pool.commonIncluded || pool.portalIncluded) {
+            const tombstoneNote =
+              pool.phase1TombstoneReincluded > 0
+                ? ` phase1-reincluded=${pool.phase1TombstoneReincluded}`
+                : '';
+            console.log(
+              `[matchService] AI pool: tenant=${pool.tenantCount} common=${pool.commonCount ?? 0} portal=${pool.portalCount} merged=${pool.mergedCount}${tombstoneNote} (job ${jobId})`
+            );
+          }
+          await runMatchPipeline({
+            jobId: String(jobId),
+            prisma,
+            minScore: Number.isFinite(minForPipeline) ? minForPipeline : suggestionMin,
+            forceRefresh,
+            candidates: pool.candidates,
+            poolStats: pool,
+            pipelineMode: 'ai',
+            materializeCandidate: ensureCandidateMaterializedForMatch,
+          });
+        }
+      } catch (pipeErr) {
+        console.error('[matchService] Match pipeline failed:', pipeErr?.message || pipeErr);
+      }
+    }
+
+    let [matches, total] = await Promise.all([
       prisma.match.findMany({
         where: mergedWhere,
         skip,
@@ -389,101 +482,45 @@ export const matchService = {
       activitiesByCandidateId.set(activity.entityId, candidateActivities);
     }
 
-    let enrichedMatches = matches.map((match) => mapMatchRecord(match, activitiesByCandidateId));
-
-    if (String(source) === 'ai' && jobId && matches.length) {
-      try {
-        const jobEngine = await prisma.job.findUnique({
-          where: { id: String(jobId) },
-          include: { client: { select: { companyName: true, logo: true } } },
-        });
-        if (jobEngine) {
-          const jobPayload = {
-            id: jobEngine.id,
-            title: jobEngine.title,
-            description: jobEngine.description || '',
-            overview: jobEngine.overview || '',
-            aboutRole: '',
-            responsibilities: '',
-            keyResponsibilities: jobEngine.keyResponsibilities || [],
-            skills: jobEngine.skills || [],
-            preferredSkills: jobEngine.preferredSkills || [],
-            requirements: jobEngine.requirements || [],
-            location: jobEngine.location || 'unknown',
-            workMode: jobEngine.workMode || jobEngine.jobLocationType || null,
-            jobLocationType: jobEngine.jobLocationType || jobEngine.workMode || null,
-            experienceRequired: jobEngine.experienceRequired || '',
-            education: jobEngine.education || null,
-            client: jobEngine.client,
-            source: 'db',
-          };
-
-          const candidateIds = [...new Set(matches.map((m) => m.candidate.id))];
-          const fullCandidates = await prisma.candidate.findMany({
-            where: { id: { in: candidateIds } },
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              email: true,
-              skills: true,
-              recruiterSkills: true,
-              experience: true,
-              experienceYears: true,
-              currentTitle: true,
-              designation: true,
-              location: true,
-              city: true,
-              country: true,
-              linkedIn: true,
-              portfolio: true,
-              cvSummary: true,
-              notes: true,
-              recruiterNotes: true,
-              cvWorkExperienceEntries: true,
-              cvEducationEntries: true,
-              certificationsList: true,
-              preferredLocation: true,
-              expectedSalary: true,
-              currentSalary: true,
-              noticePeriod: true,
-              availability: true,
-            },
-          });
-          const byId = new Map(fullCandidates.map((c) => [c.id, c]));
-
-          const { scoreRecruiterCandidateAgainstJob } = require('../../services/jobMatchEngine/pipeline.cjs');
-          const { mapPhase2CandidateForPortalEngine } = require('../../services/jobMatchEngine/mapPhase2Candidate.cjs');
-
-          const CONCURRENCY = 4;
-          const scoreRow = async (row) => {
-            const cand = byId.get(row.candidateId);
-            if (!cand) return row;
-            const portalShaped = mapPhase2CandidateForPortalEngine(cand);
-            if (!portalShaped) return row;
-            const resumeText = String(cand.cvSummary || cand.notes || cand.recruiterNotes || '').slice(0, 6000);
-            const engine = await scoreRecruiterCandidateAgainstJob({
-              job: jobPayload,
-              candidate: portalShaped,
-              cleanedResumeText: resumeText,
-            });
-            if (!engine) return row;
-            return mergeRecruiterAiEngineIntoRow(row, engine, jobEngine);
-          };
-
-          const out = [];
-          for (let i = 0; i < enrichedMatches.length; i += CONCURRENCY) {
-            const batch = enrichedMatches.slice(i, i + CONCURRENCY);
-            const part = await Promise.all(batch.map(scoreRow));
-            out.push(...part);
-          }
-          out.sort((a, b) => b.score - a.score);
-          enrichedMatches = out;
-        }
-      } catch (e) {
-        console.error('[matchService] AI job-match scoring failed:', e?.message || e);
-      }
+    if (source === 'ai') {
+      matches = matches.filter((match) => !isAppliedPipelineEvaluation(match.evaluation));
+      total = matches.length;
     }
+
+    if (source === 'applied' && jobId) {
+      const pool = await loadAppliedMatchCandidatePool(req, String(jobId));
+      const jobRow = await prisma.job.findFirst({
+        where: { id: String(jobId), isDeleted: { not: true } },
+        include: { client: { select: { companyName: true, logo: true } } },
+      });
+      const scoredIds = new Set(matches.map((match) => match.candidateId));
+      for (const candidate of pool.candidates) {
+        if (scoredIds.has(candidate.id)) continue;
+        if (!jobRow) continue;
+        matches.push({
+          id: `applied-pending-${candidate.id}`,
+          candidateId: candidate.id,
+          jobId: String(jobId),
+          score: 0,
+          status: 'NEW',
+          candidate,
+          job: jobRow,
+          createdById: null,
+          evaluation: {
+            origin: 'applied',
+            pending: true,
+            suggestion: 'Candidate applied to this job. Run AI Applied Matches to score.',
+          },
+          createdBy: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+      }
+      matches.sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
+      total = pool.candidates.length;
+    }
+
+    const enrichedMatches = matches.map((match) => mapMatchRecord(match, activitiesByCandidateId));
 
     return formatPaginationResponse(enrichedMatches, page, limit, total);
   },

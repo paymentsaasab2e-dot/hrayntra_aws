@@ -143,14 +143,27 @@ interface SourceCellProps {
  * - Stops row click propagation so opening the link doesn't also open the row drawer.
  */
 export function SourceCell({ lead }: SourceCellProps) {
-  const style = SOURCE_STYLES[lead.source] ?? {
+  const raw = lead.source;
+  const isValid =
+    raw != null &&
+    raw !== '' &&
+    (['Website', 'LinkedIn', 'Email', 'Referral', 'Campaign'] as const).includes(raw as LeadSource);
+
+  if (!isValid) {
+    return <span className="inline-block min-h-[1.25rem] min-w-[1px]" aria-hidden="true" />;
+  }
+
+  const source = raw as LeadSource;
+  const leadForTarget = { ...lead, source };
+
+  const style = SOURCE_STYLES[source] ?? {
     className: 'text-violet-800 bg-gradient-to-r from-violet-50 to-fuchsia-50/80 border-violet-100',
     Icon: ExternalLink,
   };
   const { Icon } = style;
 
-  const target = resolveTarget(lead);
-  const interactive = Boolean(target.href) || lead.source === 'Referral';
+  const target = resolveTarget(leadForTarget);
+  const interactive = Boolean(target.href) || source === 'Referral';
 
   const wrapperRef = useRef<HTMLSpanElement>(null);
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
@@ -159,7 +172,7 @@ export function SourceCell({ lead }: SourceCellProps) {
     if (!wrapperRef.current) return;
     const rect = wrapperRef.current.getBoundingClientRect();
     // Compose a friendly tooltip per source.
-    if (lead.source === 'Referral') {
+    if (source === 'Referral') {
       setTooltip({
         rect,
         title: target.title ? `Referred by ${target.title}` : 'Referral',
@@ -168,7 +181,7 @@ export function SourceCell({ lead }: SourceCellProps) {
       return;
     }
     if (!target.href) {
-      setTooltip({ rect, title: lead.source, subtitle: 'No link recorded' });
+      setTooltip({ rect, title: source, subtitle: 'No link recorded' });
       return;
     }
     const titleByKind: Record<string, string> = {
@@ -179,10 +192,10 @@ export function SourceCell({ lead }: SourceCellProps) {
     };
     setTooltip({
       rect,
-      title: titleByKind[lead.source] || lead.source,
+      title: titleByKind[source] || source,
       subtitle: target.detail,
     });
-  }, [lead.source, target.href, target.title, target.detail]);
+  }, [source, target.href, target.title, target.detail]);
 
   const hideTip = useCallback(() => setTooltip(null), []);
 
@@ -224,17 +237,17 @@ export function SourceCell({ lead }: SourceCellProps) {
         }}
         className={`${baseClass} ${interactiveClass}`}
         aria-label={
-          lead.source === 'Referral'
+          source === 'Referral'
             ? target.title
               ? `Referred by ${target.title}`
               : 'Referral'
             : target.href
-              ? `${lead.source} — opens in new tab`
-              : lead.source
+              ? `${source} — opens in new tab`
+              : source
         }
       >
         <Icon size={13} className="shrink-0" strokeWidth={2.35} />
-        {lead.source}
+        {source}
         {target.href && target.newTab && (
           <Link2 size={11} className="shrink-0 opacity-70" strokeWidth={2.35} />
         )}

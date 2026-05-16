@@ -60,6 +60,7 @@ interface CandidateTableProps {
 
 const getStageColor = (stage: string) => {
   switch (stage.toLowerCase()) {
+    case 'new': return 'bg-sky-100 text-sky-800 border-sky-200';
     case 'applied': return 'bg-blue-100 text-blue-700 border-blue-200';
     case 'shortlist': return 'bg-purple-100 text-purple-700 border-purple-200';
     case 'screening': return 'bg-orange-100 text-orange-700 border-orange-200';
@@ -144,18 +145,10 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                       <button
                         type="button"
                         onClick={() => onViewProfile?.(candidate)}
-                        className="flex items-center gap-1 text-left text-sm font-semibold text-slate-900 hover:text-blue-600"
+                        className="text-left text-sm font-semibold text-slate-900 hover:text-blue-600"
                       >
                         {candidate.name}
                       </button>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-medium">L{candidate.rating}</span>
-                        <div className="flex gap-1">
-                          {candidate.skills.slice(0, 1).map(skill => (
-                            <span key={skill} className="text-[10px] text-slate-400">#{skill}</span>
-                          ))}
-                        </div>
-                      </div>
                     </div>
                   </div>
                 </td>

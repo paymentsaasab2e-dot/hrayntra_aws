@@ -1,6 +1,7 @@
 export function getCandidateStageLabel(stage?: string | null) {
   const normalized = (stage || '').trim().toLowerCase();
   if (!normalized) return 'Unknown';
+  if (normalized === 'new') return 'New';
   if (normalized === 'offer' || normalized === 'offered') return 'Offer letter sent';
   if (normalized === 'hired') return 'Hired';
   return stage || 'Unknown';
@@ -9,6 +10,8 @@ export function getCandidateStageLabel(stage?: string | null) {
 export function getCandidateStageBadgeClasses(stage?: string | null) {
   const normalized = (stage || '').trim().toLowerCase();
   switch (normalized) {
+    case 'new':
+      return 'bg-sky-50 text-sky-800 border-sky-200';
     case 'screening':
       return 'bg-blue-50 text-blue-700 border-blue-200';
     case 'interviewing':

@@ -27,13 +27,20 @@ async function proxyRequest(req: NextRequest, pathParts: string[]) {
     const method = req.method.toUpperCase();
     const hasBody = !['GET', 'HEAD'].includes(method);
 
+    // Buffer the body instead of streaming req.body — duplex streaming often fails on Vercel
+    // for JSON POSTs (e.g. /auth/login) and surfaces as a misleading 502 to the client.
+    let body: ArrayBuffer | undefined;
+    if (hasBody) {
+      const raw = await req.arrayBuffer();
+      body = raw.byteLength > 0 ? raw : undefined;
+    }
+
     const response = await fetch(targetUrl, {
       method,
       headers,
-      body: hasBody ? req.body : undefined,
-      duplex: hasBody ? 'half' : undefined,
+      body,
       redirect: 'manual',
-    } as RequestInit & { duplex?: 'half' });
+    });
 
     const respHeaders = new Headers(response.headers);
     respHeaders.delete('content-length');
