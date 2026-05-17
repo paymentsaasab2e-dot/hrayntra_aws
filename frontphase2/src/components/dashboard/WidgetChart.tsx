@@ -69,7 +69,22 @@ export function WidgetChart({ chartType, rows, config = {}, datasetId, height = 
   }
 
   if (chartType === 'table' || chartType === 'expandableTable' || chartType === 'pivotTable') {
-    return <DashboardDataTable rows={tableRows} maxRows={25} maxColumns={8} />;
+    const variant =
+      chartType === 'expandableTable' ? 'expandable' : chartType === 'pivotTable' ? 'pivot' : 'table';
+    return (
+      <div className="flex h-full min-h-[220px] w-full flex-col">
+        <DashboardDataTable
+          rows={tableRows}
+          variant={variant}
+          maxRows={200}
+          maxColumns={10}
+          fillHeight
+          aria-label={
+            variant === 'pivot' ? 'Pivot table' : variant === 'expandable' ? 'Expandable table' : 'Data table'
+          }
+        />
+      </div>
+    );
   }
 
   if (!series.length) {

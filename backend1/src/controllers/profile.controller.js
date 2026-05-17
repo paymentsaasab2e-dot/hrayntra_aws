@@ -3126,6 +3126,36 @@ async function uploadVisaDocuments(req, res) {
   }
 }
 
+function normalizeVisaDocumentRef(doc) {
+  if (typeof doc === 'string') {
+    const trimmed = doc.trim();
+    if (!trimmed || trimmed === '[object Object]') return null;
+    return trimmed;
+  }
+  if (doc && typeof doc === 'object') {
+    if (typeof doc.url === 'string' && doc.url.trim()) return doc.url.trim();
+    if (typeof doc.file === 'string') {
+      const file = doc.file.trim();
+      if (/^https?:\/\//i.test(file)) return file;
+    }
+  }
+  return null;
+}
+
+function normalizeVisaDocumentsList(documents) {
+  if (!Array.isArray(documents)) return [];
+  return documents.map(normalizeVisaDocumentRef).filter(Boolean);
+}
+
+function normalizeVisaDetailsSection(section) {
+  if (!section || typeof section !== 'object') return section;
+  if (!Array.isArray(section.documents)) return section;
+  return {
+    ...section,
+    documents: normalizeVisaDocumentsList(section.documents),
+  };
+}
+
 /**
  * Save visa work authorization
  * POST /api/profile/visa-work-authorization/:candidateId
@@ -3139,37 +3169,16 @@ async function saveVisaWorkAuthorization(req, res) {
       return res.status(400).json({ success: false, message: 'Candidate ID is required' });
     }
 
-    // Process visaDetailsExpected documents - convert File objects to URLs if needed
-    let processedVisaDetailsExpected = visa.visaDetailsExpected;
-    if (processedVisaDetailsExpected && processedVisaDetailsExpected.documents) {
-      processedVisaDetailsExpected = {
-        ...processedVisaDetailsExpected,
-        documents: processedVisaDetailsExpected.documents.map((doc) => {
-          // If it's already a URL string, keep it; otherwise it should be a URL from upload
-          if (typeof doc === 'string') {
-            return doc;
-          }
-          return doc.url || doc.file || doc;
-        }),
-      };
-    }
+    const processedVisaDetailsExpected = normalizeVisaDetailsSection(visa.visaDetailsExpected);
+    const processedVisaDetailsInitial = normalizeVisaDetailsSection(visa.visaDetailsInitial);
 
-    // Process visaEntries documents
     let processedVisaEntries = visa.visaEntries;
     if (Array.isArray(processedVisaEntries)) {
       processedVisaEntries = processedVisaEntries.map((entry) => {
-        if (entry.visaDetails && entry.visaDetails.documents) {
+        if (entry?.visaDetails) {
           return {
             ...entry,
-            visaDetails: {
-              ...entry.visaDetails,
-              documents: entry.visaDetails.documents.map((doc) => {
-                if (typeof doc === 'string') {
-                  return doc;
-                }
-                return doc.url || doc.file || doc;
-              }),
-            },
+            visaDetails: normalizeVisaDetailsSection(entry.visaDetails),
           };
         }
         return entry;
@@ -3180,7 +3189,7 @@ async function saveVisaWorkAuthorization(req, res) {
       where: { candidateId },
       update: {
         selectedDestination: visa.selectedDestination || null,
-        visaDetailsInitial: sanitizeJsonValue(visa.visaDetailsInitial),
+        visaDetailsInitial: sanitizeJsonValue(processedVisaDetailsInitial),
         visaDetailsExpected: sanitizeJsonValue(processedVisaDetailsExpected),
         visaWorkpermitRequired: visa.visaWorkpermitRequired || null,
         openForAll: visa.openForAll || false,
@@ -3190,7 +3199,7 @@ async function saveVisaWorkAuthorization(req, res) {
       create: {
         candidateId,
         selectedDestination: visa.selectedDestination || null,
-        visaDetailsInitial: sanitizeJsonValue(visa.visaDetailsInitial),
+        visaDetailsInitial: sanitizeJsonValue(processedVisaDetailsInitial),
         visaDetailsExpected: sanitizeJsonValue(processedVisaDetailsExpected),
         visaWorkpermitRequired: visa.visaWorkpermitRequired || null,
         openForAll: visa.openForAll || false,

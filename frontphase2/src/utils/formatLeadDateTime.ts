@@ -57,3 +57,50 @@ export function fromDateTimeLocalInput(value: string | null | undefined): string
   }
   return trimmed;
 }
+
+/** Mask typed digits into DD/MM/YYYY (day / month / year). */
+export function maskDateDMYInput(raw: string): string {
+  const digits = raw.replace(/\D/g, '').slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+}
+
+/** Parse **DD/MM/YYYY** to `YYYY-MM-DD`, or null if invalid. */
+export function parseDMYToYMD(dmy: string): string | null {
+  const trimmed = String(dmy || '').trim();
+  const m = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return null;
+  const day = Number(m[1]);
+  const month = Number(m[2]);
+  const year = Number(m[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const d = new Date(year, month - 1, day);
+  if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) return null;
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+export function isoToDMYDate(value: string | null | undefined): string {
+  if (!value) return '';
+  return formatDateDMY(value);
+}
+
+export function isoToTimeHM(value: string | null | undefined): string {
+  const d = parseDisplayableDate(value);
+  if (!d) return '';
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/** Combine DD/MM/YYYY + HH:mm → ISO string for API storage. */
+export function combineDMYAndTimeToISO(dmy: string, timeHm: string): string {
+  const ymd = parseDMYToYMD(dmy);
+  if (!ymd) return '';
+  const time = (timeHm || '09:00').trim().slice(0, 5);
+  return fromDateTimeLocalInput(`${ymd}T${time}`);
+}
+
+export function formatFollowUpDisplay(value: string | null | undefined): string {
+  const parts = splitDateTimeForDisplay(value);
+  if (!parts) return '—';
+  return `${parts.date}, ${parts.time}`;
+}

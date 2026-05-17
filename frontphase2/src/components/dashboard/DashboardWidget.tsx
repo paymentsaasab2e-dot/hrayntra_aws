@@ -62,6 +62,11 @@ export function DashboardWidgetCard({ widget, editMode, onUpdate, onRemove, onDu
     onUpdate({ ...widget, config: { ...widget.config, filters } });
   };
 
+  const isTableWidget =
+    widget.chartType === 'table' ||
+    widget.chartType === 'expandableTable' ||
+    widget.chartType === 'pivotTable';
+
   const config: WidgetConfig = resolveWidgetConfig(datasetId, (data?.rows as Record<string, unknown>[]) || [], {
     categoryField: widget.config?.categoryField || suggested?.categoryField || undefined,
     valueField: widget.config?.valueField || suggested?.valueField || undefined,
@@ -90,7 +95,9 @@ export function DashboardWidgetCard({ widget, editMode, onUpdate, onRemove, onDu
           ) : (
             <h3 className="truncate text-sm font-semibold text-slate-900">{widget.title}</h3>
           )}
-          <p className="truncate text-[10px] text-slate-500">{data?.dataset?.module || widget.datasetId}</p>
+          <p className="truncate text-[10px] text-slate-500">
+            {widget.module || data?.dataset?.module || widget.datasetId}
+          </p>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
           <button type="button" onClick={() => void load()} className="rounded p-1 text-slate-500 hover:bg-slate-100" title="Refresh">
@@ -192,18 +199,20 @@ export function DashboardWidgetCard({ widget, editMode, onUpdate, onRemove, onDu
         </div>
       ) : null}
 
-      <div className="flex-1 p-3">
+      <div className={`flex min-h-0 flex-1 flex-col p-3 ${isTableWidget ? 'overflow-hidden' : ''}`}>
         {loading ? (
           <div className="flex h-40 items-center justify-center text-sm text-slate-500">Loading…</div>
         ) : error ? (
           <div className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>
         ) : data?.rows?.length ? (
-          <WidgetChart
-            chartType={widget.chartType}
-            datasetId={datasetId}
-            rows={data.rows as Record<string, unknown>[]}
-            config={config}
-          />
+          <div className={isTableWidget ? 'flex min-h-0 flex-1 flex-col' : 'h-full'}>
+            <WidgetChart
+              chartType={widget.chartType}
+              datasetId={datasetId}
+              rows={data.rows as Record<string, unknown>[]}
+              config={config}
+            />
+          </div>
         ) : (
           <div className="flex h-40 items-center justify-center text-sm text-slate-500">No data available</div>
         )}
@@ -221,15 +230,17 @@ export function DashboardWidgetCard({ widget, editMode, onUpdate, onRemove, onDu
                 <X size={18} />
               </button>
             </div>
-            <div className="flex-1 p-4">
+            <div className={`flex min-h-0 flex-1 flex-col p-4 ${isTableWidget ? 'overflow-hidden' : ''}`}>
               {data?.rows?.length ? (
-                <WidgetChart
-                  chartType={widget.chartType}
-                  datasetId={datasetId}
-                  rows={data.rows as Record<string, unknown>[]}
-                  config={config}
-                  height={480}
-                />
+                <div className={isTableWidget ? 'flex min-h-0 flex-1 flex-col' : 'h-full'}>
+                  <WidgetChart
+                    chartType={widget.chartType}
+                    datasetId={datasetId}
+                    rows={data.rows as Record<string, unknown>[]}
+                    config={config}
+                    height={480}
+                  />
+                </div>
               ) : null}
             </div>
           </div>
