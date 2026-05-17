@@ -1445,7 +1445,7 @@ export default function RecruitmentAgencyDashboard() {
                       setStatusFilter(e.target.value as LeadStatus | 'All');
                     }}
                   >
-                    <option value="All">All Statuses</option>
+                    <option value="All">All Status</option>
                     <option value="New">New</option>
                     <option value="Contacted">Contacted</option>
                     <option value="Qualified">Qualified</option>
