@@ -50,7 +50,7 @@ function widgetSize(chartType: string) {
     chartType === 'table' || chartType === 'expandableTable' || chartType === 'pivotTable';
   return {
     w: chartType === 'kpi' || chartType === 'counter' ? 3 : isTable ? 12 : 6,
-    h: isTable ? 5 : 3,
+    h: isTable ? 3 : 3,
   };
 }
 

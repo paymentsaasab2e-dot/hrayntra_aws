@@ -21,6 +21,8 @@ import {
   YAxis,
 } from 'recharts';
 import { CHART_COLORS, buildChartSeries } from '../../lib/dashboard/chartData';
+import { getModuleListRoute } from '../../lib/dashboard/moduleRoutes';
+import { moduleForDatasetId } from '../../lib/dashboard/moduleGroups';
 import type { WidgetConfig } from '../../lib/dashboard/types';
 import { DashboardDataTable } from './DashboardDataTable';
 
@@ -39,10 +41,21 @@ type Props = {
   rows: Record<string, unknown>[];
   config?: WidgetConfig;
   datasetId?: string;
+  module?: string;
   height?: number;
+  /** When true, table widgets show more rows (e.g. fullscreen). */
+  expandTable?: boolean;
 };
 
-export function WidgetChart({ chartType, rows, config = {}, datasetId, height = 260 }: Props) {
+export function WidgetChart({
+  chartType,
+  rows,
+  config = {},
+  datasetId,
+  module,
+  height = 260,
+  expandTable = false,
+}: Props) {
   const built = buildChartSeries(rows, chartType, config, datasetId);
   const { series, tableRows, kpiValue } = built;
 
@@ -71,13 +84,20 @@ export function WidgetChart({ chartType, rows, config = {}, datasetId, height = 
   if (chartType === 'table' || chartType === 'expandableTable' || chartType === 'pivotTable') {
     const variant =
       chartType === 'expandableTable' ? 'expandable' : chartType === 'pivotTable' ? 'pivot' : 'table';
+    const viewAllHref =
+      getModuleListRoute(module) ||
+      (datasetId ? getModuleListRoute(moduleForDatasetId(datasetId)) : null);
+    const viewAllLabel = module ? `View all ${module}` : 'View all';
     return (
-      <div className="flex h-full min-h-[220px] w-full flex-col">
+      <div className="flex h-full min-h-[160px] w-full flex-col">
         <DashboardDataTable
           rows={tableRows}
           variant={variant}
           maxRows={200}
           maxColumns={10}
+          previewRowLimit={expandTable ? 50 : 5}
+          viewAllHref={expandTable ? null : viewAllHref}
+          viewAllLabel={viewAllLabel}
           fillHeight
           aria-label={
             variant === 'pivot' ? 'Pivot table' : variant === 'expandable' ? 'Expandable table' : 'Data table'

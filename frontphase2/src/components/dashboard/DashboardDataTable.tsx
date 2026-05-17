@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import Link from 'next/link';
+import { ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
 import {
   formatTableCellValue,
   formatTableHeader,
@@ -11,11 +12,16 @@ import {
 
 export type DashboardTableVariant = 'table' | 'expandable' | 'pivot';
 
+const DASHBOARD_TABLE_PREVIEW_ROWS = 5;
+
 type Props = {
   rows: Record<string, unknown>[];
   variant?: DashboardTableVariant;
   maxRows?: number;
   maxColumns?: number;
+  previewRowLimit?: number;
+  viewAllHref?: string | null;
+  viewAllLabel?: string;
   className?: string;
   fillHeight?: boolean;
   'aria-label'?: string;
@@ -38,6 +44,9 @@ export function DashboardDataTable({
   variant = 'table',
   maxRows = 100,
   maxColumns = 10,
+  previewRowLimit = DASHBOARD_TABLE_PREVIEW_ROWS,
+  viewAllHref = null,
+  viewAllLabel = 'View all',
   className = '',
   fillHeight = true,
   'aria-label': ariaLabel = 'Dataset table',
@@ -71,10 +80,17 @@ export function DashboardDataTable({
     };
   }, [rows, variant, visible]);
 
-  const displayRows = useMemo(() => {
+  const allDisplayRows = useMemo(() => {
     if (variant === 'pivot' && pivotData) return pivotData.rows as Record<string, unknown>[];
     return rows.slice(0, maxRows);
   }, [rows, maxRows, variant, pivotData]);
+
+  const totalCount = allDisplayRows.length;
+  const displayRows = useMemo(
+    () => allDisplayRows.slice(0, previewRowLimit),
+    [allDisplayRows, previewRowLimit]
+  );
+  const hasMoreRows = totalCount > previewRowLimit;
 
   const displayColumns = useMemo(() => {
     if (variant === 'pivot' && pivotData) {
@@ -93,9 +109,9 @@ export function DashboardDataTable({
     );
   }
 
-  const scrollClass = fillHeight
-    ? 'custom-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-auto'
-    : 'custom-scrollbar max-h-[320px] overflow-x-auto overflow-y-auto';
+  const scrollClass =
+    'custom-scrollbar overflow-x-auto overflow-y-auto ' +
+    (fillHeight && hasMoreRows ? 'min-h-0 max-h-[220px] flex-1' : fillHeight ? 'min-h-0 flex-1' : 'max-h-[220px]');
 
   const toggleExpanded = (key: string) => {
     setExpandedKeys((prev) => {
@@ -108,7 +124,7 @@ export function DashboardDataTable({
 
   return (
     <div
-      className={`flex flex-col overflow-hidden rounded-lg border border-indigo-100/50 bg-white ${fillHeight ? 'h-full min-h-[200px]' : ''} ${className}`}
+      className={`flex flex-col overflow-hidden rounded-lg border border-indigo-100/50 bg-white ${fillHeight ? 'h-full min-h-[140px]' : ''} ${className}`}
     >
       <div className={scrollClass}>
         <table className="w-full min-w-[640px] text-left" aria-label={ariaLabel}>
@@ -187,6 +203,25 @@ export function DashboardDataTable({
           </tbody>
         </table>
       </div>
+      {(hasMoreRows || viewAllHref) && (
+        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-indigo-100/50 bg-slate-50/80 px-3 py-2">
+          <p className="text-[11px] font-medium text-slate-500">
+            Showing {displayRows.length} of {totalCount}
+            {totalCount !== rows.length && rows.length > totalCount
+              ? ` (${rows.length} loaded)`
+              : ''}
+          </p>
+          {viewAllHref && (hasMoreRows || totalCount > 0) ? (
+            <Link
+              href={viewAllHref}
+              className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 hover:text-indigo-900"
+            >
+              {viewAllLabel}
+              <ExternalLink size={12} aria-hidden />
+            </Link>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }
