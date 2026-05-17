@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Loader2, Plus, Save, Send, X } from 'lucide-react';
 import CVEditorModal from '../CVEditorModal';
@@ -308,8 +308,17 @@ export function SubmitToClientDrawer({
   onClose,
   onToast,
 }: SubmitToClientDrawerProps) {
-  const activeSource: SubmitToClientSource | null =
-    source ?? (interview ? { kind: 'interview', interview } : null);
+  const onToastRef = useRef(onToast);
+  onToastRef.current = onToast;
+  const toast = useCallback((message: string) => {
+    onToastRef.current(message);
+  }, []);
+
+  const activeSource: SubmitToClientSource | null = useMemo(() => {
+    if (source) return source;
+    if (interview) return { kind: 'interview', interview };
+    return null;
+  }, [source, interview]);
 
   const candidateId =
     activeSource?.kind === 'interview'
@@ -317,6 +326,17 @@ export function SubmitToClientDrawer({
       : activeSource?.kind === 'match'
         ? activeSource.candidateId
         : '';
+
+  const matchJobId = activeSource?.kind === 'match' ? activeSource.jobId : '';
+  const matchClientId = activeSource?.kind === 'match' ? activeSource.clientId : undefined;
+  const matchRecordId = activeSource?.kind === 'match' ? activeSource.matchId : undefined;
+  const matchScore = activeSource?.kind === 'match' ? activeSource.matchScore : undefined;
+  const matchCandidateName = activeSource?.kind === 'match' ? activeSource.candidateName : '';
+  const matchJobTitleSeed = activeSource?.kind === 'match' ? activeSource.jobTitle : '';
+
+  const loadedCandidateIdRef = useRef<string | null>(null);
+  const candidateSetupIdRef = useRef<string | null>(null);
+  const primaryClientLoadedRef = useRef<string | null>(null);
 
   const [matchSubmitId, setMatchSubmitId] = useState<string | null>(null);
   const [resolvedClientId, setResolvedClientId] = useState<string | undefined>(
@@ -382,7 +402,7 @@ export function SubmitToClientDrawer({
       setSelectedClients((prev) =>
         prev.map((slot) => (slot.clientId === clientId ? { ...slot, loading: false } : slot)),
       );
-      onToast(error instanceof Error ? error.message : 'Unable to load client details');
+      toast(error instanceof Error ? error.message : 'Unable to load client details');
     }
   };
 
@@ -449,61 +469,86 @@ export function SubmitToClientDrawer({
   );
 
   useEffect(() => {
-    if (!isOpen || activeSource?.kind !== 'match') {
+    if (!isOpen || activeSource?.kind !== 'match' || !matchJobId || !candidateId) {
       setMatchSubmitId(null);
       return;
     }
     let cancelled = false;
     void (async () => {
       try {
-        const jobRaw = await apiGetJob(activeSource.jobId);
+        const jobRaw = await apiGetJob(matchJobId);
         const job = extractApiData<BackendJob>(jobRaw);
         if (cancelled) return;
-        setResolvedClientId(activeSource.clientId || job.client?.id);
-        setResolvedJobTitle(activeSource.jobTitle || job.title || '');
+        setResolvedClientId((prev) => matchClientId || job.client?.id || prev);
+        setResolvedJobTitle(matchJobTitleSeed || job.title || '');
         const id = await resolveMatchIdForSubmit(
-          activeSource.candidateId,
-          activeSource.jobId,
-          activeSource.matchScore ?? 0,
-          activeSource.matchId,
+          candidateId,
+          matchJobId,
+          matchScore ?? 0,
+          matchRecordId,
         );
         if (!cancelled) setMatchSubmitId(id);
       } catch (error: unknown) {
         if (!cancelled) {
-          onToast(error instanceof Error ? error.message : 'Unable to prepare match for submit');
+          toast(error instanceof Error ? error.message : 'Unable to prepare match for submit');
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [isOpen, activeSource, onToast]);
+  }, [
+    isOpen,
+    activeSource?.kind,
+    candidateId,
+    matchJobId,
+    matchClientId,
+    matchRecordId,
+    matchScore,
+    matchJobTitleSeed,
+    toast,
+  ]);
 
   useEffect(() => {
-    if (!isOpen || !candidateId) return;
-    let cancelled = false;
+    if (!isOpen || !candidateId) {
+      if (!isOpen) {
+        loadedCandidateIdRef.current = null;
+        candidateSetupIdRef.current = null;
+        setLoading(false);
+      }
+      return;
+    }
+
+    if (candidateSetupIdRef.current !== candidateId) {
+      candidateSetupIdRef.current = candidateId;
     setActiveTab('candidate');
     setCandidateStepSaved(false);
-    if (activeSource?.kind === 'interview') {
-      setSubmissionType(inferSubmissionType(activeSource.interview));
-      setResolvedJobTitle(activeSource.interview.job.title);
-      setResolvedClientId(activeSource.interview.job.clientId);
-    } else {
-      setSubmissionType('INITIAL_REVIEW');
-    }
     setSubmissionTypeError(null);
-    setLoading(true);
-    setCandidate((current) => current ?? ({ id: candidateId } as BackendCandidate));
-    if (activeSource?.kind === 'interview') {
-      setForm(toFormFromInterview(activeSource.interview));
-    } else if (activeSource?.kind === 'match') {
-      setForm(toFormFromDisplayName(activeSource.candidateName || '', undefined));
+      if (activeSource?.kind === 'interview') {
+        setSubmissionType(inferSubmissionType(activeSource.interview));
+        setResolvedJobTitle(activeSource.interview.job.title);
+        setResolvedClientId(activeSource.interview.job.clientId);
+        setForm(toFormFromInterview(activeSource.interview));
+      } else {
+        setSubmissionType('INITIAL_REVIEW');
+        if (activeSource?.kind === 'match') {
+          setForm(toFormFromDisplayName(matchCandidateName || '', undefined));
+        }
+      }
     }
+
+    if (loadedCandidateIdRef.current === candidateId) {
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
     void (async () => {
       try {
         const raw = await apiGetCandidate(candidateId);
         const data = extractApiData<BackendCandidate>(raw);
         if (cancelled) return;
+        loadedCandidateIdRef.current = candidateId;
         setCandidate(data);
         setForm((current) => {
           const apiForm = toForm(data);
@@ -517,7 +562,7 @@ export function SubmitToClientDrawer({
         });
       } catch (error: unknown) {
         if (cancelled) return;
-        onToast(error instanceof Error ? error.message : 'Unable to load candidate details');
+        toast(error instanceof Error ? error.message : 'Unable to load candidate details');
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -525,7 +570,7 @@ export function SubmitToClientDrawer({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, candidateId, activeSource, onToast]);
+  }, [isOpen, candidateId, toast]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -535,6 +580,8 @@ export function SubmitToClientDrawer({
       setResumePreviewOpen(false);
       setCvEditorOpen(false);
       setCvEditorData(null);
+      setClientCatalog([]);
+      primaryClientLoadedRef.current = null;
       return;
     }
 
@@ -555,20 +602,27 @@ export function SubmitToClientDrawer({
       }
     })();
 
-    if (resolvedClientId) {
-      const primarySlot = createClientSlot(resolvedClientId, true);
-      setSelectedClients([primarySlot]);
-      setActiveClientId(resolvedClientId);
-      void loadClientSlot(resolvedClientId);
-    } else {
-      setSelectedClients([]);
-      setActiveClientId(null);
-    }
-
     return () => {
       cancelled = true;
     };
-  }, [isOpen, resolvedClientId, onToast]);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !resolvedClientId) {
+      if (!isOpen) {
+        primaryClientLoadedRef.current = null;
+      }
+      return;
+    }
+    if (primaryClientLoadedRef.current === resolvedClientId) {
+      return;
+    }
+    primaryClientLoadedRef.current = resolvedClientId;
+    const primarySlot = createClientSlot(resolvedClientId, true);
+    setSelectedClients([primarySlot]);
+    setActiveClientId(resolvedClientId);
+    void loadClientSlot(resolvedClientId);
+  }, [isOpen, resolvedClientId]);
 
   const [resumePreviewOpen, setResumePreviewOpen] = useState(false);
   const [cvEditorOpen, setCvEditorOpen] = useState(false);
@@ -849,7 +903,7 @@ export function SubmitToClientDrawer({
           await apiSubmitInterviewToClient(activeSource.interview.id, {
             toEmail: recipient.toEmail,
             message,
-            submissionType,
+        submissionType,
             cvShareMode: cvShareMode || undefined,
           });
         }
@@ -976,17 +1030,17 @@ export function SubmitToClientDrawer({
 
               <div className="mb-4 space-y-2 border-b border-[#E5E7EB] pb-3">
                 <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('candidate')}
-                    className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('candidate')}
+                  className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${
                       activeTab === 'candidate'
                         ? 'bg-[#EFF6FF] text-[#2563EB]'
                         : 'text-[#6B7280] hover:bg-[#F9FAFB]'
-                    }`}
-                  >
-                    Candidate
-                  </button>
+                  }`}
+                >
+                  Candidate
+                </button>
                   {selectedClients.map((slot) => {
                     const isActive = activeTab === 'client' && activeClientId === slot.clientId;
                     return (
@@ -998,8 +1052,8 @@ export function SubmitToClientDrawer({
                             : 'border-transparent bg-[#F9FAFB]'
                         }`}
                       >
-                        <button
-                          type="button"
+                <button
+                  type="button"
                           onClick={() => {
                             setActiveTab('client');
                             setActiveClientId(slot.clientId);
@@ -1012,7 +1066,7 @@ export function SubmitToClientDrawer({
                         >
                           {slot.companyName || 'Client'}
                           {slot.isPrimary ? ' *' : ''}
-                        </button>
+                </button>
                         {!slot.isPrimary ? (
                           <button
                             type="button"
@@ -1023,7 +1077,7 @@ export function SubmitToClientDrawer({
                             <X className="size-3.5" />
                           </button>
                         ) : null}
-                      </div>
+              </div>
                     );
                   })}
                   <button

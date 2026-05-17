@@ -37,9 +37,44 @@ function isPhase1CandidateRecord(candidate) {
   return isPhase1CandidateSource(candidate?.source);
 }
 
-/** Phase 1 discovery rows belong on AI Matches only — not the CRM Candidates list. */
-function buildExcludePhase1CandidatesClause() {
-  return { NOT: { source: 'phase1' } };
+function candidateHasRealJobLink(candidate) {
+  if (!candidate) return false;
+  const assigned = Array.isArray(candidate.assignedJobs) ? candidate.assignedJobs : [];
+  if (assigned.some((id) => String(id || '').trim())) return true;
+  if (Array.isArray(candidate.applications) && candidate.applications.length > 0) return true;
+  if (Array.isArray(candidate.pipelineEntries) && candidate.pipelineEntries.length > 0) return true;
+  return false;
+}
+
+/**
+ * CRM Candidates page: show Phase 1 / AI-pool rows only after a real job link (apply, assign, pipeline).
+ * Hide sparse rows created only so Match records can reference a tenant candidate id.
+ */
+function shouldShowOnCrmCandidatesList(candidate) {
+  if (!candidate) return false;
+  if (isPhase1CandidateSource(candidate.source) && !candidateHasRealJobLink(candidate)) {
+    return false;
+  }
+  const hasIdentity =
+    Boolean(String(candidate.firstName || '').trim()) ||
+    Boolean(String(candidate.lastName || '').trim()) ||
+    Boolean(String(candidate.email || '').trim());
+  if (!hasIdentity && !candidateHasRealJobLink(candidate)) {
+    return false;
+  }
+  return true;
+}
+
+/** Prisma scope: non-phase1 OR phase1 with a real job/application/pipeline link. */
+function buildCrmCandidatesListScopeClause() {
+  return {
+    OR: [
+      { NOT: { source: 'phase1' } },
+      { assignedJobs: { isEmpty: false } },
+      { applications: { some: {} } },
+      { pipelineEntries: { some: {} } },
+    ],
+  };
 }
 const REJECTION_ACTIVITY_KIND = 'candidate-rejection';
 const INTERVIEW_ACTIVITY_KIND = 'candidate-interview';
@@ -642,11 +677,12 @@ function buildMatchMaterializeProfileFields(poolRow, skills, languages, recruite
  */
 async function materializeCandidateForMatch(poolRow) {
   const phase1 = isPhase1CandidateSource(poolRow?.source);
-  const assignedJobs = phase1
-    ? []
-    : Array.isArray(poolRow.assignedJobs)
-      ? poolRow.assignedJobs
-      : [];
+  const poolAssignedJobs = Array.isArray(poolRow.assignedJobs)
+    ? poolRow.assignedJobs.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  const hasRealJobLink = poolAssignedJobs.length > 0;
+  const assignedJobs =
+    phase1 && !hasRealJobLink ? [] : poolAssignedJobs;
   const skills =
     Array.isArray(poolRow.recruiterSkills) && poolRow.recruiterSkills.length
       ? poolRow.recruiterSkills
@@ -675,19 +711,25 @@ async function materializeCandidateForMatch(poolRow) {
     });
   }
 
-  const stageForCreate = phase1
-    ? 'New'
-    : poolRow.stage && String(poolRow.stage).trim()
-      ? poolRow.stage
-      : 'Applied';
+  // AI match materialize must not default CRM stage to Applied — preserve pool stage or New.
+  const stageForCreate =
+    poolRow.stage && String(poolRow.stage).trim() ? String(poolRow.stage).trim() : 'New';
+
+  // Pool-only rows (no job application) stay phase1 discovery — visible on AI Matches, not Candidates list.
+  const discoveryOnly = (phase1 || !hasRealJobLink) && !hasRealJobLink;
+  const sourceForCreate = discoveryOnly
+    ? 'phase1'
+    : phase1
+      ? 'phase1'
+      : poolRow.source ?? null;
 
   const createData = {
     id: poolRow.id,
     ...profileFields,
     status: 'ACTIVE',
-    source: phase1 ? 'phase1' : poolRow.source ?? null,
+    source: sourceForCreate,
     assignedJobs,
-    stage: stageForCreate,
+    stage: discoveryOnly ? 'New' : stageForCreate,
   };
 
   if (existing?.isDeleted === true) {
@@ -703,8 +745,11 @@ async function materializeCandidateForMatch(poolRow) {
       }
     } else {
       restoreData.source = poolRow.source ?? existing.source ?? null;
+      const poolStage = poolRow.stage && String(poolRow.stage).trim();
       if (!existing.stage) {
-        restoreData.stage = stageForCreate;
+        restoreData.stage = poolStage || 'New';
+      } else if (existing.stage === 'Applied' && poolStage && poolStage !== 'Applied') {
+        restoreData.stage = poolStage;
       }
       if (!Array.isArray(existing.assignedJobs) || !existing.assignedJobs.length) {
         restoreData.assignedJobs = assignedJobs;
@@ -1480,7 +1525,7 @@ export const candidateService = {
     // the soft-delete column existed) without tripping Prisma's "Argument isDeleted is missing".
     andParts.push({ isDeleted: { not: true } });
     // AI match Phase 1 snapshots are materialized for Match FK only — list them on AI Matches.
-    andParts.push(buildExcludePhase1CandidatesClause());
+    andParts.push(buildCrmCandidatesListScopeClause());
     const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
     const canViewAllCandidates =
       canViewAllAssignments(req) || hasAnyPermissionScope(req, ['view_all_candidates']);
@@ -1546,7 +1591,7 @@ export const candidateService = {
       }
 
       const merged = Array.from(mergedById.values())
-        .filter((candidate) => !isPhase1CandidateRecord(candidate))
+        .filter((candidate) => shouldShowOnCrmCandidatesList(candidate))
         .filter((candidate) => candidateMatchesListFilters(candidate, listFilters))
         .sort((a, b) => {
         const aTime = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
@@ -2334,8 +2379,8 @@ export const candidateService = {
           ? `${candidate.firstName} ${candidate.lastName} moved to ${stageName} on ${job.title}.`
           : `Candidate moved to ${stageName} on ${job.title}.`
         : `${candidate.firstName} ${candidate.lastName}`.trim()
-          ? `${candidate.firstName} ${candidate.lastName} added to ${job.title} at ${stageName} stage.`
-          : `Candidate added to ${job.title} at ${stageName} stage.`,
+        ? `${candidate.firstName} ${candidate.lastName} added to ${job.title} at ${stageName} stage.`
+        : `Candidate added to ${job.title} at ${stageName} stage.`,
       performedById: userId,
       entityType: CANDIDATE_ACTIVITY_ENTITY,
       entityId: candidateId,
@@ -3086,7 +3131,7 @@ export const candidateService = {
 
     // Recycle Bin: don't count soft-deleted candidates in the stage stats.
     const scopedStatsWhere = {
-      AND: [scopeWhere || {}, { isDeleted: { not: true } }, buildExcludePhase1CandidatesClause()],
+      AND: [scopeWhere || {}, { isDeleted: { not: true } }, buildCrmCandidatesListScopeClause()],
     };
     let scopedCandidates = await prisma.candidate.findMany({
       where: scopedStatsWhere,
@@ -3115,7 +3160,7 @@ export const candidateService = {
       scopedCandidates = Array.from(byId.values());
     }
 
-    scopedCandidates = scopedCandidates.filter((candidate) => !isPhase1CandidateRecord(candidate));
+    scopedCandidates = scopedCandidates.filter((candidate) => shouldShowOnCrmCandidatesList(candidate));
 
     const stageCounts = stages.map((stageName) => ({
       stage: stageName,

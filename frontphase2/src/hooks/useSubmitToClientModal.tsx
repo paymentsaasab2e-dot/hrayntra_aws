@@ -82,14 +82,16 @@ export function useSubmitToClientModal(options?: { onClosed?: () => void }) {
     [openSubmit],
   );
 
+  const handleToast = useCallback((message: string) => {
+    void requestInfo(message);
+  }, []);
+
   const submitModalElement = (
     <SubmitToClientDrawer
       isOpen={isOpen}
       source={source}
       onClose={handleClose}
-      onToast={(message) => {
-        void requestInfo(message);
-      }}
+      onToast={handleToast}
     />
   );
 

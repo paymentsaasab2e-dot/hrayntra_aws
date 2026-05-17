@@ -87,11 +87,11 @@ import {
   PH2_TABLE_CARD_FOOTER_CLASS,
   PH2_TOOLBAR_ROW_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
+import { resolveCandidateListStage } from '../../lib/candidateListMapping';
 import {
   extractApiData,
   getTagColor,
   isValidObjectId,
-  mapBackendStage,
   mapCandidateProfile,
 } from '../../lib/mapCandidateProfile';
 import {
@@ -221,16 +221,7 @@ function mapBackendCandidate(c: BackendCandidate): Candidate {
     email ||
     phone ||
     (shortId ? `Candidate …${shortId}` : 'Candidate');
-  const assignedJobsFromMatches = (c.matches || [])
-    .map((match) => match.job?.title)
-    .filter((title): title is string => Boolean(title && title.trim()));
-
   const assignedJobsFromAssignedTitles = (c.assignedJobTitles || []).filter((title) => Boolean(title && title.trim()));
-
-  const hasAssignedJob =
-    (Array.isArray(c.assignedJobs) && c.assignedJobs.some((id) => String(id || '').trim())) ||
-    assignedJobsFromAssignedTitles.length > 0 ||
-    assignedJobsFromMatches.length > 0;
 
   return {
     id: c.id,
@@ -240,13 +231,8 @@ function mapBackendCandidate(c: BackendCandidate): Candidate {
     company: c.currentCompany || '',
     experience: c.experience ?? 0,
     location: c.location || '—',
-    assignedJobs:
-      assignedJobsFromAssignedTitles.length
-        ? assignedJobsFromAssignedTitles
-        : assignedJobsFromMatches.length
-          ? assignedJobsFromMatches
-          : [],
-    stage: hasAssignedJob ? c.stage || mapBackendStage(c.status) : 'New',
+    assignedJobs: assignedJobsFromAssignedTitles,
+    stage: resolveCandidateListStage(c),
     owner: c.assignedTo?.name || 'Unassigned',
     lastActivity: (c.updatedAt || c.createdAt)
       ? (c.updatedAt || c.createdAt).slice(0, 10)
@@ -525,8 +511,8 @@ function CandidatesPageContent() {
     try {
       if (!silent) {
         if (isFirstLoad) {
-          setLoading(true);
-          setError(null);
+        setLoading(true);
+        setError(null);
         } else {
           setTableLoading(true);
         }
@@ -604,9 +590,9 @@ function CandidatesPageContent() {
       if (!silent) {
         if (!hasLoadedCandidatesOnceRef.current) {
           setError(message);
-          setCandidates([]);
-          setTotalEntries(0);
-        }
+        setCandidates([]);
+        setTotalEntries(0);
+      }
       }
       toast.error(message);
     } finally {
@@ -782,8 +768,8 @@ function CandidatesPageContent() {
             .map((job) => ({
               id: String(job.id),
               title: String(job.title || 'Untitled job').trim() || 'Untitled job',
-              department: job.department || job.client?.companyName || null,
-            }))
+            department: job.department || job.client?.companyName || null,
+          }))
             .sort((a, b) => a.title.localeCompare(b.title)),
         );
 
@@ -1452,7 +1438,7 @@ function CandidatesPageContent() {
 
               <div className={PH2_TABLE_CARD_CLASS}>
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-indigo-100/80 bg-gradient-to-r from-indigo-50/90 via-white to-slate-50/80 px-4 py-3 sm:px-5">
-                  <div>
+              <div>
                     <h2 className="text-sm font-bold text-slate-900 sm:text-base">All candidates</h2>
                     <p className="mt-0.5 text-xs text-slate-500">
                       {stageStatsLoading || !stageStats
@@ -1460,22 +1446,22 @@ function CandidatesPageContent() {
                         : isAllCandidatesView
                           ? `Showing ${totalEntries.toLocaleString()} candidate${totalEntries === 1 ? '' : 's'} — full pool (${stageStats.all.toLocaleString()} total)`
                           : `Filtered list — ${totalEntries.toLocaleString()} of ${stageStats.all.toLocaleString()} in pool`}
-                    </p>
-                  </div>
+                </p>
+              </div>
                   {isAllCandidatesView ? (
                     <span className="inline-flex items-center rounded-full bg-indigo-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-indigo-800">
                       All candidates
                     </span>
                   ) : (
-                    <button
+                <button 
                       type="button"
                       onClick={handleShowAllCandidates}
                       className="inline-flex items-center rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-xs font-semibold text-indigo-700 shadow-sm transition-colors hover:bg-indigo-50"
-                    >
+                >
                       View all ({stageStats?.all ?? totalEntries})
-                    </button>
+                </button>
                   )}
-                </div>
+              </div>
                 <div className={PH2_TOOLBAR_ROW_CLASS}>
                   <div className="flex w-full flex-col gap-2 xl:flex-row xl:items-center xl:gap-2">
                     <div className="relative w-full shrink-0 sm:w-48 lg:w-52">
@@ -1494,7 +1480,7 @@ function CandidatesPageContent() {
                         }}
                         className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
                       />
-                    </div>
+            </div>
                     <CandidateTableFilters
                       filters={columnFilters}
                       onChange={handleColumnFiltersChange}
@@ -1505,18 +1491,18 @@ function CandidatesPageContent() {
                     />
                     <div className="flex shrink-0 items-center self-end xl:ml-auto xl:self-center">
                       {hasToolbarFilters ? (
-                        <button
+                <button
                           type="button"
                           className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
                           onClick={handleClearToolbar}
                         >
                           <XCircle size={15} className="shrink-0 text-rose-500" strokeWidth={2.35} />
                           Clear filters
-                        </button>
+                </button>
                       ) : null}
-                    </div>
-                  </div>
+            </div>
           </div>
+            </div>
 
                 {error ? (
                   <div className="p-10 text-center text-sm font-medium text-rose-600">Error: {error}</div>
