@@ -84,6 +84,8 @@ export type WidgetConfig = {
 export type DashboardWidget = {
   id: string;
   datasetId: string;
+  /** Module section name, e.g. Leads, Clients */
+  module?: string;
   chartType: string;
   title: string;
   x: number;

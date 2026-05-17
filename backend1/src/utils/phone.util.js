@@ -24,13 +24,15 @@ function stripDialCodeFromPhone(rawPhone, dialCode) {
 function resolveCandidateLocalPhone(candidate) {
   const dialCode = candidate?.countryCode || '+91';
 
+  // Prefer profile phone saved via Basic Information over signup WhatsApp
+  if (candidate?.profile?.phoneNumber) {
+    const fromProfile = stripDialCodeFromPhone(candidate.profile.phoneNumber, dialCode);
+    if (fromProfile) return fromProfile;
+  }
+
   if (candidate?.whatsappNumber) {
     const fromWhatsApp = stripDialCodeFromPhone(candidate.whatsappNumber, dialCode);
     if (fromWhatsApp) return fromWhatsApp;
-  }
-
-  if (candidate?.profile?.phoneNumber) {
-    return stripDialCodeFromPhone(candidate.profile.phoneNumber, dialCode);
   }
 
   return '';

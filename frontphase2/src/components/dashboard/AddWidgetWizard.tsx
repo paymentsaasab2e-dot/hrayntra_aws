@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, Loader2, Sparkles, X } from 'lucide-react';
 import { apiDashboardCatalog, apiDashboardDataset } from '../../lib/dashboard/api';
 import type {
@@ -19,6 +20,8 @@ type Props = {
   onClose: () => void;
   onAdd: (widgets: DashboardWidget[]) => void;
   nextPosition: { x: number; y: number };
+  /** When set, wizard opens on this module (e.g. add more charts to Clients). */
+  initialModule?: string;
 };
 
 type DatasetAnalysisState = {
@@ -43,9 +46,11 @@ function defaultFilters(defs: DashboardFilterDef[]): WidgetFilters {
 }
 
 function widgetSize(chartType: string) {
+  const isTable =
+    chartType === 'table' || chartType === 'expandableTable' || chartType === 'pivotTable';
   return {
-    w: chartType === 'kpi' || chartType === 'counter' ? 3 : 6,
-    h: chartType === 'table' ? 4 : 3,
+    w: chartType === 'kpi' || chartType === 'counter' ? 3 : isTable ? 12 : 6,
+    h: isTable ? 5 : 3,
   };
 }
 
@@ -59,7 +64,7 @@ function analysisFromPayload(payload: DatasetPayload): DatasetAnalysisState {
   };
 }
 
-export function AddWidgetWizard({ open, onClose, onAdd, nextPosition }: Props) {
+export function AddWidgetWizard({ open, onClose, onAdd, nextPosition, initialModule }: Props) {
   const [modules, setModules] = useState<DashboardModuleGroup[]>([]);
   const [selectedModule, setSelectedModule] = useState('');
   const [selectedDatasetIds, setSelectedDatasetIds] = useState<string[]>([]);
@@ -99,9 +104,10 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition }: Props) {
     void apiDashboardCatalog()
       .then((catalog) => {
         setModules(catalog.modules);
-        const firstMod = catalog.modules[0];
-        const firstDs = firstMod?.datasets[0];
-        setSelectedModule(firstMod?.name || '');
+        const targetMod =
+          catalog.modules.find((m) => m.name === initialModule) || catalog.modules[0];
+        const firstDs = targetMod?.datasets[0];
+        setSelectedModule(targetMod?.name || '');
         setSelectedDatasetIds(firstDs ? [firstDs.id] : []);
         setPreviewDatasetId(firstDs?.id || '');
         setFilterDefs(firstDs?.filters || []);
@@ -111,6 +117,15 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition }: Props) {
     setAnalysisByDataset({});
     setSelectedChartTypes([]);
     setTitle('');
+  }, [open, initialModule]);
+
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
   }, [open]);
 
   useEffect(() => {
@@ -208,7 +223,9 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition }: Props) {
           payloadAnalysis = analysisFromPayload(payload);
         }
 
-        const metaFilters = allDatasets.find((d) => d.id === datasetId)?.filters || payload?.filters || [];
+        const datasetMeta = allDatasets.find((d) => d.id === datasetId);
+        const widgetModule = datasetMeta?.moduleName || datasetMeta?.module || selectedModule;
+        const metaFilters = datasetMeta?.filters || payload?.filters || [];
         const filtersForWidget =
           datasetId === previewDatasetId ? { ...filterValues } : defaultFilters(metaFilters);
 
@@ -226,6 +243,7 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition }: Props) {
           newWidgets.push({
             id: `w_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
             datasetId,
+            module: widgetModule,
             chartType,
             title: widgetTitle,
             x: nextPosition.x,
@@ -254,14 +272,25 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition }: Props) {
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-indigo-100 bg-white shadow-2xl">
+  const modal = (
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="add-dashboard-widget-title"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-indigo-100 bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between border-b border-indigo-100/60 px-5 py-4">
           <div>
-            <h2 className="text-lg font-bold text-slate-900">Add dashboard widgets</h2>
+            <h2 id="add-dashboard-widget-title" className="text-lg font-bold text-slate-900">
+              Add dashboard widgets
+            </h2>
             <p className="text-xs text-slate-500">
-              Select multiple datasets and chart types to add several widgets at once.
+              Pick a module, datasets, and chart types. Each module appears as its own section on the dashboard.
             </p>
           </div>
           <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100">
@@ -479,7 +508,9 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition }: Props) {
       </div>
     </div>
   );
-}
 
+  if (typeof document === 'undefined') return null;
+  return createPortal(modal, document.body);
+}
 
 
