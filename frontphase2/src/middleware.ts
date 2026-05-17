@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 // Routes that don't require authentication (/hq requires login + platform allowlist — see app/hq/layout.tsx)
-const PUBLIC_ROUTES = ['/login', '/reset-password', '/api', '/client-review'];
+const PUBLIC_ROUTES = ['/login', '/hq/login', '/reset-password', '/api', '/client-review'];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -19,6 +19,12 @@ export function middleware(request: NextRequest) {
   const token = request.cookies.get('accessToken')?.value;
 
   if (!token) {
+    if (pathname === '/hq' || pathname.startsWith('/hq/')) {
+      if (pathname === '/hq/login') {
+        return NextResponse.next();
+      }
+      return NextResponse.redirect(new URL('/hq/login', request.url));
+    }
     // Preserve the original destination so login can redirect back
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('redirect', pathname);

@@ -1,5 +1,6 @@
 const { prisma, retryQuery } = require('../lib/prisma');
 const { getMissingProfileSections } = require('../utils/profile-completeness.util');
+const { resolveCandidateLocalPhone } = require('../utils/phone.util');
 const { uploadBufferToCloudinary, destroyByCloudinaryUrl } = require('../lib/s3');
 const { randomUUID } = require('crypto');
 
@@ -196,8 +197,10 @@ async function getProfileData(req, res) {
         lastName: candidate.lastName ?? (fallbackLastName || null),
         email: displayEmail,
         profilePhotoUrl: candidate.profile.profilePhotoUrl || '',
-        phone: candidate.profile.phoneNumber || (candidate.whatsappNumber ? candidate.whatsappNumber.replace(candidate.countryCode, '') : ''),
+        phone: resolveCandidateLocalPhone(candidate),
         phoneCode: mapPhoneCode(candidate.countryCode),
+        countryCode: candidate.countryCode || '+91',
+        whatsappNumber: candidate.whatsappNumber || '',
         gender: mapGenderLabel(candidate.profile.gender),
         dob: candidate.profile.dateOfBirth ? new Date(candidate.profile.dateOfBirth).toISOString().split('T')[0] : '',
         country: candidate.profile.country || '',

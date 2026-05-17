@@ -20,6 +20,15 @@ export const reportController = {
     }
   },
 
+  async getTabDetail(req, res) {
+    try {
+      const result = await reportService.getTabDetail(req.params.tab, req.query || {}, req.user);
+      return sendResponse(res, 200, 'Report tab detail retrieved successfully', result);
+    } catch (error) {
+      return sendError(res, 500, error.message, error);
+    }
+  },
+
   async getDataset(req, res) {
     try {
       const result = await reportService.getDataset(req.params.entity, req.query || {}, req.user);

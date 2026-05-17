@@ -51,6 +51,7 @@ import twilioTestRoutes from './modules/twilio-test/twilio-test.routes.js';
 import pdfProxyRoutes from './routes/pdfProxy.routes.js';
 import resumePreviewRoutes from './routes/resumePreview.routes.js';
 import hqRoutes from './modules/hq/hq.routes.js';
+import dashboardRoutes from './modules/dashboard/dashboard.routes.js';
 import ariaRoutes from './routes/ariaRoutes.js';
 import portalSyncRoutes from './modules/internal/portal-sync.routes.js';
 import notificationRoutes from './modules/notification/notification.routes.js';
@@ -224,6 +225,7 @@ app.use('/api/v1/settings', settingRoutes);
 app.use('/api/v1/ai/aria', ariaRoutes);
 app.use('/api/v1/ai', aiRoutes);
 app.use('/api/v1/hq', hqRoutes);
+app.use('/api/v1/dashboard', dashboardRoutes);
 // (portalSyncRoutes is mounted near the top — before any
 // router-level-auth `/api/v1` handlers — see comment above.)
 // Removing re-mounts from here as they are now at the top

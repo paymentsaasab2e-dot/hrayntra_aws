@@ -177,7 +177,7 @@ export const env = {
    * explicitly in .env for staging/production.
    */
   HRAYNTRA_PLATFORM_PROVISION_EMAILS:
-    process.env.HRAYNTRA_PLATFORM_PROVISION_EMAILS || 'superadmin@saasa.com',
+    process.env.HRAYNTRA_PLATFORM_PROVISION_EMAILS || 'admin@gmail.com',
 
   // AI summary + in-app assistant chat
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
