@@ -220,7 +220,7 @@ const Card = ({ title, children, className = '' }: { title?: string; children: R
 const EmptyState = ({ text }: { text: string }) => (
   <div className="flex min-h-[180px] items-center justify-center rounded-xl border border-dashed border-indigo-100/80 bg-indigo-50/20 text-sm text-slate-500">
     {text}
-  </div>
+      </div>
 );
 
 function ReportDatasetTable({
@@ -269,8 +269,8 @@ function ReportDatasetTable({
           </tbody>
         </table>
       </div>
-    </div>
-  );
+  </div>
+);
 }
 
 function TabExportBar({
@@ -294,8 +294,8 @@ function TabExportBar({
           {exporting ? 'Exporting…' : button.label}
         </button>
       ))}
-    </div>
-  );
+  </div>
+);
 }
 
 function ReportsContent({
@@ -453,7 +453,7 @@ function ReportsContent({
               color="indigo"
               icon={<Users size={16} strokeWidth={2.35} />}
             />
-          </div>
+              </div>
           {canExportData ? (
             <TabExportBar
               exporting={tabExporting}
@@ -523,7 +523,7 @@ function ReportsContent({
               buttons={[{ label: 'Export candidates (CSV)', onClick: () => onExportEntity('candidates') }]}
             />
           ) : null}
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <Card title="Candidate sourcing">
             {summary.candidates.sources.length ? (
               <div className="h-[300px]">
@@ -588,7 +588,7 @@ function ReportsContent({
               buttons={[{ label: 'Export interviews (CSV)', onClick: () => onExportEntity('interviews') }]}
             />
           ) : null}
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           <Card className="lg:col-span-2" title="Scheduled vs completed">
             {summary.interviews.trend.length ? (
               <div className="h-[350px]">
@@ -968,7 +968,7 @@ export default function ReportsPage() {
       }
     },
     {
-      events: ['jobportal:placements-changed', 'jobportal:jobs-changed'],
+    events: ['jobportal:placements-changed', 'jobportal:jobs-changed'],
     },
   );
 
@@ -1075,7 +1075,7 @@ export default function ReportsPage() {
           <div className="flex items-start gap-2.5 sm:gap-3">
             <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20">
               <BarChart3 className="h-5 w-5" strokeWidth={2.2} />
-            </div>
+          </div>
             <div>
               <h1 className="text-xl font-bold leading-tight tracking-tight text-slate-900 sm:text-[1.35rem]">Reports</h1>
               <p className="mt-0.5 max-w-2xl text-xs text-slate-500">
@@ -1083,10 +1083,10 @@ export default function ReportsPage() {
                 <span className="text-slate-400"> · </span>
                 Analytics and exports for your recruitment pipeline.
               </p>
-            </div>
-          </div>
+        </div>
+      </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button
+          <button
               type="button"
               onClick={() => void handlePullRefresh()}
               disabled={pullRefreshing || loading}
@@ -1094,7 +1094,7 @@ export default function ReportsPage() {
               title="Refresh data"
             >
               <RefreshCcw size={16} strokeWidth={2.25} className={pullRefreshing ? 'animate-spin' : ''} />
-            </button>
+          </button>
             {canExportData && (
               <button
                 type="button"
@@ -1134,7 +1134,7 @@ export default function ReportsPage() {
                     setAppliedFilters(DEFAULT_REPORT_FILTERS);
                   }}
                 />
-              </div>
+        </div>
 
               <div className="no-scrollbar flex overflow-x-auto border-b border-indigo-100/40 bg-white/40 px-1 sm:px-2">
                 {TABS.map((tab) => (
@@ -1157,7 +1157,7 @@ export default function ReportsPage() {
               </div>
 
               <div className="p-4 sm:p-5 lg:p-6">
-                {error ? (
+        {error ? (
                   <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
                 ) : null}
 
@@ -1172,9 +1172,9 @@ export default function ReportsPage() {
                       </span>
                     ))}
                   </div>
-                ) : null}
+        ) : null}
 
-                {loading ? (
+        {loading ? (
                   <div className="space-y-6" role="status" aria-label="Loading report data">
                     <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-6">
                       {(['blue', 'cyan', 'orange', 'indigo', 'green', 'rose'] as SummaryCardColor[]).map((c, i) => (
@@ -1187,36 +1187,36 @@ export default function ReportsPage() {
                       className="overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm"
                     />
                   </div>
-                ) : (
-                  <AnimatePresence mode="wait">
-                    <motion.div
-                      key={activeTab}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -10 }}
-                      transition={{ duration: 0.2 }}
-                    >
-                      <ReportsContent
-                        activeTab={activeTab}
-                        summary={summary}
+        ) : (
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeTab}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.2 }}
+            >
+              <ReportsContent
+                activeTab={activeTab}
+                summary={summary}
                         filterOptions={resolvedOptions}
-                        customSource={customSource}
-                        setCustomSource={setCustomSource}
-                        customDataset={customDataset}
-                        customColumns={customColumns}
-                        setCustomColumns={setCustomColumns}
-                        customLoading={customLoading}
-                        onGenerateCustom={canCreateReports ? () => void generateCustomPreview() : undefined}
+                customSource={customSource}
+                setCustomSource={setCustomSource}
+                customDataset={customDataset}
+                customColumns={customColumns}
+                setCustomColumns={setCustomColumns}
+                customLoading={customLoading}
+                onGenerateCustom={canCreateReports ? () => void generateCustomPreview() : undefined}
                         tabDetail={tabDetail}
                         tabDetailLoading={tabDetailLoading}
                         tabExporting={tabExporting}
                         onExportEntity={handleExportEntity}
                         canExportData={canExportData}
-                      />
-                    </motion.div>
-                  </AnimatePresence>
-                )}
-              </div>
+              />
+            </motion.div>
+          </AnimatePresence>
+        )}
+      </div>
             </div>
           </div>
         </div>

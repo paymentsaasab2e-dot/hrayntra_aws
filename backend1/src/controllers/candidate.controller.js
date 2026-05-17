@@ -268,6 +268,113 @@ async function getCandidateById(req, res) {
 }
 
 /**
+ * Manual cascade delete for MongoDB/Prisma (onDelete: Cascade is not always enforced).
+ */
+async function purgeCandidateById(id) {
+  const applications = await prisma.application.findMany({
+    where: { candidateId: id },
+    select: { id: true },
+  });
+  const applicationIds = applications.map((a) => a.id);
+
+  const globalInterviews = await prisma.globalAiInterview.findMany({
+    where: { candidateId: id },
+    select: { id: true },
+  });
+  const globalInterviewIds = globalInterviews.map((row) => row.id);
+
+  const ops = [
+    ...(globalInterviewIds.length
+      ? [
+          prisma.globalAiInterviewMessage.deleteMany({
+            where: { interviewId: { in: globalInterviewIds } },
+          }),
+        ]
+      : []),
+    prisma.globalAiInterview.deleteMany({ where: { candidateId: id } }),
+
+    ...(applicationIds.length
+      ? [
+          prisma.applicationCommunication.deleteMany({
+            where: { applicationId: { in: applicationIds } },
+          }),
+          prisma.applicationTimeline.deleteMany({
+            where: { applicationId: { in: applicationIds } },
+          }),
+        ]
+      : []),
+
+    prisma.application.deleteMany({ where: { candidateId: id } }),
+    prisma.savedJob.deleteMany({ where: { candidateId: id } }),
+    prisma.match.deleteMany({ where: { candidateId: id } }),
+    prisma.pipelineEntry.deleteMany({ where: { candidateId: id } }),
+    prisma.aiJobMatch.deleteMany({ where: { candidateId: id } }),
+    prisma.aiProfileInsight.deleteMany({ where: { candidateId: id } }),
+
+    prisma.notification.deleteMany({ where: { candidateId: id } }),
+    prisma.courseEnrollment.deleteMany({ where: { candidateId: id } }),
+    prisma.dashboardStats.deleteMany({ where: { candidateId: id } }),
+    prisma.cvAnalysis.deleteMany({ where: { candidateId: id } }),
+
+    prisma.lmsAnswerEvaluation.deleteMany({ where: { candidateId: id } }),
+    prisma.lmsInterviewReport.deleteMany({ where: { candidateId: id } }),
+    prisma.lmsEnrollment.deleteMany({ where: { userId: id } }),
+    prisma.lmsQuizAttempt.deleteMany({ where: { userId: id } }),
+    prisma.lmsNote.deleteMany({ where: { userId: id } }),
+    prisma.lmsEventRegistration.deleteMany({ where: { userId: id } }),
+    prisma.lmsResumeDraft.deleteMany({ where: { userId: id } }),
+    prisma.lmsCareerPath.deleteMany({ where: { userId: id } }),
+    prisma.lmsInterviewPrepSession.deleteMany({ where: { userId: id } }),
+    prisma.lmsInterviewSet.deleteMany({ where: { userId: id } }),
+
+    prisma.otpVerification.deleteMany({ where: { candidateId: id } }),
+    prisma.resumeVersion.deleteMany({ where: { candidateId: id } }),
+    prisma.resume.deleteMany({ where: { candidateId: id } }),
+
+    prisma.education.deleteMany({ where: { candidateId: id } }),
+    prisma.workExperience.deleteMany({ where: { candidateId: id } }),
+    prisma.candidateSkill.deleteMany({ where: { candidateId: id } }),
+    prisma.candidateLanguage.deleteMany({ where: { candidateId: id } }),
+    prisma.careerPreferences.deleteMany({ where: { candidateId: id } }),
+    prisma.candidateSummary.deleteMany({ where: { candidateId: id } }),
+    prisma.candidateGapExplanation.deleteMany({ where: { candidateId: id } }),
+    prisma.candidateInternship.deleteMany({ where: { candidateId: id } }),
+    prisma.candidatePortfolioLinks.deleteMany({ where: { candidateId: id } }),
+    prisma.candidateProject.deleteMany({ where: { candidateId: id } }),
+    prisma.candidateAcademicAchievement.deleteMany({ where: { candidateId: id } }),
+    prisma.candidateCompetitiveExam.deleteMany({ where: { candidateId: id } }),
+    prisma.candidateCertification.deleteMany({ where: { candidateId: id } }),
+    prisma.candidateAccomplishment.deleteMany({ where: { candidateId: id } }),
+    prisma.candidateVisaWorkAuthorization.deleteMany({ where: { candidateId: id } }),
+    prisma.candidateVaccination.deleteMany({ where: { candidateId: id } }),
+    prisma.candidateProfile.deleteMany({ where: { candidateId: id } }),
+    prisma.candidate.delete({ where: { id } }),
+  ];
+
+  try {
+    await prisma.$transaction(ops);
+  } catch (txError) {
+    for (const op of ops) {
+      try {
+        await op;
+      } catch (opError) {
+        if (String(opError?.code || '').toUpperCase() === 'P2025') break;
+      }
+    }
+  }
+
+  try {
+    const { getCandidateCommonPrisma } = require('../lib/candidateCommonPrisma');
+    const commonPrisma = getCandidateCommonPrisma();
+    if (commonPrisma) {
+      await commonPrisma.candidateCommon.deleteMany({ where: { candidateId: id } });
+    }
+  } catch (commonErr) {
+    console.warn('[candidateCommon] purge skipped:', id, commonErr?.message || commonErr);
+  }
+}
+
+/**
  * Delete candidate by ID
  * DELETE /api/candidates/:id
  */
@@ -275,16 +382,15 @@ async function deleteCandidate(req, res) {
   try {
     const { id } = req.params;
 
-    if (!id) {
+    if (!id || id === 'bulk-delete') {
       return res.status(400).json({
         success: false,
         message: 'Candidate ID is required',
       });
     }
 
-    // Check if candidate exists
     const candidate = await prisma.candidate.findUnique({
-      where: { id: id },
+      where: { id },
     });
 
     if (!candidate) {
@@ -294,92 +400,7 @@ async function deleteCandidate(req, res) {
       });
     }
 
-    // Manual cascade delete for MongoDB/Prisma (ensure ALL candidate data is removed)
-    // Prisma "onDelete: Cascade" is not always enforced at the database level for Mongo.
-    const deleteAllCandidateData = async () => {
-      const applications = await prisma.application.findMany({
-        where: { candidateId: id },
-        select: { id: true },
-      });
-      const applicationIds = applications.map((a) => a.id);
-
-      const ops = [
-        // Application child collections first
-        ...(applicationIds.length
-          ? [
-              prisma.applicationCommunication.deleteMany({
-                where: { applicationId: { in: applicationIds } },
-              }),
-              prisma.applicationTimeline.deleteMany({
-                where: { applicationId: { in: applicationIds } },
-              }),
-            ]
-          : []),
-
-        // Job/candidate join & AI artifacts
-        prisma.application.deleteMany({ where: { candidateId: id } }),
-        prisma.savedJob.deleteMany({ where: { candidateId: id } }),
-        prisma.aiJobMatch.deleteMany({ where: { candidateId: id } }),
-        prisma.aiProfileInsight.deleteMany({ where: { candidateId: id } }),
-
-        // Notifications / courses / dashboard / analysis
-        prisma.notification.deleteMany({ where: { candidateId: id } }),
-        prisma.courseEnrollment.deleteMany({ where: { candidateId: id } }),
-        prisma.dashboardStats.deleteMany({ where: { candidateId: id } }),
-        prisma.cvAnalysis.deleteMany({ where: { candidateId: id } }),
-
-        // Auth / verification
-        prisma.otpVerification.deleteMany({ where: { candidateId: id } }),
-
-        // Resume + versions
-        prisma.resumeVersion.deleteMany({ where: { candidateId: id } }),
-        prisma.resume.deleteMany({ where: { candidateId: id } }),
-
-        // Core profile sections
-        prisma.education.deleteMany({ where: { candidateId: id } }),
-        prisma.workExperience.deleteMany({ where: { candidateId: id } }),
-        prisma.candidateSkill.deleteMany({ where: { candidateId: id } }),
-        prisma.candidateLanguage.deleteMany({ where: { candidateId: id } }),
-        prisma.careerPreferences.deleteMany({ where: { candidateId: id } }),
-        prisma.candidateSummary.deleteMany({ where: { candidateId: id } }),
-        prisma.candidateGapExplanation.deleteMany({ where: { candidateId: id } }),
-        prisma.candidateInternship.deleteMany({ where: { candidateId: id } }),
-        prisma.candidatePortfolioLinks.deleteMany({ where: { candidateId: id } }),
-
-        // Projects & achievements
-        prisma.candidateProject.deleteMany({ where: { candidateId: id } }),
-        prisma.candidateAcademicAchievement.deleteMany({ where: { candidateId: id } }),
-        prisma.candidateCompetitiveExam.deleteMany({ where: { candidateId: id } }),
-        prisma.candidateCertification.deleteMany({ where: { candidateId: id } }),
-        prisma.candidateAccomplishment.deleteMany({ where: { candidateId: id } }),
-
-        // Legal / health
-        prisma.candidateVisaWorkAuthorization.deleteMany({ where: { candidateId: id } }),
-        prisma.candidateVaccination.deleteMany({ where: { candidateId: id } }),
-
-        // Profile (unique) + final candidate
-        prisma.candidateProfile.deleteMany({ where: { candidateId: id } }),
-        prisma.candidate.delete({ where: { id: id } }),
-      ];
-
-      // Try transactional deletion (MongoDB Atlas supports it). If it fails, fall back to sequential.
-      try {
-        await prisma.$transaction(ops);
-      } catch (txError) {
-        for (const op of ops) {
-          // Each op is a Prisma Promise; awaiting sequentially ensures best-effort cleanup.
-          // Ignore "not found" style errors since we use deleteMany for optional relations.
-          try {
-            await op;
-          } catch (opError) {
-            // If the candidate was already deleted mid-way, stop.
-            if (String(opError?.code || '').toUpperCase() === 'P2025') break;
-          }
-        }
-      }
-    };
-
-    await deleteAllCandidateData();
+    await purgeCandidateById(id);
 
     res.json({
       success: true,
@@ -395,8 +416,80 @@ async function deleteCandidate(req, res) {
   }
 }
 
+/**
+ * Bulk delete candidates (super admin)
+ * DELETE /api/candidates/bulk-delete  body: { ids: string[] }
+ */
+async function bulkDeleteCandidates(req, res) {
+  try {
+    const ids = Array.isArray(req.body?.ids)
+      ? [...new Set(req.body.ids.map((v) => String(v || '').trim()).filter(Boolean))]
+      : [];
+
+    if (ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'At least one candidate ID is required',
+      });
+    }
+
+    const existing = await prisma.candidate.findMany({
+      where: { id: { in: ids } },
+      select: { id: true },
+    });
+
+    if (existing.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No matching candidates found',
+      });
+    }
+
+    const failed = [];
+    let deletedCount = 0;
+
+    for (const row of existing) {
+      try {
+        await purgeCandidateById(row.id);
+        deletedCount += 1;
+      } catch (err) {
+        console.error('Error deleting candidate in bulk:', row.id, err);
+        failed.push({
+          id: row.id,
+          message: err?.message || 'Delete failed',
+        });
+      }
+    }
+
+    if (deletedCount === 0) {
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to delete candidates',
+        data: { failed },
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: `${deletedCount} candidate(s) deleted successfully`,
+      data: {
+        count: deletedCount,
+        failed,
+      },
+    });
+  } catch (error) {
+    console.error('Error bulk deleting candidates:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to delete candidates',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+}
+
 module.exports = {
   getAllCandidates,
   getCandidateById,
   deleteCandidate,
+  bulkDeleteCandidates,
 };

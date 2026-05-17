@@ -1,0 +1,89 @@
+/* Dashboard — colorful 3D widget & chart chrome */
+.dashboard-page-bg {
+  background:
+    radial-gradient(ellipse 120% 80% at 0% -20%, rgba(99, 102, 241, 0.14), transparent 50%),
+    radial-gradient(ellipse 90% 60% at 100% 0%, rgba(236, 72, 153, 0.1), transparent 45%),
+    radial-gradient(ellipse 70% 50% at 50% 100%, rgba(34, 197, 94, 0.08), transparent 40%),
+    linear-gradient(180deg, #f8fafc 0%, #eef2ff 40%, #f1f5f9 100%);
+  min-height: 100%;
+}
+
+.dashboard-widget-3d {
+  position: relative;
+  transform: perspective(1400px) rotateX(2deg);
+  transform-style: preserve-3d;
+  transition:
+    transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow 0.35s ease;
+  background: linear-gradient(165deg, #ffffff 0%, #fafbff 38%, #f0f4ff 100%);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 -1px 0 rgba(99, 102, 241, 0.06),
+    0 4px 0 rgba(99, 102, 241, 0.08),
+    0 14px 32px -10px rgba(79, 70, 229, 0.28),
+    0 6px 16px -6px rgba(15, 23, 42, 0.12);
+}
+
+.dashboard-widget-3d::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.5) 0%,
+    transparent 42%,
+    transparent 58%,
+    rgba(99, 102, 241, 0.04) 100%
+  );
+  z-index: 0;
+}
+
+.dashboard-widget-3d:hover {
+  transform: perspective(1400px) rotateX(0deg) translateY(-6px) scale(1.008);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 1),
+    0 6px 0 rgba(99, 102, 241, 0.1),
+    0 22px 48px -12px rgba(79, 70, 229, 0.38),
+    0 10px 24px -8px rgba(15, 23, 42, 0.14);
+}
+
+.dashboard-widget-3d > * {
+  position: relative;
+  z-index: 1;
+}
+
+.dashboard-chart-well {
+  border-radius: 0.75rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.7) 0%, rgba(238, 242, 255, 0.45) 100%);
+  box-shadow: inset 0 2px 8px rgba(99, 102, 241, 0.06);
+}
+
+.dashboard-section-3d {
+  transform: perspective(1600px) rotateX(1deg);
+  transform-style: preserve-3d;
+  background: linear-gradient(160deg, #ffffff 0%, #f8faff 50%, #f1f5f9 100%);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 8px 0 rgba(99, 102, 241, 0.06),
+    0 24px 48px -16px rgba(59, 130, 246, 0.2);
+}
+
+.dashboard-kpi-3d {
+  background: linear-gradient(145deg, #6366f1 0%, #8b5cf6 40%, #ec4899 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 2px 4px rgba(99, 102, 241, 0.25));
+}
+
+.dashboard-header-3d {
+  background: linear-gradient(135deg, #ffffff 0%, #f5f3ff 50%, #ede9fe 100%);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow:
+    0 4px 0 rgba(99, 102, 241, 0.06),
+    0 12px 28px -8px rgba(79, 70, 229, 0.18);
+}

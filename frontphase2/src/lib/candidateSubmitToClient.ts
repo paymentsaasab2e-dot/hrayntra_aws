@@ -42,19 +42,14 @@ export function backendCandidateCanSubmitToClient(c: BackendCandidate): boolean 
   if (Array.isArray(c.pipelineEntries) && c.pipelineEntries.length > 0) {
     return true;
   }
-  if (Array.isArray(c.matches) && c.matches.some((m) => isValidObjectId(String(m.job?.id || '')))) {
-    return true;
-  }
   if (Array.isArray(c.assignedJobTitles) && c.assignedJobTitles.some((t) => String(t || '').trim())) {
     return true;
   }
   return false;
 }
 
-/** Best job id for submit from backend candidate payload. */
+/** Best job id for submit from backend candidate payload (real job links only — not AI suggestions). */
 export function resolveSubmitJobIdFromBackend(c: BackendCandidate): string | undefined {
-  const fromMatch = c.matches?.find((m) => isValidObjectId(String(m.job?.id || '')))?.job?.id;
-  if (fromMatch) return String(fromMatch);
   const fromAssigned = c.assignedJobs?.find((id) => isValidObjectId(String(id || '')));
   if (fromAssigned) return String(fromAssigned);
   const fromPipeline = c.pipelineEntries?.find((e) => isValidObjectId(String(e.jobId || '')))?.jobId;

@@ -1,4 +1,5 @@
 import type { BackendCandidate } from './api';
+import { resolveCandidateListStage } from './candidateListMapping';
 import type { CandidateProfileDrawerData } from '../components/drawers/CandidateProfileDrawer';
 import type { MatchCandidate } from '../components/matches/types';
 
@@ -201,7 +202,7 @@ export function mapCandidateProfile(c: BackendCandidate): CandidateProfileDrawer
   const latestMatch = c.matches?.[0];
   const latestInterview = c.interviews?.[0];
   const salary = formatSalary(c.salary);
-  const stage = c.stage || mapBackendStage(c.status);
+  const stage = resolveCandidateListStage(c);
   const skillsCount = c.skills?.length || 0;
   const skillsMatch = Math.min(95, skillsCount > 0 ? 55 + skillsCount * 8 : 38);
   const experienceFit = Math.min(96, c.experience != null ? 45 + c.experience * 6 : 35);

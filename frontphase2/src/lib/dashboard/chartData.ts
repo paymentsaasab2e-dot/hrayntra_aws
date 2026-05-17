@@ -196,4 +196,4 @@ export function buildChartSeries(
   return { series, tableRows: rows, kpiValue: 0, groupKey, metricKey, useCountAggregation };
 }
 
-export const CHART_COLORS = ['#2563eb', '#8b5cf6', '#f59e0b', '#10b981', '#ef4444', '#0ea5e9', '#ec4899', '#64748b'];
+export { CHART_COLORS, CHART_COLOR_TOP } from './chartTheme';

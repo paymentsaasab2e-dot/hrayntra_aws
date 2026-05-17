@@ -418,24 +418,24 @@ export default function InterviewsPage() {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
+                  <button
+                    type="button"
                 onClick={retryLoad}
                 disabled={loading}
                 className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98] disabled:opacity-50"
                 title="Refresh"
               >
                 <RefreshCcw size={16} strokeWidth={2.25} className={loading ? 'animate-spin' : ''} />
-              </button>
-              <button
-                type="button"
+                  </button>
+                  <button
+                    type="button"
                 onClick={handleExportInterviewsCsv}
                 className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
                 title="Export filtered interviews to CSV"
               >
                 <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
                 <span>Export</span>
-              </button>
+                  </button>
               {canCreateInterview ? (
                 <button
                   type="button"
@@ -576,8 +576,8 @@ export default function InterviewsPage() {
                             Total: <span className="font-semibold text-slate-800">{totalEntries}</span>
                           </span>
                         </div>
-                      </div>
-                    </div>
+              </div>
+            </div>
 
                     <div className="overflow-hidden">
                       <div className="no-scrollbar overflow-x-auto">{renderListTableBody()}</div>
@@ -605,8 +605,8 @@ export default function InterviewsPage() {
                       </div>
                     ) : null}
                   </div>
-                </motion.div>
-              ) : (
+              </motion.div>
+            ) : (
                 <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
                   <div className={PH2_TABLE_CARD_CLASS}>
                     <div className={PH2_TOOLBAR_ROW_CLASS}>
@@ -616,14 +616,14 @@ export default function InterviewsPage() {
                       <div className="flex shrink-0 items-center gap-2">{viewSegmented}</div>
                     </div>
                     <div className="p-3 sm:p-4">
-                      <InterviewCalendarView interviews={filteredInterviews} onSelectInterview={openInterview} />
+                <InterviewCalendarView interviews={filteredInterviews} onSelectInterview={openInterview} />
                     </div>
                   </div>
-                </motion.div>
-              )}
-            </div>
+              </motion.div>
+            )}
           </div>
-        </main>
+        </div>
+      </main>
 
       <InterviewDrawer
         isOpen={drawer.isOpen}

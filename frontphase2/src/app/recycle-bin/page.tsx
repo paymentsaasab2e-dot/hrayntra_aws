@@ -638,7 +638,7 @@ export default function RecycleBinPage() {
             <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-slate-600 via-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20">
               <Trash2 className="h-5 w-5" strokeWidth={2.2} />
             </div>
-            <div>
+        <div>
               <h1 className="text-xl font-bold leading-tight tracking-tight text-slate-900 sm:text-[1.35rem]">Recycle Bin</h1>
               <p className="mt-0.5 max-w-2xl text-xs text-slate-500">
                 Restore or permanently delete soft-deleted records from Leads, Clients, Candidates, and Jobs. Failed bulk
@@ -715,8 +715,8 @@ export default function RecycleBinPage() {
                   <p className="text-xs text-slate-500">
                     {failedBulkLocalTrash.length}{' '}
                     {failedBulkLocalTrash.length === 1 ? 'entry' : 'entries'} removed from the Failed resumes list
-                  </p>
-                </div>
+          </p>
+        </div>
               </div>
               {failedBulkLocalExpanded ? (
                 <ChevronDown size={18} className="shrink-0 text-slate-400" />
@@ -783,9 +783,9 @@ export default function RecycleBinPage() {
                         {failedBulkSelected.size} selected — use{' '}
                         <span className="font-semibold text-slate-900">Bulk restore</span> or{' '}
                         <span className="font-semibold text-slate-900">Bulk delete</span> in the card header
-                      </span>
-                      <button
-                        type="button"
+          </span>
+          <button
+            type="button"
                         onClick={clearFailedBulkSelection}
                         disabled={failedBulkBulkBusy}
                         className="text-xs font-semibold text-rose-600 hover:text-rose-800 disabled:opacity-50"
@@ -915,15 +915,15 @@ export default function RecycleBinPage() {
                                     <Trash2 size={12} />
                                   )}
                                   Delete forever
-                                </button>
-                              </div>
+          </button>
+        </div>
                             </td>
                           </tr>
                         );
                       })}
                     </tbody>
                   </table>
-                </div>
+      </div>
               )}
             </div>
           ) : null}
@@ -943,35 +943,35 @@ export default function RecycleBinPage() {
           return (
             <section key={cfg.key} className={PH2_TABLE_CARD_CLASS}>
               <div className="flex flex-col border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 sm:flex-row sm:items-stretch">
-                <button
-                  type="button"
-                  onClick={() => toggleSection(cfg.key)}
+              <button
+                type="button"
+                onClick={() => toggleSection(cfg.key)}
                   className="flex flex-1 items-center justify-between gap-3 p-4 text-left transition-colors hover:bg-white/40 sm:min-w-0"
-                >
+              >
                   <div className="flex min-w-0 items-center gap-3">
                     <span className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${cfg.accent}`}>
-                      <Icon size={16} />
-                    </span>
+                    <Icon size={16} />
+                  </span>
                     <div className="min-w-0">
-                      <h2 className="text-sm font-bold text-slate-900">{cfg.label}</h2>
-                      <p className="text-xs text-slate-500">
-                        {state.loading
-                          ? 'Loading…'
-                          : state.error
-                            ? state.error
-                            : `${state.items.length} deleted ${cfg.label.toLowerCase()}`}
-                      </p>
-                    </div>
+                    <h2 className="text-sm font-bold text-slate-900">{cfg.label}</h2>
+                    <p className="text-xs text-slate-500">
+                      {state.loading
+                        ? 'Loading…'
+                        : state.error
+                          ? state.error
+                          : `${state.items.length} deleted ${cfg.label.toLowerCase()}`}
+                    </p>
                   </div>
+                </div>
                   <div className="flex shrink-0 items-center gap-2 pr-2">
                     {state.loading && <Loader2 size={16} className="animate-spin text-indigo-400" />}
-                    {state.expanded ? (
-                      <ChevronDown size={18} className="text-slate-400" />
-                    ) : (
-                      <ChevronRight size={18} className="text-slate-400" />
-                    )}
-                  </div>
-                </button>
+                  {state.expanded ? (
+                    <ChevronDown size={18} className="text-slate-400" />
+                  ) : (
+                    <ChevronRight size={18} className="text-slate-400" />
+                  )}
+                </div>
+              </button>
                 {showBulkInHeader ? (
                   <div className="flex flex-wrap items-center justify-end gap-2 border-t border-indigo-100/40 bg-white/50 px-3 py-2.5 sm:border-l sm:border-t-0">
                     <button
@@ -1046,16 +1046,16 @@ export default function RecycleBinPage() {
                                 {selectedCount} selected — use{' '}
                                 <span className="font-semibold text-slate-900">Bulk restore</span> or{' '}
                                 <span className="font-semibold text-slate-900">Bulk delete</span> in the card header
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => clearSelection(cfg.key)}
-                                disabled={busy}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => clearSelection(cfg.key)}
+                                  disabled={busy}
                                 className="text-xs font-semibold text-rose-600 hover:text-rose-800 disabled:opacity-50"
-                              >
-                                Clear
-                              </button>
-                            </div>
+                                >
+                                  Clear
+                                </button>
+                              </div>
                           ) : null}
                           <div className="no-scrollbar overflow-x-auto">
                             <table className="min-w-full text-left text-sm">
@@ -1155,7 +1155,7 @@ export default function RecycleBinPage() {
             </section>
           );
         })}
-          </div>
+      </div>
         </div>
       </main>
     </div>

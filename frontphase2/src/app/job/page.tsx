@@ -379,15 +379,15 @@ const JobsListView = ({ jobs, onJobClick, onEditJob, onAddCandidate, onDeleteJob
           <tr className="sticky top-0 z-10 border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em]">
             <th className="px-3 py-2 sm:px-4 w-10 first:pl-4">
               <input type="checkbox" className="rounded border-slate-300" aria-label="Select all" />
-            </th>
+          </th>
             <th className="px-3 py-2 sm:px-4">Job title</th>
             <th className="px-3 py-2 sm:px-4">Client & location</th>
             <th className="px-3 py-2 sm:px-4">Status</th>
             <th className="px-3 py-2 sm:px-4">Pipeline</th>
             <th className="px-3 py-2 sm:px-4">Details</th>
             <th className="px-3 py-2 sm:px-4 text-right">Actions</th>
-          </tr>
-        </thead>
+        </tr>
+      </thead>
         <tbody className="divide-y divide-slate-100/80">
           {jobs.length === 0 ? (
             <tr>
@@ -398,101 +398,101 @@ const JobsListView = ({ jobs, onJobClick, onEditJob, onAddCandidate, onDeleteJob
             </tr>
           ) : (
             jobs.map((job) => (
-              <tr
-                key={job.id}
+          <tr
+            key={job.id}
                 className="group transition-colors duration-200 even:bg-slate-50/35 hover:bg-indigo-50/45"
-              >
+          >
                 <td className="px-3 py-2 sm:px-4" onClick={(e) => e.stopPropagation()}>
                   <input type="checkbox" className="rounded border-slate-300" aria-label={`Select ${job.title}`} />
-                </td>
+            </td>
                 <td className="px-3 py-2 sm:px-4">
-                  <div className="flex flex-col">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => onJobClick?.(job)}
+              <div className="flex flex-col">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onJobClick?.(job)}
                         className="text-left text-xs font-semibold text-slate-900 hover:text-indigo-700 transition-colors line-clamp-1"
-                        title="View job details"
-                      >
-                        {job.title}
-                      </button>
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    title="View job details"
+                  >
+                    {job.title}
+                  </button>
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <FileText size={14} className="text-slate-400 cursor-default" />
                         <BrainCircuit size={14} className="text-violet-500 hover:text-violet-700 cursor-pointer" />
-                      </div>
-                    </div>
                   </div>
-                </td>
+                </div>
+              </div>
+            </td>
                 <td className="px-3 py-2 sm:px-4">
                   <div className="flex flex-col gap-0.5">
                     <span className="text-xs font-medium text-slate-800">{job.client}</span>
                     <div className="flex items-center gap-1 text-[10px] text-slate-500">
                       <MapPin size={12} className="shrink-0" />
-                      <span>{job.location}</span>
-                    </div>
-                  </div>
-                </td>
+                  <span>{job.location}</span>
+                </div>
+              </div>
+            </td>
                 <td className="px-3 py-2 sm:px-4" onClick={(e) => e.stopPropagation()}>
-                  <div className="flex flex-col gap-2">
-                    {canUpdateJob ? (
-                      <select
+              <div className="flex flex-col gap-2">
+                {canUpdateJob ? (
+                  <select
                         className="max-w-[10rem] rounded-full border-0 bg-slate-100/80 px-2 py-1 text-[11px] font-semibold text-slate-800 ring-1 ring-slate-200/90 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer hover:bg-slate-100"
-                        value={job.status}
-                        onChange={(e) =>
-                          onStatusChange(job.id, e.target.value as JobStatus)
-                        }
-                      >
-                        <option value="Active">Active</option>
-                        <option value="On Hold">On Hold</option>
-                        <option value="Closed">Closed</option>
-                      </select>
-                    ) : (
-                      <JobStatusPill status={job.status} />
-                    )}
+                    value={job.status}
+                    onChange={(e) =>
+                      onStatusChange(job.id, e.target.value as JobStatus)
+                    }
+                  >
+                    <option value="Active">Active</option>
+                    <option value="On Hold">On Hold</option>
+                    <option value="Closed">Closed</option>
+                  </select>
+                ) : (
+                  <JobStatusPill status={job.status} />
+                )}
 
-                    {canUpdateJob && statusEdit.jobId === job.id && (
+                {canUpdateJob && statusEdit.jobId === job.id && (
                       <div className="flex flex-wrap items-center gap-2">
-                        <input
-                          type="text"
+                    <input
+                      type="text"
                           placeholder="Remark for status change"
                           className="min-w-0 flex-1 px-2 py-1 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-400"
-                          value={statusEdit.remark}
-                          onChange={(e) => onRemarkChange(e.target.value)}
-                        />
-                        <button
-                          type="button"
+                      value={statusEdit.remark}
+                      onChange={(e) => onRemarkChange(e.target.value)}
+                    />
+                    <button
+                      type="button"
                           className="px-2 py-1 text-xs font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700"
-                          onClick={onSaveStatusEdit}
-                        >
-                          Save
-                        </button>
-                        <button
-                          type="button"
-                          className="px-2 py-1 text-xs font-medium text-slate-600 bg-slate-100 rounded-md hover:bg-slate-200"
-                          onClick={onCancelStatusEdit}
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    )}
+                      onClick={onSaveStatusEdit}
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      className="px-2 py-1 text-xs font-medium text-slate-600 bg-slate-100 rounded-md hover:bg-slate-200"
+                      onClick={onCancelStatusEdit}
+                    >
+                      Cancel
+                    </button>
                   </div>
-                </td>
+                )}
+              </div>
+            </td>
                 <td className="px-3 py-2 sm:px-4">
-                  <PipelineSnapshot
-                    applied={job.applied}
-                    interviewed={job.interviewed}
-                    offered={job.offered}
-                    joined={job.joined}
-                    stages={job.pipelineStages}
-                  />
-                </td>
+              <PipelineSnapshot
+                applied={job.applied}
+                interviewed={job.interviewed}
+                offered={job.offered}
+                joined={job.joined}
+                stages={job.pipelineStages}
+              />
+            </td>
                 <td className="px-3 py-2 sm:px-4">
                   <div className="flex flex-col gap-0.5">
                     <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Recruiter</span>
                     <span className="text-xs text-slate-700">{job.owner}</span>
                     <span className="text-[10px] text-slate-500">{job.createdDate}</span>
-                  </div>
-                </td>
+              </div>
+            </td>
                 <td className="px-3 py-2 sm:px-4 text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="inline-flex items-center justify-end gap-0.5 rounded-2xl bg-slate-100/70 p-0.5 ring-1 ring-slate-200/60">
                     <button
@@ -502,46 +502,46 @@ const JobsListView = ({ jobs, onJobClick, onEditJob, onAddCandidate, onDeleteJob
                       title="Preview job"
                     >
                       <Eye size={15} strokeWidth={2.25} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onEditJob?.(job)}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onEditJob?.(job)}
                       className="flex h-7 w-7 items-center justify-center rounded-lg text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
-                      title="Edit job"
-                    >
+                  title="Edit job"
+                >
                       <Pencil size={15} strokeWidth={2.25} />
-                    </button>
-                    {canAddCandidate && (
-                      <button
-                        type="button"
-                        onClick={() => onAddCandidate?.(job)}
+                </button>
+                {canAddCandidate && (
+                  <button
+                    type="button"
+                    onClick={() => onAddCandidate?.(job)}
                         className="flex h-7 w-7 items-center justify-center rounded-lg text-emerald-600 hover:bg-white hover:text-emerald-800 hover:shadow-sm transition-all"
                         title="Add candidate"
-                      >
+                  >
                         <UserPlus size={15} strokeWidth={2.35} />
-                      </button>
-                    )}
-                    {canDeleteJob && onDeleteJob && (
-                      <button
-                        type="button"
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          await onDeleteJob(job.id, job.title);
-                        }}
-                        disabled={deletingJobId === job.id}
+                  </button>
+                )}
+                {canDeleteJob && onDeleteJob && (
+                  <button 
+                    type="button"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      await onDeleteJob(job.id, job.title);
+                    }}
+                    disabled={deletingJobId === job.id}
                         className="flex h-7 w-7 items-center justify-center rounded-lg text-rose-500 hover:bg-white hover:text-rose-800 hover:shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                         title="Delete job"
-                      >
+                  >
                         <Trash2 size={15} strokeWidth={2.35} />
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
+                  </button>
+                )}
+              </div>
+            </td>
+          </tr>
             ))
           )}
-        </tbody>
-      </table>
+      </tbody>
+    </table>
     </div>
   </div>
 );
@@ -1845,47 +1845,47 @@ export default function JobsPage() {
         icon={<Briefcase className="h-5 w-5" strokeWidth={2.2} />}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
+                  <button
+                    type="button"
               onClick={() => void reloadMyJobsAndMetrics()}
               className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98]"
               title="Refresh jobs"
-            >
+                  >
               <RefreshCcw size={16} strokeWidth={2.25} className="shrink-0" />
-            </button>
+                  </button>
             {canDeleteJob ? (
-              <button
-                type="button"
+                  <button
+                    type="button"
                 onClick={() => setRecycleBinDrawerOpen(true)}
                 className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98]"
                 title="Deleted jobs"
-              >
+                  >
                 <Inbox size={17} strokeWidth={2.25} />
-              </button>
+                  </button>
             ) : null}
-            <button
-              type="button"
-              onClick={handleExportJobsCsv}
+                <button
+                  type="button"
+                  onClick={handleExportJobsCsv}
               className="bg-white hover:bg-indigo-50/90 text-indigo-900 px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] border border-indigo-200/70 hover:border-indigo-300 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
-              title="Export visible jobs to CSV"
-            >
+                  title="Export visible jobs to CSV"
+                >
               <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
               <span>Export</span>
-            </button>
+                </button>
             {canCreateJob ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setDuplicateFromJobId(null);
-                  setCreateJobDrawerOpen(true);
-                }}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDuplicateFromJobId(null);
+                      setCreateJobDrawerOpen(true);
+                    }}
                 className="bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 text-white px-3.5 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-lg shadow-indigo-500/30 active:scale-[0.98]"
-              >
+                  >
                 <Plus size={16} className="text-white" strokeWidth={2.5} />
                 <span>Create Job</span>
-              </button>
+                  </button>
             ) : null}
-          </div>
+              </div>
         }
       >
         <div className="mx-auto w-full max-w-[1600px]">
@@ -1893,9 +1893,9 @@ export default function JobsPage() {
             {loadingMetrics
               ? STATS_CONFIG.map((statConfig, i) => <SummaryCardSkeleton key={i} color={statConfig.color} />)
               : STATS_CONFIG.map((statConfig) => {
-                  const value = jobMetrics ? (jobMetrics as any)[statConfig.key] || 0 : 0;
-                  const StatIcon = statConfig.icon;
-                  return (
+                const value = jobMetrics ? (jobMetrics as any)[statConfig.key] || 0 : 0;
+                const StatIcon = statConfig.icon;
+                return (
                     <SummaryCard
                       key={statConfig.key}
                       label={statConfig.label}
@@ -1903,9 +1903,9 @@ export default function JobsPage() {
                       color={statConfig.color}
                       icon={<StatIcon size={16} strokeWidth={2.35} />}
                     />
-                  );
-                })}
-          </div>
+                );
+              })}
+            </div>
 
           {loading ? (
             view === 'list' ? (
@@ -1930,21 +1930,21 @@ export default function JobsPage() {
                     size={16}
                     strokeWidth={2.25}
                   />
-                  <input
-                    type="text"
+                    <input
+                      type="text"
                     placeholder="Search jobs, client, location…"
-                    value={searchFilter}
-                    onChange={(e) => {
-                      setSearchFilter(e.target.value);
-                      setCurrentPage(1);
-                    }}
+                      value={searchFilter}
+                      onChange={(e) => {
+                        setSearchFilter(e.target.value);
+                        setCurrentPage(1);
+                      }}
                     className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
-                  />
-                </div>
+                    />
+                  </div>
                 <div className="flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-center lg:justify-end">
                   <div className="inline-flex w-fit items-center rounded-lg border border-indigo-100/90 bg-white/95 p-0.5 shadow-sm ring-1 ring-indigo-100/40">
-                    <button
-                      type="button"
+                      <button
+                        type="button"
                       onClick={() => setView('list')}
                       className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap transition-all ${
                         view === 'list'
@@ -1954,7 +1954,7 @@ export default function JobsPage() {
                     >
                       <List size={14} className="shrink-0" />
                       List
-                    </button>
+                      </button>
                     <button
                       type="button"
                       onClick={() => setView('board')}
@@ -1967,53 +1967,53 @@ export default function JobsPage() {
                       <LayoutGrid size={14} className="shrink-0" />
                       Board
                     </button>
-                  </div>
+                </div>
                   <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                    <select
+                        <select
                       className={PH2_TOOLBAR_SELECT_CLASS}
-                      value={statusFilter}
-                      onChange={(e) => {
-                        setStatusFilter(e.target.value);
-                        setCurrentPage(1);
-                      }}
+                          value={statusFilter}
+                          onChange={(e) => {
+                            setStatusFilter(e.target.value);
+                            setCurrentPage(1);
+                          }}
                     >
                       <option value="">All statuses</option>
                       <option value="OPEN">Active (open)</option>
                       <option value="ON_HOLD">On hold</option>
-                      <option value="CLOSED">Closed</option>
-                      <option value="DRAFT">Draft</option>
-                      <option value="FILLED">Filled</option>
-                    </select>
-                    <select
+                          <option value="CLOSED">Closed</option>
+                          <option value="DRAFT">Draft</option>
+                          <option value="FILLED">Filled</option>
+                        </select>
+                        <select
                       className={PH2_TOOLBAR_SELECT_CLASS}
-                      value={clientFilterId}
-                      onChange={(e) => {
-                        setClientFilterId(e.target.value);
-                        setCurrentPage(1);
-                      }}
-                    >
+                          value={clientFilterId}
+                          onChange={(e) => {
+                            setClientFilterId(e.target.value);
+                            setCurrentPage(1);
+                          }}
+                        >
                       <option value="">All clients</option>
-                      {clientOptions.map((client) => (
-                        <option key={client.id} value={client.id}>
-                          {client.name}
-                        </option>
-                      ))}
-                    </select>
-                    <select
+                          {clientOptions.map((client) => (
+                            <option key={client.id} value={client.id}>
+                              {client.name}
+                            </option>
+                          ))}
+                        </select>
+                        <select
                       className={PH2_TOOLBAR_SELECT_CLASS}
-                      value={recruiterFilterId}
-                      onChange={(e) => {
-                        setRecruiterFilterId(e.target.value);
-                        setCurrentPage(1);
-                      }}
-                    >
+                          value={recruiterFilterId}
+                          onChange={(e) => {
+                            setRecruiterFilterId(e.target.value);
+                            setCurrentPage(1);
+                          }}
+                        >
                       <option value="">All recruiters</option>
-                      {recruiterOptions.map((recruiter) => (
-                        <option key={recruiter.id} value={recruiter.id}>
-                          {recruiter.name}
-                        </option>
-                      ))}
-                    </select>
+                          {recruiterOptions.map((recruiter) => (
+                            <option key={recruiter.id} value={recruiter.id}>
+                              {recruiter.name}
+                            </option>
+                          ))}
+                        </select>
                     {hasActiveFilters ? (
                       <button
                         type="button"
@@ -2030,69 +2030,69 @@ export default function JobsPage() {
                         Clear
                       </button>
                     ) : null}
-                  </div>
-                </div>
-              </div>
+                      </div>
+                    </div>
+            </div>
 
               {error ? (
                 <div className="p-10 text-center text-sm font-medium text-rose-600">Error: {error}</div>
               ) : (
-                <motion.div
-                  key={view}
+            <motion.div
+              key={view}
                   initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
+              animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.22 }}
                 >
                   {view === 'list' ? (
-                    <>
-                      <JobsListView
-                        jobs={jobs}
-                        onJobClick={openJobDrawer}
+                <>
+                  <JobsListView 
+                    jobs={jobs} 
+                    onJobClick={openJobDrawer} 
                         onEditJob={
                           canUpdateJob
                             ? (job) => {
-                                setEditingJobId(job.id);
-                                setEditJobDrawerOpen(true);
+                      setEditingJobId(job.id);
+                      setEditJobDrawerOpen(true);
                               }
                             : undefined
                         }
-                        onAddCandidate={handleAddCandidateForJob}
-                        onDeleteJob={canDeleteJob ? handleDeleteJob : undefined}
-                        deletingJobId={deletingJobId}
-                        canUpdateJob={canUpdateJob}
-                        canDeleteJob={canDeleteJob}
-                        canAddCandidate={canAddCandidate}
-                        statusEdit={statusEdit}
-                        onStatusChange={handleInlineStatusChange}
-                        onRemarkChange={handleRemarkChange}
-                        onSaveStatusEdit={handleSaveStatusEdit}
-                        onCancelStatusEdit={handleCancelStatusEdit}
-                      />
+                    onAddCandidate={handleAddCandidateForJob}
+                    onDeleteJob={canDeleteJob ? handleDeleteJob : undefined} 
+                    deletingJobId={deletingJobId}
+                    canUpdateJob={canUpdateJob}
+                    canDeleteJob={canDeleteJob}
+                    canAddCandidate={canAddCandidate}
+                    statusEdit={statusEdit}
+                    onStatusChange={handleInlineStatusChange}
+                    onRemarkChange={handleRemarkChange}
+                    onSaveStatusEdit={handleSaveStatusEdit}
+                    onCancelStatusEdit={handleCancelStatusEdit}
+                  />
                       <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
-                        <PaginationAll
-                          initialPage={currentPage}
+                    <PaginationAll
+                      initialPage={currentPage}
                           totalPages={Math.max(1, Math.ceil(totalEntries / pageSize))}
-                          totalCount={totalEntries}
-                          pageSize={pageSize}
+                      totalCount={totalEntries}
+                      pageSize={pageSize}
                           pageSizeOptions={[...TABLE_PAGE_SIZE_OPTIONS]}
                           onPageSizeChange={(n) => {
                             if (!(TABLE_PAGE_SIZE_OPTIONS as readonly number[]).includes(n)) return;
                             setPageSize(n as TablePageSize);
                             setCurrentPage(1);
                           }}
-                          itemLabel="jobs"
-                          onPageChange={setCurrentPage}
-                        />
-                      </div>
-                    </>
-                  ) : (
+                      itemLabel="jobs"
+                      onPageChange={setCurrentPage}
+                    />
+                  </div>
+                </>
+              ) : (
                     <div className="p-2 sm:p-3">
-                      <JobsBoardView jobs={jobs} onJobClick={openJobDrawer} canAssignJob={canAssignJob} />
+                <JobsBoardView jobs={jobs} onJobClick={openJobDrawer} canAssignJob={canAssignJob} />
                     </div>
-                  )}
-                </motion.div>
               )}
-            </div>
+            </motion.div>
+              )}
+          </div>
           )}
         </div>
       </Ph2ModulePageLayout>

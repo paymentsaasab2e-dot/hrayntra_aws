@@ -726,8 +726,8 @@ export function JobDetailsDrawer({
   useEffect(() => {
     if (!isOpen || activeTab !== 'candidates' || !job?.id) {
       if (activeTab !== 'candidates') wasOnCandidatesTabRef.current = false;
-      return;
-    }
+        return;
+      }
     const switchedToCandidatesTab = !wasOnCandidatesTabRef.current;
     const jobChanged = prevCandidatesTabJobIdRef.current !== job.id;
     wasOnCandidatesTabRef.current = true;
@@ -1731,9 +1731,9 @@ export function JobDetailsDrawer({
                       <p className="mt-0.5 text-xs text-slate-500">
                         Applied, assigned, or in this job&apos;s pipeline only — scores from AI Applied Matches
                       </p>
-                    </div>
-                    <button
-                      type="button"
+                  </div>
+                                    <button
+                                      type="button"
                       onClick={() => void handleRunAppliedMatches()}
                       disabled={!job?.id || appliedPipelineRunning || appliedCandidatesLoading}
                       className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/25 transition hover:from-emerald-700 hover:via-teal-700 hover:to-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
@@ -1745,8 +1745,8 @@ export function JobDetailsDrawer({
                         strokeWidth={2.25}
                       />
                       {appliedPipelineRunning ? 'Running applied matches…' : 'Run AI Applied Matches'}
-                    </button>
-                  </div>
+                                    </button>
+                                  </div>
                   {appliedCandidatesLoading || appliedPipelineRunning ? (
                     <div className="flex items-center justify-center gap-2 p-10 text-sm text-slate-500">
                       <Loader2 size={18} className="animate-spin text-emerald-600" />
