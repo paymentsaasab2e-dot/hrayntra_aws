@@ -158,6 +158,16 @@ export const candidateController = {
     }
   },
 
+  async removeFromPipeline(req, res) {
+    try {
+      const jobId = String(req.body?.jobId || req.query?.jobId || '').trim();
+      const candidate = await candidateService.removeFromPipeline(req.params.id, jobId, req.user.id);
+      sendResponse(res, 200, 'Candidate removed from pipeline successfully', candidate);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async reject(req, res) {
     try {
       const candidate = await candidateService.rejectCandidate(req.params.id, req.body, req.user.id);

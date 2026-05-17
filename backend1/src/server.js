@@ -21,6 +21,7 @@ const settingsRoutes = require('./routes/settings.routes');
 const notificationRoutes = require('./routes/notification.routes');
 const internalRoutes = require('./routes/internal.routes');
 const contactImportRoutes = require('./routes/contact-import.routes');
+const resumePreviewRoutes = require('./routes/resumePreview.routes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -101,6 +102,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/internal', internalRoutes);
 app.use('/api/contacts/import', contactImportRoutes);
 app.use('/api/v1/contacts/import', contactImportRoutes);
+app.use('/api/resume-preview', resumePreviewRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

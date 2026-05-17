@@ -50,6 +50,13 @@ import {
   PH2_TOOLBAR_ROW_CLASS,
   PH2_TOOLBAR_SELECT_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
+import {
+  buildReportQueryString,
+  DEFAULT_REPORT_FILTERS,
+  ReportsFiltersToolbar,
+  type FiltersState,
+  type ReportFilterOptions,
+} from './reports-filters';
 
 type ReportTab =
   | 'Recruitment Performance'
@@ -62,22 +69,9 @@ type ReportTab =
   | 'Activity & Productivity'
   | 'Custom Reports';
 
-type FilterOption = { id: string; name: string };
-type DateRangeOption = { value: string; label: string };
-
 type SummaryResponse = {
-  filters: {
-    dateRange: string;
-    clientId: string | null;
-    jobId: string | null;
-    recruiterId: string | null;
-  };
-  options: {
-    dateRanges: DateRangeOption[];
-    clients: FilterOption[];
-    jobs: FilterOption[];
-    recruiters: FilterOption[];
-  };
+  filters: FiltersState;
+  options: ReportFilterOptions;
   recruitmentPerformance: {
     kpis: {
       totalOpenJobs: number;
@@ -133,6 +127,7 @@ type SummaryResponse = {
     };
     trend: Array<{ label: string; calls: number; emails: number; tasks: number }>;
   };
+  entityCounts?: Record<string, number>;
 };
 
 type DatasetResponse = {
@@ -140,13 +135,6 @@ type DatasetResponse = {
   title: string;
   columns: string[];
   rows: Record<string, string | number>[];
-};
-
-type FiltersState = {
-  dateRange: string;
-  clientId: string;
-  jobId: string;
-  recruiterId: string;
 };
 
 const TABS: ReportTab[] = [
@@ -172,13 +160,6 @@ const TAB_EXPORT_KEY: Record<Exclude<ReportTab, 'Custom Reports'>, string> = {
   'Activity & Productivity': 'activity-productivity',
 };
 
-const DEFAULT_FILTERS: FiltersState = {
-  dateRange: 'last_30_days',
-  clientId: '',
-  jobId: '',
-  recruiterId: '',
-};
-
 const CHART_COLORS = ['#2563eb', '#8b5cf6', '#f59e0b', '#10b981', '#ef4444', '#0f172a'];
 
 /** Table header row — aligned with Leads list chrome. */
@@ -199,18 +180,6 @@ function formatCurrency(value: number) {
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat('en-US').format(Number(value || 0));
-}
-
-function buildQueryString(filters: FiltersState, extra: Record<string, string> = {}) {
-  const params = new URLSearchParams();
-  if (filters.dateRange) params.set('dateRange', filters.dateRange);
-  if (filters.clientId) params.set('clientId', filters.clientId);
-  if (filters.jobId) params.set('jobId', filters.jobId);
-  if (filters.recruiterId) params.set('recruiterId', filters.recruiterId);
-  Object.entries(extra).forEach(([key, value]) => {
-    if (value) params.set(key, value);
-  });
-  return params.toString();
 }
 
 function buildDownloadHref(fileUrl: string, filename: string) {
@@ -243,6 +212,7 @@ const EmptyState = ({ text }: { text: string }) => (
 function ReportsContent({
   activeTab,
   summary,
+  filterOptions,
   customSource,
   setCustomSource,
   customDataset,
@@ -253,6 +223,7 @@ function ReportsContent({
 }: {
   activeTab: ReportTab;
   summary: SummaryResponse | null;
+  filterOptions: ReportFilterOptions | null;
   customSource: string;
   setCustomSource: (value: string) => void;
   customDataset: DatasetResponse | null;
@@ -671,14 +642,11 @@ function ReportsContent({
                   value={customSource}
                   onChange={(event) => setCustomSource(event.target.value)}
                 >
-                  <option value="jobs">Jobs</option>
-                  <option value="candidates">Candidates</option>
-                  <option value="interviews">Interviews</option>
-                  <option value="placements">Placements</option>
-                  <option value="clients">Clients</option>
-                  <option value="leads">Leads</option>
-                  <option value="tasks">Tasks</option>
-                  <option value="team">Team Performance</option>
+                  {(filterOptions?.customSources || []).map((source) => (
+                    <option key={source.value} value={source.value}>
+                      {source.label}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div>
@@ -759,8 +727,9 @@ export default function ReportsPage() {
   const canCreateReports = hasPermission('reports_create');
   const canExportData = hasPermission('export_data');
   const [activeTab, setActiveTab] = useState<ReportTab>('Recruitment Performance');
-  const [draftFilters, setDraftFilters] = useState<FiltersState>(DEFAULT_FILTERS);
-  const [appliedFilters, setAppliedFilters] = useState<FiltersState>(DEFAULT_FILTERS);
+  const [draftFilters, setDraftFilters] = useState<FiltersState>(DEFAULT_REPORT_FILTERS);
+  const [appliedFilters, setAppliedFilters] = useState<FiltersState>(DEFAULT_REPORT_FILTERS);
+  const [filterOptions, setFilterOptions] = useState<ReportFilterOptions | null>(null);
   const [summary, setSummary] = useState<SummaryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -771,19 +740,33 @@ export default function ReportsPage() {
   const [customLoading, setCustomLoading] = useState(false);
   const [pullRefreshing, setPullRefreshing] = useState(false);
 
+  const loadFilterOptions = async () => {
+    try {
+      const response = await apiFetch<ReportFilterOptions>('/reports/filter-options', { auth: true });
+      setFilterOptions(response.data);
+    } catch {
+      // Summary response still provides options when this fails.
+    }
+  };
+
   const loadSummary = async (filters: FiltersState, opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
     setError(null);
     try {
-      const query = buildQueryString(filters);
+      const query = buildReportQueryString(filters);
       const response = await apiFetch<SummaryResponse>(`/reports/summary?${query}`, { auth: true });
       setSummary(response.data);
+      setFilterOptions(response.data.options);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load reports');
     } finally {
       if (!opts?.silent) setLoading(false);
     }
   };
+
+  useEffect(() => {
+    void loadFilterOptions();
+  }, []);
 
   useEffect(() => {
     void loadSummary(appliedFilters);
@@ -802,7 +785,7 @@ export default function ReportsPage() {
     setCustomLoading(true);
     setError(null);
     try {
-      const query = buildQueryString(appliedFilters, {
+      const query = buildReportQueryString(appliedFilters, {
         columns: customColumns.join(','),
       });
       const response = await apiFetch<DatasetResponse>(`/reports/dataset/${customSource}?${query}`, { auth: true });
@@ -822,7 +805,7 @@ export default function ReportsPage() {
     setError(null);
     try {
       if (activeTab === 'Custom Reports') {
-        const query = buildQueryString(appliedFilters);
+        const query = buildReportQueryString(appliedFilters);
         const response = await apiFetch<{ downloadUrl: string }>(`/reports/export/${customSource}/${format}?${query}`, { auth: true });
         const extension = format === 'csv' ? 'csv' : 'pdf';
         const downloadName = `${customSource.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${new Date().toISOString().split('T')[0]}.${extension}`;
@@ -838,7 +821,7 @@ export default function ReportsPage() {
       }
 
       const tabKey = TAB_EXPORT_KEY[activeTab as Exclude<ReportTab, 'Custom Reports'>];
-      const query = buildQueryString(appliedFilters);
+      const query = buildReportQueryString(appliedFilters);
       const response = await apiFetch<{ downloadUrl: string }>(`/reports/summary/export/${tabKey}/${format}?${query}`, { auth: true });
       const extension = format === 'csv' ? 'csv' : 'pdf';
       const downloadName = `${tabKey}-${new Date().toISOString().split('T')[0]}.${extension}`;
@@ -865,6 +848,8 @@ export default function ReportsPage() {
       setPullRefreshing(false);
     }
   };
+
+  const resolvedOptions = filterOptions ?? summary?.options ?? null;
 
   return (
     <div className="w-full min-h-screen overflow-hidden text-slate-900">
@@ -922,93 +907,16 @@ export default function ReportsPage() {
           <div className="mx-auto max-w-[1600px]">
             <div className={PH2_TABLE_CARD_CLASS}>
               <div className={PH2_TOOLBAR_ROW_CLASS}>
-                <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:max-w-none lg:flex-1 lg:justify-between">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <select
-                      value={draftFilters.dateRange}
-                      onChange={(event) => {
-                        const value = event.target.value;
-                        setDraftFilters((prev) => ({ ...prev, dateRange: value }));
-                      }}
-                      className={PH2_TOOLBAR_SELECT_CLASS}
-                    >
-                      {(summary?.options.dateRanges || [{ value: 'last_30_days', label: 'Last 30 Days' }]).map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-
-                    <select
-                      value={draftFilters.clientId}
-                      onChange={(event) => {
-                        const value = event.target.value;
-                        setDraftFilters((prev) => ({ ...prev, clientId: value }));
-                      }}
-                      className={PH2_TOOLBAR_SELECT_CLASS}
-                    >
-                      <option value="">All Clients</option>
-                      {(summary?.options.clients || []).map((client) => (
-                        <option key={client.id} value={client.id}>
-                          {client.name}
-                        </option>
-                      ))}
-                    </select>
-
-                    <select
-                      value={draftFilters.jobId}
-                      onChange={(event) => {
-                        const value = event.target.value;
-                        setDraftFilters((prev) => ({ ...prev, jobId: value }));
-                      }}
-                      className={PH2_TOOLBAR_SELECT_CLASS}
-                    >
-                      <option value="">All Jobs</option>
-                      {(summary?.options.jobs || []).map((job) => (
-                        <option key={job.id} value={job.id}>
-                          {job.name}
-                        </option>
-                      ))}
-                    </select>
-
-                    <select
-                      value={draftFilters.recruiterId}
-                      onChange={(event) => {
-                        const value = event.target.value;
-                        setDraftFilters((prev) => ({ ...prev, recruiterId: value }));
-                      }}
-                      className={PH2_TOOLBAR_SELECT_CLASS}
-                    >
-                      <option value="">All Recruiters</option>
-                      {(summary?.options.recruiters || []).map((recruiter) => (
-                        <option key={recruiter.id} value={recruiter.id}>
-                          {recruiter.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setAppliedFilters({ ...draftFilters })}
-                      className="rounded-lg bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-3.5 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/30 transition-all hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 active:scale-[0.98]"
-                    >
-                      Apply filters
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDraftFilters(DEFAULT_FILTERS);
-                        setAppliedFilters(DEFAULT_FILTERS);
-                      }}
-                      className="inline-flex items-center gap-1 rounded-lg px-2.5 py-2 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
-                    >
-                      <XCircle size={15} className="shrink-0 text-rose-500" strokeWidth={2.35} />
-                      Reset
-                    </button>
-                  </div>
-                </div>
+                <ReportsFiltersToolbar
+                  draftFilters={draftFilters}
+                  options={resolvedOptions}
+                  onPatch={(key, value) => setDraftFilters((prev) => ({ ...prev, [key]: value }))}
+                  onApply={() => setAppliedFilters({ ...draftFilters })}
+                  onReset={() => {
+                    setDraftFilters(DEFAULT_REPORT_FILTERS);
+                    setAppliedFilters(DEFAULT_REPORT_FILTERS);
+                  }}
+                />
               </div>
 
               <div className="no-scrollbar flex overflow-x-auto border-b border-indigo-100/40 bg-white/40 px-1 sm:px-2">
@@ -1036,6 +944,19 @@ export default function ReportsPage() {
                   <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
                 ) : null}
 
+                {summary?.entityCounts ? (
+                  <div className="mb-4 flex flex-wrap gap-2">
+                    {Object.entries(summary.entityCounts).map(([key, count]) => (
+                      <span
+                        key={key}
+                        className="rounded-full border border-indigo-100 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700 shadow-sm"
+                      >
+                        {key.replace(/([A-Z])/g, ' $1').replace(/^./, (char) => char.toUpperCase())}: {count}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+
                 {loading ? (
                   <div className="space-y-6" role="status" aria-label="Loading report data">
                     <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-6">
@@ -1061,6 +982,7 @@ export default function ReportsPage() {
                       <ReportsContent
                         activeTab={activeTab}
                         summary={summary}
+                        filterOptions={resolvedOptions}
                         customSource={customSource}
                         setCustomSource={setCustomSource}
                         customDataset={customDataset}

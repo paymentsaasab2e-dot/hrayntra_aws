@@ -156,7 +156,7 @@ export default function InvoiceActivityDrawer({ invoiceId, open, onClose, onCurr
         aria-hidden
       />
       <aside
-        className="fixed right-0 top-0 z-[81] flex h-full w-full max-w-[640px] flex-col bg-white shadow-2xl"
+        className="fixed right-0 top-0 z-[81] flex h-full w-3/4 max-w-6xl flex-col border-l border-slate-200 bg-white shadow-2xl"
         role="dialog"
         aria-label="Invoice activity timeline"
       >

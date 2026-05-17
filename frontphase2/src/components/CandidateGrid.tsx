@@ -12,6 +12,11 @@ import {
 import { ImageWithFallback, initialsFromDisplayName } from './ImageWithFallback';
 import { Candidate } from './CandidateTable';
 import { WhatsAppIcon } from './icons/WhatsAppIcon';
+import {
+  getCandidateStageBadgeClasses,
+  getCandidateStageDotClasses,
+  getCandidateStageLabel,
+} from '../utils/candidateStage';
 
 interface CandidateGridProps {
   candidates: Candidate[];
@@ -72,8 +77,13 @@ export const CandidateGrid: React.FC<CandidateGridProps> = ({
                 className="w-20 h-20 rounded-2xl object-cover ring-4 ring-white shadow-md"
                 alt={candidate.name}
               />
-              <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-white rounded-full flex items-center justify-center shadow-sm">
-                <div className="w-3 h-3 bg-green-500 rounded-full border-2 border-white"></div>
+              <div
+                className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-white"
+                title={candidate.stage || 'Unknown'}
+              >
+                <span
+                  className={`h-3 w-3 rounded-full border-2 border-white ${getCandidateStageDotClasses(candidate.stage)}`}
+                />
               </div>
             </div>
 
@@ -81,7 +91,7 @@ export const CandidateGrid: React.FC<CandidateGridProps> = ({
             <p className="text-sm font-medium text-slate-600 mb-0.5">{candidate.designation}</p>
             <p className="text-xs text-slate-400 mb-4">{candidate.company}</p>
 
-            <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border mb-4 ${getStageColor(candidate.stage)}`}>
+            <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border mb-4 ${getCandidateStageBadgeClasses(candidate.stage)}`}>
               {candidate.stage}
             </span>
 

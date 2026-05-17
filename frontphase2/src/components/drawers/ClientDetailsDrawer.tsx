@@ -11,6 +11,14 @@ import { LeadAssigneesMultiSelect } from './LeadAssigneesMultiSelect';
 import { LocationAutocomplete, type LocationSelection } from '../LocationAutocomplete';
 import { inferTimezoneDisplay, type LocationTimezoneInput } from '../../utils/inferTimezone';
 import { ClientTimezoneSelect } from '../clients/ClientTimezoneSelect';
+import { MultiContactFields } from '../ui/MultiContactFields';
+import {
+  buildContactChannelsFromForm,
+  contactListForForm,
+  formatContactListMultiline,
+  normalizeContactList,
+  primaryContactValue,
+} from '../../lib/contact-channels';
 import type { TeamMember } from '../../types/team';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -85,10 +93,24 @@ const HEALTH_STYLES: Record<ClientHealthStatus, { bg: string; text: string; labe
   'At risk': { bg: 'bg-red-50', text: 'text-red-700', label: 'At risk' },
 };
 
-const FieldRow = ({ label, value, href, blankWhenEmpty = false }: { label: string; value: string; href?: boolean; blankWhenEmpty?: boolean }) => (
+const FieldRow = ({
+  label,
+  value,
+  href,
+  blankWhenEmpty = false,
+  multiline = false,
+}: {
+  label: string;
+  value: string;
+  href?: boolean;
+  blankWhenEmpty?: boolean;
+  multiline?: boolean;
+}) => (
   <div className="flex flex-col gap-0.5 py-2 border-b border-slate-100 last:border-0">
     <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{label}</p>
-    <p className={`text-sm font-medium text-slate-900 ${href ? 'text-blue-600 hover:underline cursor-pointer truncate' : ''}`}>
+    <p
+      className={`text-sm font-medium text-slate-900 ${href ? 'text-blue-600 hover:underline cursor-pointer' : ''} ${multiline ? 'whitespace-pre-line' : 'truncate'}`}
+    >
       {value}
     </p>
   </div>
@@ -115,6 +137,8 @@ type ClientOverviewForm = {
   directorName: string;
   contactEmail: string;
   contactPhone: string;
+  contactEmails: string[];
+  contactPhones: string[];
   hiringLocations: string;
   timezone: string;
   priority: string;
@@ -349,6 +373,8 @@ export function ClientDetailsDrawer({
               priority: response.data.priority as Client['priority'] || client.priority,
               sla: response.data.sla || client.sla,
               stage: statusMap[response.data.status] || client.stage,
+              emails: response.data.emails?.length ? response.data.emails : client.emails,
+              phones: response.data.phones?.length ? response.data.phones : client.phones,
             };
             
             // Log the mapped client data
@@ -408,6 +434,8 @@ export function ClientDetailsDrawer({
     directorName: '',
     contactEmail: '',
     contactPhone: '',
+    contactEmails: [''],
+    contactPhones: [''],
     hiringLocations: '',
     timezone: '',
     priority: '' as string,
@@ -1095,6 +1123,14 @@ export function ClientDetailsDrawer({
       directorName: directorNameValue,
       contactEmail: contactEmailValue,
       contactPhone: contactPhoneValue,
+      contactEmails: contactListForForm(
+        (fetchedClient as { emails?: string[] })?.emails || client?.emails,
+        contactEmailValue,
+      ),
+      contactPhones: contactListForForm(
+        (fetchedClient as { phones?: string[] })?.phones || client?.phones,
+        contactPhoneValue,
+      ),
       hiringLocations: fetchedClient?.hiringLocations || client.hiringLocations || '',
       timezone: fetchedClient?.timezone || client.timezone || '',
       priority: fetchedClient?.priority || client.priority || '',
@@ -1168,6 +1204,12 @@ export function ClientDetailsDrawer({
         const leadStatusValue = overviewEditForm.leadStatusValue || 'New';
         const derivedClientStatus = leadStatusValue === 'Converted' ? 'ACTIVE' : 'PROSPECT';
         const primaryAssignedToId = overviewEditForm.assignedToIds?.[0] || overviewEditForm.assignedToId || undefined;
+        const contactChannels = buildContactChannelsFromForm(
+          overviewEditForm.contactEmails,
+          overviewEditForm.contactPhones,
+          overviewEditForm.contactEmail,
+          overviewEditForm.contactPhone,
+        );
         const createData = {
           companyName: overviewEditForm.companyName,
           industry: overviewEditForm.industry || undefined,
@@ -1192,6 +1234,10 @@ export function ClientDetailsDrawer({
           latitude: typeof overviewEditForm.latitude === 'number' ? overviewEditForm.latitude : undefined,
           longitude: typeof overviewEditForm.longitude === 'number' ? overviewEditForm.longitude : undefined,
           directorSalutation: overviewEditForm.directorSalutation || undefined,
+          email: contactChannels.email,
+          phone: contactChannels.phone,
+          emails: contactChannels.emails,
+          phones: contactChannels.phones,
         };
 
         const createdClient = await apiCreateClient(createData);
@@ -1211,16 +1257,16 @@ export function ClientDetailsDrawer({
         if (
           createdClientId &&
           (overviewEditForm.directorName.trim() ||
-            overviewEditForm.contactEmail.trim() ||
-            overviewEditForm.contactPhone.trim())
+            contactChannels.email ||
+            contactChannels.phone)
         ) {
           try {
             const [firstName = '', ...lastParts] = overviewEditForm.directorName.trim().split(/\s+/).filter(Boolean);
             await apiCreateContact({
               firstName: firstName || 'Unknown',
               lastName: lastParts.join(' '),
-              email: overviewEditForm.contactEmail || undefined,
-              phone: overviewEditForm.contactPhone || undefined,
+              email: contactChannels.email || undefined,
+              phone: contactChannels.phone || undefined,
               location:
                 [overviewEditForm.city, overviewEditForm.country].filter(Boolean).join(', ') ||
                 overviewEditForm.location ||
@@ -1277,8 +1323,18 @@ export function ClientDetailsDrawer({
       if (!client) return;
       
       try {
+        const contactChannels = buildContactChannelsFromForm(
+          overviewEditForm.contactEmails,
+          overviewEditForm.contactPhones,
+          overviewEditForm.contactEmail,
+          overviewEditForm.contactPhone,
+        );
         const updateData: any = {
           companyName: overviewEditForm.companyName,
+          email: contactChannels.email,
+          phone: contactChannels.phone,
+          emails: contactChannels.emails,
+          phones: contactChannels.phones,
         };
         
         // Only include fields that have values or are being cleared
@@ -1341,8 +1397,8 @@ export function ClientDetailsDrawer({
           await apiUpdateContact(primaryClientContact.id, {
             firstName: firstName || 'Unknown',
             lastName: lastParts.join(' '),
-            email: overviewEditForm.contactEmail || undefined,
-            phone: overviewEditForm.contactPhone || undefined,
+            email: contactChannels.email || undefined,
+            phone: contactChannels.phone || undefined,
             location: [overviewEditForm.city, overviewEditForm.country].filter(Boolean).join(', ') || overviewEditForm.location || undefined,
             designation: 'Director',
             companyId: client.id,
@@ -1351,15 +1407,15 @@ export function ClientDetailsDrawer({
           });
         } else if (
           overviewEditForm.directorName.trim() ||
-          overviewEditForm.contactEmail.trim() ||
-          overviewEditForm.contactPhone.trim()
+          contactChannels.email ||
+          contactChannels.phone
         ) {
           const [firstName = '', ...lastParts] = overviewEditForm.directorName.trim().split(/\s+/).filter(Boolean);
           await apiCreateContact({
             firstName: firstName || 'Unknown',
             lastName: lastParts.join(' '),
-            email: overviewEditForm.contactEmail || undefined,
-            phone: overviewEditForm.contactPhone || undefined,
+            email: contactChannels.email || undefined,
+            phone: contactChannels.phone || undefined,
             location: [overviewEditForm.city, overviewEditForm.country].filter(Boolean).join(', ') || overviewEditForm.location || undefined,
             designation: 'Director',
             companyId: client.id,
@@ -1375,6 +1431,8 @@ export function ClientDetailsDrawer({
           if (updateData.agreementsFileName !== undefined) next.agreementsFileName = updateData.agreementsFileName ?? null;
           if (updateData.agreementsFileUrl !== undefined) next.agreementsFileUrl = updateData.agreementsFileUrl ?? null;
           if (updateData.agreementsUploadedAt !== undefined) next.agreementsUploadedAt = updateData.agreementsUploadedAt ?? null;
+          if (updateData.emails !== undefined) next.emails = updateData.emails;
+          if (updateData.phones !== undefined) next.phones = updateData.phones;
           return next;
         });
         resetClientLogoDraft();
@@ -1640,6 +1698,8 @@ export function ClientDetailsDrawer({
         directorName: '',
         contactEmail: '',
         contactPhone: '',
+        contactEmails: [''],
+        contactPhones: [''],
         hiringLocations: '',
         timezone: '',
         priority: '',
@@ -1759,7 +1819,7 @@ export function ClientDetailsDrawer({
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
             onClick={(e) => e.stopPropagation()}
-            className="fixed right-0 top-0 h-full w-1/2 max-w-2xl bg-white shadow-2xl z-50 pointer-events-auto border-l border-slate-200 flex flex-col"
+            className="fixed right-0 top-0 h-full w-3/4 max-w-6xl bg-white shadow-2xl z-50 pointer-events-auto border-l border-slate-200 flex flex-col"
           >
             {/* Sticky Header */}
             <div className="shrink-0 bg-white border-b border-slate-200">
@@ -2164,21 +2224,31 @@ export function ClientDetailsDrawer({
                             />
                           </div>
                           <div>
-                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Email *</label>
-                            <input
+                            <MultiContactFields
+                              label="Email"
                               type="email"
-                              value={overviewEditForm.contactEmail}
-                              onChange={(e) => setOverviewEditForm((p) => ({ ...p, contactEmail: e.target.value }))}
-                              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                              required
+                              values={overviewEditForm.contactEmails}
+                              onChange={(contactEmails) => {
+                                const primary = primaryContactValue(
+                                  normalizeContactList(contactEmails, overviewEditForm.contactEmail),
+                                );
+                                setOverviewEditForm((p) => ({ ...p, contactEmails, contactEmail: primary }));
+                              }}
                               placeholder="email@company.com"
                             />
                           </div>
                           <div>
-                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Phone</label>
-                            <input
-                              value={overviewEditForm.contactPhone}
-                              onChange={(e) => setOverviewEditForm((p) => ({ ...p, contactPhone: e.target.value }))}
-                              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                            <MultiContactFields
+                              label="Phone"
+                              type="tel"
+                              values={overviewEditForm.contactPhones}
+                              onChange={(contactPhones) => {
+                                const primary = primaryContactValue(
+                                  normalizeContactList(contactPhones, overviewEditForm.contactPhone),
+                                );
+                                setOverviewEditForm((p) => ({ ...p, contactPhones, contactPhone: primary }));
+                              }}
                               placeholder="+1 (555) 000-0000"
                             />
                           </div>
@@ -3107,8 +3177,8 @@ export function ClientDetailsDrawer({
                               <div><FieldRow label="Company Links" value={companyLinksValue} href={!!companyLinksValue} /></div>
                               <div><FieldRow label="Director Name *" value={primaryClientContact?.name || ''} /></div>
                               <div><FieldRow label="Team Name" value={fullClientData?.companySize || client?.companySize || ''} /></div>
-                              <div><FieldRow label="Email *" value={primaryClientContactEmail} href={!!primaryClientContactEmail} /></div>
-                              <div><FieldRow label="Phone" value={primaryClientContactPhone} /></div>
+                              <div><FieldRow label="Email *" value={formatContactListMultiline(fullClientData?.emails || client?.emails, primaryClientContactEmail)} href={!!primaryClientContactEmail} multiline /></div>
+                              <div><FieldRow label="Phone" value={formatContactListMultiline(fullClientData?.phones || client?.phones, primaryClientContactPhone)} multiline /></div>
                               <div><FieldRow label="Location" value={fullClientData?.location || client?.location || ''} /></div>
                               <div><FieldRow label="City" value={derivedCity} /></div>
                               <div><FieldRow label="Country" value={derivedCountry} /></div>
@@ -3241,25 +3311,31 @@ export function ClientDetailsDrawer({
                                   placeholder="e.g. Growth Team"
                                 />
                               </div>
-                              <div>
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Email *</label>
-                                <input
-                                  type="email"
-                                  value={overviewEditForm.contactEmail}
-                                  onChange={(e) => setOverviewEditForm((p) => ({ ...p, contactEmail: e.target.value }))}
-                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                  placeholder="email@company.com"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Phone</label>
-                                <input
-                                  value={overviewEditForm.contactPhone}
-                                  onChange={(e) => setOverviewEditForm((p) => ({ ...p, contactPhone: e.target.value }))}
-                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                  placeholder="+1 (555) 000-0000"
-                                />
-                              </div>
+                              <MultiContactFields
+                                label="Email"
+                                type="email"
+                                required
+                                values={overviewEditForm.contactEmails}
+                                onChange={(contactEmails) => {
+                                  const primary = primaryContactValue(
+                                    normalizeContactList(contactEmails, overviewEditForm.contactEmail),
+                                  );
+                                  setOverviewEditForm((p) => ({ ...p, contactEmails, contactEmail: primary }));
+                                }}
+                                placeholder="email@company.com"
+                              />
+                              <MultiContactFields
+                                label="Phone"
+                                type="tel"
+                                values={overviewEditForm.contactPhones}
+                                onChange={(contactPhones) => {
+                                  const primary = primaryContactValue(
+                                    normalizeContactList(contactPhones, overviewEditForm.contactPhone),
+                                  );
+                                  setOverviewEditForm((p) => ({ ...p, contactPhones, contactPhone: primary }));
+                                }}
+                                placeholder="+1 (555) 000-0000"
+                              />
                               <div className="sm:col-span-2">
                                 <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Location</label>
                                 <LocationAutocomplete
@@ -3541,13 +3617,32 @@ export function ClientDetailsDrawer({
                                 <input type="text" value={overviewEditForm.companySize} onChange={(e) => setOverviewEditForm((p) => ({ ...p, companySize: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
                               </div>
                               <div>
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Email *</label>
-                                <input type="text" value={overviewEditForm.contactEmail} onChange={(e) => setOverviewEditForm((p) => ({ ...p, contactEmail: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                                <MultiContactFields
+                                  label="Email"
+                                  type="email"
+                                  required
+                                  values={overviewEditForm.contactEmails}
+                                  onChange={(contactEmails) => {
+                                    const primary = primaryContactValue(
+                                      normalizeContactList(contactEmails, overviewEditForm.contactEmail),
+                                    );
+                                    setOverviewEditForm((p) => ({ ...p, contactEmails, contactEmail: primary }));
+                                  }}
+                                  placeholder="email@company.com"
+                                />
                               </div>
-                              <div>
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Phone</label>
-                                <input type="text" value={overviewEditForm.contactPhone} onChange={(e) => setOverviewEditForm((p) => ({ ...p, contactPhone: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
-                              </div>
+                              <MultiContactFields
+                                label="Phone"
+                                type="tel"
+                                values={overviewEditForm.contactPhones}
+                                onChange={(contactPhones) => {
+                                  const primary = primaryContactValue(
+                                    normalizeContactList(contactPhones, overviewEditForm.contactPhone),
+                                  );
+                                  setOverviewEditForm((p) => ({ ...p, contactPhones, contactPhone: primary }));
+                                }}
+                                placeholder="+1 (555) 000-0000"
+                              />
                               <div>
                                 <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Location</label>
                                 <input type="text" value={overviewEditForm.location} onChange={(e) => setOverviewEditForm((p) => ({ ...p, location: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
@@ -5489,6 +5584,7 @@ export function ClientDetailsDrawer({
       }}
       job={selectedJobForDrawer}
       jobCandidates={jobCandidatesForDrawer}
+      onJobCandidatesChange={setJobCandidatesForDrawer}
       pipelineStages={jobPipelineStagesForDrawer}
     />
     </>

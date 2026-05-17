@@ -49,6 +49,7 @@ import integrationRoutes from './modules/integration/integration.routes.js';
 import userCommunicationRoutes from './modules/user-communication/user-communication.routes.js';
 import twilioTestRoutes from './modules/twilio-test/twilio-test.routes.js';
 import pdfProxyRoutes from './routes/pdfProxy.routes.js';
+import resumePreviewRoutes from './routes/resumePreview.routes.js';
 import hqRoutes from './modules/hq/hq.routes.js';
 import ariaRoutes from './routes/ariaRoutes.js';
 import portalSyncRoutes from './modules/internal/portal-sync.routes.js';
@@ -179,6 +180,9 @@ app.get('/api/v1/auth/test', (req, res) => {
 // webhook from backend1 — and rejects with 401 "No token provided"
 // before our shared-secret middleware ever sees the request.
 app.use('/api/v1/internal', portalSyncRoutes);
+// Public document proxies — must be registered before `/api/v1` routers that apply authMiddleware globally
+app.use('/api/v1/pdf-proxy', pdfProxyRoutes);
+app.use('/api/v1/resume-preview', resumePreviewRoutes);
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/linkedin', linkedinRoutes);
@@ -191,7 +195,6 @@ app.use('/api/v1/clients', clientRoutes);
 app.use('/api/v1/contacts', contactRoutes);
 app.use('/api/v1/jobs', jobRoutes);
 app.use('/api/v1/files', filesRoutes);
-app.use('/api/v1/pdf-proxy', pdfProxyRoutes);
 app.use('/api/v1/leads', leadRoutes);
 app.use('/api/v1/pipeline', pipelineRoutes);
 app.use('/api/v1/matches', matchRoutes);

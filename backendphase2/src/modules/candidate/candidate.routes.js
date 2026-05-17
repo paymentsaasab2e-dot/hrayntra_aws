@@ -21,6 +21,7 @@ router.patch('/:id/notes/:noteId/pin', requireAnyPermission(['candidates_update'
 router.post('/:id/tags', requireAnyPermission(['candidates_update', 'edit_candidate']), candidateController.addTag);
 router.delete('/:id/tags/:tagId', requireAnyPermission(['candidates_update', 'edit_candidate']), candidateController.removeTag);
 router.post('/:id/pipeline', requireAnyPermission(['move_pipeline', 'candidates_update']), candidateController.addToPipeline);
+router.delete('/:id/pipeline', requireAnyPermission(['move_pipeline', 'candidates_update']), candidateController.removeFromPipeline);
 router.post('/:id/reject', requireAnyPermission(['candidates_update', 'edit_candidate']), candidateController.reject);
 router.post('/:id/interviews/meeting-link', requireAnyPermission(['interviews_create', 'interviews_update', 'candidates_update']), candidateController.generateInterviewMeetingLink);
 router.post('/:id/interviews', requireAnyPermission(['interviews_create', 'candidates_update']), candidateController.scheduleInterview);

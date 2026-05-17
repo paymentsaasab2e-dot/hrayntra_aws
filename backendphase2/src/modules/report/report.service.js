@@ -346,8 +346,18 @@ function normalizeEntity(entity) {
   if (['interview', 'interviews'].includes(normalized)) return 'interviews';
   if (['placement', 'placements'].includes(normalized)) return 'placements';
   if (['task', 'tasks'].includes(normalized)) return 'tasks';
-  if (['team', 'team-performance', 'team_performance'].includes(normalized)) return 'team';
+  if (['activity', 'activities'].includes(normalized)) return 'activities';
+  if (['team', 'team-performance', 'team_performance', 'team-members', 'team_members'].includes(normalized)) return 'team';
+  if (['match', 'matches', 'ai-match', 'ai_match', 'ai-matches', 'ai_matches'].includes(normalized)) return 'ai_matches';
+  if (['application', 'applications', 'ai-applied-matches', 'ai_applied_matches', 'applied-matches'].includes(normalized)) {
+    return 'ai_applied_matches';
+  }
   return normalized;
+}
+
+async function loadIfEnabled(enabled, loader) {
+  if (!enabled) return [];
+  return loader();
 }
 
 function normalizeFormat(format) {
@@ -425,15 +435,109 @@ function activityScope(user) {
   return { performedById: uid };
 }
 
+function optionalFilterValue(value) {
+  const normalized = String(value || '').trim();
+  return normalized || null;
+}
+
+function formatFilterLabel(value) {
+  return String(value || '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function toValueOptions(values) {
+  return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b))
+    .map((value) => ({ value, label: formatFilterLabel(value) }));
+}
+
+const REPORT_ENTITY_KEYS = [
+  'leads',
+  'clients',
+  'jobs',
+  'candidates',
+  'placements',
+  'interviews',
+  'team',
+  'tasks',
+  'activities',
+  'ai_matches',
+  'ai_applied_matches',
+];
+
+const REPORT_ENTITY_LABELS = {
+  leads: 'Leads',
+  clients: 'Clients',
+  jobs: 'Jobs',
+  candidates: 'Candidates',
+  placements: 'Placements',
+  interviews: 'Interviews',
+  team: 'Team Members',
+  tasks: 'Tasks',
+  activities: 'Activity',
+  ai_matches: 'AI Matches',
+  ai_applied_matches: 'AI Applied Matches',
+};
+
+function parseReportEntities(rawValue) {
+  const normalized = String(rawValue || '')
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+  if (!normalized.length) return new Set(REPORT_ENTITY_KEYS);
+  const aliases = {
+    lead: 'leads',
+    client: 'clients',
+    job: 'jobs',
+    candidate: 'candidates',
+    placement: 'placements',
+    interview: 'interviews',
+    'team-members': 'team',
+    team_members: 'team',
+    task: 'tasks',
+    activity: 'activities',
+    matches: 'ai_matches',
+    'ai-matches': 'ai_matches',
+    applications: 'ai_applied_matches',
+    'ai-applied-matches': 'ai_applied_matches',
+    'applied-matches': 'ai_applied_matches',
+  };
+  const selected = new Set();
+  normalized.forEach((token) => {
+    const key = aliases[token] || token;
+    if (REPORT_ENTITY_KEYS.includes(key)) selected.add(key);
+  });
+  return selected.size ? selected : new Set(REPORT_ENTITY_KEYS);
+}
+
+function entityEnabled(filters, key) {
+  if (!filters?.entities || filters.entities.size === 0) return true;
+  return filters.entities.has(key);
+}
+
+function parseDateOnly(value, endOfDay = false) {
+  const normalized = String(value || '').trim();
+  if (!normalized) return null;
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) return null;
+  if (endOfDay) parsed.setHours(23, 59, 59, 999);
+  else parsed.setHours(0, 0, 0, 0);
+  return parsed;
+}
+
 function parseSummaryFilters(query = {}) {
-  const rangeKey = String(query.dateRange || 'last_30_days').trim().toLowerCase();
+  const startDateRaw = String(query.startDate || '').trim();
+  const endDateRaw = String(query.endDate || '').trim();
+  const hasCustomDates = Boolean(startDateRaw && endDateRaw);
+  const rangeKey = hasCustomDates ? 'custom' : String(query.dateRange || 'last_30_days').trim().toLowerCase();
   const now = new Date();
   let start = null;
   let end = now;
 
-  if (query.startDate && query.endDate) {
-    start = new Date(query.startDate);
-    end = new Date(query.endDate);
+  if (hasCustomDates) {
+    start = parseDateOnly(startDateRaw, false);
+    end = parseDateOnly(endDateRaw, true);
   } else if (rangeKey === 'last_7_days') {
     start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   } else if (rangeKey === 'this_month') {
@@ -456,11 +560,193 @@ function parseSummaryFilters(query = {}) {
 
   return {
     dateRange: rangeKey,
+    startDate: startDateRaw || null,
+    endDate: endDateRaw || null,
     start,
     end,
+    entities: parseReportEntities(query.entities),
     clientId: isValidObjectId(query.clientId) ? String(query.clientId) : null,
     jobId: isValidObjectId(query.jobId) ? String(query.jobId) : null,
     recruiterId: isValidObjectId(query.recruiterId) ? String(query.recruiterId) : null,
+    jobStatus: optionalFilterValue(query.jobStatus),
+    jobType: optionalFilterValue(query.jobType),
+    jobLocation: optionalFilterValue(query.jobLocation),
+    jobDepartment: optionalFilterValue(query.jobDepartment),
+    candidateStatus: optionalFilterValue(query.candidateStatus),
+    candidateSource: optionalFilterValue(query.candidateSource),
+    clientStatus: optionalFilterValue(query.clientStatus),
+    clientIndustry: optionalFilterValue(query.clientIndustry),
+    leadStatus: optionalFilterValue(query.leadStatus),
+    leadSource: optionalFilterValue(query.leadSource),
+    interviewStatus: optionalFilterValue(query.interviewStatus),
+    placementStatus: optionalFilterValue(query.placementStatus),
+  };
+}
+
+function exactMatchFilter(field, value) {
+  if (!value) return {};
+  return { [field]: value };
+}
+
+function caseInsensitiveMatchFilter(field, value) {
+  if (!value) return {};
+  return { [field]: { equals: value, mode: 'insensitive' } };
+}
+
+function buildJobMatchConditions(filters, { includeId = true } = {}) {
+  const jobWhere = {};
+  if (includeId && filters.jobId) jobWhere.id = filters.jobId;
+  if (filters.jobStatus) jobWhere.status = filters.jobStatus;
+  if (filters.jobType) jobWhere.type = filters.jobType;
+  if (filters.jobLocation) jobWhere.location = { equals: filters.jobLocation, mode: 'insensitive' };
+  if (filters.jobDepartment) jobWhere.department = { equals: filters.jobDepartment, mode: 'insensitive' };
+  if (filters.clientId) jobWhere.clientId = filters.clientId;
+  return jobWhere;
+}
+
+function relatedJobWhere(filters) {
+  const jobWhere = buildJobMatchConditions(filters);
+  if (Object.keys(jobWhere).length === 0) return {};
+  return { job: jobWhere };
+}
+
+function pipelineEntryJobFilter(filters) {
+  if (filters.jobId) return { jobId: filters.jobId };
+  const jobWhere = buildJobMatchConditions(filters, { includeId: false });
+  if (Object.keys(jobWhere).length === 0) return {};
+  return { stage: { job: jobWhere } };
+}
+
+function placementJobFilter(filters) {
+  const jobWhere = buildJobMatchConditions(filters, { includeId: false });
+  if (Object.keys(jobWhere).length === 0) return {};
+  return { placement: { job: jobWhere } };
+}
+
+function candidateJobScopeFilter(filters) {
+  if (!filters.jobId && !filters.jobStatus && !filters.jobType && !filters.jobLocation && !filters.jobDepartment) {
+    return {};
+  }
+  return {
+    OR: [
+      filters.jobId ? { assignedJobs: { has: filters.jobId } } : null,
+      { pipelineEntries: { some: relatedJobWhere(filters) } },
+      { matches: { some: relatedJobWhere(filters) } },
+      { interviews: { some: relatedJobWhere(filters) } },
+      { placements: { some: relatedJobWhere(filters) } },
+    ].filter(Boolean),
+  };
+}
+
+async function buildReportFilterOptions(user) {
+  const jobsWhere = combineWhere(jobScope(user));
+  const clientsWhere = combineWhere(clientScope(user));
+  const candidatesWhere = combineWhere(candidateScope(user));
+  const leadsWhere = combineWhere(leadScope(user));
+  const interviewsWhere = combineWhere(interviewScope(user));
+  const placementsWhere = combineWhere(placementScope(user), { deletedAt: null });
+
+  const [
+    jobMeta,
+    candidateMeta,
+    clientMeta,
+    leadMeta,
+    interviewMeta,
+    placementMeta,
+    clientOptions,
+    jobOptions,
+    recruiters,
+    matchMeta,
+    applicationMeta,
+  ] = await Promise.all([
+    prisma.job.findMany({
+      where: jobsWhere,
+      select: { status: true, type: true, location: true, department: true },
+      take: 5000,
+    }),
+    prisma.candidate.findMany({
+      where: candidatesWhere,
+      select: { status: true, source: true },
+      take: 5000,
+    }),
+    prisma.client.findMany({
+      where: clientsWhere,
+      select: { status: true, industry: true },
+      take: 5000,
+    }),
+    prisma.lead.findMany({
+      where: leadsWhere,
+      select: { status: true, source: true },
+      take: 5000,
+    }),
+    prisma.interview.findMany({
+      where: interviewsWhere,
+      select: { status: true },
+      take: 5000,
+    }),
+    prisma.placement.findMany({
+      where: placementsWhere,
+      select: { status: true },
+      take: 5000,
+    }),
+    prisma.client.findMany({
+      where: clientsWhere,
+      select: { id: true, companyName: true },
+      orderBy: { companyName: 'asc' },
+      take: 200,
+    }),
+    prisma.job.findMany({
+      where: jobsWhere,
+      select: { id: true, title: true },
+      orderBy: { title: 'asc' },
+      take: 200,
+    }),
+    prisma.user.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true, email: true },
+      orderBy: { name: 'asc' },
+    }),
+    prisma.match.findMany({ select: { status: true }, take: 5000 }),
+    prisma.application.findMany({ select: { status: true }, take: 5000 }),
+  ]);
+
+  return {
+    dateRanges: [
+      { value: 'last_7_days', label: 'Last 7 Days' },
+      { value: 'last_30_days', label: 'Last 30 Days' },
+      { value: 'this_month', label: 'This Month' },
+      { value: 'this_quarter', label: 'This Quarter' },
+      { value: 'this_year', label: 'This Year' },
+      { value: 'custom', label: 'Custom (From / To)' },
+    ],
+    reportEntities: REPORT_ENTITY_KEYS.map((value) => ({
+      value,
+      label: REPORT_ENTITY_LABELS[value] || formatFilterLabel(value),
+    })),
+    clients: clientOptions.map((client) => ({ id: client.id, name: client.companyName })),
+    jobs: jobOptions.map((job) => ({ id: job.id, name: job.title })),
+    recruiters: recruiters.map((recruiter) => ({
+      id: recruiter.id,
+      name: recruiter.name || recruiter.email || 'Unknown',
+    })),
+    jobStatuses: toValueOptions(jobMeta.map((row) => row.status)),
+    jobTypes: toValueOptions(jobMeta.map((row) => row.type)),
+    jobLocations: toValueOptions(jobMeta.map((row) => row.location)),
+    jobDepartments: toValueOptions(jobMeta.map((row) => row.department)),
+    candidateStatuses: toValueOptions(candidateMeta.map((row) => row.status)),
+    candidateSources: toValueOptions(candidateMeta.map((row) => row.source)),
+    clientStatuses: toValueOptions(clientMeta.map((row) => row.status)),
+    clientIndustries: toValueOptions(clientMeta.map((row) => row.industry)),
+    leadStatuses: toValueOptions(leadMeta.map((row) => row.status)),
+    leadSources: toValueOptions(leadMeta.map((row) => row.source)),
+    interviewStatuses: toValueOptions(interviewMeta.map((row) => row.status)),
+    placementStatuses: toValueOptions(placementMeta.map((row) => row.status)),
+    matchStatuses: toValueOptions(matchMeta.map((row) => row.status)),
+    applicationStatuses: toValueOptions(applicationMeta.map((row) => row.status)),
+    customSources: REPORT_ENTITY_KEYS.map((value) => ({
+      value,
+      label: REPORT_ENTITY_LABELS[value] || formatFilterLabel(value),
+    })).concat([{ value: 'pipeline', label: 'Pipeline' }]),
   };
 }
 
@@ -565,30 +851,35 @@ function countBy(items, keyGetter) {
 
 async function getReportsSummary(query = {}, user = null) {
   const filters = parseSummaryFilters(query);
-
-  const clientsFilterForOptions = combineWhere(clientScope(user));
-  const jobsFilterForOptions = combineWhere(jobScope(user));
-  const recruitersFilterForOptions = { isActive: true };
+  const filterOptions = await buildReportFilterOptions(user);
 
   const jobsWhere = combineWhere(
     jobScope(user),
     dateBetween('createdAt', filters),
     filters.clientId ? { clientId: filters.clientId } : {},
     filters.jobId ? { id: filters.jobId } : {},
-    filters.recruiterId ? { OR: [{ assignedToId: filters.recruiterId }, { createdById: filters.recruiterId }] } : {}
+    filters.recruiterId ? { OR: [{ assignedToId: filters.recruiterId }, { createdById: filters.recruiterId }] } : {},
+    exactMatchFilter('status', filters.jobStatus),
+    exactMatchFilter('type', filters.jobType),
+    caseInsensitiveMatchFilter('location', filters.jobLocation),
+    caseInsensitiveMatchFilter('department', filters.jobDepartment)
   );
 
   const clientsWhere = combineWhere(
     clientScope(user),
     dateBetween('createdAt', filters),
     filters.clientId ? { id: filters.clientId } : {},
-    filters.recruiterId ? { assignedToId: filters.recruiterId } : {}
+    filters.recruiterId ? { assignedToId: filters.recruiterId } : {},
+    exactMatchFilter('status', filters.clientStatus),
+    caseInsensitiveMatchFilter('industry', filters.clientIndustry)
   );
 
   const candidatesWhere = combineWhere(
     candidateScope(user),
     dateBetween('createdAt', filters),
     filters.recruiterId ? { OR: [{ assignedToId: filters.recruiterId }, { createdById: filters.recruiterId }] } : {},
+    exactMatchFilter('status', filters.candidateStatus),
+    caseInsensitiveMatchFilter('source', filters.candidateSource),
     filters.jobId
       ? {
           OR: [
@@ -599,7 +890,7 @@ async function getReportsSummary(query = {}, user = null) {
             { placements: { some: { jobId: filters.jobId } } },
           ],
         }
-      : {},
+      : candidateJobScopeFilter(filters),
     filters.clientId
       ? {
           OR: [{ interviews: { some: { clientId: filters.clientId } } }, { placements: { some: { clientId: filters.clientId } } }],
@@ -614,7 +905,9 @@ async function getReportsSummary(query = {}, user = null) {
     filters.jobId ? { jobId: filters.jobId } : {},
     filters.recruiterId
       ? { OR: [{ interviewerId: filters.recruiterId }, { createdById: filters.recruiterId }, { panelIds: { has: filters.recruiterId } }] }
-      : {}
+      : {},
+    exactMatchFilter('status', filters.interviewStatus),
+    relatedJobWhere(filters)
   );
 
   const placementsWhere = combineWhere(
@@ -623,7 +916,9 @@ async function getReportsSummary(query = {}, user = null) {
     dateBetween('createdAt', filters),
     filters.clientId ? { clientId: filters.clientId } : {},
     filters.jobId ? { jobId: filters.jobId } : {},
-    filters.recruiterId ? { recruiterId: filters.recruiterId } : {}
+    filters.recruiterId ? { recruiterId: filters.recruiterId } : {},
+    exactMatchFilter('status', filters.placementStatus),
+    relatedJobWhere(filters)
   );
 
   const tasksWhere = combineWhere(
@@ -644,24 +939,45 @@ async function getReportsSummary(query = {}, user = null) {
     leadScope(user),
     dateBetween('createdAt', filters),
     filters.recruiterId ? { assignedToId: filters.recruiterId } : {},
-    filters.clientId ? { convertedToClientId: filters.clientId } : {}
+    filters.clientId ? { convertedToClientId: filters.clientId } : {},
+    exactMatchFilter('status', filters.leadStatus),
+    exactMatchFilter('source', filters.leadSource)
   );
 
   const matchesWhere = combineWhere(
     filters.jobId ? { jobId: filters.jobId } : {},
     filters.recruiterId ? { createdById: filters.recruiterId } : {},
-    dateBetween('createdAt', filters)
+    dateBetween('createdAt', filters),
+    relatedJobWhere(filters)
   );
 
-  const pipelineWhere = combineWhere(
+  const applicationsWhere = combineWhere(
     filters.jobId ? { jobId: filters.jobId } : {},
-    dateBetween('movedAt', filters)
+    dateBetween('appliedAt', filters),
+    relatedJobWhere(filters)
   );
+
+  const pipelineWhere = combineWhere(dateBetween('movedAt', filters), pipelineEntryJobFilter(filters));
+
+  const includeJobs = entityEnabled(filters, 'jobs');
+  const includeClients = entityEnabled(filters, 'clients');
+  const includeCandidates = entityEnabled(filters, 'candidates');
+  const includeInterviews = entityEnabled(filters, 'interviews');
+  const includePlacements = entityEnabled(filters, 'placements');
+  const includeTasks = entityEnabled(filters, 'tasks');
+  const includeActivities = entityEnabled(filters, 'activities');
+  const includeLeads = entityEnabled(filters, 'leads');
+  const includeAiMatches = entityEnabled(filters, 'ai_matches');
+  const includeAiApplied = entityEnabled(filters, 'ai_applied_matches');
+  const includeTeam = entityEnabled(filters, 'team');
+  const includePipeline = includeCandidates || includeJobs;
+  const includeBilling = includePlacements;
 
   const billingWhere = combineWhere(
     dateBetween('createdAt', filters),
     filters.clientId ? { clientId: filters.clientId } : {},
-    filters.jobId ? { placement: { jobId: filters.jobId } } : {}
+    filters.jobId ? { placement: { jobId: filters.jobId } } : {},
+    placementJobFilter(filters)
   );
 
   const [
@@ -674,35 +990,39 @@ async function getReportsSummary(query = {}, user = null) {
     activities,
     leads,
     matches,
+    applications,
     pipelineEntries,
     billingRecords,
     recruiters,
-    clientOptions,
-    jobOptions,
   ] = await Promise.all([
-    prisma.job.findMany({
-      where: jobsWhere,
-      select: {
-        id: true,
-        title: true,
-        status: true,
-        location: true,
-        openings: true,
-        createdAt: true,
-        postedDate: true,
-        clientId: true,
-        assignedToId: true,
-        createdById: true,
-        client: { select: { companyName: true } },
-      },
-      orderBy: { updatedAt: 'desc' },
-    }),
-    prisma.client.findMany({
+    loadIfEnabled(includeJobs, () =>
+      prisma.job.findMany({
+        where: jobsWhere,
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          location: true,
+          openings: true,
+          createdAt: true,
+          postedDate: true,
+          clientId: true,
+          assignedToId: true,
+          createdById: true,
+          client: { select: { companyName: true } },
+        },
+        orderBy: { updatedAt: 'desc' },
+      })
+    ),
+    loadIfEnabled(includeClients, () =>
+      prisma.client.findMany({
       where: clientsWhere,
       select: { id: true, companyName: true, status: true, industry: true, location: true, assignedToId: true, createdAt: true },
       orderBy: { updatedAt: 'desc' },
-    }),
-    prisma.candidate.findMany({
+      })
+    ),
+    loadIfEnabled(includeCandidates, () =>
+      prisma.candidate.findMany({
       where: candidatesWhere,
       select: {
         id: true,
@@ -717,8 +1037,10 @@ async function getReportsSummary(query = {}, user = null) {
         assignedJobs: true,
       },
       orderBy: { updatedAt: 'desc' },
-    }),
-    prisma.interview.findMany({
+      })
+    ),
+    loadIfEnabled(includeInterviews, () =>
+      prisma.interview.findMany({
       where: interviewsWhere,
       select: {
         id: true,
@@ -728,8 +1050,10 @@ async function getReportsSummary(query = {}, user = null) {
         createdById: true,
       },
       orderBy: { scheduledAt: 'desc' },
-    }),
-    prisma.placement.findMany({
+      })
+    ),
+    loadIfEnabled(includePlacements, () =>
+      prisma.placement.findMany({
       where: placementsWhere,
       select: {
         id: true,
@@ -745,51 +1069,68 @@ async function getReportsSummary(query = {}, user = null) {
         clientId: true,
       },
       orderBy: { updatedAt: 'desc' },
-    }),
-    prisma.task.findMany({
+      })
+    ),
+    loadIfEnabled(includeTasks, () =>
+      prisma.task.findMany({
       where: tasksWhere,
       select: { id: true, status: true, dueDate: true, createdAt: true, assignedToId: true, createdById: true },
-    }),
-    prisma.activity.findMany({
-      where: activitiesWhere,
-      select: { id: true, action: true, description: true, category: true, createdAt: true, performedById: true },
-    }),
-    prisma.lead.findMany({
-      where: leadsWhere,
-      select: { id: true, status: true, source: true, createdAt: true, assignedToId: true, companyName: true },
-      orderBy: { updatedAt: 'desc' },
-    }),
-    prisma.match.findMany({
-      where: matchesWhere,
-      select: { id: true, jobId: true, createdById: true, createdAt: true, candidateId: true },
-    }),
-    prisma.pipelineEntry.findMany({
-      where: pipelineWhere,
-      select: { id: true, jobId: true, candidateId: true, movedAt: true, stage: { select: { name: true } } },
-      orderBy: { movedAt: 'desc' },
-    }),
-    prisma.billingRecord.findMany({
-      where: billingWhere,
-      select: { id: true, amount: true, status: true, createdAt: true, invoiceDate: true },
-      orderBy: { createdAt: 'desc' },
-    }),
-    prisma.user.findMany({
-      where: recruitersFilterForOptions,
-      select: { id: true, name: true, email: true, role: true },
-      orderBy: { name: 'asc' },
-    }),
-    prisma.client.findMany({
-      where: clientsFilterForOptions,
-      select: { id: true, companyName: true },
-      orderBy: { companyName: 'asc' },
-      take: 200,
-    }),
-    prisma.job.findMany({
-      where: jobsFilterForOptions,
-      select: { id: true, title: true },
-      orderBy: { title: 'asc' },
-      take: 200,
-    }),
+      })
+    ),
+    loadIfEnabled(includeActivities, () =>
+      prisma.activity.findMany({
+        where: activitiesWhere,
+        select: { id: true, action: true, description: true, category: true, createdAt: true, performedById: true },
+      })
+    ),
+    loadIfEnabled(includeLeads, () =>
+      prisma.lead.findMany({
+        where: leadsWhere,
+        select: { id: true, status: true, source: true, createdAt: true, assignedToId: true, companyName: true },
+        orderBy: { updatedAt: 'desc' },
+      })
+    ),
+    loadIfEnabled(includeAiMatches, () =>
+      prisma.match.findMany({
+        where: matchesWhere,
+        select: { id: true, jobId: true, createdById: true, createdAt: true, candidateId: true, status: true, score: true },
+      })
+    ),
+    loadIfEnabled(includeAiApplied, () =>
+      prisma.application.findMany({
+        where: applicationsWhere,
+        select: {
+          id: true,
+          jobId: true,
+          candidateId: true,
+          status: true,
+          matchScore: true,
+          appliedAt: true,
+        },
+        orderBy: { appliedAt: 'desc' },
+      })
+    ),
+    loadIfEnabled(includePipeline, () =>
+      prisma.pipelineEntry.findMany({
+        where: pipelineWhere,
+        select: { id: true, jobId: true, candidateId: true, movedAt: true, stage: { select: { name: true } } },
+        orderBy: { movedAt: 'desc' },
+      })
+    ),
+    loadIfEnabled(includeBilling, () =>
+      prisma.billingRecord.findMany({
+        where: billingWhere,
+        select: { id: true, amount: true, status: true, createdAt: true, invoiceDate: true },
+        orderBy: { createdAt: 'desc' },
+      })
+    ),
+    loadIfEnabled(includeTeam, () =>
+      prisma.user.findMany({
+        where: { isActive: true },
+        select: { id: true, name: true, email: true, role: true },
+        orderBy: { name: 'asc' },
+      })
+    ),
   ]);
 
   const recruiterMap = new Map(recruiters.map((userRow) => [userRow.id, userRow.name || userRow.email || 'Unknown']));
@@ -988,19 +1329,28 @@ async function getReportsSummary(query = {}, user = null) {
   const conversionPct = activeCandidatesCount > 0 ? ((totalPlacements / activeCandidatesCount) * 100).toFixed(1) : '0.0';
 
   return {
-    filters,
-    options: {
-      dateRanges: [
-        { value: 'last_7_days', label: 'Last 7 Days' },
-        { value: 'last_30_days', label: 'Last 30 Days' },
-        { value: 'this_month', label: 'This Month' },
-        { value: 'this_quarter', label: 'This Quarter' },
-        { value: 'this_year', label: 'This Year' },
-      ],
-      clients: clientOptions.map((client) => ({ id: client.id, name: client.companyName })),
-      jobs: jobOptions.map((job) => ({ id: job.id, name: job.title })),
-      recruiters: recruiters.map((recruiter) => ({ id: recruiter.id, name: recruiter.name || recruiter.email || 'Unknown' })),
+    filters: {
+      dateRange: filters.dateRange,
+      startDate: filters.startDate,
+      endDate: filters.endDate,
+      entities: [...filters.entities].join(','),
+      clientId: filters.clientId,
+      jobId: filters.jobId,
+      recruiterId: filters.recruiterId,
+      jobStatus: filters.jobStatus,
+      jobType: filters.jobType,
+      jobLocation: filters.jobLocation,
+      jobDepartment: filters.jobDepartment,
+      candidateStatus: filters.candidateStatus,
+      candidateSource: filters.candidateSource,
+      clientStatus: filters.clientStatus,
+      clientIndustry: filters.clientIndustry,
+      leadStatus: filters.leadStatus,
+      leadSource: filters.leadSource,
+      interviewStatus: filters.interviewStatus,
+      placementStatus: filters.placementStatus,
     },
+    options: filterOptions,
     recruitmentPerformance: {
       kpis: {
         totalOpenJobs: openJobsCount,
@@ -1047,6 +1397,19 @@ async function getReportsSummary(query = {}, user = null) {
         overdueTasks,
       },
       trend: activityTrend,
+    },
+    entityCounts: {
+      leads: leads.length,
+      clients: clients.length,
+      jobs: jobs.length,
+      candidates: candidates.length,
+      placements: placements.length,
+      interviews: interviews.length,
+      team: recruiters.length,
+      tasks: tasks.length,
+      activities: activities.length,
+      aiMatches: matches.length,
+      aiAppliedMatches: applications.length,
     },
   };
 }
@@ -1242,10 +1605,12 @@ function buildFileFromDataset(dataset, entity, format) {
 }
 
 async function buildWhereForEntity(entity, query, user) {
-  const assignedToId = await resolveUserId(query.assignedTo || query.assignedToId || query.owner);
-  const createdAt = dateRangeFilter(query.dateRange);
+  const filters = parseSummaryFilters(query);
+  const assignedToId = await resolveUserId(query.assignedTo || query.assignedToId || query.owner || filters.recruiterId);
+  const createdAt = dateBetween('createdAt', filters);
+  const scheduledAt = dateBetween('scheduledAt', filters);
   const search = String(query.search || '').trim();
-  const location = String(query.location || '').trim();
+  const location = String(query.location || '').trim() || filters.jobLocation;
   const status = String(query.status || '').trim();
 
   switch (entity) {
@@ -1253,7 +1618,9 @@ async function buildWhereForEntity(entity, query, user) {
       const where = userHasFullDbAccess(user) ? {} : { assignedToId: user?.id || '__none__' };
       if (assignedToId) where.assignedToId = assignedToId;
       if (createdAt) where.createdAt = createdAt;
-      if (status) where.status = status;
+      if (status || filters.leadStatus) where.status = status || filters.leadStatus;
+      if (filters.leadSource) where.source = filters.leadSource;
+      if (filters.clientId) where.convertedToClientId = filters.clientId;
       if (search || location) {
         where.OR = [
           ...buildTextSearchConditions(
@@ -1270,7 +1637,9 @@ async function buildWhereForEntity(entity, query, user) {
       const where = userHasFullDbAccess(user) ? {} : { assignedToId: user?.id || '__none__' };
       if (assignedToId) where.assignedToId = assignedToId;
       if (createdAt) where.createdAt = createdAt;
-      if (status) where.status = status;
+      if (status || filters.clientStatus) where.status = status || filters.clientStatus;
+      if (filters.clientIndustry) where.industry = { equals: filters.clientIndustry, mode: 'insensitive' };
+      if (filters.clientId) where.id = filters.clientId;
       if (search || location) {
         where.OR = [
           ...buildTextSearchConditions(['companyName', 'industry', 'website', 'linkedin', 'hiringLocations'], search),
@@ -1285,7 +1654,9 @@ async function buildWhereForEntity(entity, query, user) {
         : { OR: [{ assignedToId: user?.id || '__none__' }, { createdById: user?.id || '__none__' }] };
       if (assignedToId) where.assignedToId = assignedToId;
       if (createdAt) where.createdAt = createdAt;
-      if (status) where.status = status;
+      if (status || filters.candidateStatus) where.status = status || filters.candidateStatus;
+      if (filters.candidateSource) where.source = { equals: filters.candidateSource, mode: 'insensitive' };
+      Object.assign(where, candidateJobScopeFilter(filters));
       if (search || location) {
         where.OR = [
           ...(Array.isArray(where.OR) ? where.OR : []),
@@ -1301,7 +1672,11 @@ async function buildWhereForEntity(entity, query, user) {
         : { OR: [{ assignedToId: user?.id || '__none__' }, { createdById: user?.id || '__none__' }] };
       if (assignedToId) where.assignedToId = assignedToId;
       if (createdAt) where.createdAt = createdAt;
-      if (status) where.status = status;
+      if (status || filters.jobStatus) where.status = status || filters.jobStatus;
+      if (filters.jobType) where.type = filters.jobType;
+      if (filters.jobDepartment) where.department = { equals: filters.jobDepartment, mode: 'insensitive' };
+      if (filters.clientId) where.clientId = filters.clientId;
+      if (filters.jobId) where.id = filters.jobId;
       if (search || location) {
         where.OR = [
           ...(Array.isArray(where.OR) ? where.OR : []),
@@ -1339,7 +1714,10 @@ async function buildWhereForEntity(entity, query, user) {
           };
       if (assignedToId) where.recruiterId = assignedToId;
       if (createdAt) where.createdAt = createdAt;
-      if (status) where.status = status.toUpperCase();
+      if (status || filters.placementStatus) where.status = (status || filters.placementStatus).toUpperCase();
+      if (filters.clientId) where.clientId = filters.clientId;
+      if (filters.jobId) where.jobId = filters.jobId;
+      Object.assign(where, relatedJobWhere(filters));
       return where;
     }
     case 'interviews': {
@@ -1347,8 +1725,11 @@ async function buildWhereForEntity(entity, query, user) {
         ? {}
         : { OR: [{ createdById: user?.id || '__none__' }, { interviewerId: user?.id || '__none__' }] };
       if (assignedToId) where.interviewerId = assignedToId;
-      if (createdAt) where.scheduledAt = createdAt;
-      if (status) where.status = status.toUpperCase();
+      if (scheduledAt) where.scheduledAt = scheduledAt;
+      if (status || filters.interviewStatus) where.status = (status || filters.interviewStatus).toUpperCase();
+      if (filters.clientId) where.clientId = filters.clientId;
+      if (filters.jobId) where.jobId = filters.jobId;
+      Object.assign(where, relatedJobWhere(filters));
       if (search || location) {
         where.OR = [
           ...(Array.isArray(where.OR) ? where.OR : []),
@@ -1362,6 +1743,7 @@ async function buildWhereForEntity(entity, query, user) {
     case 'pipeline': {
       const where = {};
       if (createdAt) where.createdAt = createdAt;
+      Object.assign(where, pipelineEntryJobFilter(filters));
       if (search) {
         where.OR = [
           { notes: searchContains(search) },
@@ -1382,6 +1764,46 @@ async function buildWhereForEntity(entity, query, user) {
           location ? { location: searchContains(location) } : null,
         ].filter(Boolean);
       }
+      return where;
+    }
+    case 'activities': {
+      const where = userHasFullDbAccess(user) ? {} : { performedById: user?.id || '__none__' };
+      if (createdAt) where.createdAt = createdAt;
+      if (filters.recruiterId) where.performedById = filters.recruiterId;
+      if (filters.clientId) {
+        where.OR = [
+          { clientId: filters.clientId },
+          { entityId: filters.clientId },
+          { relatedId: filters.clientId },
+        ];
+      }
+      if (filters.jobId) {
+        where.OR = [...(where.OR || []), { entityId: filters.jobId }, { relatedId: filters.jobId }];
+      }
+      if (search) {
+        where.OR = [
+          ...(Array.isArray(where.OR) ? where.OR : []),
+          { action: searchContains(search) },
+          { description: searchContains(search) },
+          { category: searchContains(search) },
+        ];
+      }
+      return where;
+    }
+    case 'ai_matches': {
+      const where = {};
+      if (createdAt) where.createdAt = createdAt;
+      if (filters.jobId) where.jobId = filters.jobId;
+      if (filters.recruiterId) where.createdById = filters.recruiterId;
+      Object.assign(where, relatedJobWhere(filters));
+      return where;
+    }
+    case 'ai_applied_matches': {
+      const where = {};
+      if (createdAt) where.appliedAt = createdAt;
+      if (filters.jobId) where.jobId = filters.jobId;
+      Object.assign(where, relatedJobWhere(filters));
+      if (status) where.status = status.toUpperCase();
       return where;
     }
     default:
@@ -1801,6 +2223,76 @@ export async function fetchReportDataset(entity, query = {}, user = null) {
         })),
       };
     }
+    case 'activities': {
+      const rows = await prisma.activity.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: 500,
+      });
+      return {
+        entity: normalizedEntity,
+        title: 'Activity Report',
+        columns: ['Action', 'Category', 'Description', 'Created At'],
+        rows: rows.map((row) => ({
+          Action: row.action || '',
+          Category: row.category || '',
+          Description: row.description || '',
+          'Created At': formatDateTime(row.createdAt),
+        })),
+      };
+    }
+    case 'ai_matches': {
+      const rows = await prisma.match.findMany({
+        where,
+        include: {
+          candidate: { select: { firstName: true, lastName: true, email: true } },
+          job: { select: { title: true, status: true } },
+          createdBy: { select: { name: true, email: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 500,
+      });
+      return {
+        entity: normalizedEntity,
+        title: 'AI Matches Report',
+        columns: ['Candidate', 'Job', 'Score', 'Status', 'Created At'],
+        rows: rows.map((row) => ({
+          Candidate: `${row.candidate?.firstName || ''} ${row.candidate?.lastName || ''}`.trim(),
+          Job: row.job?.title || '',
+          Score: row.score ?? '',
+          Status: row.status || '',
+          'Created At': formatDateTime(row.createdAt),
+          Email: row.candidate?.email || '',
+          'Job Status': row.job?.status || '',
+          'Created By': row.createdBy?.name || row.createdBy?.email || '',
+        })),
+      };
+    }
+    case 'ai_applied_matches': {
+      const rows = await prisma.application.findMany({
+        where,
+        include: {
+          candidate: { select: { firstName: true, lastName: true, email: true } },
+          job: { select: { title: true, status: true, client: { select: { companyName: true } } } },
+        },
+        orderBy: { appliedAt: 'desc' },
+        take: 500,
+      });
+      return {
+        entity: normalizedEntity,
+        title: 'AI Applied Matches Report',
+        columns: ['Candidate', 'Job', 'Client', 'Status', 'Match Score', 'Applied At'],
+        rows: rows.map((row) => ({
+          Candidate: `${row.candidate?.firstName || ''} ${row.candidate?.lastName || ''}`.trim(),
+          Job: row.job?.title || '',
+          Client: row.job?.client?.companyName || '',
+          Status: row.status || '',
+          'Match Score': row.matchScore ?? '',
+          'Applied At': formatDateTime(row.appliedAt),
+          Email: row.candidate?.email || '',
+        })),
+      };
+    }
     default:
       throw new Error(`Unsupported export entity: ${normalizedEntity}`);
   }
@@ -1813,6 +2305,10 @@ export async function buildReportFile(entity, format, query = {}, user = null) {
 }
 
 export const reportService = {
+  async getFilterOptions(user) {
+    return buildReportFilterOptions(user);
+  },
+
   async getSummary(query, user) {
     return getReportsSummary(query, user);
   },

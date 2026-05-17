@@ -266,3 +266,44 @@
 .animate-in {
   animation: fade-in 0.5s ease-in-out;
 }
+
+/* Rich text editor (Add Job drawer) */
+.job-rich-text-editor .job-rte-editor {
+  min-height: var(--rte-min-height, 280px);
+  background: #fff;
+}
+
+.job-rich-text-editor .job-rte-editor:empty::before {
+  content: attr(data-placeholder);
+  color: rgb(148 163 184);
+  pointer-events: none;
+}
+
+.job-rich-text-editor .job-rte-editor h1 {
+  font-size: 1.375rem;
+  font-weight: 700;
+  margin: 0.75rem 0 0.5rem;
+}
+
+.job-rich-text-editor .job-rte-editor h2 {
+  font-size: 1.125rem;
+  font-weight: 700;
+  margin: 0.65rem 0 0.4rem;
+}
+
+.job-rich-text-editor .job-rte-editor h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0.5rem 0 0.35rem;
+}
+
+.job-rich-text-editor .job-rte-editor ul,
+.job-rich-text-editor .job-rte-editor ol {
+  margin: 0.5rem 0;
+  padding-left: 1.25rem;
+}
+
+.job-rich-text-editor .job-rte-editor a {
+  color: rgb(37 99 235);
+  text-decoration: underline;
+}

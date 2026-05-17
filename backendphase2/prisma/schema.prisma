@@ -204,6 +204,10 @@ model Client {
   longitude          Float?
   /// Salutation captured alongside the primary director on the Add Client form.
   directorSalutation String?
+  /// Director / company contact emails (primary contact also stored on Contact when applicable).
+  emails             String[] @default([])
+  /// Director / company contact phone numbers.
+  phones             String[] @default([])
 
   // Agreements & Terms (single primary document attached during onboarding)
   // Detailed multi-document history continues to live in ClientFile.
@@ -751,6 +755,10 @@ model Lead {
   directorSalutation     String?
   email                  String?
   phone                  String?
+  /// Additional contact emails (first entry mirrors `email` for legacy integrations).
+  emails                 String[]   @default([])
+  /// Additional contact phone numbers (first entry mirrors `phone`).
+  phones                 String[]   @default([])
   type                   LeadType   @default(Company)
   /// When null/omitted, UI shows no source badge (imports with no Source column).
   source                 LeadSource?

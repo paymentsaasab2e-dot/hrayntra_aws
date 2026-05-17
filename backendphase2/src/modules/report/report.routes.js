@@ -8,6 +8,7 @@ const router = express.Router();
 router.use(authMiddleware);
 
 router.get('/summary/export/:tab/:format', requireAnyPermission(['reports_read', 'export_data']), reportController.exportSummaryTab);
+router.get('/filter-options', requireAnyPermission(['reports_read']), reportController.getFilterOptions);
 router.get('/summary', requireAnyPermission(['reports_read']), reportController.getSummary);
 router.get('/dataset/:entity', requireAnyPermission(['reports_read']), reportController.getDataset);
 router.get('/export/:entity/:format', requireAnyPermission(['reports_read', 'export_data']), reportController.exportEntity);

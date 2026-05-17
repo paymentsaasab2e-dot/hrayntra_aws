@@ -172,6 +172,9 @@ export interface Client {
   longitude?: number | null;
   /** Salutation captured on the Add Client form alongside the primary director. */
   directorSalutation?: string | null;
+  /** Director / company contact channels stored on the client row. */
+  emails?: string[];
+  phones?: string[];
   /** Lead-style status snapshot. The Add Client form (mirroring Add Lead) writes here. */
   leadStatusValue?: string | null;
   /** Agreements & Terms — single primary document uploaded against the client. */

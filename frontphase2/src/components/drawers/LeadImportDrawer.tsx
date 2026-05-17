@@ -211,7 +211,7 @@ export function LeadImportDrawer({
         animate={{ x: 0 }}
         exit={{ x: '100%' }}
         transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-        className="fixed right-0 top-0 h-full w-1/2 max-w-2xl bg-white shadow-2xl z-50 pointer-events-auto border-l border-slate-200 flex flex-col"
+        className="fixed right-0 top-0 h-full w-3/4 max-w-6xl bg-white shadow-2xl z-50 pointer-events-auto border-l border-slate-200 flex flex-col"
       >
         <div className="shrink-0 border-b border-slate-200 p-5 flex items-center justify-between">
           <h2 className="text-lg font-bold text-slate-900">Import Leads</h2>

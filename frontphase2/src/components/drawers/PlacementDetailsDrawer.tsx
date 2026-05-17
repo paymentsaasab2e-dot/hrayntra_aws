@@ -27,7 +27,7 @@ export const PlacementDetailsDrawer = ({ placement, onClose }: PlacementDetailsP
           animate={{ x: 0 }}
           exit={{ x: '100%' }}
           transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-          className="absolute right-0 top-0 h-full w-[500px] bg-white shadow-2xl pointer-events-auto border-l border-slate-200 flex flex-col"
+          className="absolute right-0 top-0 h-full w-3/4 max-w-6xl bg-white shadow-2xl pointer-events-auto border-l border-slate-200 flex flex-col"
         >
           {/* Header */}
           <div className="p-6 border-b border-slate-200 flex items-center justify-between">

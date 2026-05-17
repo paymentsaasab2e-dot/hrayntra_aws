@@ -26,13 +26,14 @@ const MATCH_SUBMISSION_PURPOSES = {
   GENERAL: 'Please review this candidate.',
 };
 
-const buildClientReviewUrl = (match, submissionType) => {
+const buildClientReviewUrl = (match, submissionType, cvShareMode = null) => {
   const token = createClientReviewToken({
     matchId: match.id,
     candidateId: match.candidateId,
     jobId: match.jobId,
     clientId: match.job?.clientId || match.job?.client?.id || null,
     submissionType,
+    cvShareMode,
   });
   return `${env.FRONTEND_URL}/client-review/${encodeURIComponent(token)}`;
 };
@@ -152,7 +153,7 @@ function deriveDisplayStatus(match, candidate, activities, jobId) {
   });
   if (match.status === 'REJECTED') return 'Rejected';
   if (submissionActivity) return 'Submitted';
-  if ((candidate.assignedJobs || []).includes(jobId) || String(candidate.stage || '').trim()) return 'Sent to Pipeline';
+  if ((candidate.assignedJobs || []).includes(jobId)) return 'Sent to Pipeline';
   if (match.status === 'SHORTLISTED') return 'Selected';
   if (match.status === 'REVIEWED') return 'Reviewed';
   return 'New';
@@ -489,6 +490,12 @@ export const matchService = {
 
     if (source === 'applied' && jobId) {
       const pool = await loadAppliedMatchCandidatePool(req, String(jobId));
+      const poolIdSet = new Set(pool.candidates.map((candidate) => candidate.id));
+      // Exclude AI / Phase 1 pool scores — only applied-pipeline rows for this job.
+      matches = matches.filter(
+        (match) =>
+          poolIdSet.has(match.candidateId) && isAppliedPipelineEvaluation(match.evaluation)
+      );
       const jobRow = await prisma.job.findFirst({
         where: { id: String(jobId), isDeleted: { not: true } },
         include: { client: { select: { companyName: true, logo: true } } },
@@ -699,7 +706,34 @@ export const matchService = {
     // but still log it on the activity so the row carries the intent.
     const submissionType =
       normalizeSubmissionType(data?.submissionType) || 'GENERAL';
-    const reviewUrl = notifyClient ? buildClientReviewUrl(match, submissionType) : null;
+    const cvShareModeRaw = String(data?.cvShareMode || '').trim().toLowerCase();
+    const cvShareMode =
+      cvShareModeRaw === 'edited' || cvShareModeRaw === 'original' ? cvShareModeRaw : null;
+
+    if (cvShareMode) {
+      const existingExtra =
+        match.candidate?.extraData &&
+        typeof match.candidate.extraData === 'object' &&
+        !Array.isArray(match.candidate.extraData)
+          ? match.candidate.extraData
+          : {};
+      await prisma.candidate.update({
+        where: { id: match.candidateId },
+        data: {
+          extraData: {
+            ...existingExtra,
+            cvSubmission: {
+              shareMode: cvShareMode,
+              updatedAt: new Date().toISOString(),
+            },
+          },
+        },
+      });
+    }
+
+    const reviewUrl = notifyClient
+      ? buildClientReviewUrl(match, submissionType, cvShareMode || 'edited')
+      : null;
 
     await prisma.$transaction(async (tx) => {
       await tx.match.update({
@@ -766,6 +800,86 @@ export const matchService = {
 
       if (!emailResult.success) {
         throw new Error(emailResult.error || 'Failed to send email');
+      }
+    }
+
+    const additionalClients = Array.isArray(data?.additionalClients)
+      ? data.additionalClients.filter((item) => item && item.clientId)
+      : [];
+
+    if (notifyClient && additionalClients.length) {
+      const purposeLine =
+        MATCH_SUBMISSION_PURPOSES[submissionType] || MATCH_SUBMISSION_PURPOSES.GENERAL;
+      const finalMessage = [
+        message,
+        message ? '' : null,
+        purposeLine,
+        reviewUrl ? `Review link: ${reviewUrl}` : null,
+      ]
+        .filter((part) => part !== null)
+        .join('\n')
+        .trim();
+      const emailCandidate = mapEmailCandidate(match.candidate);
+
+      for (const extra of additionalClients) {
+        const extraClient = await prisma.client.findUnique({
+          where: { id: String(extra.clientId) },
+          include: {
+            contacts: {
+              where: { contactType: 'CLIENT' },
+              select: { email: true, firstName: true, lastName: true },
+              orderBy: [{ createdAt: 'asc' }],
+            },
+          },
+        });
+        if (!extraClient) continue;
+
+        const extraRecipients = extra.toEmail
+          ? [String(extra.toEmail).trim()].filter(Boolean)
+          : getClientRecipients(extraClient);
+        if (!extraRecipients.length) continue;
+
+        const extraEmailResult = await sendMatchSubmissionEmail({
+          to: extraRecipients,
+          clientName: extraClient.companyName || 'Team',
+          jobTitle: match.job.title,
+          recruiterName: match.createdBy?.name || 'Recruitment Team',
+          message: finalMessage,
+          candidates: [emailCandidate],
+          portalUrl: reviewUrl || `${env.FRONTEND_URL}/matches`,
+        });
+
+        if (!extraEmailResult.success) {
+          throw new Error(
+            extraEmailResult.error ||
+              `Failed to send email to ${extraClient.companyName || 'client'}`
+          );
+        }
+
+        await prisma.activity.create({
+          data: {
+            action: 'Candidate submitted',
+            description: `Submitted to ${extraClient.companyName || 'client'} (additional recipient).`,
+            performedById: userId,
+            entityType: CANDIDATE_ACTIVITY_ENTITY,
+            entityId: match.candidateId,
+            category: 'Candidates',
+            relatedType: 'job',
+            relatedId: match.jobId,
+            relatedLabel: match.job.title,
+            metadata: {
+              kind: MATCH_SUBMISSION_ACTIVITY_KIND,
+              jobId: match.jobId,
+              relatedJobTitle: match.job.title,
+              clientName: extraClient.companyName || null,
+              notifyClient: true,
+              message,
+              submissionType,
+              reviewUrl,
+              additionalClientId: extraClient.id,
+            },
+          },
+        });
       }
     }
 

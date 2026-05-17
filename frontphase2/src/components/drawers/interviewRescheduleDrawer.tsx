@@ -93,7 +93,7 @@ export function RescheduleDrawer({ isOpen, onClose }: RescheduleDrawerProps) {
       
       {/* Drawer */}
       <div 
-        className="fixed right-0 top-0 h-full w-[500px] bg-white shadow-2xl z-50 flex flex-col animate-slide-in-right"
+        className="fixed right-0 top-0 h-full w-3/4 max-w-6xl bg-white shadow-2xl z-50 flex flex-col animate-slide-in-right"
         style={{
           animation: 'slideInRight 0.3s ease-out'
         }}

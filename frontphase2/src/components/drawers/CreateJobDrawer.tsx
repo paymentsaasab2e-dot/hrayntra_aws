@@ -19,6 +19,7 @@ import {
   User,
   SendHorizontal,
 } from 'lucide-react';
+import { RichTextEditor } from '../RichTextEditor';
 import {
   apiCreateJob,
   apiUpdateJob,
@@ -227,6 +228,7 @@ export function CreateJobDrawer({
   // Accordion state
   const [accordions, setAccordions] = useState<AccordionSection[]>([
     { id: 'details', label: 'Job Details', isOpen: true },
+    { id: 'description', label: 'Job Description', isOpen: true },
     { id: 'application', label: 'Job Application Form', isOpen: false },
     { id: 'publish', label: 'Publish & Share', isOpen: false },
   ]);
@@ -1351,7 +1353,7 @@ export function CreateJobDrawer({
 
       const jobData: CreateJobData = {
         title: formData.jobTitle,
-        description: composedDescription || formData.jobDescriptionHtml,
+        description: formData.jobDescriptionHtml.trim() || composedDescription,
         overview: formData.jobSummary || undefined,
         clientId: formData.companyId,
         openings: parseInt(formData.numberOfOpenings) || 1,
@@ -1569,7 +1571,7 @@ export function CreateJobDrawer({
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
             onClick={(e) => e.stopPropagation()}
-            className="fixed right-0 top-0 h-full w-[680px] bg-white shadow-2xl z-50 pointer-events-auto border-l border-slate-200 flex flex-col"
+            className="fixed right-0 top-0 h-full w-3/4 max-w-6xl bg-white shadow-2xl z-50 pointer-events-auto border-l border-slate-200 flex flex-col"
           >
             {/* Sticky Header */}
             <div className="shrink-0 border-b border-slate-200 bg-white px-6 py-4 flex items-center justify-between gap-4">
@@ -1628,6 +1630,23 @@ export function CreateJobDrawer({
                         placeholder="Customer Success Manager"
                         className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                       />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">Job Description</label>
+                      <p className="mb-2 text-xs text-slate-500">
+                        Rich-text editor for the full posting. Use <span className="font-medium text-slate-600">Generate With AI</span> above after entering the title.
+                      </p>
+                      {isOpen ? (
+                        <RichTextEditor
+                          value={formData.jobDescriptionHtml}
+                          onChange={(html) =>
+                            setFormData((prev) => ({ ...prev, jobDescriptionHtml: html }))
+                          }
+                          placeholder="Enter the full job description…"
+                          minHeight={360}
+                        />
+                      ) : null}
                     </div>
 
                     {/* Number Of Openings */}
@@ -1879,337 +1898,6 @@ export function CreateJobDrawer({
                 )}
               </div>
 
-              {false && (
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
-                <button
-                  type="button"
-                  onClick={() => toggleAccordion('description')}
-                  className="w-full px-5 py-4 flex items-center justify-between border-b border-slate-100 hover:bg-slate-50/50 transition-colors"
-                >
-                  <span className="text-sm font-bold text-slate-900">2. Job Description</span>
-                  {accordions.find(a => a.id === 'description')?.isOpen ? (
-                    <ChevronUp size={18} className="text-slate-400" />
-                  ) : (
-                    <ChevronDown size={18} className="text-slate-400" />
-                  )}
-                </button>
-                {accordions.find(a => a.id === 'description')?.isOpen && (
-                  <div className="p-5 space-y-4">
-                    {/* Upload File */}
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">
-                        Job Description File (Optional)
-                      </label>
-                      <div className="flex items-center gap-3">
-                        <label className="relative flex-1 flex items-center gap-2 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 transition-colors text-sm font-medium text-slate-700 cursor-pointer">
-                          <input
-                            type="file"
-                            accept=".pdf,.doc,.docx,.txt"
-                            className="sr-only"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) {
-                                setUploadedFile(file);
-                              }
-                            }}
-                            disabled={uploadingFile}
-                          />
-                          <Upload size={18} />
-                          {uploadedFile ? uploadedFile.name : (existingJdFileName || 'Upload File')}
-                          <Info size={16} className="text-slate-400" />
-                        </label>
-                        {uploadedFile && (
-                          <button
-                            type="button"
-                            onClick={() => setUploadedFile(null)}
-                            className="px-3 py-2 text-sm text-red-600 hover:text-red-700"
-                            disabled={uploadingFile}
-                          >
-                            Remove
-                          </button>
-                        )}
-                      </div>
-                      {uploadingFile && (
-                        <p className="text-sm text-blue-600 mt-2">Uploading file...</p>
-                      )}
-                    </div>
-
-                    {/* Rich Text Editor */}
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">Job Description</label>
-                      <div className="border border-slate-200 rounded-xl overflow-hidden">
-                        {/* Toolbar */}
-                        <div className="bg-slate-50 border-b border-slate-200 p-2 flex items-center gap-1 flex-wrap">
-                          <button type="button" className="p-1.5 hover:bg-slate-200 rounded" title="Bold">
-                            <span className="text-xs font-bold">B</span>
-                          </button>
-                          <button type="button" className="p-1.5 hover:bg-slate-200 rounded" title="Italic">
-                            <span className="text-xs italic">I</span>
-                          </button>
-                          <button type="button" className="p-1.5 hover:bg-slate-200 rounded" title="Underline">
-                            <span className="text-xs underline">U</span>
-                          </button>
-                          {/* Add more toolbar buttons as needed */}
-                        </div>
-                        {/* Editor */}
-                        <textarea
-                          value={formData.jobDescriptionHtml}
-                          onChange={(e) => setFormData(prev => ({ ...prev, jobDescriptionHtml: e.target.value }))}
-                          rows={12}
-                          placeholder="Enter job description or use the Generate With AI button at the top."
-                          className="w-full px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none resize-y min-h-[300px]"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Job Type */}
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">
-                        Job Type
-                        <span className="text-xs text-slate-500 ml-1">(Required to post on Organic Job Boards)</span>
-                      </label>
-                      <select
-                        value={formData.jobType}
-                        onChange={(e) => setFormData(prev => ({ ...prev, jobType: e.target.value }))}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                      >
-                        <option>Part Time</option>
-                        <option>Full Time</option>
-                        <option>Contract</option>
-                        <option>Internship</option>
-                      </select>
-                    </div>
-
-                    {/* Job Location Type */}
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">
-                        Job Location Type
-                        <span className="text-xs text-slate-500 ml-1">(Required to post on Organic Job Boards)</span>
-                      </label>
-                      <select
-                        value={formData.jobLocationType}
-                        onChange={(e) => setFormData(prev => ({ ...prev, jobLocationType: e.target.value }))}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                      >
-                        <option value="">Click to select</option>
-                        <option>On-site</option>
-                        <option>Remote</option>
-                        <option>Hybrid</option>
-                      </select>
-                    </div>
-
-                    {/* Experience Fields */}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">Minimum Experience (Years)</label>
-                        <select
-                          value={formData.minExperience}
-                          onChange={(e) => setFormData(prev => ({ ...prev, minExperience: e.target.value }))}
-                          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                        >
-                          <option>0 Year</option>
-                          <option>1 Year</option>
-                          <option>2 Years</option>
-                          <option>3 Years</option>
-                          <option>4 Years</option>
-                          <option>5+ Years</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">Maximum Experience (Years)</label>
-                        <select
-                          value={formData.maxExperience}
-                          onChange={(e) => setFormData(prev => ({ ...prev, maxExperience: e.target.value }))}
-                          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                        >
-                          <option value="">Select</option>
-                          <option>1 Year</option>
-                          <option>2 Years</option>
-                          <option>3 Years</option>
-                          <option>4 Years</option>
-                          <option>5 Years</option>
-                          <option>8 Years</option>
-                          <option>10+ Years</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    {/* Salary Fields */}
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">
-                        Salary Type
-                        <span className="text-xs text-slate-500 ml-1">(Required To Post On Partner Job Boards)</span>
-                      </label>
-                      <select
-                        value={formData.salaryType}
-                        onChange={(e) => setFormData(prev => ({ ...prev, salaryType: e.target.value }))}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                      >
-                        <option>Annual Salary</option>
-                        <option>Monthly Salary</option>
-                        <option>Hourly Rate</option>
-                      </select>
-                    </div>
-
-
-                    {/* Education Fields */}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">Educational Qualification</label>
-                        <select
-                          value={formData.educationalQualification}
-                          onChange={(e) => setFormData(prev => ({ ...prev, educationalQualification: e.target.value }))}
-                          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                        >
-                          <option value="">Select</option>
-                          <option>Bachelor of Engineering</option>
-                          <option>Master of Engineering</option>
-                          <option>Bachelor of Science</option>
-                          <option>Master of Science</option>
-                          <option>MBA</option>
-                          <option>Diploma</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">Educational Specialization</label>
-                        <input
-                          type="text"
-                          value={formData.educationalSpecialization}
-                          onChange={(e) => setFormData(prev => ({ ...prev, educationalSpecialization: e.target.value }))}
-                          placeholder="Computer Science"
-                          className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Skills */}
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">Skills</label>
-                      <div className="flex gap-2 mb-2">
-                        <input
-                          type="text"
-                          value={skillInput}
-                          onChange={(e) => setSkillInput(e.target.value)}
-                          onKeyPress={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              addSkill();
-                            }
-                          }}
-                          placeholder="Type skill and press Enter"
-                          className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                        />
-                        <button
-                          type="button"
-                          onClick={addSkill}
-                          className="px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors text-sm font-medium"
-                        >
-                          Add
-                        </button>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {formData.skills.map((skill, index) => (
-                          <span
-                            key={index}
-                            className="inline-flex items-center gap-1 px-3 py-1 bg-blue-50 text-blue-700 rounded-lg text-sm"
-                          >
-                            {skill}
-                            <button
-                              type="button"
-                              onClick={() => removeSkill(index)}
-                              className="text-blue-700 hover:text-blue-900"
-                            >
-                              <X size={14} />
-                            </button>
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Location Fields */}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">Locality</label>
-                        <input
-                          type="text"
-                          value={formData.locality}
-                          onChange={(e) => setFormData(prev => ({ ...prev, locality: e.target.value }))}
-                          placeholder="Search or Enter Locality"
-                          className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">
-                          City
-                          <span className="text-xs text-slate-500 ml-1">(Required To Post On Partner Job Boards)</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={formData.city}
-                          onChange={(e) => setFormData(prev => ({ ...prev, city: e.target.value }))}
-                          placeholder="Search or Enter City"
-                          className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">
-                          State
-                          <span className="text-xs text-slate-500 ml-1">(Required To Post On Partner Job Boards)</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={formData.state}
-                          onChange={(e) => setFormData(prev => ({ ...prev, state: e.target.value }))}
-                          placeholder="Search or Enter State"
-                          className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">
-                          Country
-                          <span className="text-xs text-slate-500 ml-1">(Required To Post On Partner Job Boards)</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={formData.country}
-                          onChange={(e) => setFormData(prev => ({ ...prev, country: e.target.value }))}
-                          placeholder="Search or Enter Country"
-                          className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">
-                        Postal Code
-                        <span className="text-xs text-slate-500 ml-1">(Required to post on Organic Job Boards)</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.postalCode}
-                        onChange={(e) => setFormData(prev => ({ ...prev, postalCode: e.target.value }))}
-                        placeholder="Search or Enter Postal Code"
-                        className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">Full Address</label>
-                      <textarea
-                        value={formData.fullAddress}
-                        onChange={(e) => setFormData(prev => ({ ...prev, fullAddress: e.target.value }))}
-                        rows={3}
-                        placeholder="Street Address"
-                        className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-y"
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-              )}
 
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
                 <button
@@ -3014,7 +2702,7 @@ export function CreateJobDrawer({
                 exit={{ x: '100%', opacity: 0 }}
                 transition={{ type: 'spring', damping: 26, stiffness: 210 }}
                 onClick={(e) => e.stopPropagation()}
-                className="fixed right-0 top-0 z-[70] h-full w-[680px] border-l border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.28)] pointer-events-auto flex flex-col max-w-[92vw]"
+                className="fixed right-0 top-0 z-[70] h-full w-3/4 max-w-6xl border-l border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.28)] pointer-events-auto flex flex-col "
               >
                 <div className="flex items-center justify-between gap-4 border-b border-slate-200 bg-white px-6 py-5">
                   <div>

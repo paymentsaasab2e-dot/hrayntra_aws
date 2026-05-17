@@ -206,6 +206,7 @@ export const submitToClientSchema = z.object({
   toEmail: z.string().email().optional(),
   message: z.string().optional(),
   submissionType: submissionTypeEnum.optional(),
+  cvShareMode: z.enum(['edited', 'original']).optional(),
 });
 
 export const reviewTokenParamSchema = z.object({
