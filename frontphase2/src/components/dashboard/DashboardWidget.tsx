@@ -209,6 +209,7 @@ export function DashboardWidgetCard({ widget, editMode, onUpdate, onRemove, onDu
             <WidgetChart
               chartType={widget.chartType}
               datasetId={datasetId}
+              module={widget.module || data?.dataset?.module}
               rows={data.rows as Record<string, unknown>[]}
               config={config}
             />
@@ -236,9 +237,11 @@ export function DashboardWidgetCard({ widget, editMode, onUpdate, onRemove, onDu
                   <WidgetChart
                     chartType={widget.chartType}
                     datasetId={datasetId}
+                    module={widget.module || data?.dataset?.module}
                     rows={data.rows as Record<string, unknown>[]}
                     config={config}
                     height={480}
+                    expandTable
                   />
                 </div>
               ) : null}
