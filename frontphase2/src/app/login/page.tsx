@@ -28,11 +28,16 @@ export default function LoginPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
+    const redirect = params.get('redirect');
+    if (redirect === '/hq' || redirect?.startsWith('/hq/')) {
+      router.replace('/hq/login');
+      return;
+    }
     const tenant = params.get('tenantDbName');
     if (tenant) {
       syncTenantDbName(tenant);
     }
-  }, []);
+  }, [router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

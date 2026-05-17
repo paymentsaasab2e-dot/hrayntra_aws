@@ -345,6 +345,8 @@ async function uploadCV(req, res) {
       },
     });
 
+    const { resolvePhoneNumberForCvSave } = require('../utils/phone.util');
+
     // Store or update Candidate Profile
     if (parsedData.personalInformation) {
       const personalInfo = parsedData.personalInformation;
@@ -357,6 +359,12 @@ async function uploadCV(req, res) {
           where: { candidateId: candidateId },
         });
 
+        const resolvedPhoneNumber = resolvePhoneNumberForCvSave({
+          candidate,
+          cvPhone: personalInfo.phoneNumber,
+          existingPhone: existingProfile?.phoneNumber,
+        });
+
         if (existingProfile) {
           // Update existing profile
           await prisma.candidateProfile.update({
@@ -364,7 +372,7 @@ async function uploadCV(req, res) {
             data: {
               fullName: personalInfo.fullName || existingProfile.fullName,
               email: personalInfo.email || existingProfile.email,
-              phoneNumber: personalInfo.phoneNumber ?? existingProfile.phoneNumber,
+              phoneNumber: resolvedPhoneNumber,
               alternatePhone: personalInfo.alternatePhoneNumber ?? existingProfile.alternatePhone,
               address: personalInfo.address ?? existingProfile.address,
               city: personalInfo.city ?? existingProfile.city,
@@ -387,7 +395,11 @@ async function uploadCV(req, res) {
               candidateId: candidateId,
               fullName: personalInfo.fullName || '',
               email: emailToUse,
-              phoneNumber: personalInfo.phoneNumber || null,
+              phoneNumber: resolvePhoneNumberForCvSave({
+                candidate,
+                cvPhone: personalInfo.phoneNumber,
+                existingPhone: null,
+              }),
               alternatePhone: personalInfo.alternatePhoneNumber || null,
               address: personalInfo.address || null,
               city: personalInfo.city || null,

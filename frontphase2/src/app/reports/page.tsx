@@ -57,6 +57,13 @@ import {
   type FiltersState,
   type ReportFilterOptions,
 } from './reports-filters';
+import {
+  exportReportEntityCsv,
+  fetchReportTabDetail,
+  type ReportDataset,
+  type TabDetailResponse,
+} from '../../lib/reportTabExports';
+import { toast } from 'sonner';
 
 type ReportTab =
   | 'Recruitment Performance'
@@ -160,6 +167,13 @@ const TAB_EXPORT_KEY: Record<Exclude<ReportTab, 'Custom Reports'>, string> = {
   'Activity & Productivity': 'activity-productivity',
 };
 
+const MODULE_DETAIL_TABS: ReportTab[] = [
+  'Jobs & Clients',
+  'Candidates',
+  'Interviews',
+  'Placements & Revenue',
+];
+
 const CHART_COLORS = ['#2563eb', '#8b5cf6', '#f59e0b', '#10b981', '#ef4444', '#0f172a'];
 
 /** Table header row — aligned with Leads list chrome. */
@@ -209,6 +223,81 @@ const EmptyState = ({ text }: { text: string }) => (
   </div>
 );
 
+function ReportDatasetTable({
+  dataset,
+  loading,
+  emptyText,
+}: {
+  dataset?: ReportDataset | null;
+  loading?: boolean;
+  emptyText?: string;
+}) {
+  if (loading) {
+    return <EmptyState text="Loading live data…" />;
+  }
+  if (!dataset?.rows?.length) {
+    return <EmptyState text={emptyText || 'No records match the current filters.'} />;
+  }
+  const total = dataset.totalRows ?? dataset.rows.length;
+  const shown = dataset.rows.length;
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-slate-500">
+        Showing {formatNumber(shown)} of {formatNumber(total)} record{total === 1 ? '' : 's'} (live data)
+      </p>
+      <div className="no-scrollbar max-h-[360px] overflow-auto rounded-xl border border-indigo-100/60">
+        <table className="w-full min-w-[640px] text-left">
+          <thead className="sticky top-0 z-[1]">
+            <tr className={REPORTS_TABLE_HEAD_ROW}>
+              {dataset.columns.map((column) => (
+                <th key={column} className={REPORTS_TABLE_TH}>
+                  {column}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100/80">
+            {dataset.rows.map((row, index) => (
+              <tr key={`${dataset.entity || 'row'}-${index}`} className={REPORTS_TABLE_BODY_ROW}>
+                {dataset.columns.map((column) => (
+                  <td key={column} className="px-4 py-2.5 text-sm text-slate-700 first:pl-6 last:pr-6">
+                    {String(row[column] ?? '')}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function TabExportBar({
+  buttons,
+  exporting,
+}: {
+  buttons: Array<{ label: string; onClick: () => void | Promise<void> }>;
+  exporting?: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      {buttons.map((button) => (
+        <button
+          key={button.label}
+          type="button"
+          disabled={exporting}
+          onClick={() => void button.onClick()}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-1.5 text-xs font-semibold text-indigo-900 shadow-sm transition-all hover:border-indigo-300 hover:bg-indigo-50/90 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <Download size={14} className="text-indigo-600" strokeWidth={2.25} />
+          {exporting ? 'Exporting…' : button.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function ReportsContent({
   activeTab,
   summary,
@@ -220,6 +309,11 @@ function ReportsContent({
   setCustomColumns,
   customLoading,
   onGenerateCustom,
+  tabDetail,
+  tabDetailLoading,
+  tabExporting,
+  onExportEntity,
+  canExportData,
 }: {
   activeTab: ReportTab;
   summary: SummaryResponse | null;
@@ -231,6 +325,11 @@ function ReportsContent({
   setCustomColumns: React.Dispatch<React.SetStateAction<string[]>>;
   customLoading: boolean;
   onGenerateCustom?: () => void;
+  tabDetail: TabDetailResponse | null;
+  tabDetailLoading: boolean;
+  tabExporting: boolean;
+  onExportEntity: (entity: 'jobs' | 'clients' | 'candidates' | 'interviews' | 'placements') => Promise<void>;
+  canExportData: boolean;
 }) {
   if (!summary) return <EmptyState text="No report data available." />;
 
@@ -340,40 +439,39 @@ function ReportsContent({
 
     case 'Jobs & Clients':
       return (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <Card className="lg:col-span-2" title="Active Job Status">
-            {summary.jobsClients.jobs.length ? (
-              <div className="no-scrollbar overflow-x-auto">
-                <table className="w-full min-w-[640px] text-left">
-                  <thead>
-                    <tr className={REPORTS_TABLE_HEAD_ROW}>
-                      <th className={REPORTS_TABLE_TH}>Job Title</th>
-                      <th className={REPORTS_TABLE_TH}>Client</th>
-                      <th className={REPORTS_TABLE_TH}>Status</th>
-                      <th className={REPORTS_TABLE_TH}>Candidates</th>
-                      <th className={REPORTS_TABLE_TH}>Aging</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100/80">
-                    {summary.jobsClients.jobs.map((job) => (
-                      <tr key={job.id} className={REPORTS_TABLE_BODY_ROW}>
-                        <td className="px-4 py-3 text-sm font-medium text-slate-900 first:pl-6 last:pr-6">{job.title}</td>
-                        <td className="px-4 py-3 text-sm text-slate-600">{job.client}</td>
-                        <td className="px-4 py-3 text-xs">
-                          <span className="rounded-full bg-indigo-50 px-2 py-1 font-medium text-indigo-800 ring-1 ring-indigo-100/80">{job.status}</span>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-slate-600">{formatNumber(job.count)}</td>
-                        <td className="px-4 py-3 text-sm text-slate-600">{job.aging}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <EmptyState text="No job data found." />
-            )}
+        <div className="space-y-6">
+          <div className="mb-1 grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3">
+            <SummaryCard
+              label="Open jobs"
+              count={formatNumber(summary.entityCounts?.jobs ?? summary.jobsClients.jobs.length)}
+              color="blue"
+              icon={<Briefcase size={16} strokeWidth={2.35} />}
+            />
+            <SummaryCard
+              label="Clients"
+              count={formatNumber(summary.entityCounts?.clients ?? summary.jobsClients.topClients.length)}
+              color="indigo"
+              icon={<Users size={16} strokeWidth={2.35} />}
+            />
+          </div>
+          {canExportData ? (
+            <TabExportBar
+              exporting={tabExporting}
+              buttons={[
+                { label: 'Export jobs (CSV)', onClick: () => onExportEntity('jobs') },
+                { label: 'Export clients (CSV)', onClick: () => onExportEntity('clients') },
+              ]}
+            />
+          ) : null}
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <Card className="lg:col-span-2" title="Jobs (live)">
+            <ReportDatasetTable
+              dataset={tabDetail?.jobs ?? null}
+              loading={tabDetailLoading}
+              emptyText="No jobs match the current filters."
+            />
           </Card>
-          <Card title="Top Clients by Volume">
+          <Card title="Top clients by job volume">
             {summary.jobsClients.topClients.length ? (
               <>
                 <div className="h-[300px]">
@@ -399,13 +497,34 @@ function ReportsContent({
               <EmptyState text="No client job volume found." />
             )}
           </Card>
+          </div>
+          <Card title="Clients (live)">
+            <ReportDatasetTable
+              dataset={tabDetail?.clients ?? null}
+              loading={tabDetailLoading}
+              emptyText="No clients match the current filters."
+            />
+          </Card>
         </div>
       );
 
     case 'Candidates':
       return (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <Card title="Candidate Sourcing Channels">
+        <div className="space-y-6">
+          <SummaryCard
+            label="Candidates"
+            count={formatNumber(summary.entityCounts?.candidates ?? 0)}
+            color="purple"
+            icon={<Users size={16} strokeWidth={2.35} />}
+          />
+          {canExportData ? (
+            <TabExportBar
+              exporting={tabExporting}
+              buttons={[{ label: 'Export candidates (CSV)', onClick: () => onExportEntity('candidates') }]}
+            />
+          ) : null}
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <Card title="Candidate sourcing">
             {summary.candidates.sources.length ? (
               <div className="h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
@@ -443,13 +562,34 @@ function ReportsContent({
               <EmptyState text="No candidate skills found." />
             )}
           </Card>
+          </div>
+          <Card title="Candidates (live)">
+            <ReportDatasetTable
+              dataset={tabDetail?.candidates ?? null}
+              loading={tabDetailLoading}
+              emptyText="No candidates match the current filters."
+            />
+          </Card>
         </div>
       );
 
     case 'Interviews':
       return (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <Card className="lg:col-span-2" title="Scheduled vs Completed Interviews">
+        <div className="space-y-6">
+          <SummaryCard
+            label="Interviews"
+            count={formatNumber(summary.entityCounts?.interviews ?? 0)}
+            color="orange"
+            icon={<Calendar size={16} strokeWidth={2.35} />}
+          />
+          {canExportData ? (
+            <TabExportBar
+              exporting={tabExporting}
+              buttons={[{ label: 'Export interviews (CSV)', onClick: () => onExportEntity('interviews') }]}
+            />
+          ) : null}
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <Card className="lg:col-span-2" title="Scheduled vs completed">
             {summary.interviews.trend.length ? (
               <div className="h-[350px]">
                 <ResponsiveContainer width="100%" height="100%">
@@ -482,12 +622,26 @@ function ReportsContent({
               <EmptyState text="No pending feedback found." />
             )}
           </Card>
+          </div>
+          <Card title="Interviews (live)">
+            <ReportDatasetTable
+              dataset={tabDetail?.interviews ?? null}
+              loading={tabDetailLoading}
+              emptyText="No interviews match the current filters."
+            />
+          </Card>
         </div>
       );
 
     case 'Placements & Revenue':
       return (
         <div className="space-y-6">
+          {canExportData ? (
+            <TabExportBar
+              exporting={tabExporting}
+              buttons={[{ label: 'Export placements (CSV)', onClick: () => onExportEntity('placements') }]}
+            />
+          ) : null}
           <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-3">
             <SummaryCard
               label="Total placements"
@@ -530,6 +684,13 @@ function ReportsContent({
             ) : (
               <EmptyState text="No placement revenue found." />
             )}
+          </Card>
+          <Card title="Placements (live)">
+            <ReportDatasetTable
+              dataset={tabDetail?.placements ?? null}
+              loading={tabDetailLoading}
+              emptyText="No placements match the current filters."
+            />
           </Card>
         </div>
       );
@@ -739,6 +900,9 @@ export default function ReportsPage() {
   const [customColumns, setCustomColumns] = useState<string[]>([]);
   const [customLoading, setCustomLoading] = useState(false);
   const [pullRefreshing, setPullRefreshing] = useState(false);
+  const [tabDetail, setTabDetail] = useState<TabDetailResponse | null>(null);
+  const [tabDetailLoading, setTabDetailLoading] = useState(false);
+  const [tabExporting, setTabExporting] = useState(false);
 
   const loadFilterOptions = async () => {
     try {
@@ -772,9 +936,41 @@ export default function ReportsPage() {
     void loadSummary(appliedFilters);
   }, [appliedFilters]);
 
-  usePageAutoRefresh(({ silent }) => loadSummary(appliedFilters, { silent }), {
-    events: ['jobportal:placements-changed', 'jobportal:jobs-changed'],
-  });
+  const loadTabDetail = async (tab: ReportTab, filters: FiltersState, opts?: { silent?: boolean }) => {
+    if (!MODULE_DETAIL_TABS.includes(tab)) {
+      setTabDetail(null);
+      return;
+    }
+    if (!opts?.silent) setTabDetailLoading(true);
+    try {
+      const tabKey = TAB_EXPORT_KEY[tab as Exclude<ReportTab, 'Custom Reports'>];
+      const detail = await fetchReportTabDetail(tabKey, filters);
+      setTabDetail(detail);
+    } catch (err) {
+      if (!opts?.silent) {
+        toast.error(err instanceof Error ? err.message : 'Failed to load report details');
+      }
+      setTabDetail(null);
+    } finally {
+      if (!opts?.silent) setTabDetailLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadTabDetail(activeTab, appliedFilters);
+  }, [activeTab, appliedFilters]);
+
+  usePageAutoRefresh(
+    ({ silent }) => {
+      void loadSummary(appliedFilters, { silent });
+      if (MODULE_DETAIL_TABS.includes(activeTab)) {
+        void loadTabDetail(activeTab, appliedFilters, { silent });
+      }
+    },
+    {
+      events: ['jobportal:placements-changed', 'jobportal:jobs-changed'],
+    },
+  );
 
   useEffect(() => {
     setCustomDataset(null);
@@ -844,8 +1040,29 @@ export default function ReportsPage() {
     setPullRefreshing(true);
     try {
       await loadSummary(appliedFilters, { silent: true });
+      if (MODULE_DETAIL_TABS.includes(activeTab)) {
+        await loadTabDetail(activeTab, appliedFilters, { silent: true });
+      }
     } finally {
       setPullRefreshing(false);
+    }
+  };
+
+  const handleExportEntity = async (
+    entity: 'jobs' | 'clients' | 'candidates' | 'interviews' | 'placements',
+  ) => {
+    if (!canExportData) return;
+    setTabExporting(true);
+    setError(null);
+    try {
+      const rowCount = await exportReportEntityCsv(entity, appliedFilters);
+      toast.success(`Exported ${rowCount} row${rowCount === 1 ? '' : 's'} to CSV.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to export CSV';
+      setError(message);
+      toast.error(message);
+    } finally {
+      setTabExporting(false);
     }
   };
 
@@ -990,6 +1207,11 @@ export default function ReportsPage() {
                         setCustomColumns={setCustomColumns}
                         customLoading={customLoading}
                         onGenerateCustom={canCreateReports ? () => void generateCustomPreview() : undefined}
+                        tabDetail={tabDetail}
+                        tabDetailLoading={tabDetailLoading}
+                        tabExporting={tabExporting}
+                        onExportEntity={handleExportEntity}
+                        canExportData={canExportData}
                       />
                     </motion.div>
                   </AnimatePresence>

@@ -36,65 +36,8 @@ export function requirePermission(permissionName) {
         return sendError(res, 500, 'Database connection error');
       }
 
-      const cacheKey = buildPermissionCacheKey(req.user.id);
-      const cached = await getCache(cacheKey);
-
-      let userAuthz;
-      if (cached) {
-        userAuthz = JSON.parse(cached);
-      } else {
-        const user = await prisma.user.findUnique({
-          where: { id: req.user.id },
-          select: {
-            id: true,
-            email: true,
-            name: true,
-            role: true,
-            isActive: true,
-            roleId: true,
-            systemRole: {
-              select: {
-                id: true,
-                roleName: true,
-                color: true,
-              },
-            },
-          },
-        });
-
-        if (!user) {
-          return sendError(res, 401, 'User not found');
-        }
-
-        const isSuperAdmin =
-          user.role === 'SUPER_ADMIN' ||
-          user.systemRole?.roleName === 'Super Admin';
-
-        let permissions = [];
-        if (!isSuperAdmin && user.roleId) {
-          const rolePermissions = await prisma.rolePermission.findMany({
-            where: { roleId: user.roleId },
-            select: {
-              permission: {
-                select: {
-                  permissionName: true,
-                },
-              },
-            },
-          });
-          permissions = rolePermissions
-            .map((rp) => rp.permission?.permissionName)
-            .filter(Boolean);
-        }
-
-        userAuthz = {
-          ...user,
-          isSuperAdmin,
-          permissions: isSuperAdmin ? ['all'] : permissions,
-        };
-
-        await setCache(cacheKey, JSON.stringify(userAuthz), 300);
-      }
+      const { userAuthz, error } = await loadUserAuthz(req);
+      if (error) return sendError(res, error.status, error.message);
 
       const isSuperAdmin = Boolean(userAuthz.isSuperAdmin);
 
@@ -106,12 +49,10 @@ export function requirePermission(permissionName) {
         return next();
       }
 
-      // If user has no role assigned, deny access
       if (!userAuthz.systemRole) {
         return sendError(res, 403, `Access denied: requires ${permissionName}. User has no role assigned.`);
       }
 
-      // Check if the role has the required permission
       const userPermissions = normalizePermissions(userAuthz.permissions);
       const hasPermission = hasAnyPermission(userPermissions, requiredPermissions);
 
@@ -119,7 +60,6 @@ export function requirePermission(permissionName) {
         return sendError(res, 403, `Access denied: requires ${permissionName}. Your role (${userAuthz.systemRole.roleName}) does not have this permission.`);
       }
 
-      // Attach user with permissions to request for use in controllers
       req.userWithPermissions = {
         ...userAuthz,
         permissions: userPermissions,
@@ -136,6 +76,72 @@ export function requirePermission(permissionName) {
       return sendError(res, 500, `Permission check failed: ${error?.message || 'Unknown error'}`, error);
     }
   };
+}
+
+async function loadUserAuthz(req) {
+  if (!req.user?.id) {
+    return { error: { status: 401, message: 'Authentication required' } };
+  }
+  if (!prisma) {
+    return { error: { status: 500, message: 'Database connection error' } };
+  }
+
+  const cacheKey = buildPermissionCacheKey(req.user.id);
+  const cached = await getCache(cacheKey);
+  if (cached) {
+    return { userAuthz: JSON.parse(cached) };
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: req.user.id },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      role: true,
+      isActive: true,
+      roleId: true,
+      systemRole: { select: { id: true, roleName: true, color: true } },
+    },
+  });
+
+  if (!user) {
+    return { error: { status: 401, message: 'User not found' } };
+  }
+
+  const isSuperAdmin = user.role === 'SUPER_ADMIN' || user.systemRole?.roleName === 'Super Admin';
+  let permissions = [];
+  if (!isSuperAdmin && user.roleId) {
+    const rolePermissions = await prisma.rolePermission.findMany({
+      where: { roleId: user.roleId },
+      select: { permission: { select: { permissionName: true } } },
+    });
+    permissions = rolePermissions.map((rp) => rp.permission?.permissionName).filter(Boolean);
+  }
+
+  const userAuthz = {
+    ...user,
+    isSuperAdmin,
+    permissions: isSuperAdmin ? ['all'] : permissions,
+  };
+
+  await setCache(cacheKey, JSON.stringify(userAuthz), 300);
+  return { userAuthz };
+}
+
+/** Load role permissions onto req without requiring a specific permission. */
+export async function attachUserPermissions(req, res, next) {
+  try {
+    const { userAuthz, error } = await loadUserAuthz(req);
+    if (error) return sendError(res, error.status, error.message);
+    req.userWithPermissions = {
+      ...userAuthz,
+      permissions: normalizePermissions(userAuthz.permissions),
+    };
+    return next();
+  } catch (err) {
+    return sendError(res, 500, `Permission load failed: ${err?.message || 'Unknown error'}`, err);
+  }
 }
 
 export function requireAnyPermission(permissionNames = []) {

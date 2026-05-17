@@ -4,6 +4,14 @@ import * as XLSX from 'xlsx';
 import { prisma } from '../../config/prisma.js';
 import { env } from '../../config/env.js';
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
+import {
+  buildJobsModuleExport,
+  buildClientsModuleExport,
+  buildCandidatesModuleExport,
+  buildInterviewsModuleExport,
+  buildPlacementsModuleExport,
+  limitDataset,
+} from './reportModuleFormats.js';
 
 const EXPORT_DIR = path.join(process.cwd(), 'uploads', 'reports');
 const OBJECT_ID_REGEX = /^[a-f\d]{24}$/i;
@@ -1650,8 +1658,12 @@ async function buildWhereForEntity(entity, query, user) {
     }
     case 'candidates': {
       const where = userHasFullDbAccess(user)
-        ? {}
-        : { OR: [{ assignedToId: user?.id || '__none__' }, { createdById: user?.id || '__none__' }] };
+        ? { isDeleted: { not: true }, NOT: { source: 'phase1' } }
+        : {
+            isDeleted: { not: true },
+            NOT: { source: 'phase1' },
+            OR: [{ assignedToId: user?.id || '__none__' }, { createdById: user?.id || '__none__' }],
+          };
       if (assignedToId) where.assignedToId = assignedToId;
       if (createdAt) where.createdAt = createdAt;
       if (status || filters.candidateStatus) where.status = status || filters.candidateStatus;
@@ -1811,6 +1823,118 @@ async function buildWhereForEntity(entity, query, user) {
   }
 }
 
+async function buildJobPipelineCounts(jobIds) {
+  const map = new Map();
+  if (!Array.isArray(jobIds) || !jobIds.length) return map;
+
+  const entries = await prisma.pipelineEntry.findMany({
+    where: { jobId: { in: jobIds } },
+    select: {
+      jobId: true,
+      candidateId: true,
+      stage: { select: { name: true, systemRole: true } },
+    },
+  });
+
+  const seenByJobBucket = new Map();
+
+  for (const entry of entries) {
+    if (!entry.jobId || !entry.candidateId) continue;
+    const stageText = String(entry.stage?.systemRole || entry.stage?.name || '').toLowerCase();
+    let bucket = 'applied';
+    if (stageText.includes('interview')) bucket = 'interviewed';
+    else if (stageText.includes('offer')) bucket = 'offered';
+    else if (stageText.includes('join') || stageText.includes('hire') || stageText.includes('placed')) {
+      bucket = 'joined';
+    }
+
+    const dedupeKey = `${entry.jobId}:${entry.candidateId}:${bucket}`;
+    if (seenByJobBucket.has(dedupeKey)) continue;
+    seenByJobBucket.set(dedupeKey, true);
+
+    if (!map.has(entry.jobId)) {
+      map.set(entry.jobId, { applied: 0, interviewed: 0, offered: 0, joined: 0 });
+    }
+    map.get(entry.jobId)[bucket] += 1;
+  }
+
+  return map;
+}
+
+async function buildModuleTabExportDataset(tabKey, query, user) {
+  const key = String(tabKey || '').toLowerCase();
+  switch (key) {
+    case 'jobs-clients':
+    case 'jobs-clients-jobs':
+      return fetchReportDataset('jobs', query, user);
+    case 'jobs-clients-clients':
+      return fetchReportDataset('clients', query, user);
+    case 'candidates':
+      return fetchReportDataset('candidates', query, user);
+    case 'interviews':
+      return fetchReportDataset('interviews', query, user);
+    case 'placements-revenue':
+      return fetchReportDataset('placements', query, user);
+    default: {
+      const summary = await getReportsSummary(query, user);
+      return tabToDatasetRows(key, summary);
+    }
+  }
+}
+
+export async function fetchTabDetail(tabKey, query = {}, user = null) {
+  const key = String(tabKey || '').toLowerCase();
+  if (key === 'jobs-clients') {
+    const [jobs, clients] = await Promise.all([
+      fetchReportDataset('jobs', query, user),
+      fetchReportDataset('clients', query, user),
+    ]);
+    return {
+      tab: key,
+      jobs: { ...jobs, totalRows: jobs.rows?.length || 0, rows: (jobs.rows || []).slice(0, 50) },
+      clients: {
+        ...clients,
+        totalRows: clients.rows?.length || 0,
+        rows: (clients.rows || []).slice(0, 50),
+      },
+    };
+  }
+  if (key === 'candidates') {
+    const candidates = await fetchReportDataset('candidates', query, user);
+    return {
+      tab: key,
+      candidates: {
+        ...candidates,
+        totalRows: candidates.rows?.length || 0,
+        rows: (candidates.rows || []).slice(0, 50),
+      },
+    };
+  }
+  if (key === 'interviews') {
+    const interviews = await fetchReportDataset('interviews', query, user);
+    return {
+      tab: key,
+      interviews: {
+        ...interviews,
+        totalRows: interviews.rows?.length || 0,
+        rows: (interviews.rows || []).slice(0, 50),
+      },
+    };
+  }
+  if (key === 'placements-revenue') {
+    const placements = await fetchReportDataset('placements', query, user);
+    return {
+      tab: key,
+      placements: {
+        ...placements,
+        totalRows: placements.rows?.length || 0,
+        rows: (placements.rows || []).slice(0, 50),
+      },
+    };
+  }
+  return { tab: key };
+}
+
 export async function fetchReportDataset(entity, query = {}, user = null) {
   const normalizedEntity = normalizeEntity(entity);
   const where = await buildWhereForEntity(normalizedEntity, query, user);
@@ -1885,110 +2009,20 @@ export async function fetchReportDataset(entity, query = {}, user = null) {
         },
         orderBy: { updatedAt: 'desc' },
       });
-      return {
-        entity: normalizedEntity,
-        title: 'Clients Report',
-        columns: ['Company Name', 'Contact', 'Email', 'Owner'],
-        rows: rows.map((client) => {
-          const contactNames = (client.contacts || [])
-            .map((contact) => `${contact.firstName || ''} ${contact.lastName || ''}`.trim())
-            .filter(Boolean);
-          return {
-            'Company Name': client.companyName || '',
-            Contact: contactNames.join(', '),
-            Email: (client.contacts || []).map((contact) => contact.email).filter(Boolean).join(', '),
-            Owner: client.assignedTo?.name || '',
-            Industry: client.industry || '',
-            Location: client.location || '',
-            Status: client.status || '',
-            Website: client.website || '',
-            Priority: client.priority || '',
-            'Created Date': formatDate(client.createdAt),
-            'Updated Date': formatDate(client.updatedAt),
-            'Company Size': client.companySize || '',
-            'Hiring Locations': client.hiringLocations || '',
-            LinkedIn: client.linkedin || '',
-            Timezone: client.timezone || '',
-            'Client Since': formatDate(client.clientSince),
-            'Services Needed': client.servicesNeeded || '',
-            'Expected Business Value': client.expectedBusinessValue || '',
-            'Lead Status': client.leadStatus || '',
-            SLA: client.sla || '',
-            'Next Follow Up Due': formatDate(client.nextFollowUpDue),
-            'Avg Time To Fill': client.avgTimeToFill || '',
-            'Health Status': client.healthStatus || '',
-            'Revenue Generated': client.revenueGenerated || '',
-            'Billing Total Revenue': client.billingTotalRevenue || '',
-            'Billing Outstanding': client.billingOutstanding || '',
-            'Billing Paid': client.billingPaid || '',
-            'Last Activity': formatDateTime(client.lastActivity),
-            'Stale Jobs Count': client.staleJobsCount || 0,
-            'Pending Invoices Count': client.pendingInvoicesCount || 0,
-            'Billing Overdue Count': client.billingOverdueCount || 0,
-            'Candidates In Progress': client.candidatesInProgress || 0,
-            'Interviews This Week': client.interviewsThisWeek || 0,
-            'Placements This Month': client.placementsThisMonth || 0,
-            Address: formatJson(client.address),
-            'Contact Phones': (client.contacts || []).map((contact) => contact.phone).filter(Boolean).join(', '),
-            'Contact Designations': (client.contacts || [])
-              .map((contact) => contact.designation)
-              .filter(Boolean)
-              .join(', '),
-          };
-        }),
-      };
+      const dataset = buildClientsModuleExport(rows);
+      return { entity: normalizedEntity, ...dataset };
     }
     case 'candidates': {
       const rows = await prisma.candidate.findMany({
         where,
         include: {
           assignedTo: { select: { name: true, email: true } },
-          createdBy: { select: { name: true, email: true } },
         },
         orderBy: { updatedAt: 'desc' },
+        take: 5000,
       });
-      return {
-        entity: normalizedEntity,
-        title: 'Candidates Report',
-        columns: ['Name', 'Skills', 'Status', 'Job'],
-        rows: rows.map((candidate) => ({
-          Name: `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim(),
-          Skills: Array.isArray(candidate.skills) ? candidate.skills.join(', ') : '',
-          Status: candidate.status || '',
-          Job: Array.isArray(candidate.assignedJobs) ? candidate.assignedJobs.join(', ') : '',
-          Email: candidate.email || '',
-          Phone: candidate.phone || '',
-          LinkedIn: candidate.linkedIn || '',
-          Stage: candidate.stage || '',
-          Location: candidate.location || '',
-          Title: candidate.currentTitle || '',
-          Company: candidate.currentCompany || '',
-          Experience: candidate.experience || '',
-          Address: candidate.address || '',
-          City: candidate.city || '',
-          Country: candidate.country || '',
-          Source: candidate.source || '',
-          Rating: candidate.rating || '',
-          Availability: candidate.availability || '',
-          'Notice Period': candidate.noticePeriod || '',
-          Hotlist: candidate.hotlist ? 'Yes' : 'No',
-          Designation: candidate.designation || '',
-          'Expected Salary': candidate.expectedSalary || '',
-          'Current Salary': candidate.currentSalary || '',
-          Education: candidate.education || '',
-          Certifications: formatArray(candidate.certifications),
-          Languages: formatArray(candidate.languages),
-          Portfolio: candidate.portfolio || '',
-          Website: candidate.website || '',
-          Notes: candidate.notes || '',
-          'CV Summary': candidate.cvSummary || '',
-          'Preferred Location': candidate.preferredLocation || '',
-          'Assigned Recruiter': candidate.assignedTo?.name || '',
-          'Created By': candidate.createdBy?.name || '',
-          'Created Date': formatDate(candidate.createdAt),
-          'Updated Date': formatDate(candidate.updatedAt),
-        })),
-      };
+      const dataset = buildCandidatesModuleExport(rows);
+      return { entity: normalizedEntity, ...dataset };
     }
     case 'jobs': {
       const rows = await prisma.job.findMany({
@@ -1998,53 +2032,12 @@ export async function fetchReportDataset(entity, query = {}, user = null) {
           assignedTo: { select: { name: true } },
         },
         orderBy: { updatedAt: 'desc' },
+        take: 5000,
       });
-      return {
-        entity: normalizedEntity,
-        title: 'Jobs Report',
-        columns: ['Title', 'Client', 'Status', 'Location', 'Owner'],
-        rows: rows.map((job) => ({
-          Title: job.title || '',
-          Client: job.client?.companyName || '',
-          Status: job.status || '',
-          Location: job.location || '',
-          Owner: job.assignedTo?.name || '',
-          Type: job.type || '',
-          Openings: job.openings || '',
-          Department: job.department || '',
-          Description: job.description || '',
-          Requirements: formatArray(job.requirements),
-          Skills: formatArray(job.skills),
-          Overview: job.overview || '',
-          'Key Responsibilities': formatArray(job.keyResponsibilities),
-          'Preferred Skills': formatArray(job.preferredSkills),
-          'Experience Required': job.experienceRequired || '',
-          Education: job.education || '',
-          Benefits: formatArray(job.benefits),
-          'Posted Date': formatDate(job.postedDate),
-          'Hiring Manager': job.hiringManager || '',
-          'Job Category': job.jobCategory || '',
-          'Location Type': job.jobLocationType || '',
-          Hot: job.hot ? 'Yes' : 'No',
-          'AI Match': job.aiMatch ? 'Yes' : 'No',
-          'No Candidates': job.noCandidates ? 'Yes' : 'No',
-          'SLA Risk': job.slaRisk ? 'Yes' : 'No',
-          'Expected Closure Date': formatDate(job.expectedClosureDate),
-          'JD File Name': job.jdFileName || '',
-          'Work Mode': job.workMode || '',
-          Priority: job.priority || '',
-          Visibility: job.visibility || '',
-          'Distribution Platforms': formatJson(job.distributionPlatforms),
-          'Supporting Recruiters': formatArray(job.supportingRecruiters),
-          'Application Form Enabled': job.applicationFormEnabled ? 'Yes' : 'No',
-          'Application Form Logo': job.applicationFormLogo || '',
-          'Application Form Questions': formatArray(job.applicationFormQuestions),
-          'Application Form Note': job.applicationFormNote || '',
-          Salary: formatJson(job.salary),
-          'Created Date': formatDate(job.createdAt),
-          'Updated Date': formatDate(job.updatedAt),
-        })),
-      };
+      const jobIds = rows.map((job) => job.id).filter(Boolean);
+      const pipelineCountsByJob = await buildJobPipelineCounts(jobIds);
+      const dataset = buildJobsModuleExport(rows, pipelineCountsByJob);
+      return { entity: normalizedEntity, ...dataset };
     }
     case 'tasks': {
       const rows = await prisma.task.findMany({
@@ -2089,72 +2082,45 @@ export async function fetchReportDataset(entity, query = {}, user = null) {
           client: { select: { companyName: true } },
           job: { select: { title: true } },
           recruiter: { select: { name: true } },
+          billing: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: { paymentStatus: true },
+          },
         },
         orderBy: { updatedAt: 'desc' },
+        take: 5000,
       });
-      return {
-        entity: normalizedEntity,
-        title: 'Placements Report',
-        columns: ['Candidate', 'Client', 'Job', 'Status', 'Recruiter'],
-        rows: rows.map((placement) => ({
-          Candidate: `${placement.candidate?.firstName || ''} ${placement.candidate?.lastName || ''}`.trim(),
-          Client: placement.client?.companyName || '',
-          Job: placement.job?.title || '',
-          Status: placement.status || '',
-          Recruiter: placement.recruiter?.name || '',
-          Salary: placement.salaryOffered || placement.salary || '',
-          Fee: placement.placementFee || placement.fee || '',
-          Revenue: placement.revenue || '',
-          'Offer Date': formatDate(placement.offerDate),
-          'Joining Date': formatDate(placement.joiningDate),
-          'Start Date': formatDate(placement.startDate),
-          'End Date': formatDate(placement.endDate),
-          'Actual Joining Date': formatDate(placement.actualJoiningDate),
-          'Fee Type': placement.feeType || '',
-          'Commission Percentage': placement.commissionPercentage || '',
-          'Failure Reason': placement.failureReason || '',
-          'Billing Status': placement.billingStatus || '',
-          'Warranty Days Left': placement.warrantyDaysLeft || '',
-          'Employment Type': placement.employmentType || '',
-          Notes: placement.notes || '',
-          'Candidate Email': placement.candidate?.email || '',
-        })),
-      };
+      const dataset = buildPlacementsModuleExport(rows);
+      return { entity: normalizedEntity, ...dataset };
     }
     case 'interviews': {
       const rows = await prisma.interview.findMany({
         where,
         include: {
-          candidate: { select: { firstName: true, lastName: true } },
-          job: { select: { title: true } },
+          candidate: { select: { firstName: true, lastName: true, email: true } },
+          job: { select: { title: true, client: { select: { companyName: true } } } },
+          client: { select: { companyName: true } },
           interviewer: { select: { name: true } },
+          createdBy: { select: { name: true } },
+          panel: { include: { user: { select: { name: true } } } },
+          feedbackEntries: { select: { id: true, status: true }, take: 1 },
         },
         orderBy: { scheduledAt: 'desc' },
+        take: 5000,
       });
-      return {
-        entity: normalizedEntity,
-        title: 'Interviews Report',
-        columns: ['Candidate', 'Job', 'Status', 'Scheduled At', 'Interviewer'],
-        rows: rows.map((interview) => ({
-          Candidate: `${interview.candidate?.firstName || ''} ${interview.candidate?.lastName || ''}`.trim(),
-          Job: interview.job?.title || '',
-          Status: interview.status || '',
-          'Scheduled At': formatDateTime(interview.scheduledAt),
-          Interviewer: interview.interviewer?.name || '',
-          Type: interview.type || '',
-          Mode: interview.mode || '',
-          Round: interview.round || '',
-          Duration: interview.duration || '',
-          Platform: interview.platform || '',
-          Location: interview.location || '',
-          'Meeting Link': interview.meetingLink || '',
-          Notes: interview.notes || '',
-          Timezone: interview.timezone || '',
-          Instructions: interview.instructions || '',
-          'Created Date': formatDate(interview.createdAt),
-          'Updated Date': formatDate(interview.updatedAt),
-        })),
-      };
+      const enriched = rows.map((interview) => ({
+        ...interview,
+        panelMembers: (interview.panel || []).map((p) => p.user).filter(Boolean),
+        feedbackStatus:
+          interview.feedbackEntries?.length > 0
+            ? interview.feedbackEntries[0]?.status || 'SUBMITTED'
+            : String(interview.status || '').toUpperCase() === 'FEEDBACK_PENDING'
+              ? 'PENDING'
+              : '',
+      }));
+      const dataset = buildInterviewsModuleExport(enriched);
+      return { entity: normalizedEntity, ...dataset };
     }
     case 'pipeline': {
       const rows = await prisma.pipelineEntry.findMany({
@@ -2332,9 +2298,12 @@ export const reportService = {
     };
   },
 
+  async getTabDetail(tab, query, user) {
+    return fetchTabDetail(tab, query, user);
+  },
+
   async exportSummaryTab(tab, format, query, user) {
-    const summary = await getReportsSummary(query, user);
-    const dataset = tabToDatasetRows(tab, summary);
+    const dataset = await buildModuleTabExportDataset(tab, query, user);
     return buildFileFromDataset(dataset, `summary-${tab}`, format);
   },
 

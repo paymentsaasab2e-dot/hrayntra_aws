@@ -124,7 +124,16 @@ const PAGE_ASSISTANT_CONFIGS: AssistantPageConfig[] = [
 
 function getAssistantPageConfig(pathname: string | null): AssistantPageConfig | null {
   if (!pathname) return null;
-  if (pathname.startsWith('/api') || pathname.startsWith('/auth') || pathname === '/login' || pathname === '/reset-password' || pathname === '/hq') return null;
+  if (
+    pathname.startsWith('/api') ||
+    pathname.startsWith('/auth') ||
+    pathname === '/login' ||
+    pathname === '/hq/login' ||
+    pathname === '/reset-password' ||
+    pathname === '/hq'
+  ) {
+    return null;
+  }
   return PAGE_ASSISTANT_CONFIGS.find((config) => config.match(pathname)) ?? PAGE_ASSISTANT_CONFIGS[0];
 }
 

@@ -1,19 +1,22 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { isEmailAllowedForHq } from '../../lib/hqAccess';
 
 export default function HqLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [allowed, setAllowed] = useState<boolean | null>(null);
 
+  const isLoginRoute = pathname === '/hq/login';
+
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || isLoginRoute) return;
 
     const token = window.localStorage.getItem('accessToken');
     if (!token) {
-      router.replace(`/login?redirect=${encodeURIComponent('/hq')}`);
+      router.replace('/hq/login');
       return;
     }
 
@@ -34,7 +37,11 @@ export default function HqLayout({ children }: { children: React.ReactNode }) {
     }
 
     setAllowed(true);
-  }, [router]);
+  }, [router, isLoginRoute]);
+
+  if (isLoginRoute) {
+    return <>{children}</>;
+  }
 
   if (allowed !== true) {
     return (

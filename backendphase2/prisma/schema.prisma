@@ -49,6 +49,7 @@ model User {
   commissionEarned Float? // Commission earned
   commissionRate   Float? // Commission rate percentage
   performanceData  Json? // Performance chart data
+  dashboardLayout  UserDashboardLayout?
 
   // New team management fields
   firstName    String?
@@ -2032,4 +2033,17 @@ model CandidateCommon {
   @@index([matchJobIds])
   @@index([isVerified])
   @@map("candidate_commons")
+}
+
+model UserDashboardLayout {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @unique @db.ObjectId
+  widgets   Json     @default("[]")
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_dashboard_layouts")
 }
