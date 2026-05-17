@@ -133,7 +133,7 @@ export default function ProfileDrawer({
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
-            className="fixed right-0 top-0 z-[100] flex h-full w-full max-w-2xl flex-col bg-white shadow-2xl"
+            className="fixed right-0 top-0 z-[100] flex h-full w-3/4 max-w-6xl flex-col bg-white shadow-2xl"
           >
             <div className="flex items-center justify-between border-b border-[#E5E7EB] px-6 py-4">
               <div className="flex items-center gap-4">

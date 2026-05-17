@@ -342,7 +342,9 @@ model Education {
   institution    String
   specialization String?   // Field of Study / Major
   startYear      Int
+  startMonth     Int?
   endYear        Int?
+  endMonth       Int?
   isOngoing      Boolean   @default(false)
   grade          String?
   modeOfStudy    String?   // Full-time, Part-time, Online, etc.

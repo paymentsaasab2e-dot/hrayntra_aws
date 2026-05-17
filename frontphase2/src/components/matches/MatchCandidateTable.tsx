@@ -32,6 +32,8 @@ interface MatchCandidateTableProps {
   savedMatches: string[];
   expandedAnalysis: string | null;
   showMatchScore?: boolean;
+  /** AI Applied Matches tab — label pipeline vs estimated scores */
+  isAppliedMatchesTab?: boolean;
   onToggleSelect: (candidateId: string) => void;
   onToggleSelectAll: () => void;
   onToggleSave: (candidateId: string) => void;
@@ -50,6 +52,7 @@ export default function MatchCandidateTable({
   savedMatches,
   expandedAnalysis,
   showMatchScore = true,
+  isAppliedMatchesTab = false,
   onToggleSelect,
   onToggleSelectAll,
   onToggleSave,
@@ -92,6 +95,16 @@ export default function MatchCandidateTable({
               const isSaved = savedMatches.includes(candidate.id);
               const isExpanded = expandedAnalysis === candidate.id;
               const band = displayMatchBand(candidate.score, candidate.explanation?.scoreBand);
+              const hasPipelineScore = Boolean(candidate.matchId);
+              const showScoreValue =
+                candidate.score > 0 || hasPipelineScore || !candidate.isAppliedCandidate;
+              const scoreSubLabel = isAppliedMatchesTab
+                ? hasPipelineScore
+                  ? band
+                  : showScoreValue
+                    ? 'Estimated'
+                    : 'Not scored'
+                : band;
 
               return (
                 <React.Fragment key={candidate.id}>
@@ -147,14 +160,26 @@ export default function MatchCandidateTable({
                     {showMatchScore ? (
                       <td className="px-3 py-2.5 text-center sm:px-4 sm:py-3">
                         <div className="flex flex-col items-center gap-1">
+                          {showScoreValue ? (
+                            <span
+                              className={`inline-flex min-w-[3rem] justify-center rounded-lg px-2.5 py-1 text-sm font-bold tabular-nums ${scoreBadgeClass(
+                                candidate.score
+                              )}`}
+                            >
+                              {candidate.score}%
+                            </span>
+                          ) : (
+                            <span className="inline-flex min-w-[3rem] justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-400">
+                              —
+                            </span>
+                          )}
                           <span
-                            className={`inline-flex min-w-[3rem] justify-center rounded-lg px-2.5 py-1 text-sm font-bold tabular-nums ${scoreBadgeClass(
-                              candidate.score
-                            )}`}
+                            className={`max-w-[96px] truncate text-[10px] font-medium ${
+                              scoreSubLabel === 'Not scored' ? 'text-amber-600' : 'text-slate-500'
+                            }`}
                           >
-                            {candidate.score}%
+                            {scoreSubLabel}
                           </span>
-                          <span className="max-w-[88px] truncate text-[10px] font-medium text-slate-500">{band}</span>
                         </div>
                       </td>
                     ) : null}

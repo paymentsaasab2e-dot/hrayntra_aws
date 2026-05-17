@@ -38,6 +38,8 @@ export interface Lead {
   directorName?: string;
   email: string;
   phone: string;
+  emails?: string[];
+  phones?: string[];
   status: LeadStatus;
   assignedTo: {
     id?: string;

@@ -5,6 +5,7 @@ import { sendLeadFollowUpEmail } from '../../emails/email.service.js';
 import activityService from '../../services/activityService.js';
 import { sendLeadAssignmentEmail } from '../../services/emailService.js';
 import { canViewAllLeads } from '../../utils/permissionScope.js';
+import { normalizeContactChannels } from '../../utils/contact-channels.js';
 
 function isValidObjectId(value) {
   return typeof value === 'string' && /^[a-fA-F0-9]{24}$/.test(value.trim());
@@ -283,13 +284,17 @@ export const leadService = {
         ? linkedInInput
         : null;
 
+    const contactChannels = normalizeContactChannels(data);
+
     const leadData = {
       companyName: normalizeRequiredLeadField(data.companyName),
       contactPerson: normalizeRequiredLeadField(normalizedContactPerson),
       directorName: normalizeNullableString(data.directorName) || null,
       directorSalutation: normalizedDirectorSalutation || null,
-      email: normalizeRequiredLeadField(normalizeNullableString(data.email)?.toLowerCase()),
-      phone: normalizeNullableString(data.phone),
+      email: normalizeRequiredLeadField(contactChannels.email),
+      phone: contactChannels.phone,
+      emails: contactChannels.emails,
+      phones: contactChannels.phones,
       type: data.type || 'Company',
       source: ['Website', 'LinkedIn', 'Email', 'Referral', 'Campaign'].includes(data.source)
         ? data.source
@@ -431,8 +436,18 @@ export const leadService = {
       updateData.directorSalutation = s || null;
     }
     if (data.contactPerson === undefined && data.directorName !== undefined) updateData.contactPerson = data.directorName || '';
-    if (data.email !== undefined) updateData.email = data.email || '';
-    if (data.phone !== undefined) updateData.phone = data.phone || null;
+    if (data.email !== undefined || data.emails !== undefined || data.phones !== undefined) {
+      const contactChannels = normalizeContactChannels({
+        email: data.email !== undefined ? data.email : currentLead.email,
+        phone: data.phone !== undefined ? data.phone : currentLead.phone,
+        emails: data.emails !== undefined ? data.emails : currentLead.emails,
+        phones: data.phones !== undefined ? data.phones : currentLead.phones,
+      });
+      updateData.email = contactChannels.email || '';
+      updateData.phone = contactChannels.phone;
+      updateData.emails = contactChannels.emails;
+      updateData.phones = contactChannels.phones;
+    }
     if (data.type !== undefined) updateData.type = data.type;
     if (data.source !== undefined) {
       const s = data.source;

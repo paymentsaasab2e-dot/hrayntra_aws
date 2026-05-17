@@ -113,6 +113,81 @@ export function findJobTitleById(jobId: string, matches?: BackendCandidate['matc
   return undefined;
 }
 
+function buildAssignedJobsList(c: BackendCandidate): NonNullable<CandidateProfileDrawerData['assignedJobs']> {
+  type Row = NonNullable<CandidateProfileDrawerData['assignedJobs']>[number];
+  const byKey = new Map<string, Row>();
+
+  const upsert = (row: Row) => {
+    const key = row.id ? String(row.id) : row.title.trim();
+    if (!key) return;
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, row);
+      return;
+    }
+    byKey.set(key, {
+      ...existing,
+      ...row,
+      title: row.title || existing.title,
+      stage: row.stage || existing.stage,
+      status: row.status || existing.status,
+      movedAt: row.movedAt || existing.movedAt,
+      notes: row.notes || existing.notes,
+      pipelineEntryId: row.pipelineEntryId || existing.pipelineEntryId,
+      isPipelineEntry: Boolean(row.isPipelineEntry || existing.isPipelineEntry),
+      department: row.department || existing.department,
+    });
+  };
+
+  for (const entry of c.pipelineEntries || []) {
+    const jobId = String(entry.jobId || '').trim();
+    const match = jobId ? c.matches?.find((m) => m.job?.id === jobId) : undefined;
+    const titleFromMatch = match?.job?.title || (jobId ? findJobTitleById(jobId, c.matches) : undefined);
+    const title = String(titleFromMatch || '').trim() || 'Untitled job';
+    const department = match?.job?.client?.companyName || null;
+    upsert({
+      id: jobId || null,
+      pipelineEntryId: entry.id ? String(entry.id) : null,
+      title,
+      department,
+      stage: entry.stage?.name || null,
+      movedAt: entry.movedAt || null,
+      notes: entry.notes || null,
+      status: null,
+      isPipelineEntry: true,
+    });
+  }
+
+  for (const match of c.matches || []) {
+    const id = match.job?.id ? String(match.job.id) : '';
+    const title = String(match.job?.title || '').trim();
+    if (!id && !title) continue;
+    upsert({
+      id: id || null,
+      title: title || 'Untitled job',
+      status: match.status || null,
+      stage: c.stage || null,
+    });
+  }
+
+  const titleArr = Array.isArray(c.assignedJobTitles) ? c.assignedJobTitles : [];
+  const idArr = Array.isArray(c.assignedJobs) ? c.assignedJobs : [];
+  const max = Math.max(titleArr.length, idArr.length);
+  for (let i = 0; i < max; i += 1) {
+    const id = idArr[i] ? String(idArr[i]) : '';
+    const title = String(titleArr[i] || findJobTitleById(id, c.matches) || '').trim();
+    if (!id && !title) continue;
+    upsert({
+      id: id || null,
+      title: title || 'Untitled job',
+      status: null,
+      stage: c.stage || null,
+    });
+  }
+
+  return Array.from(byKey.values());
+}
+
 export function mapCandidateProfile(c: BackendCandidate): CandidateProfileDrawerData {
   const namePart = `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim();
   const emailPart = c.email?.trim() || '';
@@ -336,40 +411,7 @@ export function mapCandidateProfile(c: BackendCandidate): CandidateProfileDrawer
       latestMatch?.job?.title ||
       '—',
     assignedJobId: c.assignedJobs?.[0] || latestMatch?.job?.id || null,
-    assignedJobs: (() => {
-      const seen = new Set<string>();
-      const out: NonNullable<CandidateProfileDrawerData['assignedJobs']> = [];
-      for (const match of c.matches || []) {
-        const id = match.job?.id ? String(match.job.id) : '';
-        const title = String(match.job?.title || '').trim();
-        if (!id && !title) continue;
-        const key = id || title;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push({
-          id: id || null,
-          title: title || 'Untitled job',
-          status: match.status || null,
-        });
-      }
-      const titleArr = Array.isArray(c.assignedJobTitles) ? c.assignedJobTitles : [];
-      const idArr = Array.isArray(c.assignedJobs) ? c.assignedJobs : [];
-      const max = Math.max(titleArr.length, idArr.length);
-      for (let i = 0; i < max; i += 1) {
-        const id = idArr[i] ? String(idArr[i]) : '';
-        const title = String(titleArr[i] || '').trim();
-        if (!id && !title) continue;
-        const key = id || title;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push({
-          id: id || null,
-          title: title || 'Untitled job',
-          status: null,
-        });
-      }
-      return out;
-    })(),
+    assignedJobs: buildAssignedJobsList(c),
     recruiter: c.assignedTo?.name || 'Unassigned',
     recruiterId: c.assignedTo?.id || null,
     source: c.source || '—',

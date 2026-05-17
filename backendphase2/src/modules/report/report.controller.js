@@ -2,6 +2,15 @@ import { reportService } from './report.service.js';
 import { sendResponse, sendError } from '../../utils/response.js';
 
 export const reportController = {
+  async getFilterOptions(req, res) {
+    try {
+      const result = await reportService.getFilterOptions(req.user);
+      return sendResponse(res, 200, 'Report filter options retrieved successfully', result);
+    } catch (error) {
+      return sendError(res, 500, error.message, error);
+    }
+  },
+
   async getSummary(req, res) {
     try {
       const result = await reportService.getSummary(req.query || {}, req.user);

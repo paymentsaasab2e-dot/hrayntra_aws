@@ -1,9 +1,13 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, useRef, Suspense } from 'react';
-import { StageTabs, type CandidateStageStats } from './components/StageTabs';
+import type { CandidateStageStats } from './components/StageTabs';
 import { CandidateTable, Candidate } from './components/CandidateTable';
-import { CandidateGrid } from './components/CandidateGrid';
+import {
+  CandidateTableFilters,
+  type CandidateTableColumnFilters,
+  EMPTY_CANDIDATE_TABLE_COLUMN_FILTERS,
+} from './components/CandidateTableFilters';
 import { BulkActions } from './components/BulkActions';
 import AddCandidateDrawer from '../../components/candidates/AddCandidateDrawer';
 import FailedBulkResumesDrawer from '../../components/candidates/FailedBulkResumesDrawer';
@@ -21,9 +25,8 @@ import {
   type CandidatePipelineRecruiterOption,
   type CandidateTagItem,
 } from '../../components/drawers/CandidateProfileDrawer';
+import { useSubmitToClientModal } from '../../hooks/useSubmitToClientModal';
 import {
-  LayoutGrid, 
-  List, 
   Plus,
   Upload,
   FileSpreadsheet,
@@ -45,19 +48,21 @@ import { CreateTaskModal } from '../../components/CreateTaskModal';
 import { Toaster, toast } from 'sonner';
 import PaginationAll from '../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
-import { requestConfirm } from '../../lib/appDialog';
+import { requestConfirm, requestError } from '../../lib/appDialog';
 import { RECYCLE_BIN_SYNC_EVENT } from '../../constants/recycleBin';
-import { MY_JOBS_LIST_PARAMS } from '../../lib/myJobsListParams';
+import { parseClientsListFromResponse, parseJobsListFromResponse } from '../../lib/parseApiList';
 import {
   apiAddCandidateNote,
   apiAddCandidateTag,
   apiAddCandidateToPipeline,
+  apiRemoveCandidateFromPipeline,
   apiBulkActionCandidates,
   apiDeleteCandidate,
   apiDeleteCandidateNote,
   apiGetCandidate,
   apiGetCandidates,
   apiGetCandidateStats,
+  apiGetClients,
   apiGetJobs,
   apiGetPipelineStages,
   apiMoveCandidateStage,
@@ -81,7 +86,6 @@ import {
   PH2_TABLE_CARD_CLASS,
   PH2_TABLE_CARD_FOOTER_CLASS,
   PH2_TOOLBAR_ROW_CLASS,
-  PH2_TOOLBAR_SELECT_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
 import {
   extractApiData,
@@ -90,6 +94,13 @@ import {
   mapBackendStage,
   mapCandidateProfile,
 } from '../../lib/mapCandidateProfile';
+import {
+  candidateRowCanSubmitToClient,
+  profileCanSubmitToClient,
+  resolveSubmitJobIdForProfile,
+  resolveSubmitJobIdForRow,
+  resolveSubmitJobIdFromBackend,
+} from '../../lib/candidateSubmitToClient';
 
 export const dynamic = 'force-dynamic';
 
@@ -103,6 +114,102 @@ function isSuperAdminRole(role?: string | null): boolean {
 
 /** List all candidates for the candidate page. */
 const ALL_CANDIDATES_LIST_PARAMS = { page: 1, limit: 200 };
+
+const CANDIDATE_STAGE_API_MAP: Record<string, string> = {
+  new: 'New',
+  applied: 'Applied',
+  longlist: 'Longlist',
+  shortlist: 'Shortlist',
+  screening: 'Screening',
+  submitted: 'Submitted',
+  interviewing: 'Interviewing',
+  offered: 'Offered',
+  hired: 'Hired',
+  rejected: 'Rejected',
+};
+
+function readColumnFiltersFromSearchParams(
+  searchParams: URLSearchParams,
+): CandidateTableColumnFilters {
+  return {
+    company: searchParams.get('company') || '',
+    experienceRange: searchParams.get('experienceRange') || '',
+    location: searchParams.get('location') || '',
+    jobId: searchParams.get('jobId') || '',
+    stage: searchParams.get('tableStage') || '',
+    ownerId: searchParams.get('assignedToId') || '',
+  };
+}
+
+function normalizeFilterOption(value?: string | null): string {
+  const trimmed = String(value || '').trim();
+  if (!trimmed || trimmed === '—') return '';
+  return trimmed;
+}
+
+function extractBackendCandidatesList(
+  payload: BackendCandidate[] | { data?: BackendCandidate[]; items?: BackendCandidate[] } | undefined,
+): BackendCandidate[] {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload.data)) return payload.data;
+  if (Array.isArray(payload.items)) return payload.items;
+  return [];
+}
+
+function buildFilterDropdownOptions(
+  candidates: Candidate[],
+  backendRows: BackendCandidate[],
+  existingCompanies: string[],
+  existingLocations: string[],
+) {
+  const companies = new Set(existingCompanies);
+  const locations = new Set(existingLocations);
+
+  for (const row of candidates) {
+    const company = normalizeFilterOption(row.company);
+    const location = normalizeFilterOption(row.location);
+    if (company) companies.add(company);
+    if (location) locations.add(location);
+  }
+
+  for (const row of backendRows) {
+    const company = normalizeFilterOption(row.currentCompany);
+    const location = normalizeFilterOption(row.location);
+    if (company) companies.add(company);
+    if (location) locations.add(location);
+  }
+
+  return {
+    companies: Array.from(companies).sort((a, b) => a.localeCompare(b)),
+    locations: Array.from(locations).sort((a, b) => a.localeCompare(b)),
+  };
+}
+
+type CandidateJobFilterOption = { id: string; title: string };
+
+function toJobFilterOptions(jobs: BackendJob[]): CandidateJobFilterOption[] {
+  return jobs
+    .filter((job) => job.id)
+    .map((job) => ({
+      id: String(job.id),
+      title: String(job.title || 'Untitled job').trim() || 'Untitled job',
+    }))
+    .sort((a, b) => a.title.localeCompare(b.title));
+}
+
+function clientNamesFromApiResponse(res: { data?: unknown }): string[] {
+  return parseClientsListFromResponse(res)
+    .map((client) => String(client.companyName || '').trim())
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+function mergeCompanyFilterOptions(existing: string[], next: string[]): string[] {
+  return Array.from(new Set([...existing, ...next].filter(Boolean))).sort((a, b) =>
+    a.localeCompare(b),
+  );
+}
 
 function mapBackendCandidate(c: BackendCandidate): Candidate {
   const fullName = `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim();
@@ -152,10 +259,7 @@ function mapBackendCandidate(c: BackendCandidate): Candidate {
     salary: { current: '', expected: '' },
     source: c.source || '',
     rating: c.rating ?? 0,
-    pipelineJobId:
-      c.matches?.find((match) => isValidObjectId(String(match.job?.id || '')))?.job?.id ||
-      c.assignedJobs?.find((jobId) => isValidObjectId(String(jobId || ''))) ||
-      undefined,
+    pipelineJobId: resolveSubmitJobIdFromBackend(c),
   };
 }
 
@@ -167,12 +271,12 @@ function CandidatesPageContent() {
   const { hasPermission, hasAnyPermission } = usePermissions();
   const canCreateCandidate = hasAnyPermission(['candidates_create', 'add_candidate']);
   const canUpdateCandidate = hasAnyPermission(['candidates_update', 'edit_candidate', 'move_pipeline', 'submit_candidate']);
+  const canSubmitToClient = hasAnyPermission(['submit_candidate', 'candidates_update', 'edit_candidate']);
   const canDeleteCandidate = hasAnyPermission(['candidates_delete', 'delete_candidate']);
   const canAssignCandidate = hasAnyPermission(['candidates_update', 'move_pipeline']);
   const canExportCandidate = hasPermission('export_data');
   const [activeStage, setActiveStage] = useState(searchParams.get('stage') || 'all');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [isAddCandidateOpen, setIsAddCandidateOpen] = useState(false);
   const [candidateDrawerInitialTab, setCandidateDrawerInitialTab] = useState('manual');
@@ -182,12 +286,24 @@ function CandidatesPageContent() {
   const [recycleBinModuleOpen, setRecycleBinModuleOpen] = useState(false);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [loading, setLoading] = useState(true);
+  const [tableLoading, setTableLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasLoadedCandidatesOnceRef = useRef(false);
   const [filters, setFilters] = useState({
     search: searchParams.get('search') || '',
-    assignedToId: searchParams.get('assignedToId') || '',
     status: searchParams.get('status') || '',
   });
+  const [columnFilters, setColumnFilters] = useState<CandidateTableColumnFilters>(() =>
+    readColumnFiltersFromSearchParams(searchParams),
+  );
+  const [debouncedColumnFilters, setDebouncedColumnFilters] =
+    useState<CandidateTableColumnFilters>(columnFilters);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedColumnFilters(columnFilters), 400);
+    return () => window.clearTimeout(timer);
+  }, [columnFilters]);
+
   const [selectedCandidateProfile, setSelectedCandidateProfile] = useState<CandidateProfileDrawerData | null>(null);
   const [candidateDrawerOpen, setCandidateDrawerOpen] = useState(false);
   const [candidateDrawerMode, setCandidateDrawerMode] = useState<'view' | 'edit'>('view');
@@ -197,7 +313,48 @@ function CandidatesPageContent() {
   const [loadingCandidateProfile, setLoadingCandidateProfile] = useState(false);
   const [availableDrawerTags, setAvailableDrawerTags] = useState<CandidateTagItem[]>([]);
   const [pipelineJobs, setPipelineJobs] = useState<CandidatePipelineJobOption[]>([]);
+  const [jobFilterOptions, setJobFilterOptions] = useState<CandidateJobFilterOption[]>([]);
   const [pipelineRecruiters, setPipelineRecruiters] = useState<CandidatePipelineRecruiterOption[]>([]);
+  const [companyFilterOptions, setCompanyFilterOptions] = useState<string[]>([]);
+  const [locationFilterOptions, setLocationFilterOptions] = useState<string[]>([]);
+  const companyFilterOptionsRef = useRef<string[]>([]);
+  const locationFilterOptionsRef = useRef<string[]>([]);
+  const [submitClientRowId, setSubmitClientRowId] = useState<string | null>(null);
+  const { openSubmit, submitModalElement } = useSubmitToClientModal({
+    onClosed: () => setSubmitClientRowId(null),
+  });
+  /** Canonical job filter list from /jobs — not rebuilt from paginated candidate rows. */
+  const jobFilterOptionsRef = useRef<CandidateJobFilterOption[]>([]);
+  useEffect(() => {
+    companyFilterOptionsRef.current = companyFilterOptions;
+  }, [companyFilterOptions]);
+
+  useEffect(() => {
+    locationFilterOptionsRef.current = locationFilterOptions;
+  }, [locationFilterOptions]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await apiGetCandidates({ page: 1, limit: 500 });
+        if (cancelled) return;
+        const rows = extractBackendCandidatesList(
+          res.data as BackendCandidate[] | { data?: BackendCandidate[]; items?: BackendCandidate[] } | undefined,
+        );
+        const mapped = rows.map(mapBackendCandidate);
+        const built = buildFilterDropdownOptions(mapped, rows, [], []);
+        setLocationFilterOptions(built.locations);
+        setCompanyFilterOptions((prev) => mergeCompanyFilterOptions(prev, built.companies));
+      } catch {
+        // Dropdown options still accumulate from paginated list loads.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const [interviewPanelMembers, setInterviewPanelMembers] = useState<CandidateInterviewerOption[]>([]);
   const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
   const [bulkAssignSaving, setBulkAssignSaving] = useState(false);
@@ -363,11 +520,16 @@ function CandidatesPageContent() {
 
   const loadCandidates = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = opts?.silent === true;
+    const isFirstLoad = !hasLoadedCandidatesOnceRef.current;
     const requestId = ++loadCandidatesRequestIdRef.current;
     try {
       if (!silent) {
-        setLoading(true);
-        setError(null);
+        if (isFirstLoad) {
+          setLoading(true);
+          setError(null);
+        } else {
+          setTableLoading(true);
+        }
       }
 
       const queryParams: Record<string, string | number | boolean> = {
@@ -376,24 +538,22 @@ function CandidatesPageContent() {
       };
 
       if (filters.search) queryParams.search = filters.search;
-      if (filters.assignedToId) queryParams.assignedToId = filters.assignedToId;
 
-      if (activeStage !== 'all') {
-        const stageMap: Record<string, string> = {
-          applied: 'Applied',
-          longlist: 'Longlist',
-          shortlist: 'Shortlist',
-          screening: 'Screening',
-          submitted: 'Submitted',
-          interviewing: 'Interviewing',
-          offered: 'Offered',
-          hired: 'Hired',
-          rejected: 'Rejected',
-        };
-        const backendStage = stageMap[activeStage.toLowerCase()];
-        if (backendStage) {
-          queryParams.stage = backendStage;
-        }
+      if (debouncedColumnFilters.company) queryParams.company = debouncedColumnFilters.company;
+      if (debouncedColumnFilters.location) queryParams.location = debouncedColumnFilters.location;
+      if (debouncedColumnFilters.jobId) queryParams.jobId = debouncedColumnFilters.jobId;
+      if (debouncedColumnFilters.experienceRange) {
+        queryParams.experienceRange = debouncedColumnFilters.experienceRange;
+      }
+      if (debouncedColumnFilters.ownerId) {
+        queryParams.assignedToId = debouncedColumnFilters.ownerId;
+      }
+
+      const stageFilterKey =
+        debouncedColumnFilters.stage || (activeStage !== 'all' ? activeStage : '');
+      if (stageFilterKey) {
+        queryParams.stage =
+          CANDIDATE_STAGE_API_MAP[stageFilterKey.toLowerCase()] || stageFilterKey;
       } else if (filters.status) {
         queryParams.status = filters.status;
       }
@@ -432,6 +592,7 @@ function CandidatesPageContent() {
       if (requestId !== loadCandidatesRequestIdRef.current) return;
       const mapped = backendCandidates.map(mapBackendCandidate);
       setCandidates(mapped);
+      hasLoadedCandidatesOnceRef.current = true;
       if (pagination) {
         setTotalEntries(pagination.total || 0);
       } else {
@@ -439,23 +600,46 @@ function CandidatesPageContent() {
       }
     } catch (err: any) {
       if (requestId !== loadCandidatesRequestIdRef.current) return;
+      const message = err?.message || 'Failed to load candidates.';
       if (!silent) {
-        setError(err?.message || 'Failed to load candidates.');
-        setCandidates([]);
-        setTotalEntries(0);
+        if (!hasLoadedCandidatesOnceRef.current) {
+          setError(message);
+          setCandidates([]);
+          setTotalEntries(0);
+        }
       }
-      toast.error(err?.message || 'Failed to load candidates.');
+      toast.error(message);
     } finally {
-      if (requestId === loadCandidatesRequestIdRef.current && !silent) setLoading(false);
+      if (requestId !== loadCandidatesRequestIdRef.current) return;
+      if (!silent) {
+        if (isFirstLoad) {
+          setLoading(false);
+        } else {
+          setTableLoading(false);
+        }
+      }
     }
-  }, [filters, activeStage, currentPage, pageSize]);
+  }, [filters, debouncedColumnFilters, activeStage, currentPage, pageSize]);
+
+  const refreshJobFilterOptions = useCallback(async () => {
+    try {
+      const res = await apiGetJobs({ page: 1, limit: 500 });
+      const jobs = toJobFilterOptions(parseJobsListFromResponse(res));
+      if (jobs.length > 0 || jobFilterOptionsRef.current.length === 0) {
+        jobFilterOptionsRef.current = jobs;
+        setJobFilterOptions(jobs);
+      }
+    } catch (err) {
+      console.error('Failed to refresh job filter options:', err);
+    }
+  }, []);
 
   useEffect(() => {
     loadCandidates();
   }, [loadCandidates]);
 
-  // Fetch stage stats once at page level — feeds the StageTabs and the KPI
-  // card row. Refreshes when `stageStatsRefreshTick` bumps after a mutation.
+  // Fetch stage stats once at page level — feeds the KPI card row.
+  // Refreshes when `stageStatsRefreshTick` bumps after a mutation.
   const statsMine = useMemo(
     () => !isSuperAdminRole(currentUser?.role),
     [currentUser?.role]
@@ -490,76 +674,124 @@ function CandidatesPageContent() {
   // Reusable auto-refresh: polls while visible, refreshes on tab focus and on
   // candidate / job-pipeline change events.
   const candidatesAutoLoad = useCallback(
-    ({ silent }: { silent: boolean }) => {
-      // Bumping the tick re-fetches stats alongside the candidates list so
-      // both stay in lockstep.
-      setStageStatsRefreshTick((t) => t + 1);
-      return loadCandidates({ silent });
-    },
-    [loadCandidates]
+    ({ silent }: { silent: boolean }) => loadCandidates({ silent }),
+    [loadCandidates],
   );
   usePageAutoRefresh(candidatesAutoLoad, {
     events: ['jobportal:candidates-changed', 'jobportal:jobs-changed'],
   });
+
+  useEffect(() => {
+    const onCandidatesChanged = () => {
+      setStageStatsRefreshTick((t) => t + 1);
+    };
+    const onJobsChanged = () => {
+      void refreshJobFilterOptions();
+    };
+    window.addEventListener('jobportal:candidates-changed', onCandidatesChanged);
+    window.addEventListener('jobportal:jobs-changed', onJobsChanged);
+    return () => {
+      window.removeEventListener('jobportal:candidates-changed', onCandidatesChanged);
+      window.removeEventListener('jobportal:jobs-changed', onJobsChanged);
+    };
+  }, [refreshJobFilterOptions]);
 
   // Refresh stats when candidates are updated
   const refreshStats = useCallback(() => {
     setStageStatsRefreshTick((current) => current + 1);
   }, []);
 
-  const hasToolbarFilters = Boolean(
-    filters.search.trim() || filters.assignedToId || filters.status || activeStage !== 'all',
+  const hasTableColumnFilters = Boolean(
+    columnFilters.company.trim() ||
+      columnFilters.location.trim() ||
+      columnFilters.experienceRange ||
+      columnFilters.jobId ||
+      columnFilters.stage ||
+      columnFilters.ownerId,
   );
 
+  const hasToolbarFilters = Boolean(
+    filters.search.trim() || filters.status || activeStage !== 'all' || hasTableColumnFilters,
+  );
+
+  const isAllCandidatesView =
+    activeStage === 'all' && !columnFilters.stage && !filters.status;
+
+  const handleShowAllCandidates = useCallback(() => {
+    setCurrentPage(1);
+    setActiveStage('all');
+    setColumnFilters((prev) => ({ ...prev, stage: '' }));
+    setFilters((prev) => ({ ...prev, status: '' }));
+  }, []);
+
   const handleClearToolbar = useCallback(() => {
-    setFilters({ search: '', assignedToId: '', status: '' });
+    setFilters({ search: '', status: '' });
+    setColumnFilters(EMPTY_CANDIDATE_TABLE_COLUMN_FILTERS);
     setActiveStage('all');
     setCurrentPage(1);
     refreshStats();
   }, [refreshStats]);
+
+  const handleColumnFiltersChange = useCallback((next: CandidateTableColumnFilters) => {
+    setCurrentPage(1);
+    setColumnFilters(next);
+    if (next.stage) {
+      setActiveStage('all');
+      setFilters((prev) => ({ ...prev, status: '' }));
+    }
+  }, []);
 
   // Update URL params when filters or stage change
   useEffect(() => {
     const params = new URLSearchParams();
     if (activeStage !== 'all') params.set('stage', activeStage);
     if (filters.search) params.set('search', filters.search);
-    if (filters.assignedToId) params.set('assignedToId', filters.assignedToId);
     if (filters.status) params.set('status', filters.status);
+    if (columnFilters.company) params.set('company', columnFilters.company);
+    if (columnFilters.location) params.set('location', columnFilters.location);
+    if (columnFilters.experienceRange) params.set('experienceRange', columnFilters.experienceRange);
+    if (columnFilters.jobId) params.set('jobId', columnFilters.jobId);
+    if (columnFilters.stage) params.set('tableStage', columnFilters.stage);
+    if (columnFilters.ownerId) params.set('assignedToId', columnFilters.ownerId);
     router.replace(`/candidate?${params.toString()}`, { scroll: false });
-  }, [activeStage, filters, router]);
+  }, [activeStage, filters, columnFilters, router]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadPipelineOptions() {
       try {
-        const [jobsRes, members] = await Promise.all([
-          apiGetJobs(MY_JOBS_LIST_PARAMS),
+        const [allJobsRes, clientsRes, members] = await Promise.all([
+          apiGetJobs({ page: 1, limit: 500 }),
+          apiGetClients({ page: 1, limit: 500 }),
           getAllTeamMembersForAssign(),
         ]);
         if (cancelled) return;
 
-        const jobsPayload = jobsRes.data;
-
-        const jobsData: BackendJob[] = Array.isArray(jobsPayload)
-          ? jobsPayload
-          : Array.isArray((jobsPayload as any)?.data)
-            ? (jobsPayload as any).data
-            : Array.isArray((jobsPayload as any)?.items)
-              ? (jobsPayload as any).items
-              : [];
+        const allJobsParsed = parseJobsListFromResponse(allJobsRes);
+        const allJobsForFilter = toJobFilterOptions(allJobsParsed);
+        const clientNames = clientNamesFromApiResponse(clientsRes);
 
         const memberName = (m: (typeof members)[number]) =>
           [m.firstName, m.lastName].filter(Boolean).join(' ').trim() || m.email;
         const memberAvatar = (m: (typeof members)[number]) => (m as { avatar?: string | null }).avatar || null;
 
         setPipelineJobs(
-          jobsData.map((job) => ({
-            id: job.id,
-            title: job.title,
-            department: job.department || job.client?.companyName || null,
-          }))
+          allJobsParsed
+            .filter((job) => job.id)
+            .map((job) => ({
+              id: String(job.id),
+              title: String(job.title || 'Untitled job').trim() || 'Untitled job',
+              department: job.department || job.client?.companyName || null,
+            }))
+            .sort((a, b) => a.title.localeCompare(b.title)),
         );
+
+        if (allJobsForFilter.length > 0 || jobFilterOptionsRef.current.length === 0) {
+          jobFilterOptionsRef.current = allJobsForFilter;
+          setJobFilterOptions(allJobsForFilter);
+        }
+        setCompanyFilterOptions((prev) => mergeCompanyFilterOptions(prev, clientNames));
 
         setPipelineRecruiters(
           members.map((m) => ({
@@ -589,11 +821,7 @@ function CandidatesPageContent() {
     };
   }, []);
 
-  const filteredCandidates = useMemo(() => {
-    const base = candidates;
-    if (activeStage === 'all') return base;
-    return base.filter(c => c.stage.toLowerCase() === activeStage.toLowerCase());
-  }, [activeStage, candidates]);
+  const filteredCandidates = candidates;
 
   const handleToggleSelect = (id: string) => {
     setSelectedIds(prev => 
@@ -1005,11 +1233,15 @@ function CandidatesPageContent() {
                   refreshStats();
                   void loadCandidates();
                 }}
-                disabled={loading}
+                disabled={loading || tableLoading}
                 className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98] disabled:opacity-50"
                 title="Refresh"
               >
-                <RefreshCcw size={16} strokeWidth={2.25} className={loading ? 'animate-spin' : ''} />
+                <RefreshCcw
+                  size={16}
+                  strokeWidth={2.25}
+                  className={loading || tableLoading ? 'animate-spin' : ''}
+                />
               </button>
               {canDeleteCandidate ? (
                 <button
@@ -1128,26 +1360,22 @@ function CandidatesPageContent() {
 
           <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
             <div className="mx-auto max-w-[1600px]">
-              <div className="mb-4">
-          <StageTabs
-            activeStage={activeStage}
-            stats={stageStats}
-            loading={stageStatsLoading}
-            onStageChange={(stage) => {
-              setActiveStage(stage);
-              setFilters((prev) => ({ ...prev, status: stage === 'all' ? '' : stage }));
-              setStageStatsRefreshTick((current) => current + 1);
-            }}
-          />
-              </div>
 
-              <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-5">
+              <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-6">
             {stageStatsLoading || !stageStats ? (
-              (['blue', 'yellow', 'purple', 'green', 'cyan'] as SummaryCardColor[]).map((c, i) => (
+              (['indigo', 'blue', 'yellow', 'purple', 'green', 'cyan'] as SummaryCardColor[]).map((c, i) => (
                 <SummaryCardSkeleton key={i} color={c} />
               ))
             ) : (
               <>
+                <SummaryCard
+                  label="TOTAL CANDIDATES"
+                  count={stageStats.all}
+                  color="indigo"
+                  icon={<Users size={18} strokeWidth={2.35} />}
+                  active={isAllCandidatesView}
+                  onClick={handleShowAllCandidates}
+                />
                 <SummaryCard
                   label="APPLIED"
                   count={stageStats.applied}
@@ -1156,8 +1384,10 @@ function CandidatesPageContent() {
                   active={activeStage === 'applied'}
                   onClick={() => {
                     const next = activeStage === 'applied' ? 'all' : 'applied';
+                    setCurrentPage(1);
                     setActiveStage(next);
-                    setFilters((prev) => ({ ...prev, status: next === 'all' ? '' : next }));
+                    setColumnFilters((prev) => ({ ...prev, stage: '' }));
+                    setFilters((prev) => ({ ...prev, status: '' }));
                   }}
                 />
                 <SummaryCard
@@ -1168,8 +1398,10 @@ function CandidatesPageContent() {
                   active={activeStage === 'screening'}
                   onClick={() => {
                     const next = activeStage === 'screening' ? 'all' : 'screening';
+                    setCurrentPage(1);
                     setActiveStage(next);
-                    setFilters((prev) => ({ ...prev, status: next === 'all' ? '' : next }));
+                    setColumnFilters((prev) => ({ ...prev, stage: '' }));
+                    setFilters((prev) => ({ ...prev, status: '' }));
                   }}
                 />
                 <SummaryCard
@@ -1180,8 +1412,10 @@ function CandidatesPageContent() {
                   active={activeStage === 'interviewing'}
                   onClick={() => {
                     const next = activeStage === 'interviewing' ? 'all' : 'interviewing';
+                    setCurrentPage(1);
                     setActiveStage(next);
-                    setFilters((prev) => ({ ...prev, status: next === 'all' ? '' : next }));
+                    setColumnFilters((prev) => ({ ...prev, stage: '' }));
+                    setFilters((prev) => ({ ...prev, status: '' }));
                   }}
                 />
                 <SummaryCard
@@ -1192,8 +1426,10 @@ function CandidatesPageContent() {
                   active={activeStage === 'offered'}
                   onClick={() => {
                     const next = activeStage === 'offered' ? 'all' : 'offered';
+                    setCurrentPage(1);
                     setActiveStage(next);
-                    setFilters((prev) => ({ ...prev, status: next === 'all' ? '' : next }));
+                    setColumnFilters((prev) => ({ ...prev, stage: '' }));
+                    setFilters((prev) => ({ ...prev, status: '' }));
                   }}
                 />
                 <SummaryCard
@@ -1204,8 +1440,10 @@ function CandidatesPageContent() {
                   active={activeStage === 'hired'}
                   onClick={() => {
                     const next = activeStage === 'hired' ? 'all' : 'hired';
+                    setCurrentPage(1);
                     setActiveStage(next);
-                    setFilters((prev) => ({ ...prev, status: next === 'all' ? '' : next }));
+                    setColumnFilters((prev) => ({ ...prev, stage: '' }));
+                    setFilters((prev) => ({ ...prev, status: '' }));
                   }}
                 />
               </>
@@ -1213,9 +1451,34 @@ function CandidatesPageContent() {
           </div>
 
               <div className={PH2_TABLE_CARD_CLASS}>
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-indigo-100/80 bg-gradient-to-r from-indigo-50/90 via-white to-slate-50/80 px-4 py-3 sm:px-5">
+                  <div>
+                    <h2 className="text-sm font-bold text-slate-900 sm:text-base">All candidates</h2>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      {stageStatsLoading || !stageStats
+                        ? 'Loading candidate pool…'
+                        : isAllCandidatesView
+                          ? `Showing ${totalEntries.toLocaleString()} candidate${totalEntries === 1 ? '' : 's'} — full pool (${stageStats.all.toLocaleString()} total)`
+                          : `Filtered list — ${totalEntries.toLocaleString()} of ${stageStats.all.toLocaleString()} in pool`}
+                    </p>
+                  </div>
+                  {isAllCandidatesView ? (
+                    <span className="inline-flex items-center rounded-full bg-indigo-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-indigo-800">
+                      All candidates
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleShowAllCandidates}
+                      className="inline-flex items-center rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-xs font-semibold text-indigo-700 shadow-sm transition-colors hover:bg-indigo-50"
+                    >
+                      View all ({stageStats?.all ?? totalEntries})
+                    </button>
+                  )}
+                </div>
                 <div className={PH2_TOOLBAR_ROW_CLASS}>
-                  <div className="flex w-full flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="relative w-full lg:max-w-md lg:flex-1">
+                  <div className="flex w-full flex-col gap-2 xl:flex-row xl:items-center xl:gap-2">
+                    <div className="relative w-full shrink-0 sm:w-48 lg:w-52">
                       <Search
                         className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400"
                         size={16}
@@ -1223,7 +1486,7 @@ function CandidatesPageContent() {
                       />
                       <input
                         type="text"
-                        placeholder="Search by name or email…"
+                        placeholder="Search name or email…"
                         value={filters.search}
                         onChange={(e) => {
                           setCurrentPage(1);
@@ -1231,62 +1494,26 @@ function CandidatesPageContent() {
                         }}
                         className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
                       />
-              </div>
-                    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
-                      <div className="inline-flex w-fit items-center rounded-lg border border-indigo-100/90 bg-white/95 p-0.5 shadow-sm ring-1 ring-indigo-100/40">
-                <button 
-                          type="button"
-                  onClick={() => setViewMode('list')}
-                          className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap transition-all ${
-                            viewMode === 'list'
-                              ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-sm'
-                              : 'text-slate-600 hover:bg-indigo-50/50'
-                          }`}
-                        >
-                          <List size={14} className="shrink-0" />
-                          List
-                </button>
-                <button 
-                          type="button"
-                  onClick={() => setViewMode('grid')}
-                          className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap transition-all ${
-                            viewMode === 'grid'
-                              ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-sm'
-                              : 'text-slate-600 hover:bg-indigo-50/50'
-                          }`}
-                        >
-                          <LayoutGrid size={14} className="shrink-0" />
-                          Grid
-                </button>
-              </div>
-                      <select
-                        className={PH2_TOOLBAR_SELECT_CLASS}
-                        value={filters.assignedToId}
-                        onChange={(e) => {
-                          setCurrentPage(1);
-                          setFilters((prev) => ({ ...prev, assignedToId: e.target.value }));
-                        }}
-                      >
-                        <option value="">All recruiters</option>
-                        {pipelineRecruiters.map((r) => (
-                          <option key={r.id} value={r.id}>
-                            {r.name}
-                          </option>
-                        ))}
-                      </select>
+                    </div>
+                    <CandidateTableFilters
+                      filters={columnFilters}
+                      onChange={handleColumnFiltersChange}
+                      companyOptions={companyFilterOptions}
+                      locationOptions={locationFilterOptions}
+                      jobOptions={jobFilterOptions}
+                      ownerOptions={pipelineRecruiters}
+                    />
+                    <div className="flex shrink-0 items-center self-end xl:ml-auto xl:self-center">
                       {hasToolbarFilters ? (
-                <button
+                        <button
                           type="button"
-                          className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
+                          className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
                           onClick={handleClearToolbar}
                         >
                           <XCircle size={15} className="shrink-0 text-rose-500" strokeWidth={2.35} />
-                          Clear
-                </button>
+                          Clear filters
+                        </button>
                       ) : null}
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                        {totalEntries} total
-                      </span>
                     </div>
                   </div>
           </div>
@@ -1297,7 +1524,7 @@ function CandidatesPageContent() {
                   <div className="p-2">
                 <TableSkeleton rows={8} columns={7} />
               </div>
-            ) : viewMode === 'list' ? (
+            ) : (
               <>
                 <BulkActions
                   selectedIds={selectedIds}
@@ -1408,7 +1635,15 @@ function CandidatesPageContent() {
                   } : undefined}
                   onDeselect={() => setSelectedIds([])}
                 />
-                    <div className="overflow-hidden">
+                    <div className="relative overflow-hidden">
+                      {tableLoading ? (
+                        <div
+                          className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-white/60 backdrop-blur-[1px]"
+                          aria-hidden
+                        >
+                          <RefreshCcw size={22} className="animate-spin text-indigo-500" strokeWidth={2.25} />
+                        </div>
+                      ) : null}
                       <div className="no-scrollbar overflow-x-auto">
                 <CandidateTable
                   candidates={filteredCandidates}
@@ -1425,6 +1660,30 @@ function CandidatesPageContent() {
                   movingCandidateId={inlineStageUpdatingCandidateId}
                   onLoadStageOptions={canUpdateCandidate ? loadInlineStageOptionsForCandidate : undefined}
                   onChangeCandidateStage={canUpdateCandidate ? handleInlineCandidateStageChange : undefined}
+                  onSubmitToClient={
+                    canSubmitToClient
+                      ? (row) => {
+                          if (!candidateRowCanSubmitToClient(row)) return;
+                          const jobId = resolveSubmitJobIdForRow(row);
+                          if (!jobId) {
+                            void requestError(
+                              'This candidate must be assigned to, applied for, or in the pipeline of a job before submitting to the client.',
+                            );
+                            return;
+                          }
+                          setSubmitClientRowId(row.id);
+                          void openSubmit({
+                            candidateId: row.id,
+                            jobId,
+                            candidateName: row.name,
+                            matchScore: row.matchScore,
+                            matchId: row.matchId,
+                          });
+                        }
+                      : undefined
+                  }
+                  canSubmitToClient={canSubmitToClient ? candidateRowCanSubmitToClient : undefined}
+                  submittingToClientCandidateId={submitClientRowId}
                 />
                       </div>
                     </div>
@@ -1445,15 +1704,6 @@ function CandidatesPageContent() {
                   />
                 </div>
               </>
-            ) : (
-                  <div className="p-2 sm:p-3">
-                <CandidateGrid
-                  candidates={filteredCandidates}
-                  selectedIds={selectedIds}
-                  onToggleSelect={handleToggleSelect}
-                  onViewProfile={handleViewProfile}
-                />
-              </div>
             )}
             </div>
           </div>
@@ -1824,6 +2074,42 @@ function CandidatesPageContent() {
           });
           await loadCandidateProfile(candidateId);
         } : undefined}
+        onRemoveFromPipeline={
+          canUpdateCandidate
+            ? async ({ candidateId, jobId }) => {
+                await apiRemoveCandidateFromPipeline(candidateId, jobId);
+                await loadCandidateProfile(candidateId);
+              }
+            : undefined
+        }
+        onSubmitToClient={
+          canSubmitToClient
+            ? (profile) => {
+                if (!profileCanSubmitToClient(profile)) {
+                  void requestError(
+                    'Submit to Client is only available for candidates assigned to, applied for, or in a job pipeline.',
+                  );
+                  return;
+                }
+                const listRow = filteredCandidates.find((c) => c.id === profile.id);
+                const jobId =
+                  resolveSubmitJobIdForProfile(profile) ||
+                  (listRow ? resolveSubmitJobIdForRow(listRow) : null);
+                if (!jobId) {
+                  void requestError(
+                    'Assign this candidate to a job (or add them to a pipeline) before submitting to the client.',
+                  );
+                  return;
+                }
+                void openSubmit({
+                  candidateId: profile.id,
+                  jobId,
+                  candidateName: profile.name,
+                });
+              }
+            : undefined
+        }
+        showSubmitToClient={canSubmitToClient}
         onUpdateCandidate={canUpdateCandidate ? async (candidateId, payload) => {
           await apiUpdateCandidate(candidateId, payload);
           await loadCandidateProfile(candidateId);
@@ -1832,6 +2118,7 @@ function CandidatesPageContent() {
         editModalOpenToken={candidateEditOpenToken}
       />
 
+      {submitModalElement}
     </div>
     </>
   );

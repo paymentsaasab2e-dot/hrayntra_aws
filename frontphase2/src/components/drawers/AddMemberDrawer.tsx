@@ -68,7 +68,7 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="fixed right-0 top-0 z-[1010] flex h-full w-full max-w-2xl flex-col overflow-hidden bg-white shadow-2xl"
+            className="fixed right-0 top-0 z-[1010] flex h-full w-3/4 max-w-6xl flex-col overflow-hidden bg-white shadow-2xl"
           >
             {/* Header */}
             <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-white sticky top-0 z-10">

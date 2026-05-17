@@ -70,7 +70,7 @@ export default function CandidateList(props: CandidateListProps) {
   const subtitle = savedOnly
     ? 'Showing only matches you bookmarked. Toggle "Saved only" off in the filter bar to see everyone.'
     : activeTab === 'manual'
-      ? 'Tenant candidates assigned to this job. Use Run AI Applied Matches to score.'
+      ? 'Candidates who applied or were assigned to this job only. Use Run AI Applied Matches to score.'
       : 'All scored candidates are grouped by match band. Run AI Matches to refresh scores for the selected job.';
 
   const aiTierStats = useMemo(
@@ -116,7 +116,8 @@ export default function CandidateList(props: CandidateListProps) {
     selectedCandidates,
     savedMatches,
     expandedAnalysis,
-    showMatchScore: activeTab === 'ai',
+    showMatchScore: true,
+    isAppliedMatchesTab: activeTab === 'manual',
     onToggleSelect,
     onToggleSave,
     onToggleAnalysis,
@@ -184,7 +185,7 @@ export default function CandidateList(props: CandidateListProps) {
 
         {loading ? (
           <div className="overflow-hidden rounded-lg border border-indigo-100/40 bg-white/50 p-2">
-            <TableSkeleton rows={embedded ? 8 : 10} columns={7} />
+            <TableSkeleton rows={embedded ? 8 : 10} columns={8} />
           </div>
         ) : candidates.length ? (
           <div className="space-y-6">

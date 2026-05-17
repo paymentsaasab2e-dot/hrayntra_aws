@@ -41,6 +41,9 @@ const interviewInclude = {
       linkedIn: true,
       avatar: true,
       cvSummary: true,
+      cvEducationEntries: true,
+      cvWorkExperienceEntries: true,
+      extraData: true,
       education: true,
       languages: true,
       certifications: true,
@@ -317,6 +320,17 @@ export const normalizeSubmissionType = (value) => {
 // Token works for either an interview submission or a match submission. We
 // keep the JWT `type` constant so the existing public route handles both —
 // the resolver branches on whichever ID is present in the payload.
+const normalizeCvShareMode = (value) => {
+  const mode = String(value || '').trim().toLowerCase();
+  return mode === 'edited' || mode === 'original' ? mode : null;
+};
+
+const readCandidateCvShareMode = (candidate) => {
+  const extra = candidate?.extraData;
+  if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return null;
+  return normalizeCvShareMode(extra.cvSubmission?.shareMode);
+};
+
 export const createClientReviewToken = ({
   interviewId = null,
   matchId = null,
@@ -324,6 +338,7 @@ export const createClientReviewToken = ({
   jobId = null,
   clientId = null,
   submissionType = 'GENERAL',
+  cvShareMode = null,
 } = {}) =>
   jwt.sign(
     {
@@ -334,6 +349,7 @@ export const createClientReviewToken = ({
       clientId,
       tenantDbName: getActiveTenantDbName() || undefined,
       submissionType: submissionType || 'GENERAL',
+      cvShareMode: normalizeCvShareMode(cvShareMode) || undefined,
       type: 'INTERVIEW_CLIENT_REVIEW',
     },
     env.JWT_SECRET,
@@ -1171,12 +1187,39 @@ export const interviewService = {
       );
     }
 
+    const cvShareMode =
+      normalizeCvShareMode(payload?.cvShareMode) ||
+      readCandidateCvShareMode(interview.candidate) ||
+      'edited';
+
+    if (cvShareMode) {
+      const existingExtra =
+        interview.candidate?.extraData &&
+        typeof interview.candidate.extraData === 'object' &&
+        !Array.isArray(interview.candidate.extraData)
+          ? interview.candidate.extraData
+          : {};
+      await prisma.candidate.update({
+        where: { id: interview.candidateId },
+        data: {
+          extraData: {
+            ...existingExtra,
+            cvSubmission: {
+              shareMode: cvShareMode,
+              updatedAt: new Date().toISOString(),
+            },
+          },
+        },
+      });
+    }
+
     const token = createClientReviewToken({
       interviewId: interview.id,
       candidateId: interview.candidateId,
       jobId: interview.jobId,
       clientId: interview.clientId,
       submissionType,
+      cvShareMode,
     });
     const reviewUrl = `${env.FRONTEND_URL}/client-review/${encodeURIComponent(token)}`;
 
@@ -1252,6 +1295,7 @@ export const interviewService = {
     }
     const tenantDbName = await resolveReviewTenant(decoded);
     const submissionType = normalizeSubmissionType(decoded?.submissionType) || 'GENERAL';
+    const cvShareMode = normalizeCvShareMode(decoded?.cvShareMode) || 'edited';
 
     // The two entry points (interview / match) share a response shape so the
     // public review page doesn't need to know which one it came from.
@@ -1330,28 +1374,50 @@ export const interviewService = {
         return { interview: iv, offerLetterFile: offerFile };
       }
     );
+    const c = interview.candidate;
+    const baseCandidate = {
+      name: `${c.firstName || ''} ${c.lastName || ''}`.trim(),
+      email: c.email || '',
+      phone: c.phone || '',
+      currentCompany: c.currentCompany || '',
+      designation: c.designation || c.currentTitle || '',
+      experience: c.experience ?? null,
+      skills: c.skills || [],
+      languages: c.languages || [],
+      education: c.education || '',
+      certifications: c.certifications || [],
+      cvSummary: c.cvSummary || '',
+      cvEducationEntries: Array.isArray(c.cvEducationEntries) ? c.cvEducationEntries : [],
+      cvWorkExperienceEntries: Array.isArray(c.cvWorkExperienceEntries) ? c.cvWorkExperienceEntries : [],
+      address: c.address || '',
+      city: c.city || '',
+      country: c.country || '',
+      linkedIn: c.linkedIn || '',
+      resume: c.resume || '',
+    };
+    const candidateForClient =
+      cvShareMode === 'original'
+        ? {
+            ...baseCandidate,
+            cvSummary: '',
+            cvEducationEntries: [],
+            cvWorkExperienceEntries: [],
+            skills: [],
+            languages: [],
+            education: '',
+            certifications: [],
+          }
+        : {
+            ...baseCandidate,
+            resume: '',
+          };
+
     return {
       interviewId: interview.id,
       submissionType,
+      cvShareMode,
       offerLetterUrl: offerLetterFile?.fileUrl || null,
-      candidate: {
-        name: `${interview.candidate.firstName || ''} ${interview.candidate.lastName || ''}`.trim(),
-        email: interview.candidate.email || '',
-        phone: interview.candidate.phone || '',
-        currentCompany: interview.candidate.currentCompany || '',
-        designation: interview.candidate.designation || '',
-        experience: interview.candidate.experience ?? null,
-        skills: interview.candidate.skills || [],
-        languages: interview.candidate.languages || [],
-        education: interview.candidate.education || '',
-        certifications: interview.candidate.certifications || [],
-        cvSummary: interview.candidate.cvSummary || '',
-        address: interview.candidate.address || '',
-        city: interview.candidate.city || '',
-        country: interview.candidate.country || '',
-        linkedIn: interview.candidate.linkedIn || '',
-        resume: interview.candidate.resume || '',
-      },
+      candidate: candidateForClient,
       job: {
         title: interview.job.title || '',
       },

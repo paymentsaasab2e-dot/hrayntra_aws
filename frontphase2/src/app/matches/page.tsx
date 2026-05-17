@@ -25,10 +25,12 @@ import {
 } from '../../components/drawers/CandidateProfileDrawer';
 import type { MatchCandidate, MatchFilters, MatchJob, MatchMode, OpenModal } from '../../components/matches/types';
 import { AI_SCORE_TIERS, computeAiTierStats } from '../../components/matches/types';
+import { mapBackendMatch } from '../../lib/mapBackendMatch';
 import {
   apiAddCandidateNote,
   apiAddCandidateTag,
   apiAddCandidateToPipeline,
+  apiRemoveCandidateFromPipeline,
   apiBulkAddMatchesToPipeline,
   apiBulkEmailMatches,
   apiBulkRejectMatches,
@@ -215,39 +217,6 @@ function mapRecruiter(user: BackendUser) {
   };
 }
 
-function mapBackendMatch(match: BackendMatch): MatchCandidate {
-  const rawMatchId = String(match.id || '');
-  const pendingApplied = rawMatchId.startsWith('applied-pending-');
-  return {
-    id: match.candidateId,
-    matchId: pendingApplied ? '' : rawMatchId,
-    isAppliedCandidate: Boolean(match.isAppliedCandidate),
-    isPhase1Candidate: Boolean(match.isPhase1Candidate),
-    name: match.name,
-    photo: match.photo,
-    initials: match.initials,
-    score: match.score,
-    skills: match.skills,
-    experience: match.experience,
-    location: match.location,
-    salary: match.salary,
-    noticePeriod: match.noticePeriod,
-    status: match.status as MatchCandidate['status'],
-    matchSource: match.matchSource,
-    explanation: match.explanation,
-    currentTitle: match.currentTitle,
-    currentCompany: match.currentCompany,
-    email: match.email,
-    phone: match.phone,
-    resumeName: match.resumeName,
-    portfolioUrl: match.portfolioUrl,
-    savedAt: match.savedAt,
-    notes: match.notes,
-    activity: match.activity,
-    matchRating: match.matchRating || undefined,
-    submittedHistory: match.submittedHistory || null,
-  };
-}
 
 function mapCandidateNotes(candidate: BackendCandidate) {
   return (Array.isArray(candidate.internalNotes) ? candidate.internalNotes : []).map((note) => ({
@@ -687,6 +656,13 @@ export default function MatchesPage() {
 
   const filteredCandidates = useMemo(() => {
     const list = candidates
+      .filter((candidate) =>
+        activeTab === 'manual'
+          ? candidate.isAppliedCandidate
+          : activeTab === 'ai'
+            ? !candidate.isAppliedCandidate
+            : true
+      )
       .filter((candidate) => candidate.score >= filters.skillMatch)
       .filter(
         (candidate) => candidate.experience >= filters.expMin && candidate.experience <= filters.expMax
@@ -1318,6 +1294,11 @@ export default function MatchesPage() {
             priority,
             notes,
           });
+          await loadCandidateProfile(candidateId, drawerMatchCandidate);
+          await refreshMatches();
+        }}
+        onRemoveFromPipeline={async ({ candidateId, jobId }) => {
+          await apiRemoveCandidateFromPipeline(candidateId, jobId);
           await loadCandidateProfile(candidateId, drawerMatchCandidate);
           await refreshMatches();
         }}

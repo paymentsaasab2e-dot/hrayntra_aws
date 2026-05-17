@@ -1,4 +1,4 @@
-const { S3Client, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
 const { randomUUID } = require('crypto');
 const path = require('path');
 
@@ -177,6 +177,18 @@ async function uploadBufferToCloudinary({
   };
 }
 
+async function getS3ObjectBodyBuffer(key) {
+  const client = getS3Client();
+  const out = await client.send(
+    new GetObjectCommand({ Bucket: getS3Bucket(), Key: key })
+  );
+  const chunks = [];
+  for await (const chunk of out.Body) {
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
 async function destroyByCloudinaryUrl(url, resourceType = 'image') {
   void resourceType;
   const parsed = parseOurS3Url(url);
@@ -195,4 +207,6 @@ module.exports = {
   uploadContentTypeForFile,
   getS3Client,
   getS3Bucket,
+  parseOurS3Url,
+  getS3ObjectBodyBuffer,
 };

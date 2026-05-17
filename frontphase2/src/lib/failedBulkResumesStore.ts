@@ -93,14 +93,25 @@ export function removeFailedBulkResumesByFileName(fileName: string) {
 }
 
 export function moveFailedBulkResumeToTrash(id: string) {
+  moveFailedBulkResumesToTrash([id]);
+}
+
+/** Move multiple failed resume rows to Recycle Bin (local trash) in one write. */
+export function moveFailedBulkResumesToTrash(ids: string[]) {
+  const idSet = new Set(ids.map((id) => String(id || '').trim()).filter(Boolean));
+  if (!idSet.size) return;
+
   const active = getActiveFailedBulkResumes();
-  const row = active.find((r) => r.id === id);
-  if (!row) return;
-  const rest = active.filter((r) => r.id !== id);
+  const toTrash = active.filter((r) => idSet.has(r.id));
+  if (!toTrash.length) return;
+
+  const rest = active.filter((r) => !idSet.has(r.id));
   const trash = getTrashedFailedBulkResumes();
   const trashedAt = new Date().toISOString();
+  const trashedRows: TrashedFailedBulkResume[] = toTrash.map((row) => ({ ...row, trashedAt }));
+
   writeJson(KEY_ACTIVE, rest);
-  writeJson(KEY_TRASH, [{ ...row, trashedAt }, ...trash]);
+  writeJson(KEY_TRASH, [...trashedRows, ...trash]);
 }
 
 export function restoreFailedBulkResumeFromTrash(id: string) {

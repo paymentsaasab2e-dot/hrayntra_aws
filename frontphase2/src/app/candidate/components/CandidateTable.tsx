@@ -11,10 +11,19 @@ import {
   Briefcase,
   Trash2,
   Loader2,
+  Send,
 } from 'lucide-react';
 import { ImageWithFallback, initialsFromDisplayName } from '../../../components/ImageWithFallback';
-import { getCandidateStageLabel } from '../../../utils/candidateStage';
+import {
+  getCandidateStageBadgeClasses,
+  getCandidateStageDotClasses,
+  getCandidateStageLabel,
+} from '../../../utils/candidateStage';
 import { WhatsAppIcon } from '../../../components/icons/WhatsAppIcon';
+import { displayMatchBand, scoreBadgeClass } from '../../../components/matches/types';
+
+export type { CandidateTableColumnFilters } from './CandidateTableFilters';
+export { EMPTY_CANDIDATE_TABLE_COLUMN_FILTERS } from './CandidateTableFilters';
 
 export interface Candidate {
   id: string;
@@ -37,6 +46,11 @@ export interface Candidate {
   source: string;
   rating: number;
   pipelineJobId?: string;
+  /** Backend match id when known (submit to client) */
+  matchId?: string;
+  /** Optional AI / applied match score (0–100) for job drawer and similar views */
+  matchScore?: number;
+  matchScoreBand?: string;
 }
 
 interface CandidateTableProps {
@@ -56,24 +70,15 @@ interface CandidateTableProps {
   movingCandidateId?: string | null;
   onLoadStageOptions?: (candidate: Candidate) => void | Promise<void>;
   onChangeCandidateStage?: (candidate: Candidate, stageId: string) => void | Promise<void>;
+  /** Show match score column (job drawer after Run AI Applied Matches) */
+  showMatchScore?: boolean;
+  /** Opens Submit to Client drawer (same as Interviews page) */
+  onSubmitToClient?: (candidate: Candidate) => void;
+  /** When set, only rows passing this check show the submit action */
+  canSubmitToClient?: (candidate: Candidate) => boolean;
+  /** Row id currently opening submit modal */
+  submittingToClientCandidateId?: string | null;
 }
-
-const getStageColor = (stage: string) => {
-  switch (stage.toLowerCase()) {
-    case 'new': return 'bg-sky-100 text-sky-800 border-sky-200';
-    case 'applied': return 'bg-blue-100 text-blue-700 border-blue-200';
-    case 'shortlist': return 'bg-purple-100 text-purple-700 border-purple-200';
-    case 'screening': return 'bg-orange-100 text-orange-700 border-orange-200';
-    case 'interviewing': return 'bg-indigo-100 text-indigo-700 border-indigo-200';
-    case 'offer':
-    case 'offered':
-      return 'bg-emerald-100 text-emerald-700 border-emerald-200';
-    case 'hired':
-      return 'bg-green-100 text-green-700 border-green-200';
-    case 'rejected': return 'bg-rose-100 text-rose-700 border-rose-200';
-    default: return 'bg-slate-100 text-slate-700 border-slate-200';
-  }
-};
 
 export const CandidateTable: React.FC<CandidateTableProps> = ({
   candidates,
@@ -87,6 +92,10 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
   deletingCandidateId,
   // Inline-stage props are still accepted (kept on the interface for parent compatibility)
   // but no longer wired to the cell — the stage column is read-only from the table now.
+  showMatchScore = false,
+  onSubmitToClient,
+  canSubmitToClient,
+  submittingToClientCandidateId,
 }) => {
   const allSelected = candidates.length > 0 && selectedIds.length === candidates.length;
 
@@ -105,6 +114,9 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                 />
               </th>
               <th className="px-3 py-2 sm:px-4">Candidate</th>
+              {showMatchScore ? (
+                <th className="px-3 py-2 text-center sm:px-4">Match</th>
+              ) : null}
               <th className="px-3 py-2 sm:px-4">Role / company</th>
               <th className="px-3 py-2 text-center sm:px-4">Exp</th>
               <th className="px-3 py-2 sm:px-4">Location</th>
@@ -117,10 +129,16 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
           <tbody className="divide-y divide-slate-100/80">
             {candidates.map((candidate) => (
               <tr 
-                key={candidate.id} 
-                className={`transition-colors duration-200 hover:bg-indigo-50/45 ${selectedIds.includes(candidate.id) ? 'bg-indigo-50/90' : 'even:bg-slate-50/35'}`}
+                key={candidate.id}
+                onClick={() => onViewProfile?.(candidate)}
+                className={`transition-colors duration-200 hover:bg-indigo-50/45 ${
+                  onViewProfile ? 'cursor-pointer' : ''
+                } ${selectedIds.includes(candidate.id) ? 'bg-indigo-50/90' : 'even:bg-slate-50/35'}`}
               >
-                <td className="px-3 py-2.5 first:pl-4 sm:px-4 sm:py-3">
+                <td
+                  className="px-3 py-2.5 first:pl-4 sm:px-4 sm:py-3"
+                  onClick={(event) => event.stopPropagation()}
+                >
                   <input 
                     type="checkbox" 
                     checked={selectedIds.includes(candidate.id)}
@@ -137,8 +155,13 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                         className="w-10 h-10 rounded-full object-cover ring-2 ring-white"
                         alt={candidate.name}
                       />
-                      <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-white rounded-full flex items-center justify-center shadow-sm">
-                        <div className="w-2.5 h-2.5 bg-green-500 rounded-full"></div>
+                      <div
+                        className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-white"
+                        title={getCandidateStageLabel(candidate.stage)}
+                      >
+                        <span
+                          className={`h-2.5 w-2.5 rounded-full ${getCandidateStageDotClasses(candidate.stage)}`}
+                        />
                       </div>
                     </div>
                     <div>
@@ -152,6 +175,25 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                     </div>
                   </div>
                 </td>
+                {showMatchScore ? (
+                  <td className="px-3 py-2.5 text-center sm:px-4 sm:py-3">
+                    {(candidate.matchScore ?? 0) > 0 ? (
+                      <div className="flex flex-col items-center gap-0.5">
+                        <span
+                          className={`inline-flex min-w-[2.75rem] items-center justify-center rounded-lg px-2 py-1 text-xs font-bold tabular-nums ${scoreBadgeClass(candidate.matchScore ?? 0)}`}
+                        >
+                          {candidate.matchScore}%
+                        </span>
+                        <span className="max-w-[5.5rem] truncate text-[10px] font-medium text-slate-500">
+                          {candidate.matchScoreBand ||
+                            displayMatchBand(candidate.matchScore ?? 0)}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-xs font-medium text-slate-400">Not scored</span>
+                    )}
+                  </td>
+                ) : null}
                 <td className="px-3 py-2.5 sm:px-4 sm:py-3">
                   <div>
                     <p className="text-sm text-slate-700 font-medium truncate max-w-[130px]">{candidate.designation}</p>
@@ -180,7 +222,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                       edit drawer / profile drawer instead of inline. Keeping it as a chip avoids
                       accidental moves and matches the rest of the row's look-and-feel. */}
                   <span
-                    className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border ${getStageColor(candidate.stage)}`}
+                    className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border ${getCandidateStageBadgeClasses(candidate.stage)}`}
                   >
                     {getCandidateStageLabel(candidate.stage)}
                   </span>
@@ -219,6 +261,25 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                       >
                         <WhatsAppIcon size={16} />
                       </button>
+                      {onSubmitToClient &&
+                      (!canSubmitToClient || canSubmitToClient(candidate)) ? (
+                        <button
+                          type="button"
+                          className="flex h-8 w-8 items-center justify-center rounded-xl text-indigo-600 transition-all hover:bg-white hover:text-indigo-800 hover:shadow-sm disabled:opacity-50"
+                          title="Submit to client"
+                          disabled={submittingToClientCandidateId === candidate.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSubmitToClient(candidate);
+                          }}
+                        >
+                          {submittingToClientCandidateId === candidate.id ? (
+                            <Loader2 size={16} className="animate-spin" strokeWidth={2.25} />
+                          ) : (
+                            <Send size={16} strokeWidth={2.25} />
+                          )}
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         className="flex h-8 w-8 items-center justify-center rounded-xl text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"

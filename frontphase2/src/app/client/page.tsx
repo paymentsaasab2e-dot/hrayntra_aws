@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { downloadCsv, csvDate } from '../../utils/csv';
 import { formatDateDMY } from '../../utils/dateDisplay';
+import { formatContactListDisplay } from '../../lib/contact-channels';
 import { ClientTable } from '../../components/ClientTable';
 import {
   ClientFilterDrawer,
@@ -205,6 +206,8 @@ function mapBackendClientToFrontend(backendClient: BackendClient): Client {
     latitude: typeof backendClient.latitude === 'number' ? backendClient.latitude : undefined,
     longitude: typeof backendClient.longitude === 'number' ? backendClient.longitude : undefined,
     directorSalutation: backendClient.directorSalutation || undefined,
+    emails: Array.isArray(backendClient.emails) && backendClient.emails.length > 0 ? backendClient.emails : undefined,
+    phones: Array.isArray(backendClient.phones) && backendClient.phones.length > 0 ? backendClient.phones : undefined,
     leadStatusValue: backendClient.leadStatus || undefined,
     avgTimeToFill: backendClient.avgTimeToFill || undefined,
     healthStatus: backendClient.healthStatus as Client['healthStatus'] || undefined,
@@ -557,8 +560,22 @@ export default function App() {
         { id: 'city', accessor: () => '' },
         { id: 'country', accessor: () => '' },
         { id: 'contactPerson', accessor: (c) => c.contacts?.find((ct) => ct.isPrimary)?.name || c.contacts?.[0]?.name || '' },
-        { id: 'email', accessor: (c) => c.contacts?.find((ct) => ct.isPrimary)?.email || c.contacts?.[0]?.email || '' },
-        { id: 'phone', accessor: (c) => c.contacts?.find((ct) => ct.isPrimary)?.phone || c.contacts?.[0]?.phone || '' },
+        {
+          id: 'email',
+          accessor: (c) =>
+            formatContactListDisplay(
+              c.emails,
+              c.contacts?.find((ct) => ct.isPrimary)?.email || c.contacts?.[0]?.email || '',
+            ),
+        },
+        {
+          id: 'phone',
+          accessor: (c) =>
+            formatContactListDisplay(
+              c.phones,
+              c.contacts?.find((ct) => ct.isPrimary)?.phone || c.contacts?.[0]?.phone || '',
+            ),
+        },
         { id: 'companySize', accessor: (c) => c.companySize || '' },
         { id: 'servicesNeeded', accessor: (c) => c.servicesNeeded || '' },
         { id: 'leadStatus', accessor: (c) => c.leadStatus || c.stage },

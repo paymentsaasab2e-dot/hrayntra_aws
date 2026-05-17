@@ -16,6 +16,11 @@ import {
 } from 'lucide-react';
 import { ImageWithFallback, initialsFromDisplayName } from './ImageWithFallback';
 import { WhatsAppIcon } from './icons/WhatsAppIcon';
+import {
+  getCandidateStageBadgeClasses,
+  getCandidateStageDotClasses,
+  getCandidateStageLabel,
+} from '../utils/candidateStage';
 
 export interface Candidate {
   id: string;
@@ -45,19 +50,6 @@ interface CandidateTableProps {
   onToggleSelect: (id: string) => void;
   onToggleSelectAll: () => void;
 }
-
-const getStageColor = (stage: string) => {
-  switch (stage.toLowerCase()) {
-    case 'applied': return 'bg-blue-100 text-blue-700 border-blue-200';
-    case 'shortlist': return 'bg-purple-100 text-purple-700 border-purple-200';
-    case 'screening': return 'bg-orange-100 text-orange-700 border-orange-200';
-    case 'interviewing': return 'bg-indigo-100 text-indigo-700 border-indigo-200';
-    case 'offered': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
-    case 'hired': return 'bg-green-100 text-green-700 border-green-200';
-    case 'rejected': return 'bg-rose-100 text-rose-700 border-rose-200';
-    default: return 'bg-slate-100 text-slate-700 border-slate-200';
-  }
-};
 
 export const CandidateTable: React.FC<CandidateTableProps> = ({ 
   candidates, 
@@ -118,8 +110,11 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                         className="w-10 h-10 rounded-full object-cover ring-2 ring-white"
                         alt={candidate.name}
                       />
-                      <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-white rounded-full flex items-center justify-center shadow-sm">
-                        <div className="w-2.5 h-2.5 bg-green-500 rounded-full"></div>
+                      <div
+                        className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-white"
+                        title={candidate.stage || 'Unknown'}
+                      >
+                        <span className={`h-2.5 w-2.5 rounded-full ${getCandidateStageDotClasses(candidate.stage)}`} />
                       </div>
                     </div>
                     <div>
@@ -161,7 +156,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                   </div>
                 </td>
                 <td className="px-4 py-4">
-                  <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border ${getStageColor(candidate.stage)}`}>
+                  <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border ${getCandidateStageBadgeClasses(candidate.stage)}`}>
                     {candidate.stage}
                   </span>
                 </td>

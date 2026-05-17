@@ -42,9 +42,25 @@ const PURPOSE_COPY: Record<string, { title: string; body: string }> = {
   },
 };
 
+interface CvWorkEntry {
+  title?: string;
+  company?: string;
+  startDate?: string;
+  endDate?: string;
+  responsibilities?: string[];
+}
+
+interface CvEducationEntry {
+  degree?: string;
+  institution?: string;
+  startYear?: string;
+  endYear?: string;
+}
+
 interface ReviewData {
   interviewId: string;
   submissionType?: keyof typeof TAG_OPTIONS_BY_TYPE | string;
+  cvShareMode?: 'edited' | 'original' | string;
   offerLetterUrl?: string | null;
   candidate?: {
     name?: string;
@@ -61,6 +77,8 @@ interface ReviewData {
     skills?: string[];
     languages?: string[];
     resume?: string;
+    cvWorkExperienceEntries?: CvWorkEntry[];
+    cvEducationEntries?: CvEducationEntry[];
   };
   job?: { title?: string };
   client?: { companyName?: string };
@@ -94,6 +112,9 @@ export default function ClientReviewPage() {
   const apiBase = useMemo(() => resolveApiBase(), []);
 
   const submissionType = String(reviewData?.submissionType || 'GENERAL').toUpperCase();
+  const cvShareMode = String(reviewData?.cvShareMode || 'edited').toLowerCase();
+  const showEditedCv = cvShareMode !== 'original';
+  const showOriginalResume = cvShareMode === 'original';
   const isOfferFlow = submissionType === 'OFFER_CONFIRMATION';
   const tagOptions = TAG_OPTIONS_BY_TYPE[submissionType] || TAG_OPTIONS_BY_TYPE.GENERAL;
   const purpose = PURPOSE_COPY[submissionType] || PURPOSE_COPY.GENERAL;
@@ -201,6 +222,12 @@ export default function ClientReviewPage() {
         {error ? <p className="mt-4 text-sm font-medium text-red-600">{error}</p> : null}
         {reviewData ? (
           <div className="mt-5 space-y-4">
+            <div className="rounded-xl border border-[#DBEAFE] bg-[#EFF6FF] px-4 py-3 text-sm text-[#1E40AF]">
+              {showOriginalResume
+                ? 'You are viewing the original resume file shared by the recruiter.'
+                : 'You are viewing the recruiter’s updated CV profile for this candidate.'}
+            </div>
+
             <div className="rounded-xl border border-[#E5E7EB] p-4">
               <h2 className="text-sm font-semibold text-[#111827]">Personal Information</h2>
               <p className="mt-2 text-sm font-semibold text-[#111827]">{reviewData?.candidate?.name || '-'}</p>
@@ -216,37 +243,90 @@ export default function ClientReviewPage() {
               </p>
             </div>
 
-            <div className="rounded-xl border border-[#E5E7EB] p-4">
-              <h2 className="text-sm font-semibold text-[#111827]">Summary</h2>
-              <p className="mt-2 text-sm text-[#4B5563]">{reviewData?.candidate?.cvSummary || 'No summary available.'}</p>
-            </div>
+            {showEditedCv ? (
+              <div className="rounded-xl border border-[#E5E7EB] p-4">
+                <h2 className="text-sm font-semibold text-[#111827]">Professional Summary</h2>
+                <p className="mt-2 text-sm text-[#4B5563]">{reviewData?.candidate?.cvSummary || 'No summary available.'}</p>
+              </div>
+            ) : null}
 
-            <div className="rounded-xl border border-[#E5E7EB] p-4">
-              <h2 className="text-sm font-semibold text-[#111827]">Education</h2>
-              <p className="mt-2 whitespace-pre-wrap text-sm text-[#4B5563]">{reviewData?.candidate?.education || 'No education details.'}</p>
-            </div>
+            {showEditedCv ? (
+              <>
+                {(reviewData?.candidate?.cvWorkExperienceEntries || []).length > 0 ? (
+                  <div className="rounded-xl border border-[#E5E7EB] p-4">
+                    <h2 className="text-sm font-semibold text-[#111827]">Work Experience</h2>
+                    <div className="mt-3 space-y-3">
+                      {(reviewData.candidate?.cvWorkExperienceEntries || []).map((entry, index) => (
+                        <div key={`work-${index}`} className="rounded-lg border border-[#F3F4F6] bg-[#F9FAFB] p-3">
+                          <p className="text-sm font-semibold text-[#111827]">
+                            {[entry.title, entry.company].filter(Boolean).join(' · ') || 'Role'}
+                          </p>
+                          {(entry.startDate || entry.endDate) ? (
+                            <p className="mt-0.5 text-xs text-[#6B7280]">
+                              {[entry.startDate, entry.endDate].filter(Boolean).join(' – ')}
+                            </p>
+                          ) : null}
+                          {(entry.responsibilities || []).length > 0 ? (
+                            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-[#4B5563]">
+                              {(entry.responsibilities || []).map((line, lineIndex) => (
+                                <li key={lineIndex}>{line}</li>
+                              ))}
+                            </ul>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
 
-            <div className="rounded-xl border border-[#E5E7EB] p-4">
-              <h2 className="text-sm font-semibold text-[#111827]">Skills & Languages</h2>
-              <p className="mt-2 text-sm text-[#4B5563]">Skills: {(reviewData?.candidate?.skills || []).join(', ') || '-'}</p>
-              <p className="mt-1 text-sm text-[#4B5563]">Languages: {(reviewData?.candidate?.languages || []).join(', ') || '-'}</p>
-            </div>
+                <div className="rounded-xl border border-[#E5E7EB] p-4">
+                  <h2 className="text-sm font-semibold text-[#111827]">Education</h2>
+                  {(reviewData?.candidate?.cvEducationEntries || []).length > 0 ? (
+                    <div className="mt-3 space-y-2">
+                      {(reviewData.candidate?.cvEducationEntries || []).map((entry, index) => (
+                        <div key={`edu-${index}`} className="rounded-lg border border-[#F3F4F6] bg-[#F9FAFB] p-3">
+                          <p className="text-sm font-semibold text-[#111827]">
+                            {[entry.degree, entry.institution].filter(Boolean).join(' · ') || 'Education'}
+                          </p>
+                          {(entry.startYear || entry.endYear) ? (
+                            <p className="mt-0.5 text-xs text-[#6B7280]">
+                              {[entry.startYear, entry.endYear].filter(Boolean).join(' – ')}
+                            </p>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-2 whitespace-pre-wrap text-sm text-[#4B5563]">
+                      {reviewData?.candidate?.education || 'No education details.'}
+                    </p>
+                  )}
+                </div>
+                <div className="rounded-xl border border-[#E5E7EB] p-4">
+                  <h2 className="text-sm font-semibold text-[#111827]">Skills & Languages</h2>
+                  <p className="mt-2 text-sm text-[#4B5563]">Skills: {(reviewData?.candidate?.skills || []).join(', ') || '-'}</p>
+                  <p className="mt-1 text-sm text-[#4B5563]">Languages: {(reviewData?.candidate?.languages || []).join(', ') || '-'}</p>
+                </div>
+              </>
+            ) : null}
 
-            <div className="rounded-xl border border-[#E5E7EB] p-4">
-              <h2 className="text-sm font-semibold text-[#111827]">Resume</h2>
-              {String(reviewData?.candidate?.resume || '').startsWith('http') ? (
-                <a
-                  href={reviewData.candidate?.resume}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-2 inline-flex text-sm font-semibold text-[#2563EB] hover:underline"
-                >
-                  Open Resume
-                </a>
-              ) : (
-                <p className="mt-2 text-sm text-[#4B5563]">{reviewData?.candidate?.resume || 'No resume available.'}</p>
-              )}
-            </div>
+            {showOriginalResume ? (
+              <div className="rounded-xl border border-[#E5E7EB] p-4">
+                <h2 className="text-sm font-semibold text-[#111827]">Original Resume</h2>
+                {String(reviewData?.candidate?.resume || '').startsWith('http') ? (
+                  <a
+                    href={reviewData.candidate?.resume}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-2 inline-flex text-sm font-semibold text-[#2563EB] hover:underline"
+                  >
+                    Open Resume
+                  </a>
+                ) : (
+                  <p className="mt-2 text-sm text-[#4B5563]">{reviewData?.candidate?.resume || 'No resume available.'}</p>
+                )}
+              </div>
+            ) : null}
 
             <div className="rounded-xl border border-[#E5E7EB] p-4">
               <h2 className="text-sm font-semibold text-[#111827]">Interview Feedback</h2>

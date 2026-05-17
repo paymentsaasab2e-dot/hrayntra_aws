@@ -22,6 +22,7 @@ import {
 import { downloadCsv, csvDate } from '../../utils/csv';
 import { formatDateDMY } from '../../utils/dateDisplay';
 import { formatDirectorDisplay } from '../../constants/salutations';
+import { formatContactListDisplay, normalizeContactList } from '../../lib/contact-channels';
 import { AssigneeAvatars } from './AssigneeAvatars';
 import { SourceCell } from './SourceCell';
 import { LeadDetailsDrawer } from '../../components/drawers/LeadDetailsDrawer';
@@ -289,6 +290,16 @@ function mapBackendLeadToFrontend(backendLead: BackendLead): Lead {
     directorName: backendLead.directorName || undefined,
     email: backendLead.email || '',
     phone: backendLead.phone || '',
+    emails: Array.isArray(backendLead.emails) && backendLead.emails.length > 0
+      ? backendLead.emails
+      : backendLead.email
+        ? [backendLead.email]
+        : [],
+    phones: Array.isArray(backendLead.phones) && backendLead.phones.length > 0
+      ? backendLead.phones
+      : backendLead.phone
+        ? [backendLead.phone]
+        : [],
     status: backendLead.status,
     assignedTo: backendLead.assignedTo ? {
       id: backendLead.assignedTo.id,
@@ -628,6 +639,8 @@ export default function RecruitmentAgencyDashboard() {
         !query ||
         lead.companyName.toLowerCase().includes(query) ||
         lead.email.toLowerCase().includes(query) ||
+        normalizeContactList(lead.emails, lead.email).some((value) => value.toLowerCase().includes(query)) ||
+        normalizeContactList(lead.phones, lead.phone).some((value) => value.toLowerCase().includes(query)) ||
         lead.contactPerson.toLowerCase().includes(query) ||
         (lead.directorSalutation && String(lead.directorSalutation).toLowerCase().includes(query)) ||
         formatDirectorDisplay(lead.directorSalutation, lead.directorName || lead.contactPerson)
@@ -1581,7 +1594,9 @@ export default function RecruitmentAgencyDashboard() {
                                 <span className="text-xs font-medium text-slate-800">
                                   {formatDirectorDisplay(lead.directorSalutation, lead.directorName || lead.contactPerson)}
                                 </span>
-                                <span className="text-[10px] text-slate-500">{lead.email}</span>
+                                <span className="text-[10px] text-slate-500">
+                                  {formatContactListDisplay(lead.emails, lead.email)}
+                                </span>
                               </div>
                             </td>
                             <td className="px-3 sm:px-4 py-2" onClick={(e) => e.stopPropagation()}>

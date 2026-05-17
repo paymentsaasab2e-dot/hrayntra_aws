@@ -41,7 +41,10 @@ import { CreateJobDrawer } from '../../components/drawers/CreateJobDrawer';
 import ModuleRecycleBinDrawer from '../../components/ModuleRecycleBinDrawer';
 import { StatusChangeService } from '../../components/StatusChangeService';
 import {
+  apiAddCandidateNote,
+  apiAddCandidateTag,
   apiAddCandidateToPipeline,
+  apiGetCandidate,
   apiGetCandidates,
   apiGetClients,
   apiGetMatches,
@@ -49,6 +52,15 @@ import {
   apiGetJob,
   apiGetJobMetrics,
   apiDeleteJob,
+  apiDeleteCandidateNote,
+  apiPinCandidateNote,
+  apiRejectCandidate,
+  apiRemoveCandidateFromPipeline,
+  apiRemoveCandidateTag,
+  apiScheduleCandidateInterview,
+  apiUpdateCandidate,
+  apiUpdateCandidateInterview,
+  apiUpdateCandidateNote,
   apiUpdateJob,
   apiCreateInterview,
   apiGetUsers,
@@ -58,6 +70,25 @@ import {
   type BackendUser,
   type JobMetrics,
 } from '../../lib/api';
+import type { Candidate } from '../candidate/components/CandidateTable';
+import {
+  CandidateProfileDrawer,
+  type CandidateInterviewerOption,
+  type CandidatePipelineJobOption,
+  type CandidateProfileDrawerData,
+  type CandidateTagItem,
+} from '../../components/drawers/CandidateProfileDrawer';
+import {
+  extractApiData,
+  getTagColor,
+  isValidObjectId,
+  mapCandidateProfile,
+} from '../../lib/mapCandidateProfile';
+import { candidateTableRowToProfileStub } from '../../lib/candidateTableToProfileStub';
+import {
+  extractPipelineJobCandidateItems,
+  loadJobAppliedCandidates,
+} from '../../lib/jobAppliedMatches';
 import { combineInterviewDateAndTimeToIso, mapInterviewUiTypeToBackend } from '../../lib/interview-schedule-helpers';
 import type {
   InterviewCandidate,
@@ -715,13 +746,20 @@ function toJobCandidateItemFromApplied(match: any, fallbackRecruiter = '-'): Job
     (match.candidate?.email && String(match.candidate.email).trim()) ||
     (match.email && String(match.email).trim()) ||
     undefined;
+  const cand = match.candidate;
   return {
-    id: match.candidateId || match.candidate?.id || match.id,
-    candidateName: match.candidate
-      ? `${match.candidate.firstName || ''} ${match.candidate.lastName || ''}`.trim() || '-'
+    id: match.candidateId || cand?.id || match.id,
+    candidateName: cand
+      ? `${cand.firstName || ''} ${cand.lastName || ''}`.trim() || '-'
       : '-',
     email: emailFromMatch,
-    currentStage: match.status || 'Applied',
+    avatar: cand?.avatar ? String(cand.avatar).trim() : null,
+    designation: cand?.currentTitle ? String(cand.currentTitle).trim() : '',
+    company: cand?.currentCompany ? String(cand.currentCompany).trim() : '',
+    experience: typeof cand?.experience === 'number' ? cand.experience : 0,
+    location: cand?.location ? String(cand.location).trim() : '—',
+    phone: cand?.phone ? String(cand.phone).trim() : '',
+    currentStage: match.status || cand?.stage || 'Applied',
     score: typeof match.score === 'number' ? `${Math.round(match.score)}%` : '-',
     recruiter: match.createdBy?.name || fallbackRecruiter,
     interviewStatus: 'Not scheduled',
@@ -734,6 +772,12 @@ function toJobCandidateItemFromAssigned(candidate: BackendCandidate): JobCandida
     id: candidate.id,
     candidateName: `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() || '-',
     email: candidate.email ? String(candidate.email).trim() : undefined,
+    avatar: candidate.avatar ? String(candidate.avatar).trim() : null,
+    designation: candidate.currentTitle ? String(candidate.currentTitle).trim() : '',
+    company: candidate.currentCompany ? String(candidate.currentCompany).trim() : '',
+    experience: candidate.experience ?? 0,
+    location: candidate.location ? String(candidate.location).trim() : '—',
+    phone: candidate.phone ? String(candidate.phone).trim() : '',
     currentStage: candidate.stage || 'Applied',
     score: '-',
     recruiter: candidate.assignedTo?.name || '-',
@@ -805,6 +849,12 @@ export default function JobsPage() {
   const canAssignJob = hasPermission('assign_job');
   const canAddCandidate = hasPermission('add_candidate');
   const canCreateInterview = hasPermission('interviews_create');
+  const canUpdateCandidate = hasAnyPermission([
+    'candidates_update',
+    'edit_candidate',
+    'move_pipeline',
+    'submit_candidate',
+  ]);
   const [view, setView] = useState<'list' | 'board'>('list');
   const [searchFilter, setSearchFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -855,6 +905,13 @@ export default function JobsPage() {
   const [loading, setLoading] = useState(() => jobs.length === 0);
   const [error, setError] = useState<string | null>(null);
   const [jobCandidates, setJobCandidates] = useState<JobCandidateItem[]>([]);
+  const [candidateProfileDrawerOpen, setCandidateProfileDrawerOpen] = useState(false);
+  const [selectedCandidateProfile, setSelectedCandidateProfile] =
+    useState<CandidateProfileDrawerData | null>(null);
+  const [candidateDrawerMode, setCandidateDrawerMode] = useState<'view' | 'edit'>('view');
+  const [candidateEditOpenToken, setCandidateEditOpenToken] = useState<number | null>(null);
+  const [loadingCandidateProfile, setLoadingCandidateProfile] = useState(false);
+  const [availableDrawerTags, setAvailableDrawerTags] = useState<CandidateTagItem[]>([]);
   const [scheduleInterviewOpen, setScheduleInterviewOpen] = useState(false);
   const [schedulePrefill, setSchedulePrefill] = useState<{ candidateId: string; jobId: string } | null>(null);
   const [scheduleInterviewers, setScheduleInterviewers] = useState<InterviewPanelMember[]>([]);
@@ -1212,52 +1269,18 @@ export default function JobsPage() {
   };
 
   const fetchJobCandidates = useCallback(async (jobId: string, backendJob?: any) => {
-    let appliedCandidates: JobCandidateItem[] = Array.isArray(backendJob?.matches)
-      ? backendJob.matches.map((match: any) => toJobCandidateItemFromApplied(match, backendJob?.assignedTo?.name || '-'))
-      : [];
-
-    const [matchesResult, candidatesResult] = await Promise.allSettled([
-      apiGetMatches({ jobId, limit: 500 }),
-      apiGetCandidates({ page: 1, limit: 500 }),
-    ]);
-
-    if (!appliedCandidates.length && matchesResult.status === 'fulfilled') {
-      const matchesData =
-        (matchesResult.value as any)?.data?.data ||
-        (matchesResult.value as any)?.data?.items ||
-        (matchesResult.value as any)?.data ||
-        [];
-
-      if (Array.isArray(matchesData)) {
-        appliedCandidates = matchesData.map((match: any) =>
-          toJobCandidateItemFromApplied(match, backendJob?.assignedTo?.name || '-')
-        );
-      }
+    const recruiterFallback = backendJob?.assignedTo?.name || '-';
+    const pipelineSeed = extractPipelineJobCandidateItems(backendJob, recruiterFallback);
+    try {
+      const merged = await loadJobAppliedCandidates(jobId, {
+        pipelineSeed,
+        fallbackRecruiter: recruiterFallback,
+      });
+      setJobCandidates(merged);
+    } catch (error) {
+      console.error('Failed to fetch job-linked candidates:', error);
+      setJobCandidates(pipelineSeed);
     }
-
-    let assignedCandidates: JobCandidateItem[] = [];
-    if (candidatesResult.status === 'fulfilled') {
-      const candidatesData =
-        (candidatesResult.value as any).data?.data ||
-        (candidatesResult.value as any).data?.items ||
-        (candidatesResult.value as any).data ||
-        [];
-      const allCandidates: BackendCandidate[] = Array.isArray(candidatesData) ? candidatesData : [];
-
-      assignedCandidates = allCandidates
-        .filter((candidate) => Array.isArray(candidate.assignedJobs) && candidate.assignedJobs.includes(jobId))
-        .map(toJobCandidateItemFromAssigned);
-    } else {
-      console.error('Failed to fetch assigned candidates:', candidatesResult.reason);
-    }
-
-    if (matchesResult.status === 'rejected') {
-      console.error('Failed to fetch applied candidates (matches):', matchesResult.reason);
-    }
-
-    const merged = [...appliedCandidates, ...assignedCandidates];
-    const deduped = Array.from(new Map(merged.map((candidate) => [candidate.id, candidate])).values());
-    setJobCandidates(deduped);
   }, []);
 
   const openJobDrawer = async (job: Job) => {
@@ -1438,6 +1461,114 @@ export default function JobsPage() {
       }
     },
     [fetchJobCandidates]
+  );
+
+  const activeJobForCandidateDrawer = useMemo(() => {
+    const j = jobDetails || (selectedJob ? toJobForDrawer(selectedJob) : null);
+    if (!j?.id) return null;
+    return { id: j.id, title: j.title, clientId: j.clientId, clientName: j.client };
+  }, [jobDetails, selectedJob]);
+
+  const candidateDrawerJobs = useMemo<CandidatePipelineJobOption[]>(() => {
+    if (!activeJobForCandidateDrawer) return [];
+    return [
+      {
+        id: activeJobForCandidateDrawer.id,
+        title: activeJobForCandidateDrawer.title,
+        clientId: activeJobForCandidateDrawer.clientId,
+        clientName: activeJobForCandidateDrawer.clientName,
+      },
+    ];
+  }, [activeJobForCandidateDrawer]);
+
+  const candidateDrawerInterviewers = useMemo<CandidateInterviewerOption[]>(
+    () =>
+      scheduleInterviewers.map((member) => ({
+        id: member.id,
+        name: member.name,
+        role: member.role,
+        department: member.department,
+        avatar: member.avatar,
+      })),
+    [scheduleInterviewers],
+  );
+
+  const candidateDrawerCurrentUser = useMemo(
+    () => ({
+      id: currentUserForCandidateDrawer?.id || currentUserForCandidateDrawer?._id || 'current-user',
+      name: currentUserForCandidateDrawer?.name || selectedCandidateProfile?.recruiter || 'You',
+      avatar: null as string | null,
+    }),
+    [currentUserForCandidateDrawer, selectedCandidateProfile?.recruiter],
+  );
+
+  const loadCandidateProfileInJobContext = useCallback(
+    async (candidateId: string) => {
+      if (!isValidObjectId(candidateId)) return null;
+      const backendCandidate = extractApiData<BackendCandidate>(await apiGetCandidate(candidateId));
+      let profile = mapCandidateProfile(backendCandidate);
+      if (activeJobForCandidateDrawer) {
+        profile = {
+          ...profile,
+          assignedJobId: activeJobForCandidateDrawer.id,
+          assignedJob: activeJobForCandidateDrawer.title,
+        };
+      }
+      setSelectedCandidateProfile(profile);
+      return profile;
+    },
+    [activeJobForCandidateDrawer],
+  );
+
+  const openJobDrawerCandidateView = useCallback(
+    async (candidate: Candidate) => {
+      setCandidateDrawerMode('view');
+      setCandidateEditOpenToken(null);
+      setCandidateProfileDrawerOpen(true);
+      setLoadingCandidateProfile(true);
+      setSelectedCandidateProfile(
+        candidateTableRowToProfileStub(candidate, {
+          jobId: activeJobForCandidateDrawer?.id,
+          jobTitle: activeJobForCandidateDrawer?.title,
+        }),
+      );
+      try {
+        await loadCandidateProfileInJobContext(candidate.id);
+      } catch (error) {
+        console.error('Failed to load candidate profile:', error);
+        toast.error('Unable to load candidate profile');
+      } finally {
+        setLoadingCandidateProfile(false);
+      }
+    },
+    [activeJobForCandidateDrawer, loadCandidateProfileInJobContext],
+  );
+
+  const openJobDrawerCandidateEdit = useCallback(
+    async (candidate: Candidate) => {
+      const editToken = Date.now();
+      setCandidateDrawerMode('edit');
+      setCandidateEditOpenToken(editToken);
+      setCandidateProfileDrawerOpen(true);
+      setLoadingCandidateProfile(true);
+      setSelectedCandidateProfile(
+        candidateTableRowToProfileStub(candidate, {
+          jobId: activeJobForCandidateDrawer?.id,
+          jobTitle: activeJobForCandidateDrawer?.title,
+        }),
+      );
+      try {
+        await loadCandidateProfileInJobContext(candidate.id);
+      } catch (error) {
+        console.error('Failed to load candidate profile for edit:', error);
+        setCandidateEditOpenToken(null);
+        setCandidateProfileDrawerOpen(false);
+        toast.error('Unable to open the edit drawer right now.');
+      } finally {
+        setLoadingCandidateProfile(false);
+      }
+    },
+    [activeJobForCandidateDrawer, loadCandidateProfileInJobContext],
   );
 
   const scheduleModalCandidates = useMemo<InterviewCandidate[]>(
@@ -2000,6 +2131,7 @@ export default function JobsPage() {
         }}
         job={jobDetails || (selectedJob ? toJobForDrawer(selectedJob) : null)}
         jobCandidates={jobCandidates}
+        onJobCandidatesChange={setJobCandidates}
         pipelineStages={jobPipelineStages}
         onPipelineStagesChange={(stages) => {
           setJobPipelineStages(stages);
@@ -2018,7 +2150,194 @@ export default function JobsPage() {
         onMoveStage={canUpdateJob ? (candidateId, jobId) => openMoveStage(candidateId, jobId) : undefined}
         onScheduleInterview={canCreateInterview ? openScheduleInterviewFromJob : undefined}
         onRejectCandidate={canUpdateJob ? (candidateId, jobId) => { /* TODO: reject candidate */ } : undefined}
-        onViewCandidateProfile={(candidateId) => { /* TODO: navigate to candidate profile */ }}
+        onViewCandidateProfile={openJobDrawerCandidateView}
+        onEditCandidate={canUpdateCandidate ? openJobDrawerCandidateEdit : undefined}
+      />
+
+      <CandidateProfileDrawer
+        key={`${selectedCandidateProfile?.id || 'job-candidate'}-${candidateDrawerMode}`}
+        isOpen={candidateProfileDrawerOpen}
+        stackAboveSiblingDrawers
+        currentUser={candidateDrawerCurrentUser}
+        availableTags={availableDrawerTags}
+        jobs={candidateDrawerJobs}
+        recruiters={[]}
+        interviewers={candidateDrawerInterviewers}
+        existingInterviews={selectedCandidateProfile?.scheduledInterviews || []}
+        candidate={
+          loadingCandidateProfile && selectedCandidateProfile
+            ? {
+                ...selectedCandidateProfile,
+                summary: selectedCandidateProfile.summary || 'Loading candidate details...',
+              }
+            : selectedCandidateProfile
+        }
+        onClose={() => {
+          setCandidateProfileDrawerOpen(false);
+          setSelectedCandidateProfile(null);
+          setCandidateDrawerMode('view');
+          setCandidateEditOpenToken(null);
+        }}
+        onRejectCandidate={
+          canUpdateCandidate
+            ? async (reason, feedback, sendEmail, showFeedbackToCandidate) => {
+                if (!selectedCandidateProfile) return;
+                await apiRejectCandidate(selectedCandidateProfile.id, {
+                  reason,
+                  feedback,
+                  sendEmail,
+                  showFeedbackToCandidate,
+                  jobId: selectedCandidateProfile.assignedJobId || activeJobForCandidateDrawer?.id,
+                });
+                await loadCandidateProfileInJobContext(selectedCandidateProfile.id);
+                if (activeJobForCandidateDrawer?.id) {
+                  await refreshJobCandidates(activeJobForCandidateDrawer.id);
+                }
+              }
+            : undefined
+        }
+        onScheduleInterview={
+          canUpdateCandidate
+            ? async (interviewData) => {
+                const payload = {
+                  jobId: interviewData.jobId,
+                  type: interviewData.type,
+                  round: interviewData.round,
+                  date: interviewData.date,
+                  time: interviewData.time,
+                  duration: interviewData.duration,
+                  mode: interviewData.mode,
+                  platform:
+                    interviewData.platform === 'Google Meet'
+                      ? 'GOOGLE_MEET'
+                      : interviewData.platform === 'Zoom'
+                        ? 'ZOOM'
+                        : null,
+                  meetingLink: interviewData.meetingLink,
+                  location: interviewData.location,
+                  phoneNumber: interviewData.phoneNumber,
+                  interviewers: interviewData.interviewers,
+                  notes: interviewData.notes,
+                  sendCandidateInvite: interviewData.sendCandidateInvite,
+                  sendInterviewerInvite: interviewData.sendInterviewerInvite,
+                  status: interviewData.status,
+                };
+                if (
+                  String(interviewData.id || '').length >= 12 &&
+                  String(interviewData.id || '').includes('interview-') === false
+                ) {
+                  await apiUpdateCandidateInterview(interviewData.candidateId, interviewData.id, payload);
+                } else {
+                  await apiScheduleCandidateInterview(interviewData.candidateId, payload as any);
+                }
+                await loadCandidateProfileInJobContext(interviewData.candidateId);
+                if (activeJobForCandidateDrawer?.id) {
+                  await refreshJobCandidates(activeJobForCandidateDrawer.id);
+                }
+              }
+            : undefined
+        }
+        onAddNote={
+          canUpdateCandidate
+            ? async (candidateId, note) => {
+                await apiAddCandidateNote(candidateId, note);
+                await loadCandidateProfileInJobContext(candidateId);
+              }
+            : undefined
+        }
+        onEditNote={
+          canUpdateCandidate
+            ? async (candidateId, noteId, updatedNote) => {
+                await apiUpdateCandidateNote(candidateId, noteId, updatedNote);
+                await loadCandidateProfileInJobContext(candidateId);
+              }
+            : undefined
+        }
+        onDeleteNote={
+          canUpdateCandidate
+            ? async (candidateId, noteId) => {
+                await apiDeleteCandidateNote(candidateId, noteId);
+                await loadCandidateProfileInJobContext(candidateId);
+              }
+            : undefined
+        }
+        onPinNote={
+          canUpdateCandidate
+            ? async (candidateId, noteId, isPinned) => {
+                await apiPinCandidateNote(candidateId, noteId, isPinned);
+                await loadCandidateProfileInJobContext(candidateId);
+              }
+            : undefined
+        }
+        onAddTag={
+          canUpdateCandidate
+            ? async (candidateId, tag) => {
+                await apiAddCandidateTag(candidateId, tag);
+                await loadCandidateProfileInJobContext(candidateId);
+              }
+            : undefined
+        }
+        onRemoveTag={
+          canUpdateCandidate
+            ? async (candidateId, tagId) => {
+                await apiRemoveCandidateTag(candidateId, tagId);
+                await loadCandidateProfileInJobContext(candidateId);
+              }
+            : undefined
+        }
+        onCreateTag={(_, tagName) => {
+          const newTag: CandidateTagItem = {
+            id: `tag-${tagName.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`,
+            label: tagName,
+            color: getTagColor(tagName),
+          };
+          setAvailableDrawerTags((prev) => {
+            if (prev.some((tag) => tag.label.toLowerCase() === tagName.toLowerCase())) return prev;
+            return [...prev, newTag];
+          });
+          return newTag;
+        }}
+        onAddToPipeline={
+          canUpdateCandidate
+            ? async ({ candidateId, jobId, stage, recruiterId, priority, notes }) => {
+                await apiAddCandidateToPipeline(candidateId, {
+                  jobId,
+                  stage,
+                  recruiterId,
+                  priority,
+                  notes,
+                });
+                await loadCandidateProfileInJobContext(candidateId);
+                if (activeJobForCandidateDrawer?.id) {
+                  await refreshJobCandidates(activeJobForCandidateDrawer.id);
+                }
+              }
+            : undefined
+        }
+        onRemoveFromPipeline={
+          canUpdateCandidate
+            ? async ({ candidateId, jobId }) => {
+                await apiRemoveCandidateFromPipeline(candidateId, jobId);
+                await loadCandidateProfileInJobContext(candidateId);
+                if (activeJobForCandidateDrawer?.id) {
+                  await refreshJobCandidates(activeJobForCandidateDrawer.id);
+                }
+              }
+            : undefined
+        }
+        onUpdateCandidate={
+          canUpdateCandidate
+            ? async (candidateId, payload) => {
+                await apiUpdateCandidate(candidateId, payload);
+                await loadCandidateProfileInJobContext(candidateId);
+                if (activeJobForCandidateDrawer?.id) {
+                  await refreshJobCandidates(activeJobForCandidateDrawer.id);
+                }
+              }
+            : undefined
+        }
+        openEditDirectly={Boolean(candidateEditOpenToken)}
+        editModalOpenToken={candidateEditOpenToken}
       />
 
       <ScheduleInterviewModal

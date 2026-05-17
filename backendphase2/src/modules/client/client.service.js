@@ -3,6 +3,7 @@ import { getPaginationParams, formatPaginationResponse } from '../../utils/pagin
 import { dbLogger } from '../../utils/db-logger.js';
 import activityService from '../../services/activityService.js';
 import { sendClientAssignmentEmail } from '../../services/emailService.js';
+import { normalizeContactChannels } from '../../utils/contact-channels.js';
 import { buildSuperAdminOwnerScope, mergeWhereWithScope } from '../../utils/superAdminScope.js';
 import { canViewAllClients } from '../../utils/permissionScope.js';
 
@@ -347,6 +348,8 @@ export const clientService = {
       }
     }
 
+    const contactChannels = normalizeContactChannels(data);
+
     const clientData = {
       companyName: data.companyName,
       industry: data.industry,
@@ -373,6 +376,8 @@ export const clientService = {
       latitude: Number.isFinite(Number(data.latitude)) ? Number(data.latitude) : undefined,
       longitude: Number.isFinite(Number(data.longitude)) ? Number(data.longitude) : undefined,
       directorSalutation: data.directorSalutation ?? undefined,
+      emails: contactChannels.emails,
+      phones: contactChannels.phones,
       // Lead-style next follow-up timestamp (Add Client form uses datetime-local now).
       nextFollowUpDue: data.nextFollowUpDue ? new Date(data.nextFollowUpDue) : undefined,
       // Agreements & Terms — single primary document attached during onboarding.
@@ -520,6 +525,25 @@ export const clientService = {
     }
     if (data.directorSalutation !== undefined) {
       updateData.directorSalutation = data.directorSalutation || null;
+    }
+    if (
+      data.email !== undefined ||
+      data.phone !== undefined ||
+      data.emails !== undefined ||
+      data.phones !== undefined
+    ) {
+      const existing = await prisma.client.findUnique({
+        where: { id },
+        select: { emails: true, phones: true },
+      });
+      const contactChannels = normalizeContactChannels({
+        email: data.email,
+        phone: data.phone,
+        emails: data.emails !== undefined ? data.emails : existing?.emails,
+        phones: data.phones !== undefined ? data.phones : existing?.phones,
+      });
+      updateData.emails = contactChannels.emails;
+      updateData.phones = contactChannels.phones;
     }
     if (data.nextFollowUpDue !== undefined) {
       updateData.nextFollowUpDue = data.nextFollowUpDue ? new Date(data.nextFollowUpDue) : null;

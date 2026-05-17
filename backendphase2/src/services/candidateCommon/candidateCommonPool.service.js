@@ -59,7 +59,7 @@ export function mapCandidateCommonRowToCandidate(row) {
     cvWorkExperienceEntries: row.cvWorkExperienceEntries ?? null,
     cvPortfolioLinks: row.cvPortfolioLinks ?? null,
     assignedJobs: Array.isArray(row.assignedJobs) ? row.assignedJobs : [],
-    stage: row.stage ?? 'Applied',
+    stage: row.stage ?? 'New',
     source: row.source ?? 'phase1',
     status: 'ACTIVE',
     isDeleted: false,

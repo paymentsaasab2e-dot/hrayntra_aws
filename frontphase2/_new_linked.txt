@@ -1,0 +1,59 @@
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">
+                        Linked Job <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={selectedJobId}
+                        onChange={(e) => {
+                          setSelectedJobId(e.target.value);
+                          setErrors((prev) => ({ ...prev, linkedJob: undefined }));
+                        }}
+                        disabled={loadingScheduleJobs || jobsForClient.length === 0}
+                        className={`w-full rounded-xl border bg-white px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 ${
+                          errors.linkedJob ? 'border-red-300' : 'border-slate-200'
+                        }`}
+                      >
+                        <option value="">
+                          {loadingScheduleJobs
+                            ? 'Loading jobs...'
+                            : jobsForClient.length === 0
+                              ? 'No jobs available'
+                              : 'Select job'}
+                        </option>
+                        {jobsForClient.map((job) => (
+                          <option key={job.id} value={job.id}>
+                            {job.title}
+                            {job.department ? ` · ${job.department}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      {errors.linkedJob ? <p className="mt-1 text-xs text-red-600">{errors.linkedJob}</p> : null}
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">Company / Client</label>
+                      <select
+                        value={selectedClientId}
+                        onChange={(e) => {
+                          setSelectedClientId(e.target.value);
+                          setSelectedClientContacts([]);
+                        }}
+                        disabled={loadingClients || clientOptions.length === 0}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      >
+                        <option value="">
+                          {loadingClients ? 'Loading clients...' : 'Select client'}
+                        </option>
+                        {clientOptions.map((client) => (
+                          <option key={client.id} value={client.id}>
+                            {client.companyName}
+                          </option>
+                        ))}
+                      </select>
+                      {selectedClient ? (
+                        <p className="mt-1 text-xs text-slate-500">
+                          Jobs filtered to this client. Assign client contacts in the interview panel below.
+                        </p>
+                      ) : selectedJob?.clientName ? (
+                        <p className="mt-1 text-xs text-slate-500">Client from job: {selectedJob.clientName}</p>
+                      ) : null}
+                    </div>

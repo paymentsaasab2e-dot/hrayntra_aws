@@ -1253,6 +1253,8 @@ export interface BackendCandidate {
   currentTitle?: string | null;
   currentCompany?: string | null;
   resume?: string | null;
+  /** Profile photo URL (Cloudinary, S3, etc.) */
+  avatar?: string | null;
   skills?: string[];
   address?: string | null;
   city?: string | null;
@@ -1328,6 +1330,7 @@ export interface BackendCandidate {
   } | null;
   createdAt: string;
   updatedAt?: string;
+  extraData?: Record<string, unknown> | null;
   matches?: Array<{
     id: string;
     status?: string;
@@ -1339,6 +1342,17 @@ export interface BackendCandidate {
         companyName: string;
       };
     };
+  }>;
+  pipelineEntries?: Array<{
+    id?: string;
+    jobId?: string;
+    stageId?: string;
+    movedAt?: string;
+    notes?: string | null;
+    stage?: {
+      id?: string;
+      name?: string;
+    } | null;
   }>;
   interviews?: Array<{
     id: string;
@@ -1430,6 +1444,10 @@ export async function apiGetCandidates(params: {
   stage?: string;
   assignedToId?: string;
   search?: string;
+  company?: string;
+  location?: string;
+  jobId?: string;
+  experienceRange?: string;
   page?: number;
   limit?: number;
   mine?: boolean;
@@ -1503,6 +1521,8 @@ export interface UpdateCandidatePayload {
   country?: string;
   stage?: string;
   assignedJobs?: string[];
+  avatar?: string | null;
+  extraData?: Record<string, unknown> | null;
   salary?: {
     min?: number | null;
     max?: number | null;
@@ -1897,6 +1917,14 @@ export const apiAddCandidateToPipeline = async (
   return apiFetch<BackendCandidate>(`/candidates/${candidateId}/pipeline`, {
     method: 'POST',
     body: payload,
+    auth: true,
+  });
+};
+
+export const apiRemoveCandidateFromPipeline = async (candidateId: string, jobId: string) => {
+  return apiFetch<BackendCandidate>(`/candidates/${candidateId}/pipeline`, {
+    method: 'DELETE',
+    body: { jobId },
     auth: true,
   });
 };
@@ -2301,7 +2329,12 @@ export const apiDeleteInterview = async (id: string) => {
 
 export const apiSubmitInterviewToClient = async (
   id: string,
-  payload: { toEmail?: string; message?: string; submissionType?: string }
+  payload: {
+    toEmail?: string;
+    message?: string;
+    submissionType?: string;
+    cvShareMode?: 'edited' | 'original';
+  }
 ) => {
   return apiFetch<{
     success: boolean;
@@ -2731,6 +2764,8 @@ export const apiSubmitMatch = async (
     message: string;
     notifyClient: boolean;
     submissionType?: string;
+    cvShareMode?: 'edited' | 'original';
+    additionalClients?: Array<{ clientId: string; toEmail?: string }>;
   }
 ) => {
   return apiFetch<BackendMatch>(`/matches/${matchId}/submit`, {
@@ -2803,6 +2838,8 @@ export interface BackendLead {
   directorSalutation?: string | null;
   email: string | null;
   phone?: string | null;
+  emails?: string[];
+  phones?: string[];
   type: 'Company' | 'Individual' | 'Referral';
   source?: 'Website' | 'LinkedIn' | 'Email' | 'Referral' | 'Campaign' | null;
   status: 'New' | 'Contacted' | 'Qualified' | 'Converted' | 'Lost';
@@ -2861,6 +2898,8 @@ export interface CreateLeadData {
   directorSalutation?: string | null;
   email?: string | null;
   phone?: string;
+  emails?: string[];
+  phones?: string[];
   type?: 'Company' | 'Individual' | 'Referral';
   source?: 'Website' | 'LinkedIn' | 'Email' | 'Referral' | 'Campaign';
   status?: 'New' | 'Contacted' | 'Qualified' | 'Converted' | 'Lost';
@@ -3034,6 +3073,9 @@ export interface BackendClient {
   longitude?: number | null;
   /** Salutation captured on the Add Client form alongside the primary director. */
   directorSalutation?: string | null;
+  /** Director / company contact channels (primary also on Contact when applicable). */
+  emails?: string[];
+  phones?: string[];
   /** Agreements & Terms — single primary document uploaded against the client. */
   agreementsFileName?: string | null;
   agreementsFileUrl?: string | null;
@@ -3822,6 +3864,10 @@ export interface CreateClientData {
   longitude?: number | null;
   /** Salutation captured on the Add Client form alongside the primary director. */
   directorSalutation?: string;
+  email?: string;
+  phone?: string;
+  emails?: string[];
+  phones?: string[];
   /** Agreements & Terms — single primary document uploaded against the client. */
   agreementsFileName?: string | null;
   agreementsFileUrl?: string | null;
@@ -3855,6 +3901,10 @@ export interface UpdateClientData {
   longitude?: number | null;
   /** Salutation captured on the Add Client form alongside the primary director. */
   directorSalutation?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  emails?: string[];
+  phones?: string[];
   /** Agreements & Terms — single primary document uploaded against the client. */
   agreementsFileName?: string | null;
   agreementsFileUrl?: string | null;
