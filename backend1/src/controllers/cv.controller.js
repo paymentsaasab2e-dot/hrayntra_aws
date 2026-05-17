@@ -65,7 +65,12 @@ async function uploadCV(req, res) {
       'image/png',
     ];
 
-    if (!allowedMimeTypes.includes(file.mimetype)) {
+    const ext = require('path').extname(file.originalname).toLowerCase();
+    const allowedExtensions = ['.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png'];
+    const mimeOk = allowedMimeTypes.includes(file.mimetype);
+    const extOk = allowedExtensions.includes(ext);
+
+    if (!mimeOk && !extOk) {
       return res.status(400).json({
         success: false,
         message: 'Invalid file type. Only PDF, DOC, DOCX, JPG, and PNG files are allowed.',
@@ -108,8 +113,7 @@ async function uploadCV(req, res) {
     
     // Extract portfolio URLs from resume text
     let resumeText = '';
-    const ext = require('path').extname(file.originalname).toLowerCase();
-    
+
     if (ext === '.pdf' || file.mimetype === 'application/pdf') {
       try {
         const pdfParse = require('pdf-parse');
