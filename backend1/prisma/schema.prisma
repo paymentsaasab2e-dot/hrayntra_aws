@@ -742,6 +742,8 @@ model Job {
   companyId        String?        @db.ObjectId
   title            String
   location         String?
+  city             String?
+  country          String?
 
   // Compatible with backendphase2 job documents
   clientId              String?        @db.ObjectId

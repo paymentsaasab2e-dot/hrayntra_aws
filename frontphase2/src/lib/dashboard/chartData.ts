@@ -1,4 +1,11 @@
-import type { WidgetConfig } from './types';
+import type { ChartRecommendation, WidgetConfig } from './types';
+
+/** Chart types hidden from the add/edit widget picker */
+export const EXCLUDED_WIDGET_CHART_TYPES = new Set(['gauge', 'pivotTable']);
+
+export function filterWidgetChartRecommendations(recommendations: ChartRecommendation[]) {
+  return recommendations.filter((r) => !EXCLUDED_WIDGET_CHART_TYPES.has(r.id));
+}
 
 function getNested(row: Record<string, unknown>, key: string) {
   if (!key) return undefined;

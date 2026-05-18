@@ -86,13 +86,11 @@ const CHART_CATALOG = {
   geoMap: { label: 'Geo Map', types: ['geographic'], baseScore: 85 },
   kpi: { label: 'KPI Card', types: ['kpi'], baseScore: 95 },
   counter: { label: 'Counter Widget', types: ['kpi'], baseScore: 88 },
-  gauge: { label: 'Gauge Meter', types: ['kpi', 'progress'], baseScore: 82 },
   progressBar: { label: 'Progress Bar', types: ['progress'], baseScore: 86 },
   funnel: { label: 'Funnel Graph', types: ['progress'], baseScore: 84 },
   stepTracker: { label: 'Step Tracker', types: ['progress'], baseScore: 78 },
   table: { label: 'Data Table', types: ['raw'], baseScore: 70 },
   expandableTable: { label: 'Expandable Table', types: ['raw'], baseScore: 65 },
-  pivotTable: { label: 'Pivot Table', types: ['raw'], baseScore: 60 },
 };
 
 function classifyDataset(fields, rowCount) {

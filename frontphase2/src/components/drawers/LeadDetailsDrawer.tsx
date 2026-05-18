@@ -64,10 +64,13 @@ import { ImageWithFallback } from '../ImageWithFallback';
 import { ScheduleMeetingForm } from '../ScheduleMeetingForm';
 import { NotesService } from '../NotesService';
 import { apiCreateLead, apiUpdateLead, apiGetLead, apiGetLeadActivities, apiGenerateLeadDetails, filesApiUpload, type CreateLeadData, type BackendActivity, type BackendLead } from '../../lib/api';
-import { getAllTeamMembersForAssign } from '../../lib/api/teamApi';
+import { KycDocumentsField, KycDocumentsView } from '../documents/KycDocumentsField';
+import { filterKycFiles, uploadKycDocuments } from '../../lib/kycDocuments';
 import { useFiles } from '../../hooks/useFiles';
+import { getAllTeamMembersForAssign } from '../../lib/api/teamApi';
 import type { TeamMember } from '../../types/team';
 import { LeadAssigneesMultiSelect } from './LeadAssigneesMultiSelect';
+import { DrawerCloseButton } from './DrawerCloseButton';
 import { LocationAutocomplete, type LocationSelection } from '../LocationAutocomplete';
 import { WhatsAppIcon } from '../icons/WhatsAppIcon';
 
@@ -460,11 +463,22 @@ export function LeadDetailsDrawer({
 
   /** Pending Agreements & Terms file selected in the Add Lead form (uploaded after the lead is created). */
   const [pendingAddLeadAgreementsFile, setPendingAddLeadAgreementsFile] = useState<File | null>(null);
+  const [pendingAddLeadKycFiles, setPendingAddLeadKycFiles] = useState<File[]>([]);
   const addLeadAgreementsInputRef = useRef<HTMLInputElement | null>(null);
   /** Pending Agreements & Terms file selected in the Overview edit form (uploaded immediately on save). */
   const [pendingOverviewAgreementsFile, setPendingOverviewAgreementsFile] = useState<File | null>(null);
+  const [pendingOverviewKycFiles, setPendingOverviewKycFiles] = useState<File[]>([]);
   const overviewAgreementsInputRef = useRef<HTMLInputElement | null>(null);
   const [uploadingAgreements, setUploadingAgreements] = useState(false);
+  const [uploadingKyc, setUploadingKyc] = useState(false);
+
+  const leadFilesEntityId = addLeadMode ? null : lead?.id;
+  const {
+    files: leadEntityFiles,
+    deleteFile: deleteLeadFile,
+    fetchFiles: refetchLeadFiles,
+  } = useFiles('lead', leadFilesEntityId);
+  const leadKycFiles = React.useMemo(() => filterKycFiles(leadEntityFiles), [leadEntityFiles]);
 
   // Fetch recruiters from backend
   const [recruiters, setRecruiters] = useState<TeamMember[]>([]);
@@ -626,6 +640,7 @@ export function LeadDetailsDrawer({
     });
     setAddLeadErrors({});
     setPendingAddLeadAgreementsFile(null);
+    setPendingAddLeadKycFiles([]);
     if (addLeadAgreementsInputRef.current) addLeadAgreementsInputRef.current.value = '';
   };
 
@@ -668,8 +683,21 @@ export function LeadDetailsDrawer({
       }
     }
 
+    if (createdLead?.id && pendingAddLeadKycFiles.length > 0) {
+      try {
+        setUploadingKyc(true);
+        await uploadKycDocuments('lead', createdLead.id, pendingAddLeadKycFiles);
+      } catch (uploadError: any) {
+        console.error('Failed to upload lead KYC documents:', uploadError);
+        void requestError(uploadError.message || 'Failed to upload KYC documents');
+      } finally {
+        setUploadingKyc(false);
+      }
+    }
+
     onAddLead?.(form, createdLead);
     setPendingAddLeadAgreementsFile(null);
+    setPendingAddLeadKycFiles([]);
     if (addLeadAgreementsInputRef.current) addLeadAgreementsInputRef.current.value = '';
     resetAddLeadForm();
     setShowAiLeadDrawer(false);
@@ -1275,6 +1303,7 @@ export function LeadDetailsDrawer({
       agreementsUploadedAt: lead.agreementsUploadedAt ?? '',
     });
     setPendingOverviewAgreementsFile(null);
+    setPendingOverviewKycFiles([]);
     if (overviewAgreementsInputRef.current) overviewAgreementsInputRef.current.value = '';
     setOverviewEditMode(true);
     setOverviewOpen({ company: true, contact: true, leadDetails: true });
@@ -1284,6 +1313,7 @@ export function LeadDetailsDrawer({
     setOverviewEditMode(false);
     setOverviewEditErrors({});
     setPendingOverviewAgreementsFile(null);
+    setPendingOverviewKycFiles([]);
     if (overviewAgreementsInputRef.current) overviewAgreementsInputRef.current.value = '';
   };
 
@@ -1386,8 +1416,22 @@ export function LeadDetailsDrawer({
         (updateData as any).agreementsUploadedAt = null;
       }
 
+      if (pendingOverviewKycFiles.length > 0) {
+        try {
+          setUploadingKyc(true);
+          await uploadKycDocuments('lead', lead.id, pendingOverviewKycFiles);
+          await refetchLeadFiles();
+        } catch (uploadError: any) {
+          console.error('Failed to upload lead KYC documents:', uploadError);
+          void requestError(uploadError.message || 'Failed to upload KYC documents');
+        } finally {
+          setUploadingKyc(false);
+        }
+      }
+
       const updatedLeadResponse = await apiUpdateLead(lead.id, updateData);
       setPendingOverviewAgreementsFile(null);
+      setPendingOverviewKycFiles([]);
       if (overviewAgreementsInputRef.current) overviewAgreementsInputRef.current.value = '';
       setOverviewEditMode(false);
       setOverviewEditErrors({});
@@ -1491,16 +1535,8 @@ export function LeadDetailsDrawer({
                   </button>
                 </>
               )}
-              {addLeadMode ? (
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                  aria-label="Close"
-                >
-                  <XCircle size={20} />
-                </button>
-              ) : (
+              <DrawerCloseButton onClick={onClose} />
+              {!addLeadMode ? (
               <div className="relative">
                 <button
                   onClick={() => setMoreMenuOpen((v) => !v)}
@@ -1542,7 +1578,7 @@ export function LeadDetailsDrawer({
                   </>
                 )}
               </div>
-              )}
+              ) : null}
             </div>
           </div>
 
@@ -2576,6 +2612,12 @@ export function LeadDetailsDrawer({
                         <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Expected Business Value</label>
                         <textarea value={addLeadForm.notes ?? ''} onChange={(e) => setAddLeadForm((p) => ({ ...p, notes: e.target.value }))} rows={3} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-none" placeholder="e.g. Potential annual business of $50,000" />
                       </div>
+                      <KycDocumentsField
+                        pendingFiles={pendingAddLeadKycFiles}
+                        onPendingFilesChange={setPendingAddLeadKycFiles}
+                        uploading={uploadingKyc}
+                        disabled={uploadingAgreements}
+                      />
                       {Array.isArray(addLeadForm.otherDetails) && addLeadForm.otherDetails.length ? (
                         <div>
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Other Details</label>
@@ -2884,6 +2926,14 @@ export function LeadDetailsDrawer({
                             </button>
                           </div>
                         </div>
+                        <div className="mt-4">
+                          <KycDocumentsField
+                            pendingFiles={pendingAddLeadKycFiles}
+                            onPendingFilesChange={setPendingAddLeadKycFiles}
+                            uploading={uploadingKyc}
+                            disabled={uploadingAgreements}
+                          />
+                        </div>
                       </div>
                     )}
                   </section>
@@ -2995,7 +3045,20 @@ export function LeadDetailsDrawer({
                               setUploadingAgreements(false);
                             }
                           }
+                          if (createdLead?.id && pendingAddLeadKycFiles.length > 0) {
+                            try {
+                              setUploadingKyc(true);
+                              await uploadKycDocuments('lead', createdLead.id, pendingAddLeadKycFiles);
+                            } catch (uploadError: any) {
+                              console.error('Failed to upload lead KYC documents:', uploadError);
+                              void requestError(uploadError.message || 'Failed to upload KYC documents');
+                            } finally {
+                              setUploadingKyc(false);
+                            }
+                          }
+
                           setPendingAddLeadAgreementsFile(null);
+                          setPendingAddLeadKycFiles([]);
                           if (addLeadAgreementsInputRef.current) addLeadAgreementsInputRef.current.value = '';
 
                           // Call the parent handler so table can update immediately
@@ -3144,7 +3207,10 @@ export function LeadDetailsDrawer({
                               </a>
                             </div>
                           )}
-                          {Array.isArray(lead?.otherDetails) && lead.otherDetails.length ? (
+                          
+                          <KycDocumentsView files={leadKycFiles} />
+
+{Array.isArray(lead?.otherDetails) && lead.otherDetails.length ? (
                             <div>
                               <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
                                 <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">Other Details</p>
@@ -3894,6 +3960,19 @@ export function LeadDetailsDrawer({
                                   {overviewEditForm.agreementsFileUrl || pendingOverviewAgreementsFile ? 'Replace file' : 'Upload file'}
                                 </button>
                               </div>
+                            </div>
+                            <div>
+                              <KycDocumentsField
+                                pendingFiles={pendingOverviewKycFiles}
+                                onPendingFilesChange={setPendingOverviewKycFiles}
+                                storedFiles={leadKycFiles}
+                                onRemoveStored={async (fileId) => {
+                                  await deleteLeadFile(fileId);
+                                  await refetchLeadFiles();
+                                }}
+                                uploading={uploadingKyc}
+                                disabled={uploadingAgreements}
+                              />
                             </div>
                           </div>
                         )}

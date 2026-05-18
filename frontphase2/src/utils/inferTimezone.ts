@@ -1,7 +1,10 @@
 /**
  * Infer a display timezone label from location fields (country / coordinates).
+ * Primary source: country-state-city. Fallback: manual maps + coordinates.
  * Stored client timezone values use labels like "IST (UTC+5:30)" or "PST (UTC-8)".
  */
+
+import { inferIanaFromCountryStateCity } from '../lib/cscTimezone';
 
 export type LocationTimezoneInput = {
   country?: string;
@@ -144,6 +147,22 @@ const COUNTRY_PRIMARY_TIMEZONE: Record<string, string> = {
   ZA: 'Africa/Johannesburg',
   ZM: 'Africa/Lusaka',
   ZW: 'Africa/Harare',
+  CD: 'Africa/Kinshasa',
+  CG: 'Africa/Brazzaville',
+  CM: 'Africa/Douala',
+  AO: 'Africa/Luanda',
+  MG: 'Indian/Antananarivo',
+  SD: 'Africa/Khartoum',
+  SS: 'Africa/Juba',
+  CI: 'Africa/Abidjan',
+  ML: 'Africa/Bamako',
+  BF: 'Africa/Ouagadougou',
+  NE: 'Africa/Niamey',
+  TD: 'Africa/Ndjamena',
+  CF: 'Africa/Bangui',
+  GA: 'Africa/Libreville',
+  GQ: 'Africa/Malabo',
+  MW: 'Africa/Blantyre',
 };
 
 const COUNTRY_NAME_TO_CODE: Record<string, string> = {
@@ -208,6 +227,29 @@ const COUNTRY_NAME_TO_CODE: Record<string, string> = {
   nigeria: 'NG',
   kenya: 'KE',
   ghana: 'GH',
+  'democratic republic of the congo': 'CD',
+  'democratic republic of congo': 'CD',
+  'dr congo': 'CD',
+  drc: 'CD',
+  'congo (kinshasa)': 'CD',
+  'republic of the congo': 'CG',
+  'congo (brazzaville)': 'CG',
+  congo: 'CG',
+  tanzania: 'TZ',
+  uganda: 'UG',
+  ethiopia: 'ET',
+  morocco: 'MA',
+  algeria: 'DZ',
+  tunisia: 'TN',
+  libya: 'LY',
+  angola: 'AO',
+  mozambique: 'MZ',
+  zambia: 'ZM',
+  zimbabwe: 'ZW',
+  cameroon: 'CM',
+  'ivory coast': 'CI',
+  "côte d'ivoire": 'CI',
+  senegal: 'SN',
 };
 
 const US_STATE_TIMEZONE: Record<string, string> = {
@@ -375,6 +417,10 @@ export function resolveCountryCode(country?: string, countryCode?: string): stri
   if (nameKey.length >= 3) {
     const direct = Object.entries(COUNTRY_NAME_TO_CODE).find(([k]) => k === nameKey);
     if (direct) return direct[1];
+    if (nameKey.includes('democratic republic') && nameKey.includes('congo')) return 'CD';
+    if (nameKey.includes('dr congo') || nameKey === 'drc') return 'CD';
+    if (nameKey.includes('republic of the congo') || (nameKey.includes('congo') && !nameKey.includes('democratic')))
+      return 'CG';
   }
   return '';
 }
@@ -406,10 +452,20 @@ function inferTimezoneFromCoordinates(lat: number, lng: number): string {
   if (lat >= 4 && lat <= 14 && lng >= 115 && lng <= 127) return 'Asia/Manila';
   if (lat >= 24 && lat <= 32 && lng >= 34 && lng <= 56) return 'Asia/Dubai';
   if (lat >= -35 && lat <= -22 && lng >= 16 && lng <= 33) return 'Africa/Johannesburg';
+  // Central / eastern Africa (DRC, Tanzania, Zambia, Malawi, etc.)
+  if (lat >= -14 && lat <= 6 && lng >= 12 && lng <= 42) {
+    if (lng >= 28) return 'Africa/Nairobi';
+    if (lng >= 24) return 'Africa/Lubumbashi';
+    return 'Africa/Kinshasa';
+  }
+  if (lat >= -12 && lat <= 5 && lng >= 28 && lng <= 42) return 'Africa/Nairobi';
   return '';
 }
 
 export function inferIanaTimezone(input: LocationTimezoneInput): string {
+  const fromCsc = inferIanaFromCountryStateCity(input);
+  if (fromCsc) return fromCsc;
+
   const countryCode = resolveCountryCode(input.country, input.countryCode);
   if (countryCode) {
     const regional = resolveRegionalTimezone(countryCode, input.state);
@@ -489,8 +545,13 @@ const CLIENT_TIMEZONE_IANA: string[] = [
   'Europe/Moscow',
   'Africa/Cairo',
   'Africa/Johannesburg',
+  'Africa/Kinshasa',
+  'Africa/Lubumbashi',
+  'Africa/Brazzaville',
   'Africa/Lagos',
   'Africa/Nairobi',
+  'Africa/Lusaka',
+  'Africa/Maputo',
   'America/New_York',
   'America/Chicago',
   'America/Denver',

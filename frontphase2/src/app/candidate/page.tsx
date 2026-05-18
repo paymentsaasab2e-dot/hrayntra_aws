@@ -2100,6 +2100,7 @@ function CandidatesPageContent() {
           await apiUpdateCandidate(candidateId, payload);
           await loadCandidateProfile(candidateId);
         } : undefined}
+        onRefreshCandidate={canUpdateCandidate ? loadCandidateProfile : undefined}
         openEditDirectly={Boolean(candidateEditOpenToken)}
         editModalOpenToken={candidateEditOpenToken}
       />

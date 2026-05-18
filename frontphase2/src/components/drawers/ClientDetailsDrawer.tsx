@@ -8,7 +8,10 @@ import { toDateTimeLocalInput, fromDateTimeLocalInput } from '../../utils/format
 import { NAME_SALUTATION_OPTIONS } from '../../constants/salutations';
 import { WhatsAppIcon } from '../icons/WhatsAppIcon';
 import { LeadAssigneesMultiSelect } from './LeadAssigneesMultiSelect';
-import { LocationAutocomplete, type LocationSelection } from '../LocationAutocomplete';
+import { type LocationSelection } from '../LocationAutocomplete';
+import { CscLocationFields } from '../location/CscLocationFields';
+import { KycDocumentsField, KycDocumentsView } from '../documents/KycDocumentsField';
+import { filterKycFiles, uploadKycDocuments } from '../../lib/kycDocuments';
 import { inferTimezoneDisplay, type LocationTimezoneInput } from '../../utils/inferTimezone';
 import { ClientTimezoneSelect } from '../clients/ClientTimezoneSelect';
 import { MultiContactFields } from '../ui/MultiContactFields';
@@ -83,6 +86,7 @@ import { apiUpdateClient, apiCreateClient, apiGetJobs, apiGetContacts, apiCreate
 import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { requestConfirm, requestError, requestSuccess, requestWarning } from '../../lib/appDialog';
 import { CreateJobDrawer } from './CreateJobDrawer';
+import { DrawerCloseButton } from './DrawerCloseButton';
 import { JobDetailsDrawer, type JobForDrawer } from './JobDetailsDrawer';
 import { usePermissions } from '../../hooks/usePermissions';
 import { toast } from 'sonner';
@@ -487,7 +491,9 @@ export function ClientDetailsDrawer({
   const [uploadingClientLogo, setUploadingClientLogo] = useState(false);
   /** Pending file selected while editing — uploaded after Save (Add) or immediately on Save (Edit). */
   const [pendingAgreementsFile, setPendingAgreementsFile] = useState<File | null>(null);
+  const [pendingKycFiles, setPendingKycFiles] = useState<File[]>([]);
   const [uploadingAgreements, setUploadingAgreements] = useState(false);
+  const [uploadingKyc, setUploadingKyc] = useState(false);
   const [pendingClientLogoFile, setPendingClientLogoFile] = useState<File | null>(null);
   const [pendingClientLogoPreview, setPendingClientLogoPreview] = useState('');
   /** Tracks an explicit "Remove logo" intent so the preview hides the existing
@@ -848,7 +854,8 @@ export function ClientDetailsDrawer({
   const [filesTypeFilter, setFilesTypeFilter] = useState<ClientFileType | 'All'>('All');
   const FILE_TYPE_OPTIONS: (ClientFileType | 'All')[] = ['All', 'NDA', 'Contract', 'SLA', 'Policy', 'Invoice', 'Job Brief'];
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { files: clientFiles, loading: filesLoading, uploading: filesUploading, error: filesError, uploadFile, deleteFile } = useFiles('client', client?.id);
+  const { files: clientFiles, loading: filesLoading, uploading: filesUploading, error: filesError, uploadFile, deleteFile, fetchFiles: refetchClientFiles } = useFiles('client', client?.id);
+  const clientKycFiles = useMemo(() => filterKycFiles(clientFiles), [clientFiles]);
 
   const [showChangeStageForm, setShowChangeStageForm] = useState(false);
   const [changeStageDropdownOpen, setChangeStageDropdownOpen] = useState(false);
@@ -1167,6 +1174,7 @@ export function ClientDetailsDrawer({
     });
     resetClientLogoDraft();
     setPendingAgreementsFile(null);
+    setPendingKycFiles([]);
     setOverviewEditMode(true);
     // Open all sections for editing
     setOverviewOpen({
@@ -1182,6 +1190,7 @@ export function ClientDetailsDrawer({
     setOverviewEditMode(false);
     resetClientLogoDraft();
     setPendingAgreementsFile(null);
+    setPendingKycFiles([]);
   };
 
   const saveOverviewEdit = async () => {
@@ -1312,6 +1321,18 @@ export function ClientDetailsDrawer({
 
         resetClientLogoDraft();
         setPendingAgreementsFile(null);
+        if (createdClientId && pendingKycFiles.length > 0) {
+          try {
+            setUploadingKyc(true);
+            await uploadKycDocuments('client', createdClientId, pendingKycFiles);
+          } catch (uploadError: any) {
+            console.error('Failed to upload client KYC documents:', uploadError);
+            void requestError(uploadError.message || 'Failed to upload KYC documents');
+          } finally {
+            setUploadingKyc(false);
+          }
+        }
+        setPendingKycFiles([]);
         onClientCreated?.();
         onClose();
       } catch (error: any) {
@@ -1437,6 +1458,19 @@ export function ClientDetailsDrawer({
         });
         resetClientLogoDraft();
         setPendingAgreementsFile(null);
+        if (pendingKycFiles.length > 0) {
+          try {
+            setUploadingKyc(true);
+            await uploadKycDocuments('client', client.id, pendingKycFiles);
+            await refetchClientFiles();
+          } catch (uploadError: any) {
+            console.error('Failed to upload client KYC documents:', uploadError);
+            void requestError(uploadError.message || 'Failed to upload KYC documents');
+          } finally {
+            setUploadingKyc(false);
+          }
+        }
+        setPendingKycFiles([]);
         onClientCreated?.();
         setOverviewEditMode(false);
         
@@ -1724,6 +1758,7 @@ export function ClientDetailsDrawer({
       }));
       resetClientLogoDraft();
       setPendingAgreementsFile(null);
+      setPendingKycFiles([]);
       // Set edit mode to true so form is visible
       setOverviewEditMode(true);
       // Open relevant sections
@@ -1939,15 +1974,7 @@ export function ClientDetailsDrawer({
                 <div className="flex items-center gap-1 shrink-0">
                   {isAddMode ? (
                     <>
-                      <button
-                        type="button"
-                        onClick={() => onClose()}
-                        className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                        aria-label="Close"
-                        title="Close"
-                      >
-                        <X size={20} />
-                      </button>
+                      <DrawerCloseButton onClick={onClose} />
                       <button
                         type="button"
                         onClick={() => onClose()}
@@ -2022,6 +2049,7 @@ export function ClientDetailsDrawer({
                   >
                     <Trash2 size={18} />
                   </button>
+                      <DrawerCloseButton onClick={onClose} />
                     </>
                   )}
                 </div>
@@ -2252,56 +2280,22 @@ export function ClientDetailsDrawer({
                               placeholder="+1 (555) 000-0000"
                             />
                           </div>
-                          <div className="sm:col-span-2">
-                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Location</label>
-                            <LocationAutocomplete
-                              value={overviewEditForm.location ?? ''}
-                              onChange={(next) => setOverviewEditForm((p) => ({ ...p, location: next }))}
-                              onSelect={(s: LocationSelection) => {
-                                timezoneManuallyEditedRef.current = false;
-                                setOverviewEditForm((p) => mergeClientLocationSelection(p, s));
-                              }}
-                              placeholder="Start typing a city, region, or address…"
-                            />
-                            {(overviewEditForm.state || typeof overviewEditForm.latitude === 'number') && (
-                              <p className="mt-1 text-[11px] text-slate-500">
-                                <span className="font-semibold text-emerald-600">Detected</span>{' '}
-                                {[
-                                  overviewEditForm.state,
-                                  typeof overviewEditForm.latitude === 'number' && typeof overviewEditForm.longitude === 'number'
-                                    ? `${overviewEditForm.latitude.toFixed(4)}, ${overviewEditForm.longitude.toFixed(4)}`
-                                    : null,
-                                ].filter(Boolean).join(' · ')}
-                              </p>
-                            )}
-                          </div>
-                          <div>
-                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">City</label>
-                            <input
-                              value={overviewEditForm.city}
-                              onChange={(e) => patchOverviewWithAutoTimezone({ city: e.target.value })}
-                              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                              placeholder="e.g. San Francisco"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">State</label>
-                            <input
-                              value={overviewEditForm.state}
-                              onChange={(e) => patchOverviewWithAutoTimezone({ state: e.target.value })}
-                              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                              placeholder="e.g. California"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Country</label>
-                            <input
-                              value={overviewEditForm.country}
-                              onChange={(e) => patchOverviewWithAutoTimezone({ country: e.target.value })}
-                              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                              placeholder="e.g. United States"
-                            />
-                          </div>
+                          <CscLocationFields
+                            location={overviewEditForm.location ?? ''}
+                            city={overviewEditForm.city}
+                            state={overviewEditForm.state}
+                            country={overviewEditForm.country}
+                            countryCode={overviewEditForm.countryCode}
+                            latitude={overviewEditForm.latitude}
+                            longitude={overviewEditForm.longitude}
+                            onLocationChange={(next) =>
+                              setOverviewEditForm((p) => ({ ...p, location: next }))
+                            }
+                            onSelect={(s: LocationSelection) => {
+                              timezoneManuallyEditedRef.current = false;
+                              setOverviewEditForm((p) => mergeClientLocationSelection(p, s));
+                            }}
+                          />
                           <div>
                             <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
                               <Clock size={12} className="text-slate-400" />
@@ -2463,6 +2457,14 @@ export function ClientDetailsDrawer({
                               {pendingAgreementsFile ? 'Replace file' : 'Upload file'}
                             </button>
                           </div>
+                        </div>
+                        <div className="mt-4">
+                          <KycDocumentsField
+                            pendingFiles={pendingKycFiles}
+                            onPendingFilesChange={setPendingKycFiles}
+                            uploading={uploadingKyc}
+                            disabled={uploadingAgreements}
+                          />
                         </div>
                       </div>
                     </section>
@@ -3211,6 +3213,8 @@ export function ClientDetailsDrawer({
                                 </a>
                               </div>
                             )}
+
+                            <KycDocumentsView files={clientKycFiles} uploadsBase={uploadsBase} />
                           </>
                         ) : isAddMode ? (
                           // ── Add Client form — mirrors AddLeadDrawer fields (same widgets and layout).
@@ -3336,56 +3340,22 @@ export function ClientDetailsDrawer({
                                 }}
                                 placeholder="+1 (555) 000-0000"
                               />
-                              <div className="sm:col-span-2">
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Location</label>
-                                <LocationAutocomplete
-                                  value={overviewEditForm.location ?? ''}
-                                  onChange={(next) => setOverviewEditForm((p) => ({ ...p, location: next }))}
-                                  onSelect={(s: LocationSelection) => {
-                                    timezoneManuallyEditedRef.current = false;
-                                    setOverviewEditForm((p) => mergeClientLocationSelection(p, s));
-                                  }}
-                                  placeholder="Start typing a city, region, or address…"
-                                />
-                                {(overviewEditForm.state || typeof overviewEditForm.latitude === 'number') && (
-                                  <p className="mt-1 text-[11px] text-slate-500">
-                                    <span className="font-semibold text-emerald-600">Detected</span>{' '}
-                                    {[
-                                      overviewEditForm.state,
-                                      typeof overviewEditForm.latitude === 'number' && typeof overviewEditForm.longitude === 'number'
-                                        ? `${overviewEditForm.latitude.toFixed(4)}, ${overviewEditForm.longitude.toFixed(4)}`
-                                        : null,
-                                    ].filter(Boolean).join(' · ')}
-                                  </p>
-                                )}
-                              </div>
-                              <div>
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">City</label>
-                                <input
-                                  value={overviewEditForm.city}
-                                  onChange={(e) => patchOverviewWithAutoTimezone({ city: e.target.value })}
-                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                  placeholder="e.g. San Francisco"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">State</label>
-                                <input
-                                  value={overviewEditForm.state}
-                                  onChange={(e) => patchOverviewWithAutoTimezone({ state: e.target.value })}
-                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                  placeholder="e.g. California"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Country</label>
-                                <input
-                                  value={overviewEditForm.country}
-                                  onChange={(e) => patchOverviewWithAutoTimezone({ country: e.target.value })}
-                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                  placeholder="e.g. United States"
-                                />
-                              </div>
+                              <CscLocationFields
+                                location={overviewEditForm.location ?? ''}
+                                city={overviewEditForm.city}
+                                state={overviewEditForm.state}
+                                country={overviewEditForm.country}
+                                countryCode={overviewEditForm.countryCode}
+                                latitude={overviewEditForm.latitude}
+                                longitude={overviewEditForm.longitude}
+                                onLocationChange={(next) =>
+                                  setOverviewEditForm((p) => ({ ...p, location: next }))
+                                }
+                                onSelect={(s: LocationSelection) => {
+                                  timezoneManuallyEditedRef.current = false;
+                                  setOverviewEditForm((p) => mergeClientLocationSelection(p, s));
+                                }}
+                              />
                               <div>
                                 <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
                                   <Clock size={12} className="text-slate-400" />
@@ -3804,6 +3774,20 @@ export function ClientDetailsDrawer({
                                   {overviewEditForm.agreementsFileUrl || pendingAgreementsFile ? 'Replace file' : 'Upload file'}
                                 </button>
                               </div>
+                            </div>
+                            <div>
+                              <KycDocumentsField
+                                pendingFiles={pendingKycFiles}
+                                onPendingFilesChange={setPendingKycFiles}
+                                storedFiles={clientKycFiles}
+                                uploadsBase={uploadsBase}
+                                onRemoveStored={async (fileId) => {
+                                  await deleteFile(fileId);
+                                  await refetchClientFiles();
+                                }}
+                                uploading={uploadingKyc}
+                                disabled={uploadingAgreements}
+                              />
                             </div>
                           </>
                         )}

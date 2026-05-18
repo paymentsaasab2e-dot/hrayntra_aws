@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  X, 
   Mail, 
   Phone, 
   Calendar, 
@@ -14,7 +13,8 @@ import {
   CheckCircle2,
   Clock
 } from 'lucide-react';
-import { TeamMember, Badge, IconButton } from '../TeamComponents';
+import { TeamMember, Badge } from '../TeamComponents';
+import { DrawerCloseButton } from './DrawerCloseButton';
 import { 
   BarChart, 
   Bar, 
@@ -79,7 +79,7 @@ export const MemberDrawer: React.FC<MemberDrawerProps> = ({ member, isOpen, onCl
                   </p>
                 </div>
               </div>
-              <IconButton icon={X} onClick={onClose} className="size-10" />
+              <DrawerCloseButton onClick={onClose} />
             </div>
 
             {/* Tabs Navigation */}

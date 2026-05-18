@@ -14,7 +14,6 @@ export type ChartTypeId =
   | 'heatmap'
   | 'kpi'
   | 'counter'
-  | 'gauge'
   | 'progressBar'
   | 'funnel'
   | 'table';
