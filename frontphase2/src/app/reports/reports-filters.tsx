@@ -2,6 +2,7 @@
 
 import { XCircle } from 'lucide-react';
 import { PH2_TOOLBAR_SELECT_CLASS } from '../../components/layout/Ph2ModulePageLayout';
+import { ALL_STATUS_LABEL } from '../../constants/filterLabels';
 
 export type FilterOption = { id: string; name: string };
 export type DateRangeOption = { value: string; label: string };
@@ -258,21 +259,21 @@ export function ReportsFiltersToolbar({
           ))}
         </select>
 
-        <ValueFilterSelect label="All Job Statuses" value={draftFilters.jobStatus} options={options?.jobStatuses || []} onChange={(v) => onPatch('jobStatus', v)} />
+        <ValueFilterSelect label={ALL_STATUS_LABEL} value={draftFilters.jobStatus} options={options?.jobStatuses || []} onChange={(v) => onPatch('jobStatus', v)} />
         <ValueFilterSelect label="All Job Types" value={draftFilters.jobType} options={options?.jobTypes || []} onChange={(v) => onPatch('jobType', v)} />
         <ValueFilterSelect label="All Job Locations" value={draftFilters.jobLocation} options={options?.jobLocations || []} onChange={(v) => onPatch('jobLocation', v)} />
         <ValueFilterSelect label="All Departments" value={draftFilters.jobDepartment} options={options?.jobDepartments || []} onChange={(v) => onPatch('jobDepartment', v)} />
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <ValueFilterSelect label="All Candidate Statuses" value={draftFilters.candidateStatus} options={options?.candidateStatuses || []} onChange={(v) => onPatch('candidateStatus', v)} />
+        <ValueFilterSelect label={ALL_STATUS_LABEL} value={draftFilters.candidateStatus} options={options?.candidateStatuses || []} onChange={(v) => onPatch('candidateStatus', v)} />
         <ValueFilterSelect label="All Candidate Sources" value={draftFilters.candidateSource} options={options?.candidateSources || []} onChange={(v) => onPatch('candidateSource', v)} />
-        <ValueFilterSelect label="All Client Statuses" value={draftFilters.clientStatus} options={options?.clientStatuses || []} onChange={(v) => onPatch('clientStatus', v)} />
+        <ValueFilterSelect label={ALL_STATUS_LABEL} value={draftFilters.clientStatus} options={options?.clientStatuses || []} onChange={(v) => onPatch('clientStatus', v)} />
         <ValueFilterSelect label="All Industries" value={draftFilters.clientIndustry} options={options?.clientIndustries || []} onChange={(v) => onPatch('clientIndustry', v)} />
-        <ValueFilterSelect label="All Lead Statuses" value={draftFilters.leadStatus} options={options?.leadStatuses || []} onChange={(v) => onPatch('leadStatus', v)} />
+        <ValueFilterSelect label={ALL_STATUS_LABEL} value={draftFilters.leadStatus} options={options?.leadStatuses || []} onChange={(v) => onPatch('leadStatus', v)} />
         <ValueFilterSelect label="All Lead Sources" value={draftFilters.leadSource} options={options?.leadSources || []} onChange={(v) => onPatch('leadSource', v)} />
-        <ValueFilterSelect label="All Interview Statuses" value={draftFilters.interviewStatus} options={options?.interviewStatuses || []} onChange={(v) => onPatch('interviewStatus', v)} />
-        <ValueFilterSelect label="All Placement Statuses" value={draftFilters.placementStatus} options={options?.placementStatuses || []} onChange={(v) => onPatch('placementStatus', v)} />
+        <ValueFilterSelect label={ALL_STATUS_LABEL} value={draftFilters.interviewStatus} options={options?.interviewStatuses || []} onChange={(v) => onPatch('interviewStatus', v)} />
+        <ValueFilterSelect label={ALL_STATUS_LABEL} value={draftFilters.placementStatus} options={options?.placementStatuses || []} onChange={(v) => onPatch('placementStatus', v)} />
       </div>
 
       <div className="rounded-lg border border-indigo-100/70 bg-indigo-50/25 p-3">

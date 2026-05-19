@@ -2,16 +2,17 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import {
-  X,
-  Upload,
-  Download,
-  ChevronRight,
-  CheckCircle,
-  AlertCircle,
-} from 'lucide-react';
+import { X, Download, ChevronRight, CheckCircle, AlertCircle } from 'lucide-react';
+import { toast } from 'sonner';
 import { apiImportClients, apiPreviewClientImport } from '../../lib/api';
 import { downloadSampleCsv } from '../../utils/csv';
+import {
+  formatImportSuccessToast,
+  formatUploadSuccessToast,
+  ImportDrawerFooter,
+  ImportUploadSection,
+  useSimulatedProgress,
+} from '../import/importDrawerUi';
 
 export interface ClientImportDrawerProps {
   isOpen: boolean;
@@ -71,6 +72,10 @@ export function ClientImportDrawer({
   const [isParsing, setIsParsing] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [parseError, setParseError] = useState('');
+  const [fileUploaded, setFileUploaded] = useState(false);
+
+  const uploadProgress = useSimulatedProgress(isParsing);
+  const importProgress = useSimulatedProgress(isImporting);
 
   const hasParsedFile =
     Boolean(fileName) &&
@@ -92,6 +97,9 @@ export function ClientImportDrawer({
     setIsParsing(false);
     setIsImporting(false);
     setParseError('');
+    setFileUploaded(false);
+    uploadProgress.reset();
+    importProgress.reset();
   };
 
   const handleClose = () => {
@@ -99,10 +107,6 @@ export function ClientImportDrawer({
     onClose();
   };
 
-  /**
-   * Download a sample CSV using the EXACT column ids the parser expects so the
-   * user can fill rows and re-upload without manual mapping.
-   */
   const handleDownloadSample = () => {
     downloadSampleCsv('clients-import-sample.csv', CRM_FIELDS, {
       sample: {
@@ -128,16 +132,26 @@ export function ClientImportDrawer({
 
   const handleImport = async () => {
     try {
+      setParseError('');
       setIsImporting(true);
+      importProgress.reset();
+
       const response = await apiImportClients({
         rows: importRows.length > 0 ? importRows : previewRows,
         mapping: columnMapping,
         duplicateRule,
       });
-      onImportComplete?.(response.data);
+
+      importProgress.finish();
+      const result = response.data;
+      toast.success(formatImportSuccessToast('Clients', result));
+      onImportComplete?.(result);
+      await new Promise((r) => setTimeout(r, 400));
       handleClose();
     } catch (error: any) {
+      toast.error(error.message || 'Failed to import clients');
       setParseError(error.message || 'Failed to import clients');
+      importProgress.reset();
     } finally {
       setIsImporting(false);
     }
@@ -148,7 +162,9 @@ export function ClientImportDrawer({
 
     setFileName(file.name);
     setParseError('');
+    setFileUploaded(false);
     setIsParsing(true);
+    uploadProgress.reset();
 
     try {
       const response = await apiPreviewClientImport(file);
@@ -165,13 +181,21 @@ export function ClientImportDrawer({
           {}
         )
       );
+
+      uploadProgress.finish();
+      setFileUploaded(true);
+      toast.success(formatUploadSuccessToast(preview.totalRows || 0));
     } catch (error: any) {
+      setFileUploaded(false);
+      uploadProgress.reset();
+      toast.error(error.message || 'Failed to read the import file');
       setParseError(error.message || 'Failed to read the import file');
       setFileColumns([]);
       setColumnStats({});
       setPreviewRows([]);
       setImportRows([]);
       setTotalRows(0);
+      setSheetName('');
     } finally {
       setIsParsing(false);
     }
@@ -197,8 +221,7 @@ export function ClientImportDrawer({
         transition={{ type: 'spring', damping: 25, stiffness: 200 }}
         className="fixed right-0 top-0 h-full w-3/4 max-w-6xl bg-white shadow-2xl z-50 pointer-events-auto border-l border-slate-200 flex flex-col"
       >
-        {/* Header */}
-        <div className="shrink-0 border-b border-slate-200 p-5 flex items-center justify-between">
+        <motion.div className="shrink-0 border-b border-slate-200 p-5 flex items-center justify-between">
           <h2 className="text-lg font-bold text-slate-900">Import Clients</h2>
           <button
             type="button"
@@ -208,10 +231,9 @@ export function ClientImportDrawer({
           >
             <X size={20} />
           </button>
-        </div>
+        </motion.div>
 
-        {/* Stepper + template download */}
-        <div className="shrink-0 border-b border-slate-200 px-5 py-3">
+        <motion.div className="shrink-0 border-b border-slate-200 px-5 py-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               {[1, 2, 3].map((s) => (
@@ -241,68 +263,27 @@ export function ClientImportDrawer({
               Download template
             </button>
           </div>
-        </div>
+        </motion.div>
 
-        {/* Content — same card-based layout as client drawer tabs */}
         <div className="flex-1 overflow-y-auto bg-slate-50/30 p-5">
           {step === 1 && (
-            <div className="space-y-4">
-              <div
-                className={`rounded-xl border p-5 shadow-sm transition-colors ${
-                  hasParsedFile
-                    ? 'border-blue-300 bg-blue-50/80 ring-1 ring-blue-200/90'
-                    : 'border-slate-200 bg-white'
-                }`}
-              >
-                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Upload file</h4>
-                <p className="text-sm text-slate-600 mb-4">Upload a CSV or Excel file containing your client data.</p>
-                <label
-                  htmlFor="client-import-file"
-                  className={`relative flex cursor-pointer rounded-xl border-2 p-8 transition-colors ${
-                    hasParsedFile
-                      ? 'border-solid border-blue-500 bg-blue-100/50 hover:border-blue-600 hover:bg-blue-100/70'
-                      : 'border-dashed border-slate-200 bg-slate-50/50 hover:border-slate-300 hover:bg-slate-50/80'
-                  }`}
-                >
-                  <input
-                    id="client-import-file"
-                    type="file"
-                    accept=".csv,.xlsx,.xls"
-                    className="sr-only"
-                    onChange={(e) => handleFileChange(e.target.files?.[0])}
-                  />
-                  <div className="flex flex-col items-center justify-center gap-2 w-full">
-                    <Upload
-                      size={32}
-                      className={hasParsedFile ? 'text-blue-600' : 'text-slate-400'}
-                    />
-                    <span
-                      className={`text-sm font-medium ${
-                        hasParsedFile ? 'text-blue-900' : 'text-slate-600'
-                      }`}
-                    >
-                      {fileName || 'Click or drag CSV / XLSX file'}
-                    </span>
-                    <span className={`text-xs ${hasParsedFile ? 'text-blue-800/90' : 'text-slate-400'}`}>
-                      CSV, XLSX up to 10MB
-                    </span>
-                  </div>
-                </label>
-                {parseError ? <p className="mt-3 text-sm text-red-600">{parseError}</p> : null}
-                {sheetName ? (
-                  <div
-                    className={`mt-4 rounded-lg border px-4 py-3 text-sm ${
-                      hasParsedFile
-                        ? 'border-blue-200 bg-blue-50 text-blue-900'
-                        : 'border-transparent bg-transparent text-slate-500'
-                    }`}
-                  >
-                    Parsed sheet: <span className="font-semibold">{sheetName}</span> with{' '}
-                    <span className="font-semibold">{totalRows}</span> rows
-                  </div>
-                ) : null}
-              </div>
-            </div>
+            <motion.div className="space-y-4">
+              <ImportUploadSection
+                inputId="client-import-file"
+                uploadDescription="Upload a CSV or Excel file containing your client data."
+                fileName={fileName}
+                isParsing={isParsing}
+                isImporting={isImporting}
+                fileUploaded={fileUploaded}
+                hasParsedFile={hasParsedFile}
+                parseError={parseError}
+                sheetName={sheetName}
+                totalRows={totalRows}
+                entityLabel="clients"
+                uploadPercent={uploadProgress.percent}
+                onFileSelect={handleFileChange}
+              />
+            </motion.div>
           )}
 
           {step === 2 && (
@@ -310,7 +291,7 @@ export function ClientImportDrawer({
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
                 <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Map columns</h4>
                 <p className="text-sm text-slate-600 mb-4">AI extracted the uploaded sheet columns below and suggested the CRM field match for each one.</p>
-                <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <motion.div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
                   <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Detected columns</p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {fileColumns.length > 0 ? (
@@ -323,7 +304,7 @@ export function ClientImportDrawer({
                       <span className="text-sm text-slate-400">{isParsing ? 'Reading file columns…' : 'Upload a file in step 1 to see columns here.'}</span>
                     )}
                   </div>
-                </div>
+                </motion.div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   {fileColumns.length > 0 ? (
                     fileColumns.map((column) => {
@@ -419,41 +400,21 @@ export function ClientImportDrawer({
           )}
         </div>
 
-        {/* Footer — Back | Continue / Import */}
-        <div className="shrink-0 border-t border-slate-200 p-5 flex items-center justify-between bg-white">
-          <div>
-            {step > 1 && (
-              <button
-                type="button"
-                onClick={() => setStep((s) => s - 1)}
-                className="px-4 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors flex items-center gap-2"
-              >
-                Back
-              </button>
-            )}
-          </div>
-          <div className="flex items-center gap-3">
-            {step < 3 ? (
-              <button
-                type="button"
-                onClick={() => setStep((s) => s + 1)}
-                disabled={(step === 1 && (!fileName || isParsing || !!parseError)) || (step === 2 && fileColumns.length === 0)}
-                className="px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Continue
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handleImport}
-                disabled={isImporting || previewRows.length === 0}
-                className="px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isImporting ? 'Importing…' : 'Import'}
-              </button>
-            )}
-          </div>
-        </div>
+        <ImportDrawerFooter
+          step={step}
+          isImporting={isImporting}
+          importPercent={importProgress.percent}
+          importButtonLabel="Import Clients"
+          importProgressLabel="Importing clients into CRM…"
+          continueDisabled={
+            (step === 1 && (!fileName || isParsing || !!parseError || !fileUploaded)) ||
+            (step === 2 && fileColumns.length === 0)
+          }
+          importDisabled={isImporting || previewRows.length === 0}
+          onBack={() => setStep((s) => s - 1)}
+          onContinue={() => setStep((s) => s + 1)}
+          onImport={handleImport}
+        />
       </motion.div>
     </AnimatePresence>
   );

@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Copy, Expand, GripVertical, RefreshCcw, Settings2, Trash2, X } from 'lucide-react';
 import { apiDashboardDataset } from '../../lib/dashboard/api';
-import { resolveWidgetConfig } from '../../lib/dashboard/chartData';
+import { filterWidgetChartRecommendations, resolveWidgetConfig } from '../../lib/dashboard/chartData';
 import type { DashboardFilterDef, DashboardWidget, WidgetConfig, WidgetFilters } from '../../lib/dashboard/types';
 import { DashboardFilterFields } from './DashboardFilterFields';
 import { WidgetChart } from './WidgetChart';
@@ -143,7 +143,7 @@ export function DashboardWidgetCard({ widget, editMode, onUpdate, onRemove, onDu
               onChange={(e) => onUpdate({ ...widget, chartType: e.target.value })}
               className="w-full rounded border border-slate-200 px-2 py-1"
             >
-              {(data?.analysis?.recommendations || []).map((r) => (
+              {filterWidgetChartRecommendations(data?.analysis?.recommendations || []).map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.label} ({r.suitability}%)
                 </option>

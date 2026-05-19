@@ -190,6 +190,96 @@ export async function setDefaultCurrency(code) {
   return normalized;
 }
 
+const KEY_COMPANY_SERVICES = 'companyServices';
+
+/** Default recruitment services offered by the agency (org can extend via settings). */
+export const DEFAULT_COMPANY_SERVICES = [
+  'Permanent Placement',
+  'Contract Staffing',
+  'Temporary Staffing',
+  'Executive Search',
+  'RPO (Recruitment Process Outsourcing)',
+  'Temp-to-Hire',
+  'IT & Software Recruitment',
+  'Technology Staffing',
+  'Payroll Services',
+  'HR Consulting',
+  'Background Verification',
+  'Training & Development',
+];
+
+/** Shown as quick recommendations in lead/client drawers when not yet selected. */
+export const RECOMMENDED_COMPANY_SERVICES = [
+  'Permanent Placement',
+  'Contract Staffing',
+  'Executive Search',
+];
+
+export function normalizeServiceLabel(raw) {
+  return String(raw || '').trim().replace(/\s+/g, ' ');
+}
+
+export function uniqueServicesCaseInsensitive(list) {
+  const seen = new Set();
+  const out = [];
+  for (const item of list) {
+    const label = normalizeServiceLabel(item);
+    if (!label) continue;
+    const key = label.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(label);
+  }
+  return out;
+}
+
+function parseServicesFromSettingValue(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return uniqueServicesCaseInsensitive(value.map((v) => (typeof v === 'string' ? v : v?.name ?? v?.label ?? '')));
+  }
+  if (typeof value === 'object' && Array.isArray(value.services)) {
+    return uniqueServicesCaseInsensitive(value.services.map((v) => (typeof v === 'string' ? v : v?.name ?? '')));
+  }
+  if (typeof value === 'string') {
+    return uniqueServicesCaseInsensitive(value.split(/[;,]/));
+  }
+  return [];
+}
+
+/** Org-specific services saved in settings (can grow large over time). */
+export async function getOrgCustomCompanyServices() {
+  const row = await findOrgSettingRow(KEY_COMPANY_SERVICES);
+  return parseServicesFromSettingValue(row?.value);
+}
+
+/** Full merged list — used when persisting append; not sent to typeahead clients. */
+export async function getCompanyServices() {
+  const custom = await getOrgCustomCompanyServices();
+  return uniqueServicesCaseInsensitive([...DEFAULT_COMPANY_SERVICES, ...custom]);
+}
+
+export async function setCompanyServices(services) {
+  if (!Array.isArray(services)) throw new Error('services must be an array');
+  const normalized = uniqueServicesCaseInsensitive(services);
+  await upsertOrgSettingJson(KEY_COMPANY_SERVICES, { services: normalized });
+  return normalized;
+}
+
+/** Append a custom service to the org catalog (deduped, case-insensitive). */
+export async function appendCompanyService(service) {
+  const label = normalizeServiceLabel(service);
+  if (!label) throw new Error('Service name is required');
+  const current = await getCompanyServices();
+  if (current.some((s) => s.toLowerCase() === label.toLowerCase())) {
+    return current;
+  }
+  const existingCustom = await getOrgCustomCompanyServices();
+  const nextCustom = uniqueServicesCaseInsensitive([...existingCustom, label]);
+  await upsertOrgSettingJson(KEY_COMPANY_SERVICES, { services: nextCustom });
+  return getCompanyServices();
+}
+
 const LEGACY_FOUR_STAGE_NAMES = new Set(['apply', 'interview', 'reject', 'placed']);
 
 /** Map common legacy labels to canonical buckets so we still reseed old jobs. */

@@ -86,7 +86,7 @@ export const COMMON_FILTER_DEFS = {
     key: 'status',
     label: 'Status',
     type: 'select',
-    options: [{ value: 'all', label: 'All statuses' }],
+    options: [{ value: 'all', label: 'All Status' }],
     defaultValue: 'all',
   },
   recordType: {

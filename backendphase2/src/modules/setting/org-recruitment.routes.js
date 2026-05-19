@@ -13,10 +13,18 @@ import {
   resetJobPipelineToOrgTemplate,
   getDefaultCurrency,
   setDefaultCurrency,
+  getCompanyServices,
+  getOrgCustomCompanyServices,
+  setCompanyServices,
+  appendCompanyService,
+  DEFAULT_COMPANY_SERVICES,
+  RECOMMENDED_COMPANY_SERVICES,
   SUBSCRIPTION_PLAN_OPTIONS,
   SUPPORTED_CURRENCIES,
   DEFAULT_ORG_CURRENCY,
 } from './recruitmentMode.service.js';
+import { suggestCompanyServicesOptions } from './companyServicesSuggest.service.js';
+import { hasLlmProvider } from '../../services/llmChatFallback.service.js';
 
 const router = express.Router();
 
@@ -151,6 +159,65 @@ router.put('/subscription-plan', requireAnyPermission(['manage_settings']), asyn
     sendResponse(res, 200, 'Subscription plan saved', { plan: saved });
   } catch (error) {
     sendError(res, 400, error.message || 'Failed to save subscription plan', error);
+  }
+});
+
+router.get('/company-services', async (req, res) => {
+  try {
+    const custom = await getOrgCustomCompanyServices();
+    sendResponse(res, 200, 'OK', {
+      services: custom,
+      recommended: RECOMMENDED_COMPANY_SERVICES,
+      defaults: DEFAULT_COMPANY_SERVICES,
+      aiEnabled: hasLlmProvider(),
+    });
+  } catch (error) {
+    sendError(res, 500, error.message || 'Failed to load company services', error);
+  }
+});
+
+/** Typeahead: history + catalog match + AI (uses server OPENAI_API_KEY / MISTRAL_API_KEY). */
+router.get('/company-services/suggest', async (req, res) => {
+  try {
+    const query = String(req.query?.q ?? req.query?.query ?? '').trim();
+    const industry = String(req.query?.industry ?? '').trim();
+    const limit = Math.min(Math.max(parseInt(String(req.query?.limit || '8'), 10) || 8, 1), 15);
+    const selectedRaw = req.query?.selected ?? req.query?.exclude ?? '';
+    const selected = String(selectedRaw)
+      .split(/[;,]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const result = await suggestCompanyServicesOptions({
+      query,
+      selected,
+      limit,
+      industry,
+    });
+    sendResponse(res, 200, 'OK', result);
+  } catch (error) {
+    sendError(res, 500, error.message || 'Failed to suggest company services', error);
+  }
+});
+
+router.put('/company-services', requireAnyPermission(['manage_settings']), async (req, res) => {
+  try {
+    const raw = req.body?.services ?? req.body;
+    const services = Array.isArray(raw) ? raw : [];
+    const saved = await setCompanyServices(services);
+    sendResponse(res, 200, 'Company services saved', { services: saved });
+  } catch (error) {
+    sendError(res, 400, error.message || 'Failed to save company services', error);
+  }
+});
+
+router.post('/company-services/append', async (req, res) => {
+  try {
+    const service = req.body?.service ?? req.body?.name ?? req.body;
+    const services = await appendCompanyService(service);
+    sendResponse(res, 200, 'Service added', { services });
+  } catch (error) {
+    sendError(res, 400, error.message || 'Failed to add company service', error);
   }
 });
 

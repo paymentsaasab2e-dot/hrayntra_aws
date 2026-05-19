@@ -33,6 +33,9 @@ export interface CvEditorWatermark {
 /** Which CV version is sent to the client on Submit to Client */
 export type CvShareMode = 'edited' | 'original';
 
+/** Resume tab viewer in candidate drawer */
+export type ResumeCvViewMode = 'original' | 'updated' | 'edited';
+
 export interface CvSubmissionStored {
   shareMode: CvShareMode;
   updatedAt?: string;
@@ -110,6 +113,83 @@ export function hasEditedCvAvailable(candidate: BackendCandidate | null): boolea
   if ((candidate.cvWorkExperienceEntries || []).length > 0) return true;
   if ((candidate.cvEducationEntries || []).length > 0) return true;
   return false;
+}
+
+/** Branded/layout CV from editor (logo, watermark, section order). */
+export function hasCustomCvEditorLayout(candidate: BackendCandidate | null): boolean {
+  const layout = readCvEditorLayout(candidate);
+  if (!layout?.updatedAt) return false;
+  if ((layout.companyLogoUrl || '').trim()) return true;
+  if (layout.watermark?.active) return true;
+  const order = layout.sectionOrder;
+  if (order?.length && JSON.stringify(order) !== JSON.stringify(DEFAULT_SECTION_ORDER)) {
+    return true;
+  }
+  if (layout.showCandidatePhotoSlot === false || layout.showCompanyLogoSlot === false) {
+    return true;
+  }
+  return false;
+}
+
+/** CV content saved via the CV editor (not merely parsed upload fields). */
+export function hasUpdatedCvFromEditor(candidate: BackendCandidate | null): boolean {
+  if (!candidate) return false;
+  if (readCvEditorLayout(candidate)?.updatedAt) return true;
+  const extra = candidate.extraData;
+  if (extra && typeof extra === 'object' && !Array.isArray(extra)) {
+    return (extra as Record<string, unknown>).cvEditorContentSaved === true;
+  }
+  return false;
+}
+
+export function listAvailableResumeCvModes(
+  candidate: BackendCandidate | null,
+  resumeUrl?: string | null
+): ResumeCvViewMode[] {
+  const modes: ResumeCvViewMode[] = [];
+  if (String(resumeUrl || candidate?.resume || candidate?.resumeUrl || '').trim()) {
+    modes.push('original');
+  }
+  if (hasUpdatedCvFromEditor(candidate)) {
+    modes.push('updated');
+  }
+  if (hasCustomCvEditorLayout(candidate)) {
+    modes.push('edited');
+  }
+  return modes;
+}
+
+export function resolveDefaultResumeCvViewMode(
+  candidate: BackendCandidate | null,
+  resumeUrl?: string | null
+): ResumeCvViewMode | null {
+  const modes = listAvailableResumeCvModes(candidate, resumeUrl);
+  if (modes.length === 0) return null;
+  const extra = candidate?.extraData;
+  const stored =
+    extra && typeof extra === 'object' && !Array.isArray(extra)
+      ? (extra as Record<string, unknown>).resumeCvViewMode
+      : null;
+  if (stored === 'original' || stored === 'updated' || stored === 'edited') {
+    if (modes.includes(stored)) return stored;
+  }
+  if (modes.includes('edited')) return 'edited';
+  if (modes.includes('updated')) return 'updated';
+  return modes[0];
+}
+
+export function buildResumeCvViewExtra(
+  existingExtraData: Record<string, unknown> | null | undefined,
+  mode: ResumeCvViewMode
+): Record<string, unknown> {
+  const existing =
+    existingExtraData && typeof existingExtraData === 'object' && !Array.isArray(existingExtraData)
+      ? existingExtraData
+      : {};
+  return {
+    ...existing,
+    resumeCvViewMode: mode,
+  };
 }
 
 export function resolveDefaultCvShareMode(
@@ -274,6 +354,8 @@ export async function buildCvEditorPersistPatch(
     extraData: {
       ...existing,
       cvEditorLayout: layout,
+      cvEditorContentSaved: true,
+      cvEditorContentSavedAt: new Date().toISOString(),
     },
   };
 }

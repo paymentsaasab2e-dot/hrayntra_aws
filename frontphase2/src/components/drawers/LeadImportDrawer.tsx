@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
@@ -9,9 +9,77 @@ import {
   ChevronRight,
   CheckCircle,
   AlertCircle,
+  Loader2,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { apiImportLeads, apiPreviewLeadImport } from '../../lib/api';
 import { downloadSampleCsv } from '../../utils/csv';
+
+function useSimulatedProgress(isActive: boolean) {
+  const [percent, setPercent] = useState(0);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (!isActive) {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      intervalRef.current = null;
+      return;
+    }
+
+    setPercent(5);
+    intervalRef.current = setInterval(() => {
+      setPercent((prev) => {
+        if (prev >= 92) return prev;
+        return Math.min(92, prev + 4 + Math.random() * 9);
+      });
+    }, 160);
+
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    };
+  }, [isActive]);
+
+  const finish = () => setPercent(100);
+  const reset = () => setPercent(0);
+
+  return { percent: Math.round(percent), finish, reset };
+}
+
+function ImportProgressBar({
+  label,
+  percent,
+}: {
+  label: string;
+  percent: number;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="mt-4 space-y-2"
+    >
+      <motion.div
+        initial={{ opacity: 0, y: 4 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="flex items-center justify-between text-xs font-medium"
+      >
+        <span className="text-slate-600">{label}</span>
+        <span className="tabular-nums text-blue-700">{percent}%</span>
+      </motion.div>
+      <motion.div
+        initial={{ opacity: 0, y: 4 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="h-2.5 w-full overflow-hidden rounded-full bg-slate-200"
+      >
+        <motion.div
+          className="h-full rounded-full bg-gradient-to-r from-blue-500 to-blue-600 transition-[width] duration-200 ease-out"
+          style={{ width: `${percent}%` }}
+        />
+      </motion.div>
+    </motion.div>
+  );
+}
 
 export interface LeadImportDrawerProps {
   isOpen: boolean;
@@ -79,6 +147,10 @@ export function LeadImportDrawer({
   const [isParsing, setIsParsing] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [parseError, setParseError] = useState('');
+  const [fileUploaded, setFileUploaded] = useState(false);
+
+  const uploadProgress = useSimulatedProgress(isParsing);
+  const importProgress = useSimulatedProgress(isImporting);
 
   /** File was read successfully — blue-tinted cards and dropzone for clear contrast on white. */
   const hasParsedFile =
@@ -101,6 +173,9 @@ export function LeadImportDrawer({
     setIsParsing(false);
     setIsImporting(false);
     setParseError('');
+    setFileUploaded(false);
+    uploadProgress.reset();
+    importProgress.reset();
   };
 
   const handleClose = () => {
@@ -144,16 +219,36 @@ export function LeadImportDrawer({
 
   const handleImport = async () => {
     try {
+      setParseError('');
       setIsImporting(true);
+      importProgress.reset();
+
       const response = await apiImportLeads({
         rows: importRows.length > 0 ? importRows : previewRows,
         mapping: columnMapping,
         duplicateRule,
       });
-      onImportComplete?.(response.data);
+
+      importProgress.finish();
+      const result = response.data;
+      const created = result?.created ?? 0;
+      const updated = result?.updated ?? 0;
+      const parts: string[] = [];
+      if (created > 0) parts.push(`${created} created`);
+      if (updated > 0) parts.push(`${updated} updated`);
+      toast.success(
+        parts.length > 0
+          ? `Leads imported successfully (${parts.join(', ')})`
+          : 'Leads imported successfully'
+      );
+
+      onImportComplete?.(result);
+      await new Promise((r) => setTimeout(r, 400));
       handleClose();
     } catch (error: any) {
+      toast.error(error.message || 'Failed to import leads');
       setParseError(error.message || 'Failed to import leads');
+      importProgress.reset();
     } finally {
       setIsImporting(false);
     }
@@ -164,7 +259,9 @@ export function LeadImportDrawer({
 
     setFileName(file.name);
     setParseError('');
+    setFileUploaded(false);
     setIsParsing(true);
+    uploadProgress.reset();
 
     try {
       const response = await apiPreviewLeadImport(file);
@@ -181,13 +278,26 @@ export function LeadImportDrawer({
           {}
         )
       );
+
+      uploadProgress.finish();
+      setFileUploaded(true);
+      const rowCount = preview.totalRows || 0;
+      toast.success(
+        rowCount > 0
+          ? `File uploaded successfully (${rowCount} row${rowCount === 1 ? '' : 's'} found)`
+          : 'File uploaded successfully'
+      );
     } catch (error: any) {
+      setFileUploaded(false);
+      uploadProgress.reset();
+      toast.error(error.message || 'Failed to read the import file');
       setParseError(error.message || 'Failed to read the import file');
       setFileColumns([]);
       setColumnStats({});
       setPreviewRows([]);
       setImportRows([]);
       setTotalRows(0);
+      setSheetName('');
     } finally {
       setIsParsing(false);
     }
@@ -272,9 +382,13 @@ export function LeadImportDrawer({
                 <label
                   htmlFor="lead-import-file"
                   className={`relative flex cursor-pointer rounded-xl border-2 p-8 transition-colors ${
-                    hasParsedFile
-                      ? 'border-solid border-blue-500 bg-blue-100/50 hover:border-blue-600 hover:bg-blue-100/70'
-                      : 'border-dashed border-slate-200 bg-slate-50/50 hover:border-slate-300 hover:bg-slate-50/80'
+                    isParsing
+                      ? 'border-solid border-blue-400 bg-blue-50/80'
+                      : fileUploaded && hasParsedFile
+                        ? 'border-solid border-emerald-500 bg-emerald-50/80 hover:border-emerald-600 hover:bg-emerald-50'
+                        : hasParsedFile
+                          ? 'border-solid border-blue-500 bg-blue-100/50 hover:border-blue-600 hover:bg-blue-100/70'
+                          : 'border-dashed border-slate-200 bg-slate-50/50 hover:border-slate-300 hover:bg-slate-50/80'
                   }`}
                 >
                   <input
@@ -282,37 +396,78 @@ export function LeadImportDrawer({
                     type="file"
                     accept=".csv,.xlsx,.xls"
                     className="sr-only"
-                    onChange={(e) => handleFileChange(e.target.files?.[0])}
+                    disabled={isParsing || isImporting}
+                    onChange={(e) => {
+                      handleFileChange(e.target.files?.[0]);
+                      e.target.value = '';
+                    }}
                   />
                   <div className="flex flex-col items-center justify-center gap-2 w-full">
-                    <Upload
-                      size={32}
-                      className={hasParsedFile ? 'text-blue-600' : 'text-slate-400'}
-                    />
+                    {isParsing ? (
+                      <Loader2 size={36} className="animate-spin text-blue-600" />
+                    ) : fileUploaded && hasParsedFile ? (
+                      <motion.div
+                        initial={{ scale: 0.85, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100"
+                      >
+                        <CheckCircle size={32} className="text-emerald-600" strokeWidth={2.25} />
+                      </motion.div>
+                    ) : (
+                      <Upload
+                        size={32}
+                        className={hasParsedFile ? 'text-blue-600' : 'text-slate-400'}
+                      />
+                    )}
                     <span
                       className={`text-sm font-medium ${
-                        hasParsedFile ? 'text-blue-900' : 'text-slate-600'
+                        fileUploaded && hasParsedFile
+                          ? 'text-emerald-900'
+                          : hasParsedFile
+                            ? 'text-blue-900'
+                            : 'text-slate-600'
                       }`}
                     >
-                      {fileName || 'Click or drag CSV / XLSX file'}
+                      {isParsing ? 'Processing your file…' : fileName || 'Click or drag CSV / XLSX file'}
                     </span>
-                    <span className={`text-xs ${hasParsedFile ? 'text-blue-800/90' : 'text-slate-400'}`}>
-                      CSV, XLSX up to 10MB
+                    <span
+                      className={`text-xs ${
+                        fileUploaded && hasParsedFile
+                          ? 'text-emerald-800/90'
+                          : hasParsedFile
+                            ? 'text-blue-800/90'
+                            : 'text-slate-400'
+                      }`}
+                    >
+                      {fileUploaded && hasParsedFile
+                        ? 'Uploaded successfully — continue to map columns'
+                        : 'CSV, XLSX up to 10MB'}
                     </span>
                   </div>
                 </label>
+                {isParsing ? (
+                  <ImportProgressBar
+                    label="Uploading and reading file…"
+                    percent={uploadProgress.percent}
+                  />
+                ) : null}
                 {parseError ? <p className="mt-3 text-sm text-red-600">{parseError}</p> : null}
-                {sheetName ? (
-                  <div
-                    className={`mt-4 rounded-lg border px-4 py-3 text-sm ${
-                      hasParsedFile
-                        ? 'border-blue-200 bg-blue-50 text-blue-900'
-                        : 'border-transparent bg-transparent text-slate-500'
-                    }`}
+                {fileUploaded && hasParsedFile && sheetName ? (
+                  <motion.div
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mt-4 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"
                   >
-                    Parsed sheet: <span className="font-semibold">{sheetName}</span> with{' '}
-                    <span className="font-semibold">{totalRows}</span> rows
-                  </div>
+                    <CheckCircle size={18} className="mt-0.5 shrink-0 text-emerald-600" />
+                    <div>
+                      <p className="font-semibold">File uploaded successfully</p>
+                      <p className="mt-0.5 text-emerald-800/90">
+                        Sheet <span className="font-medium">{sheetName}</span> —{' '}
+                        <span className="font-medium">{totalRows}</span> row
+                        {totalRows === 1 ? '' : 's'} ready to import
+                      </p>
+                    </div>
+                  </motion.div>
                 ) : null}
               </div>
             </div>
@@ -435,40 +590,62 @@ export function LeadImportDrawer({
           )}
         </div>
 
-        <div className="shrink-0 border-t border-slate-200 p-5 flex items-center justify-between bg-white">
-          <div>
-            {step > 1 && (
-              <button
-                type="button"
-                onClick={() => setStep((s) => s - 1)}
-                className="px-4 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors flex items-center gap-2"
-              >
-                Back
-              </button>
-            )}
+        <motion.div className="shrink-0 border-t border-slate-200 bg-white">
+          {isImporting ? (
+            <div className="border-b border-slate-100 px-5 pt-4">
+              <ImportProgressBar
+                label="Importing leads into CRM…"
+                percent={importProgress.percent}
+              />
+            </div>
+          ) : null}
+          <div className="flex items-center justify-between p-5">
+            <div>
+              {step > 1 ? (
+                <button
+                  type="button"
+                  onClick={() => setStep((s) => s - 1)}
+                  disabled={isImporting}
+                  className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Back
+                </button>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-3">
+              {step < 3 ? (
+                <button
+                  type="button"
+                  onClick={() => setStep((s) => s + 1)}
+                  disabled={
+                    isImporting ||
+                    (step === 1 && (!fileName || isParsing || !!parseError || !fileUploaded)) ||
+                    (step === 2 && fileColumns.length === 0)
+                  }
+                  className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Continue
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleImport}
+                  disabled={isImporting || previewRows.length === 0}
+                  className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isImporting ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Importing… {importProgress.percent}%
+                    </>
+                  ) : (
+                    'Import Leads'
+                  )}
+                </button>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-3">
-            {step < 3 ? (
-              <button
-                type="button"
-                onClick={() => setStep((s) => s + 1)}
-                disabled={(step === 1 && (!fileName || isParsing || !!parseError)) || (step === 2 && fileColumns.length === 0)}
-                className="px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Continue
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handleImport}
-                disabled={isImporting || previewRows.length === 0}
-                className="px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isImporting ? 'Importing...' : 'Import Leads'}
-              </button>
-            )}
-          </div>
-        </div>
+        </motion.div>
       </motion.div>
     </AnimatePresence>
   );

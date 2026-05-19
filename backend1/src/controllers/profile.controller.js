@@ -1,6 +1,11 @@
 const { prisma, retryQuery } = require('../lib/prisma');
 const { getMissingProfileSections } = require('../utils/profile-completeness.util');
 const { resolveCandidateLocalPhone } = require('../utils/phone.util');
+const {
+  mapEmploymentTypeToDb,
+  mapWorkModeToDb,
+  mapWorkExperienceForClient,
+} = require('../utils/workExperienceEnums');
 const { uploadBufferToCloudinary, destroyByCloudinaryUrl } = require('../lib/s3');
 const { randomUUID } = require('crypto');
 
@@ -235,25 +240,9 @@ async function getProfileData(req, res) {
         courseDuration: edu.courseDuration || '',
         documents: Array.isArray(edu.documents) ? edu.documents : [],
       })),
-      workExperience: candidate.workExperiences.map(exp => ({
-        id: exp.id,
-        jobTitle: exp.jobTitle || '',
-        companyName: exp.company || '',
-        employmentType: exp.employmentType || '',
-        industryDomain: exp.industry || '',
-        numberOfReportees: exp.numberOfReportees || '',
-        startDate: exp.startDate ? new Date(exp.startDate).toISOString().split('T')[0] : '',
-        endDate: exp.endDate ? new Date(exp.endDate).toISOString().split('T')[0] : '',
-        currentlyWorkHere: exp.isCurrentJob || false,
-        workLocation: exp.workLocation || '',
-        workMode: exp.workMode || '',
-        companyProfile: exp.companyProfile || '',
-        companyTurnover: exp.companyTurnover || '',
-        keyResponsibilities: exp.responsibilities || '',
-        achievements: exp.achievements || '',
-        workSkills: exp.workSkills || [],
-        documents: exp.documents || [],
-      })),
+      workExperience: candidate.workExperiences.map((exp) =>
+        mapWorkExperienceForClient(exp)
+      ),
       skills: candidate.skills.map(cs => ({
         id: cs.id,
         name: cs.skill?.name || '',
@@ -801,56 +790,21 @@ async function saveWorkExperience(req, res) {
       });
     }
 
-    // Map workMode to enum if provided (handle various formats)
-    let workMode = null;
-    if (experience.workMode) {
-      const workModeValue = String(experience.workMode).trim().toLowerCase();
-      const workModeMap = {
-        // Frontend lowercase values (from select options)
-        'remote': 'REMOTE',
-        'hybrid': 'HYBRID',
-        'onsite': 'ON_SITE',
-        'on-site': 'ON_SITE',
-        'on site': 'ON_SITE',
-        // Backend enum values (already correct, normalized to lowercase)
-        'on_site': 'ON_SITE',
-      };
-      workMode = workModeMap[workModeValue] || null;
-      if (!workMode) {
-        console.warn(`Unknown workMode value: "${experience.workMode}" (normalized: "${workModeValue}")`);
-      }
+    const employmentType = mapEmploymentTypeToDb(experience.employmentType);
+    const workMode = mapWorkModeToDb(experience.workMode);
+
+    if (experience.employmentType && !employmentType) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid employment type: ${experience.employmentType}`,
+      });
     }
 
-    // Map employmentType to enum if provided (handle various formats)
-    let employmentType = null;
-    if (experience.employmentType) {
-      const employmentTypeValue = String(experience.employmentType).trim();
-      const employmentTypeMap = {
-        // Frontend lowercase values (from select options)
-        'full-time': 'FULL_TIME',
-        'part-time': 'PART_TIME',
-        'contract': 'CONTRACT',
-        'internship': 'INTERNSHIP',
-        'freelance': 'FREELANCE',
-        // Frontend capitalized values
-        'Full-time': 'FULL_TIME',
-        'Full time': 'FULL_TIME',
-        'Part-time': 'PART_TIME',
-        'Part time': 'PART_TIME',
-        'Contract': 'CONTRACT',
-        'Internship': 'INTERNSHIP',
-        'Freelance': 'FREELANCE',
-        // Backend enum values (already correct)
-        'FULL_TIME': 'FULL_TIME',
-        'PART_TIME': 'PART_TIME',
-        'CONTRACT': 'CONTRACT',
-        'INTERNSHIP': 'INTERNSHIP',
-        'FREELANCE': 'FREELANCE',
-      };
-      employmentType = employmentTypeMap[employmentTypeValue] || null;
-      if (!employmentType) {
-        console.warn(`Unknown employmentType value: "${employmentTypeValue}"`);
-      }
+    if (experience.workMode && !workMode) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid work mode: ${experience.workMode}`,
+      });
     }
 
     // Validate required fields
@@ -873,13 +827,13 @@ async function saveWorkExperience(req, res) {
       jobTitle: experience.jobTitle.trim(),
       company: experience.companyName.trim(),
       workLocation: experience.workLocation?.trim() || null,
-      workMode: workMode || undefined,
+      workMode,
       startDate: new Date(experience.startDate),
       endDate: experience.endDate ? new Date(experience.endDate) : null,
       isCurrentJob: experience.currentlyWorkHere || false,
       responsibilities: experience.keyResponsibilities?.trim() || null,
       industry: experience.industryDomain?.trim() || null,
-      employmentType: employmentType || undefined,
+      employmentType,
       numberOfReportees: experience.numberOfReportees?.trim() || null,
       companyProfile: experience.companyProfile?.trim() || null,
       companyTurnover: experience.companyTurnover?.trim() || null,
@@ -889,14 +843,6 @@ async function saveWorkExperience(req, res) {
         ? experience.documents.map(doc => typeof doc === 'string' ? doc : doc.url || doc.name).filter(Boolean)
         : [],
     };
-
-    // Debug log to see what we're receiving and mapping
-    console.log('📥 Received work experience data:', {
-      employmentType: experience.employmentType,
-      mappedEmploymentType: employmentType,
-      workMode: experience.workMode,
-      mappedWorkMode: workMode,
-    });
 
     if (experienceId) {
       // Update existing work experience
@@ -956,10 +902,7 @@ async function saveWorkExperience(req, res) {
       res.json({
         success: true,
         message: 'Work experience added successfully',
-        data: {
-          id: created.id,
-          ...created,
-        },
+        data: mapWorkExperienceForClient(created),
       });
     }
   } catch (error) {
@@ -4516,6 +4459,70 @@ async function uploadProfilePhoto(req, res) {
   }
 }
 
+/**
+ * Delete profile photo
+ * DELETE /api/profile/photo/:candidateId
+ */
+async function deleteProfilePhoto(req, res) {
+  try {
+    const { candidateId } = req.params;
+
+    if (!candidateId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Candidate ID is required',
+      });
+    }
+
+    const candidate = await prisma.candidate.findUnique({
+      where: { id: candidateId },
+    });
+
+    if (!candidate) {
+      return res.status(404).json({
+        success: false,
+        message: 'Candidate not found',
+      });
+    }
+
+    const existingProfile = await prisma.candidateProfile.findUnique({
+      where: { candidateId },
+      select: { profilePhotoUrl: true },
+    });
+
+    if (!existingProfile?.profilePhotoUrl) {
+      return res.json({
+        success: true,
+        message: 'No profile photo to delete',
+        data: { profilePhotoUrl: null },
+      });
+    }
+
+    await destroyByCloudinaryUrl(existingProfile.profilePhotoUrl, 'image');
+
+    await prisma.candidateProfile.update({
+      where: { candidateId },
+      data: {
+        profilePhotoUrl: null,
+        updatedAt: new Date(),
+      },
+    });
+
+    res.json({
+      success: true,
+      message: 'Profile photo removed successfully',
+      data: { profilePhotoUrl: null },
+    });
+  } catch (error) {
+    console.error('Error deleting profile photo:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete profile photo',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+}
+
 module.exports = {
   getProfileData,
   getProfileCompleteness,
@@ -4568,4 +4575,5 @@ module.exports = {
   deletePortfolioLinks,
   deleteCareerPreferences,
   uploadProfilePhoto,
+  deleteProfilePhoto,
 };

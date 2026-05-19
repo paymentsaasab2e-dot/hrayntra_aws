@@ -1,6 +1,7 @@
 import React from 'react';
 import { BriefcaseBusiness, ChevronDown, Filter, UserRound, Video, X, CalendarDays, CircleDot } from 'lucide-react';
 import type { InterviewFiltersState } from '../../types/interview.types';
+import { ALL_STATUS_LABEL } from '../../constants/filterLabels';
 
 interface InterviewFiltersProps {
   filters: InterviewFiltersState;
@@ -17,7 +18,7 @@ const fieldMeta: Array<{
   options: string[];
 }> = [
   { key: 'date', label: 'Date', icon: CalendarDays, options: ['This Week', 'Today', 'This Month'] },
-  { key: 'status', label: 'Status', icon: CircleDot, options: ['All Status', 'Scheduled', 'Completed', 'Cancelled', 'Rescheduled', 'No Show'] },
+  { key: 'status', label: 'Status', icon: CircleDot, options: [ALL_STATUS_LABEL, 'Scheduled', 'Completed', 'Cancelled', 'Rescheduled', 'No Show'] },
   { key: 'round', label: 'Interview Round', icon: BriefcaseBusiness, options: ['All Rounds', 'Screening', 'Technical', 'HR', 'Managerial', 'Client', 'Final'] },
   { key: 'mode', label: 'Mode', icon: Video, options: ['All Modes', 'Online', 'Offline', 'Video', 'Phone', 'In-Person', 'Technical Test', 'Assessment'] },
 ];

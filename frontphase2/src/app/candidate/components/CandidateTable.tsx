@@ -1,4 +1,5 @@
 import React from 'react';
+import { SHOW_TABLE_ROW_EDIT_ICON } from '../../../constants/tableUi';
 import {
   Eye,
   Phone,
@@ -280,17 +281,19 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                           )}
                         </button>
                       ) : null}
-                      <button
-                        type="button"
-                        className="flex h-8 w-8 items-center justify-center rounded-xl text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
-                        title="Edit candidate"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onEditCandidate?.(candidate);
-                        }}
-                      >
-                        <Pencil size={16} strokeWidth={2.25} />
-                      </button>
+                      {SHOW_TABLE_ROW_EDIT_ICON ? (
+                        <button
+                          type="button"
+                          className="flex h-8 w-8 items-center justify-center rounded-xl text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
+                          title="Edit candidate"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onEditCandidate?.(candidate);
+                          }}
+                        >
+                          <Pencil size={16} strokeWidth={2.25} />
+                        </button>
+                      ) : null}
                       {onDeleteCandidate && (
                         <button
                           type="button"

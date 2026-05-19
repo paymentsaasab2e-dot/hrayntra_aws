@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { SHOW_TABLE_ROW_EDIT_ICON } from '../../constants/tableUi';
 import {
   Plus, 
   LayoutGrid, 
@@ -503,14 +504,16 @@ const JobsListView = ({ jobs, onJobClick, onEditJob, onAddCandidate, onDeleteJob
                     >
                       <Eye size={15} strokeWidth={2.25} />
                 </button>
-                <button
-                  type="button"
-                  onClick={() => onEditJob?.(job)}
-                      className="flex h-7 w-7 items-center justify-center rounded-lg text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
-                  title="Edit job"
-                >
-                      <Pencil size={15} strokeWidth={2.25} />
-                </button>
+                {SHOW_TABLE_ROW_EDIT_ICON ? (
+                  <button
+                    type="button"
+                    onClick={() => onEditJob?.(job)}
+                    className="flex h-7 w-7 items-center justify-center rounded-lg text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
+                    title="Edit job"
+                  >
+                    <Pencil size={15} strokeWidth={2.25} />
+                  </button>
+                ) : null}
                 {canAddCandidate && (
                   <button
                     type="button"
@@ -1309,7 +1312,7 @@ export default function JobsPage() {
         postedDate: backendJob.postedDate ? new Date(backendJob.postedDate).toISOString().split('T')[0] : 
                    backendJob.createdAt ? backendJob.createdAt.split('T')[0] : job.createdDate,
         recruiter: backendJob.assignedTo?.name || job.owner,
-        hiringManager: backendJob.hiringManager || '-',
+        hiringManager: backendJob.hiringManager || undefined,
         applied: backendJob._count?.matches || job.applied,
         interviewed: backendJob._count?.interviews || job.interviewed,
         offered: 0,
@@ -1355,6 +1358,27 @@ export default function JobsPage() {
         experienceRequired: backendJob.experienceRequired || undefined,
         education: backendJob.education || undefined,
         benefits: backendJob.benefits || undefined,
+        description: backendJob.description || undefined,
+        requirements: backendJob.requirements || undefined,
+        nationality: backendJob.nationality || undefined,
+        country: backendJob.country || undefined,
+        state: backendJob.state || undefined,
+        city: backendJob.city || undefined,
+        priority: backendJob.priority || undefined,
+        languages: Array.isArray(backendJob.languages) ? backendJob.languages : undefined,
+        workMode: backendJob.workMode || undefined,
+        expectedClosureDate: backendJob.expectedClosureDate
+          ? new Date(backendJob.expectedClosureDate).toISOString().split('T')[0]
+          : undefined,
+        jdFileName: backendJob.jdFileName || undefined,
+        videoMediaLink: backendJob.videoMediaLink || undefined,
+        forecastRevenue: backendJob.forecastRevenue || undefined,
+        hot: Boolean(backendJob.hot),
+        aiMatch: Boolean(backendJob.aiMatch),
+        noCandidates: Boolean(backendJob.noCandidates),
+        slaRisk: Boolean(backendJob.slaRisk),
+        managerName: backendJob.manager?.name || undefined,
+        visibility: backendJob.visibility || undefined,
       };
       
       setJobDetails(mappedJob);
@@ -1977,7 +2001,7 @@ export default function JobsPage() {
                             setCurrentPage(1);
                           }}
                     >
-                      <option value="">All statuses</option>
+                      <option value="">All Status</option>
                       <option value="OPEN">Active (open)</option>
                       <option value="ON_HOLD">On hold</option>
                           <option value="CLOSED">Closed</option>

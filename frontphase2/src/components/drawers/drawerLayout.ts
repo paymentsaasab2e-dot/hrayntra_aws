@@ -1,3 +1,6 @@
+export { DrawerCloseButton } from './DrawerCloseButton';
+export type { DrawerCloseButtonProps } from './DrawerCloseButton';
+
 /** Shared width for right-side slide-out drawers (matches Job Details drawer). */
 export const DRAWER_PANEL_WIDTH_CLASS = 'w-3/4 max-w-6xl';
 

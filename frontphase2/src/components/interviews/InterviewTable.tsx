@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { SHOW_TABLE_ROW_EDIT_ICON } from '../../constants/tableUi';
 import {
   CheckCircle2,
   ChevronDown,
@@ -214,17 +215,19 @@ export function InterviewTable({
                   R{index + 1} · {interview.round}
                 </p>
                 <div className="mt-1 flex flex-wrap gap-1">
-                  <button
-                    type="button"
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#E5E7EB] text-[#6B7280] hover:bg-[#F9FAFB]"
-                    title={`Edit round ${index + 1}`}
-                    onClick={() => {
-                      closeRoundMenu();
-                      onEditInterview(interview);
-                    }}
-                  >
-                    <FilePenLine className="size-3.5" />
-                  </button>
+                  {SHOW_TABLE_ROW_EDIT_ICON ? (
+                    <button
+                      type="button"
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#E5E7EB] text-[#6B7280] hover:bg-[#F9FAFB]"
+                      title={`Edit round ${index + 1}`}
+                      onClick={() => {
+                        closeRoundMenu();
+                        onEditInterview(interview);
+                      }}
+                    >
+                      <FilePenLine className="size-3.5" />
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#E5E7EB] text-[#6B7280] hover:bg-[#F9FAFB]"

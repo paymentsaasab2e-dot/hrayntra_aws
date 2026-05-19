@@ -857,27 +857,13 @@ export default function App() {
         <ClientImportDrawer
           isOpen={showImportDrawer}
           onClose={() => setShowImportDrawer(false)}
-          onImportComplete={(result) => {
+          onImportComplete={() => {
             setActiveTab('all');
             setSelectedClients([]);
             setSearchQuery('');
             setDebouncedSearchQuery('');
             setCurrentPage(1);
             void fetchClients({ page: 1, search: '' });
-            const created = result.created || 0;
-            const updated = result.updated || 0;
-            const skipped = result.skipped || 0;
-            const failed = result.failed || 0;
-            const parts = [];
-            if (created > 0) parts.push(`${created} created`);
-            if (updated > 0) parts.push(`${updated} updated`);
-            if (skipped > 0) parts.push(`${skipped} skipped`);
-            if (failed > 0) parts.push(`${failed} failed`);
-            toast.success(
-              parts.length > 0
-                ? `Clients imported successfully (${parts.join(', ')})`
-                : 'Clients imported successfully'
-            );
           }}
         />
 

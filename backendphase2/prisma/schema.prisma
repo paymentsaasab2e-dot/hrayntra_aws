@@ -77,6 +77,7 @@ model User {
   assignedCandidates     Candidate[]
   createdCandidates      Candidate[]            @relation("CandidateCreator")
   assignedJobsRel        Job[]                  @relation("JobAssignee")
+  managedJobs            Job[]                  @relation("JobManager")
   createdJobs            Job[]                  @relation("JobCreator")
   assignedLeads          Lead[]
   assignedClientsRel     Client[]               @relation("ClientAssignee")
@@ -626,6 +627,14 @@ model Job {
   jdFileName               String? // Job description file name
   workMode                 String? // Onsite, Remote, Hybrid
   priority                 String? // Low, Medium, High, Urgent
+  nationality              String?
+  country                  String?
+  state                    String?
+  city                     String?
+  forecastRevenue          String?
+  videoMediaLink           String?
+  languages                Json? // [{ language, proficiency }]
+  managerId                String?   @db.ObjectId
   visibility               String? // Internal, Public
   distributionPlatforms    Json? // Distribution platforms (careerPage, linkedIn, naukri, indeed, internalDatabase)
   supportingRecruiters     String[]  @default([]) // Array of supporting recruiter user IDs
@@ -658,6 +667,7 @@ model Job {
   // Relations
   client         Client?         @relation(fields: [clientId], references: [id], onDelete: SetNull)
   assignedTo     User?           @relation("JobAssignee", fields: [assignedToId], references: [id])
+  manager        User?           @relation("JobManager", fields: [managerId], references: [id])
   createdBy      User?           @relation("JobCreator", fields: [createdById], references: [id])
   pipelineStages PipelineStage[]
   matches        Match[]

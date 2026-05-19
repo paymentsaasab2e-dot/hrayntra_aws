@@ -14,6 +14,7 @@ import type {
   WidgetFilters,
 } from '../../lib/dashboard/types';
 import { DashboardFilterFields } from './DashboardFilterFields';
+import { EXCLUDED_WIDGET_CHART_TYPES, filterWidgetChartRecommendations } from '../../lib/dashboard/chartData';
 
 type Props = {
   open: boolean;
@@ -55,10 +56,14 @@ function widgetSize(chartType: string) {
 }
 
 function analysisFromPayload(payload: DatasetPayload): DatasetAnalysisState {
+  const recommendations = filterWidgetChartRecommendations(payload.analysis.recommendations);
+  const suggestedType = EXCLUDED_WIDGET_CHART_TYPES.has(payload.analysis.suggested.chartType)
+    ? recommendations[0]?.id || 'table'
+    : payload.analysis.suggested.chartType;
   return {
-    recommendations: payload.analysis.recommendations,
+    recommendations,
     insights: payload.analysis.insights,
-    suggested: payload.analysis.suggested,
+    suggested: { ...payload.analysis.suggested, chartType: suggestedType },
     rowCount: payload.rowCount,
     label: payload.dataset.label,
   };

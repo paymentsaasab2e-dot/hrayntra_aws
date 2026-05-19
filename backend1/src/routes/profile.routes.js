@@ -52,6 +52,7 @@ const {
   deletePortfolioLinks,
   deleteCareerPreferences,
   uploadProfilePhoto,
+  deleteProfilePhoto,
 } = require('../controllers/profile.controller');
 
 const router = Router();
@@ -112,6 +113,7 @@ router.get('/:candidateId', protect, getProfileData);
 // Personal Information
 router.put('/personal-info/:candidateId', updatePersonalInfo);
 router.post('/photo/:candidateId', profilePhotoUpload.single('photo'), uploadProfilePhoto);
+router.delete('/photo/:candidateId', deleteProfilePhoto);
 router.put('/summary/:candidateId', saveSummary);
 router.post('/generate-summary/:candidateId', generateSummaryWithAI);
 router.post('/gap-explanation/:candidateId', saveGapExplanation);

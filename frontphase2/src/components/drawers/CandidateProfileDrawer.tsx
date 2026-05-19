@@ -3,6 +3,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { ResumeInlinePreview } from '../candidates/ResumeInlinePreview';
+import { CandidateResumeTabPanel } from '../candidates/CandidateResumeTabPanel';
+import { useCandidateCvEditor } from '../../hooks/useCandidateCvEditor';
 import { formatDateDMY, formatDateTimeDMY } from '../../utils/dateDisplay';
 import { AnimatePresence, motion } from 'motion/react';
 import { requestSuccess } from '../../lib/appDialog';
@@ -17,6 +19,7 @@ import {
   Download,
   FileSearch,
   FileText,
+  Loader2,
   AlertTriangle,
   Mail,
   MapPin,
@@ -39,6 +42,7 @@ import { ImageWithFallback, initialsFromDisplayName } from '../ImageWithFallback
 import { getCandidateStageBadgeClasses, getCandidateStageLabel } from '../../utils/candidateStage';
 import type { LucideIcon } from 'lucide-react';
 import { useFiles } from '../../hooks/useFiles';
+import { DocumentUploadButton } from '../import/documentUploadUi';
 import {
   apiGenerateCandidateInterviewMeetingLink,
   apiGetClient,
@@ -292,6 +296,8 @@ interface CandidateProfileDrawerProps {
   ) => void | Promise<void>;
   onScheduleInterview?: (interviewData: CandidateScheduledInterview) => void | Promise<void>;
   onUpdateCandidate?: (candidateId: string, payload: UpdateCandidatePayload) => void | Promise<void>;
+  /** Reload candidate after CV editor save (e.g. loadCandidateProfile). */
+  onRefreshCandidate?: (candidateId: string) => void | Promise<void>;
   /** Opens the same Submit to Client modal as Matches (Send icon in table). */
   onSubmitToClient?: (candidate: CandidateProfileDrawerData) => void;
   /** When true, drawer may show submit control if profile is job-linked (see profileCanSubmitToClient). */
@@ -3835,6 +3841,7 @@ export function CandidateProfileDrawer({
   onRejectCandidate,
   onScheduleInterview,
   onUpdateCandidate,
+  onRefreshCandidate,
   onSubmitToClient,
   showSubmitToClient = false,
   stackAboveSiblingDrawers = false,
@@ -3873,10 +3880,22 @@ export function CandidateProfileDrawer({
     files: candidateFiles,
     loading: candidateFilesLoading,
     uploading: candidateFilesUploading,
+    uploadSuccess: candidateFilesUploadSuccess,
+    uploadPercent: candidateFilesUploadPercent,
     error: candidateFilesError,
     uploadFile: uploadCandidateFile,
     deleteFile: deleteCandidateFile,
   } = useFiles('candidate', candidate?.id);
+
+  const cvEditor = useCandidateCvEditor({
+    candidateId: candidate?.id,
+    resumeUrl: candidate?.resumeUrl,
+    enabled: isOpen && Boolean(candidate?.id),
+    canEdit: Boolean(onUpdateCandidate),
+    onCandidateUpdated:
+      candidate && onRefreshCandidate ? () => onRefreshCandidate(candidate.id) : undefined,
+    onToast: (message) => setToastMessage(message),
+  });
 
   const uploadsBase = useMemo(() => {
     const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1';
@@ -4449,6 +4468,21 @@ export function CandidateProfileDrawer({
                       <SquarePen size={15} />
                       Edit Candidate
                     </button>
+                    {onUpdateCandidate ? (
+                      <button
+                        type="button"
+                        onClick={() => void cvEditor.openEditor()}
+                        disabled={cvEditor.busy}
+                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {cvEditor.cvEditorLoading ? (
+                          <Loader2 size={15} className="animate-spin" />
+                        ) : (
+                          <FileText size={15} />
+                        )}
+                        Edit CV
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => handleAction('move-stage')}
@@ -4625,38 +4659,19 @@ export function CandidateProfileDrawer({
 
                 {activeTab === 'Resume' && (
                   <div className="flex h-[calc(100vh-18rem)] min-h-[560px] flex-col gap-5 xl:flex-row">
-                    <section className="flex h-full min-h-0 w-full flex-col rounded-2xl border border-slate-200 bg-white xl:w-[60%]">
-                      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
-                        <h3 className="text-sm font-semibold text-slate-900">Resume Viewer</h3>
-                        {candidate.resumeUrl ? (
-                          <a
-                            href={candidate.resumeUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            download
-                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                          >
-                            <Download size={16} />
-                            Download
-                          </a>
-                        ) : null}
-                      </div>
-
-                      <div className="min-h-0 flex-1 overflow-auto bg-slate-100 p-4">
-                        {candidate.resumeUrl ? (
-                          <ResumeInlinePreview
-                            resumeUrl={candidate.resumeUrl}
-                            candidateName={candidate.name}
-                            enabled={activeTab === 'Resume'}
-                            minHeightClass="h-full min-h-[520px]"
-                          />
-                        ) : (
-                          <div className="flex h-full min-h-[320px] items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-500">
-                            No resume available for this candidate.
-                          </div>
-                        )}
-                      </div>
-                    </section>
+                    <div className="flex h-full min-h-0 w-full flex-col xl:w-[60%]">
+                      <CandidateResumeTabPanel
+                        candidate={candidate}
+                        enabled={activeTab === 'Resume'}
+                        cvEditor={cvEditor}
+                        onToast={(message) => setToastMessage(message)}
+                        onCandidateUpdated={
+                          onRefreshCandidate
+                            ? () => onRefreshCandidate(candidate.id)
+                            : undefined
+                        }
+                      />
+                    </div>
 
                     <section className="flex h-full min-h-0 w-full flex-col rounded-2xl border border-slate-200 bg-white xl:w-[40%]">
                       <div className="border-b border-slate-200 px-5 py-4">
@@ -5238,31 +5253,16 @@ export function CandidateProfileDrawer({
                         <h3 className="text-sm font-semibold text-slate-900">Files</h3>
                         <p className="mt-1 text-sm text-slate-500">Upload and manage candidate documents.</p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <input
-                          ref={candidateFileInputRef}
-                          type="file"
-                          className="hidden"
-                          onChange={async (e) => {
-                            const f = e.target.files?.[0];
-                            if (!f) return;
-                            try {
-                              await uploadCandidateFile(f, 'Other');
-                            } finally {
-                              e.target.value = '';
-                            }
-                          }}
-                        />
-                        <button
-                          type="button"
-                          disabled={!candidate?.id || candidateFilesUploading}
-                          onClick={() => candidateFileInputRef.current?.click()}
-                          className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          <Plus size={16} />
-                          {candidateFilesUploading ? 'Uploading…' : 'Upload File'}
-                        </button>
-                      </div>
+                      <DocumentUploadButton
+                        disabled={!candidate?.id}
+                        isUploading={candidateFilesUploading}
+                        uploadSuccess={candidateFilesUploadSuccess}
+                        uploadPercent={candidateFilesUploadPercent}
+                        label="Upload File"
+                        onFilesSelected={async (files) => {
+                          await uploadCandidateFile(files[0], 'Other');
+                        }}
+                      />
                     </div>
 
                     {candidateFilesError ? (
@@ -5340,6 +5340,7 @@ export function CandidateProfileDrawer({
           ) : null}
         </>
       ) : null}
+      {candidate ? cvEditor.modals : null}
     </AnimatePresence>
   );
 }

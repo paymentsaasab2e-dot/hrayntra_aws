@@ -229,6 +229,8 @@ async function getAllJobs(req, res) {
         applicationFormQuestions: Array.isArray(job.applicationFormQuestions) ? job.applicationFormQuestions : [],
         applicationFormNote: job.applicationFormNote ?? null,
         location: job.location,
+        city: job.city ?? null,
+        country: job.country ?? null,
         openings: job.openings ?? 1,
         salaryMin,
         salaryMax,

@@ -76,7 +76,9 @@ import {
   ORG_RECRUITMENT_CACHE_EVENT,
 } from '../../lib/api';
 import { useFiles } from '../../hooks/useFiles';
+import { DocumentUploadButton } from '../import/documentUploadUi';
 import { formatDateDMY, formatDateTimeDMY, formatTime12hEnGb } from '../../utils/dateDisplay';
+import { JobOverviewTabContent } from './JobOverviewTabContent';
 
 /** Render salary as `currency min - max` (or single number when only one bound). */
 function formatJobSalaryRange(job: {
@@ -135,6 +137,25 @@ export interface JobForDrawer {
   experienceRequired?: string;
   education?: string;
   benefits?: string[];
+  description?: string;
+  requirements?: string[];
+  nationality?: string;
+  country?: string;
+  state?: string;
+  city?: string;
+  priority?: string;
+  languages?: Array<{ language: string; proficiency: string }>;
+  workMode?: string;
+  expectedClosureDate?: string;
+  jdFileName?: string;
+  videoMediaLink?: string;
+  forecastRevenue?: string;
+  hot?: boolean;
+  aiMatch?: boolean;
+  noCandidates?: boolean;
+  slaRisk?: boolean;
+  managerName?: string;
+  visibility?: string;
 }
 
 export interface JobApplicationSubmission {
@@ -906,17 +927,16 @@ export function JobDetailsDrawer({
   const [showStatusChange, setShowStatusChange] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const { files: jobFiles, loading: filesLoading, uploading: filesUploading, error: filesError, uploadFile, deleteFile } = useFiles('job', job?.id);
-  const [overviewOpen, setOverviewOpen] = useState<Record<string, boolean>>({
-    overview: true,
-    keyResponsibilities: true,
-    requiredSkills: true,
-    preferredSkills: false,
-    experience: false,
-    education: false,
-    benefits: false,
-  });
-
+  const {
+    files: jobFiles,
+    loading: filesLoading,
+    uploading: filesUploading,
+    uploadSuccess: filesUploadSuccess,
+    uploadPercent: filesUploadPercent,
+    error: filesError,
+    uploadFile,
+    deleteFile,
+  } = useFiles('job', job?.id);
   // Fetch job activities when activity tab is active
   useEffect(() => {
     if (!job?.id || activeTab !== 'activity') return;
@@ -937,10 +957,6 @@ export function JobDetailsDrawer({
 
     fetchActivities();
   }, [job?.id, activeTab]);
-
-  const toggleOverviewSection = (key: string) => {
-    setOverviewOpen((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
 
   const handlePipelineReorder = (fromIndex: number, toIndex: number) => {
     if (pipelineConfigLocked) return;
@@ -1006,33 +1022,6 @@ export function JobDetailsDrawer({
   };
 
   const isDefaultPipelineStage = (stage: JobPipelineStage) => DEFAULT_PIPELINE_STAGE_ID_SET.has(String(stage.id || ''));
-  const formatApplicationCandidateName = (app: JobApplicationSubmission) => {
-    const first = String(app?.candidate?.firstName || '').trim();
-    const last = String(app?.candidate?.lastName || '').trim();
-    const full = [first, last].filter(Boolean).join(' ').trim();
-    if (full) return full;
-    return String(app?.candidate?.email || '').trim() || app.candidateId || 'Candidate';
-  };
-  const applicationAnswerRows = (answers?: Record<string, unknown> | null) => {
-    const input = answers && typeof answers === 'object' ? answers : {};
-    const rows: Array<{ key: string; label: string; value: string }> = [];
-    for (const [key, raw] of Object.entries(input)) {
-      if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-        const r = raw as Record<string, unknown>;
-        const label = String(r.label || key).trim() || key;
-        const valueRaw = r.value;
-        let value = '';
-        if (Array.isArray(valueRaw)) value = valueRaw.map((v) => String(v)).join(', ');
-        else if (valueRaw === null || valueRaw === undefined) value = '';
-        else value = String(valueRaw);
-        rows.push({ key, label, value: value.trim() || '—' });
-      } else {
-        const value = raw === null || raw === undefined ? '—' : String(raw);
-        rows.push({ key, label: key, value: value.trim() || '—' });
-      }
-    }
-    return rows;
-  };
   const pipelineStageCountCards = useMemo(() => {
     const stageList = Array.isArray(pipelineStages) ? pipelineStages : [];
     const countsByStageId = new Map<string, number>();
@@ -1256,471 +1245,19 @@ export function JobDetailsDrawer({
 
             {/* Tab content */}
             <div className="flex-1 overflow-y-auto bg-slate-50/30 p-5">
-              {activeTab === 'overview' && (
-                <div className="space-y-4">
-                  <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="p-5 border-b border-slate-100">
-                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Overview</h4>
-                    </div>
-                    <div className="p-5 space-y-5">
-                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                        <div>
-                          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Job Title *</p>
-                          <p className="mt-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">{job.title || '—'}</p>
-                        </div>
-                        <div>
-                          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Number Of Openings *</p>
-                          <p className="mt-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">{job.openings || '—'}</p>
-                        </div>
-                        <div>
-                          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">For Which Company *</p>
-                          <p className="mt-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">{job.client || '—'}</p>
-                        </div>
-                        <div>
-                          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Assign recruiter</p>
-                          <p className="mt-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">{job.recruiter || job.owner || '—'}</p>
-                        </div>
-                        <div>
-                          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Location</p>
-                          <p className="mt-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">{job.location || '—'}</p>
-                        </div>
-                        <div>
-                          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Work mode</p>
-                          <p className="mt-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">{job.jobLocationType || '—'}</p>
-                        </div>
-                        <div className="sm:col-span-2">
-                          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Salary</p>
-                          <p className="mt-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">
-                            {formatJobSalaryRange(job) || '—'}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Job Summary</p>
-                        <div className="mt-1 min-h-[120px] rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 whitespace-pre-wrap">
-                          {job.overview || 'Brief summary of the role'}
-                        </div>
-                      </div>
-
-                      <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Key Responsibilities</p>
-                        <div className="mt-1 min-h-[120px] rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 whitespace-pre-wrap">
-                          {job.keyResponsibilities?.length ? job.keyResponsibilities.join('\n') : 'One responsibility per line'}
-                        </div>
-                      </div>
-
-                      <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Qualifications and Experience</p>
-                        <div className="mt-1 min-h-[120px] rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 whitespace-pre-wrap">
-                          {[job.education, job.experienceRequired].filter(Boolean).join('\n') || 'One qualification per line'}
-                        </div>
-                      </div>
-
-                      <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Compensation & Benefits</p>
-                        <div className="mt-1 min-h-[120px] rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 whitespace-pre-wrap">
-                          {job.benefits?.length ? job.benefits.join('\n') : '—'}
-                        </div>
-                      </div>
-
-                      <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">Job Applications</p>
-                        {Array.isArray(job.applications) && job.applications.length > 0 ? (
-                          <div className="space-y-2">
-                            {job.applications.map((app) => {
-                              const answers = applicationAnswerRows(app.screeningAnswers || null);
-                              const open = expandedApplicationIds.has(app.id);
-                              return (
-                                <div key={app.id} className="rounded-xl border border-slate-200 bg-white overflow-hidden">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setExpandedApplicationIds((prev) => {
-                                        const next = new Set(prev);
-                                        if (next.has(app.id)) next.delete(app.id);
-                                        else next.add(app.id);
-                                        return next;
-                                      });
-                                    }}
-                                    className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-slate-50/70 transition-colors"
-                                  >
-                                    <div>
-                                      <p className="text-sm font-semibold text-slate-900">{formatApplicationCandidateName(app)}</p>
-                                      <p className="text-xs text-slate-500 mt-0.5">
-                                        {app.appliedAt ? formatDateTimeDMY(app.appliedAt) : 'Applied'}
-                                        {app.status ? ` • ${app.status}` : ''}
-                                      </p>
-                                    </div>
-                                    {open ? (
-                                      <ChevronDown size={16} className="text-slate-400 shrink-0" />
-                                    ) : (
-                                      <ChevronRight size={16} className="text-slate-400 shrink-0" />
-                                    )}
-                                  </button>
-                                  {open && (
-                                    <div className="border-t border-slate-100 bg-slate-50/40 px-4 py-3">
-                                      {answers.length > 0 ? (
-                                        <div className="space-y-2">
-                                          {answers.map((row) => (
-                                            <div key={`${app.id}-${row.key}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-                                              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{row.label}</p>
-                                              <p className="text-sm text-slate-800 mt-1 whitespace-pre-wrap">{row.value}</p>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      ) : (
-                                        <p className="text-sm text-slate-500">No screening answers submitted.</p>
-                                      )}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-                            No applications yet for this job.
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </section>
-
-                  <div className="hidden">
-                  {/* Job Snapshot */}
-                  <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="p-5 border-b border-slate-100 flex items-center justify-between gap-2">
-                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                        <LayoutGrid size={14} className="text-slate-400" />
-                        Job Snapshot
-                      </h4>
-                    </div>
-                    <div className="px-5 pb-5 pt-4 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-sm">
-                      <div>
-                        <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Job Type</p>
-                        <p className="text-slate-800 mt-1">{job.employmentType || '—'}</p>
-                      </div>
-                      <div>
-                        <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Job Category</p>
-                        <p className="text-slate-800 mt-1">{job.jobCategory || '—'}</p>
-                      </div>
-                      <div>
-                        <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Job Function / Department</p>
-                        <p className="text-slate-800 mt-1">{job.department || '—'}</p>
-                      </div>
-                      <div>
-                        <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Job Location Type</p>
-                        <p className="text-slate-800 mt-1">{job.jobLocationType || '—'}</p>
-                      </div>
-                      <div>
-                        <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Openings</p>
-                        <p className="text-slate-800 mt-1">{job.openings}</p>
-                      </div>
-                      <div>
-                        <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Experience</p>
-                        <p className="text-slate-800 mt-1">{job.experienceRequired || '—'}</p>
-                      </div>
-                      <div>
-                        <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Education</p>
-                        <p className="text-slate-800 mt-1">{job.education || '—'}</p>
-                      </div>
-                      <div>
-                        <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Salary</p>
-                        <p className="text-slate-800 mt-1">
-                          {(() => {
-                            const range = formatJobSalaryRange(job);
-                            if (!range) return '—';
-                            return job.salaryType ? `${job.salaryType} • ${range}` : range;
-                          })()}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Location</p>
-                        <p className="text-slate-800 mt-1">{job.location || '—'}</p>
-                      </div>
-                    </div>
-                  </section>
-
-                  {/* Application Form Summary */}
-                  {(job.applicationFormEnabled || (job.applicationFormQuestions && job.applicationFormQuestions.length > 0) || job.applicationFormNote) && (
-                    <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                      <div className="p-5 border-b border-slate-100 flex items-center justify-between gap-2">
-                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                          <FileText size={14} className="text-slate-400" />
-                          Application Form
-                        </h4>
-                      </div>
-                      <div className="px-5 pb-5 pt-4 space-y-3 text-sm">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div>
-                            <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Enabled</p>
-                            <p className="text-slate-800 mt-1">{job.applicationFormEnabled ? 'Yes' : 'No'}</p>
-                          </div>
-                          <div>
-                            <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Logo</p>
-                            <p className="text-slate-800 mt-1">
-                              {job.applicationFormLogo === 'account'
-                                ? 'Your Account Logo'
-                                : job.applicationFormLogo === 'company'
-                                ? 'Job’s Company Logo'
-                                : job.applicationFormLogo === 'none'
-                                ? 'No logo'
-                                : '—'}
-                            </p>
-                          </div>
-                        </div>
-
-                        {job.applicationFormQuestions && job.applicationFormQuestions.length > 0 && (
-                          <div>
-                            <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Questions</p>
-                            <ul className="list-disc list-inside text-slate-800 space-y-0.5">
-                              {job.applicationFormQuestions.map((q, idx) => {
-                                let label = String(q || '').trim();
-                                let typeBadge: string | null = null;
-                                if (label.startsWith('{')) {
-                                  try {
-                                    const parsed = JSON.parse(label);
-                                    if (parsed && typeof parsed === 'object' && typeof parsed.label === 'string') {
-                                      label = parsed.label;
-                                      const t = String(parsed.type || '');
-                                      if (t === 'yes_no') typeBadge = 'Yes / No';
-                                      else if (t === 'single_choice') typeBadge = 'Multiple choice';
-                                      else if (t === 'slider') typeBadge = 'Proficiency slider';
-                                      else if (t === 'short_text') typeBadge = 'Short text';
-                                    }
-                                  } catch {
-                                    /* leave as plain text */
-                                  }
-                                }
-                                return (
-                                  <li key={idx}>
-                                    {label}
-                                    {typeBadge ? (
-                                      <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                                        ({typeBadge})
-                                      </span>
-                                    ) : null}
-                                  </li>
-                                );
-                              })}
-                            </ul>
-                          </div>
-                        )}
-
-                        {job.applicationFormNote && (
-                          <div>
-                            <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Note for Candidates</p>
-                            <p className="text-slate-800 whitespace-pre-wrap">{job.applicationFormNote}</p>
-                          </div>
-                        )}
-                      </div>
-                    </section>
-                  )}
-
-                  {job.overview ? (
-                    <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                      <button
-                        type="button"
-                        onClick={() => toggleOverviewSection('overview')}
-                        className="w-full p-5 flex items-center justify-between gap-2 text-left hover:bg-slate-50/50 transition-colors"
-                      >
-                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                          <FileText size={14} className="text-slate-400" />
-                          Job Overview
-                        </h4>
-                        {overviewOpen.overview ? (
-                          <ChevronDown size={18} className="text-slate-400 shrink-0" />
-                        ) : (
-                          <ChevronRight size={18} className="text-slate-400 shrink-0" />
-                        )}
-                      </button>
-                      {overviewOpen.overview && (
-                        <div className="px-5 pb-5 pt-0 border-t border-slate-100">
-                          <p className="text-sm text-slate-700 whitespace-pre-wrap">{job.overview}</p>
-                        </div>
-                      )}
-                    </section>
-                  ) : null}
-
-                  {job.keyResponsibilities && job.keyResponsibilities.length > 0 ? (
-                    <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                      <button
-                        type="button"
-                        onClick={() => toggleOverviewSection('keyResponsibilities')}
-                        className="w-full p-5 flex items-center justify-between gap-2 text-left hover:bg-slate-50/50 transition-colors"
-                      >
-                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                          <ListChecks size={14} className="text-slate-400" />
-                          Key Responsibilities
-                        </h4>
-                        {overviewOpen.keyResponsibilities ? (
-                          <ChevronDown size={18} className="text-slate-400 shrink-0" />
-                        ) : (
-                          <ChevronRight size={18} className="text-slate-400 shrink-0" />
-                        )}
-                      </button>
-                      {overviewOpen.keyResponsibilities && (
-                        <div className="px-5 pb-5 pt-0 border-t border-slate-100">
-                          <ul className="list-disc list-inside text-sm text-slate-700 space-y-1">
-                            {job.keyResponsibilities.map((item, i) => (
-                              <li key={i}>{item}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </section>
-                  ) : null}
-
-                  {job.requiredSkills && job.requiredSkills.length > 0 ? (
-                    <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                      <button
-                        type="button"
-                        onClick={() => toggleOverviewSection('requiredSkills')}
-                        className="w-full p-5 flex items-center justify-between gap-2 text-left hover:bg-slate-50/50 transition-colors"
-                      >
-                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                          <Award size={14} className="text-slate-400" />
-                          Required Skills
-                        </h4>
-                        {overviewOpen.requiredSkills ? (
-                          <ChevronDown size={18} className="text-slate-400 shrink-0" />
-                        ) : (
-                          <ChevronRight size={18} className="text-slate-400 shrink-0" />
-                        )}
-                      </button>
-                      {overviewOpen.requiredSkills && (
-                        <div className="px-5 pb-5 pt-0 border-t border-slate-100">
-                          <div className="flex flex-wrap gap-2">
-                            {job.requiredSkills.map((s, i) => (
-                              <span key={i} className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 text-xs font-medium">
-                                {s}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </section>
-                  ) : null}
-
-                  {job.preferredSkills && job.preferredSkills.length > 0 ? (
-                    <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                      <button
-                        type="button"
-                        onClick={() => toggleOverviewSection('preferredSkills')}
-                        className="w-full p-5 flex items-center justify-between gap-2 text-left hover:bg-slate-50/50 transition-colors"
-                      >
-                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                          <Award size={14} className="text-slate-400" />
-                          Preferred Skills
-                        </h4>
-                        {overviewOpen.preferredSkills ? (
-                          <ChevronDown size={18} className="text-slate-400 shrink-0" />
-                        ) : (
-                          <ChevronRight size={18} className="text-slate-400 shrink-0" />
-                        )}
-                      </button>
-                      {overviewOpen.preferredSkills && (
-                        <div className="px-5 pb-5 pt-0 border-t border-slate-100">
-                          <div className="flex flex-wrap gap-2">
-                            {job.preferredSkills.map((s, i) => (
-                              <span key={i} className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 text-xs font-medium">
-                                {s}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </section>
-                  ) : null}
-
-                  {job.experienceRequired ? (
-                    <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                      <button
-                        type="button"
-                        onClick={() => toggleOverviewSection('experience')}
-                        className="w-full p-5 flex items-center justify-between gap-2 text-left hover:bg-slate-50/50 transition-colors"
-                      >
-                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                          <Briefcase size={14} className="text-slate-400" />
-                          Experience Required
-                        </h4>
-                        {overviewOpen.experience ? (
-                          <ChevronDown size={18} className="text-slate-400 shrink-0" />
-                        ) : (
-                          <ChevronRight size={18} className="text-slate-400 shrink-0" />
-                        )}
-                      </button>
-                      {overviewOpen.experience && (
-                        <div className="px-5 pb-5 pt-0 border-t border-slate-100">
-                          <p className="text-sm text-slate-700">{job.experienceRequired}</p>
-                        </div>
-                      )}
-                    </section>
-                  ) : null}
-
-                  {job.education ? (
-                    <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                      <button
-                        type="button"
-                        onClick={() => toggleOverviewSection('education')}
-                        className="w-full p-5 flex items-center justify-between gap-2 text-left hover:bg-slate-50/50 transition-colors"
-                      >
-                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                          <GraduationCap size={14} className="text-slate-400" />
-                          Education
-                        </h4>
-                        {overviewOpen.education ? (
-                          <ChevronDown size={18} className="text-slate-400 shrink-0" />
-                        ) : (
-                          <ChevronRight size={18} className="text-slate-400 shrink-0" />
-                        )}
-                      </button>
-                      {overviewOpen.education && (
-                        <div className="px-5 pb-5 pt-0 border-t border-slate-100">
-                          <p className="text-sm text-slate-700">{job.education}</p>
-                        </div>
-                      )}
-                    </section>
-                  ) : null}
-
-                  {job.benefits && job.benefits.length > 0 ? (
-                    <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                      <button
-                        type="button"
-                        onClick={() => toggleOverviewSection('benefits')}
-                        className="w-full p-5 flex items-center justify-between gap-2 text-left hover:bg-slate-50/50 transition-colors"
-                      >
-                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                          <Heart size={14} className="text-slate-400" />
-                          Benefits
-                        </h4>
-                        {overviewOpen.benefits ? (
-                          <ChevronDown size={18} className="text-slate-400 shrink-0" />
-                        ) : (
-                          <ChevronRight size={18} className="text-slate-400 shrink-0" />
-                        )}
-                      </button>
-                      {overviewOpen.benefits && (
-                        <div className="px-5 pb-5 pt-0 border-t border-slate-100">
-                          <ul className="list-disc list-inside text-sm text-slate-700 space-y-1">
-                            {job.benefits.map((item, i) => (
-                              <li key={i}>{item}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </section>
-                  ) : null}
-
-                  {!job.overview && !job.keyResponsibilities?.length && !job.requiredSkills?.length && !job.preferredSkills?.length && !job.experienceRequired && !job.education && !job.benefits?.length && (
-                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 text-center">
-                      <LayoutGrid size={32} className="mx-auto text-slate-300 mb-3" />
-                      <p className="text-sm text-slate-500">No overview content yet. Edit job to add details.</p>
-                    </div>
-                  )}
-                  </div>
-                </div>
+              {activeTab === 'overview' && job && (
+                <JobOverviewTabContent
+                  job={job}
+                  expandedApplicationIds={expandedApplicationIds}
+                  onToggleApplication={(applicationId) => {
+                    setExpandedApplicationIds((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(applicationId)) next.delete(applicationId);
+                      else next.add(applicationId);
+                      return next;
+                    });
+                  }}
+                />
               )}
 
               {activeTab === 'candidates' && (
@@ -2419,30 +1956,18 @@ export function JobDetailsDrawer({
                 };
                 return (
                   <div className="space-y-4">
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      className="hidden"
-                      onChange={async (e) => {
-                        const f = e.target.files?.[0];
-                        if (f) {
-                          try {
-                            await uploadFile(f, 'JD');
-                            e.target.value = '';
-                          } catch (_) {}
-                        }
-                      }}
-                    />
                     <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
-                        <button
-                          type="button"
-                          disabled={!job?.id || filesUploading}
-                          onClick={() => fileInputRef.current?.click()}
-                          className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          <Upload size={16} /> {filesUploading ? 'Uploading…' : 'Upload File'}
-                        </button>
+                        <DocumentUploadButton
+                          disabled={!job?.id}
+                          isUploading={filesUploading}
+                          uploadSuccess={filesUploadSuccess}
+                          uploadPercent={filesUploadPercent}
+                          label="Upload File"
+                          onFilesSelected={async (files) => {
+                            await uploadFile(files[0], 'JD');
+                          }}
+                        />
                         <div className="flex flex-wrap items-center gap-2">
                           {JOB_FILE_TYPE_OPTIONS.map((type) => (
                             <button

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { SHOW_TABLE_ROW_EDIT_ICON } from '../../../constants/tableUi';
 import {
   Search,
   MoreVertical,
@@ -707,7 +708,7 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
                             >
                               <Eye size={16} strokeWidth={2.25} />
                             </button>
-                            {hasPermission('edit_team_member') ? (
+                            {SHOW_TABLE_ROW_EDIT_ICON && hasPermission('edit_team_member') ? (
                               <button
                                 type="button"
                                 onClick={() => handleEdit(member)}
