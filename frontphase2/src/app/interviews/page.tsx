@@ -37,12 +37,13 @@ import {
   PH2_TOOLBAR_ROW_CLASS,
   PH2_TOOLBAR_SELECT_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
+import { ALL_STATUS_LABEL } from '../../constants/filterLabels';
 
 // Force CSR — every interactive bit on this tab is client-driven.
 export const dynamic = 'force-dynamic';
 
 const INTERVIEW_DATE_OPTIONS = ['This Week', 'Today', 'This Month'] as const;
-const INTERVIEW_STATUS_OPTIONS = ['All Status', 'Scheduled', 'Completed', 'Cancelled', 'Rescheduled', 'No Show'] as const;
+const INTERVIEW_STATUS_OPTIONS = [ALL_STATUS_LABEL, 'Scheduled', 'Completed', 'Cancelled', 'Rescheduled', 'No Show'] as const;
 const INTERVIEW_ROUND_OPTIONS = ['All Rounds', 'Screening', 'Technical', 'HR', 'Managerial', 'Client', 'Final'] as const;
 const INTERVIEW_MODE_OPTIONS = ['All Modes', 'Online', 'Offline', 'Video', 'Phone', 'In-Person', 'Technical Test', 'Assessment'] as const;
 
@@ -164,7 +165,7 @@ export default function InterviewsPage() {
     if (searchQuery.trim()) return true;
     return (
       filters.date !== 'This Week' ||
-      filters.status !== 'All Status' ||
+      filters.status !== ALL_STATUS_LABEL ||
       filters.round !== 'All Rounds' ||
       filters.mode !== 'All Modes' ||
       filters.interviewer !== 'All Interviewers' ||

@@ -8,6 +8,9 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  Funnel,
+  FunnelChart,
+  LabelList,
   Legend,
   Line,
   LineChart,
@@ -21,6 +24,7 @@ import {
   YAxis,
 } from 'recharts';
 import { CHART_COLORS, buildChartSeries } from '../../lib/dashboard/chartData';
+import { CHART_TOOLTIP_STYLE } from '../../lib/dashboard/chartTheme';
 import { getModuleListRoute } from '../../lib/dashboard/moduleRoutes';
 import { moduleForDatasetId } from '../../lib/dashboard/moduleGroups';
 import type { WidgetConfig } from '../../lib/dashboard/types';
@@ -192,8 +196,37 @@ export function WidgetChart({
     );
   }
 
-  if (chartType === 'funnel' || chartType === 'progressBar') {
-    const max = Math.max(...series.map((s) => s.value), 1);
+  if (chartType === 'funnel') {
+    const funnelData = series
+      .filter((s) => s.value > 0)
+      .map((item, i) => ({
+        name: item.name,
+        value: item.value,
+        fill: CHART_COLORS[i % CHART_COLORS.length],
+      }));
+    if (!funnelData.length) {
+      return (
+        <div className="flex h-full min-h-[120px] items-center justify-center text-sm text-slate-500">
+          No values to display for this funnel.
+        </div>
+      );
+    }
+    const funnelHeight = Math.max(height, 300);
+    return (
+      <ChartShell height={funnelHeight}>
+        <FunnelChart margin={{ top: 12, right: 96, bottom: 12, left: 12 }}>
+          <Tooltip contentStyle={CHART_TOOLTIP_STYLE} />
+          <Funnel dataKey="value" data={funnelData} isAnimationActive>
+            <LabelList position="right" fill="#64748b" stroke="none" dataKey="name" fontSize={11} />
+            <LabelList position="center" fill="#fff" stroke="none" dataKey="value" fontSize={11} />
+          </Funnel>
+        </FunnelChart>
+      </ChartShell>
+    );
+  }
+
+  if (chartType === 'progressBar') {
+    const topValue = series[0]?.value || Math.max(...series.map((s) => s.value), 1);
     return (
       <div className="space-y-2 py-1">
         {series.map((item, i) => (
@@ -204,9 +237,9 @@ export function WidgetChart({
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-slate-100">
               <div
-                className="h-full rounded-full"
+                className="h-full rounded-full transition-all"
                 style={{
-                  width: `${(item.value / max) * 100}%`,
+                  width: `${Math.max(4, (item.value / topValue) * 100)}%`,
                   backgroundColor: CHART_COLORS[i % CHART_COLORS.length],
                 }}
               />

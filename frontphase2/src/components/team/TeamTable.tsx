@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Search, Filter, MoreVertical, Eye, Edit, Key, UserX, Lock, Unlock, Mail, CheckCircle, AlertCircle } from 'lucide-react';
+import { SHOW_TABLE_ROW_EDIT_ICON } from '../../constants/tableUi';
 import { getTeamMembers, deleteTeamMember, lockAccount, unlockAccount, resetPassword, resendInvite } from '../../lib/api/teamApi';
 import { ImageWithFallback } from '../ImageWithFallback';
 import { toast } from 'sonner';
@@ -447,17 +448,19 @@ export const TeamTable: React.FC<TeamTableProps> = ({ onSelectMember }) => {
             style={{ top: actionMenuPos.top, left: actionMenuPos.left }}
             onClick={(e) => e.stopPropagation()}
           >
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleAction('edit', members.find((m) => m.id === actionMenuOpen)!);
-              }}
-              className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-            >
-              <Edit className="size-4" />
-              Edit
-            </button>
+            {SHOW_TABLE_ROW_EDIT_ICON ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleAction('edit', members.find((m) => m.id === actionMenuOpen)!);
+                }}
+                className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+              >
+                <Edit className="size-4" />
+                Edit
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={(e) => {

@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { ChevronDown, X, Filter } from 'lucide-react';
 import type { ContactFilters } from '../../lib/api';
 import { apiGetClients, apiGetUsers } from '../../lib/api';
+import { ALL_STATUS_LABEL } from '../../constants/filterLabels';
 
 interface ContactsFilterBarProps {
   filters: ContactFilters;
@@ -153,7 +154,7 @@ export function ContactsFilterBar({
               label="Status"
               value={filters.status}
               options={[
-                { value: '', label: 'All Status' },
+                { value: '', label: ALL_STATUS_LABEL },
                 ...statuses,
               ]}
               onSelect={(value) => onFilterChange({ status: value || undefined })}

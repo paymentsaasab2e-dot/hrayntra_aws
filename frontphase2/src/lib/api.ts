@@ -509,6 +509,57 @@ export async function apiSetSubscriptionPlan(plan: { name: string }) {
   });
 }
 
+export async function apiGetCompanyServices() {
+  return apiFetch<{
+    services: string[];
+    recommended?: string[];
+    defaults?: string[];
+    aiEnabled?: boolean;
+  }>('/settings/org/company-services', { auth: true });
+}
+
+export type CompanyServiceSuggestionSource = 'history' | 'catalog' | 'ai';
+
+export interface CompanyServiceSuggestion {
+  label: string;
+  source: CompanyServiceSuggestionSource;
+}
+
+export async function apiSuggestCompanyServices(params: {
+  q?: string;
+  selected?: string[];
+  limit?: number;
+  industry?: string;
+}) {
+  const sp = new URLSearchParams();
+  const q = String(params.q ?? '').trim();
+  if (q) sp.set('q', q);
+  if (params.industry?.trim()) sp.set('industry', params.industry.trim());
+  if (params.limit) sp.set('limit', String(params.limit));
+  if (params.selected?.length) sp.set('selected', params.selected.join(';'));
+  const qs = sp.toString();
+  return apiFetch<{
+    suggestions: CompanyServiceSuggestion[];
+    aiEnabled: boolean;
+  }>(`/settings/org/company-services/suggest${qs ? `?${qs}` : ''}`, { auth: true });
+}
+
+export async function apiSetCompanyServices(services: string[]) {
+  return apiFetch<{ services: string[] }>('/settings/org/company-services', {
+    method: 'PUT',
+    auth: true,
+    body: { services },
+  });
+}
+
+export async function apiAppendCompanyService(service: string) {
+  return apiFetch<{ services: string[] }>('/settings/org/company-services/append', {
+    method: 'POST',
+    auth: true,
+    body: { service },
+  });
+}
+
 export async function apiApplyPipelineTemplateToEmptyJobs() {
   return apiFetch<{
     updatedJobs: number;
@@ -1088,6 +1139,29 @@ export interface BackendJob {
   skills?: string[];
   preferredSkills?: string[];
   benefits?: string[];
+  requirements?: string[];
+  nationality?: string | null;
+  country?: string | null;
+  state?: string | null;
+  city?: string | null;
+  languages?: Array<{ language: string; proficiency: string }> | null;
+  workMode?: string | null;
+  expectedClosureDate?: string | null;
+  jdFileName?: string | null;
+  videoMediaLink?: string | null;
+  forecastRevenue?: string | null;
+  hot?: boolean;
+  aiMatch?: boolean;
+  noCandidates?: boolean;
+  slaRisk?: boolean;
+  visibility?: string | null;
+  manager?: { id: string; name: string; email?: string } | null;
+  managerId?: string | null;
+  jobLocationType?: string | null;
+  applicationFormEnabled?: boolean;
+  applicationFormLogo?: string | null;
+  applicationFormQuestions?: string[];
+  applicationFormNote?: string | null;
   pipelineStages?: Array<{
     id: string;
     name: string;
@@ -1183,6 +1257,16 @@ export interface CreateJobData {
   applicationFormQuestions?: string[];
   applicationFormNote?: string;
   statusRemark?: string;
+  priority?: string;
+  nationality?: string;
+  country?: string;
+  state?: string;
+  city?: string;
+  forecastRevenue?: string;
+  videoMediaLink?: string;
+  languages?: Array<{ language: string; proficiency: string }>;
+  managerId?: string | null;
+  supportingRecruiters?: string[];
 }
 
 export const apiCreateJob = async (data: CreateJobData) => {

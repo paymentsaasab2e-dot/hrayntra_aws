@@ -19,15 +19,18 @@ import {
   apiBulkImportCandidates,
   apiCheckCandidateDuplicate,
   apiCreateCandidateFromDrawer,
+  apiFetchFormData,
   apiGetCandidateTagSuggestions,
   apiGetJobs,
   apiGetUsers,
   apiParseCandidateResume,
+  apiUpdateCandidate,
   apiUploadCandidateResumeFile,
   buildSocketBaseUrl,
 } from '@/lib/api';
 import { MY_JOBS_LIST_PARAMS } from '@/lib/myJobsListParams';
 import { addFailedBulkResumeRecords, removeFailedBulkResumesByFileName } from '@/lib/failedBulkResumesStore';
+import { AddCandidateFormSections, CANDIDATE_FORM_STEPS } from './AddCandidateFormSections';
 
 /** Align with backend `RESUME_MAX_FILE_BYTES` (default 25MB). Optional: NEXT_PUBLIC_RESUME_MAX_FILE_BYTES (bytes). */
 const MAX_RESUME_FILE_BYTES = (() => {
@@ -38,6 +41,7 @@ const MAX_RESUME_FILE_BYTES = (() => {
   return 25 * 1024 * 1024;
 })();
 const MAX_RESUME_FILE_LABEL = `${Math.round(MAX_RESUME_FILE_BYTES / (1024 * 1024))}MB`;
+const MAX_AVATAR_FILE_BYTES = 5 * 1024 * 1024;
 
 const METHOD_TABS = [
   { key: 'manual', label: 'Manual Entry' },
@@ -74,6 +78,8 @@ const PRIORITY_OPTIONS = ['High', 'Medium', 'Low'];
 const NOTICE_PERIOD_OPTIONS = ['Immediate', '15 days', '30 days', '45 days', '60 days', '90 days+'];
 const AVAILABILITY_OPTIONS = ['Available', 'Interviewing Elsewhere', 'Not Available'];
 const CURRENCY_OPTIONS = ['INR', 'USD', 'GBP', 'AED', 'EUR'];
+const MARITAL_STATUS_OPTIONS = ['Single', 'Married', 'Divorced', 'Widowed', 'Prefer not to say'];
+const PROFICIENCY_OPTIONS = ['Basic', 'Conversational', 'Professional', 'Native'];
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const KNOWN_DOMAINS = [
   'gmail.com',
@@ -94,11 +100,47 @@ const DEFAULT_FORM_DATA = {
   lastName: '',
   email: '',
   phone: '',
+  age: '',
+  candidateScore: '',
+  cityState: '',
+  address: '',
+  zip: '',
+  avatar: '',
+  nationality: '',
+  currentCompanyWebsite: '',
+  maritalStatus: '',
+  birthDate: '',
+  passportNumber: '',
+  educationEntries: [{ qualification: '', instituteName: '' }],
+  remarks: '',
+  experience: '',
   currentCompany: '',
   currentDesignation: '',
-  experience: '',
-  location: '',
+  currentSalary: '',
+  currentSalaryCurrency: 'INR',
+  currentBenefits: '',
+  expectedSalary: '',
+  currency: 'INR',
+  expectedBenefits: '',
+  noticePeriodDays: '',
+  courses: '',
+  extracurricularActivities: '',
+  volunteers: '',
   linkedinUrl: '',
+  twitter: '',
+  xing: '',
+  skypeId: '',
+  facebook: '',
+  stackOverflow: '',
+  website: '',
+  summary: '',
+  workHistory: '',
+  educationHistory: '',
+  certificates: [],
+  honoursAwards: '',
+  languageEntries: [],
+  referralCampaign: 'No',
+  location: '',
   jobId: '',
   stage: 'Applied',
   recruiterId: '',
@@ -108,14 +150,11 @@ const DEFAULT_FORM_DATA = {
   agencyName: '',
   priority: 'Medium',
   tags: [],
-  expectedSalary: '',
-  currency: 'INR',
   noticePeriod: 'Immediate',
   availabilityStatus: 'Available',
   portfolioUrl: '',
   skills: [],
   initialNote: '',
-  avatar: '',
 };
 
 function extractItems(payload) {
@@ -524,11 +563,7 @@ function TagInput({
 }
 
 function StepProgress({ currentStep }) {
-  const steps = [
-    { id: 1, label: 'Basic Info' },
-    { id: 2, label: 'Job & Pipeline' },
-    { id: 3, label: 'Professional Details' },
-  ];
+  const steps = CANDIDATE_FORM_STEPS;
 
   return (
     <div className="mb-6 flex items-center justify-between gap-2">
@@ -549,7 +584,7 @@ function StepProgress({ currentStep }) {
               >
                 {complete ? <Check size={14} /> : step.id}
               </div>
-              <span className={`text-sm font-medium ${current || complete ? 'text-slate-900' : 'text-slate-400'}`}>
+              <span className={`hidden text-xs font-medium sm:inline sm:text-sm ${current || complete ? 'text-slate-900' : 'text-slate-400'}`}>
                 {step.label}
               </span>
             </div>
@@ -576,6 +611,9 @@ export default function AddCandidateDrawer({
 }) {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [currentStep, setCurrentStep] = useState(1);
+  const [avatarFile, setAvatarFile] = useState(null);
+  const [avatarPreview, setAvatarPreview] = useState('');
+  const avatarPreviewRef = useRef('');
   const [formData, setFormData] = useState(DEFAULT_FORM_DATA);
   const [errors, setErrors] = useState({});
   const [parsedResumeFile, setParsedResumeFile] = useState(null);
@@ -731,6 +769,12 @@ export default function AddCandidateDrawer({
 
   const resetForNext = (nextTab = activeTab) => {
     setCurrentStep(1);
+    if (avatarPreviewRef.current) {
+      URL.revokeObjectURL(avatarPreviewRef.current);
+      avatarPreviewRef.current = '';
+    }
+    setAvatarFile(null);
+    setAvatarPreview('');
     setFormData({
       ...DEFAULT_FORM_DATA,
       recruiterId: currentUser?._id || '',
@@ -885,7 +929,64 @@ export default function AddCandidateDrawer({
     }
   };
 
+  const validateForm = () => {
+    const nextErrors = {};
+    const firstNameCheck = validateNoDigits(formData.firstName, 'First name');
+    if (!firstNameCheck.valid) nextErrors.firstName = firstNameCheck.message;
+
+    const lastNameCheck = validateNoDigits(formData.lastName, 'Last name');
+    if (!lastNameCheck.valid) nextErrors.lastName = lastNameCheck.message;
+
+    if (!formData.email.trim()) {
+      nextErrors.email = 'Email is required';
+    } else {
+      const result = validateEmail(formData.email.trim());
+      if (!result.valid) {
+        nextErrors.email = result.message;
+      }
+    }
+
+    const companyCheck = validateNoDigits(formData.currentCompany, 'Current company');
+    if (formData.currentCompany.trim() && !companyCheck.valid) {
+      nextErrors.currentCompany = companyCheck.message;
+    }
+    if (formData.phone && !/^\d{7,15}$/.test(formData.phone.trim())) {
+      nextErrors.phone = 'Phone must be 7-15 digits';
+    }
+    const experience = Number(formData.experience);
+    if (formData.experience !== '' && !Number.isNaN(experience) && (experience < 0 || experience > 50)) {
+      nextErrors.experience = 'Experience must be between 0 and 50';
+    }
+    if (formData.linkedinUrl && !LINKEDIN_REGEX.test(formData.linkedinUrl.trim())) {
+      nextErrors.linkedinUrl = 'Enter a valid LinkedIn URL';
+    }
+    if (!formData.source) {
+      nextErrors.source = 'Source is required';
+    }
+    if (formData.expectedSalary && Number(formData.expectedSalary) <= 0) {
+      nextErrors.expectedSalary = 'Salary must be a positive number';
+    }
+    if (formData.website && !/^https?:\/\//i.test(formData.website.trim())) {
+      nextErrors.website = 'Website URL must start with http:// or https://';
+    }
+    if (formData.skills.length > 10) {
+      nextErrors.skills = 'Maximum 10 skills allowed';
+    }
+
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length) {
+      const firstKey = Object.keys(nextErrors)[0];
+      scrollToField(firstKey);
+      return false;
+    }
+    return true;
+  };
+
   const validateStep = (step) => {
+    if (step === 5) {
+      return validateForm();
+    }
+
     const nextErrors = {};
 
     if (step === 1) {
@@ -903,54 +1004,34 @@ export default function AddCandidateDrawer({
           nextErrors.email = result.message;
         }
       }
-      const companyCheck = validateNoDigits(formData.currentCompany, 'Current company');
-      if (formData.currentCompany.trim() && !companyCheck.valid) {
-        nextErrors.currentCompany = companyCheck.message;
-      }
       if (formData.phone && !/^\d{7,15}$/.test(formData.phone.trim())) {
         nextErrors.phone = 'Phone must be 7-15 digits';
-      }
-      const experience = Number(formData.experience);
-      if (formData.experience === '' || Number.isNaN(experience)) {
-        nextErrors.experience = 'Experience is required';
-      } else if (experience < 0 || experience > 50) {
-        nextErrors.experience = 'Experience must be between 0 and 50';
-      }
-      if (formData.linkedinUrl && !LINKEDIN_REGEX.test(formData.linkedinUrl.trim())) {
-        nextErrors.linkedinUrl = 'Enter a valid LinkedIn URL';
-      }
-    }
-
-    if (step === 2) {
-      if (!formData.source) {
-        nextErrors.source = 'Source is required';
-      }
-      if (['LinkedIn', 'Naukri', 'Indeed'].includes(formData.source) && !formData.sourceUrl.trim()) {
-        nextErrors.sourceUrl = 'Source profile URL is required';
-      }
-      if (formData.source === 'Referral' && !formData.referrerName.trim()) {
-        nextErrors.referrerName = 'Referrer name is required';
-      }
-      if (formData.source === 'Agency' && !formData.agencyName.trim()) {
-        nextErrors.agencyName = 'Agency name is required';
-      }
-      if (formData.tags.length > 10) {
-        nextErrors.tags = 'Maximum 10 tags allowed';
       }
     }
 
     if (step === 3) {
+      const companyCheck = validateNoDigits(formData.currentCompany, 'Current company');
+      if (formData.currentCompany.trim() && !companyCheck.valid) {
+        nextErrors.currentCompany = companyCheck.message;
+      }
+      const experience = Number(formData.experience);
+      if (formData.experience !== '' && !Number.isNaN(experience) && (experience < 0 || experience > 50)) {
+        nextErrors.experience = 'Experience must be between 0 and 50';
+      }
+      if (!formData.source) {
+        nextErrors.source = 'Source is required';
+      }
       if (formData.expectedSalary && Number(formData.expectedSalary) <= 0) {
         nextErrors.expectedSalary = 'Salary must be a positive number';
       }
-      if (formData.portfolioUrl && !/^https?:\/\//i.test(formData.portfolioUrl.trim())) {
-        nextErrors.portfolioUrl = 'Portfolio URL must start with http:// or https://';
+    }
+
+    if (step === 4) {
+      if (formData.linkedinUrl && !LINKEDIN_REGEX.test(formData.linkedinUrl.trim())) {
+        nextErrors.linkedinUrl = 'Enter a valid LinkedIn URL';
       }
-      if (formData.skills.length > 10) {
-        nextErrors.skills = 'Maximum 10 skills allowed';
-      }
-      if (formData.initialNote.length > 500) {
-        nextErrors.initialNote = 'Initial note cannot exceed 500 characters';
+      if (formData.website && !/^https?:\/\//i.test(formData.website.trim())) {
+        nextErrors.website = 'Website URL must start with http:// or https://';
       }
     }
 
@@ -961,6 +1042,45 @@ export default function AddCandidateDrawer({
       return false;
     }
     return true;
+  };
+
+  const handleAvatarFile = (file) => {
+    if (!file) return;
+    if (file.size > MAX_AVATAR_FILE_BYTES) {
+      toast.error('Photo must be 5MB or smaller.');
+      return;
+    }
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please upload an image file.');
+      return;
+    }
+    if (avatarPreviewRef.current) {
+      URL.revokeObjectURL(avatarPreviewRef.current);
+    }
+    const preview = URL.createObjectURL(file);
+    avatarPreviewRef.current = preview;
+    setAvatarPreview(preview);
+    setAvatarFile(file);
+  };
+
+  const clearAvatarFile = () => {
+    if (avatarPreviewRef.current) {
+      URL.revokeObjectURL(avatarPreviewRef.current);
+      avatarPreviewRef.current = '';
+    }
+    setAvatarPreview('');
+    setAvatarFile(null);
+    updateFormData('avatar', '');
+  };
+
+  const uploadCandidateAvatar = async (candidateId, file) => {
+    const body = new FormData();
+    body.append('file', file);
+    body.append('entityType', 'candidate');
+    body.append('entityId', candidateId);
+    body.append('fileType', 'Photo');
+    const response = await apiFetchFormData('/files', body, { method: 'POST', auth: true });
+    return response?.data?.fileUrl || response?.fileUrl || null;
   };
 
   const handleDuplicateCheck = async (field) => {
@@ -1012,14 +1132,48 @@ export default function AddCandidateDrawer({
       phone: String(data.phone || '').replace(/[^\d]/g, ''),
       currentCompany: data.currentCompany || '',
       currentDesignation: data.currentDesignation || data.designation || '',
-      experience: data.experience || '',
+      experience: data.experience ?? '',
+      cityState: derivedLocation,
       location: derivedLocation,
+      address: data.address || '',
       linkedinUrl: data.linkedinUrl || '',
+      website: data.website || data.portfolioUrl || '',
+      portfolioUrl: data.portfolioUrl || '',
+      educationEntries: Array.isArray(data.educationEntries) && data.educationEntries.length
+        ? data.educationEntries.map((entry) => ({
+            qualification: entry.degree || '',
+            instituteName: entry.institution || '',
+          }))
+        : data.education
+          ? [{ qualification: data.education, instituteName: '' }]
+          : [{ qualification: '', instituteName: '' }],
+      summary: importedSummary,
+      workHistory: Array.isArray(data.workExperienceEntries)
+        ? data.workExperienceEntries
+            .map((entry) =>
+              [entry.title, entry.company, entry.startDate, entry.endDate].filter(Boolean).join(' · ')
+            )
+            .join('\n')
+        : '',
+      educationHistory: Array.isArray(data.educationEntries)
+        ? data.educationEntries
+            .map((entry) => [entry.degree, entry.institution].filter(Boolean).join(' · '))
+            .join('\n')
+        : '',
+      certificates: Array.isArray(data.certifications) ? data.certifications.slice(0, 15) : [],
+      languageEntries: Array.isArray(data.languages)
+        ? data.languages.slice(0, 10).map((lang) => {
+            const text = String(lang);
+            const match = text.match(/^(.+?)\s*\((.+)\)$/);
+            return match
+              ? { language: match[1].trim(), proficiency: match[2].trim() }
+              : { language: text, proficiency: 'Conversational' };
+          })
+        : [],
       source: data.source || 'Other',
       priority: data.priority || 'Medium',
       expectedSalary: data.expectedSalary || '',
       currency: data.currency || 'INR',
-      portfolioUrl: data.portfolioUrl || '',
       noticePeriod: data.noticePeriod || 'Immediate',
       skills: Array.isArray(data.skills) ? data.skills.slice(0, 10) : [],
       tags: Array.isArray(data.tags) ? data.tags.slice(0, 10) : [],
@@ -1551,31 +1705,127 @@ export default function AddCandidateDrawer({
     });
   };
 
-  const buildCandidatePayload = (duplicateAction = 'create') => ({
-    ...formData,
-    designation: formData.currentDesignation,
-    experience: Number(formData.experience),
-    expectedSalary: formData.expectedSalary ? Number(formData.expectedSalary) : undefined,
-    currentSalary: parsedData?.currentSalary ? Number(parsedData.currentSalary) : undefined,
-    education: parsedData?.education || undefined,
-    certifications: Array.isArray(parsedData?.certifications) ? parsedData.certifications : undefined,
-    languages: Array.isArray(parsedData?.languages) ? parsedData.languages : undefined,
-    notes: [formData.initialNote, parsedData?.summary].filter(Boolean).join('\n\n') || undefined,
-    cvSummary: parsedData?.summary || undefined,
-    cvEducationEntries: Array.isArray(parsedData?.educationEntries) ? parsedData.educationEntries : undefined,
-    cvWorkExperienceEntries: Array.isArray(parsedData?.workExperienceEntries)
-      ? parsedData.workExperienceEntries
-      : undefined,
-    cvPortfolioLinks: Array.isArray(parsedData?.portfolioLinks) ? parsedData.portfolioLinks : undefined,
-    city: parsedData?.city || undefined,
-    country: parsedData?.country || undefined,
-    preferredLocation: parsedData?.location || formData.location || undefined,
-    resume: parsedData?.resumeUrl || undefined,
-    avatar: [formData.avatar, parsedData?.profilePhotoUrl, parsedData?.avatar]
-      .map((x) => String(x || '').trim())
-      .find((x) => /^https?:\/\//i.test(x)),
-    duplicateAction,
-  });
+  const buildCandidatePayload = (duplicateAction = 'create') => {
+    const cityStateParts = String(formData.cityState || '')
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const languageLabels = (formData.languageEntries || [])
+      .filter((row) => row.language?.trim())
+      .map((row) => `${row.language.trim()} (${row.proficiency || 'Conversational'})`);
+    const filledEducation = (formData.educationEntries || []).filter(
+      (row) => row.qualification?.trim() || row.instituteName?.trim()
+    );
+    const educationSummary = filledEducation
+      .map((row) => [row.qualification, row.instituteName].filter(Boolean).join(' · '))
+      .join('; ');
+    const noticePeriod =
+      formData.noticePeriodDays?.trim() !== ''
+        ? `${formData.noticePeriodDays} days`
+        : formData.noticePeriod;
+
+    return {
+      firstName: formData.firstName,
+      lastName: formData.lastName,
+      email: formData.email,
+      phone: formData.phone || undefined,
+      currentCompany: formData.currentCompany || undefined,
+      designation: formData.currentDesignation,
+      currentDesignation: formData.currentDesignation,
+      experience: formData.experience === '' ? 0 : Number(formData.experience),
+      location: formData.cityState || formData.location || undefined,
+      linkedinUrl: formData.linkedinUrl || undefined,
+      jobId: formData.jobId || undefined,
+      stage: formData.stage,
+      recruiterId: formData.recruiterId || undefined,
+      source: formData.source || 'Other',
+      sourceUrl: formData.sourceUrl || undefined,
+      referrerName: formData.referrerName || undefined,
+      agencyName: formData.agencyName || undefined,
+      priority: formData.priority,
+      tags: formData.tags,
+      expectedSalary: formData.expectedSalary ? Number(formData.expectedSalary) : undefined,
+      currency: formData.currency,
+      noticePeriod,
+      availabilityStatus: formData.availabilityStatus,
+      portfolioUrl: formData.portfolioUrl || formData.website || undefined,
+      website: formData.website || undefined,
+      skills: formData.skills,
+      currentSalary: formData.currentSalary
+        ? Number(formData.currentSalary)
+        : parsedData?.currentSalary
+          ? Number(parsedData.currentSalary)
+          : undefined,
+      education: educationSummary || formData.educationHistory || parsedData?.education || undefined,
+      cvEducationEntries:
+        filledEducation.length > 0
+          ? filledEducation.map((row) => ({
+              degree: row.qualification || undefined,
+              institution: row.instituteName || undefined,
+            }))
+          : Array.isArray(parsedData?.educationEntries)
+            ? parsedData.educationEntries
+            : undefined,
+      certifications:
+        formData.certificates?.length > 0
+          ? formData.certificates
+          : Array.isArray(parsedData?.certifications)
+            ? parsedData.certifications
+            : undefined,
+      languages:
+        languageLabels.length > 0
+          ? languageLabels
+          : Array.isArray(parsedData?.languages)
+            ? parsedData.languages
+            : undefined,
+      notes:
+        [formData.remarks, formData.initialNote, parsedData?.summary]
+          .filter(Boolean)
+          .join('\n\n') || undefined,
+      cvSummary: formData.summary || parsedData?.summary || undefined,
+      cvWorkExperienceEntries: Array.isArray(parsedData?.workExperienceEntries)
+        ? parsedData.workExperienceEntries
+        : undefined,
+      cvPortfolioLinks: Array.isArray(parsedData?.portfolioLinks) ? parsedData.portfolioLinks : undefined,
+      city: cityStateParts[0] || parsedData?.city || undefined,
+      country: cityStateParts.slice(1).join(', ') || parsedData?.country || undefined,
+      address: formData.address || undefined,
+      preferredLocation: formData.cityState || parsedData?.location || formData.location || undefined,
+      resume: parsedData?.resumeUrl || undefined,
+      avatar: [formData.avatar, parsedData?.profilePhotoUrl, parsedData?.avatar]
+        .map((x) => String(x || '').trim())
+        .find((x) => /^https?:\/\//i.test(x)),
+      extraData: {
+        age: formData.age || undefined,
+        candidateScore: formData.candidateScore || undefined,
+        zip: formData.zip || undefined,
+        nationality: formData.nationality || undefined,
+        currentCompanyWebsite: formData.currentCompanyWebsite || undefined,
+        maritalStatus: formData.maritalStatus || undefined,
+        birthDate: formData.birthDate || undefined,
+        passportNumber: formData.passportNumber || undefined,
+        instituteName: formData.instituteName || undefined,
+        currentBenefits: formData.currentBenefits || undefined,
+        currentSalaryCurrency: formData.currentSalaryCurrency || undefined,
+        expectedBenefits: formData.expectedBenefits || undefined,
+        noticePeriodDays: formData.noticePeriodDays || undefined,
+        courses: formData.courses || undefined,
+        extracurricularActivities: formData.extracurricularActivities || undefined,
+        volunteers: formData.volunteers || undefined,
+        twitter: formData.twitter || undefined,
+        xing: formData.xing || undefined,
+        skypeId: formData.skypeId || undefined,
+        facebook: formData.facebook || undefined,
+        stackOverflow: formData.stackOverflow || undefined,
+        workHistoryText: formData.workHistory || undefined,
+        educationHistoryText: formData.educationHistory || undefined,
+        honoursAwards: formData.honoursAwards || undefined,
+        languageEntries: formData.languageEntries?.length ? formData.languageEntries : undefined,
+        referralCampaign: formData.referralCampaign === 'Yes',
+      },
+      duplicateAction,
+    };
+  };
 
   const openDuplicateDecision = ({
     field = 'email',
@@ -1606,7 +1856,7 @@ export default function AddCandidateDrawer({
   };
 
   const handleSave = async (mode, duplicateAction = 'create') => {
-    if (!validateStep(3)) return;
+    if (!validateForm()) return;
     if (duplicateAction === 'create' && duplicateWarning) {
       openDuplicateDecision({
         field: duplicateWarning.field,
@@ -1663,6 +1913,21 @@ export default function AddCandidateDrawer({
             console.error('Resume upload failed after candidate creation:', uploadError);
             toast.error(uploadError?.message || 'Candidate saved, but resume upload failed');
           }
+        }
+      }
+
+      if (candidateId && avatarFile) {
+        try {
+          const photoUrl = await uploadCandidateAvatar(candidateId, avatarFile);
+          if (photoUrl) {
+            const updated = await apiUpdateCandidate(candidateId, { avatar: photoUrl });
+            if (updated?.data) {
+              candidate = { ...candidate, ...updated.data };
+            }
+          }
+        } catch (photoError) {
+          console.error('Candidate photo upload failed:', photoError);
+          toast.error(photoError?.message || 'Candidate saved, but photo upload failed');
         }
       }
 
@@ -2071,8 +2336,6 @@ export default function AddCandidateDrawer({
               )}
             </div>
           ) : null}
-
-          {activeTab !== 'csv' && activeTab !== 'bulkResume' ? <StepProgress currentStep={currentStep} /> : null}
 
           {activeTab === 'resume' ? (
             <div className="mb-5">
@@ -2677,425 +2940,40 @@ export default function AddCandidateDrawer({
               ) : null}
             </div>
           ) : activeTab === 'bulkResume' ? null : (
-            <div className="space-y-8">
-              {currentStep === 1 ? (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <DrawerInput
-                    label="First Name"
-                    name="firstName"
-                    required
-                    value={formData.firstName}
-                    onChange={(event) => updateFormData('firstName', stripDigits(event.target.value))}
-                    onBlur={() => {
-                      const result = validateNoDigits(formData.firstName, 'First name');
-                      if (!result.valid) {
-                        setErrors((prev) => ({ ...prev, firstName: result.message }));
-                      }
-                    }}
-                    error={errors.firstName}
-                    inputRef={(node) => {
-                      fieldRefs.current.firstName = node;
-                    }}
-                    autoFilled={autoFilledFields.firstName}
-                  />
-                  <DrawerInput
-                    label="Last Name"
-                    name="lastName"
-                    required
-                    value={formData.lastName}
-                    onChange={(event) => updateFormData('lastName', stripDigits(event.target.value))}
-                    onBlur={() => {
-                      const result = validateNoDigits(formData.lastName, 'Last name');
-                      if (!result.valid) {
-                        setErrors((prev) => ({ ...prev, lastName: result.message }));
-                      }
-                    }}
-                    error={errors.lastName}
-                    inputRef={(node) => {
-                      fieldRefs.current.lastName = node;
-                    }}
-                    autoFilled={autoFilledFields.lastName}
-                  />
-
-                  <div className="sm:col-span-1" ref={(node) => (fieldRefs.current.email = node?.querySelector?.('input') || node)}>
-                    <DrawerInput
-                      label="Email"
-                      name="email"
-                      required
-                      value={formData.email}
-                      onChange={(event) => updateFormData('email', event.target.value)}
-                      onBlur={() => {
-                        const value = formData.email.trim();
-                        if (!value) {
-                          setErrors((prev) => ({ ...prev, email: 'Email is required' }));
-                          return;
-                        }
-                        const result = validateEmail(value);
-                        if (!result.valid) {
-                          setErrors((prev) => ({ ...prev, email: result.message }));
-                          return;
-                        }
-                        handleDuplicateCheck('email');
-                      }}
-                      error={errors.email}
-                      autoFilled={autoFilledFields.email}
-                    />
-                    {renderCandidateConflict('email')}
-                  </div>
-
-                  <div ref={(node) => (fieldRefs.current.phone = node?.querySelector?.('input') || node)}>
-                    <DrawerInput
-                      label="Phone"
-                      name="phone"
-                      value={formData.phone}
-                      onChange={(event) => updateFormData('phone', event.target.value.replace(/[^\d]/g, ''))}
-                      onBlur={() => handleDuplicateCheck('phone')}
-                      error={errors.phone}
-                      autoFilled={autoFilledFields.phone}
-                    />
-                    {renderCandidateConflict('phone')}
-                  </div>
-
-                  <DrawerInput
-                    label="Current Company"
-                    name="currentCompany"
-                    value={formData.currentCompany}
-                    onChange={(event) => updateFormData('currentCompany', stripDigits(event.target.value))}
-                    onBlur={() => {
-                      const value = formData.currentCompany.trim();
-                      if (!value) return;
-                      const result = validateNoDigits(value, 'Current company');
-                      if (!result.valid) {
-                        setErrors((prev) => ({ ...prev, currentCompany: result.message }));
-                      }
-                    }}
-                    error={errors.currentCompany}
-                    autoFilled={autoFilledFields.currentCompany}
-                  />
-                  <DrawerInput
-                    label="Current Designation"
-                    name="currentDesignation"
-                    value={formData.currentDesignation}
-                    onChange={(event) => updateFormData('currentDesignation', event.target.value)}
-                    autoFilled={autoFilledFields.currentDesignation}
-                  />
-                  <DrawerInput
-                    label="Total Experience"
-                    name="experience"
-                    required
-                    value={formData.experience}
-                    onChange={(event) => updateFormData('experience', event.target.value.replace(/[^\d.]/g, ''))}
-                    error={errors.experience}
-                    suffix="years"
-                    autoFilled={autoFilledFields.experience}
-                  />
-                  <DrawerInput
-                    label="Location"
-                    name="location"
-                    value={formData.location}
-                    onChange={(event) => updateFormData('location', event.target.value)}
-                    placeholder="City, Country"
-                    autoFilled={autoFilledFields.location}
-                  />
-                  <div className="sm:col-span-2">
-                    <DrawerInput
-                      label="LinkedIn URL"
-                      name="linkedinUrl"
-                      value={formData.linkedinUrl}
-                      onChange={(event) => updateFormData('linkedinUrl', event.target.value)}
-                      placeholder="https://linkedin.com/in/username"
-                      error={errors.linkedinUrl}
-                      autoFilled={autoFilledFields.linkedinUrl}
-                    />
-                  </div>
-                </div>
-              ) : null}
-
-              {currentStep === 2 ? (
-                <div className="space-y-5">
-                  <SearchableDropdown
-                    label="Apply for Job"
-                    value={formData.jobId}
-                    onSelect={(value) => updateFormData('jobId', value)}
-                    options={jobs}
-                    placeholder="Search and select a job"
-                    getLabel={(job) => job.title}
-                    getSecondary={(job) => job.department}
-                    emptyMessage="No jobs you created yet. Add a job on the Jobs page first."
-                    disabled={lockJobSelection}
-                  />
-
-                  {selectedJob ? (
-                    <div className="space-y-2">
-                      <label className="text-xs font-semibold text-slate-700">Pipeline Stage</label>
-                      <div className="flex flex-wrap gap-2">
-                        {PIPELINE_STAGES.map((stage) => (
-                          <PillButton
-                            key={stage}
-                            active={formData.stage === stage}
-                            onClick={() => updateFormData('stage', stage)}
-                          >
-                            {stage}
-                          </PillButton>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-
-                  <SearchableDropdown
-                    label="Assign Recruiter"
-                    value={formData.recruiterId}
-                    onSelect={(value) => updateFormData('recruiterId', value)}
-                    options={recruiters}
-                    placeholder="Search recruiter"
-                    getLabel={(user) => user.name}
-                    getSecondary={(user) => user.email}
-                    emptyMessage="No recruiters found"
-                  />
-
-                  <DrawerInput
-                    label="Source"
-                    name="source"
-                    required
-                    value={formData.source}
-                    onChange={() => {}}
-                    error={errors.source}
-                    children={
-                      <select
-                        value={formData.source}
-                        onChange={(event) => updateFormData('source', event.target.value)}
-                        className={`w-full rounded-xl border bg-white px-3 py-2.5 text-sm outline-none ${
-                          errors.source ? 'border-red-400' : 'border-slate-200 focus:border-blue-500'
-                        }`}
-                      >
-                        <option value="">Select source</option>
-                        {SOURCE_OPTIONS.map((option) => (
-                          <option key={option} value={option}>
-                            {option}
-                          </option>
-                        ))}
-                      </select>
-                    }
-                  />
-
-                  {['LinkedIn', 'Naukri', 'Indeed'].includes(formData.source) ? (
-                    <DrawerInput
-                      label="Source Profile URL"
-                      name="sourceUrl"
-                      value={formData.sourceUrl}
-                      onChange={(event) => updateFormData('sourceUrl', event.target.value)}
-                      error={errors.sourceUrl}
-                    />
-                  ) : null}
-                  {formData.source === 'Referral' ? (
-                    <DrawerInput
-                      label="Referrer Name"
-                      name="referrerName"
-                      value={formData.referrerName}
-                      onChange={(event) => updateFormData('referrerName', event.target.value)}
-                      error={errors.referrerName}
-                    />
-                  ) : null}
-                  {formData.source === 'Agency' ? (
-                    <DrawerInput
-                      label="Agency Name"
-                      name="agencyName"
-                      value={formData.agencyName}
-                      onChange={(event) => updateFormData('agencyName', event.target.value)}
-                      error={errors.agencyName}
-                    />
-                  ) : null}
-
-                  <div className="space-y-2">
-                    <label className="text-xs font-semibold text-slate-700">Priority</label>
-                    <div className="flex flex-wrap gap-2">
-                      {PRIORITY_OPTIONS.map((priority) => (
-                        <PillButton
-                          key={priority}
-                          active={formData.priority === priority}
-                          onClick={() => updateFormData('priority', priority)}
-                          tone={priority === 'High' ? 'red' : priority === 'Medium' ? 'amber' : 'green'}
-                        >
-                          {priority}
-                        </PillButton>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div ref={(node) => (fieldRefs.current.tags = node)}>
-                    <TagInput
-                      label="Tags"
-                      values={formData.tags}
-                      onChange={(values) => updateFormData('tags', values)}
-                      suggestions={tagSuggestions}
-                      placeholder="Type tag and press Enter"
-                      helperText={errors.tags || 'Max 10 tags'}
-                    />
-                  </div>
-                </div>
-              ) : null}
-
-              {currentStep === 3 ? (
-                <div className="space-y-5">
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_120px]">
-                    <DrawerInput
-                      label="Expected Salary"
-                      name="expectedSalary"
-                      value={formData.expectedSalary}
-                      onChange={(event) => updateFormData('expectedSalary', event.target.value.replace(/[^\d]/g, ''))}
-                      error={errors.expectedSalary}
-                    />
-                    <DrawerInput
-                      label="Currency"
-                      name="currency"
-                      value={formData.currency}
-                      onChange={() => {}}
-                      children={
-                        <select
-                          value={formData.currency}
-                          onChange={(event) => updateFormData('currency', event.target.value)}
-                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                        >
-                          {CURRENCY_OPTIONS.map((currency) => (
-                            <option key={currency} value={currency}>
-                              {currency}
-                            </option>
-                          ))}
-                        </select>
-                      }
-                    />
-                  </div>
-
-                  <DrawerInput
-                    label="Notice Period"
-                    name="noticePeriod"
-                    value={formData.noticePeriod}
-                    onChange={() => {}}
-                    children={
-                      <select
-                        value={formData.noticePeriod}
-                        onChange={(event) => updateFormData('noticePeriod', event.target.value)}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-                      >
-                        {NOTICE_PERIOD_OPTIONS.map((option) => (
-                          <option key={option} value={option}>
-                            {option}
-                          </option>
-                        ))}
-                      </select>
-                    }
-                  />
-
-                  <div className="space-y-2">
-                    <label className="text-xs font-semibold text-slate-700">Availability Status</label>
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                      {AVAILABILITY_OPTIONS.map((option) => (
-                        <PillButton
-                          key={option}
-                          active={formData.availabilityStatus === option}
-                          onClick={() => updateFormData('availabilityStatus', option)}
-                          tone={
-                            option === 'Available'
-                              ? 'green'
-                              : option === 'Interviewing Elsewhere'
-                                ? 'amber'
-                                : 'red'
-                          }
-                        >
-                          {option}
-                        </PillButton>
-                      ))}
-                    </div>
-                  </div>
-
-                  {activeTab !== 'resume' ? (
-                    <div className="space-y-2">
-                      <label className="text-xs font-semibold text-slate-700">Resume Upload</label>
-                      {!manualResumeFile ? (
-                        <label className="flex cursor-pointer items-center justify-between rounded-2xl border border-dashed border-slate-300 px-4 py-4">
-                          <div>
-                            <p className="text-sm font-medium text-slate-700">Upload Resume</p>
-                            <p className="text-xs text-slate-500">PDF, DOC, DOCX · {MAX_RESUME_FILE_LABEL}</p>
-                          </div>
-                          <span className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white">Choose File</span>
-                          <input
-                            type="file"
-                            accept=".pdf,.doc,.docx"
-                            className="hidden"
-                            onChange={(event) => {
-                              const f = event.target.files?.[0] || null;
-                              resumeFileRef.current = f;
-                              setManualResumeFile(f);
-                            }}
-                          />
-                        </label>
-                      ) : (
-                        <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                          <span className="flex items-center gap-2">
-                            <FileText size={16} />
-                            {manualResumeFile.name}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              resumeFileRef.current = parsedResumeFile;
-                              setManualResumeFile(null);
-                            }}
-                            className="text-xs font-semibold"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ) : null}
-
-                  <DrawerInput
-                    label="Portfolio / Website URL"
-                    name="portfolioUrl"
-                    value={formData.portfolioUrl}
-                    onChange={(event) => updateFormData('portfolioUrl', event.target.value)}
-                    placeholder="https://yourportfolio.com"
-                    error={errors.portfolioUrl}
-                    autoFilled={autoFilledFields.portfolioUrl}
-                  />
-
-                  <div ref={(node) => (fieldRefs.current.skills = node)}>
-                    <TagInput
-                      label="Skills"
-                      values={formData.skills}
-                      onChange={(values) => updateFormData('skills', values)}
-                      placeholder="Type skill and press Enter"
-                      autoFilled={Object.keys(autoFilledFields).some((key) => key === 'skills')}
-                      helperText={errors.skills || 'Free text skills, max 10'}
-                      allowCustom
-                      maxItems={10}
-                    />
-                  </div>
-
-                  <DrawerInput
-                    label="Initial Note"
-                    name="initialNote"
-                    value={formData.initialNote}
-                    onChange={() => {}}
-                    error={errors.initialNote}
-                    children={
-                      <div>
-                        <textarea
-                          value={formData.initialNote}
-                          onChange={(event) => updateFormData('initialNote', event.target.value.slice(0, 500))}
-                          placeholder="Add any initial notes about this candidate..."
-                          className={`min-h-[120px] w-full rounded-xl border bg-white px-3 py-2.5 text-sm outline-none ${
-                            errors.initialNote ? 'border-red-400' : 'border-slate-200 focus:border-blue-500'
-                          }`}
-                        />
-                        <div className="mt-1 text-right text-xs text-slate-500">{formData.initialNote.length} / 500</div>
-                      </div>
-                    }
-                  />
-                </div>
-              ) : null}
-            </div>
+            <>
+              <StepProgress currentStep={currentStep} />
+              <AddCandidateFormSections
+              currentStep={currentStep}
+              formData={formData}
+              updateFormData={updateFormData}
+              errors={errors}
+              autoFilledFields={autoFilledFields}
+              fieldRefs={fieldRefs}
+              jobs={jobs}
+              recruiters={recruiters}
+              selectedJob={selectedJob}
+              lockJobSelection={lockJobSelection}
+              manualResumeFile={manualResumeFile}
+              setManualResumeFile={setManualResumeFile}
+              resumeFileRef={resumeFileRef}
+              parsedResumeFile={parsedResumeFile}
+              activeTab={activeTab}
+              avatarPreview={avatarPreview || formData.avatar}
+              onAvatarFile={handleAvatarFile}
+              onAvatarRemove={clearAvatarFile}
+              renderCandidateConflict={renderCandidateConflict}
+              handleDuplicateCheck={handleDuplicateCheck}
+              validateEmail={validateEmail}
+              validateNoDigits={validateNoDigits}
+              stripDigits={stripDigits}
+              maxResumeFileLabel={MAX_RESUME_FILE_LABEL}
+              currencyOptions={CURRENCY_OPTIONS}
+              pipelineStages={PIPELINE_STAGES}
+              sourceOptions={SOURCE_OPTIONS}
+              maritalStatusOptions={MARITAL_STATUS_OPTIONS}
+              proficiencyOptions={PROFICIENCY_OPTIONS}
+            />
+            </>
           )}
         </div>
 
@@ -3186,28 +3064,25 @@ export default function AddCandidateDrawer({
             </div>
           ) : (
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                {currentStep === 1 ? (
-                  <button
-                    type="button"
-                    onClick={handleDrawerClose}
-                    className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700"
-                  >
-                    Cancel
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setCurrentStep((prev) => Math.max(1, prev - 1))}
-                    className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700"
-                  >
-                    ← Back
-                  </button>
-                )}
-              </div>
-
+              {currentStep === 1 ? (
+                <button
+                  type="button"
+                  onClick={handleDrawerClose}
+                  className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700"
+                >
+                  Cancel
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setCurrentStep((prev) => Math.max(1, prev - 1))}
+                  className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700"
+                >
+                  ← Back
+                </button>
+              )}
               <div className="ml-auto flex flex-wrap items-center gap-3">
-                {currentStep < 3 ? (
+                {currentStep < CANDIDATE_FORM_STEPS.length ? (
                   <button
                     type="button"
                     onClick={() => {
@@ -3216,7 +3091,7 @@ export default function AddCandidateDrawer({
                     }}
                     className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white"
                   >
-                    {currentStep === 1 ? 'Next: Job Details →' : 'Next: Professional Details →'}
+                    Next →
                   </button>
                 ) : (
                   <>
@@ -3234,7 +3109,7 @@ export default function AddCandidateDrawer({
                       disabled={isSaving}
                       className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
                     >
-                      {isSaving ? 'Saving...' : 'Save Candidate'}
+                      {isSaving ? 'Submitting...' : 'Submit'}
                     </button>
                   </>
                 )}

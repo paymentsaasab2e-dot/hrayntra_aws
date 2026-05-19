@@ -76,8 +76,9 @@ app.use(cors({
   },
   credentials: true,
 }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+const jsonBodyLimit = process.env.JSON_BODY_LIMIT || '15mb';
+app.use(express.json({ limit: jsonBodyLimit }));
+app.use(express.urlencoded({ extended: true, limit: jsonBodyLimit }));
 app.use(compression());
 app.use(responseTimingMiddleware);
 app.use(requestLoggerMiddleware);

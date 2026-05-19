@@ -65,6 +65,26 @@ function mapStageToMatchStatus(stage) {
   return 'REVIEWED';
 }
 
+const JOB_SALARY_CURRENCY_CODES = new Set(['USD', 'INR', 'EUR', 'GBP', 'AUD', 'CAD', 'SGD', 'AED', 'JPY']);
+
+function normalizeSalaryCurrencyCode(raw) {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed) return undefined;
+  const upper = trimmed.toUpperCase();
+  if (/^[A-Z]{3}$/.test(upper) && JOB_SALARY_CURRENCY_CODES.has(upper)) return upper;
+  const lower = trimmed.toLowerCase();
+  if (lower.includes('rupee') || lower.includes('₹') || lower.includes('india')) return 'INR';
+  if (lower.includes('dollar') || lower.includes('$') || lower.includes('usd')) return 'USD';
+  if (lower.includes('euro') || lower.includes('€') || lower.includes('eur')) return 'EUR';
+  if (lower.includes('pound') || lower.includes('£') || lower.includes('gbp')) return 'GBP';
+  if (lower.includes('aed')) return 'AED';
+  if (lower.includes('sgd')) return 'SGD';
+  if (lower.includes('aud')) return 'AUD';
+  if (lower.includes('cad')) return 'CAD';
+  if (lower.includes('jpy') || lower.includes('yen')) return 'JPY';
+  return upper.length === 3 ? upper : undefined;
+}
+
 function normalizeSalaryData(salary) {
   if (!salary || typeof salary !== 'object') return salary;
 
@@ -89,7 +109,10 @@ function normalizeSalaryData(salary) {
     delete normalized.amount;
   }
 
-  if (normalized.currency != null && String(normalized.currency).trim() === '') delete normalized.currency;
+  const currencyCode = normalizeSalaryCurrencyCode(normalized.currency);
+  if (currencyCode) normalized.currency = currencyCode;
+  else delete normalized.currency;
+
   if (normalized.type != null && String(normalized.type).trim() === '') delete normalized.type;
 
   return Object.keys(normalized).length ? normalized : null;
@@ -572,6 +595,9 @@ export const jobService = {
         assignedTo: {
           select: { id: true, name: true, email: true, avatar: true },
         },
+        manager: {
+          select: { id: true, name: true, email: true },
+        },
         pipelineStages: {
           include: {
             entries: {
@@ -718,6 +744,15 @@ export const jobService = {
       applicationFormQuestions: data.applicationFormQuestions || [],
       applicationFormNote: data.applicationFormNote,
       distributionPlatforms: data.distributionPlatforms,
+      priority: data.priority,
+      nationality: data.nationality,
+      country: data.country,
+      state: data.state,
+      city: data.city,
+      forecastRevenue: data.forecastRevenue,
+      videoMediaLink: data.videoMediaLink,
+      languages: data.languages,
+      supportingRecruiters: data.supportingRecruiters,
     });
 
     if (data.clientId) {
@@ -726,6 +761,10 @@ export const jobService = {
 
     if (data.assignedToId) {
       jobData.assignedTo = { connect: { id: data.assignedToId } };
+    }
+
+    if (data.managerId) {
+      jobData.manager = { connect: { id: data.managerId } };
     }
 
     if (createdByUserId) {
@@ -914,6 +953,14 @@ export const jobService = {
       applicationFormLogo: data.applicationFormLogo,
       applicationFormQuestions: data.applicationFormQuestions,
       applicationFormNote: data.applicationFormNote,
+      nationality: data.nationality,
+      country: data.country,
+      state: data.state,
+      city: data.city,
+      forecastRevenue: data.forecastRevenue,
+      videoMediaLink: data.videoMediaLink,
+      languages: data.languages,
+      managerId: data.managerId,
     });
 
     // Log data being updated

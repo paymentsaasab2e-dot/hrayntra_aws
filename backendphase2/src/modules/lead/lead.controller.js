@@ -2,6 +2,12 @@ import { leadService } from './lead.service.js';
 import { leadNoteService } from './lead-note.service.js';
 import { sendResponse, sendError } from '../../utils/response.js';
 import * as XLSX from 'xlsx';
+import {
+  filterMeaningfulImportColumns,
+  parseImportSheetRows,
+  pickImportWorksheet,
+  slimImportRows,
+} from '../../utils/importSpreadsheet.js';
 
 const LEAD_IMPORT_FIELD_ALIASES = {
   companyName: ['company', 'company name', 'lead company', 'client', 'organization', 'organisation'],
@@ -13,7 +19,20 @@ const LEAD_IMPORT_FIELD_ALIASES = {
   source: ['source', 'lead source'],
   status: ['status', 'lead status'],
   priority: ['priority', 'interest level', 'lead priority'],
-  interestedNeeds: ['services needed', 'service needed', 'interested needs', 'requirements', 'needs'],
+  interestedNeeds: [
+    'services needed',
+    'service needed',
+    'interested needs',
+    'requirements',
+    'needs',
+  ],
+  nextFollowUpDue: [
+    'next follow up date',
+    'next follow-up date',
+    'next followup date',
+    'follow up date',
+    'next follow up',
+  ],
   expectedBusinessValue: ['expected business value', 'expected value', 'business value'],
   notes: ['notes', 'remarks', 'comments'],
   industry: ['industry', 'sector', 'business type'],
@@ -32,10 +51,12 @@ const normalizeHeader = (value = '') =>
   String(value)
     .replace(/\u00a0/g, ' ')
     .trim()
+    .replace(/\s*\*+\s*$/g, '')
     .replace(/([a-z])([A-Z])/g, '$1 $2')
     .toLowerCase()
     .replace(/[_-]+/g, ' ')
-    .replace(/\s+/g, ' ');
+    .replace(/\s+/g, ' ')
+    .trim();
 
 const suggestLeadImportMapping = (columns = []) => {
   const mapping = {};
@@ -115,16 +136,17 @@ export const leadController = {
       }
 
       const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
-      const firstSheetName = workbook.SheetNames[0];
-      const firstSheet = workbook.Sheets[firstSheetName];
+      const { sheetName: firstSheetName, sheet: firstSheet } = pickImportWorksheet(workbook);
 
       if (!firstSheet) {
         return sendError(res, 400, 'Unable to read the uploaded file');
       }
 
-      const rows = XLSX.utils.sheet_to_json(firstSheet, { defval: null });
-      const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
-      const previewRows = rows.slice(0, 8);
+      const rows = parseImportSheetRows(firstSheet, { defval: null });
+      const rawColumns = rows.length > 0 ? Object.keys(rows[0]) : [];
+      const columns = filterMeaningfulImportColumns(rawColumns, rows);
+      const slimRows = slimImportRows(rows, columns);
+      const previewRows = slimRows.slice(0, 8);
       const suggestedMapping = suggestLeadImportMapping(columns);
       const columnStats = Object.fromEntries(
         columns.map((column) => [
@@ -141,7 +163,7 @@ export const leadController = {
         sheetName: firstSheetName,
         columns,
         previewRows,
-        rows,
+        rows: slimRows,
         totalRows: rows.length,
         columnStats,
         suggestedMapping,

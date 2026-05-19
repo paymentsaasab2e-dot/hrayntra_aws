@@ -437,7 +437,6 @@ function ContactsPageContent() {
               onClose={() => setIsImportDrawerOpen(false)}
               onSuccess={async () => {
                 setIsImportDrawerOpen(false);
-                toast.success('Contacts imported successfully');
                 await loadContactsData();
               }}
             />

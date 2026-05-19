@@ -2,10 +2,17 @@
 
 import React, { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { X, Upload, Download, ChevronRight, CheckCircle, AlertCircle } from 'lucide-react';
+import { X, Download, ChevronRight, CheckCircle, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiImportContacts, apiPreviewContactImport } from '../../lib/api';
 import { downloadSampleCsv } from '../../utils/csv';
+import {
+  formatImportSuccessToast,
+  formatUploadSuccessToast,
+  ImportDrawerFooter,
+  ImportUploadSection,
+  useSimulatedProgress,
+} from '../import/importDrawerUi';
 
 interface ImportContactsDrawerProps {
   isOpen: boolean;
@@ -48,6 +55,7 @@ export function ImportContactsDrawer({ isOpen, onClose, onSuccess }: ImportConta
   );
   const [duplicateRule, setDuplicateRule] = useState('skip');
   const [previewRows, setPreviewRows] = useState<Record<string, string | number | boolean | null>[]>([]);
+  const [importRows, setImportRows] = useState<Record<string, string | number | boolean | null>[]>([]);
   const [fileColumns, setFileColumns] = useState<string[]>([]);
   const [columnStats, setColumnStats] = useState<Record<string, number>>({});
   const [sheetName, setSheetName] = useState('');
@@ -55,6 +63,10 @@ export function ImportContactsDrawer({ isOpen, onClose, onSuccess }: ImportConta
   const [isParsing, setIsParsing] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [parseError, setParseError] = useState('');
+  const [fileUploaded, setFileUploaded] = useState(false);
+
+  const uploadProgress = useSimulatedProgress(isParsing);
+  const importProgress = useSimulatedProgress(isImporting);
 
   const hasParsedFile =
     Boolean(fileName) &&
@@ -65,11 +77,10 @@ export function ImportContactsDrawer({ isOpen, onClose, onSuccess }: ImportConta
   const reset = () => {
     setStep(1);
     setFileName('');
-    setColumnMapping(
-      CONTACT_FIELDS.reduce((acc, field) => ({ ...acc, [field.id]: '' }), {})
-    );
+    setColumnMapping(CONTACT_FIELDS.reduce((acc, field) => ({ ...acc, [field.id]: '' }), {}));
     setDuplicateRule('skip');
     setPreviewRows([]);
+    setImportRows([]);
     setFileColumns([]);
     setColumnStats({});
     setSheetName('');
@@ -77,6 +88,9 @@ export function ImportContactsDrawer({ isOpen, onClose, onSuccess }: ImportConta
     setIsParsing(false);
     setIsImporting(false);
     setParseError('');
+    setFileUploaded(false);
+    uploadProgress.reset();
+    importProgress.reset();
   };
 
   const handleClose = () => {
@@ -115,15 +129,19 @@ export function ImportContactsDrawer({ isOpen, onClose, onSuccess }: ImportConta
 
     setFileName(file.name);
     setParseError('');
+    setFileUploaded(false);
     setIsParsing(true);
+    uploadProgress.reset();
 
     try {
       const response = await apiPreviewContactImport(file);
       const preview = response.data;
+      const rows = preview.previewRows || [];
       setSheetName(preview.sheetName || file.name);
       setFileColumns(preview.columns || []);
       setColumnStats(preview.columnStats || {});
-      setPreviewRows(preview.previewRows || []);
+      setPreviewRows(rows);
+      setImportRows((preview as { rows?: typeof rows }).rows || rows);
       setTotalRows(preview.totalRows || 0);
       setColumnMapping(
         CONTACT_FIELDS.reduce(
@@ -134,34 +152,49 @@ export function ImportContactsDrawer({ isOpen, onClose, onSuccess }: ImportConta
           {}
         )
       );
-      setStep(2);
+
+      uploadProgress.finish();
+      setFileUploaded(true);
+      toast.success(formatUploadSuccessToast(preview.totalRows || 0));
     } catch (error: any) {
+      setFileUploaded(false);
+      uploadProgress.reset();
+      toast.error(error.message || 'Failed to read the import file');
       setParseError(error.message || 'Failed to read the import file');
       setFileColumns([]);
       setColumnStats({});
       setPreviewRows([]);
+      setImportRows([]);
       setTotalRows(0);
+      setSheetName('');
     } finally {
       setIsParsing(false);
     }
   };
 
   const handleImport = async () => {
-    if (previewRows.length === 0) return;
+    const rows = importRows.length > 0 ? importRows : previewRows;
+    if (rows.length === 0) return;
 
     setIsImporting(true);
+    importProgress.reset();
+
     try {
       const response = await apiImportContacts({
-        rows: previewRows,
+        rows,
         mapping: columnMapping,
         duplicateRule,
       });
-      const imported = response.data?.imported ?? previewRows.length;
-      toast.success(`${imported} contacts imported successfully`);
-      setStep(3);
+
+      importProgress.finish();
+      const result = response.data;
+      toast.success(formatImportSuccessToast('Contacts', result));
       onSuccess();
+      await new Promise((r) => setTimeout(r, 400));
+      handleClose();
     } catch (error: any) {
       toast.error(error.message || 'Failed to import contacts');
+      importProgress.reset();
     } finally {
       setIsImporting(false);
     }
@@ -200,7 +233,7 @@ export function ImportContactsDrawer({ isOpen, onClose, onSuccess }: ImportConta
         </div>
 
         <div className="shrink-0 border-b border-slate-200 px-5 py-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <motion.div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               {[1, 2, 3].map((s) => (
                 <React.Fragment key={s}>
@@ -228,68 +261,28 @@ export function ImportContactsDrawer({ isOpen, onClose, onSuccess }: ImportConta
               <Download size={16} className="text-blue-600" />
               Download template
             </button>
-          </div>
+          </motion.div>
         </div>
 
         <div className="flex-1 overflow-y-auto bg-slate-50/30 p-5">
           {step === 1 && (
-            <div className="space-y-4">
-              <div
-                className={`rounded-xl border p-5 shadow-sm transition-colors ${
-                  hasParsedFile
-                    ? 'border-blue-300 bg-blue-50/80 ring-1 ring-blue-200/90'
-                    : 'border-slate-200 bg-white'
-                }`}
-              >
-                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Upload file</h4>
-                <p className="text-sm text-slate-600 mb-4">Upload a CSV or Excel file containing your contact data.</p>
-                <label
-                  htmlFor="contacts-import-file"
-                  className={`relative flex cursor-pointer rounded-xl border-2 p-8 transition-colors ${
-                    hasParsedFile
-                      ? 'border-solid border-blue-500 bg-blue-100/50 hover:border-blue-600 hover:bg-blue-100/70'
-                      : 'border-dashed border-slate-200 bg-slate-50/50 hover:border-slate-300 hover:bg-slate-50/80'
-                  }`}
-                >
-                  <input
-                    id="contacts-import-file"
-                    type="file"
-                    accept=".csv,.xlsx,.xls"
-                    className="sr-only"
-                    onChange={(e) => handleFileChange(e.target.files?.[0])}
-                  />
-                  <div className="flex flex-col items-center justify-center gap-2 w-full">
-                    <Upload
-                      size={32}
-                      className={hasParsedFile ? 'text-blue-600' : 'text-slate-400'}
-                    />
-                    <span
-                      className={`text-sm font-medium ${
-                        hasParsedFile ? 'text-blue-900' : 'text-slate-600'
-                      }`}
-                    >
-                      {fileName || (isParsing ? 'Reading file...' : 'Click or drag CSV / XLSX file')}
-                    </span>
-                    <span className={`text-xs ${hasParsedFile ? 'text-blue-800/90' : 'text-slate-400'}`}>
-                      CSV, XLSX up to 10MB
-                    </span>
-                  </div>
-                </label>
-                {parseError ? <p className="mt-3 text-sm text-red-600">{parseError}</p> : null}
-                {sheetName ? (
-                  <div
-                    className={`mt-4 rounded-lg border px-4 py-3 text-sm ${
-                      hasParsedFile
-                        ? 'border-blue-200 bg-blue-50 text-blue-900'
-                        : 'border-transparent bg-transparent text-slate-500'
-                    }`}
-                  >
-                    Parsed sheet: <span className="font-semibold">{sheetName}</span> with{' '}
-                    <span className="font-semibold">{totalRows}</span> rows
-                  </div>
-                ) : null}
-              </div>
-            </div>
+            <motion.div className="space-y-4">
+              <ImportUploadSection
+                inputId="contacts-import-file"
+                uploadDescription="Upload a CSV or Excel file containing your contact data."
+                fileName={fileName}
+                isParsing={isParsing}
+                isImporting={isImporting}
+                fileUploaded={fileUploaded}
+                hasParsedFile={hasParsedFile}
+                parseError={parseError}
+                sheetName={sheetName}
+                totalRows={totalRows}
+                entityLabel="contacts"
+                uploadPercent={uploadProgress.percent}
+                onFileSelect={handleFileChange}
+              />
+            </motion.div>
           )}
 
           {step === 2 && (
@@ -323,7 +316,7 @@ export function ImportContactsDrawer({ isOpen, onClose, onSuccess }: ImportConta
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   {CONTACT_FIELDS.map((field) => (
-                    <div key={field.id} className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+                    <motion.div key={field.id} className="rounded-xl border border-slate-200 bg-white px-4 py-3">
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-xs font-bold uppercase tracking-wider text-slate-400">{field.label}</p>
                         {field.required ? (
@@ -349,7 +342,7 @@ export function ImportContactsDrawer({ isOpen, onClose, onSuccess }: ImportConta
                           ? `Mapped to ${columnMapping[field.id]}`
                           : 'No column selected yet.'}
                       </p>
-                    </div>
+                    </motion.div>
                   ))}
                 </div>
               </div>
@@ -412,47 +405,29 @@ export function ImportContactsDrawer({ isOpen, onClose, onSuccess }: ImportConta
                   <AlertCircle size={14} /> Import note
                 </h4>
                 <p className="text-sm text-amber-800">
-                  Contacts will be imported using the mappings you selected above. If a company name matches an existing client, it will be linked automatically.
+                  Contacts will be imported using the mappings you selected above. If a company name matches an
+                  existing client, it will be linked automatically.
                 </p>
               </div>
             </div>
           )}
         </div>
 
-        <div className="shrink-0 border-t border-slate-200 p-5 flex items-center justify-between bg-white">
-          <div>
-            {step > 1 && (
-              <button
-                type="button"
-                onClick={() => setStep((s) => s - 1)}
-                className="px-4 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors flex items-center gap-2"
-              >
-                Back
-              </button>
-            )}
-          </div>
-          <div className="flex items-center gap-3">
-            {step < 3 ? (
-              <button
-                type="button"
-                onClick={() => setStep((s) => s + 1)}
-                disabled={(step === 1 && (!fileName || isParsing || !!parseError)) || (step === 2 && fileColumns.length === 0)}
-                className="px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Continue
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handleImport}
-                disabled={isImporting || previewRows.length === 0}
-                className="px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isImporting ? 'Importing...' : 'Import'}
-              </button>
-            )}
-          </div>
-        </div>
+        <ImportDrawerFooter
+          step={step}
+          isImporting={isImporting}
+          importPercent={importProgress.percent}
+          importButtonLabel="Import Contacts"
+          importProgressLabel="Importing contacts into CRM…"
+          continueDisabled={
+            (step === 1 && (!fileName || isParsing || !!parseError || !fileUploaded)) ||
+            (step === 2 && fileColumns.length === 0)
+          }
+          importDisabled={isImporting || previewRows.length === 0}
+          onBack={() => setStep((s) => s - 1)}
+          onContinue={() => setStep((s) => s + 1)}
+          onImport={handleImport}
+        />
       </motion.div>
     </AnimatePresence>
   );

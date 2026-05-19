@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { ChevronDown, Filter, Search, SlidersHorizontal, X } from 'lucide-react';
 import type { PlacementFilters } from '../../types/placement';
 import { PH2_TOOLBAR_SELECT_CLASS } from '../layout/Ph2ModulePageLayout';
+import { ALL_STATUS_LABEL } from '../../constants/filterLabels';
 
 interface FiltersBarProps {
   filters: PlacementFilters;
@@ -21,7 +22,7 @@ interface FiltersBarProps {
 }
 
 const statusOptions = [
-  { value: '', label: 'All Status' },
+  { value: '', label: ALL_STATUS_LABEL },
   { value: 'OFFER_ACCEPTED', label: 'Offer Accepted' },
   { value: 'JOINING_SCHEDULED', label: 'Joining Scheduled' },
   { value: 'JOINED', label: 'Joined' },

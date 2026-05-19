@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { SHOW_TABLE_ROW_EDIT_ICON } from '../../constants/tableUi';
 import { 
   CheckSquare, 
   Search, 
@@ -1197,13 +1198,15 @@ export default function App() {
                           >
                             <Eye size={16} strokeWidth={2.25} />
                           </button>
-                          <button
-                            onClick={(e) => handleEditTask(task, e)}
-                            className="flex h-8 w-8 items-center justify-center rounded-xl text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
-                            title="Edit task"
-                          >
-                            <Pencil size={16} strokeWidth={2.25} />
-                          </button>
+                          {SHOW_TABLE_ROW_EDIT_ICON ? (
+                            <button
+                              onClick={(e) => handleEditTask(task, e)}
+                              className="flex h-8 w-8 items-center justify-center rounded-xl text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
+                              title="Edit task"
+                            >
+                              <Pencil size={16} strokeWidth={2.25} />
+                            </button>
+                          ) : null}
                           <button
                             onClick={async (e) => {
                               handleRequestTaskDelete(task, e);

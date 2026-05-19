@@ -1,0 +1,309 @@
+================================================================================
+  OPENAI API — MODEL COST BRIEF FOR SAASA / HRAYNTRA PLATFORM
+  Phase 1 (Job Portal + LMS)  |  Phase 2 (ATS / CRM)
+  Pricing tier: STANDARD only (OpenAI Platform API)
+  Source: https://platform.openai.com/docs/pricing
+  Date prepared: May 2026
+================================================================================
+
+NOTES FOR CLIENT
+----------------
+• All prices below are USD per 1 million tokens unless stated otherwise.
+• "Input" = text/audio you send to the model. "Output" = text the model returns.
+• "Cached input" = repeated context (same instructions/history) billed lower.
+• ChatGPT subscription is separate — this document is for API usage in the product.
+• Today the live codebase mostly uses gpt-4o-mini (cheapest). This brief compares
+  upgrading to gpt-4.1 vs gpt-4o for quality.
+
+• Voice (mock interview microphone): browser speech is FREE today. OpenAI voice
+  APIs are NOT wired yet. If added later, see Section 4 (voice add-on).
+
+================================================================================
+SECTION 1 — GPT-4.1 (STANDARD PRICING + OUR USE CASES)
+================================================================================
+
+MODEL ID (API name): gpt-4.1
+Official pricing page: https://platform.openai.com/docs/pricing
+Model page: https://developers.openai.com/api/docs/models/gpt-4-1
+
+STANDARD PRICE (per 1 million tokens)
+-------------------------------------
+  Input tokens:          $2.00
+  Cached input tokens:   $0.50
+  Output tokens:         $8.00
+
+Also available (same family, cheaper variants):
+  gpt-4.1-mini   —  $0.40 in  |  $0.10 cached  |  $1.60 out  (per 1M)
+  gpt-4.1-nano   —  $0.10 in  |  $0.025 cached |  $0.40 out  (per 1M)
+
+WHY GPT-4.1 FOR OUR PRODUCT
+---------------------------
+  • Strong at JSON, tools, and structured resume/JD parsing
+  • Slightly cheaper OUTPUT than gpt-4o ($8 vs $10 per 1M output tokens)
+  • Good default for "quality upgrade" from gpt-4o-mini
+
+--------------------------------------------------------------------------------
+PHASE 1 — JOB PORTAL / LMS (backend1) — FEATURES USING AI
+--------------------------------------------------------------------------------
+
+  # | Feature (what the user sees)              | Typical AI job           | Fit with 4.1
+  --|-------------------------------------------|--------------------------|---------------
+  1 | Upload resume → auto-fill profile         | Parse PDF/text → JSON    | Excellent
+  2 | AI summary on candidate profile           | Short text generation    | Excellent
+  3 | CV / resume editor "improve paragraph"    | Rewrite + tone           | Excellent
+  4 | Job ↔ candidate match (similarity)        | Embeddings (see below)   | N/A (not 4.1)
+  5 | Match score + "why this fit" explanation  | Scoring + narrative      | Excellent
+  6 | Matching pipeline (skills, roles, boosts) | Multi-step LLM calls     | Excellent
+  7 | Field-by-field match hints                | Small structured hints   | Excellent
+  8 | Practice / mock interview (text chat)     | Multi-turn Q&A           | Excellent
+  9 | LMS dashboard insights & tips             | Summaries / coaching     | Excellent
+ 10 | LMS auto interview Q + answer scoring     | Q gen + rubric scoring   | Excellent
+ 11 | LMS smart actions (ATS check, research…)  | Tools + long context     | Excellent
+ 12 | Fill CV section from conversation         | Structured extraction    | Excellent
+
+  Embeddings for match similarity (Phase 1):
+    Model: text-embedding-3-large (recommended) — $0.13 / 1M tokens (Standard)
+    Cheaper option: text-embedding-3-small — $0.02 / 1M tokens (Standard)
+
+--------------------------------------------------------------------------------
+PHASE 2 — ATS / CRM (backendphase2) — FEATURES USING AI
+--------------------------------------------------------------------------------
+
+  # | Feature (what the user sees)              | Typical AI job           | Fit with 4.1
+  --|-------------------------------------------|--------------------------|---------------
+  1 | Matches page — AI job/candidate ranking   | Pipeline + explanations  | Excellent
+  2 | Bulk / single resume → candidate record   | Parse → JSON fields      | Excellent
+  3 | In-app floating assistant (CRM actions)   | Tools + chat + JSON      | Excellent
+  4 | AI write / polish job description         | JSON schema output       | Excellent
+  5 | AI optimize lead from notes               | JSON schema output       | Excellent
+  6 | Aria — lead intents, duplicates, hints    | Chat + structured data   | Excellent
+  7 | Interview feedback → short AI summary     | Summary generation       | Excellent
+  8 | Company services typeahead (suggestions)  | Small completion         | Good (overkill vs mini)
+
+  Env variable to set in Phase 2: OPENAI_ASSISTANT_MODEL=gpt-4.1
+
+--------------------------------------------------------------------------------
+ROUGH COST EXAMPLE WITH GPT-4.1 (one typical API call)
+--------------------------------------------------------------------------------
+  Example: Resume parse — 8,000 input tokens + 2,000 output tokens
+    Input:  8,000 / 1,000,000 × $2.00  = $0.016
+    Output: 2,000 / 1,000,000 × $8.00  = $0.016
+    Total per resume parse ≈ $0.032
+
+  Example: Assistant reply — 3,000 input + 800 output
+    Total ≈ $0.012 per message
+
+  (Actual bills depend on volume, prompt size, and caching.)
+
+================================================================================
+SECTION 2 — GPT-4o (STANDARD PRICING + OUR USE CASES)
+================================================================================
+
+MODEL ID (API name): gpt-4o
+Official pricing page: https://platform.openai.com/docs/pricing
+Model page: https://developers.openai.com/api/docs/models/gpt-4o
+
+STANDARD PRICE (per 1 million tokens)
+-------------------------------------
+  Input tokens:          $2.50
+  Cached input tokens:   $1.25
+  Output tokens:         $10.00
+
+Legacy snapshot (avoid unless required):
+  gpt-4o-2024-05-13 — $5.00 in | no cached | $15.00 out (per 1M)
+
+WHY GPT-4o FOR OUR PRODUCT
+--------------------------
+  • Best-known multimodal model (text + images if we add screenshots/PDF vision)
+  • Very natural dialogue — good for mock interview and assistant chat
+  • Slightly higher cost than gpt-4.1 on both input and output
+  • Already used in Phase 1 for some resume parsing (gpt-4o in code paths)
+
+--------------------------------------------------------------------------------
+PHASE 1 — JOB PORTAL / LMS (backend1) — GPT-4o USE CASES
+--------------------------------------------------------------------------------
+
+  # | Use case (client-facing)                  | What GPT-4o does              | Priority
+  --|-------------------------------------------|-------------------------------|----------
+  1 | Resume upload → profile auto-fill         | Reads resume text (or image   | High
+    |                                           | if vision enabled); extracts  |
+    |                                           | name, skills, jobs, education |
+    |                                           | into structured profile JSON  |
+  2 | Candidate profile AI summary              | Writes a short professional   | Medium
+    |                                           | summary from profile data     |
+  3 | CV / resume editor — improve text         | Rewrites bullet points and    | High
+    |                                           | summaries; keeps user tone    |
+  4 | Job ↔ candidate similarity search         | NOT gpt-4o — use embeddings   | N/A
+    |                                           | (text-embedding-3-large/small)|
+  5 | Match score + "why this fit" text         | Explains fit between candidate| High
+    |                                           | and job in plain language     |
+  6 | Job matching pipeline                     | Multi-pass scoring: skills,   | High
+    |                                           | role fit, cultural fit, boosts |
+  7 | Field-by-field match hints                | Small hints per field (e.g.   | Medium
+    |                                           | "missing certification X")    |
+  8 | Practice / mock interview (text)          | Acts as interviewer; asks     | High — BEST
+    |                                           | follow-ups; natural dialogue  | use for 4o
+  9 | LMS — dashboard insights & tips           | Coaching text, roadmap tips,  | Medium
+    |                                           | daily nudges                  |
+ 10 | LMS — auto interview questions + scoring  | Generates questions; scores   | High
+    |                                           | candidate answers with rubric |
+ 11 | LMS — smart actions                       | ATS check, company research,  | High
+    |                                           | resume sections, goals, notes |
+ 12 | Fill CV section from conversation         | User chats; AI fills CV       | High
+    |                                           | sections with structured data |
+
+  Phase 1 code note: resume parser uses gpt-4o in some paths; most LMS/chat
+  paths use gpt-4o-mini today. Upgrade interview + parsing to gpt-4o for UX.
+
+--------------------------------------------------------------------------------
+PHASE 2 — ATS / CRM (backendphase2) — GPT-4o USE CASES
+--------------------------------------------------------------------------------
+
+  # | Use case (client-facing)                  | What GPT-4o does              | Priority
+  --|-------------------------------------------|-------------------------------|----------
+  1 | Matches page — AI ranking                 | Scores candidates vs job;     | High
+    | (jobMatchEngine)                          | stores explanations; 4-pass   |
+    |                                           | pipeline where configured     |
+  2 | Resume ingest (bulk + single upload)      | Parses CV files into CRM      | High
+    |                                           | candidate fields (same as P1) |
+  3 | Floating in-app assistant               | Chat in ATS; runs tools;      | High — BEST
+    |                                           | suggests CRM actions (add     | use for 4o
+    |                                           | lead, update job, etc.)       |
+  4 | AI job description writer                 | Drafts JD from title/notes;   | High
+    |                                           | returns structured form JSON  |
+  5 | AI optimize lead from notes               | Turns messy lead notes into   | Medium
+    |                                           | clean structured lead fields  |
+  6 | Aria — lead assistant                     | Natural language on leads:    | Medium
+    |                                           | duplicates, intents, next     |
+    |                                           | steps (code: gpt-4o-mini now) |
+  7 | Interview feedback → AI summary             | Short summary after recruiter | Medium
+    |                                           | saves interview feedback      |
+  8 | Company services typeahead                | AI suggests services when     | Low
+    | (Leads / Clients drawers)                 | typing (mini is enough)       |
+
+  Phase 2 env: OPENAI_ASSISTANT_MODEL=gpt-4o
+  Job match env (optional): OPENAI_JOB_MATCH_MODEL=gpt-4o
+
+--------------------------------------------------------------------------------
+WHEN TO CHOOSE GPT-4o (vs 4.1 or 4o-mini) — QUICK GUIDE
+--------------------------------------------------------------------------------
+
+  Use gpt-4o when:
+    • Mock interview / practice chat needs the most human-like tone
+    • CRM floating assistant must follow complex instructions + tools
+    • You may add image/PDF vision on resumes or screenshots later
+    • Client wants "premium AI" quality on candidate-facing features
+
+  Use gpt-4o-mini instead when:
+    • High volume, low risk (typeahead, simple suggestions, Aria at scale)
+    • Cost is the main constraint
+
+  Use gpt-4.1 instead when:
+    • Heavy JSON/schema output (JD forms, lead optimize) at lower $ than 4o
+    • Output token cost matters more than dialogue naturalness
+
+--------------------------------------------------------------------------------
+ROUGH COST EXAMPLE WITH GPT-4o (same workloads as Section 1)
+--------------------------------------------------------------------------------
+  Example: Resume parse — 8,000 input + 2,000 output
+    Input:  8,000 / 1,000,000 × $2.50  = $0.020
+    Output: 2,000 / 1,000,000 × $10.00 = $0.020
+    Total per resume parse ≈ $0.040  (~25% more than gpt-4.1 for this example)
+
+  Example: Assistant reply — 3,000 input + 800 output
+    Total ≈ $0.015 per message
+
+================================================================================
+SECTION 3 — COMPARISON: WHICH IS BEST vs CHEAPEST FOR OUR USE CASES
+================================================================================
+
+CURRENT PRODUCTION DEFAULT (in code today)
+------------------------------------------
+  Model: gpt-4o-mini
+  Standard price: $0.15 in | $0.075 cached | $0.60 out (per 1M tokens)
+  ~13× cheaper on input and ~13× cheaper on output vs gpt-4.1
+  Best for: high volume, typeahead, simple suggestions, cost control
+  Trade-off: weaker JSON/tool accuracy vs gpt-4.1 / gpt-4o
+
+SIDE-BY-SIDE (Standard, per 1M tokens)
+--------------------------------------
+  Model          | Input  | Cached in | Output | Best for our platform
+  ---------------|--------|-----------|--------|------------------------------------------
+  gpt-4o-mini    | $0.15  | $0.075    | $0.60  | CHEAPEST — keep for bulk/low-risk AI
+  gpt-4.1        | $2.00  | $0.50     | $8.00  | BEST VALUE quality upgrade
+  gpt-4.1-mini   | $0.40  | $0.10     | $1.60  | Middle tier — parsing at lower cost
+  gpt-4o         | $2.50  | $1.25     | $10.00 | BEST dialogue + multimodal future
+  gpt-4o-mini    | (same as row 1)     |        | (duplicate — cheapest chat)
+
+RECOMMENDATION FOR CLIENT (practical rollout)
+---------------------------------------------
+
+  TIER A — CHEAPEST (status quo)
+    Use: gpt-4o-mini everywhere possible
+    Phase 1 + Phase 2: matching helpers, Aria, services suggest, high-volume chat
+    Est. relative cost: 1× (baseline)
+
+  TIER B — BALANCED (recommended production mix)
+    Use: gpt-4o-mini for light tasks
+    Use: gpt-4.1 for resume parse, JD/lead JSON, assistant tools, match narratives
+    Embeddings: text-embedding-3-large for match quality
+    Est. relative cost: ~3–8× vs Tier A (depends on how many calls use 4.1)
+
+  TIER C — HIGHEST QUALITY
+    Use: gpt-4o for mock interview, assistant, and anything needing best UX tone
+    Use: gpt-4.1 for heavy JSON parsing (optional split)
+    Est. relative cost: ~4–10× vs Tier A
+
+  WINNER BY CATEGORY
+    Cheapest overall:        gpt-4o-mini (current default)
+    Best quality per dollar: gpt-4.1 (structured work + lower output $ than 4o)
+    Best conversation UX:    gpt-4o (interview bot, assistant chat)
+    Best job similarity:     text-embedding-3-large (not a chat model)
+
+  SIMPLE CLIENT MESSAGE
+    "We can keep costs low with gpt-4o-mini for routine AI. For resume parsing,
+     CRM assistant, and match explanations, gpt-4.1 offers the best balance of
+     accuracy and price. gpt-4o is the premium option for natural interview
+     dialogue and future image/document vision."
+
+================================================================================
+SECTION 4 — VOICE (OPTIONAL FUTURE — NOT IN CODE TODAY)
+================================================================================
+
+Mock interview today uses browser speech (no OpenAI voice charge).
+
+If we add OpenAI voice later (Standard):
+
+  Speech-to-text (user speaks)
+    whisper-1              $0.006 per minute  (cheapest)
+    gpt-4o-mini-transcribe $1.25 in / $5 out per 1M audio tokens
+    gpt-4o-transcribe      $2.50 in / $10 out per 1M audio tokens
+
+  Text-to-speech (AI speaks)
+    tts-1                  $15.00 per 1M characters
+    gpt-4o-mini-tts        $0.60 text in / $12 audio out per 1M tokens
+
+  Full voice agent (one session)
+    gpt-realtime-2         Text: $4 in / $24 out | Audio: $32 in / $64 out (per 1M)
+
+  Recommended voice stack (cheap): whisper-1 + gpt-4o-mini (text) + gpt-4o-mini-tts
+  Recommended voice stack (premium): gpt-realtime-2
+
+  Guide: https://platform.openai.com/docs/guides/text-to-speech
+         https://developers.openai.com/api/docs/guides/realtime-costs
+
+================================================================================
+SECTION 5 — OFFICIAL LINKS (send with this document)
+================================================================================
+
+  Main Standard pricing:     https://platform.openai.com/docs/pricing
+  Public pricing summary:  https://openai.com/api/pricing/
+  gpt-4.1 model:           https://developers.openai.com/api/docs/models/gpt-4-1
+  gpt-4o model:            https://developers.openai.com/api/docs/models/gpt-4o
+  gpt-4o-mini model:       https://developers.openai.com/api/docs/models/gpt-4o-mini
+  Embeddings:              https://developers.openai.com/api/docs/models/text-embedding-3-large
+  Internal feature list:   hrayntra_aws/docs/OPENAI_FEATURES_PHASE1_PHASE2.md
+
+================================================================================
+END OF DOCUMENT
+================================================================================

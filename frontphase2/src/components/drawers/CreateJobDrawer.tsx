@@ -8,7 +8,6 @@ import {
   ChevronUp,
   Plus,
   Check,
-  Sparkles,
   Upload,
   Info,
   Linkedin,
@@ -25,6 +24,7 @@ import {
   apiUpdateJob,
   apiGetJob,
   apiGetClients,
+  apiGetContacts,
   apiGenerateJobDescription,
   apiUploadJobFile,
   filesApiUpload,
@@ -41,6 +41,11 @@ import { LinkedInPostPreview } from '../LinkedInPostPreview';
 import { useLinkedIn } from '../../hooks/useLinkedIn';
 import { requestError, requestInfo, requestWarning } from '../../lib/appDialog';
 import { clampDateTimeLocalToMin, getLocalDateTimeInputMinNow } from '../../utils/dateInputConstraints';
+import { CreateJobDetailsForm, type CreateJobDetailsFormData } from './CreateJobDetailsForm';
+import { normalizeJobSalaryCurrency } from '../../constants/jobSalary';
+import { getCachedOrgDefaultCurrency } from '../../lib/api';
+import { CreateJobEntryOptions } from './CreateJobEntryOptions';
+import { DocumentUploadButton, useDocumentUploadFeedback } from '../import/documentUploadUi';
 
 type ApplicationLogoOption = 'account' | 'company' | 'none' | 'custom';
 
@@ -196,7 +201,10 @@ export function CreateJobDrawer({
   const [loadingClients, setLoadingClients] = useState(false);
   const [users, setUsers] = useState<BackendUser[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
+  const [contacts, setContacts] = useState<{ id: string; name: string }[]>([]);
+  const [loadingContacts, setLoadingContacts] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
+  const [isExtractingJd, setIsExtractingJd] = useState(false);
   const [showAiPromptBox, setShowAiPromptBox] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiDrawerError, setAiDrawerError] = useState('');
@@ -228,7 +236,6 @@ export function CreateJobDrawer({
   // Accordion state
   const [accordions, setAccordions] = useState<AccordionSection[]>([
     { id: 'details', label: 'Job Details', isOpen: true },
-    { id: 'description', label: 'Job Description', isOpen: true },
     { id: 'application', label: 'Job Application Form', isOpen: false },
     { id: 'publish', label: 'Publish & Share', isOpen: false },
   ]);
@@ -236,9 +243,20 @@ export function CreateJobDrawer({
   // Form state - Section 1: Job Details
   const [formData, setFormData] = useState({
     // Job Details
+    nationality: '',
     jobTitle: '',
+    priority: 'Medium',
     numberOfOpenings: '1',
     companyId: '',
+    contactPersonId: '',
+    contactPersonName: '',
+    industryType: '',
+    employmentType: '',
+    targetHireDate: '',
+    videoMediaLink: '',
+    forecastRevenue: '',
+    managerId: '',
+    languages: [] as { language: string; proficiency: string }[],
     /** Assigned recruiter / owner (User id) */
     assignedToId: '',
     
@@ -252,10 +270,12 @@ export function CreateJobDrawer({
     keyResponsibilitiesText: '',
     qualificationsExperienceText: '',
     compensationBenefitsText: '',
-    minExperience: '0 Year',
+    minExperience: '',
     maxExperience: '',
+    payRangeMin: '',
+    payRangeMax: '',
     salaryType: 'Annual Salary',
-    currency: 'Rupees (₹ - India)',
+    currency: normalizeJobSalaryCurrency(getCachedOrgDefaultCurrency()),
     minSalary: '',
     maxSalary: '',
     educationalQualification: '',
@@ -312,11 +332,14 @@ export function CreateJobDrawer({
   // JD file upload state
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
-  const [existingJdFileName, setExistingJdFileName] = useState<string>('');
+  const [existingOtherDocName, setExistingOtherDocName] = useState('');
   const [uploadingApplicationLogo, setUploadingApplicationLogo] = useState(false);
+  const logoUploadFeedback = useDocumentUploadFeedback(uploadingApplicationLogo);
   const applicationLogoInputRef = useRef<HTMLInputElement>(null);
   const [dropdownsOpen, setDropdownsOpen] = useState({
     company: false,
+    contact: false,
+    manager: false,
     recruiter: false,
     jobType: false,
     locationType: false,
@@ -339,9 +362,20 @@ export function CreateJobDrawer({
     if (!isOpen) {
       // Reset form when drawer closes
       setFormData({
+        nationality: '',
         jobTitle: '',
+        priority: 'Medium',
         numberOfOpenings: '1',
         companyId: '',
+        contactPersonId: '',
+        contactPersonName: '',
+        industryType: '',
+        employmentType: '',
+        targetHireDate: '',
+        videoMediaLink: '',
+        forecastRevenue: '',
+        managerId: '',
+        languages: [],
         assignedToId: '',
         jobDescriptionHtml: '',
         jobLocation: '',
@@ -352,10 +386,12 @@ export function CreateJobDrawer({
         keyResponsibilitiesText: '',
         qualificationsExperienceText: '',
         compensationBenefitsText: '',
-        minExperience: '0 Year',
+        minExperience: '',
         maxExperience: '',
+        payRangeMin: '',
+        payRangeMax: '',
         salaryType: 'Annual Salary',
-        currency: 'Rupees (₹ - India)',
+        currency: normalizeJobSalaryCurrency(getCachedOrgDefaultCurrency()),
         minSalary: '',
         maxSalary: '',
         educationalQualification: '',
@@ -402,7 +438,8 @@ export function CreateJobDrawer({
       });
       setSkillInput('');
       setUploadedFile(null);
-      setExistingJdFileName('');
+      setExistingOtherDocName('');
+      setContacts([]);
       setShowAiPromptBox(false);
       setAiPrompt('');
       setAiDrawerError('');
@@ -433,6 +470,46 @@ export function CreateJobDrawer({
       setFormData((prev) => ({ ...prev, companyId: defaultClientId }));
     }
   }, [isOpen, defaultClientId, jobId, duplicateFromJobId]);
+
+  useEffect(() => {
+    if (!isOpen || !formData.companyId) {
+      setContacts([]);
+      return;
+    }
+
+    let cancelled = false;
+    const loadContacts = async () => {
+      try {
+        setLoadingContacts(true);
+        const response = await apiGetContacts({ clientId: formData.companyId });
+        const raw = (response as { data?: unknown }).data;
+        const list = Array.isArray(raw)
+          ? raw
+          : raw && typeof raw === 'object' && Array.isArray((raw as { data?: unknown }).data)
+            ? (raw as { data: unknown[] }).data
+            : [];
+        if (cancelled) return;
+        setContacts(
+          list.map((item: { id?: string; firstName?: string; lastName?: string; name?: string }) => {
+            const name =
+              [item.firstName, item.lastName].filter(Boolean).join(' ').trim() ||
+              String(item.name || '').trim() ||
+              'Contact';
+            return { id: String(item.id || ''), name };
+          }).filter((c) => c.id)
+        );
+      } catch {
+        if (!cancelled) setContacts([]);
+      } finally {
+        if (!cancelled) setLoadingContacts(false);
+      }
+    };
+
+    void loadContacts();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, formData.companyId]);
 
   // Load data on mount
   useEffect(() => {
@@ -560,7 +637,7 @@ export function CreateJobDrawer({
       
       const salary = job.salary || {};
       const salaryType = salary.type || 'Annual Salary';
-      const currency = salary.currency || 'Rupees (₹ - India)';
+      const currency = normalizeJobSalaryCurrency(salary.currency || getCachedOrgDefaultCurrency());
       let minSalary = salary.min != null ? String(salary.min) : '';
       let maxSalary = salary.max != null ? String(salary.max) : '';
       if (!minSalary && !maxSalary && typeof salary.amount === 'string') {
@@ -695,7 +772,7 @@ export function CreateJobDrawer({
       
       // Get JD file name if available
       const jdFileName = job.jdFileName || '';
-      setExistingJdFileName(jdFileName);
+      setExistingOtherDocName(jdFileName);
 
       const plainDescription = stripHtml(job.description || '');
       const responsibilitiesText =
@@ -730,11 +807,52 @@ export function CreateJobDrawer({
         parsedLogoOption = rawAppLogo;
       }
       
+      const jobExtras = job as {
+        nationality?: string;
+        country?: string;
+        state?: string;
+        city?: string;
+        priority?: string;
+        jobCategory?: string;
+        forecastRevenue?: string;
+        videoMediaLink?: string;
+        languages?: { language?: string; proficiency?: string }[];
+        managerId?: string;
+        hiringManager?: string;
+        hiringManagerId?: string;
+        expectedClosureDate?: string;
+      };
+
+      const targetHireDate = jobExtras.expectedClosureDate
+        ? String(jobExtras.expectedClosureDate).split('T')[0]
+        : '';
+
       setFormData(prev => ({
         ...prev,
+        nationality: jobExtras.nationality || '',
         jobTitle: isDuplicateMode ? `${job.title || ''} Copy` : (job.title || ''),
+        priority: jobExtras.priority || 'Medium',
         companyId: job.clientId || '',
+        contactPersonId: jobExtras.hiringManagerId || '',
+        contactPersonName: jobExtras.hiringManager || '',
         numberOfOpenings: String(job.openings || 1),
+        country: jobExtras.country || country,
+        state: jobExtras.state || state,
+        city: jobExtras.city || city,
+        industryType: jobExtras.jobCategory || '',
+        employmentType: mapJobTypeFromBackend(job.type),
+        targetHireDate,
+        videoMediaLink: jobExtras.videoMediaLink || '',
+        forecastRevenue: jobExtras.forecastRevenue || '',
+        managerId: jobExtras.managerId || '',
+        languages: Array.isArray(jobExtras.languages)
+          ? jobExtras.languages
+              .map((row) => ({
+                language: String(row.language || '').trim(),
+                proficiency: String(row.proficiency || 'Conversational').trim(),
+              }))
+              .filter((row) => row.language)
+          : [],
         jobDescriptionHtml: job.description || '',
         jobLocation: location,
         jobType: mapJobTypeFromBackend(job.type),
@@ -746,6 +864,8 @@ export function CreateJobDrawer({
         compensationBenefitsText: benefitsText,
         minExperience,
         maxExperience,
+        payRangeMin: minSalary,
+        payRangeMax: maxSalary,
         salaryType,
         currency,
         minSalary,
@@ -1149,6 +1269,71 @@ export function CreateJobDrawer({
     resetAiConversation();
   };
 
+  const readFileAsText = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsText(file);
+    });
+
+  const handleJdFromFile = async (file: File) => {
+    if (!file) return;
+
+    const maxBytes = 5 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      void requestWarning('Job description file must be smaller than 5MB.');
+      return;
+    }
+
+    setUploadedFile(file);
+    setExistingOtherDocName(file.name);
+
+    let jdText = '';
+    const isPlainText =
+      file.type.startsWith('text/') || /\.(txt|md)$/i.test(file.name);
+
+    try {
+      if (isPlainText) {
+        jdText = (await readFileAsText(file)).trim();
+      } else {
+        jdText = (await readFileAsText(file).catch(() => '')).trim();
+      }
+    } catch {
+      void requestError('Could not read the uploaded file.');
+      return;
+    }
+
+    if (!jdText) {
+      void requestWarning(
+        'Could not extract text from this file. Upload a .txt job description or use Generate JD with AI.'
+      );
+      return;
+    }
+
+    setIsExtractingJd(true);
+    try {
+      await handleAiAssist(
+        [
+          'Extract structured job posting data from the job description below.',
+          'Infer job title, skills, experience range, qualifications, responsibilities, benefits, and workplace details.',
+          'Return a polished HTML job description and normalized fields.',
+          '',
+          jdText.slice(0, 14000),
+        ].join('\n')
+      );
+      setAccordions((prev) =>
+        prev.map((section) => ({
+          ...section,
+          isOpen: section.id === 'details',
+        }))
+      );
+      void requestInfo('AI extracted job details from your JD. Review the fields below.');
+    } finally {
+      setIsExtractingJd(false);
+    }
+  };
+
   const handleFinalizeAiJob = () => {
     setAccordions((prev) =>
       prev.map((section) => ({
@@ -1299,13 +1484,26 @@ export function CreateJobDrawer({
       void requestWarning('Number of Openings is required');
       return;
     }
+    if (!formData.country.trim()) {
+      void requestWarning('Country is required');
+      return;
+    }
+    if (!formData.targetHireDate) {
+      void requestWarning('Target Hire Date is required');
+      return;
+    }
 
     try {
       setLoading(true);
       
       // Map UI form values to API payload
-      const parsedMinExp = parseInt(formData.minExperience) || undefined;
-      const parsedMaxExp = parseInt(formData.maxExperience) || undefined;
+      const parsedMinExp = parseInt(String(formData.minExperience).replace(/\D/g, ''), 10);
+      const parsedMaxExp = parseInt(String(formData.maxExperience).replace(/\D/g, ''), 10);
+      const payMin = formData.payRangeMin !== '' ? Number(formData.payRangeMin) : formData.minSalary !== '' ? Number(formData.minSalary) : NaN;
+      const payMax = formData.payRangeMax !== '' ? Number(formData.payRangeMax) : formData.maxSalary !== '' ? Number(formData.maxSalary) : NaN;
+
+      const locationParts = [formData.city, formData.state, formData.country].map((v) => v?.trim()).filter(Boolean);
+      const composedLocation = locationParts.join(', ') || formData.jobLocation || undefined;
 
       // Map UI job type to backend enum
       const mapJobType = (value: string): CreateJobData['type'] => {
@@ -1358,15 +1556,33 @@ export function CreateJobDrawer({
         clientId: formData.companyId,
         openings: parseInt(formData.numberOfOpenings) || 1,
         // Core job fields
-        type: mapJobType(formData.jobType),
+        type: mapJobType(formData.employmentType || formData.jobType),
         status: 'OPEN',
-        location: formData.jobLocation || undefined,
+        location: composedLocation,
         requirements: qualifications,
-        skills: [],
+        skills: formData.skills,
+        priority: formData.priority || undefined,
+        nationality: formData.nationality.trim() || undefined,
+        country: formData.country.trim() || undefined,
+        state: formData.state.trim() || undefined,
+        city: formData.city.trim() || undefined,
+        forecastRevenue: formData.forecastRevenue.trim() || undefined,
+        videoMediaLink: formData.videoMediaLink.trim() || undefined,
+        languages: formData.languages
+          .map((row) => ({
+            language: row.language.trim(),
+            proficiency: row.proficiency.trim(),
+          }))
+          .filter((row) => row.language),
+        managerId: formData.managerId || undefined,
+        hiringManager: formData.contactPersonName.trim() || undefined,
+        hiringManagerId: formData.contactPersonId || undefined,
+        jobCategory: formData.industryType.trim() || undefined,
+        expectedClosureDate: formData.targetHireDate || undefined,
         keyResponsibilities,
         experienceRequired:
-          parsedMinExp !== undefined || parsedMaxExp !== undefined
-            ? `${parsedMinExp ?? ''}${parsedMaxExp !== undefined ? `-${parsedMaxExp}` : ''}`.trim()
+          Number.isFinite(parsedMinExp) || Number.isFinite(parsedMaxExp)
+            ? `${Number.isFinite(parsedMinExp) ? parsedMinExp : ''}${Number.isFinite(parsedMaxExp) ? `-${parsedMaxExp}` : ''}`.trim()
             : undefined,
         // Combine qualification and specialization for education field
         education: formData.educationalQualification 
@@ -1375,17 +1591,14 @@ export function CreateJobDrawer({
               : formData.educationalQualification)
           : undefined,
         salary: (() => {
-          const minNum = formData.minSalary !== '' ? Number(formData.minSalary) : NaN;
-          const maxNum = formData.maxSalary !== '' ? Number(formData.maxSalary) : NaN;
-          const hasMin = Number.isFinite(minNum);
-          const hasMax = Number.isFinite(maxNum);
+          const hasMin = Number.isFinite(payMin);
+          const hasMax = Number.isFinite(payMax);
           if (!hasMin && !hasMax && !formData.salaryInput) return undefined;
           return {
-            min: hasMin ? minNum : undefined,
-            max: hasMax ? maxNum : undefined,
-            currency: formData.currency || undefined,
+            min: hasMin ? payMin : undefined,
+            max: hasMax ? payMax : undefined,
+            currency: normalizeJobSalaryCurrency(formData.currency) || undefined,
             type: formData.salaryType || undefined,
-            // legacy free-form (kept so AI/preview screens keep working)
             amount: formData.salaryInput || undefined,
           };
         })(),
@@ -1468,7 +1681,7 @@ export function CreateJobDrawer({
       if (uploadedFile && createdJobId) {
         try {
           setUploadingFile(true);
-          await apiUploadJobFile(createdJobId, uploadedFile, 'JD');
+          await apiUploadJobFile(createdJobId, uploadedFile, 'Other');
           console.log('Job description file uploaded successfully');
         } catch (error: any) {
           console.error('Failed to upload file:', error);
@@ -1508,9 +1721,11 @@ export function CreateJobDrawer({
     setFormData(prev => ({ ...prev, skills: prev.skills.filter((_, i) => i !== index) }));
   };
 
-  const handleApplicationLogoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
+  const handleApplicationLogoFileChange = async (
+    source: React.ChangeEvent<HTMLInputElement> | File
+  ) => {
+    const file = source instanceof File ? source : source.target.files?.[0];
+    if (!(source instanceof File) && source.target) source.target.value = '';
     if (!file) return;
     if (!file.type.startsWith('image/')) {
       void requestWarning('Please choose an image file (PNG, JPG, WebP, etc.)');
@@ -1539,18 +1754,92 @@ export function CreateJobDrawer({
       const url = res.data?.fileUrl;
       if (!url) throw new Error('Upload succeeded but no file URL was returned.');
       setFormData((prev) => ({ ...prev, logoOption: 'custom', applicationLogoUrl: url }));
+      logoUploadFeedback.markSuccess(file.name);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Upload failed';
+      logoUploadFeedback.markError(message);
       void requestInfo(message);
     } finally {
       setUploadingApplicationLogo(false);
     }
   };
 
-  if (!isOpen) return null;
+  const patchJobDetailsForm = useCallback(
+    (patch: Partial<CreateJobDetailsFormData> | ((prev: CreateJobDetailsFormData) => Partial<CreateJobDetailsFormData>)) => {
+      setFormData((prev) => {
+        const current: CreateJobDetailsFormData = {
+          nationality: prev.nationality,
+          jobTitle: prev.jobTitle,
+          priority: prev.priority,
+          companyId: prev.companyId,
+          contactPersonId: prev.contactPersonId,
+          contactPersonName: prev.contactPersonName,
+          numberOfOpenings: prev.numberOfOpenings,
+          country: prev.country,
+          state: prev.state,
+          city: prev.city,
+          industryType: prev.industryType,
+          employmentType: prev.employmentType,
+          targetHireDate: prev.targetHireDate,
+          minExperience: prev.minExperience,
+          maxExperience: prev.maxExperience,
+          payRangeMin: prev.payRangeMin,
+          payRangeMax: prev.payRangeMax,
+          salaryCurrency: prev.currency,
+          languages: prev.languages,
+          skills: prev.skills,
+          videoMediaLink: prev.videoMediaLink,
+          forecastRevenue: prev.forecastRevenue,
+          managerId: prev.managerId,
+          assignedToId: prev.assignedToId,
+        };
+        const nextPatch = typeof patch === 'function' ? patch(current) : patch;
+        const merged = { ...prev, ...nextPatch };
+        if (
+          'payRangeMin' in nextPatch ||
+          'payRangeMax' in nextPatch ||
+          'salaryCurrency' in nextPatch
+        ) {
+          merged.minSalary = merged.payRangeMin;
+          merged.maxSalary = merged.payRangeMax;
+          const nextCurrency =
+            typeof nextPatch === 'object' && nextPatch && 'salaryCurrency' in nextPatch
+              ? String(nextPatch.salaryCurrency)
+              : merged.currency;
+          merged.currency = normalizeJobSalaryCurrency(nextCurrency);
+        }
+        return merged;
+      });
+    },
+    []
+  );
 
-  const selectedCompany = clients.find(c => c.id === formData.companyId);
-  const selectedRecruiter = users.find((u) => u.id === formData.assignedToId);
+  const jobDetailsFormData: CreateJobDetailsFormData = {
+    nationality: formData.nationality,
+    jobTitle: formData.jobTitle,
+    priority: formData.priority,
+    companyId: formData.companyId,
+    contactPersonId: formData.contactPersonId,
+    contactPersonName: formData.contactPersonName,
+    numberOfOpenings: formData.numberOfOpenings,
+    country: formData.country,
+    state: formData.state,
+    city: formData.city,
+    industryType: formData.industryType,
+    employmentType: formData.employmentType,
+    targetHireDate: formData.targetHireDate,
+    minExperience: formData.minExperience,
+    maxExperience: formData.maxExperience,
+    payRangeMin: formData.payRangeMin,
+    payRangeMax: formData.payRangeMax,
+    salaryCurrency: formData.currency,
+    languages: formData.languages,
+    skills: formData.skills,
+    videoMediaLink: formData.videoMediaLink,
+    forecastRevenue: formData.forecastRevenue,
+    managerId: formData.managerId,
+    assignedToId: formData.assignedToId,
+  };
 
   return (
     <AnimatePresence mode="wait">
@@ -1577,18 +1866,13 @@ export function CreateJobDrawer({
             <div className="shrink-0 border-b border-slate-200 bg-white px-6 py-4 flex items-center justify-between gap-4">
               <div>
                 <h2 className="text-lg font-bold text-slate-900">{isEditMode ? 'Edit Job' : 'Add Job'}</h2>
-                <p className="text-sm text-slate-500">Fill the title, then generate the job description with AI.</p>
+                <p className="text-sm text-slate-500">
+                  {isEditMode
+                    ? 'Update job details, description, and publishing options.'
+                    : 'Upload a JD or generate one with AI, then complete the job details.'}
+                </p>
               </div>
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={openAiPromptBox}
-                  disabled={aiGenerating}
-                  className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Sparkles size={16} />
-                  {aiGenerating ? 'Generating...' : 'Generate With AI'}
-                </button>
                 <button
                   type="button"
                   onClick={onClose}
@@ -1617,287 +1901,62 @@ export function CreateJobDrawer({
                   )}
                 </button>
                 {accordions.find(a => a.id === 'details')?.isOpen && (
-                  <div className="p-5 space-y-4">
-                    {/* Job Title */}
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">
-                        Job Title <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.jobTitle}
-                        onChange={(e) => setFormData(prev => ({ ...prev, jobTitle: e.target.value }))}
-                        placeholder="Customer Success Manager"
-                        className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  <div className="p-5 space-y-6">
+                    {!isEditMode ? (
+                      <CreateJobEntryOptions
+                        onJdFile={handleJdFromFile}
+                        onGenerateWithAi={openAiPromptBox}
+                        disabled={loading || loadingJob}
+                        extracting={isExtractingJd || aiGenerating}
+                        generating={aiGenerating}
                       />
-                    </div>
+                    ) : null}
 
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">Job Description</label>
-                      <p className="mb-2 text-xs text-slate-500">
-                        Rich-text editor for the full posting. Use <span className="font-medium text-slate-600">Generate With AI</span> above after entering the title.
+                      <h3 className="text-sm font-bold text-slate-900">
+                        Job Description{' '}
+                        <span className="font-normal text-slate-500">(optional)</span>
+                      </h3>
+                      <p className="mt-1 mb-3 text-xs text-slate-500">
+                        {isEditMode
+                          ? 'Rich-text editor for the full posting.'
+                          : 'Rich-text editor for the full posting. Upload a JD above or use Generate JD with AI to pre-fill this field.'}
                       </p>
                       {isOpen ? (
                         <RichTextEditor
                           value={formData.jobDescriptionHtml}
-                          onChange={(html) =>
-                            setFormData((prev) => ({ ...prev, jobDescriptionHtml: html }))
-                          }
+                          onChange={(html) => setFormData((prev) => ({ ...prev, jobDescriptionHtml: html }))}
                           placeholder="Enter the full job description…"
                           minHeight={360}
                         />
                       ) : null}
                     </div>
 
-                    {/* Number Of Openings */}
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">
-                        Number Of Openings <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="number"
-                        value={formData.numberOfOpenings}
-                        onChange={(e) => setFormData(prev => ({ ...prev, numberOfOpenings: e.target.value }))}
-                        min="1"
-                        className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                      />
-                    </div>
+                    <div className="border-t border-slate-100" />
 
-                    {/* Company */}
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">
-                        For Which Company <span className="text-red-500">*</span>
-                      </label>
-                      <div className="relative">
-                        <button
-                          type="button"
-                          onClick={() => setDropdownsOpen(prev => ({ ...prev, company: !prev.company }))}
-                          className="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-left text-slate-700 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                        >
-                          {selectedCompany ? (
-                            <span>{selectedCompany.companyName}</span>
-                          ) : (
-                            <span className="text-slate-400">Search Companies</span>
-                          )}
-                          <ChevronDown size={16} className="text-slate-400" />
-                        </button>
-                        {dropdownsOpen.company && (
-                          <>
-                            <div className="fixed inset-0 z-10" onClick={() => setDropdownsOpen(prev => ({ ...prev, company: false }))} />
-                            <ul className="absolute z-20 mt-1 w-full rounded-xl border border-slate-200 bg-white py-1 shadow-lg max-h-48 overflow-y-auto">
-                              {loadingClients ? (
-                                <li className="px-4 py-2 text-sm text-slate-500">Loading...</li>
-                              ) : clients.length === 0 ? (
-                                <li className="px-4 py-2 text-sm text-slate-500">No companies found</li>
-                              ) : (
-                                clients.map((client) => (
-                                  <li key={client.id}>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setFormData(prev => ({ ...prev, companyId: client.id }));
-                                        setDropdownsOpen(prev => ({ ...prev, company: false }));
-                                      }}
-                                      className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${
-                                        formData.companyId === client.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'
-                                      }`}
-                                    >
-                                      {client.companyName}
-                                    </button>
-                                  </li>
-                                ))
-                              )}
-                            </ul>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Assigned recruiter */}
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">
-                        <span className="inline-flex items-center gap-1.5">
-                          <User size={14} className="text-slate-400" aria-hidden />
-                          Assign recruiter
-                        </span>
-                      </label>
-                      <div className="relative">
-                        <button
-                          type="button"
-                          onClick={() => setDropdownsOpen((prev) => ({ ...prev, recruiter: !prev.recruiter }))}
-                          className="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-left text-slate-700 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                        >
-                          {selectedRecruiter ? (
-                            <span>{selectedRecruiter.name}</span>
-                          ) : (
-                            <span className="text-slate-400">Unassigned</span>
-                          )}
-                          <ChevronDown size={16} className="text-slate-400 shrink-0" />
-                        </button>
-                        {dropdownsOpen.recruiter && (
-                          <>
-                            <div
-                              className="fixed inset-0 z-10"
-                              onClick={() => setDropdownsOpen((prev) => ({ ...prev, recruiter: false }))}
-                            />
-                            <ul className="absolute z-20 mt-1 w-full rounded-xl border border-slate-200 bg-white py-1 shadow-lg max-h-52 overflow-y-auto">
-                              {loadingUsers ? (
-                                <li className="px-4 py-2 text-sm text-slate-500">Loading team…</li>
-                              ) : (
-                                <>
-                                  <li>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setFormData((prev) => ({ ...prev, assignedToId: '' }));
-                                        setDropdownsOpen((prev) => ({ ...prev, recruiter: false }));
-                                      }}
-                                      className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${
-                                        !formData.assignedToId ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'
-                                      }`}
-                                    >
-                                      Unassigned
-                                    </button>
-                                  </li>
-                                  {users.map((user) => (
-                                    <li key={user.id}>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setFormData((prev) => ({ ...prev, assignedToId: user.id }));
-                                          setDropdownsOpen((prev) => ({ ...prev, recruiter: false }));
-                                        }}
-                                        className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${
-                                          formData.assignedToId === user.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'
-                                        }`}
-                                      >
-                                        <span className="block font-medium">{user.name}</span>
-                                        <span className="block text-xs text-slate-500 truncate">{user.email}</span>
-                                        {user.role ? (
-                                          <span className="block text-[10px] text-slate-400 uppercase tracking-wide mt-0.5">{user.role}</span>
-                                        ) : null}
-                                      </button>
-                                    </li>
-                                  ))}
-                                </>
-                              )}
-                            </ul>
-                          </>
-                        )}
-                      </div>
-                      <p className="text-xs text-slate-500 mt-1.5">
-                        Shown as <span className="font-medium text-slate-600">Owner</span> on the Jobs page and in job details.
-                      </p>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">Location</label>
-                      <input
-                        type="text"
-                        value={formData.jobLocation}
-                        onChange={(e) => setFormData(prev => ({ ...prev, jobLocation: e.target.value }))}
-                        placeholder="Bangalore, India"
-                        className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">Work mode</label>
-                        <select
-                          value={formData.jobLocationType}
-                          onChange={(e) => setFormData(prev => ({ ...prev, jobLocationType: e.target.value }))}
-                          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                        >
-                          <option value="">Select work mode</option>
-                          <option>On-site</option>
-                          <option>Remote</option>
-                          <option>Hybrid</option>
-                        </select>
-                      </div>
-                      <div />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">Salary</label>
-                      <div className="grid grid-cols-[180px_1fr_auto_1fr] items-center gap-3">
-                        <select
-                          value={formData.currency}
-                          onChange={(e) => setFormData(prev => ({ ...prev, currency: e.target.value }))}
-                          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                        >
-                          <option>Rupees (₹ - India)</option>
-                          <option>US Dollar ($ - USA)</option>
-                          <option>Euro (€ - Europe)</option>
-                          <option>Pound (£ - UK)</option>
-                        </select>
-                        <input
-                          type="number"
-                          min={0}
-                          value={formData.minSalary}
-                          onChange={(e) => setFormData(prev => ({ ...prev, minSalary: e.target.value }))}
-                          placeholder="Min"
-                          className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                        />
-                        <span className="px-1 text-sm font-semibold text-slate-500">-</span>
-                        <input
-                          type="number"
-                          min={0}
-                          value={formData.maxSalary}
-                          onChange={(e) => setFormData(prev => ({ ...prev, maxSalary: e.target.value }))}
-                          placeholder="Max"
-                          className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">Job Summary</label>
-                      <textarea
-                        value={formData.jobSummary}
-                        onChange={(e) => setFormData(prev => ({ ...prev, jobSummary: e.target.value }))}
-                        rows={4}
-                        placeholder="Brief summary of the role"
-                        className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-y"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">Key Responsibilities</label>
-                      <textarea
-                        value={formData.keyResponsibilitiesText}
-                        onChange={(e) => setFormData(prev => ({ ...prev, keyResponsibilitiesText: e.target.value }))}
-                        rows={5}
-                        placeholder="One responsibility per line"
-                        className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-y"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">Qualifications and Experience</label>
-                      <textarea
-                        value={formData.qualificationsExperienceText}
-                        onChange={(e) => setFormData(prev => ({ ...prev, qualificationsExperienceText: e.target.value }))}
-                        rows={5}
-                        placeholder="One qualification per line"
-                        className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-y"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">Compensation & Benefits</label>
-                      <textarea
-                        value={formData.compensationBenefitsText}
-                        onChange={(e) => setFormData(prev => ({ ...prev, compensationBenefitsText: e.target.value }))}
-                        rows={5}
-                        placeholder="One item per line"
-                        className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-y"
-                      />
-                    </div>
+                    <CreateJobDetailsForm
+                      formData={jobDetailsFormData}
+                      setFormData={patchJobDetailsForm}
+                      clients={clients}
+                      users={users}
+                      contacts={contacts}
+                      loadingClients={loadingClients}
+                      loadingUsers={loadingUsers}
+                      loadingContacts={loadingContacts}
+                      dropdownsOpen={dropdownsOpen}
+                      setDropdownsOpen={setDropdownsOpen}
+                      skillInput={skillInput}
+                      setSkillInput={setSkillInput}
+                      onAddSkill={addSkill}
+                      onRemoveSkill={removeSkill}
+                      uploadedFile={uploadedFile}
+                      setUploadedFile={setUploadedFile}
+                      existingOtherDocName={existingOtherDocName}
+                      uploadingFile={uploadingFile}
+                    />
                   </div>
                 )}
               </div>
-
 
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
                 <button
@@ -2007,23 +2066,20 @@ export function CreateJobDrawer({
                           </div>
 
                           <div className="mt-3 pt-3 border-t border-slate-100 space-y-3">
-                            <input
-                              ref={applicationLogoInputRef}
-                              type="file"
-                              accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
-                              className="hidden"
-                              onChange={handleApplicationLogoFileChange}
-                            />
                             <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
-                              <button
-                                type="button"
-                                onClick={() => applicationLogoInputRef.current?.click()}
-                                disabled={uploadingApplicationLogo}
-                                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                <Upload size={16} className="text-blue-600" />
-                                {uploadingApplicationLogo ? 'Uploading…' : 'Upload logo'}
-                              </button>
+                              <DocumentUploadButton
+                                variant="secondary"
+                                label="Upload logo"
+                                uploadingLabel="Uploading"
+                                accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+                                isUploading={uploadingApplicationLogo}
+                                uploadSuccess={logoUploadFeedback.uploadSuccess}
+                                uploadPercent={logoUploadFeedback.uploadPercent}
+                                onFilesSelected={async (files) => {
+                                  const file = files[0];
+                                  if (file) await handleApplicationLogoFileChange(file);
+                                }}
+                              />
                               <p className="text-xs text-slate-500 max-w-md">
                                 Images are stored in <span className="font-medium text-slate-600">Cloudinary</span> via your API.
                                 {isEditMode && jobId
@@ -2299,7 +2355,7 @@ export function CreateJobDrawer({
                 )}
               </div>
 
-              {/* Section 4: Publish & Share */}
+              {/* Section 3: Publish & Share */}
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
                 <button
                   type="button"

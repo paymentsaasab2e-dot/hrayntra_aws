@@ -14,7 +14,7 @@ export const DASHBOARD_MODULE_ORDER = [
 ];
 
 const statusOptions = (values) => [
-  { value: 'all', label: 'All statuses' },
+  { value: 'all', label: 'All Status' },
   ...values.map((v) => ({ value: v, label: v })),
 ];
 

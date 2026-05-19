@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { Eye, Pencil, Briefcase, Check, Trash2, Upload, ArrowUp, ArrowDown } from 'lucide-react';
+import { SHOW_TABLE_ROW_EDIT_ICON } from '../constants/tableUi';
 import { TableBrandAvatar } from './ui/TableBrandAvatar';
 import type { Client, ClientStage } from '@/app/client/types';
 import { apiUpdateClient, filesApiUpload } from '../lib/api';
@@ -246,14 +247,16 @@ export function ClientTable({
                     >
                       <Eye size={15} strokeWidth={2.35} />
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => onEditClient?.(client)}
-                      className="flex h-7 w-7 items-center justify-center rounded-lg text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
-                      title="Edit Client"
-                    >
-                      <Pencil size={15} strokeWidth={2.35} />
-                    </button>
+                    {SHOW_TABLE_ROW_EDIT_ICON ? (
+                      <button
+                        type="button"
+                        onClick={() => onEditClient?.(client)}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
+                        title="Edit Client"
+                      >
+                        <Pencil size={15} strokeWidth={2.35} />
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => {

@@ -371,7 +371,7 @@ function getFilterOptions(datasetId, filters, rows) {
     return {
       ...def,
       options: [
-        { value: 'all', label: 'All statuses' },
+        { value: 'all', label: 'All Status' },
         ...[...statuses].sort().map((v) => ({ value: v, label: v })),
       ],
     };

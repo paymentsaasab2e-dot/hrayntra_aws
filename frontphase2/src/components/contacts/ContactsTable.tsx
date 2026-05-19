@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { CheckSquare, Square, Pencil, Trash2 } from 'lucide-react';
+import { SHOW_TABLE_ROW_EDIT_ICON } from '../../constants/tableUi';
 import { ImageWithFallback } from '../ImageWithFallback';
 import { WhatsAppIcon } from '../icons/WhatsAppIcon';
 import PaginationAll from '../PaginationAll';
@@ -240,15 +241,17 @@ export function ContactsTable({
                     {/* Colored action icons — keeps the row actions visually
                         identical to the Leads / Clients / Candidates tables. */}
                     <div className="inline-flex items-center justify-end gap-0.5 rounded-2xl bg-slate-100/70 p-0.5 ring-1 ring-slate-200/60">
-                      <button
-                        type="button"
-                        onClick={() => onEdit(contact)}
-                        className="flex h-7 w-7 items-center justify-center rounded-lg text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
-                        aria-label="Edit contact"
-                        title="Edit"
-                      >
-                        <Pencil size={15} strokeWidth={2.25} />
-                      </button>
+                      {SHOW_TABLE_ROW_EDIT_ICON ? (
+                        <button
+                          type="button"
+                          onClick={() => onEdit(contact)}
+                          className="flex h-7 w-7 items-center justify-center rounded-lg text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
+                          aria-label="Edit contact"
+                          title="Edit"
+                        >
+                          <Pencil size={15} strokeWidth={2.25} />
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => openWhatsApp(contact)}

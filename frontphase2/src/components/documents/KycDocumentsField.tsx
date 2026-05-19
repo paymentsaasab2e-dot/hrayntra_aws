@@ -1,11 +1,13 @@
 'use client';
 
-import React, { useId, useRef } from 'react';
-import { FileText, Paperclip, Trash2, Upload } from 'lucide-react';
+import React, { useId } from 'react';
+import { CheckCircle, FileText, Paperclip, X } from 'lucide-react';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { formatDateDMY } from '../../utils/dateDisplay';
 import type { EntityFile } from '../../lib/api';
 import { KYC_FILE_ACCEPT } from '../../lib/kycDocuments';
+import { DocumentUploadButton } from '../import/documentUploadUi';
+import { ImportProgressBar } from '../import/importDrawerUi';
 
 export type KycDocumentsFieldProps = {
   pendingFiles: File[];
@@ -14,6 +16,8 @@ export type KycDocumentsFieldProps = {
   onRemoveStored?: (fileId: string) => void;
   disabled?: boolean;
   uploading?: boolean;
+  uploadSuccess?: boolean;
+  uploadPercent?: number;
   uploadsBase?: string;
 };
 
@@ -24,22 +28,11 @@ export function KycDocumentsField({
   onRemoveStored,
   disabled,
   uploading,
+  uploadSuccess,
+  uploadPercent = 0,
   uploadsBase = '',
 }: KycDocumentsFieldProps) {
   const inputId = useId();
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const addPending = (list: FileList | null) => {
-    if (!list?.length) return;
-    const next = [...pendingFiles];
-    for (const file of Array.from(list)) {
-      if (!next.some((f) => f.name === file.name && f.size === file.size)) {
-        next.push(file);
-      }
-    }
-    onPendingFilesChange(next);
-    if (inputRef.current) inputRef.current.value = '';
-  };
 
   return (
     <div>
@@ -53,17 +46,6 @@ export function KycDocumentsField({
         Upload identity or compliance documents (PDF, DOC, DOCX, JPG, PNG). Up to 10MB each. You can
         add multiple files.
       </p>
-
-      <input
-        id={inputId}
-        ref={inputRef}
-        type="file"
-        multiple
-        accept={KYC_FILE_ACCEPT}
-        disabled={disabled || uploading}
-        onChange={(e) => addPending(e.target.files)}
-        className="hidden"
-      />
 
       {(storedFiles.length > 0 || pendingFiles.length > 0) && (
         <ul className="mb-2 space-y-2">
@@ -97,10 +79,10 @@ export function KycDocumentsField({
                     type="button"
                     onClick={() => onRemoveStored(file.id)}
                     disabled={disabled || uploading}
-                    className="shrink-0 rounded-lg p-1 text-slate-400 hover:bg-slate-200 hover:text-red-600 disabled:opacity-50"
+                    className="shrink-0 rounded-lg p-1 text-red-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
                     aria-label={`Remove ${file.fileName}`}
                   >
-                    <Trash2 size={14} />
+                    <X size={16} strokeWidth={2.25} />
                   </button>
                 ) : null}
               </li>
@@ -109,35 +91,54 @@ export function KycDocumentsField({
           {pendingFiles.map((file, index) => (
             <li
               key={`pending-${file.name}-${file.size}-${index}`}
-              className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900"
+              className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900"
             >
-              <FileText size={14} className="shrink-0 text-blue-600" />
+              <CheckCircle size={14} className="shrink-0 text-emerald-600" />
+              <FileText size={14} className="shrink-0 text-emerald-600" />
               <span className="min-w-0 flex-1 truncate">{file.name}</span>
-              <span className="shrink-0 text-xs text-blue-700">Pending upload</span>
+              <span className="shrink-0 text-xs text-emerald-700">Ready to upload</span>
               <button
                 type="button"
                 onClick={() =>
                   onPendingFilesChange(pendingFiles.filter((_, i) => i !== index))
                 }
                 disabled={disabled || uploading}
-                className="shrink-0 text-xs font-semibold text-blue-700 hover:text-blue-900 disabled:opacity-50"
+                className="shrink-0 rounded-lg p-1 text-red-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                aria-label={`Remove ${file.name}`}
               >
-                Remove
+                <X size={16} strokeWidth={2.25} />
               </button>
             </li>
           ))}
         </ul>
       )}
 
-      <button
-        type="button"
-        onClick={() => inputRef.current?.click()}
-        disabled={disabled || uploading}
-        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-60"
-      >
-        <Upload size={14} className="text-slate-500" />
-        {uploading ? 'Uploading…' : 'Upload KYC documents'}
-      </button>
+      <DocumentUploadButton
+        disabled={disabled}
+        isUploading={Boolean(uploading)}
+        uploadSuccess={uploadSuccess}
+        uploadPercent={uploadPercent}
+        accept={KYC_FILE_ACCEPT}
+        multiple
+        variant="secondary"
+        label="Upload KYC documents"
+        uploadingLabel="Uploading"
+        onFilesSelected={(files) => {
+          const next = [...pendingFiles];
+          for (const file of files) {
+            if (!next.some((f) => f.name === file.name && f.size === file.size)) {
+              next.push(file);
+            }
+          }
+          onPendingFilesChange(next);
+        }}
+      />
+
+      {uploading ? (
+        <div className="mt-2">
+          <ImportProgressBar label="Uploading KYC documents…" percent={uploadPercent} />
+        </div>
+      ) : null}
     </div>
   );
 }

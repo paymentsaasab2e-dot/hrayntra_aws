@@ -42,6 +42,7 @@ import { ImageWithFallback, initialsFromDisplayName } from '../ImageWithFallback
 import { getCandidateStageBadgeClasses, getCandidateStageLabel } from '../../utils/candidateStage';
 import type { LucideIcon } from 'lucide-react';
 import { useFiles } from '../../hooks/useFiles';
+import { DocumentUploadButton } from '../import/documentUploadUi';
 import {
   apiGenerateCandidateInterviewMeetingLink,
   apiGetClient,
@@ -3879,6 +3880,8 @@ export function CandidateProfileDrawer({
     files: candidateFiles,
     loading: candidateFilesLoading,
     uploading: candidateFilesUploading,
+    uploadSuccess: candidateFilesUploadSuccess,
+    uploadPercent: candidateFilesUploadPercent,
     error: candidateFilesError,
     uploadFile: uploadCandidateFile,
     deleteFile: deleteCandidateFile,
@@ -5250,31 +5253,16 @@ export function CandidateProfileDrawer({
                         <h3 className="text-sm font-semibold text-slate-900">Files</h3>
                         <p className="mt-1 text-sm text-slate-500">Upload and manage candidate documents.</p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <input
-                          ref={candidateFileInputRef}
-                          type="file"
-                          className="hidden"
-                          onChange={async (e) => {
-                            const f = e.target.files?.[0];
-                            if (!f) return;
-                            try {
-                              await uploadCandidateFile(f, 'Other');
-                            } finally {
-                              e.target.value = '';
-                            }
-                          }}
-                        />
-                        <button
-                          type="button"
-                          disabled={!candidate?.id || candidateFilesUploading}
-                          onClick={() => candidateFileInputRef.current?.click()}
-                          className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          <Plus size={16} />
-                          {candidateFilesUploading ? 'Uploading…' : 'Upload File'}
-                        </button>
-                      </div>
+                      <DocumentUploadButton
+                        disabled={!candidate?.id}
+                        isUploading={candidateFilesUploading}
+                        uploadSuccess={candidateFilesUploadSuccess}
+                        uploadPercent={candidateFilesUploadPercent}
+                        label="Upload File"
+                        onFilesSelected={async (files) => {
+                          await uploadCandidateFile(files[0], 'Other');
+                        }}
+                      />
                     </div>
 
                     {candidateFilesError ? (

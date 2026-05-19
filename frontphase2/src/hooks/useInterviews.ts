@@ -38,10 +38,11 @@ import type {
     NoShowPayload,
     UpdateInterviewPayload,
   } from '../types/interview.types';
+import { ALL_STATUS_LABEL } from '../constants/filterLabels';
 
 const defaultFilters: InterviewFiltersState = {
   date: 'This Week',
-  status: 'All Status',
+  status: ALL_STATUS_LABEL,
   round: 'All Rounds',
   mode: 'All Modes',
   interviewer: 'All Interviewers',
@@ -384,7 +385,7 @@ export function useInterviews() {
       const response = await apiGetInterviews({
         page: pagination.page,
         limit: pagination.pageSize,
-        status: filters.status !== 'All Status' ? filters.status.toUpperCase().replace(/\s+/g, '_') : undefined,
+        status: filters.status !== ALL_STATUS_LABEL ? filters.status.toUpperCase().replace(/\s+/g, '_') : undefined,
         round: filters.round !== 'All Rounds' ? filters.round.toUpperCase().replace(/\s+/g, '_') : undefined,
         mode: filters.mode === 'Online' ? 'ONLINE' : filters.mode === 'Offline' ? 'OFFLINE' : undefined,
         interviewerId:
@@ -585,7 +586,7 @@ export function useInterviews() {
         const updated = await apiGetInterviews({
           page: pagination.page,
           limit: pagination.pageSize,
-          status: filters.status !== 'All Status' ? filters.status.toUpperCase().replace(/\s+/g, '_') : undefined,
+          status: filters.status !== ALL_STATUS_LABEL ? filters.status.toUpperCase().replace(/\s+/g, '_') : undefined,
           round: filters.round !== 'All Rounds' ? filters.round.toUpperCase().replace(/\s+/g, '_') : undefined,
           mode: filters.mode === 'Online' ? 'ONLINE' : filters.mode === 'Offline' ? 'OFFLINE' : undefined,
           interviewerId:

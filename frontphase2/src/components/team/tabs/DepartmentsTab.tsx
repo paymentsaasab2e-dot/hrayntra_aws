@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Edit, Trash2, Users } from 'lucide-react';
+import { SHOW_TABLE_ROW_EDIT_ICON } from '../../../constants/tableUi';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { getDepartments, deleteDepartment } from '../../../lib/api/teamApi';
@@ -219,16 +220,18 @@ export const DepartmentsTab: React.FC = () => {
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => {
-                                setSelectedDepartment(dept);
-                                setShowAddDrawer(true);
-                              }}
-                              className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-600 hover:text-slate-900"
-                              title="Edit"
-                            >
-                              <Edit size={16} />
-                            </button>
+                            {SHOW_TABLE_ROW_EDIT_ICON ? (
+                              <button
+                                onClick={() => {
+                                  setSelectedDepartment(dept);
+                                  setShowAddDrawer(true);
+                                }}
+                                className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-600 hover:text-slate-900"
+                                title="Edit"
+                              >
+                                <Edit size={16} />
+                              </button>
+                            ) : null}
                             {deleteConfirm === dept.id ? (
                               <div className="flex items-center gap-2">
                                 <span className="text-xs text-slate-600">Delete {dept.name}?</span>

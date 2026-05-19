@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Edit, Trash2, Users } from 'lucide-react';
+import { SHOW_TABLE_ROW_EDIT_ICON } from '../../../constants/tableUi';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import useSWR from 'swr';
@@ -230,14 +231,16 @@ export const RolesTab: React.FC = () => {
                         </td>
                         <td className="px-3 py-3 text-right sm:px-4 sm:py-3.5">
                           <div className="inline-flex items-center justify-end gap-0.5 rounded-2xl bg-slate-100/70 p-1 ring-1 ring-slate-200/60">
-                            <button
-                              type="button"
-                              onClick={() => handleEdit(role)}
-                              className="flex h-8 w-8 items-center justify-center rounded-xl text-amber-600 transition-all hover:bg-white hover:text-amber-800 hover:shadow-sm"
-                              title="Edit"
-                            >
-                              <Edit size={16} strokeWidth={2.25} />
-                            </button>
+                            {SHOW_TABLE_ROW_EDIT_ICON ? (
+                              <button
+                                type="button"
+                                onClick={() => handleEdit(role)}
+                                className="flex h-8 w-8 items-center justify-center rounded-xl text-amber-600 transition-all hover:bg-white hover:text-amber-800 hover:shadow-sm"
+                                title="Edit"
+                              >
+                                <Edit size={16} strokeWidth={2.25} />
+                              </button>
+                            ) : null}
                             {!isSuperAdmin ? (
                               <>
                                 {deleteConfirm === role.id ? (

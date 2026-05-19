@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Copy, EllipsisVertical, Eye, MessageSquarePlus, Pencil, RotateCcw, Trash2, UserRoundX, XCircle } from 'lucide-react';
+import { SHOW_TABLE_ROW_EDIT_ICON } from '../../constants/tableUi';
 
 export type InterviewAction =
   | 'view'
@@ -38,9 +39,10 @@ export function ActionsDropdown({ onSelect, actions: allowedActions }: ActionsDr
   const MENU_WIDTH = 190;
   const MENU_GAP = 8;
   const VIEWPORT_MARGIN = 12;
-  const visibleActions = allowedActions?.length
+  const visibleActions = (allowedActions?.length
     ? actions.filter((action) => allowedActions.includes(action.key))
-    : actions;
+    : actions
+  ).filter((action) => SHOW_TABLE_ROW_EDIT_ICON || action.key !== 'edit');
 
   useEffect(() => {
     const handleClick = (event: MouseEvent) => {

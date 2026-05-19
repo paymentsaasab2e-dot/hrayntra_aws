@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
+import { SHOW_TABLE_ROW_EDIT_ICON } from '../../constants/tableUi';
 import {
   Plus,
   Upload,
@@ -1675,17 +1676,19 @@ export default function RecruitmentAgencyDashboard() {
                                 >
                                   <Eye size={15} strokeWidth={2.35} />
                                 </button>
-                                <button
-                                  type="button"
-                                  className="flex h-7 w-7 items-center justify-center rounded-lg text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
-                                  title="Edit Lead"
-                                  onClick={() => {
-                                    setSelectedLeadDrawerMode('edit');
-                                    setSelectedLeadId(lead.id);
-                                  }}
-                                >
-                                  <Pencil size={15} strokeWidth={2.35} />
-                                </button>
+                                {SHOW_TABLE_ROW_EDIT_ICON ? (
+                                  <button
+                                    type="button"
+                                    className="flex h-7 w-7 items-center justify-center rounded-lg text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
+                                    title="Edit Lead"
+                                    onClick={() => {
+                                      setSelectedLeadDrawerMode('edit');
+                                      setSelectedLeadId(lead.id);
+                                    }}
+                                  >
+                                    <Pencil size={15} strokeWidth={2.35} />
+                                  </button>
+                                ) : null}
                                 {canConvertLead && (
                                   <button
                                     type="button"
@@ -1853,23 +1856,9 @@ export default function RecruitmentAgencyDashboard() {
           <LeadImportDrawer
             isOpen={importDrawerOpen}
             onClose={() => setImportDrawerOpen(false)}
-            onImportComplete={async (result) => {
+            onImportComplete={async () => {
               setImportDrawerOpen(false);
               await handleRefresh({ silent: true });
-              const created = result.created || 0;
-              const updated = result.updated || 0;
-              const skipped = result.skipped || 0;
-              const failed = result.failed || 0;
-              const parts = [];
-              if (created > 0) parts.push(`${created} created`);
-              if (updated > 0) parts.push(`${updated} updated`);
-              if (skipped > 0) parts.push(`${skipped} skipped`);
-              if (failed > 0) parts.push(`${failed} failed`);
-              toast.success(
-                parts.length > 0
-                  ? `Leads imported successfully (${parts.join(', ')})`
-                  : 'Leads imported successfully'
-              );
             }}
           />
         )}

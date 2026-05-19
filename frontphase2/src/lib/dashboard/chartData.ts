@@ -108,6 +108,56 @@ export function resolveWidgetConfig(
   return next;
 }
 
+/** Hiring pipeline stages in funnel order (matches backend candidates_pipeline). */
+const HIRING_PIPELINE_STAGE_ORDER = [
+  'Applied',
+  'Longlist',
+  'Shortlist',
+  'Screening',
+  'Submitted',
+  'Interviewing',
+  'Offered',
+  'Hired',
+];
+
+const FUNNEL_EXCLUDE_STAGES = new Set(['rejected', 'no candidates', 'unknown']);
+
+function stageRank(name: string) {
+  const lower = name.toLowerCase().trim();
+  const exact = HIRING_PIPELINE_STAGE_ORDER.findIndex((stage) => stage.toLowerCase() === lower);
+  if (exact >= 0) return exact;
+  const partial = HIRING_PIPELINE_STAGE_ORDER.findIndex(
+    (stage) => lower.includes(stage.toLowerCase()) || stage.toLowerCase().includes(lower),
+  );
+  return partial >= 0 ? partial : 999;
+}
+
+function shouldUsePipelineStageOrder(
+  series: { name: string; value: number }[],
+  datasetId?: string,
+  categoryField?: string,
+) {
+  if (datasetId === 'candidates_pipeline' || categoryField === 'stage') return true;
+  return series.some((s) =>
+    HIRING_PIPELINE_STAGE_ORDER.some((stage) => stage.toLowerCase() === s.name.toLowerCase().trim()),
+  );
+}
+
+export function orderFunnelSeries(
+  series: { name: string; value: number }[],
+  opts?: { datasetId?: string; categoryField?: string; chartType?: string },
+) {
+  let items = series.filter((s) => !FUNNEL_EXCLUDE_STAGES.has(s.name.toLowerCase().trim()));
+
+  if (shouldUsePipelineStageOrder(items, opts?.datasetId, opts?.categoryField)) {
+    items.sort((a, b) => stageRank(a.name) - stageRank(b.name));
+  } else if (opts?.chartType === 'funnel' || opts?.chartType === 'progressBar') {
+    items.sort((a, b) => b.value - a.value);
+  }
+
+  return items.slice(0, 8);
+}
+
 export function buildChartSeries(
   rows: Record<string, unknown>[],
   chartType: string,
@@ -197,7 +247,11 @@ export function buildChartSeries(
   }
 
   if (chartType === 'funnel' || chartType === 'progressBar' || chartType === 'stepTracker') {
-    series = series.slice(0, 8);
+    series = orderFunnelSeries(series, {
+      datasetId,
+      categoryField: groupKey,
+      chartType,
+    });
   }
 
   return { series, tableRows: rows, kpiValue: 0, groupKey, metricKey, useCountAggregation };

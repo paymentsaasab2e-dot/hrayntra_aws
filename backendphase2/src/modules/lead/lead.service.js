@@ -6,6 +6,10 @@ import activityService from '../../services/activityService.js';
 import { sendLeadAssignmentEmail } from '../../services/emailService.js';
 import { canViewAllLeads } from '../../utils/permissionScope.js';
 import { normalizeContactChannels } from '../../utils/contact-channels.js';
+import {
+  filterMeaningfulImportColumns,
+  slimImportRows,
+} from '../../utils/importSpreadsheet.js';
 
 function isValidObjectId(value) {
   return typeof value === 'string' && /^[a-fA-F0-9]{24}$/.test(value.trim());
@@ -1109,8 +1113,18 @@ export const leadService = {
   },
 
   async importLeads({ rows = [], mapping = {}, duplicateRule = 'skip', performedById, performedByRole }) {
+    const rawColumns = rows.length > 0 ? Object.keys(rows[0]) : [];
+    const mappedColumns = Object.values(mapping).filter((c) => typeof c === 'string' && c.trim());
+    const meaningfulColumns = [
+      ...new Set([
+        ...filterMeaningfulImportColumns(rawColumns, rows),
+        ...mappedColumns,
+      ]),
+    ];
+    const importRows = slimImportRows(rows, meaningfulColumns);
+
     const results = {
-      total: rows.length,
+      total: importRows.length,
       created: 0,
       updated: 0,
       skipped: 0,
@@ -1121,8 +1135,8 @@ export const leadService = {
     const EBV_IMPORT_HEADERS = new Set(['expected business value', 'expected value', 'business value']);
     const CAMPAIGN_IMPORT_HEADERS = new Set(['campaign', 'campaign name']);
 
-    for (let index = 0; index < rows.length; index += 1) {
-      const row = rows[index] || {};
+    for (let index = 0; index < importRows.length; index += 1) {
+      const row = importRows[index] || {};
 
       const cleanMapped = (crmFieldKey) => {
         const column = mapping[crmFieldKey];
@@ -1157,8 +1171,8 @@ export const leadService = {
       const normalizeStatus = (value) => {
         const normalized = stripNbsp(value).trim().toLowerCase();
         if (!normalized) return undefined;
-        if (normalized === 'new') return 'New';
-        if (normalized === 'contacted') return 'Contacted';
+        if (normalized === 'new' || normalized.includes('proposed')) return 'New';
+        if (normalized === 'contacted' || normalized === 'in touch') return 'Contacted';
         if (normalized === 'qualified') return 'Qualified';
         if (normalized === 'converted') return 'Converted';
         if (normalized === 'lost') return 'Lost';
@@ -1194,8 +1208,9 @@ export const leadService = {
       };
 
       const companyName = cleanMapped('companyName');
-      const contactPerson = cleanMapped('contactPerson');
       const directorName = cleanMapped('directorName');
+      const contactPerson =
+        cleanMapped('contactPerson') || directorName || null;
       const emailRaw = cleanMapped('email');
       const email = emailRaw ? emailRaw.toLowerCase() : null;
       const phone = cleanMapped('phone');
