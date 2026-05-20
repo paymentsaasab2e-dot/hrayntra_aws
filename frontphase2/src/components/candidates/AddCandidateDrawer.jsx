@@ -8,6 +8,7 @@ import {
   FileSpreadsheet,
   FileText,
   Loader2,
+  Plus,
   StopCircle,
   Upload,
   UserRound,
@@ -15,7 +16,9 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
+  apiBulkCvExpandZip,
   apiBulkCvProcessFile,
+  apiBulkCvReleaseZip,
   apiBulkImportCandidates,
   apiCheckCandidateDuplicate,
   apiCreateCandidateFromDrawer,
@@ -28,9 +31,27 @@ import {
   apiUploadCandidateResumeFile,
   buildSocketBaseUrl,
 } from '@/lib/api';
+import {
+  EMPTY_EDUCATION_ENTRY,
+  buildEducationSummaryFromCvEntries,
+  educationRowToCvEntry,
+  isGarbageEducationSummary,
+  formatEducationDateLine,
+  formatEducationRowSummary,
+  formatEducationTitle,
+  formatInstitutionLine,
+  mapParsedEducationToRow,
+} from '@/lib/candidateEducation';
 import { MY_JOBS_LIST_PARAMS } from '@/lib/myJobsListParams';
 import { addFailedBulkResumeRecords, removeFailedBulkResumesByFileName } from '@/lib/failedBulkResumesStore';
 import { AddCandidateFormSections, CANDIDATE_FORM_STEPS } from './AddCandidateFormSections';
+import {
+  appendBulkCvTokenRecord,
+  beginBulkCvTokenSession,
+  normalizeTokenUsageFromApi,
+  stripCvParseMetaFromCandidate,
+} from '@/lib/bulkCvTokensStore';
+import { collectBulkCvFilesFromDataTransfer, filterBulkCvFiles } from '@/lib/bulkCvCollect';
 
 /** Align with backend `RESUME_MAX_FILE_BYTES` (default 25MB). Optional: NEXT_PUBLIC_RESUME_MAX_FILE_BYTES (bytes). */
 const MAX_RESUME_FILE_BYTES = (() => {
@@ -42,6 +63,63 @@ const MAX_RESUME_FILE_BYTES = (() => {
 })();
 const MAX_RESUME_FILE_LABEL = `${Math.round(MAX_RESUME_FILE_BYTES / (1024 * 1024))}MB`;
 const MAX_AVATAR_FILE_BYTES = 5 * 1024 * 1024;
+/** Chrome/Edge on Windows often cap a single file-picker dialog at ~100 files (not an app limit). */
+const BROWSER_FILE_PICKER_SOFT_CAP = 100;
+/** Max CVs per bulk session (align with backend BULK_CV_MAX_FILES, default 2000). */
+const MAX_BULK_CV_FILES_PER_SESSION = (() => {
+  if (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_MAX_BULK_CV_FILES) {
+    const n = parseInt(String(process.env.NEXT_PUBLIC_MAX_BULK_CV_FILES).trim(), 10);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return 2000;
+})();
+const BULK_CV_PREVIEW_NAME_LIMIT = 40;
+
+function bulkCvFileKey(file) {
+  return `${file.name}::${file.size}::${file.lastModified ?? 0}`;
+}
+
+function mergeBulkCvFiles(existing, incoming) {
+  const seen = new Set(existing.map(bulkCvFileKey));
+  const merged = [...existing];
+  let added = 0;
+  let skippedDup = 0;
+  let skippedLarge = 0;
+
+  for (const file of incoming) {
+    if (!file) continue;
+    if (file.size > MAX_RESUME_FILE_BYTES) {
+      skippedLarge += 1;
+      continue;
+    }
+    const key = bulkCvFileKey(file);
+    if (seen.has(key)) {
+      skippedDup += 1;
+      continue;
+    }
+    seen.add(key);
+    merged.push(file);
+    added += 1;
+  }
+
+  return { merged, added, skippedDup, skippedLarge };
+}
+
+function buildBulkCvWorkItems(storedEntries, localFiles) {
+  const items = [];
+  for (const e of storedEntries) {
+    items.push({
+      kind: 'stored',
+      name: e.name,
+      size: e.size,
+      storedFileId: e.storedFileId,
+    });
+  }
+  for (const f of localFiles) {
+    items.push({ kind: 'local', name: f.name, size: f.size, file: f });
+  }
+  return items;
+}
 
 const METHOD_TABS = [
   { key: 'manual', label: 'Manual Entry' },
@@ -111,7 +189,7 @@ const DEFAULT_FORM_DATA = {
   maritalStatus: '',
   birthDate: '',
   passportNumber: '',
-  educationEntries: [{ qualification: '', instituteName: '' }],
+  educationEntries: [{ ...EMPTY_EDUCATION_ENTRY }],
   remarks: '',
   experience: '',
   currentCompany: '',
@@ -639,6 +717,10 @@ export default function AddCandidateDrawer({
   const [entryError, setEntryError] = useState('');
   const [csvExpanded, setCsvExpanded] = useState(false);
   const [bulkResumeFiles, setBulkResumeFiles] = useState([]);
+  /** CVs extracted from a ZIP on the server (storedFileId per entry). */
+  const [bulkCvStoredEntries, setBulkCvStoredEntries] = useState([]);
+  const [bulkZipExpanding, setBulkZipExpanding] = useState(false);
+  const [bulkDropActive, setBulkDropActive] = useState(false);
   const [bulkResumePhase, setBulkResumePhase] = useState('upload');
   const [bulkResumeProgress, setBulkResumeProgress] = useState({ current: 0, total: 0 });
   const [bulkResumeResults, setBulkResumeResults] = useState([]);
@@ -658,6 +740,9 @@ export default function AddCandidateDrawer({
   const bulkCvDupQueueRef = useRef([]);
   const bulkCvDupShowingRef = useRef(false);
   const bulkCvDupAwaitingIndicesRef = useRef(new Set());
+  const bulkCvAddMoreInputRef = useRef(null);
+  const bulkCvFolderInputRef = useRef(null);
+  const bulkCvZipInputRef = useRef(null);
   const [bulkDuplicateModal, setBulkDuplicateModal] = useState(null);
   const fieldRefs = useRef({});
   const importProgressRef = useRef(null);
@@ -799,6 +884,13 @@ export default function AddCandidateDrawer({
     setCsvExpanded(false);
     setCsvImportProgress({ current: 0, total: 0 });
     setBulkResumeFiles([]);
+    setBulkCvStoredEntries([]);
+    setBulkZipExpanding(false);
+    setBulkDropActive(false);
+    const zipSession = bulkCvSessionIdRef.current;
+    if (zipSession) {
+      apiBulkCvReleaseZip(zipSession).catch(() => {});
+    }
     setBulkResumePhase('upload');
     setBulkResumeProgress({ current: 0, total: 0 });
     setBulkResumeResults([]);
@@ -1084,31 +1176,26 @@ export default function AddCandidateDrawer({
   };
 
   const handleDuplicateCheck = async (field) => {
-    const value = field === 'email' ? formData.email.trim() : formData.phone.trim();
+    if (field !== 'email') return;
+    const value = formData.email.trim();
     if (!value) return;
-    if (field === 'email' && !validateEmail(value).valid) return;
-    if (field === 'phone' && !/^\d{7,15}$/.test(value)) return;
+    if (!validateEmail(value).valid) return;
 
     try {
-      const response = await apiCheckCandidateDuplicate(
-        field === 'email' ? { email: value } : { phone: value }
-      );
+      const response = await apiCheckCandidateDuplicate({ email: value });
       const payload = response.data;
       if (payload?.isDuplicate) {
-        setDuplicateWarning({ field, ...payload });
+        setDuplicateWarning({ field: 'email', ...payload });
         setDuplicateDecision({
-          field,
+          field: 'email',
           source: 'field',
           mode: 'save',
           candidate: payload.candidate || null,
-          message:
-            field === 'email'
-              ? 'A duplicate candidate was found for this email.'
-              : 'A duplicate candidate was found for this phone number.',
-          canUpdate: field === 'email',
-          canCreateAnyway: field !== 'email',
+          message: 'A candidate with this email address already exists (exact match, ignoring case and spaces).',
+          canUpdate: true,
+          canCreateAnyway: true,
         });
-      } else if (duplicateWarning?.field === field) {
+      } else if (duplicateWarning?.field === 'email') {
         setDuplicateWarning(null);
       }
     } catch (error) {
@@ -1140,13 +1227,10 @@ export default function AddCandidateDrawer({
       website: data.website || data.portfolioUrl || '',
       portfolioUrl: data.portfolioUrl || '',
       educationEntries: Array.isArray(data.educationEntries) && data.educationEntries.length
-        ? data.educationEntries.map((entry) => ({
-            qualification: entry.degree || '',
-            instituteName: entry.institution || '',
-          }))
+        ? data.educationEntries.map((entry) => mapParsedEducationToRow(entry))
         : data.education
-          ? [{ qualification: data.education, instituteName: '' }]
-          : [{ qualification: '', instituteName: '' }],
+          ? [{ ...EMPTY_EDUCATION_ENTRY, qualification: data.education }]
+          : [{ ...EMPTY_EDUCATION_ENTRY }],
       summary: importedSummary,
       workHistory: Array.isArray(data.workExperienceEntries)
         ? data.workExperienceEntries
@@ -1157,7 +1241,8 @@ export default function AddCandidateDrawer({
         : '',
       educationHistory: Array.isArray(data.educationEntries)
         ? data.educationEntries
-            .map((entry) => [entry.degree, entry.institution].filter(Boolean).join(' · '))
+            .map((entry) => formatEducationRowSummary(mapParsedEducationToRow(entry)))
+            .filter(Boolean)
             .join('\n')
         : '',
       certificates: Array.isArray(data.certifications) ? data.certifications.slice(0, 15) : [],
@@ -1313,98 +1398,235 @@ export default function AddCandidateDrawer({
   };
 
   const buildBulkResumePayload = (parsedCandidate) => {
+    const candidate = stripCvParseMetaFromCandidate(parsedCandidate || {});
     const preferredLocation =
-      parsedCandidate.location ||
-      [parsedCandidate.city, parsedCandidate.country].filter(Boolean).join(', ') ||
+      candidate.location ||
+      [candidate.city, candidate.country].filter(Boolean).join(', ') ||
       undefined;
 
-    const rawEmail = parsedCandidate.email;
+    const rawEmail = candidate.email;
     const trimmedEmail =
       rawEmail === undefined || rawEmail === null ? '' : String(rawEmail).trim();
 
+    const pipelineExtra =
+      candidate.extraData?.pipeline && typeof candidate.extraData.pipeline === 'object'
+        ? candidate.extraData.pipeline
+        : null;
+
     return {
-      firstName: parsedCandidate.firstName || '',
-      lastName: parsedCandidate.lastName || '',
+      firstName: candidate.firstName || '',
+      lastName: candidate.lastName || '',
       email: trimmedEmail === '' ? null : trimmedEmail,
-      phone: parsedCandidate.phone ? String(parsedCandidate.phone).trim() : undefined,
-      currentCompany: parsedCandidate.currentCompany || undefined,
-      currentDesignation: parsedCandidate.currentDesignation || parsedCandidate.designation || undefined,
-      designation: parsedCandidate.currentDesignation || parsedCandidate.designation || undefined,
+      phone: candidate.phone ? String(candidate.phone).trim() : undefined,
+      address: candidate.address || candidate.addressLine || undefined,
+      city: candidate.city || undefined,
+      country: candidate.country || undefined,
+      currentCompany: candidate.currentCompany || undefined,
+      currentDesignation: candidate.currentDesignation || candidate.designation || undefined,
+      designation: candidate.currentDesignation || candidate.designation || undefined,
       experience:
-        parsedCandidate.experience === '' || parsedCandidate.experience == null
+        candidate.experience === '' || candidate.experience == null
           ? 0
-          : Number(parsedCandidate.experience) || 0,
+          : Number(candidate.experience) || 0,
       location: preferredLocation || undefined,
-      linkedinUrl: parsedCandidate.linkedinUrl || undefined,
-      website: parsedCandidate.githubUrl || undefined,
+      linkedinUrl: candidate.linkedinUrl || undefined,
+      website: candidate.website || candidate.githubUrl || undefined,
+      rating: candidate.rating ?? candidate.score?.overall ?? undefined,
       // Bulk CV: pool-only — no job, owner, or pipeline stage until assigned later.
       source: 'Bulk CV Upload',
-      priority: parsedCandidate.priority || 'Medium',
+      priority: candidate.priority || 'Medium',
       tags: ['New'],
       expectedSalary:
-        parsedCandidate.expectedSalary == null || parsedCandidate.expectedSalary === ''
+        candidate.expectedSalary == null || candidate.expectedSalary === ''
           ? undefined
-          : Number(parsedCandidate.expectedSalary),
+          : Number(candidate.expectedSalary),
       currentSalary:
-        parsedCandidate.currentSalary == null || parsedCandidate.currentSalary === ''
+        candidate.currentSalary == null || candidate.currentSalary === ''
           ? undefined
-          : Number(parsedCandidate.currentSalary),
-      currency: parsedCandidate.currency || undefined,
-      portfolioUrl: parsedCandidate.portfolioUrl || undefined,
-      education: parsedCandidate.education || undefined,
-      certifications: Array.isArray(parsedCandidate.certifications) ? parsedCandidate.certifications : undefined,
-      languages: Array.isArray(parsedCandidate.languages) ? parsedCandidate.languages : undefined,
-      notes: parsedCandidate.summary || undefined,
-      cvSummary: parsedCandidate.summary || undefined,
-      cvEducationEntries: Array.isArray(parsedCandidate.educationEntries) ? parsedCandidate.educationEntries : undefined,
-      cvWorkExperienceEntries: Array.isArray(parsedCandidate.workExperienceEntries)
-        ? parsedCandidate.workExperienceEntries
+          : Number(candidate.currentSalary),
+      currency: candidate.currency || undefined,
+      portfolioUrl: candidate.portfolioUrl || undefined,
+      education: (() => {
+        const fromEntries = buildEducationSummaryFromCvEntries(candidate.educationEntries);
+        if (fromEntries) return fromEntries;
+        const raw = String(candidate.education || '').trim();
+        return raw && !isGarbageEducationSummary(raw) ? raw : undefined;
+      })(),
+      certifications: Array.isArray(candidate.certifications) ? candidate.certifications : undefined,
+      languages: Array.isArray(candidate.languages) ? candidate.languages : undefined,
+      notes: candidate.summary || undefined,
+      cvSummary: candidate.summary || undefined,
+      cvEducationEntries: Array.isArray(candidate.educationEntries) ? candidate.educationEntries : undefined,
+      cvWorkExperienceEntries: Array.isArray(candidate.workExperienceEntries)
+        ? candidate.workExperienceEntries
         : undefined,
       cvPortfolioLinks: (() => {
-        const raw = Array.isArray(parsedCandidate.portfolioLinks) ? [...parsedCandidate.portfolioLinks] : [];
-        if (parsedCandidate.githubUrl && !raw.some((l) => String(l?.url || '').includes('github.com'))) {
-          raw.push({ type: 'GitHub', url: parsedCandidate.githubUrl });
+        const raw = Array.isArray(candidate.portfolioLinks) ? [...candidate.portfolioLinks] : [];
+        if (candidate.githubUrl && !raw.some((l) => String(l?.url || '').includes('github.com'))) {
+          raw.push({ type: 'GitHub', url: candidate.githubUrl });
         }
         return raw.length ? raw : undefined;
       })(),
       extraData:
-        parsedCandidate.extraData && typeof parsedCandidate.extraData === 'object' && !Array.isArray(parsedCandidate.extraData)
-          ? parsedCandidate.extraData
-          : undefined,
-      city: parsedCandidate.city || undefined,
-      country: parsedCandidate.country || undefined,
+        candidate.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
+          ? {
+              ...candidate.extraData,
+              pipeline: pipelineExtra || candidate.extraData.pipeline,
+            }
+          : pipelineExtra
+            ? { pipeline: pipelineExtra }
+            : undefined,
       preferredLocation,
-      noticePeriod: parsedCandidate.noticePeriod || undefined,
-      skills: Array.isArray(parsedCandidate.skills) ? parsedCandidate.skills.slice(0, 10) : undefined,
-      resume: parsedCandidate.resumeUrl || undefined,
+      noticePeriod: candidate.noticePeriod || undefined,
+      skills: Array.isArray(candidate.skills) ? candidate.skills.slice(0, 10) : undefined,
+      resume: candidate.resumeUrl || undefined,
       avatar: (() => {
-        const u = String(parsedCandidate.profilePhotoUrl || parsedCandidate.avatar || '').trim();
+        const u = String(candidate.profilePhotoUrl || candidate.avatar || '').trim();
         return /^https?:\/\//i.test(u) ? u : undefined;
       })(),
       duplicateAction: 'create',
     };
   };
 
-  const handleBulkResumeSelected = (fileList) => {
-    const files = Array.from(fileList || []).filter(Boolean);
-    if (!files.length) return;
-    const tooLarge = files.filter((f) => f.size > MAX_RESUME_FILE_BYTES);
-    if (tooLarge.length) {
+  const applyBulkCvFileSelection = (fileList, { append = false, clearZip = false } = {}) => {
+    const incoming = filterBulkCvFiles(Array.from(fileList || []).filter(Boolean));
+    if (!incoming.length) return;
+
+    const storedBase = append && !clearZip ? bulkCvStoredEntries : clearZip ? [] : bulkCvStoredEntries;
+    if (clearZip && bulkCvStoredEntries.length && bulkCvSessionIdRef.current) {
+      apiBulkCvReleaseZip(bulkCvSessionIdRef.current).catch(() => {});
+      bulkCvSessionIdRef.current = '';
+    }
+    if (clearZip) setBulkCvStoredEntries([]);
+
+    const base = append ? bulkResumeFiles : [];
+    const { merged, added, skippedDup, skippedLarge } = mergeBulkCvFiles(base, incoming);
+    const totalCount = storedBase.length + merged.length;
+
+    if (!totalCount) {
       setEntryError(
-        `${tooLarge.length} file(s) exceed ${MAX_RESUME_FILE_LABEL} each: ${tooLarge.map((f) => f.name).join(', ')}`
+        skippedLarge
+          ? `All selected files exceed ${MAX_RESUME_FILE_LABEL} each.`
+          : 'No valid CV files selected (PDF, DOC, DOCX).'
       );
       return;
     }
-    setEntryError('');
-    setBulkResumeFiles(files);
+
+    if (totalCount > MAX_BULK_CV_FILES_PER_SESSION) {
+      setEntryError(
+        `Maximum ${MAX_BULK_CV_FILES_PER_SESSION} CVs per session (you have ${totalCount}). Remove some or split into multiple runs.`
+      );
+      const allowedLocal = Math.max(0, MAX_BULK_CV_FILES_PER_SESSION - storedBase.length);
+      setBulkResumeFiles(merged.slice(0, allowedLocal));
+      setBulkCvStoredEntries(storedBase);
+      setBulkResumePhase('preview');
+      setBulkResumeProgress({ current: 0, total: MAX_BULK_CV_FILES_PER_SESSION });
+      return;
+    }
+
+    const parts = [];
+    if (skippedLarge) {
+      parts.push(`${skippedLarge} skipped (over ${MAX_RESUME_FILE_LABEL})`);
+    }
+    if (skippedDup) {
+      parts.push(`${skippedDup} duplicate(s) skipped`);
+    }
+    if (!append && incoming.length >= BROWSER_FILE_PICKER_SOFT_CAP) {
+      parts.push(
+        `Browser may cap one picker at ~${BROWSER_FILE_PICKER_SOFT_CAP} files — use “Add more CVs” in preview to add another batch`
+      );
+    }
+    if (append && added === 0 && !skippedLarge) {
+      parts.push('No new files added (already in list)');
+    }
+
+    setEntryError(parts.length ? parts.join(' · ') : '');
+    setBulkCvStoredEntries(storedBase);
+    setBulkResumeFiles(merged);
     setBulkResumePhase('preview');
     setBulkResumeResults([]);
     setBulkCvSummary(null);
-    setBulkResumeProgress({ current: 0, total: files.length });
+    setBulkResumeProgress({ current: 0, total: totalCount });
+
+    if (append && added > 0) {
+      toast.success(`Added ${added} more CV${added === 1 ? '' : 's'} (${totalCount} total)`);
+    }
+  };
+
+  const handleBulkResumeSelected = (fileList) => {
+    applyBulkCvFileSelection(fileList, { append: false, clearZip: true });
+  };
+
+  const handleBulkResumeAddMore = (fileList) => {
+    applyBulkCvFileSelection(fileList, { append: true });
+    if (bulkCvAddMoreInputRef.current) {
+      bulkCvAddMoreInputRef.current.value = '';
+    }
+  };
+
+  const handleBulkResumeFolderSelected = (fileList) => {
+    applyBulkCvFileSelection(fileList, { append: false, clearZip: true });
+    if (bulkCvFolderInputRef.current) bulkCvFolderInputRef.current.value = '';
+  };
+
+  const handleBulkResumeZipSelected = async (fileList) => {
+    const zip = Array.from(fileList || []).find((f) => /\.zip$/i.test(f?.name || ''));
+    if (!zip) {
+      setEntryError('Please choose a .zip archive containing PDF, DOC, or DOCX files.');
+      return;
+    }
+    setBulkZipExpanding(true);
+    setEntryError('');
+    try {
+      if (bulkCvSessionIdRef.current) {
+        await apiBulkCvReleaseZip(bulkCvSessionIdRef.current).catch(() => {});
+      }
+      const sessionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 11)}`;
+      bulkCvSessionIdRef.current = sessionId;
+      const res = await apiBulkCvExpandZip(zip, sessionId);
+      const data = res.data || {};
+      const files = Array.isArray(data.files) ? data.files : [];
+      setBulkResumeFiles([]);
+      setBulkCvStoredEntries(files);
+      setBulkResumePhase('preview');
+      setBulkResumeResults([]);
+      setBulkCvSummary(null);
+      setBulkResumeProgress({ current: 0, total: files.length });
+      const skipped = Number(data.skipped) || 0;
+      toast.success(
+        `ZIP ready: ${files.length} CV${files.length === 1 ? '' : 's'}${skipped ? ` (${skipped} entries skipped)` : ''}`
+      );
+      if (files.length >= 500) {
+        setEntryError(
+          `Large batch (${files.length} files). Processing may take hours — keep this tab open. OpenAI/Mistral quota applies.`
+        );
+      }
+    } catch (err) {
+      setEntryError(err?.message || 'Failed to extract ZIP');
+    } finally {
+      setBulkZipExpanding(false);
+      if (bulkCvZipInputRef.current) bulkCvZipInputRef.current.value = '';
+    }
+  };
+
+  const handleBulkResumeDrop = async (event) => {
+    event.preventDefault();
+    setBulkDropActive(false);
+    try {
+      const files = await collectBulkCvFilesFromDataTransfer(event.dataTransfer);
+      if (!files.length) {
+        setEntryError('No PDF, DOC, or DOCX files found in drop.');
+        return;
+      }
+      applyBulkCvFileSelection(files, { append: bulkResumePhase === 'preview', clearZip: bulkResumePhase !== 'preview' });
+    } catch (err) {
+      setEntryError(err?.message || 'Could not read dropped files');
+    }
   };
 
   const handleBulkResumeImport = async () => {
-    if (!bulkResumeFiles.length) return;
+    const workItems = buildBulkCvWorkItems(bulkCvStoredEntries, bulkResumeFiles);
+    if (!workItems.length) return;
 
     bulkResumeStopRequestedRef.current = false;
     setBulkResumeStopRequested(false);
@@ -1412,10 +1634,10 @@ export default function AddCandidateDrawer({
     const abortSignal = bulkResumeAbortRef.current.signal;
 
     setBulkResumePhase('importing');
-    setBulkResumeProgress({ current: 0, total: bulkResumeFiles.length });
+    setBulkResumeProgress({ current: 0, total: workItems.length });
     setBulkCvSummary(null);
-    const initialBulkRows = bulkResumeFiles.map((f) => ({
-      fileName: f.name,
+    const initialBulkRows = workItems.map((item) => ({
+      fileName: item.name,
       status: 'processing',
       message: 'Queued…',
     }));
@@ -1446,6 +1668,7 @@ export default function AddCandidateDrawer({
 
     const sessionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 11)}`;
     bulkCvSessionIdRef.current = sessionId;
+    beginBulkCvTokenSession(sessionId);
 
     let socket = null;
     try {
@@ -1503,7 +1726,7 @@ export default function AddCandidateDrawer({
       return;
     }
 
-    const fileCount = bulkResumeFiles.length;
+    const fileCount = workItems.length;
     const outcomes = new Array(fileCount).fill(null);
     let nextFileIndex = 0;
 
@@ -1518,12 +1741,13 @@ export default function AddCandidateDrawer({
     };
 
     const processIndex = async (index) => {
-      const file = bulkResumeFiles[index];
+      const item = workItems[index];
+      const displayName = item.name;
 
       if (bulkResumeStopRequestedRef.current) {
         stoppedEarly = true;
         markFinalRow(index, {
-          fileName: file.name,
+          fileName: displayName,
           status: 'failed',
           message: 'Stopped by user',
         });
@@ -1537,12 +1761,24 @@ export default function AddCandidateDrawer({
       });
 
       try {
-        const parsedResponse = await apiBulkCvProcessFile(file, sessionId, index, { signal: abortSignal });
+        const parsedResponse = await apiBulkCvProcessFile(
+          item.kind === 'stored'
+            ? { storedFileId: item.storedFileId }
+            : { file: item.file },
+          sessionId,
+          index,
+          { signal: abortSignal }
+        );
         const envelope = parsedResponse.data || {};
 
         if (envelope?.skipped) {
+          appendBulkCvTokenRecord(
+            displayName,
+            'skipped',
+            normalizeTokenUsageFromApi(envelope.tokenUsage)
+          );
           markFinalRow(index, {
-            fileName: file.name,
+            fileName: displayName,
             status: 'skipped',
             message: 'Skipped — duplicate (you chose not to import this CV)',
           });
@@ -1550,8 +1786,12 @@ export default function AddCandidateDrawer({
         }
 
         const parsedCandidate = envelope.normalized || {};
+        const tokenUsage = normalizeTokenUsageFromApi(envelope.tokenUsage);
         const duplicateResolution = envelope.duplicateResolution || null;
-        const identity = deriveBulkResumeIdentity(parsedCandidate, file);
+        const identity = deriveBulkResumeIdentity(
+          parsedCandidate,
+          item.kind === 'local' ? item.file : { name: displayName }
+        );
         const enrichedCandidate = {
           ...parsedCandidate,
           firstName: identity.firstName,
@@ -1568,9 +1808,14 @@ export default function AddCandidateDrawer({
         const savedLast = String(candidate?.lastName || enrichedCandidate.lastName || '').trim();
 
         const bulkCandidateId = candidate.id || candidate._id;
-        if (file && bulkCandidateId && !isPersistableRemoteResumeUrl(parsedCandidate?.resumeUrl)) {
+        if (
+          item.kind === 'local' &&
+          item.file &&
+          bulkCandidateId &&
+          !isPersistableRemoteResumeUrl(parsedCandidate?.resumeUrl)
+        ) {
           backgroundUploads.push(
-            apiUploadCandidateResumeFile(bulkCandidateId, file, { signal: abortSignal }).catch((uploadError) => {
+            apiUploadCandidateResumeFile(bulkCandidateId, item.file, { signal: abortSignal }).catch((uploadError) => {
               if (!isAbortError(uploadError)) {
                 console.error('Resume upload failed after candidate creation:', uploadError);
               }
@@ -1590,9 +1835,10 @@ export default function AddCandidateDrawer({
         }
 
         createdCount += 1;
-        removeFailedBulkResumesByFileName(file.name);
+        removeFailedBulkResumesByFileName(displayName);
+        appendBulkCvTokenRecord(displayName, 'created', tokenUsage);
         markFinalRow(index, {
-          fileName: file.name,
+          fileName: displayName,
           status: 'created',
           duplicateResolution,
           candidateName:
@@ -1605,14 +1851,16 @@ export default function AddCandidateDrawer({
       } catch (error) {
         if (isAbortError(error) || bulkResumeStopRequestedRef.current) {
           stoppedEarly = true;
+          appendBulkCvTokenRecord(displayName, 'failed', null);
           markFinalRow(index, {
-            fileName: file.name,
+            fileName: displayName,
             status: 'failed',
             message: 'Stopped by user',
           });
         } else {
+          appendBulkCvTokenRecord(displayName, 'failed', null);
           markFinalRow(index, {
-            fileName: file.name,
+            fileName: displayName,
             status: 'failed',
             message: error.message || 'Failed to create candidate',
           });
@@ -1634,15 +1882,18 @@ export default function AddCandidateDrawer({
 
       for (let i = 0; i < fileCount; i += 1) {
         if (outcomes[i] != null) continue;
-        const f = bulkResumeFiles[i];
+        const wi = workItems[i];
         stoppedEarly = stoppedEarly || bulkResumeStopRequestedRef.current;
         markFinalRow(i, {
-          fileName: f.name,
+          fileName: wi.name,
           status: 'failed',
           message: bulkResumeStopRequestedRef.current ? 'Stopped by user' : 'Not processed',
         });
       }
     } finally {
+      if (bulkCvStoredEntries.length) {
+        apiBulkCvReleaseZip(sessionId).catch(() => {});
+      }
       bulkCvDupQueueRef.current = [];
       bulkCvDupAwaitingIndicesRef.current.clear();
       bulkCvDupShowingRef.current = false;
@@ -1657,10 +1908,10 @@ export default function AddCandidateDrawer({
       bulkCvSessionIdRef.current = '';
     }
 
-    const slotResults = bulkResumeFiles.map((f, i) =>
+    const slotResults = workItems.map((wi, i) =>
       outcomes[i] != null
         ? outcomes[i]
-        : { fileName: f.name, status: 'failed', message: 'Not processed' }
+        : { fileName: wi.name, status: 'failed', message: 'Not processed' }
     );
     const elapsed = Date.now() - batchStart;
     const succeeded = slotResults.filter((item) => item.status === 'created').length;
@@ -1670,8 +1921,9 @@ export default function AddCandidateDrawer({
       .filter((item) => item.status === 'failed')
       .map((item) => ({ fileName: item.fileName, reason: item.message }));
 
+    setBulkCvStoredEntries([]);
     setBulkCvSummary({
-      totalReceived: bulkResumeFiles.length,
+      totalReceived: workItems.length,
       succeeded,
       failed,
       skipped,
@@ -1682,7 +1934,7 @@ export default function AddCandidateDrawer({
       addFailedBulkResumeRecords(failures);
     }
     console.log(
-      `[bulk-cv] done in ${elapsed}ms | files=${bulkResumeFiles.length} ok=${succeeded} skip=${skipped} fail=${failed}`
+      `[bulk-cv] done in ${elapsed}ms | files=${workItems.length} ok=${succeeded} skip=${skipped} fail=${failed}`
     );
 
     setBulkResumePhase('complete');
@@ -1714,10 +1966,14 @@ export default function AddCandidateDrawer({
       .filter((row) => row.language?.trim())
       .map((row) => `${row.language.trim()} (${row.proficiency || 'Conversational'})`);
     const filledEducation = (formData.educationEntries || []).filter(
-      (row) => row.qualification?.trim() || row.instituteName?.trim()
+      (row) =>
+        row.qualification?.trim() ||
+        row.instituteName?.trim() ||
+        row.educationLevel?.trim()
     );
     const educationSummary = filledEducation
-      .map((row) => [row.qualification, row.instituteName].filter(Boolean).join(' · '))
+      .map((row) => formatEducationRowSummary(row))
+      .filter(Boolean)
       .join('; ');
     const noticePeriod =
       formData.noticePeriodDays?.trim() !== ''
@@ -1759,10 +2015,7 @@ export default function AddCandidateDrawer({
       education: educationSummary || formData.educationHistory || parsedData?.education || undefined,
       cvEducationEntries:
         filledEducation.length > 0
-          ? filledEducation.map((row) => ({
-              degree: row.qualification || undefined,
-              institution: row.instituteName || undefined,
-            }))
+          ? filledEducation.map((row) => educationRowToCvEntry(row))
           : Array.isArray(parsedData?.educationEntries)
             ? parsedData.educationEntries
             : undefined,
@@ -1843,11 +2096,9 @@ export default function AddCandidateDrawer({
       candidate,
       message:
         message ||
-        (field === 'email'
-          ? 'A duplicate candidate was found for this email.'
-          : 'A duplicate candidate was found for this phone number.'),
-      canUpdate: canUpdate ?? field === 'email',
-      canCreateAnyway: canCreateAnyway ?? field !== 'email',
+        'A candidate with this email address already exists (exact match, ignoring case and spaces).',
+      canUpdate: canUpdate ?? true,
+      canCreateAnyway: canCreateAnyway ?? true,
     });
   };
 
@@ -1863,8 +2114,8 @@ export default function AddCandidateDrawer({
         source: 'save',
         mode,
         candidate: duplicateWarning.candidate || null,
-        canUpdate: duplicateWarning.field === 'email',
-        canCreateAnyway: duplicateWarning.field !== 'email',
+        canUpdate: true,
+        canCreateAnyway: true,
       });
       return;
     }
@@ -2176,10 +2427,12 @@ export default function AddCandidateDrawer({
         >
           <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
             <h3 id="bulk-dup-title" className="text-base font-semibold text-slate-900">
-              Possible duplicate candidate
+              Duplicate email found
             </h3>
             <p className="mt-1 text-xs text-slate-500">
               File: <span className="font-medium text-slate-700">{bulkDuplicateModal.fileName}</span>
+              {' · '}
+              Matched on email only (name is not used).
             </p>
 
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -2540,15 +2793,32 @@ export default function AddCandidateDrawer({
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Education</p>
                         <div className="mt-3 space-y-3">
-                          {parsedData.educationEntries.map((item, index) => (
+                          {parsedData.educationEntries.map((item, index) => {
+                            const row = mapParsedEducationToRow(item);
+                            return (
                             <div key={`${item.degree || 'education'}-${index}`} className="rounded-xl bg-white p-3">
-                              <p className="text-sm font-semibold text-slate-900">{item.degree || 'Education entry'}</p>
-                              <p className="mt-1 text-sm text-slate-600">{item.institution || 'Institution not found'}</p>
-                              <p className="mt-2 text-xs text-slate-500">
-                                {[item.startYear, item.endYear].filter(Boolean).join(' - ') || 'Dates not found'}
+                              <p className="text-sm font-bold uppercase tracking-wide text-slate-900">
+                                {formatEducationTitle(row.educationLevel, row.qualification) || 'Education entry'}
+                              </p>
+                              <p className="mt-1 text-sm text-slate-700">
+                                {formatInstitutionLine(row.instituteName, row.instituteLocation) !== '—'
+                                  ? formatInstitutionLine(row.instituteName, row.instituteLocation)
+                                  : item.institution || 'Institution not found'}
+                              </p>
+                              <p className="mt-2 text-sm text-slate-600">
+                                {formatEducationDateLine(
+                                  row.educationLevel,
+                                  row.qualification,
+                                  row.startYear,
+                                  row.startMonth,
+                                  row.endYear,
+                                  row.endMonth,
+                                  row.currentlyStudying
+                                ) || [item.startYear, item.endYear].filter(Boolean).join(' - ') || 'Dates not found'}
                               </p>
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     ) : parsedData.education ? (
@@ -2643,20 +2913,77 @@ export default function AddCandidateDrawer({
           {activeTab === 'bulkResume' ? (
             <div className="space-y-4">
               {bulkResumePhase === 'upload' ? (
-                <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center">
-                  <Upload size={26} className="mb-3 text-slate-400" />
-                  <p className="text-sm font-medium text-slate-700">Upload multiple CV files at once</p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    PDF, DOC, DOCX · max {MAX_RESUME_FILE_LABEL} each · candidates will be created automatically
+                <div
+                  className={`rounded-2xl border-2 border-dashed px-6 py-8 text-center transition ${
+                    bulkDropActive ? 'border-blue-400 bg-blue-50/80' : 'border-slate-300 bg-slate-50'
+                  }`}
+                  onDragEnter={(e) => {
+                    e.preventDefault();
+                    setBulkDropActive(true);
+                  }}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDragLeave={() => setBulkDropActive(false)}
+                  onDrop={handleBulkResumeDrop}
+                >
+                  <Upload size={26} className="mx-auto mb-3 text-slate-400" />
+                  <p className="text-sm font-medium text-slate-700">
+                    Upload up to {MAX_BULK_CV_FILES_PER_SESSION} CVs (e.g. 1500 in one ZIP)
                   </p>
-                  <input
-                    type="file"
-                    accept=".pdf,.doc,.docx"
-                    multiple
-                    className="hidden"
-                    onChange={(event) => handleBulkResumeSelected(event.target.files)}
-                  />
-                </label>
+                  <p className="mt-1 text-xs text-slate-500">
+                    PDF, DOC, DOCX · max {MAX_RESUME_FILE_LABEL} each · drag folder or ZIP here
+                  </p>
+                  <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                    <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700">
+                      Select files
+                      <input
+                        type="file"
+                        accept=".pdf,.doc,.docx"
+                        multiple
+                        className="hidden"
+                        onChange={(event) => handleBulkResumeSelected(event.target.files)}
+                      />
+                    </label>
+                    <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100">
+                      Select folder
+                      <input
+                        ref={bulkCvFolderInputRef}
+                        type="file"
+                        accept=".pdf,.doc,.docx"
+                        multiple
+                        className="hidden"
+                        webkitdirectory=""
+                        directory=""
+                        onChange={(event) => handleBulkResumeFolderSelected(event.target.files)}
+                      />
+                    </label>
+                    <label
+                      className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-violet-300 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-900 hover:bg-violet-100 ${
+                        bulkZipExpanding ? 'pointer-events-none opacity-60' : ''
+                      }`}
+                    >
+                      {bulkZipExpanding ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" />
+                          Extracting ZIP…
+                        </>
+                      ) : (
+                        <>Upload ZIP (best for 1500+)</>
+                      )}
+                      <input
+                        ref={bulkCvZipInputRef}
+                        type="file"
+                        accept=".zip,application/zip"
+                        className="hidden"
+                        disabled={bulkZipExpanding}
+                        onChange={(event) => void handleBulkResumeZipSelected(event.target.files)}
+                      />
+                    </label>
+                  </div>
+                  <p className="mt-3 text-xs text-amber-800">
+                    For 1500 CVs: zip all PDFs/DOCX into one <strong>.zip</strong> (up to 2GB) and use Upload ZIP.
+                    File picker alone is limited to ~{BROWSER_FILE_PICKER_SOFT_CAP} per click in some browsers.
+                  </p>
+                </div>
               ) : null}
 
               {bulkResumePhase === 'preview' ? (
@@ -2664,18 +2991,68 @@ export default function AddCandidateDrawer({
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Ready To Process</p>
                     <p className="mt-1 text-sm text-slate-600">
-                      {bulkResumeFiles.length} CV file{bulkResumeFiles.length === 1 ? '' : 's'} selected. Each file will be added to the candidate pool with a &quot;New&quot; tag — no job or owner until you assign them later.
+                      {bulkCvStoredEntries.length + bulkResumeFiles.length} CV
+                      {bulkCvStoredEntries.length + bulkResumeFiles.length === 1 ? '' : 's'} ready
+                      {bulkCvStoredEntries.length
+                        ? ` (${bulkCvStoredEntries.length} from ZIP${bulkResumeFiles.length ? ` + ${bulkResumeFiles.length} local` : ''})`
+                        : ''}
+                      . Each will join the pool with a &quot;New&quot; tag.
                     </p>
+                    {bulkCvStoredEntries.length + bulkResumeFiles.length >= BROWSER_FILE_PICKER_SOFT_CAP &&
+                    !bulkCvStoredEntries.length ? (
+                      <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                        Large list — use <strong>Upload ZIP</strong> for 1500+ CVs, or <strong>Add more CVs</strong>{' '}
+                        below.
+                      </p>
+                    ) : null}
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800 hover:bg-blue-100">
+                        <Plus size={14} />
+                        Add more CVs
+                        <input
+                          ref={bulkCvAddMoreInputRef}
+                          type="file"
+                          accept=".pdf,.doc,.docx"
+                          multiple
+                          className="hidden"
+                          onChange={(event) => handleBulkResumeAddMore(event.target.files)}
+                        />
+                      </label>
+                      <span className="text-[11px] text-slate-500">Append another batch (duplicates skipped)</span>
+                    </div>
                     <div className="mt-4 max-h-72 space-y-2 overflow-y-auto">
-                      {bulkResumeFiles.map((file) => (
-                        <div key={`${file.name}-${file.size}`} className="flex items-center justify-between rounded-xl bg-white px-4 py-3 text-sm text-slate-700">
-                          <span className="flex items-center gap-2">
-                            <FileText size={16} />
-                            {file.name}
-                          </span>
-                          <span className="text-xs text-slate-500">{Math.max(1, Math.round(file.size / 1024))} KB</span>
-                        </div>
-                      ))}
+                      {[
+                        ...bulkCvStoredEntries.map((e) => ({ key: `z-${e.storedFileId}`, name: e.name, size: e.size })),
+                        ...bulkResumeFiles.map((file) => ({
+                          key: `f-${file.name}-${file.size}`,
+                          name: file.name,
+                          size: file.size,
+                        })),
+                      ]
+                        .slice(0, BULK_CV_PREVIEW_NAME_LIMIT)
+                        .map((row) => (
+                          <div
+                            key={row.key}
+                            className="flex items-center justify-between rounded-xl bg-white px-4 py-3 text-sm text-slate-700"
+                          >
+                            <span className="flex min-w-0 items-center gap-2">
+                              <FileText size={16} className="shrink-0" />
+                              <span className="truncate">{row.name}</span>
+                            </span>
+                            <span className="shrink-0 text-xs text-slate-500">
+                              {Math.max(1, Math.round(row.size / 1024))} KB
+                            </span>
+                          </div>
+                        ))}
+                      {bulkCvStoredEntries.length + bulkResumeFiles.length > BULK_CV_PREVIEW_NAME_LIMIT ? (
+                        <p className="px-2 py-2 text-center text-xs text-slate-500">
+                          … and{' '}
+                          {bulkCvStoredEntries.length +
+                            bulkResumeFiles.length -
+                            BULK_CV_PREVIEW_NAME_LIMIT}{' '}
+                          more (all will be processed)
+                        </p>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -3031,7 +3408,7 @@ export default function AddCandidateDrawer({
                   onClick={handleBulkResumeImport}
                   className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white"
                 >
-                  Create {bulkResumeFiles.length} Candidates →
+                  Create {bulkCvStoredEntries.length + bulkResumeFiles.length} Candidates →
                 </button>
               ) : null}
               {bulkResumePhase === 'importing' ? (
@@ -3187,7 +3564,7 @@ export default function AddCandidateDrawer({
               </div>
 
               <p className="mt-3 text-xs text-slate-500">
-                `Create Anyway` is available only when the duplicate is from phone or when email is different/missing.
+                Duplicates are detected by email only. Create Anyway saves a copy with a variant email.
               </p>
             </div>
           </div>

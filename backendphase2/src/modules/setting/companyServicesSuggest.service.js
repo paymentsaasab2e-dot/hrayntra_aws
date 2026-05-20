@@ -69,7 +69,7 @@ async function aiSuggestServices(query, selected, industry, limit) {
 
   const completion = await chatCompletionWithFallback(
     {
-      model: env.OPENAI_ASSISTANT_MODEL || 'gpt-4o-mini',
+      model: 'gpt-4.1',
       temperature: 0.3,
       max_tokens: 400,
       response_format: { type: 'json_object' },

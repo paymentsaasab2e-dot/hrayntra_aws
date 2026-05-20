@@ -1,4 +1,5 @@
 import { filesApiUpload, type BackendCandidate } from './api';
+import { formatEducationDateLine } from './candidateEducation';
 import { extractApiData } from './mapCandidateProfile';
 
 export interface CVEditorExperience {
@@ -413,12 +414,33 @@ export function candidateToCvEditorData(
     desc: (entry.responsibilities || []).join('\n'),
   }));
 
-  const education = (candidate?.cvEducationEntries || []).map((entry) => ({
-    id: nextCvEditorId(),
-    degree: entry.degree || '',
-    school: entry.institution || '',
-    period: formatYearPeriod(entry.startYear, entry.endYear),
-  }));
+  const education = (candidate?.cvEducationEntries || []).map((entry) => {
+    const ext = entry as {
+      educationLevel?: string;
+      startMonth?: string;
+      endMonth?: string;
+      currentlyStudying?: boolean;
+      period?: string;
+    };
+    const period =
+      (ext.period && String(ext.period).trim()) ||
+      formatEducationDateLine(
+        ext.educationLevel || '',
+        entry.degree || '',
+        entry.startYear || '',
+        ext.startMonth || '',
+        entry.endYear || '',
+        ext.endMonth || '',
+        Boolean(ext.currentlyStudying),
+      ) ||
+      formatYearPeriod(entry.startYear, entry.endYear);
+    return {
+      id: nextCvEditorId(),
+      degree: entry.degree || '',
+      school: entry.institution || '',
+      period,
+    };
+  });
 
   const layout = readCvEditorLayout(candidate);
   const candidatePhotoUrl = resolveCandidatePhotoUrl(candidate);

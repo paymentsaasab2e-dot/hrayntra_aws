@@ -1,7 +1,32 @@
 import { prisma } from '../config/prisma.js';
 
-function normalizeEmail(email = '') {
-  return String(email || '').trim().toLowerCase();
+/** Active (non–recycle-bin) candidates — reuse anywhere we must not treat soft-deleted rows as duplicates. */
+export const notDeletedClause = {
+  OR: [{ isDeleted: false }, { isDeleted: null }],
+};
+
+/**
+ * Normalize email for duplicate comparison: trim, lowercase, remove all whitespace.
+ * @param {unknown} email
+ * @returns {string} Normalized email or empty string if missing/invalid.
+ */
+export function normalizeCandidateEmailForDuplicate(email = '') {
+  if (email === undefined || email === null) return '';
+  const normalized = String(email).trim().toLowerCase().replace(/\s+/g, '');
+  if (!normalized || !normalized.includes('@')) return '';
+  return normalized;
+}
+
+/**
+ * True when two emails are the same full address (case-insensitive, no extra spaces).
+ * @param {unknown} a
+ * @param {unknown} b
+ */
+export function candidateEmailsAreDuplicate(a, b) {
+  const left = normalizeCandidateEmailForDuplicate(a);
+  const right = normalizeCandidateEmailForDuplicate(b);
+  if (!left || !right) return false;
+  return left === right;
 }
 
 function escapeReg(s) {
@@ -12,18 +37,17 @@ function stripCopySuffix(lastName) {
   return String(lastName || '').replace(/\s+copy\s+\d+$/i, '').trim();
 }
 
-/** Active (non–recycle-bin) candidates — reuse anywhere we must not treat soft-deleted rows as duplicates. */
-export const notDeletedClause = {
-  OR: [{ isDeleted: false }, { isDeleted: null }],
-};
-
 /**
- * @returns {Promise<{ match: 'email' | 'name', candidate: object } | null>}
+ * Duplicate detection: email only (names are ignored).
+ * Compares the full normalized address one-by-one against active candidates.
+ *
+ * @returns {Promise<{ match: 'email', candidate: object } | null>}
  */
-export async function findExistingCandidateDuplicate({ email, firstName, lastName }) {
-  const fn = String(firstName || '').trim();
-  const ln = String(lastName || '').trim();
-  const em = normalizeEmail(email);
+export async function findExistingCandidateDuplicate({ email, firstName: _firstName, lastName: _lastName }) {
+  const normalizedIncoming = normalizeCandidateEmailForDuplicate(email);
+  if (!normalizedIncoming) {
+    return null;
+  }
 
   const select = {
     id: true,
@@ -35,36 +59,44 @@ export async function findExistingCandidateDuplicate({ email, firstName, lastNam
     createdAt: true,
   };
 
-  if (em) {
-    const byEmail = await prisma.candidate.findFirst({
-      where: {
-        AND: [notDeletedClause, { email: { equals: em, mode: 'insensitive' } }],
-      },
-      select,
+  // Fast path: exact match when DB email is already normalized
+  const byEmail = await prisma.candidate.findFirst({
+    where: {
+      AND: [
+        notDeletedClause,
+        { email: { equals: normalizedIncoming, mode: 'insensitive' } },
+      ],
+    },
+    select,
+  });
+  if (byEmail && candidateEmailsAreDuplicate(normalizedIncoming, byEmail.email)) {
+    console.log('[bulk-cv] duplicate FOUND by email', {
+      existingId: byEmail.id,
+      email: normalizedIncoming,
     });
-    if (byEmail) {
-      console.log('[bulk-cv] duplicate FOUND by email', { existingId: byEmail.id, email: em });
-      return { match: 'email', candidate: byEmail };
-    }
+    return { match: 'email', candidate: byEmail };
   }
 
-  if (fn && ln) {
-    const byName = await prisma.candidate.findFirst({
-      where: {
-        AND: [
-          notDeletedClause,
-          { firstName: { equals: fn, mode: 'insensitive' } },
-          { lastName: { equals: ln, mode: 'insensitive' } },
-        ],
-      },
-      select,
-    });
-    if (byName) {
-      console.log('[bulk-cv] duplicate FOUND by name', {
-        existingId: byName.id,
-        name: `${byName.firstName} ${byName.lastName}`,
+  // One-by-one: catch stored emails with spaces/casing Prisma equality may miss
+  const withEmail = await prisma.candidate.findMany({
+    where: {
+      AND: [
+        notDeletedClause,
+        { email: { not: null } },
+        { email: { not: '' } },
+      ],
+    },
+    select,
+  });
+
+  for (const candidate of withEmail) {
+    if (candidateEmailsAreDuplicate(normalizedIncoming, candidate.email)) {
+      console.log('[bulk-cv] duplicate FOUND by email (normalized scan)', {
+        existingId: candidate.id,
+        email: normalizedIncoming,
+        stored: candidate.email,
       });
-      return { match: 'name', candidate: byName };
+      return { match: 'email', candidate };
     }
   }
 
@@ -114,7 +146,7 @@ export async function nextCopyLastNameForBulk(firstName, currentLastName) {
  * When duplicate matched by email, ensure a unique mailbox so create can succeed.
  */
 export async function nextUniqueEmailVariant(email) {
-  const norm = normalizeEmail(email);
+  const norm = normalizeCandidateEmailForDuplicate(email);
   if (!norm || !norm.includes('@')) {
     return null;
   }
@@ -128,11 +160,14 @@ export async function nextUniqueEmailVariant(email) {
       n === 1 ? `${local}+bulkcv@${domain}` : `${local}+bulkcv${n}@${domain}`;
     const exists = await prisma.candidate.findFirst({
       where: {
-        AND: [notDeletedClause, { email: { equals: candidateEmail, mode: 'insensitive' } }],
+        AND: [
+          notDeletedClause,
+          { email: { equals: candidateEmail, mode: 'insensitive' } },
+        ],
       },
-      select: { id: true },
+      select: { id: true, email: true },
     });
-    if (!exists) {
+    if (!exists || !candidateEmailsAreDuplicate(candidateEmail, exists.email)) {
       console.log('[bulk-cv] assign unique email variant', candidateEmail);
       return candidateEmail;
     }
@@ -142,11 +177,14 @@ export async function nextUniqueEmailVariant(email) {
   const stampEmail = `${local}+bulkcv${stamp}@${domain}`;
   const stampExists = await prisma.candidate.findFirst({
     where: {
-      AND: [notDeletedClause, { email: { equals: stampEmail, mode: 'insensitive' } }],
+      AND: [
+        notDeletedClause,
+        { email: { equals: stampEmail, mode: 'insensitive' } },
+      ],
     },
-    select: { id: true },
+    select: { id: true, email: true },
   });
-  if (!stampExists) {
+  if (!stampExists || !candidateEmailsAreDuplicate(stampEmail, stampExists.email)) {
     console.log('[bulk-cv] assign unique email stamp variant', stampEmail);
     return stampEmail;
   }

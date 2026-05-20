@@ -19,8 +19,11 @@ import {
   BadgeCheck,
   X,
   Inbox,
+  Loader2,
 } from 'lucide-react';
-import { downloadCsv, csvDate } from '../../utils/csv';
+import { downloadCsv } from '../../utils/csv';
+import { buildLeadsCsvColumns, LEADS_EXPORT_COLUMNS } from '../../lib/leadsExportColumns';
+import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
 import { formatDateDMY } from '../../utils/dateDisplay';
 import { formatDirectorDisplay } from '../../constants/salutations';
 import { formatContactListDisplay, normalizeContactList } from '../../lib/contact-channels';
@@ -344,6 +347,34 @@ function mapBackendLeadToFrontend(backendLead: BackendLead): Lead {
   };
 }
 
+/** Client-side filters applied on top of API results (search + recruiter). */
+function applyLeadClientFilters(
+  list: Lead[],
+  searchQuery: string,
+  recruiterFilter: string,
+): Lead[] {
+  const query = searchQuery.trim().toLowerCase();
+  return list.filter((lead) => {
+    const matchesSearch =
+      !query ||
+      lead.companyName.toLowerCase().includes(query) ||
+      lead.email.toLowerCase().includes(query) ||
+      normalizeContactList(lead.emails, lead.email).some((value) => value.toLowerCase().includes(query)) ||
+      normalizeContactList(lead.phones, lead.phone).some((value) => value.toLowerCase().includes(query)) ||
+      lead.contactPerson.toLowerCase().includes(query) ||
+      (lead.directorSalutation && String(lead.directorSalutation).toLowerCase().includes(query)) ||
+      formatDirectorDisplay(lead.directorSalutation, lead.directorName || lead.contactPerson)
+        .toLowerCase()
+        .includes(query);
+    const matchesRecruiter =
+      !recruiterFilter ||
+      lead.assignedToId === recruiterFilter ||
+      lead.assignedTo?.id === recruiterFilter ||
+      (Array.isArray(lead.assignedToIds) && lead.assignedToIds.includes(recruiterFilter));
+    return matchesSearch && matchesRecruiter;
+  });
+}
+
 function extractBackendLeads(
   responseData: { data: BackendLead[]; pagination?: any } | BackendLead[] | unknown
 ): BackendLead[] {
@@ -393,6 +424,9 @@ export default function RecruitmentAgencyDashboard() {
   const [selectedLeadDrawerMode, setSelectedLeadDrawerMode] = useState<'view' | 'edit'>('view');
   const [addLeadDrawerOpen, setAddLeadDrawerOpen] = useState(false);
   const [importDrawerOpen, setImportDrawerOpen] = useState(false);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportLeads, setExportLeads] = useState<Lead[]>([]);
+  const [exportLeadsLoading, setExportLeadsLoading] = useState(false);
   const [recycleBinDrawerOpen, setRecycleBinDrawerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<LeadStatus | 'All'>('All');
@@ -633,28 +667,45 @@ export default function RecruitmentAgencyDashboard() {
     events: ['jobportal:leads-changed', 'jobportal:jobs-changed'],
   });
 
-  const filteredLeads = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    return leads.filter((lead) => {
-      const matchesSearch =
-        !query ||
-        lead.companyName.toLowerCase().includes(query) ||
-        lead.email.toLowerCase().includes(query) ||
-        normalizeContactList(lead.emails, lead.email).some((value) => value.toLowerCase().includes(query)) ||
-        normalizeContactList(lead.phones, lead.phone).some((value) => value.toLowerCase().includes(query)) ||
-        lead.contactPerson.toLowerCase().includes(query) ||
-        (lead.directorSalutation && String(lead.directorSalutation).toLowerCase().includes(query)) ||
-        formatDirectorDisplay(lead.directorSalutation, lead.directorName || lead.contactPerson)
-          .toLowerCase()
-          .includes(query);
-      const matchesRecruiter =
-        !recruiterFilter
-        || lead.assignedToId === recruiterFilter
-        || lead.assignedTo?.id === recruiterFilter
-        || (Array.isArray(lead.assignedToIds) && lead.assignedToIds.includes(recruiterFilter));
-      return matchesSearch && matchesRecruiter;
-    });
-  }, [leads, searchQuery, recruiterFilter]);
+  const filteredLeads = useMemo(
+    () => applyLeadClientFilters(leads, searchQuery, recruiterFilter),
+    [leads, searchQuery, recruiterFilter],
+  );
+
+  const fetchAllLeadsForExport = useCallback(async (): Promise<Lead[]> => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+    if (!token) {
+      return applyLeadClientFilters(INITIAL_LEADS, searchQuery, recruiterFilter);
+    }
+
+    const batchSize = 500;
+    let page = 1;
+    let totalPages = 1;
+    let collected: Lead[] = [];
+
+    while (page <= totalPages) {
+      const response = await apiGetLeads({
+        status: statusFilter !== 'All' ? statusFilter : undefined,
+        source: sourceFilter || undefined,
+        assignedToId: recruiterFilter || undefined,
+        search: searchQuery || undefined,
+        page,
+        limit: batchSize,
+      });
+
+      const backendLeads = response.data ? extractBackendLeads(response.data) : [];
+      collected = [...collected, ...backendLeads.map(mapBackendLeadToFrontend)];
+
+      const pagination = !Array.isArray(response.data) ? response.data?.pagination : undefined;
+      totalPages =
+        pagination?.totalPages || Math.max(1, Math.ceil((pagination?.total || collected.length) / batchSize));
+
+      if (backendLeads.length < batchSize) break;
+      page += 1;
+    }
+
+    return applyLeadClientFilters(collected, searchQuery, recruiterFilter);
+  }, [statusFilter, sourceFilter, recruiterFilter, searchQuery]);
 
   const adjustLeadMetricCounts = useCallback((previousStatus?: LeadStatus, nextStatus?: LeadStatus) => {
     const getKey = (status?: LeadStatus) => {
@@ -781,48 +832,38 @@ export default function RecruitmentAgencyDashboard() {
     leadsHScrollProgrammatic.current = false;
   }, [leadsHScrollSpanPx]);
 
-  /** Export the currently filtered leads to a CSV that round-trips back into the importer. */
-  const handleExportLeadsCsv = () => {
-    if (filteredLeads.length === 0) {
-      toast.message('No leads to export with current filters.');
+  const openExportModal = async () => {
+    setExportLeadsLoading(true);
+    setExportModalOpen(true);
+    try {
+      const all = await fetchAllLeadsForExport();
+      setExportLeads(all);
+      if (all.length === 0) {
+        toast.message('No leads to export with current filters.');
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to load leads for export';
+      toast.error(message);
+      setExportModalOpen(false);
+      setExportLeads([]);
+    } finally {
+      setExportLeadsLoading(false);
+    }
+  };
+
+  const handleExportLeadsCsv = (selectedColumnIds: string[]) => {
+    const columns = buildLeadsCsvColumns(selectedColumnIds);
+    if (columns.length === 0) {
+      toast.message('Select at least one column to export.');
       return;
     }
+    const rowsToExport = exportLeads.length > 0 ? exportLeads : filteredLeads;
     downloadCsv<Lead>(
       `leads-${new Date().toISOString().slice(0, 10)}.csv`,
-      [
-        { id: 'companyName', accessor: (l) => l.companyName },
-        { id: 'directorSalutation', accessor: (l) => l.directorSalutation || '' },
-        { id: 'contactPerson', accessor: (l) => formatDirectorDisplay(l.directorSalutation, l.directorName || l.contactPerson) },
-        { id: 'email', accessor: (l) => l.email },
-        { id: 'phone', accessor: (l) => l.phone },
-        { id: 'type', accessor: (l) => l.type || '' },
-        { id: 'source', accessor: (l) => l.source || '' },
-        { id: 'status', accessor: (l) => l.status },
-        { id: 'priority', accessor: (l) => l.priority || '' },
-        { id: 'industry', accessor: (l) => l.industry || '' },
-        { id: 'companySize', accessor: (l) => l.companySize || '' },
-        { id: 'website', accessor: (l) => l.website || '' },
-        { id: 'linkedIn', accessor: (l) => l.linkedIn || '' },
-        { id: 'location', accessor: (l) => l.location || '' },
-        { id: 'city', accessor: (l) => l.city || '' },
-        { id: 'country', accessor: (l) => l.country || '' },
-        { id: 'designation', accessor: (l) => l.designation || '' },
-        { id: 'interestedNeeds', accessor: (l) => l.interestedNeeds || l.servicesNeeded || '' },
-        { id: 'campaignName', accessor: (l) => l.campaignName || '' },
-        { id: 'nextFollowUpDue', accessor: (l) => csvDate(l.nextFollowUp) },
-        { id: 'notes', accessor: (l) => l.notes || '' },
-        {
-          id: 'assignedTo',
-          accessor: (l) => Array.isArray(l.assignedToUsers) && l.assignedToUsers.length > 0
-            ? l.assignedToUsers.map((u) => u.name).join('; ')
-            : (l.assignedTo?.name || ''),
-        },
-        { id: 'lastFollowUp', accessor: (l) => csvDate(l.lastFollowUp) },
-        { id: 'expectedBusinessValue', accessor: (l) => l.expectedBusinessValue || '' },
-      ],
-      filteredLeads,
+      columns,
+      rowsToExport,
     );
-    toast.success(`Exported ${filteredLeads.length} lead${filteredLeads.length === 1 ? '' : 's'} to CSV`);
+    toast.success(`Exported ${rowsToExport.length} lead${rowsToExport.length === 1 ? '' : 's'} to CSV`);
   };
 
   const toggleSelectAll = () => {
@@ -1335,9 +1376,9 @@ export default function RecruitmentAgencyDashboard() {
             )}
             <button
               type="button"
-              onClick={handleExportLeadsCsv}
+              onClick={openExportModal}
               className="bg-white hover:bg-indigo-50/90 text-indigo-900 px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] border border-indigo-200/70 hover:border-indigo-300 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
-              title="Export visible leads to CSV"
+              title="Choose columns and export visible leads to CSV"
             >
               <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
               <span>Export</span>
@@ -1862,6 +1903,22 @@ export default function RecruitmentAgencyDashboard() {
             }}
           />
         )}
+        <ExportColumnsModal
+          isOpen={exportModalOpen}
+          onClose={() => {
+            setExportModalOpen(false);
+            setExportLeads([]);
+          }}
+          title="Export leads"
+          rowCount={exportLeads.length}
+          rowLabelSingular="lead"
+          rowLabelPlural="leads"
+          columns={LEADS_EXPORT_COLUMNS}
+          rows={exportLeads}
+          isLoading={exportLeadsLoading}
+          getRowKey={(lead) => lead.id}
+          onExport={handleExportLeadsCsv}
+        />
         {selectedLeadIds.length > 0 && (canUpdateLead || canDeleteLead) && (
           <div className="fixed bottom-6 left-1/2 z-40 w-[min(94vw,980px)] -translate-x-1/2 rounded-2xl border border-slate-800 bg-slate-950/95 px-4 py-3 text-white shadow-2xl shadow-slate-950/40 backdrop-blur">
             <div className="flex items-center justify-between gap-4">

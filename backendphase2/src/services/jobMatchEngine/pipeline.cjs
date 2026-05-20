@@ -15,7 +15,7 @@ const openai = process.env.OPENAI_API_KEY
   : null;
 
 function hasAnyMatchLlm() {
-  return Boolean(openai || process.env.MISTRAL_API_KEY);
+  return Boolean(openai);
 }
 
 async function jobMatchChatCompletion(body, logLabel = 'job-match') {
@@ -546,7 +546,7 @@ async function extractSkillsWithOpenAI(input) {
 
   try {
     const completion = await jobMatchChatCompletion({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1',
       temperature: 0.1,
       response_format: { type: 'json_object' },
       messages: [
@@ -578,7 +578,7 @@ async function inferRolesWithOpenAI(candidateSummary, job) {
 
   try {
     const completion = await jobMatchChatCompletion({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1',
       temperature: 0.1,
       response_format: { type: 'json_object' },
       messages: [
@@ -624,7 +624,7 @@ async function getSemanticBoostWithOpenAI(candidateSummaryText, job, determinist
 
   try {
     const completion = await jobMatchChatCompletion({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1',
       temperature: 0.1,
       response_format: { type: 'json_object' },
       messages: [
@@ -672,7 +672,7 @@ async function getSemanticScoreWithOpenAI(candidate, job) {
 
   try {
     const completion = await jobMatchChatCompletion({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1',
       temperature: 0.1,
       response_format: { type: 'json_object' },
       messages: [
@@ -722,7 +722,7 @@ async function getAIMatchScore(candidate, job) {
   if (!hasAnyMatchLlm()) return null;
 
   const response = await jobMatchChatCompletion({
-    model: 'gpt-4o-mini',
+    model: 'gpt-4.1',
     temperature: 0.2,
     response_format: { type: 'json_object' },
     messages: [
@@ -789,7 +789,7 @@ async function getFullAiMatchWithOpenAI(candidateSummaryText, job, deterministic
 
   try {
     const completion = await jobMatchChatCompletion({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1',
       temperature: 0.1,
       response_format: { type: 'json_object' },
       messages: [
@@ -902,7 +902,7 @@ async function generateExplanationWithOpenAI(candidateSummaryText, job, scoringR
 
   try {
     const completion = await jobMatchChatCompletion({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1',
       temperature: 0.2,
       messages: [
         {

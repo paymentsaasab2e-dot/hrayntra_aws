@@ -17,6 +17,7 @@ import {
   AlertCircle,
   User,
   SendHorizontal,
+  Send,
 } from 'lucide-react';
 import { RichTextEditor } from '../RichTextEditor';
 import {
@@ -2742,9 +2743,10 @@ export function CreateJobDrawer({
                 type="button"
                 onClick={handleSaveJob}
                 disabled={loading}
-                className="px-6 py-2.5 text-sm font-medium text-white bg-green-600 rounded-xl hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-2 px-6 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {loading ? 'Saving...' : 'Save Job'}
+                <Send size={14} />
+                {loading ? 'Publishing...' : 'Publish Job'}
               </button>
             </div>
           </motion.div>

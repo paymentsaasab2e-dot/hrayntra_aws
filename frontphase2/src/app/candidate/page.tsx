@@ -11,6 +11,8 @@ import {
 import { BulkActions } from './components/BulkActions';
 import AddCandidateDrawer from '../../components/candidates/AddCandidateDrawer';
 import FailedBulkResumesDrawer from '../../components/candidates/FailedBulkResumesDrawer';
+import BulkCvTokensDrawer from '../../components/candidates/BulkCvTokensDrawer';
+import { BULK_CV_TOKENS_CHANGED, getBulkCvTokenSession } from '../../lib/bulkCvTokensStore';
 import ModuleRecycleBinDrawer from '../../components/ModuleRecycleBinDrawer';
 import {
   FAILED_BULK_RESUMES_CHANGED,
@@ -32,16 +34,13 @@ import {
   FileSpreadsheet,
   FileText,
   Download,
-  Send,
   Search,
-  CalendarClock,
-  CheckCircle2,
-  Trophy,
   AlertCircle,
   Inbox,
   RefreshCcw,
   XCircle,
   Users,
+  Coins,
 } from 'lucide-react';
 import { downloadCsv } from '../../utils/csv';
 import { CreateTaskModal } from '../../components/CreateTaskModal';
@@ -81,7 +80,6 @@ import { usePathname, useSearchParams, useRouter } from 'next/navigation';
 import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { TableSkeleton } from '../../components/ui/Skeleton';
-import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
 import {
   PH2_TABLE_CARD_CLASS,
   PH2_TABLE_CARD_FOOTER_CLASS,
@@ -267,6 +265,8 @@ function CandidatesPageContent() {
   const [isAddCandidateOpen, setIsAddCandidateOpen] = useState(false);
   const [candidateDrawerInitialTab, setCandidateDrawerInitialTab] = useState('manual');
   const [failedResumesDrawerOpen, setFailedResumesDrawerOpen] = useState(false);
+  const [tokensDrawerOpen, setTokensDrawerOpen] = useState(false);
+  const [bulkCvTokenResumeCount, setBulkCvTokenResumeCount] = useState(0);
   const [pendingBulkRetryFile, setPendingBulkRetryFile] = useState<File | null>(null);
   const [failedBulkResumeCount, setFailedBulkResumeCount] = useState(0);
   const [recycleBinModuleOpen, setRecycleBinModuleOpen] = useState(false);
@@ -392,9 +392,16 @@ function CandidatesPageContent() {
     setFailedBulkResumeCount(getActiveFailedBulkResumes().length);
   }, []);
 
+  const refreshBulkCvTokenCount = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    const session = getBulkCvTokenSession();
+    setBulkCvTokenResumeCount(session?.records?.length ?? 0);
+  }, []);
+
   useEffect(() => {
     refreshFailedBulkResumeCount();
-  }, [refreshFailedBulkResumeCount]);
+    refreshBulkCvTokenCount();
+  }, [refreshFailedBulkResumeCount, refreshBulkCvTokenCount]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -402,6 +409,13 @@ function CandidatesPageContent() {
     window.addEventListener(FAILED_BULK_RESUMES_CHANGED, onFailedBulkChanged);
     return () => window.removeEventListener(FAILED_BULK_RESUMES_CHANGED, onFailedBulkChanged);
   }, [refreshFailedBulkResumeCount]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onTokensChanged = () => refreshBulkCvTokenCount();
+    window.addEventListener(BULK_CV_TOKENS_CHANGED, onTokensChanged);
+    return () => window.removeEventListener(BULK_CV_TOKENS_CHANGED, onTokensChanged);
+  }, [refreshBulkCvTokenCount]);
 
   const handleBulkRetryFileConsumed = useCallback(() => {
     setPendingBulkRetryFile(null);
@@ -1334,6 +1348,22 @@ function CandidatesPageContent() {
               {canCreateCandidate ? (
                 <button
                   type="button"
+                  onClick={() => setTokensDrawerOpen(true)}
+                  className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98]"
+                  title="CV parse token usage (last bulk upload)"
+                >
+                  <Coins size={16} className="text-indigo-600" strokeWidth={2.25} />
+                  <span>Tokens</span>
+                  {bulkCvTokenResumeCount > 0 ? (
+                    <span className="ml-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-indigo-600 px-1 text-[9px] font-bold text-white">
+                      {bulkCvTokenResumeCount > 99 ? '99+' : bulkCvTokenResumeCount}
+                    </span>
+                  ) : null}
+                </button>
+              ) : null}
+              {canCreateCandidate ? (
+                <button
+                  type="button"
                   onClick={() => openCandidateDrawer('manual')}
                   className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-3.5 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/30 transition-all hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 active:scale-[0.98]"
                 >
@@ -1346,95 +1376,6 @@ function CandidatesPageContent() {
 
           <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
             <div className="mx-auto max-w-[1600px]">
-
-              <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-6">
-            {stageStatsLoading || !stageStats ? (
-              (['indigo', 'blue', 'yellow', 'purple', 'green', 'cyan'] as SummaryCardColor[]).map((c, i) => (
-                <SummaryCardSkeleton key={i} color={c} />
-              ))
-            ) : (
-              <>
-                <SummaryCard
-                  label="TOTAL CANDIDATES"
-                  count={stageStats.all}
-                  color="indigo"
-                  icon={<Users size={18} strokeWidth={2.35} />}
-                  active={isAllCandidatesView}
-                  onClick={handleShowAllCandidates}
-                />
-                <SummaryCard
-                  label="APPLIED"
-                  count={stageStats.applied}
-                  color="blue"
-                  icon={<Send size={18} strokeWidth={2.35} />}
-                  active={activeStage === 'applied'}
-                  onClick={() => {
-                    const next = activeStage === 'applied' ? 'all' : 'applied';
-                    setCurrentPage(1);
-                    setActiveStage(next);
-                    setColumnFilters((prev) => ({ ...prev, stage: '' }));
-                    setFilters((prev) => ({ ...prev, status: '' }));
-                  }}
-                />
-                <SummaryCard
-                  label="SCREENING"
-                  count={stageStats.screening}
-                  color="yellow"
-                  icon={<Search size={18} strokeWidth={2.35} />}
-                  active={activeStage === 'screening'}
-                  onClick={() => {
-                    const next = activeStage === 'screening' ? 'all' : 'screening';
-                    setCurrentPage(1);
-                    setActiveStage(next);
-                    setColumnFilters((prev) => ({ ...prev, stage: '' }));
-                    setFilters((prev) => ({ ...prev, status: '' }));
-                  }}
-                />
-                <SummaryCard
-                  label="INTERVIEWING"
-                  count={stageStats.interviewing}
-                  color="purple"
-                  icon={<CalendarClock size={18} strokeWidth={2.35} />}
-                  active={activeStage === 'interviewing'}
-                  onClick={() => {
-                    const next = activeStage === 'interviewing' ? 'all' : 'interviewing';
-                    setCurrentPage(1);
-                    setActiveStage(next);
-                    setColumnFilters((prev) => ({ ...prev, stage: '' }));
-                    setFilters((prev) => ({ ...prev, status: '' }));
-                  }}
-                />
-                <SummaryCard
-                  label="OFFERED"
-                  count={stageStats.offered}
-                  color="green"
-                  icon={<CheckCircle2 size={18} strokeWidth={2.35} />}
-                  active={activeStage === 'offered'}
-                  onClick={() => {
-                    const next = activeStage === 'offered' ? 'all' : 'offered';
-                    setCurrentPage(1);
-                    setActiveStage(next);
-                    setColumnFilters((prev) => ({ ...prev, stage: '' }));
-                    setFilters((prev) => ({ ...prev, status: '' }));
-                  }}
-                />
-                <SummaryCard
-                  label="HIRED"
-                  count={stageStats.hired}
-                  color="cyan"
-                  icon={<Trophy size={18} strokeWidth={2.35} />}
-                  active={activeStage === 'hired'}
-                  onClick={() => {
-                    const next = activeStage === 'hired' ? 'all' : 'hired';
-                    setCurrentPage(1);
-                    setActiveStage(next);
-                    setColumnFilters((prev) => ({ ...prev, stage: '' }));
-                    setFilters((prev) => ({ ...prev, status: '' }));
-                  }}
-                />
-              </>
-            )}
-          </div>
 
               <div className={PH2_TABLE_CARD_CLASS}>
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-indigo-100/80 bg-gradient-to-r from-indigo-50/90 via-white to-slate-50/80 px-4 py-3 sm:px-5">
@@ -1720,6 +1661,13 @@ function CandidatesPageContent() {
           isOpen={failedResumesDrawerOpen}
           onClose={() => setFailedResumesDrawerOpen(false)}
           onReupload={handleFailedResumeReupload}
+        />
+      ) : null}
+
+      {canCreateCandidate ? (
+        <BulkCvTokensDrawer
+          isOpen={tokensDrawerOpen}
+          onClose={() => setTokensDrawerOpen(false)}
         />
       ) : null}
 

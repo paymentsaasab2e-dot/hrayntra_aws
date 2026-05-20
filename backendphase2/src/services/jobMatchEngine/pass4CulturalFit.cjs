@@ -59,7 +59,7 @@ Respond with ONLY this JSON:
   try {
     const completion = await jobMatchChatCompletion(
       {
-        model: process.env.OPENAI_JOB_MATCH_MODEL || 'gpt-4o-mini',
+        model: 'gpt-4.1',
         temperature: 0.2,
         response_format: { type: 'json_object' },
         messages: [

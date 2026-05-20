@@ -775,8 +775,44 @@ export async function apiFetchFormData<T>(
   return json as ApiResponse<T>;
 }
 
+export type BulkCvStoredFileMeta = {
+  storedFileId: string;
+  name: string;
+  size: number;
+};
+
+export type BulkCvExpandZipResult = {
+  total: number;
+  skipped: number;
+  maxAllowed: number;
+  files: BulkCvStoredFileMeta[];
+};
+
+export async function apiBulkCvExpandZip(
+  archive: File,
+  sessionId: string,
+  options: { signal?: AbortSignal } = {}
+) {
+  const formData = new FormData();
+  formData.append('sessionId', sessionId);
+  formData.append('archive', archive);
+  return apiFetchFormData<BulkCvExpandZipResult>('/candidates/bulk-cv/expand-zip', formData, {
+    method: 'POST',
+    auth: true,
+    signal: options.signal,
+  });
+}
+
+export async function apiBulkCvReleaseZip(sessionId: string) {
+  return apiFetch<unknown>('/candidates/bulk-cv/release-zip', {
+    method: 'POST',
+    auth: true,
+    body: JSON.stringify({ sessionId }),
+  });
+}
+
 export async function apiBulkCvProcessFile(
-  file: File,
+  payload: { file?: File; storedFileId?: string },
   sessionId: string,
   fileIndex: number,
   options: { signal?: AbortSignal } = {}
@@ -784,7 +820,11 @@ export async function apiBulkCvProcessFile(
   const formData = new FormData();
   formData.append('sessionId', sessionId);
   formData.append('fileIndex', String(fileIndex));
-  formData.append('resume', file);
+  if (payload.storedFileId) {
+    formData.append('storedFileId', payload.storedFileId);
+  } else if (payload.file) {
+    formData.append('resume', payload.file);
+  }
   return apiFetchFormData<Record<string, unknown>>('/candidates/bulk-cv/process-file', formData, {
     method: 'POST',
     auth: true,

@@ -142,7 +142,7 @@ async function resolveWithLlm(query) {
 
   const completion = await chatCompletionWithFallback(
     {
-      model: env.OPENAI_ASSISTANT_MODEL || 'gpt-4o-mini',
+      model: 'gpt-4.1',
       temperature: 0,
       max_tokens: 350,
       response_format: { type: 'json_object' },
@@ -184,7 +184,7 @@ async function resolveWithLlm(query) {
 }
 
 /**
- * Resolve a location string: OpenAI → Mistral (via chatCompletionWithFallback) → Nominatim top hit.
+ * Resolve a location string: OpenAI gpt-4.1 → Nominatim top hit.
  * @param {string} query
  */
 export async function resolveLocation(query) {

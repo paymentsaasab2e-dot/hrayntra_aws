@@ -44,13 +44,13 @@ function safeJsonParse(text) {
 
 async function callOpenAI(systemPrompt, userMessage, retries = 2) {
   if (!hasLlmProvider()) {
-    throw new Error('No LLM configured: set OPENAI_API_KEY and/or MISTRAL_API_KEY');
+    throw new Error('No LLM configured: set OPENAI_API_KEY (gpt-4.1 only)');
   }
   for (let i = 0; i <= retries; i += 1) {
     try {
       const res = await chatCompletionWithFallback(
         {
-          model: 'gpt-4o-mini',
+          model: 'gpt-4.1',
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userMessage },

@@ -234,99 +234,30 @@ Extraction Rules:
 Resume Text:
 ${cleanResumeText}`;
 
-  // Try AI services in order: OpenAI -> Mistral -> Gemini -> Anthropic
+  const { OPENAI_CHAT_MODEL } = require('../config/openaiModel');
+
+  if (!openai) {
+    throw new Error('OPENAI_API_KEY is required. Resume parsing uses only OpenAI gpt-4.1.');
+  }
+
   let responseText = '';
-  let error = null;
-
-  // Try OpenAI first
-  if (openai) {
-    try {
-      console.log('  📤 Trying OpenAI...');
-      const completion = await openai.chat.completions.create({
-        messages: [{ role: 'user', content: prompt }],
-        model: 'gpt-4o',
-        temperature: 0.3,
-        max_tokens: 4096,
-      });
-      responseText = completion.choices[0]?.message?.content?.trim() || '';
-      if (responseText) {
-        console.log('  ✅ Successfully used OpenAI');
-      } else {
-        throw new Error('Empty response from OpenAI');
-      }
-    } catch (openaiError) {
-      console.log('  ⚠️  OpenAI failed, trying fallback...');
-      error = openaiError;
+  try {
+    console.log(`  📤 Using OpenAI (${OPENAI_CHAT_MODEL})...`);
+    const completion = await openai.chat.completions.create({
+      messages: [{ role: 'user', content: prompt }],
+      model: OPENAI_CHAT_MODEL,
+      temperature: 0.3,
+      max_tokens: 4096,
+    });
+    responseText = completion.choices[0]?.message?.content?.trim() || '';
+    if (!responseText) {
+      throw new Error('Empty response from OpenAI');
     }
-  }
-
-  // Fallback to Mistral
-  if (!responseText && mistral) {
-    try {
-      console.log('  📤 Trying Mistral AI...');
-      const chatResponse = await mistral.chat.complete({
-        model: 'mistral-large-latest',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.3,
-        maxTokens: 4096,
-      });
-      responseText = chatResponse.choices[0]?.message?.content?.trim() || '';
-      if (responseText) {
-        console.log('  ✅ Successfully used Mistral AI');
-      } else {
-        throw new Error('Empty response from Mistral');
-      }
-    } catch (mistralError) {
-      console.log('  ⚠️  Mistral failed, trying fallback...');
-      error = mistralError;
-    }
-  }
-  
-  // Fallback to Gemini
-  if (!responseText && genAI) {
-    try {
-      console.log('  📤 Trying Google Gemini...');
-      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      responseText = response.text().trim();
-      if (responseText) {
-        console.log('  ✅ Successfully used Google Gemini');
-      } else {
-        throw new Error('Empty response from Gemini');
-      }
-    } catch (geminiError) {
-      console.log('  ⚠️  Gemini failed, trying fallback...');
-      error = geminiError;
-    }
-  }
-  
-  // Fallback to Anthropic
-  if (!responseText && anthropic) {
-    try {
-      console.log('  📤 Trying Anthropic Claude...');
-      const message = await anthropic.messages.create({
-        model: 'claude-3-5-sonnet-20241022',
-        max_tokens: 4096,
-        temperature: 0.3,
-        messages: [{ role: 'user', content: prompt }],
-      });
-      responseText = message.content[0]?.text?.trim() || '';
-      if (responseText) {
-        console.log('  ✅ Successfully used Anthropic Claude');
-      } else {
-        throw new Error('Empty response from Anthropic');
-      }
-    } catch (anthropicError) {
-      console.log('  ⚠️  Anthropic failed, trying fallback...');
-      error = anthropicError;
-    }
-  }
-  
-  // (OpenAI handled first above)
-  
-  if (!responseText) {
-    throw new Error(`All AI services failed. Last error: ${error?.message || 'No AI service available'}`);
+    console.log(`  ✅ Successfully used OpenAI (${OPENAI_CHAT_MODEL})`);
+  } catch (openaiError) {
+    throw new Error(
+      `OpenAI resume parse failed (${OPENAI_CHAT_MODEL}): ${openaiError?.message || openaiError}`
+    );
   }
   
   try {

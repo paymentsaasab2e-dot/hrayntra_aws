@@ -322,7 +322,7 @@ function getMistralClient() {
 async function runMistralChat(messages, options = {}) {
   const client = getMistralClient();
   const response = await client.chat.complete({
-    model: options.model || 'mistral-small-latest',
+    model: options.model || 'gpt-4.1',
     messages,
     temperature: options.temperature ?? 0.3,
     maxTokens: options.maxTokens ?? 500,
@@ -345,7 +345,7 @@ function getOpenAIClient() {
 async function runOpenAIChat(messages, options = {}) {
   const client = getOpenAIClient();
   const completion = await client.chat.completions.create({
-    model: options.model || 'gpt-4o-mini',
+    model: options.model || 'gpt-4.1',
     messages,
     temperature: options.temperature ?? 0.3,
     max_tokens: options.maxTokens ?? 500,
@@ -503,7 +503,7 @@ async function askProfileQuestions(req, res) {
       if (process.env.OPENAI_API_KEY) {
         try {
           message = await runOpenAIChat(messages, {
-            model: 'gpt-4o-mini',
+            model: 'gpt-4.1',
             temperature: 0.5,
             maxTokens: 220,
           });
@@ -518,7 +518,7 @@ async function askProfileQuestions(req, res) {
       // Fallback to Mistral (if OpenAI missing/failed)
       if (!message) {
         message = await runMistralChat(messages, {
-          model: 'mistral-small-latest',
+          model: 'gpt-4.1',
           temperature: 0.5,
           maxTokens: 220,
         });
@@ -585,7 +585,7 @@ async function suggestJobTitles(req, res) {
         { role: 'user', content: userPrompt },
       ],
       {
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1',
         temperature: 0.4,
         maxTokens: 220,
       }
@@ -675,7 +675,7 @@ async function extractProfileData(req, res) {
             { role: 'user', content: userMessage },
           ],
           {
-            model: 'gpt-4o-mini',
+            model: 'gpt-4.1',
             temperature: 0.1,
             maxTokens: 700,
           },
@@ -698,7 +698,7 @@ async function extractProfileData(req, res) {
             { role: 'user', content: userMessage },
           ],
           {
-            model: 'mistral-small-latest',
+            model: 'gpt-4.1',
             temperature: 0.1,
             maxTokens: 700,
           }
@@ -767,13 +767,13 @@ async function generalChat(req, res) {
     let response = '';
     if (process.env.OPENAI_API_KEY) {
       response = await runOpenAIChat(messages, {
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1',
         temperature: 0.7,
         maxTokens: 500,
       });
     } else if (process.env.MISTRAL_API_KEY) {
       response = await runMistralChat(messages, {
-        model: 'mistral-small-latest',
+        model: 'gpt-4.1',
         temperature: 0.7,
         maxTokens: 500,
       });

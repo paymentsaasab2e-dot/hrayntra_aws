@@ -1712,16 +1712,14 @@ async function generateSummaryWithAI(req, res) {
       })(),
     };
 
-    // Generate summary using OpenAI first, fallback to Mistral
-    const { Mistral } = require('@mistralai/mistralai');
     const OpenAI = require('openai');
+    const { OPENAI_CHAT_MODEL } = require('../config/openaiModel');
     const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-    const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
-    
-    if (!OPENAI_API_KEY && !MISTRAL_API_KEY) {
+
+    if (!OPENAI_API_KEY) {
       return res.status(500).json({
         success: false,
-        message: 'AI service not configured',
+        message: 'OPENAI_API_KEY is required (gpt-4.1 only)',
       });
     }
 
@@ -1749,52 +1747,15 @@ Generate the professional summary:`;
       
       let generatedSummary = '';
 
-      // OpenAI first
-      if (OPENAI_API_KEY) {
-        try {
-          const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
-          const completion = await openai.chat.completions.create({
-            model: 'gpt-4o-mini',
-            messages: [{ role: 'user', content: prompt }],
-            max_tokens: 200,
-            temperature: 0.7,
-          });
-          generatedSummary =
-            completion?.choices?.[0]?.message?.content?.trim() || '';
-        } catch (openaiError) {
-          console.error('❌ OpenAI AI error:', openaiError.message || openaiError);
-        }
-      }
+      const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+      const completion = await openai.chat.completions.create({
+        model: OPENAI_CHAT_MODEL,
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 200,
+        temperature: 0.7,
+      });
+      generatedSummary = completion?.choices?.[0]?.message?.content?.trim() || '';
 
-      // Fallback to Mistral
-      if (!generatedSummary && MISTRAL_API_KEY) {
-        const mistral = new Mistral({ apiKey: MISTRAL_API_KEY });
-        const chatResponse = await mistral.chat.complete({
-          model: 'mistral-medium-latest',
-          messages: [
-            {
-              role: 'user',
-              content: prompt,
-            },
-          ],
-          maxTokens: 200,
-          temperature: 0.7,
-        });
-
-        if (chatResponse && chatResponse.choices && chatResponse.choices.length > 0) {
-          generatedSummary = chatResponse.choices[0].message?.content?.trim() || '';
-        }
-        
-        // Fallback: try to get content from response directly
-        if (!generatedSummary && chatResponse) {
-          if (typeof chatResponse === 'string') {
-            generatedSummary = chatResponse.trim();
-          } else if (chatResponse.content) {
-            generatedSummary = chatResponse.content.trim();
-          }
-        }
-      }
-      
       if (!generatedSummary) {
         throw new Error('AI returned empty response');
       }

@@ -2,6 +2,17 @@
 
 import React, { useState } from 'react';
 import { Check, ChevronDown, FileText, Plus, UserRound, X } from 'lucide-react';
+import {
+  EMPTY_EDUCATION_ENTRY,
+  EDUCATION_LEVEL_OPTIONS,
+  EDUCATION_MONTH_OPTIONS,
+  buildEducationYearOptions,
+  formatEducationDateLine,
+  formatEducationTitle,
+  formatInstitutionLine,
+  isSchoolCertificateEntry,
+  normalizeEducationRow,
+} from '../../lib/candidateEducation';
 
 export const CANDIDATE_FORM_STEPS = [
   { id: 1, label: 'Personal Information' },
@@ -325,25 +336,31 @@ export function AddCandidateFormSections({
     updateFormData('age', calculateAgeFromBirthDate(value));
   };
 
+  const educationYearOptions = buildEducationYearOptions();
+
   const educationEntries =
     formData.educationEntries?.length > 0
-      ? formData.educationEntries
-      : [{ qualification: '', instituteName: '' }];
+      ? formData.educationEntries.map((row) => normalizeEducationRow(row))
+      : [{ ...EMPTY_EDUCATION_ENTRY }];
 
   const addEducationRow = () => {
-    updateFormData('educationEntries', [...educationEntries, { qualification: '', instituteName: '' }]);
+    updateFormData('educationEntries', [...educationEntries, { ...EMPTY_EDUCATION_ENTRY }]);
   };
 
   const updateEducationRow = (index, patch) => {
+    const next = normalizeEducationRow({ ...educationEntries[index], ...patch });
+    if (patch.educationLevel !== undefined && isSchoolCertificateEntry(next.educationLevel, next.qualification)) {
+      if (!next.qualification.trim()) next.qualification = next.educationLevel;
+    }
     updateFormData(
       'educationEntries',
-      educationEntries.map((row, i) => (i === index ? { ...row, ...patch } : row))
+      educationEntries.map((row, i) => (i === index ? next : row))
     );
   };
 
   const removeEducationRow = (index) => {
     if (educationEntries.length <= 1) {
-      updateFormData('educationEntries', [{ qualification: '', instituteName: '' }]);
+      updateFormData('educationEntries', [{ ...EMPTY_EDUCATION_ENTRY }]);
       return;
     }
     updateFormData(
@@ -522,7 +539,21 @@ export function AddCandidateFormSections({
               Add education
             </button>
           </div>
-          {educationEntries.map((row, index) => (
+          {educationEntries.map((row, index) => {
+            const isSchoolCert = isSchoolCertificateEntry(row.educationLevel, row.qualification);
+            const previewTitle = formatEducationTitle(row.educationLevel, row.qualification);
+            const previewInstitution = formatInstitutionLine(row.instituteName, row.instituteLocation);
+            const previewDates = formatEducationDateLine(
+              row.educationLevel,
+              row.qualification,
+              row.startYear,
+              row.startMonth,
+              row.endYear,
+              row.endMonth,
+              row.currentlyStudying
+            );
+
+            return (
             <div key={`edu-${index}`} className="rounded-xl border border-slate-200 bg-slate-50/50 p-4">
               <div className="mb-3 flex items-center justify-between">
                 <span className="text-xs font-semibold text-slate-500">Education {index + 1}</span>
@@ -536,22 +567,155 @@ export function AddCandidateFormSections({
                   </button>
                 ) : null}
               </div>
+
+              <div className="mb-4 rounded-lg border border-slate-200 bg-white px-3 py-3">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Preview</p>
+                <p className="text-sm font-bold uppercase tracking-wide text-slate-900">{previewTitle}</p>
+                <p className="text-sm text-slate-700">{previewInstitution}</p>
+                <p className="text-sm text-slate-600">{previewDates}</p>
+              </div>
+
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <DrawerInput
-                  label="Qualification"
+                  label="Education Level"
+                  value={row.educationLevel}
+                  onChange={() => {}}
+                  children={
+                    <select
+                      value={row.educationLevel}
+                      onChange={(e) => updateEducationRow(index, { educationLevel: e.target.value })}
+                      className={inputClass}
+                    >
+                      <option value="">Select level</option>
+                      {EDUCATION_LEVEL_OPTIONS.map((opt) => (
+                        <option key={opt} value={opt}>
+                          {opt}
+                        </option>
+                      ))}
+                    </select>
+                  }
+                />
+                <DrawerInput
+                  label={isSchoolCert ? 'Qualification (optional)' : 'Qualification'}
                   value={row.qualification}
                   onChange={(e) => updateEducationRow(index, { qualification: e.target.value })}
+                  placeholder={
+                    isSchoolCert
+                      ? 'e.g. HSC or SSC (uses level if blank)'
+                      : 'e.g. B.E IN COMPUTER SCIENCE'
+                  }
                   autoFilled={autoFilledFields.qualification}
                 />
                 <DrawerInput
-                  label="Institute Name"
+                  label="School / College / University"
                   value={row.instituteName}
                   onChange={(e) => updateEducationRow(index, { instituteName: e.target.value })}
+                  placeholder="e.g. VISHWANIKETAN [VIMEET]"
                   autoFilled={autoFilledFields.instituteName}
                 />
+                <DrawerInput
+                  label="Location (City / Area)"
+                  value={row.instituteLocation}
+                  onChange={(e) => updateEducationRow(index, { instituteLocation: e.target.value })}
+                  placeholder="e.g. Khopoli, Panvel"
+                />
+
+                {isSchoolCert ? (
+                  <p className={`${labelClass} sm:col-span-2`}>
+                    Dates{' '}
+                    <span className="font-normal text-slate-500">(optional — start and completion month–year)</span>
+                  </p>
+                ) : null}
+
+                <div className="sm:col-span-2">
+                  <p className={`${labelClass} mb-2`}>
+                    Start date{isSchoolCert ? ' (optional)' : ''}
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <select
+                      value={row.startMonth}
+                      onChange={(e) => updateEducationRow(index, { startMonth: e.target.value })}
+                      className={inputClass}
+                    >
+                      <option value="">Month</option>
+                      {EDUCATION_MONTH_OPTIONS.map((m) => (
+                        <option key={m.value} value={m.value}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={row.startYear}
+                      onChange={(e) => updateEducationRow(index, { startYear: e.target.value })}
+                      className={inputClass}
+                    >
+                      <option value="">Year</option>
+                      {educationYearOptions.map((year) => (
+                        <option key={`start-${year}`} value={String(year)}>
+                          {year}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <p className={`${labelClass} mb-2`}>
+                    {isSchoolCert ? 'End date (completion, optional)' : 'End date'}
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <select
+                      value={row.endMonth}
+                      onChange={(e) => updateEducationRow(index, { endMonth: e.target.value })}
+                      className={inputClass}
+                      disabled={row.currentlyStudying}
+                    >
+                      <option value="">Month</option>
+                      {EDUCATION_MONTH_OPTIONS.map((m) => (
+                        <option key={m.value} value={m.value}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={row.endYear}
+                      onChange={(e) => updateEducationRow(index, { endYear: e.target.value })}
+                      className={inputClass}
+                      disabled={row.currentlyStudying}
+                    >
+                      <option value="">Year</option>
+                      {educationYearOptions.map((year) => (
+                        <option key={`end-${year}`} value={String(year)}>
+                          {year}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {!isSchoolCert ? (
+                  <div className="sm:col-span-2">
+                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={row.currentlyStudying}
+                        onChange={(e) => {
+                          const studying = e.target.checked;
+                          updateEducationRow(index, {
+                            currentlyStudying: studying,
+                            ...(studying ? { endMonth: '', endYear: '' } : {}),
+                          });
+                        }}
+                        className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      I am currently studying here
+                    </label>
+                  </div>
+                ) : null}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </StepPanel>
 

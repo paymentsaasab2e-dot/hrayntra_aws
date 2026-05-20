@@ -76,6 +76,7 @@ import { LeadAssigneesMultiSelect } from './LeadAssigneesMultiSelect';
 import { ServicesNeededSelect } from '../forms/ServicesNeededSelect';
 import { formatServicesNeededDisplay } from '../../lib/companyServices';
 import { DrawerCloseButton } from './DrawerCloseButton';
+import { LeadSourceFields } from './LeadSourceFields';
 import { LocationAutocomplete, type LocationSelection } from '../LocationAutocomplete';
 import { WhatsAppIcon } from '../icons/WhatsAppIcon';
 
@@ -2598,6 +2599,12 @@ export function LeadDetailsDrawer({
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Industry</label>
                           <input value={addLeadForm.industry ?? ''} onChange={(e) => setAddLeadForm((p) => ({ ...p, industry: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" placeholder="e.g. Technology" />
                         </div>
+                        <div className="sm:col-span-2">
+                          <LeadSourceFields
+                            form={addLeadForm}
+                            onChange={(patch) => setAddLeadForm((p) => ({ ...p, ...patch }))}
+                          />
+                        </div>
                         <div>
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Status</label>
                           <select value={addLeadForm.status ?? 'New'} onChange={(e) => setAddLeadForm((p) => ({ ...p, status: e.target.value as LeadStatus }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white">
@@ -3840,89 +3847,10 @@ export function LeadDetailsDrawer({
                           </>
                         ) : (
                           <div className="space-y-4 pt-2">
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Lead Source</label>
-                              <select
-                                value={overviewEditForm.source}
-                                onChange={(e) => {
-                                  const source = e.target.value as LeadSource;
-                                  setOverviewEditForm((p) => ({
-                                    ...p,
-                                    source,
-                                    campaignName: source === 'Campaign' ? p.campaignName : '',
-                                    campaignLink: source === 'Campaign' ? p.campaignLink : '',
-                                    referralName: source === 'Referral' ? p.referralName : '',
-                                    sourceWebsiteUrl: source === 'Website' ? p.sourceWebsiteUrl : '',
-                                    sourceLinkedInUrl: source === 'LinkedIn' ? p.sourceLinkedInUrl : '',
-                                    sourceEmail: source === 'Email' ? p.sourceEmail : '',
-                                  }));
-                                }}
-                                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
-                              >
-                                {(['Website', 'LinkedIn', 'Email', 'Referral', 'Campaign'] as const).map((s) => (
-                                  <option key={s} value={s}>{s}</option>
-                                ))}
-                              </select>
-                            </div>
-                            {overviewEditForm.source === 'Website' && (
-                              <div>
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Website Link</label>
-                                <input
-                                  value={overviewEditForm.sourceWebsiteUrl}
-                                  onChange={(e) => setOverviewEditForm((p) => ({ ...p, sourceWebsiteUrl: e.target.value }))}
-                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                />
-                              </div>
-                            )}
-                            {overviewEditForm.source === 'LinkedIn' && (
-                              <div>
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">LinkedIn URL</label>
-                                <input
-                                  value={overviewEditForm.sourceLinkedInUrl}
-                                  onChange={(e) => setOverviewEditForm((p) => ({ ...p, sourceLinkedInUrl: e.target.value }))}
-                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                />
-                              </div>
-                            )}
-                            {overviewEditForm.source === 'Email' && (
-                              <div>
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Source Email</label>
-                                <input
-                                  type="email"
-                                  value={overviewEditForm.sourceEmail}
-                                  onChange={(e) => setOverviewEditForm((p) => ({ ...p, sourceEmail: e.target.value }))}
-                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                />
-                              </div>
-                            )}
-                            {overviewEditForm.source === 'Referral' && (
-                              <div>
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Referral Name</label>
-                                <input
-                                  value={overviewEditForm.referralName}
-                                  onChange={(e) => setOverviewEditForm((p) => ({ ...p, referralName: e.target.value }))}
-                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                />
-                              </div>
-                            )}
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Campaign Name</label>
-                              <input
-                                value={overviewEditForm.campaignName}
-                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, campaignName: e.target.value }))}
-                                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                              />
-                            </div>
-                            {overviewEditForm.source === 'Campaign' && (
-                              <div>
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Campaign Link</label>
-                                <input
-                                  value={overviewEditForm.campaignLink}
-                                  onChange={(e) => setOverviewEditForm((p) => ({ ...p, campaignLink: e.target.value }))}
-                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                />
-                              </div>
-                            )}
+                            <LeadSourceFields
+                              form={overviewEditForm}
+                              onChange={(patch) => setOverviewEditForm((p) => ({ ...p, ...patch }))}
+                            />
                             <div>
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Lead Owner</label>
                               <input

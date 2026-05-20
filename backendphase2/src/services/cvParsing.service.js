@@ -7,9 +7,19 @@ import { getActiveTenantDbName } from '../config/prisma.js';
 import { uploadBufferToCloudinary, uploadContentTypeForFile } from '../utils/s3.js';
 import {
   chatCompletionWithFallback,
+  extractUsageFromLlmError,
   getCvLlmCircuitSnapshot,
   hasLlmProvider,
 } from './llmChatFallback.service.js';
+import {
+  buildCvExtractionJsonSchemaBlock,
+  buildCvExtractionPromptInstructions,
+  countPipelineFieldCoverage,
+  applyPipelineFieldsToNormalized,
+  enrichParsedFromNarrative,
+  logPipelineSectionsExtraction,
+  CV_PIPELINE_SECTIONS,
+} from './cvPipelineSchema.js';
 
 const require = createRequire(import.meta.url);
 
@@ -20,8 +30,63 @@ const MIME_TO_EXTENSIONS = {
   'text/plain': ['.txt'],
 };
 
+const CV_PASS_DIVIDER = '--- CV_PASS_DIVIDER ---';
+
 const SECTION_HEADER_KEYWORDS =
-  /\b(education|experience|skills|summary|contact|profile|objective|employment|formation|parcours|projets)\b/i;
+  /\b(education|experience|skills|summary|contact|profile|objective|employment|formation|parcours|projets|extracurricular|curricular|activities|volunteers?|certifications?|courses?|projects?|references?|languages?|awards?|honou?rs|hobbies|interests|achievements?|qualifications?|academic|strengths|competencies)\b/i;
+
+/** Full-line section titles (PDF often emits these as pseudo "names"). */
+const RESUME_SECTION_LINE =
+  /^(?:summary|objective|profile|contact|skills|technical\s+skills|core\s+competencies|work\s+experience|employment|experience|education|academic|projects?|certifications?|courses?|languages?|references?|hobbies|interests|volunteers?|volunteering|achievements?|awards?|honou?rs(?:\s*(?:&|and)\s*awards)?|extra\s+curricular(?:\s+activities)?|extracurricular(?:\s+activities)?|professional\s+summary|personal\s+details|career\s+objective)\b/i;
+
+const NAME_JOB_TITLE_SUFFIX =
+  /\s*(?:Computer|Software|Full[\s-]?Stack|Frontend|Front[\s-]?end|Backend|Back[\s-]?end|Web|Data|Mechanical|Electrical|Civil|UI|UX|DevOps|Cloud|Machine\s+Learning|ML|AI)\s+Engineer\b/i;
+
+const NON_NAME_WORD_PARTS = new Set([
+  'extra',
+  'curricular',
+  'extracurricular',
+  'activities',
+  'activity',
+  'volunteer',
+  'volunteers',
+  'project',
+  'projects',
+  'certification',
+  'certifications',
+  'course',
+  'courses',
+  'education',
+  'experience',
+  'summary',
+  'skills',
+  'profile',
+  'contact',
+  'references',
+  'languages',
+  'awards',
+  'honours',
+  'honors',
+  'technical',
+  'strengths',
+  'objective',
+  'employment',
+  'internship',
+  'academic',
+  'qualification',
+  'institute',
+  'university',
+  'college',
+  'school',
+  'work',
+  'history',
+  'personal',
+  'information',
+  'details',
+  'formation',
+  'parcours',
+  'projets',
+]);
 
 const FALLBACK_SKILL_KEYWORDS = [
   'maintenance',
@@ -263,7 +328,9 @@ function regexHintsForLogs(cleanedText, fallbackData) {
     : '';
   const nameHow =
     fallbackData.firstName || fallbackData.lastName
-      ? '(first non-empty multi-word line, no @ or http)'
+      ? extractNameFromContactHeader(cleanedText).firstName
+        ? '(name before email/phone on contact line)'
+        : '(header line / filename / email local-part heuristic)'
       : '';
   const addrLabeled = /Adresse\s*:\s*[^\n\r\\]+/i.test(text);
   const locHow = fallbackData.location
@@ -326,12 +393,13 @@ function validateAiShapeForLogs(ai) {
   };
 }
 
-function logStage8FinalResponse(normalizedData, { totalMs, providerLabel }) {
+function logStage8FinalResponse(normalizedData, { totalMs, apiSummary }) {
   const name = [normalizedData.firstName, normalizedData.lastName].filter(Boolean).join(' ');
   const emailOk = Boolean(normalizedData.email);
   const phoneOk = Boolean(normalizedData.phone);
   const nEdu = normalizedData.educationEntries?.length || 0;
   const nWork = normalizedData.workExperienceEntries?.length || 0;
+  const summary = apiSummary || {};
   console.log('');
   console.log(divider('='));
   console.log('Stage 8 — Final Response');
@@ -346,11 +414,15 @@ function logStage8FinalResponse(normalizedData, { totalMs, providerLabel }) {
   console.log(`Skills:         ${normalizedData.skills?.length || 0}`);
   console.log(`portfolioLinks: ${normalizedData.portfolioLinks?.length || 0} entries`);
   console.log(`ATS Score:      ${normalizedData.score?.overall || 0}%`);
-  const providerStage8 =
-    typeof providerLabel === 'string' && providerLabel.includes('circuit-open') && providerLabel.includes('Mistral')
-      ? 'Mistral/circuit-open'
-      : providerLabel;
-  console.log(`Provider:       ${providerStage8}`);
+  console.log(`Parse chain:    ${summary.parseChain || 'N/A'}`);
+  console.log(`API key used:   ${summary.apiUsedLabel || 'N/A'}`);
+  if (summary.billable) {
+    console.log(
+      `Billable tokens: input ${summary.inputTokens ?? 0}, output ${summary.outputTokens ?? 0}, total ${summary.totalTokens ?? 0} (${summary.provider})`
+    );
+  } else {
+    console.log('Billable tokens: N/A (system regex fallback — OpenAI/Mistral not billed for this resume)');
+  }
   console.log(`Total time:     ~${totalMs}ms`);
   console.log(divider('='));
 }
@@ -394,6 +466,103 @@ function cleanResumeText(rawText = '') {
     .replace(/\n{3,}/g, '\n\n')
     .replace(/[^\S\n]+$/gm, '')
     .trim();
+}
+
+function titleCaseWord(word = '') {
+  const w = String(word || '').trim();
+  if (!w) return '';
+  if (w.length <= 2 && /^[A-Z]+$/.test(w)) return w;
+  return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+}
+
+function isResumeSectionHeaderLine(line = '') {
+  const t = String(line || '').trim();
+  if (!t || t.length > 90) return true;
+  if (RESUME_SECTION_LINE.test(t)) return true;
+  if (/@|https?:\/\//i.test(t)) return true;
+  const parts = t.toLowerCase().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2 && parts.every((p) => NON_NAME_WORD_PARTS.has(p))) return true;
+  if (parts.length >= 2) {
+    const nameLike = parts.filter((p) => !NON_NAME_WORD_PARTS.has(p));
+    if (nameLike.length < 2 && parts.some((p) => NON_NAME_WORD_PARTS.has(p))) return true;
+  }
+  if (SECTION_HEADER_KEYWORDS.test(t) && parts.length <= 5 && !/\d/.test(t)) return true;
+  return false;
+}
+
+/** Split glued PDF headers (NAME+Title, contact pipes) before regex / name heuristics. */
+function preprocessResumeTextForParsing(rawText = '') {
+  let t = String(rawText || '').replace(/\r/g, '\n');
+
+  t = t.replace(
+    /\b([A-Z][A-Z]{1,}(?:\s+[A-Z][A-Z]{1,}){0,4})\s*(Computer|Software|Full[\s-]?Stack|Frontend|Front[\s-]?end|Backend|Back[\s-]?end|Web|Data|Mechanical|Electrical|Civil|UI|UX|DevOps|Cloud|Machine\s+Learning|ML|AI)\s+Engineer\b/g,
+    '$1\n$2 Engineer'
+  );
+
+  const sectionBreaks = [
+    'Summary',
+    'Work Experience',
+    'Experience',
+    'Education',
+    'Skills',
+    'Projects',
+    'Certifications',
+    'Extra Curricular Activities',
+    'Extracurricular Activities',
+    'Languages',
+    'Volunteers',
+    'Honours & Awards',
+    'Honors & Awards',
+  ];
+  for (const hdr of sectionBreaks) {
+    const esc = hdr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    t = t.replace(new RegExp(`(?<!\\n)(${esc})(?=\\s)`, 'gi'), '\n$1\n');
+  }
+
+  t = t.replace(/\s*\|\s*(?=\+?\d|[a-zA-Z0-9._%+-]+@)/g, '\n');
+
+  return t.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function extractPrimaryResumeBlock(fullText = '') {
+  const t = String(fullText || '');
+  const idx = t.indexOf(CV_PASS_DIVIDER);
+  return idx > 0 ? t.slice(0, idx).trim() : t;
+}
+
+function extractNameFromContactHeader(text = '') {
+  const primary = extractPrimaryResumeBlock(text);
+  const emailMatch = primary.match(RX_EMAIL_IN_TEXT);
+  const phoneMatch = primary.match(RX_PHONE_LOOSE);
+  if (!emailMatch && !phoneMatch) return { firstName: '', lastName: '' };
+
+  let cutAt = primary.length;
+  if (emailMatch?.index != null && emailMatch.index >= 0) cutAt = Math.min(cutAt, emailMatch.index);
+  if (phoneMatch?.index != null && phoneMatch.index >= 0) cutAt = Math.min(cutAt, phoneMatch.index);
+
+  const before = primary.slice(0, cutAt);
+  const lines = before.split('\n').map((l) => l.trim()).filter(Boolean);
+
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    let line = lines[i].replace(NAME_JOB_TITLE_SUFFIX, '').replace(/\|+\s*$/g, '').trim();
+    if (!line || line.length > 80 || isResumeSectionHeaderLine(line)) continue;
+
+    const split = splitNameCandidate(line);
+    if (split.firstName) return split;
+
+    const caps = line.replace(/[^A-Za-zÀ-ÿ\s.'-]/g, '').trim();
+    if (/^[A-Z][A-Z\s.'-]{3,}$/.test(caps)) {
+      const w = caps.split(/\s+/).filter(Boolean);
+      if (w.length >= 2 && w.length <= 5) {
+        return {
+          firstName: titleCaseWord(w[0]),
+          lastName: w.slice(1).map(titleCaseWord).join(' '),
+        };
+      }
+    }
+  }
+
+  return { firstName: '', lastName: '' };
 }
 
 const RESUME_TITLE_STOPWORDS = new Set([
@@ -450,18 +619,19 @@ function looksLikePersonName(value = '') {
     .trim();
 
   if (!cleaned || /[@\d]/.test(cleaned)) return false;
-  if (SECTION_HEADER_KEYWORDS.test(cleaned)) return false;
+  if (isResumeSectionHeaderLine(cleaned)) return false;
 
   const parts = cleaned.split(' ').filter(Boolean);
   if (parts.length < 2 || parts.length > 4) return false;
 
   const lowerParts = parts.map((part) => part.toLowerCase());
+  if (lowerParts.some((part) => NON_NAME_WORD_PARTS.has(part))) return false;
   if (lowerParts.some((part) => RESUME_TITLE_STOPWORDS.has(part))) return false;
   if (lowerParts.some((part) => /(?:engineer|developer|designer|manager|analyst|consultant|architect|student|intern)/.test(part))) {
     return false;
   }
 
-  return parts.every((part) => /^[A-Za-z][A-Za-z.'-]*$/.test(part));
+  return parts.every((part) => /^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ.'-]*$/.test(part));
 }
 
 function splitNameCandidate(value = '') {
@@ -493,16 +663,33 @@ function nameFromFileName(fileName = '') {
 }
 
 function extractResumeName(fullText = '', fileName = '') {
-  const cleanedText = String(fullText || '');
+  const cleanedText = preprocessResumeTextForParsing(fullText);
+  const primary = extractPrimaryResumeBlock(cleanedText);
   let nameGuess = '';
 
-  const allCapsLines = cleanedText.split('\n').map((l) => l.trim());
+  const headerName = extractNameFromContactHeader(cleanedText);
+  if (headerName.firstName || headerName.lastName) {
+    return headerName;
+  }
+
+  const gluedHeader = primary.match(
+    /^([A-Z][A-Z\s.'-]{3,60}?)(?:\s*(?:Computer|Software|Full[\s-]?Stack|Frontend|Front[\s-]?end|Backend|Back[\s-]?end|Web|Data|Mechanical|Electrical|Civil|UI|UX|DevOps|Cloud|Machine\s+Learning|ML|AI)\s+Engineer)?/m
+  );
+  if (gluedHeader?.[1]) {
+    const fromGlued = splitNameCandidate(gluedHeader[1].trim());
+    if (fromGlued.firstName) return fromGlued;
+  }
+
+  const allCapsLines = primary.split('\n').map((l) => l.trim());
   for (const line of allCapsLines.slice(0, 30)) {
     if (
-      /^[A-Z][A-Z\s]{4,40}$/.test(line) &&
+      /^[A-Z][A-Z\s.'-]{4,60}$/.test(line) &&
       line.split(/\s+/).length >= 2 &&
       line.split(/\s+/).length <= 5 &&
-      !/EXPERIENCE|EDUCATION|SKILLS|SUMMARY|PROFILE|CONTACT|FORMATION|COMPÉTENCES|LANGUES|PROJETS|ACTIVITIES/i.test(line)
+      !/EXPERIENCE|EDUCATION|SKILLS|SUMMARY|PROFILE|CONTACT|FORMATION|COMPÉTENCES|LANGUES|PROJETS|ACTIVIT|CURRICULAR|VOLUNTEER|CERTIFICATION|PROJECT/i.test(
+        line
+      ) &&
+      !isResumeSectionHeaderLine(line)
     ) {
       nameGuess = line.trim();
       break;
@@ -510,7 +697,7 @@ function extractResumeName(fullText = '', fileName = '') {
   }
 
   if (!nameGuess) {
-    const spacedMatch = cleanedText.match(/\b([A-Z]\s){2,}[A-Z](\s{2,}([A-Z]\s){1,}[A-Z])?\b/);
+    const spacedMatch = primary.match(/\b([A-Z]\s){2,}[A-Z](\s{2,}([A-Z]\s){1,}[A-Z])?\b/);
     if (spacedMatch) {
       let s = spacedMatch[0].replace(/\s+/g, ' ').trim();
       s = s.replace(/([A-Z])\s+(?=[A-Z])/g, '$1');
@@ -519,8 +706,9 @@ function extractResumeName(fullText = '', fileName = '') {
   }
 
   if (!nameGuess) {
-    const lines = cleanedText.split('\n').map((l) => l.trim()).filter(Boolean);
+    const lines = primary.split('\n').map((l) => l.trim()).filter(Boolean);
     for (const line of lines.slice(0, 25)) {
+      if (isResumeSectionHeaderLine(line)) continue;
       const words = line.split(/\s+/);
       if (
         words.length >= 2 &&
@@ -531,7 +719,7 @@ function extractResumeName(fullText = '', fileName = '') {
         !line.includes('http') &&
         !line.includes('+') &&
         !/\d/.test(line) &&
-        !/experience|engineer|developer|manager|analyst|intern|worked|designed|developed|summary|education|skills|profile|contact|formation|compétences|langues|computer|software|mechanical|electrical|frontend|backend|fullstack|at |pvt|ltd|inc|interface|dynamic|responsive/i.test(
+        !/experience|engineer|developer|manager|analyst|intern|worked|designed|developed|summary|education|skills|profile|contact|formation|compétences|langues|computer|software|mechanical|electrical|frontend|backend|fullstack|at |pvt|ltd|inc|interface|dynamic|responsive|curricular|activities|volunteer|certification|project/i.test(
           line
         ) &&
         /^[A-Za-zÀ-ÿ\s\-']+$/.test(line) &&
@@ -601,13 +789,32 @@ function findSection(text = '', sectionName = '', nextSections = []) {
   return text.match(regex)?.[1]?.trim() || '';
 }
 
+function isPlausiblePortfolioUrl(url = '') {
+  try {
+    const u = new URL(String(url).startsWith('http') ? url : `https://${url}`);
+    const host = u.hostname.toLowerCase();
+    if (!host.includes('.')) return false;
+    const base = host.split('.')[0] || '';
+    const tld = host.split('.').pop() || '';
+    const techTlds = new Set(['js', 'jsx', 'ts', 'tsx', 'css', 'php', 'py', 'java', 'net', 'edu', 'gov']);
+    if (techTlds.has(tld) && !host.includes('github') && !host.includes('linkedin')) return false;
+    if (/^(react|node|vue|next|express|mongodb|mysql|graphql|redux|flask|tailwind|material|b\.?sc|b\.?tech|outlook|yahoo|hotmail|gmail)$/i.test(base)) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function extractPortfolioLinks(text = '') {
   const matches = text.match(/(?:https?:\/\/)?(?:www\.)?[a-z0-9.-]+\.[a-z]{2,}(?:\/[^\s]*)?/gi) || [];
-  const ignored = ['gmail.com', 'socket.io'];
+  const ignored = ['gmail.com', 'socket.io', 'yahoo.com', 'hotmail.com', 'outlook.com'];
   const seen = new Set();
 
   return matches
     .map((item) => normalizeUrl(item))
+    .filter((item) => item && isPlausiblePortfolioUrl(item))
     .filter((item) => item && !ignored.some((ignoredHost) => item.toLowerCase().includes(ignoredHost)))
     .filter((item) => {
       const key = item.toLowerCase();
@@ -1177,12 +1384,22 @@ async function extractCvProfilePhotoFromPdfBuffer(pdfBuffer) {
 function scorePassText(text) {
   const t = String(text || '');
   let score = 0;
+  const head = t.slice(0, 900);
   if (/@[a-zA-Z][a-zA-Z0-9._-]*[a-zA-Z0-9]/.test(t)) score += 20;
+  if (RX_EMAIL_IN_TEXT.test(head)) score += 12;
   if (
     /\+?\d[\d\s().-]{6,}\d/.test(t) ||
     /\b\d(?:[\s-]?\d){7,}\b/.test(t.replace(/\s+/g, ' '))
   ) {
     score += 15;
+  }
+  if (RX_PHONE_LOOSE.test(head)) score += 10;
+  if (RX_EMAIL_IN_TEXT.test(head) && RX_PHONE_LOOSE.test(head)) score += 15;
+  const emailIdx = head.search(RX_EMAIL_IN_TEXT);
+  if (emailIdx > 20 && emailIdx < 500) {
+    const beforeEmail = head.slice(0, emailIdx);
+    if (/[A-Z][A-Z\s.'-]{3,}\s*(?:Computer|Software|Engineer)/i.test(beforeEmail)) score += 20;
+    if (/\b[A-Z]{2,}(?:\s+[A-Z]{2,}){1,4}\b/.test(beforeEmail)) score += 10;
   }
   if (EDU_SCORE_WORDS.test(t)) score += 15;
   if (WORK_SCORE_WORDS.test(t) || DATE_SCORE_PATTERN.test(t)) score += 15;
@@ -1222,8 +1439,48 @@ function extractSkillsRegex(text = '') {
   return out;
 }
 
+function extractWorkRolesFromText(text = '', experienceRaw = '') {
+  const blob = [experienceRaw, extractPrimaryResumeBlock(text)].filter(Boolean).join('\n');
+  const matches = [
+    ...blob.matchAll(
+      /(?:^|[\n•·])\s*([A-Za-z][A-Za-z0-9\s/.-]{2,55}?)\s+at\s+([A-Za-z0-9][A-Za-z0-9\s&.'()-]{2,70}?)(?=\s*\n|\s+\d+\s*years?|\s*[•·]|\s+Worked|\s+•)/gi
+    ),
+  ];
+  const entries = [];
+  const seen = new Set();
+  for (const m of matches) {
+    const title = String(m[1] || '')
+      .trim()
+      .replace(/\s+\d+\s*years?.*$/i, '');
+    const company = String(m[2] || '')
+      .trim()
+      .replace(/\s+\d+\s*years?.*$/i, '');
+    if (!title || !company || title.length < 3 || company.length < 2) continue;
+    if (/^(work|experience|summary|education|skills)$/i.test(title)) continue;
+    const key = `${title}|${company}`.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    entries.push({
+      title,
+      company,
+      location: null,
+      startDate: null,
+      endDate: null,
+      durationText: null,
+      responsibilities: [],
+    });
+  }
+  const current = entries[0];
+  return {
+    workExperienceEntries: entries.slice(0, 8),
+    currentCompany: current?.company || '',
+    designation: current?.title || '',
+    currentDesignation: current?.title || '',
+  };
+}
+
 function extractRegexFallbackData(cleanedText = '', fileName = '') {
-  const text = String(cleanedText || '');
+  const text = preprocessResumeTextForParsing(cleanedText);
   const labeledEmail =
     text.match(
       /(?:email|e-mail|mail|courriel)\s*[:#]?\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i
@@ -1391,14 +1648,16 @@ function extractRegexFallbackData(cleanedText = '', fileName = '') {
     .filter(Boolean);
   const rawPhonesFound = [...new Set(phoneLike)];
 
+  const workParsed = extractWorkRolesFromText(text, experienceRaw);
+
   return {
     firstName: nameParts.firstName,
     lastName: nameParts.lastName,
     email,
     phone,
-    currentCompany: '',
-    designation: '',
-    currentDesignation: '',
+    currentCompany: workParsed.currentCompany,
+    designation: workParsed.designation,
+    currentDesignation: workParsed.currentDesignation,
     experience: parsePositiveNumber(text.match(/(\d+(?:\.\d+)?)\+?\s*(?:years?|yrs?|ans?)/i)?.[1] || ''),
     location,
     linkedinUrl,
@@ -1421,7 +1680,7 @@ function extractRegexFallbackData(cleanedText = '', fileName = '') {
     country: '',
     noticePeriod: '',
     educationEntries: [],
-    workExperienceEntries: [],
+    workExperienceEntries: workParsed.workExperienceEntries,
     portfolioLinks,
     rawEmailsFound,
     rawPhonesFound,
@@ -1491,6 +1750,7 @@ function mergeAiWithFallback(ai, fallback) {
   const out = { ...fallback };
   const a = ai && typeof ai === 'object' ? ai : {};
   for (const [k, v] of Object.entries(a)) {
+    if (k === 'firstName' || k === 'lastName') continue;
     if (k === 'extraFields' && v && typeof v === 'object' && !Array.isArray(v)) {
       const mergedExtra = {
         ...(out.extraFields && typeof out.extraFields === 'object' && !Array.isArray(out.extraFields) ? out.extraFields : {}),
@@ -1500,6 +1760,18 @@ function mergeAiWithFallback(ai, fallback) {
       continue;
     }
     if (isPresentVal(v)) out[k] = v;
+  }
+
+  const fbFull = [fallback.firstName, fallback.lastName].filter(Boolean).join(' ').trim();
+  const aiFull = [a.firstName, a.lastName].filter(Boolean).join(' ').trim();
+  const fbOk = looksLikePersonName(fbFull);
+  const aiOk = looksLikePersonName(aiFull);
+  if (aiOk || !fbOk) {
+    if (isPresentVal(a.firstName)) out.firstName = String(a.firstName).trim();
+    if (isPresentVal(a.lastName)) out.lastName = String(a.lastName).trim();
+  } else {
+    out.firstName = String(fallback.firstName || '').trim();
+    out.lastName = String(fallback.lastName || '').trim();
   }
 
   const emails = [
@@ -1564,78 +1836,34 @@ async function extractStructuredResumeDataWithOpenAI(cleanedText, file) {
   }
 
   const capped = cleanedText.slice(0, 22000);
-  const prompt = `Extract structured candidate data from the resume text below.
+  const prompt = `Extract structured candidate data from the resume text below for a recruitment ATS import.
 
 Rules:
-- The CV may be in any language (English, French, Spanish, Arabic, etc.). Extract all fields regardless of language.
-- Contact details may appear in shaded boxes, sidebars, or without labels (including French labels like Téléphone, Courriel). Find email and phone wherever they appear.
-- Extract every email pattern into rawEmailsFound (array of strings).
-- Extract every phone pattern into rawPhonesFound (array of strings).
-- Never invent data: use null for missing fields. Do not guess names, employers, or dates.
-- extraFields (see INSTRUCTIONS below): never use null placeholder keys; omit keys you cannot support from the CV text.
-- Return ONLY a single valid JSON object. No markdown, no code fences, no commentary.
+- CV may be any language. Extract all supported fields wherever they appear (headers, sidebars, tables).
+- Extract every email into rawEmailsFound and every phone into rawPhonesFound.
+- Never invent data: use null for missing scalar fields. Omit empty extraFields keys.
+- Return ONLY one valid JSON object. No markdown or commentary.
+- All score.* values: integers 0-100 (never decimals like 0.85).
 
-INSTRUCTIONS FOR "extraFields" IN THE JSON OUTPUT:
-- Do NOT invent keys. Do NOT return null values for things not in the CV.
-- Only include keys where you actually found real data in the CV text.
-- If a section exists in the CV that does not fit any other field above, capture it here with a descriptive key name.
-- The COMPÉTENCES section of this CV often contains soft skills — capture them as: "softSkills": ["skill1", "skill2", "skill3"]
-- Other examples: "awards", "publications", "volunteerWork", "drivingLicence", "nationality", "hobbies", "references"
-- If none of these exist in the CV, return an empty object: {}
-- NEVER return: { "nationality": null, "hobbies": null } — omit missing keys entirely.
+${buildCvExtractionPromptInstructions()}
 
-INSTRUCTIONS FOR workExperienceEntries (apply to ALL CVs):
-- startDate: extract whatever date text marks the start of this role. Accept any format: ISO, Month Year, year only, DD/MM/YYYY, or a range fragment. Return exactly as written in the CV. Do not reformat. If truly not present, return null.
-- endDate: same rules. If the role is current/ongoing, return "Present" or "Current" if the CV uses that wording.
-- durationText: if the CV states duration as plain text (e.g. "1 year experience", "2 years", "6 months", "1yr", "2yr"), capture it here. Return null if no such text exists for that entry.
-- Do NOT return null for startDate/endDate if any date-like text exists in the job block or the lines immediately above/below it.
+INSTRUCTIONS FOR educationEntries:
+- Use qualification (degree title) and instituteName (school/college). Also set degree/institution to the same values when present.
+- startYear/endYear: copy date text from CV exactly (Month Year, year only, etc.).
 
-INSTRUCTIONS FOR portfolioLinks and portfolioUrl (apply to ALL CVs):
-- portfolioLinks: extract every substantive URL from the CV: portfolio sites, GitHub profile/repos, LinkedIn, live demos, startup/company sites, freelancer project links, any http:// or https:// link, and domain-like text without a scheme (prefix with https://).
-- For each URL return one object: { "type": classify as Portfolio|GitHub|LinkedIn|StartupWebsite|WorkProject|FreelancerProject|Demo|CompanyWebsite|Other, "url": always full URL with https://, "label": section heading near the link (e.g. "Projects", "Portfolio") or null }.
-- Include every distinct URL the CV shows (do not drop URLs because they look similar).
-- portfolioUrl: set to the single best personal portfolio URL, or the first clear portfolio/demo URL if none is obviously primary.
+INSTRUCTIONS FOR workExperienceEntries:
+- title, company, location, startDate, endDate, durationText, responsibilities[].
+- Dates: copy as written; use "Present"/"Current" when ongoing.
 
-JSON fields (use null when absent):
-{
-  "firstName": string|null,
-  "lastName": string|null,
-  "email": string|null,
-  "phone": string|null,
-  "currentCompany": string|null,
-  "designation": string|null,
-  "location": string|null,
-  "city": string|null,
-  "country": string|null,
-  "linkedinUrl": string|null,
-  "githubUrl": string|null,
-  "portfolioUrl": string|null,
-  "portfolioLinks": [{"type": string, "url": string, "label": string|null}],
-  "skills": string[],
-  "languages": string[],
-  "certifications": string[],
-  "summary": string|null,
-  "noticePeriod": string|null,
-  "expectedSalary": number|null,
-  "currentSalary": number|null,
-  "totalExperience": number|null,
-  "educationEntries": [{"degree": string, "institution": string, "startYear": string|null, "endYear": string|null, "grade": string|null}],
-  "workExperienceEntries": [{"title": string, "company": string, "location": string|null, "startDate": string|null, "endDate": string|null, "durationText": string|null, "responsibilities": string[]}],
-  "score": {
-    "overall": integer 0-100 (whole number only, never a 0-1 decimal),
-    "skills": integer 0-100,
-    "experience": integer 0-100,
-    "education": integer 0-100,
-    "completeness": integer 0-100
-  },
-  "rawEmailsFound": string[],
-  "rawPhonesFound": string[],
-  "extraFields": object,
-  "source": "LinkedIn"|"Naukri"|"Indeed"|"Referral"|"Company Career Page"|"Agency"|"Other"|null,
-  "priority": "High"|"Medium"|"Low"|null
-}
+INSTRUCTIONS FOR portfolioLinks / website:
+- Every http(s) URL and classified type (Portfolio, LinkedIn, GitHub, WorkProject, etc.).
+- website: primary personal or company site; portfolioUrl: best portfolio link.
 
-CRITICAL — score values: All score.* fields MUST be whole integers from 0 to 100. Return 75 not 0.75. Return 90 not 0.9. Never use decimals.
+INSTRUCTIONS FOR extraFields:
+- Only keys with real CV data (awards, projects, softSkills, hackathons, etc.). No null placeholders.
+
+JSON schema:
+${buildCvExtractionJsonSchemaBlock()}
 
 Resume file name: ${file?.originalname || 'resume'}
 
@@ -1644,38 +1872,193 @@ ${capped}
 `;
 
   const t0 = Date.now();
-  const completion = await chatCompletionWithFallback(
-    {
-      model: env.OPENAI_ASSISTANT_MODEL || 'gpt-4o-mini',
-      temperature: 0,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You are a multilingual resume parsing engine. Output JSON only, no markdown, following the user instructions exactly. All score fields must be integers 0-100, never decimals between 0 and 1.',
-        },
-        { role: 'user', content: prompt },
-      ],
-    },
-    'cv-parse',
-    { quiet: true }
-  );
-  const ms = Date.now() - t0;
-  const usedMistral = !String(completion?.model || '').toLowerCase().includes('gpt');
-  const content = completion.choices?.[0]?.message?.content || '{}';
-  const parsed = safeJsonParse(content);
+  try {
+    const completion = await chatCompletionWithFallback(
+      {
+        model: env.OPENAI_CHAT_MODEL,
+        temperature: 0,
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are a multilingual resume parsing engine. Output JSON only, no markdown, following the user instructions exactly. All score fields must be integers 0-100, never decimals between 0 and 1.',
+          },
+          { role: 'user', content: prompt },
+        ],
+      },
+      'cv-parse',
+      { quiet: true }
+    );
+    const ms = Date.now() - t0;
+    const modelName = String(completion?.model || '').toLowerCase();
+    const usedMistral =
+      modelName.includes('mistral') ||
+      (!modelName.includes('gpt') && !modelName.includes('o1') && !modelName.includes('o3'));
+    const tokenUsage = extractCompletionTokenUsage(completion, usedMistral);
+    const content = completion.choices?.[0]?.message?.content || '{}';
+    const parsed = safeJsonParse(content);
+    logNarrative([
+      `Billable tokens (${tokenUsage.provider}) — input: ${tokenUsage.inputTokens}, output: ${tokenUsage.outputTokens}, total: ${tokenUsage.totalTokens}`,
+      `API key used: OpenAI API key (${env.OPENAI_CHAT_MODEL})`,
+    ]);
+    return {
+      parsed: parsed || null,
+      meta: {
+        skipped: false,
+        ms,
+        model: completion?.model || 'n/a',
+        usedMistral,
+        validJson: Boolean(parsed),
+        circuitWasOpen: circuitBefore.circuitOpen,
+        charsSent: cleanedText.length,
+        ...tokenUsage,
+      },
+    };
+  } catch (llmErr) {
+    const ms = Date.now() - t0;
+    const mistralAttempted = Boolean(llmErr?.mistralError);
+    logNarrative([
+      '',
+      `AI call failed: ${llmErr?.message || llmErr}`,
+      mistralAttempted
+        ? 'Parse chain: OpenAI (failed) → Mistral (failed) → System regex fallback ✓'
+        : `Parse chain: OpenAI ${env.OPENAI_CHAT_MODEL} (failed) → System regex fallback ✓`,
+      'Billable tokens: N/A (system regex only — not counted)',
+    ]);
+    return {
+      parsed: null,
+      meta: {
+        skipped: true,
+        ms,
+        model: null,
+        usedMistral: mistralAttempted,
+        validJson: false,
+        circuitWasOpen: circuitBefore.circuitOpen,
+        charsSent: cleanedText.length,
+        reason: 'ai_error',
+        errorMessage: String(llmErr?.message || llmErr),
+        provider: 'system',
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+      },
+    };
+  }
+}
+
+/** @param {unknown} completion */
+function extractCompletionTokenUsage(completion, usedMistral) {
+  const usage = completion?.usage;
+  const inputTokens = Number(usage?.prompt_tokens ?? usage?.input_tokens ?? 0) || 0;
+  const outputTokens = Number(usage?.completion_tokens ?? usage?.output_tokens ?? 0) || 0;
+  const totalTokens =
+    Number(usage?.total_tokens ?? 0) || inputTokens + outputTokens;
+  const provider = usedMistral ? 'mistral' : 'openai';
   return {
-    parsed: parsed || null,
-    meta: {
-      skipped: false,
-      ms,
-      model: completion?.model || 'n/a',
-      usedMistral,
-      validJson: Boolean(parsed),
-      circuitWasOpen: circuitBefore.circuitOpen,
-      charsSent: cleanedText.length,
-    },
+    provider,
+    inputTokens,
+    outputTokens,
+    totalTokens,
+  };
+}
+
+/** Remove client-only parse metadata before persisting a candidate. */
+export function stripCvParseMeta(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return { cleaned: payload, cvParseMeta: null };
+  }
+  const { cvParseMeta, ...cleaned } = payload;
+  return { cleaned, cvParseMeta: cvParseMeta ?? null };
+}
+
+/**
+ * Resolve which API path ran and whether Mistral/OpenAI usage is billable.
+ * Order: OpenAI → Mistral → System (Stage 4 regex). Tokens only when an LLM succeeds.
+ */
+function buildCvParseApiSummary(aiMeta = {}) {
+  const skipped = Boolean(aiMeta.skipped);
+  const validJson = Boolean(aiMeta.validJson);
+  const usedMistral = Boolean(aiMeta.usedMistral);
+  const circuitWasOpen = Boolean(aiMeta.circuitWasOpen);
+  const reason = aiMeta.reason;
+  const chatModel = env.OPENAI_CHAT_MODEL;
+
+  let provider = 'system';
+  let apiUsedLabel = 'System (regex fallback)';
+  let parseChain = 'System regex ✓';
+  let billable = false;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let totalTokens = 0;
+
+  if (reason === 'no_llm' || !hasLlmProvider()) {
+    provider = 'none';
+    apiUsedLabel = 'System (regex only — no API keys)';
+    parseChain = 'No OpenAI/Mistral keys — System regex ✓';
+  } else if (!skipped && validJson && usedMistral) {
+    provider = 'mistral';
+    apiUsedLabel = 'Mistral API key';
+    billable = true;
+    inputTokens = Number(aiMeta.inputTokens) || 0;
+    outputTokens = Number(aiMeta.outputTokens) || 0;
+    totalTokens = Number(aiMeta.totalTokens) || 0;
+    parseChain = circuitWasOpen
+      ? 'OpenAI (circuit open, skipped) → Mistral ✓'
+      : 'OpenAI (failed) → Mistral ✓';
+  } else if (!skipped && validJson && !usedMistral) {
+    provider = 'openai';
+    apiUsedLabel = `OpenAI API key (${chatModel})`;
+    billable = true;
+    inputTokens = Number(aiMeta.inputTokens) || 0;
+    outputTokens = Number(aiMeta.outputTokens) || 0;
+    totalTokens = Number(aiMeta.totalTokens) || 0;
+    parseChain = `OpenAI ${chatModel} ✓`;
+  } else if (skipped && reason === 'ai_error') {
+    provider = 'system';
+    apiUsedLabel = 'System (regex fallback)';
+    parseChain = usedMistral
+      ? 'OpenAI (failed) → Mistral (failed) → System regex ✓'
+      : `OpenAI ${chatModel} (failed) → System regex ✓`;
+    if (aiMeta.errorMessage) {
+      parseChain += ` — ${String(aiMeta.errorMessage).slice(0, 120)}`;
+    }
+  } else if (skipped) {
+    provider = 'system';
+    apiUsedLabel = 'System (regex fallback)';
+    parseChain = 'System regex ✓ (AI skipped)';
+  }
+
+  return {
+    provider,
+    apiUsedLabel,
+    parseChain,
+    billable,
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    model: aiMeta.model && aiMeta.model !== 'n/a' ? String(aiMeta.model) : null,
+  };
+}
+
+function buildCvParseMeta(aiMeta = {}) {
+  if (!aiMeta || typeof aiMeta !== 'object') return null;
+  const summary = buildCvParseApiSummary(aiMeta);
+  const skipped = Boolean(aiMeta.skipped);
+  return {
+    provider: summary.provider,
+    apiUsedLabel: summary.apiUsedLabel,
+    parseChain: summary.parseChain,
+    billable: summary.billable,
+    model: summary.model,
+    inputTokens: summary.inputTokens,
+    outputTokens: summary.outputTokens,
+    totalTokens: summary.totalTokens,
+    durationMs: Number(aiMeta.ms) || 0,
+    skipped,
+    charsSent: Number(aiMeta.charsSent) || 0,
+    aiFailed: aiMeta.reason === 'ai_error' || summary.provider === 'system',
+    errorMessage: aiMeta.errorMessage ? String(aiMeta.errorMessage) : undefined,
   };
 }
 
@@ -1757,38 +2140,63 @@ function normalizeResumeExtraction(merged = {}, fallback = {}, extras = {}) {
     .join('\n');
   const portfolioLinks = Array.isArray(base.portfolioLinks) ? base.portfolioLinks : extractPortfolioLinks(linkSource);
 
-  const extraData =
-    base.extraFields && typeof base.extraFields === 'object' && !Array.isArray(base.extraFields)
-      ? base.extraFields
-      : {};
-
-  return {
+  const core = {
     firstName: String(base.firstName || fallback.firstName || '').trim(),
     lastName: String(base.lastName || fallback.lastName || '').trim(),
     email: normalizeEmail(base.email || fallback.email || ''),
     phone: String(base.phone || fallback.phone || '').trim(),
-    currentCompany: String(base.currentCompany || fallback.currentCompany || '').trim(),
-    designation: String(base.designation || fallback.designation || '').trim(),
+    currentCompany: String(base.currentCompany || base.currentEmployer || fallback.currentCompany || '').trim(),
+    designation: String(base.designation || base.currentDesignation || fallback.designation || '').trim(),
     currentDesignation: String(
       base.currentDesignation || base.designation || fallback.currentDesignation || ''
     ).trim(),
     experience: parsePositiveNumber(base.experience ?? base.totalExperience),
     location: buildLocation(base.location, base.city, base.country) || buildLocation(fallback.location, fallback.city, fallback.country),
     city: String(base.city || fallback.city || '').trim(),
+    state: String(base.state || '').trim(),
     country: String(base.country || fallback.country || '').trim(),
+    currentAddress: String(base.currentAddress || '').trim(),
+    zip: String(base.zip || '').trim(),
+    age: parsePositiveNumber(base.age),
+    candidateScore: parsePositiveNumber(base.candidateScore),
+    nationality: String(base.nationality || '').trim(),
+    currentCompanyWebsite: normalizeUrl(base.currentCompanyWebsite || ''),
+    maritalStatus: String(base.maritalStatus || '').trim(),
+    birthDate: String(base.birthDate || '').trim(),
+    passportNumber: String(base.passportNumber || '').trim(),
+    remarks: String(base.remarks || '').trim(),
     linkedinUrl: normalizeUrl(base.linkedinUrl || fallback.linkedinUrl || ''),
+    twitterUrl: normalizeUrl(base.twitterUrl || ''),
+    xingUrl: normalizeUrl(base.xingUrl || ''),
+    skypeId: String(base.skypeId || '').trim(),
+    facebookUrl: normalizeUrl(base.facebookUrl || ''),
+    stackOverflowUrl: normalizeUrl(base.stackOverflowUrl || ''),
     githubUrl: normalizeUrl(base.githubUrl || fallback.githubUrl || ''),
+    website: normalizeUrl(base.website || base.portfolioUrl || ''),
     portfolioUrl: normalizeUrl(base.portfolioUrl || fallback.portfolioUrl || ''),
+    workHistory: String(base.workHistory || '').trim(),
+    honoursAndAwards: Array.isArray(base.honoursAndAwards) ? base.honoursAndAwards.filter(Boolean) : [],
+    languageProficiency: Array.isArray(base.languageProficiency) ? base.languageProficiency : [],
+    courses: Array.isArray(base.courses) ? base.courses.filter(Boolean) : [],
+    extracurricularActivities: Array.isArray(base.extracurricularActivities)
+      ? base.extracurricularActivities.filter(Boolean)
+      : [],
+    volunteers: Array.isArray(base.volunteers) ? base.volunteers.filter(Boolean) : [],
+    currentBenefits: String(base.currentBenefits || '').trim(),
+    expectedBenefits: String(base.expectedBenefits || '').trim(),
+    currentSalaryCurrency: String(base.currentSalaryCurrency || '').trim(),
+    expectedSalaryCurrency: String(base.expectedSalaryCurrency || '').trim(),
+    noticePeriodInDays: parsePositiveNumber(base.noticePeriodInDays),
     source: sourceOk ? String(base.source).trim() : 'Other',
     priority: priorityOk ? String(base.priority).trim() : 'Medium',
     tags: Array.isArray(base.tags) ? base.tags.filter(Boolean).slice(0, 10) : [],
     skills: skillsArr,
     expectedSalary: parsePositiveNumber(base.expectedSalary),
     currentSalary: parsePositiveNumber(base.currentSalary),
-    currency: String(base.currency ?? '').trim(),
+    currency: String(base.currency ?? base.expectedSalaryCurrency ?? base.currentSalaryCurrency ?? '').trim(),
     education: String(base.education || fallback.education || '').trim(),
-    languages: Array.isArray(base.languages) ? base.languages.filter(Boolean).slice(0, 10) : [],
-    certifications: Array.isArray(base.certifications) ? base.certifications.filter(Boolean).slice(0, 10) : [],
+    languages: Array.isArray(base.languages) ? base.languages.filter(Boolean).slice(0, 15) : [],
+    certifications: Array.isArray(base.certifications) ? base.certifications.filter(Boolean).slice(0, 15) : [],
     summary: String(base.summary || fallback.summary || '').trim(),
     noticePeriod: String(base.noticePeriod || '').trim(),
     educationEntries: eduEntries,
@@ -1803,10 +2211,15 @@ function normalizeResumeExtraction(merged = {}, fallback = {}, extras = {}) {
         : null,
     parsedAt: new Date().toISOString(),
     isMockData: false,
-    extraData,
+    extraFields:
+      base.extraFields && typeof base.extraFields === 'object' && !Array.isArray(base.extraFields)
+        ? base.extraFields
+        : {},
     rawEmailsFound: Array.isArray(base.rawEmailsFound) ? base.rawEmailsFound : [],
     rawPhonesFound: Array.isArray(base.rawPhonesFound) ? base.rawPhonesFound : [],
   };
+
+  return applyPipelineFieldsToNormalized(core, fallback, extras, extras.cleanedText || '');
 }
 
 /**
@@ -1944,7 +2357,7 @@ export async function runCvPipelineThroughStage4(file) {
   const nulCount = (combinedRaw.match(/\u0000/g) || []).length;
   const afterCleanOnly = cleanResumeText(combinedRaw);
   const dupStats = dedupeConsecutiveLinesMaxTwiceWithStats(afterCleanOnly);
-  const cleaned = dupStats.text;
+  const cleaned = preprocessResumeTextForParsing(dupStats.text);
 
   logStageBanner(3, 'Clean + Deduplicate');
   logNarrative([
@@ -2032,7 +2445,16 @@ export async function finalizeCvPipelineFromStage5(
     String(tenantDbNameOpt || getActiveTenantDbName() || 'default').trim() || 'default';
   const tPipeline = Date.now();
 
-  logStageBanner(5, 'AI Structured Extraction');
+  logStageBanner(5, 'AI Structured Extraction (ATS field pipeline)');
+  logNarrative([
+    'Pipeline sections:',
+    `  Personal: ${CV_PIPELINE_SECTIONS.personal.join(', ')}`,
+    `  Education: ${CV_PIPELINE_SECTIONS.education.join(', ')}`,
+    `  Professional: ${CV_PIPELINE_SECTIONS.professional.join(', ')}`,
+    `  Social: ${CV_PIPELINE_SECTIONS.social.join(', ')}`,
+    `  Summary: ${CV_PIPELINE_SECTIONS.summary.join(', ')}`,
+    '',
+  ]);
   const circuitSnap = getCvLlmCircuitSnapshot();
   logNarrative([
     'Circuit breaker check:',
@@ -2041,9 +2463,9 @@ export async function finalizeCvPipelineFromStage5(
         ? `${circuitSnap.lastFailureIso} (within 10 min window)`
         : 'never'
     }`,
-    `  Circuit: ${circuitSnap.circuitOpen ? 'OPEN → skipping OpenAI, going directly to Mistral' : 'CLOSED → OpenAI preferred when configured'}`,
+    `  Circuit: ${circuitSnap.circuitOpen ? 'OPEN → OpenAI quota cooldown (Mistral fallback when configured)' : 'CLOSED → OpenAI gpt-4.1'}`,
     ...(circuitSnap.circuitOpen
-      ? [`  Log: "provider=Mistral/circuit-open"`]
+      ? [`  Log: "OpenAI quota cooldown — Mistral fallback when MISTRAL_API_KEY is set"`]
       : ['  Log: (quiet mode — see Provider line after AI run)']),
     '',
     `Text sent to AI: ${cleaned.length} chars (well under 22,000 cap)`,
@@ -2088,7 +2510,26 @@ export async function finalizeCvPipelineFromStage5(
     aiParsed = aiSettled.value.parsed ?? null;
     aiMeta = { ...aiMeta, ...(aiSettled.value.meta || {}) };
   } else if (aiSettled.status === 'rejected') {
-    logNarrative(['', `AI extraction threw: ${aiSettled.reason?.message || aiSettled.reason}`]);
+    const mistralAttempted = Boolean(aiSettled.reason?.mistralError);
+    aiMeta = {
+      ...aiMeta,
+      skipped: true,
+      reason: 'ai_error',
+      usedMistral: mistralAttempted,
+      errorMessage: String(aiSettled.reason?.message || aiSettled.reason),
+      provider: 'system',
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+    };
+    logNarrative([
+      '',
+      `AI extraction threw: ${aiSettled.reason?.message || aiSettled.reason}`,
+      mistralAttempted
+        ? 'Parse chain: OpenAI (failed) → Mistral (failed) → System regex fallback ✓'
+        : `Parse chain: OpenAI ${env.OPENAI_CHAT_MODEL} (failed) → System regex fallback ✓`,
+      'Billable tokens: N/A (system regex only)',
+    ]);
   }
   if (aiParsed) {
     normalizeAiScoreDecimalsBeforeMerge(aiParsed);
@@ -2107,29 +2548,22 @@ export async function finalizeCvPipelineFromStage5(
     profilePhotoUrl = ph?.secure_url || ph?.url || null;
   }
 
-  const snapAfterAi = getCvLlmCircuitSnapshot();
-
-  let providerLine = 'OpenAI';
-  if (aiMeta.skipped && aiMeta.reason === 'no_llm') {
-    providerLine = 'N/A (no LLM configured)';
-  } else if (aiMeta.skipped && aiMeta.reason === 'empty_text') {
-    providerLine = 'N/A (empty resume text)';
-  } else if (aiSettled.status === 'rejected') {
-    providerLine = `error: ${aiSettled.reason?.message || 'unknown'}`;
-  } else if (aiMeta.usedMistral && aiMeta.circuitWasOpen) {
-    providerLine = 'Mistral (circuit-open, no OpenAI wait)';
-  } else if (aiMeta.usedMistral && snapAfterAi.circuitOpen && !aiMeta.circuitWasOpen) {
-    providerLine = 'Mistral (after OpenAI 429 — circuit now open for next requests)';
-  } else if (aiMeta.usedMistral) {
-    providerLine = 'Mistral (fallback or OpenAI unavailable)';
-  }
+  const apiSummary = buildCvParseApiSummary(aiMeta);
 
   logNarrative([
     '',
     `AI processing time: ~${aiMeta.ms}ms`,
-    `Provider: ${providerLine}`,
+    `Parse chain:    ${apiSummary.parseChain}`,
+    `API key used:   ${apiSummary.apiUsedLabel}`,
+    ...(apiSummary.billable
+      ? [
+          `Billable tokens — input: ${apiSummary.inputTokens}, output: ${apiSummary.outputTokens}, total: ${apiSummary.totalTokens} (${apiSummary.provider})`,
+        ]
+      : ['Billable tokens: N/A (system regex fallback — not counted)']),
     '',
-    aiMeta.validJson && aiParsed ? 'AI returned valid JSON ✅' : 'AI returned valid JSON ❌ (using Stage 4 fallback where needed)',
+    aiMeta.validJson && aiParsed
+      ? 'AI returned valid JSON ✅'
+      : 'AI returned valid JSON ❌ (using Stage 4 regex fallback where needed)',
   ]);
   if (aiParsed && aiMeta.validJson) {
   console.log('');
@@ -2149,11 +2583,16 @@ export async function finalizeCvPipelineFromStage5(
     `priority enum valid:         ${chk.priorityOk ? '✅' : '✅ defaulted to "Medium"'}`,
   ]);
 
-  const mergedFlat = mergeAiWithFallback(aiParsed, fallbackData);
+  const mergedFlat = enrichParsedFromNarrative(mergeAiWithFallback(aiParsed, fallbackData), cleaned);
   const portfolioLinks = extractPortfolioLinks(cleaned);
   if (!mergedFlat.portfolioLinks?.length) mergedFlat.portfolioLinks = portfolioLinks;
 
-  const extrasBase = { resumeFileName: displayName, resumeUrl, profilePhotoUrl };
+  const extrasBase = {
+    resumeFileName: displayName,
+    resumeUrl,
+    profilePhotoUrl,
+    cleanedText: cleaned,
+  };
   const normalizedData = normalizeResumeExtraction(mergedFlat, {}, extrasBase);
 
   const gh = normalizedData.githubUrl;
@@ -2185,8 +2624,16 @@ export async function finalizeCvPipelineFromStage5(
       : fullName
         ? 'fallback'
         : '—';
-  const eduSrc = aiParsed?.educationEntries?.length ? 'AI' : 'fallback';
-  const expSrc = aiParsed?.workExperienceEntries?.length ? 'AI' : 'fallback';
+  const eduSrc = normalizedData.educationEntries?.length
+    ? aiParsed?.educationEntries?.length
+      ? 'AI'
+      : 'enriched'
+    : 'fallback';
+  const expSrc = normalizedData.workExperienceEntries?.length
+    ? aiParsed?.workExperienceEntries?.length
+      ? 'AI'
+      : 'enriched'
+    : 'fallback';
 
   logNarrative([
     '',
@@ -2205,6 +2652,18 @@ export async function finalizeCvPipelineFromStage5(
     `  phone="${normalizedData.phone || ''}"`,
     `  edu=${normalizedData.educationEntries?.length || 0}  exp=${normalizedData.workExperienceEntries?.length || 0}`,
   ]);
+
+  const pipelineCoverage = countPipelineFieldCoverage(normalizedData);
+  logNarrative([
+    '',
+    `Pipeline field coverage: ${pipelineCoverage.count}/${pipelineCoverage.total} core groups`,
+    pipelineCoverage.filled.length
+      ? `  Captured: ${pipelineCoverage.filled.join(', ')}`
+      : '  Captured: (minimal — mostly regex fallback)',
+  ]);
+
+  logNarrative(['', 'Section-wise extraction (all ATS fields):']);
+  logPipelineSectionsExtraction(normalizedData);
 
   logStageBanner(7, 'Three Storage Destinations');
   const extraKeys =
@@ -2239,12 +2698,14 @@ export async function finalizeCvPipelineFromStage5(
   ]);
 
   const totalMs = Date.now() - tPipeline;
+  const finalApiSummary = buildCvParseApiSummary(aiMeta);
   logStage8FinalResponse(normalizedData, {
     totalMs,
-    providerLabel: providerLine,
+    apiSummary: finalApiSummary,
   });
 
-  return normalizedData;
+  const cvParseMeta = buildCvParseMeta(aiMeta);
+  return cvParseMeta ? { ...normalizedData, cvParseMeta } : normalizedData;
 }
 
 export async function processCandidateCv(file, { candidateId } = {}) {

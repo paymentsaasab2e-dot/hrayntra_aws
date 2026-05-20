@@ -305,7 +305,7 @@ Return only the improved text without any additional explanation or formatting. 
       try {
         console.log('🔄 Attempting to improve text with OpenAI...');
         const completion = await openai.chat.completions.create({
-          model: 'gpt-3.5-turbo',
+          model: 'gpt-4.1',
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.3,
           max_tokens: context === 'summary' ? 300 : 500,
@@ -337,7 +337,7 @@ Return only the improved text without any additional explanation or formatting. 
       try {
         console.log('🔄 Falling back to Mistral AI...');
         const chatResponse = await mistral.chat.complete({
-          model: 'mistral-medium-latest', // Using mistral-medium-latest for better results
+          model: 'gpt-4.1', // Using mistral-medium-latest for better results
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.3,
           maxTokens: context === 'summary' ? 300 : 500,

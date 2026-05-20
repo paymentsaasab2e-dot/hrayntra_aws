@@ -102,13 +102,7 @@ function createClients() {
   const openaiClient = process.env.OPENAI_API_KEY
     ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
     : null;
-  const mistralClient = process.env.MISTRAL_API_KEY
-    ? new OpenAI({
-        apiKey: process.env.MISTRAL_API_KEY,
-        baseURL: process.env.MISTRAL_API_BASE_URL || 'https://api.mistral.ai/v1',
-      })
-    : null;
-  return { openaiClient, mistralClient };
+  return { openaiClient, mistralClient: null };
 }
 
 async function embedOpenAI(text, openaiClient, logLabel = 'embed-openai') {
@@ -189,63 +183,29 @@ async function embedMistralSdk(text, mistralClient, logLabel = 'embed-mistral-sd
  *   Lock provider for a Pass 3 pair so job/candidate vectors share dimensions.
  */
 async function getEmbeddingWithFallback(text, clients = null, logLabel = 'embed', options = {}) {
-  const { openaiClient, mistralClient } = clients || createClients();
+  const { openaiClient } = clients || createClients();
   const input = String(text || '').trim() || ' ';
-  const force = options.forceProvider;
 
-  if (!openaiClient && !process.env.MISTRAL_API_KEY) {
-    throw new Error('No embedding provider: set OPENAI_API_KEY and/or MISTRAL_API_KEY');
+  if (!openaiClient) {
+    throw new Error('OPENAI_API_KEY is required for embeddings (OpenAI only; chat uses gpt-4.1).');
   }
 
-  if (force === 'openai' && openaiClient) {
+  if (shouldSkipOpenAi()) {
+    throw new Error(
+      `OpenAI embedding quota cooldown active — retry after ${Math.round(OPENAI_COOLDOWN_MS / 60000)} minutes.`
+    );
+  }
+
+  try {
     const vector = await embedOpenAI(input.slice(0, 8000), openaiClient, logLabel);
+    openAiFailedAt = null;
     return { vector, provider: 'openai', fallbackUsed: false };
-  }
-
-  if (force === 'mistral-native' && process.env.MISTRAL_API_KEY) {
-    const vector = await embedMistralNative(input.slice(0, 8000), logLabel);
-    return { vector, provider: 'mistral-native', fallbackUsed: true };
-  }
-
-  if (force === 'mistral-sdk' && mistralClient) {
-    const vector = await embedMistralSdk(input.slice(0, 8000), mistralClient, logLabel);
-    return { vector, provider: 'mistral', fallbackUsed: true };
-  }
-
-  if (openaiClient && !shouldSkipOpenAi()) {
-    try {
-      const vector = await embedOpenAI(input.slice(0, 8000), openaiClient, logLabel);
-      openAiFailedAt = null;
-      return { vector, provider: 'openai', fallbackUsed: false };
-    } catch (err) {
-      if (isQuotaOr429Error(err)) {
-        openAiFailedAt = Date.now();
-        console.warn(
-          `[${logLabel}] OpenAI embeddings unavailable (429/quota). Using Mistral for next ${OPENAI_COOLDOWN_MS / 60000} min.`
-        );
-      } else {
-        console.warn(`[${logLabel}] OpenAI embeddings failed: ${err?.message || err}. Trying Mistral.`);
-      }
+  } catch (err) {
+    if (isQuotaOr429Error(err)) {
+      openAiFailedAt = Date.now();
     }
-  } else if (openaiClient && shouldSkipOpenAi()) {
-    console.log(`[${logLabel}] OpenAI embed circuit open — using Mistral directly.`);
+    throw err;
   }
-
-  if (process.env.MISTRAL_API_KEY) {
-    try {
-      const vector = await embedMistralNative(input.slice(0, 8000), logLabel);
-      return { vector, provider: 'mistral-native', fallbackUsed: true };
-    } catch (nativeErr) {
-      console.warn(`[${logLabel}] Mistral native embed failed: ${nativeErr?.message || nativeErr}`);
-    }
-  }
-
-  if (mistralClient) {
-    const vector = await embedMistralSdk(input.slice(0, 8000), mistralClient, logLabel);
-    return { vector, provider: 'mistral', fallbackUsed: true };
-  }
-
-  throw new Error('All embedding providers failed');
 }
 
 module.exports = {

@@ -1,4 +1,8 @@
 import type { BackendCandidate } from './api';
+import {
+  buildEducationSummaryFromCvEntries,
+  isGarbageEducationSummary,
+} from './candidateEducation';
 import { resolveCandidateListStage } from './candidateListMapping';
 import type { CandidateProfileDrawerData } from '../components/drawers/CandidateProfileDrawer';
 import type { MatchCandidate } from '../components/matches/types';
@@ -442,7 +446,16 @@ export function mapCandidateProfile(c: BackendCandidate): CandidateProfileDrawer
         careerPrefs?.currentCurrency || careerPrefs?.preferredCurrency || c.salary?.currency || null,
         careerPrefs?.currentSalaryType || null
       ) || null,
-    cvEducation: c.education || null,
+    cvEducation: (() => {
+      const entries = Array.isArray(c.cvEducationEntries) ? c.cvEducationEntries : [];
+      const fromEntries = buildEducationSummaryFromCvEntries(
+        entries as Array<Record<string, unknown>>
+      );
+      if (fromEntries) return fromEntries;
+      const raw = c.education || null;
+      if (raw && isGarbageEducationSummary(raw)) return null;
+      return raw;
+    })(),
     cvEducationEntries: Array.isArray(c.cvEducationEntries) ? c.cvEducationEntries : [],
     cvWorkExperienceEntries: Array.isArray(c.cvWorkExperienceEntries) ? c.cvWorkExperienceEntries : [],
     cvPortfolioLinks: c.cvPortfolioLinks || [],
@@ -475,6 +488,10 @@ export function mapCandidateProfile(c: BackendCandidate): CandidateProfileDrawer
           ? (c as any).recruiterSkills
           : []) || [],
     cvSummary: c.cvSummary || null,
+    extraData:
+      c.extraData && typeof c.extraData === 'object' && !Array.isArray(c.extraData)
+        ? (c.extraData as Record<string, unknown>)
+        : null,
     tags: c.tagObjects?.length ? c.tagObjects : fallbackTags,
     notes: c.internalNotes?.length ? c.internalNotes : fallbackNotes,
     files: (c.resume || c.resumeUrl) ? [{ name: 'Resume', url: c.resume || c.resumeUrl }] : [],

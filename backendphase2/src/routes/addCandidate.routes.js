@@ -75,6 +75,24 @@ const csvUpload = multer({
   limits: { fileSize: 5 * 1024 * 1024 },
 });
 
+const zipFileFilter = (req, file, cb) => {
+  const ok =
+    file.mimetype === 'application/zip' ||
+    file.mimetype === 'application/x-zip-compressed' ||
+    /\.zip$/i.test(file.originalname || '');
+  if (!ok) {
+    cb(new Error('Only .zip archives are allowed'));
+    return;
+  }
+  cb(null, true);
+};
+
+const bulkCvZipUpload = multer({
+  storage: tempStorage,
+  fileFilter: zipFileFilter,
+  limits: { fileSize: env.BULK_CV_MAX_ZIP_BYTES },
+});
+
 router.get('/candidates/bulk-import/template', authMiddleware, addCandidateController.downloadTemplate);
 router.use(authMiddleware);
 
@@ -85,6 +103,12 @@ router.post(
   resumeUpload.single('resume'),
   addCandidateController.bulkCvProcessFile
 );
+router.post(
+  '/candidates/bulk-cv/expand-zip',
+  bulkCvZipUpload.single('archive'),
+  addCandidateController.bulkCvExpandZip
+);
+router.post('/candidates/bulk-cv/release-zip', addCandidateController.bulkCvReleaseZip);
 router.post('/candidates/import-linkedin', addCandidateController.importLinkedIn);
 router.get('/candidates/check-duplicate', addCandidateController.checkDuplicate);
 router.post('/candidates/bulk-import', csvUpload.single('csvFile'), addCandidateController.bulkImport);
