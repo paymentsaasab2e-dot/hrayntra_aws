@@ -414,6 +414,7 @@ function logStage8FinalResponse(normalizedData, { totalMs, apiSummary }) {
   console.log(`Skills:         ${normalizedData.skills?.length || 0}`);
   console.log(`portfolioLinks: ${normalizedData.portfolioLinks?.length || 0} entries`);
   console.log(`ATS Score:      ${normalizedData.score?.overall || 0}%`);
+  console.log(`Parse route:    ${summary.parseRoute || 'regex'} (${summary.apiUsedLabel || 'N/A'})`);
   console.log(`Parse chain:    ${summary.parseChain || 'N/A'}`);
   console.log(`API key used:   ${summary.apiUsedLabel || 'N/A'}`);
   if (summary.billable) {
@@ -2029,8 +2030,12 @@ function buildCvParseApiSummary(aiMeta = {}) {
     parseChain = 'System regex ✓ (AI skipped)';
   }
 
+  const parseRoute =
+    provider === 'openai' && billable ? 'openai' : provider === 'mistral' && billable ? 'mistral' : 'regex';
+
   return {
     provider,
+    parseRoute,
     apiUsedLabel,
     parseChain,
     billable,
@@ -2041,12 +2046,28 @@ function buildCvParseApiSummary(aiMeta = {}) {
   };
 }
 
+/** One-line terminal log: which path parsed this CV (OpenAI / Mistral / regex). */
+export function logCvParseRouteRecord(fileName = '', apiSummary = {}) {
+  const route = String(apiSummary?.parseRoute || apiSummary?.provider || 'regex').toLowerCase();
+  const safeRoute = route === 'openai' || route === 'mistral' ? route : 'regex';
+  const label =
+    safeRoute === 'openai' ? 'OpenAI' : safeRoute === 'mistral' ? 'Mistral' : 'Regex fallback';
+  const tokens = apiSummary?.billable
+    ? `tokens in=${Number(apiSummary.inputTokens) || 0} out=${Number(apiSummary.outputTokens) || 0} total=${Number(apiSummary.totalTokens) || 0}`
+    : 'tokens=0 (not billable)';
+  const chain = String(apiSummary?.parseChain || '').trim();
+  console.log(
+    `[cv-parse] route=${safeRoute} engine=${label} file=${String(fileName || 'resume').trim() || 'resume'} ${tokens}${chain ? ` chain="${chain}"` : ''}`
+  );
+}
+
 function buildCvParseMeta(aiMeta = {}) {
   if (!aiMeta || typeof aiMeta !== 'object') return null;
   const summary = buildCvParseApiSummary(aiMeta);
   const skipped = Boolean(aiMeta.skipped);
   return {
     provider: summary.provider,
+    parseRoute: summary.parseRoute,
     apiUsedLabel: summary.apiUsedLabel,
     parseChain: summary.parseChain,
     billable: summary.billable,
@@ -2699,6 +2720,7 @@ export async function finalizeCvPipelineFromStage5(
 
   const totalMs = Date.now() - tPipeline;
   const finalApiSummary = buildCvParseApiSummary(aiMeta);
+  logCvParseRouteRecord(displayName, finalApiSummary);
   logStage8FinalResponse(normalizedData, {
     totalMs,
     apiSummary: finalApiSummary,

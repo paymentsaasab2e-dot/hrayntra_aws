@@ -5,12 +5,15 @@ import { X, Coins, Sparkles, Trash2 } from 'lucide-react';
 import {
   BULK_CV_TOKENS_CHANGED,
   clearBulkCvTokenSession,
+  computeBulkCvRouteCounts,
   computeBulkCvTokenTotals,
   getBulkCvTokenSession,
   isBillableCvTokenRecord,
   removeBulkCvTokenRecords,
+  resolveCvParseRoute,
   type BulkCvTokenRecord,
   type CvParseProvider,
+  type CvParseRoute,
 } from '@/lib/bulkCvTokensStore';
 import { requestConfirm } from '@/lib/appDialog';
 
@@ -27,6 +30,18 @@ function formatProvider(provider: CvParseProvider) {
   if (provider === 'system') return 'System';
   if (provider === 'error') return 'AI failed';
   return 'No API';
+}
+
+function formatParseRoute(route: CvParseRoute) {
+  if (route === 'openai') return 'OpenAI';
+  if (route === 'mistral') return 'Mistral';
+  return 'Regex fallback';
+}
+
+function routeBadgeClass(route: CvParseRoute) {
+  if (route === 'openai') return 'bg-emerald-50 text-emerald-800 border-emerald-200';
+  if (route === 'mistral') return 'bg-violet-50 text-violet-800 border-violet-200';
+  return 'bg-slate-100 text-slate-700 border-slate-200';
 }
 
 function providerBadgeClass(provider: CvParseProvider, billable: boolean) {
@@ -101,6 +116,7 @@ export default function BulkCvTokensDrawer({ isOpen, onClose }: Props) {
   }, [recordIdKey, records]);
 
   const totals = useMemo(() => computeBulkCvTokenTotals(records), [recordIdKey, records]);
+  const routeCounts = useMemo(() => computeBulkCvRouteCounts(records), [recordIdKey, records]);
 
   const allSelected = records.length > 0 && selectedIds.length === records.length;
   const someSelected = selectedIds.length > 0 && !allSelected;
@@ -176,7 +192,7 @@ export default function BulkCvTokensDrawer({ isOpen, onClose }: Props) {
             <div>
               <h2 className="text-base font-bold text-slate-900">CV parse tokens</h2>
               <p className="text-xs text-slate-500">
-                OpenAI → Mistral → System · billable tokens only
+                Counts per engine · OpenAI → Mistral → regex fallback
               </p>
             </div>
           </div>
@@ -192,9 +208,30 @@ export default function BulkCvTokensDrawer({ isOpen, onClose }: Props) {
 
         <div className="border-b border-slate-100 bg-gradient-to-br from-indigo-50 to-violet-50 px-5 py-4">
           <p className="text-[11px] font-bold uppercase tracking-wider text-indigo-600/80">
-            Billable session totals (OpenAI + Mistral)
+            CVs parsed by engine (this session)
           </p>
-          <div className="mt-3 grid grid-cols-3 gap-3">
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            <div className="rounded-xl border border-emerald-200 bg-white px-3 py-2.5 shadow-sm">
+              <p className="text-[10px] font-semibold uppercase text-emerald-700">OpenAI</p>
+              <p className="mt-0.5 text-xl font-bold text-emerald-900">{routeCounts.openaiCvCount}</p>
+              <p className="text-[10px] text-slate-500">CVs</p>
+            </div>
+            <div className="rounded-xl border border-violet-200 bg-white px-3 py-2.5 shadow-sm">
+              <p className="text-[10px] font-semibold uppercase text-violet-700">Mistral</p>
+              <p className="mt-0.5 text-xl font-bold text-violet-900">{routeCounts.mistralCvCount}</p>
+              <p className="text-[10px] text-slate-500">CVs</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
+              <p className="text-[10px] font-semibold uppercase text-slate-600">Regex</p>
+              <p className="mt-0.5 text-xl font-bold text-slate-900">{routeCounts.regexCvCount}</p>
+              <p className="text-[10px] text-slate-500">fallback</p>
+            </div>
+          </div>
+
+          <p className="mt-3 text-[11px] font-bold uppercase tracking-wider text-indigo-600/80">
+            Billable tokens (OpenAI + Mistral)
+          </p>
+          <div className="mt-2 grid grid-cols-3 gap-3">
             <div className="rounded-xl border border-indigo-100 bg-white px-3 py-3 shadow-sm">
               <p className="text-[10px] font-semibold uppercase text-slate-500">Input</p>
               <p className="mt-1 text-lg font-bold text-slate-900">{formatNumber(totals.inputTokens)}</p>
@@ -210,10 +247,15 @@ export default function BulkCvTokensDrawer({ isOpen, onClose }: Props) {
           </div>
           {session?.startedAt ? (
             <p className="mt-2 text-[11px] text-slate-600">
-              {totals.resumeCount} resume{totals.resumeCount === 1 ? '' : 's'}
+              {totals.resumeCount} log{totals.resumeCount === 1 ? '' : 's'}
+              {' · OpenAI '}
+              {formatNumber(routeCounts.openaiTotalTokens)} tok
+              {' · Mistral '}
+              {formatNumber(routeCounts.mistralTotalTokens)} tok
               {totals.billableResumeCount > 0
-                ? ` · ${totals.billableResumeCount} with billable LLM tokens`
+                ? ` · ${totals.billableResumeCount} billable LLM parse${totals.billableResumeCount === 1 ? '' : 's'}`
                 : ' · no billable LLM usage yet'}
+              {routeCounts.unparsedCount > 0 ? ` · ${routeCounts.unparsedCount} failed before parse` : ''}
               {' · started '}
               {new Date(session.startedAt).toLocaleString()}
             </p>
@@ -272,6 +314,7 @@ export default function BulkCvTokensDrawer({ isOpen, onClose }: Props) {
               {records.map((row) => {
                 const isSelected = selectedIds.includes(row.id);
                 const billable = isBillableCvTokenRecord(row);
+                const parseRoute = resolveCvParseRoute(row);
                 return (
                   <li
                     key={row.id}
@@ -296,6 +339,11 @@ export default function BulkCvTokensDrawer({ isOpen, onClose }: Props) {
                               {row.fileName}
                             </p>
                             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                              <span
+                                className={`inline-flex rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase ${routeBadgeClass(parseRoute)}`}
+                              >
+                                {formatParseRoute(parseRoute)}
+                              </span>
                               <span
                                 className={`inline-flex rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase ${providerBadgeClass(row.provider, billable)}`}
                               >

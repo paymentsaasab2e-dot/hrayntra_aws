@@ -48,8 +48,10 @@ import { AddCandidateFormSections, CANDIDATE_FORM_STEPS } from './AddCandidateFo
 import {
   appendBulkCvTokenRecord,
   beginBulkCvTokenSession,
+  getBulkCvTokenSession,
   normalizeTokenUsageFromApi,
   stripCvParseMetaFromCandidate,
+  logBulkCvSessionReport,
 } from '@/lib/bulkCvTokensStore';
 import { collectBulkCvFilesFromDataTransfer, filterBulkCvFiles } from '@/lib/bulkCvCollect';
 
@@ -1936,6 +1938,7 @@ export default function AddCandidateDrawer({
     console.log(
       `[bulk-cv] done in ${elapsed}ms | files=${workItems.length} ok=${succeeded} skip=${skipped} fail=${failed}`
     );
+    logBulkCvSessionReport(getBulkCvTokenSession());
 
     setBulkResumePhase('complete');
     setBulkResumeStopRequested(false);

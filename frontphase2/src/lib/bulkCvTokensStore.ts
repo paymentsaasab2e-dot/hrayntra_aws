@@ -9,8 +9,12 @@ const KEY_SESSION = 'hrayntra:bulk-cv-tokens-session';
 
 export type CvParseProvider = 'openai' | 'mistral' | 'system' | 'none' | 'error';
 
+/** Which engine actually structured this CV (billable LLM vs regex). */
+export type CvParseRoute = 'openai' | 'mistral' | 'regex';
+
 export type CvTokenUsageMeta = {
   provider: CvParseProvider;
+  parseRoute?: CvParseRoute;
   model: string | null;
   inputTokens: number;
   outputTokens: number;
@@ -28,6 +32,7 @@ export type BulkCvTokenRecord = {
   id: string;
   fileName: string;
   provider: CvParseProvider;
+  parseRoute?: CvParseRoute;
   model: string | null;
   inputTokens: number;
   outputTokens: number;
@@ -54,6 +59,20 @@ export type BulkCvTokenTotals = {
   totalTokens: number;
   resumeCount: number;
   billableResumeCount: number;
+};
+
+export type BulkCvRouteCounts = {
+  totalRecords: number;
+  openaiCvCount: number;
+  mistralCvCount: number;
+  regexCvCount: number;
+  unparsedCount: number;
+  openaiInputTokens: number;
+  openaiOutputTokens: number;
+  openaiTotalTokens: number;
+  mistralInputTokens: number;
+  mistralOutputTokens: number;
+  mistralTotalTokens: number;
 };
 
 function emitChanged() {
@@ -107,6 +126,19 @@ function defaultApiLabel(provider: CvParseProvider): string {
   if (provider === 'system') return 'System (regex fallback)';
   if (provider === 'error') return 'AI failed';
   return 'System (regex only)';
+}
+
+/** Accurate route for drawer + reports (trust API parseRoute when present). */
+export function resolveCvParseRoute(
+  row: Pick<BulkCvTokenRecord, 'provider' | 'billable' | 'parseRoute'>
+): CvParseRoute {
+  const explicit = String(row.parseRoute || '').toLowerCase();
+  if (explicit === 'openai' || explicit === 'mistral' || explicit === 'regex') {
+    return explicit;
+  }
+  if (row.provider === 'openai' && row.billable) return 'openai';
+  if (row.provider === 'mistral' && row.billable) return 'mistral';
+  return 'regex';
 }
 
 function normalizeUsageForRecord(
@@ -169,8 +201,19 @@ function normalizeUsageForRecord(
       ? 'none'
       : 'system';
 
+  const routeFromApi = String(usage.parseRoute || '').toLowerCase();
+  let parseRoute: CvParseRoute =
+    routeFromApi === 'openai' || routeFromApi === 'mistral' || routeFromApi === 'regex'
+      ? routeFromApi
+      : finalProvider === 'openai' && billable
+        ? 'openai'
+        : finalProvider === 'mistral' && billable
+          ? 'mistral'
+          : 'regex';
+
   return {
     provider: finalProvider,
+    parseRoute,
     model: usage.model ?? null,
     inputTokens,
     outputTokens,
@@ -239,6 +282,84 @@ export function getBulkCvTokenSession(): BulkCvTokenSession | null {
   return readSession();
 }
 
+export function computeBulkCvRouteCounts(records: BulkCvTokenRecord[]): BulkCvRouteCounts {
+  const base: BulkCvRouteCounts = {
+    totalRecords: records.length,
+    openaiCvCount: 0,
+    mistralCvCount: 0,
+    regexCvCount: 0,
+    unparsedCount: 0,
+    openaiInputTokens: 0,
+    openaiOutputTokens: 0,
+    openaiTotalTokens: 0,
+    mistralInputTokens: 0,
+    mistralOutputTokens: 0,
+    mistralTotalTokens: 0,
+  };
+
+  for (const row of records) {
+    const route = resolveCvParseRoute(row);
+    if (route === 'openai') {
+      base.openaiCvCount += 1;
+      if (row.billable) {
+        base.openaiInputTokens += row.inputTokens;
+        base.openaiOutputTokens += row.outputTokens;
+        base.openaiTotalTokens += row.totalTokens;
+      }
+    } else if (route === 'mistral') {
+      base.mistralCvCount += 1;
+      if (row.billable) {
+        base.mistralInputTokens += row.inputTokens;
+        base.mistralOutputTokens += row.outputTokens;
+        base.mistralTotalTokens += row.totalTokens;
+      }
+    } else if (row.provider === 'none' && row.status === 'failed') {
+      base.unparsedCount += 1;
+    } else {
+      base.regexCvCount += 1;
+    }
+  }
+
+  return base;
+}
+
+/** Terminal report after a bulk CV session (browser console + optional copy in UI). */
+export function logBulkCvSessionReport(session: BulkCvTokenSession | null) {
+  if (!session?.records?.length) {
+    console.log('[bulk-cv] parse route report: (no CV parse records in this session)');
+    return;
+  }
+
+  const routes = computeBulkCvRouteCounts(session.records);
+  const totals = computeBulkCvTokenTotals(session.records);
+  const line = '='.repeat(72);
+
+  console.log('');
+  console.log(line);
+  console.log('BULK CV — Parse route report (this session)');
+  console.log(line);
+  console.log(`Session:     ${session.sessionId}`);
+  console.log(`Started:     ${session.startedAt}`);
+  console.log(`CV records:  ${routes.totalRecords} (imported + skipped + failed with parse log)`);
+  console.log('');
+  console.log('CVs parsed by engine:');
+  console.log(`  OpenAI:         ${routes.openaiCvCount} CV(s)`);
+  console.log(`  Mistral:        ${routes.mistralCvCount} CV(s)`);
+  console.log(`  Regex fallback: ${routes.regexCvCount} CV(s)`);
+  if (routes.unparsedCount > 0) {
+    console.log(`  Not parsed:     ${routes.unparsedCount} (failed before parse metadata)`);
+  }
+  console.log('');
+  console.log('Billable tokens (OpenAI + Mistral only):');
+  console.log(`  OpenAI:  in=${routes.openaiInputTokens.toLocaleString()} out=${routes.openaiOutputTokens.toLocaleString()} total=${routes.openaiTotalTokens.toLocaleString()}`);
+  console.log(`  Mistral: in=${routes.mistralInputTokens.toLocaleString()} out=${routes.mistralOutputTokens.toLocaleString()} total=${routes.mistralTotalTokens.toLocaleString()}`);
+  console.log(
+    `  Combined billable: in=${totals.inputTokens.toLocaleString()} out=${totals.outputTokens.toLocaleString()} total=${totals.totalTokens.toLocaleString()} (${totals.billableResumeCount} CVs)`
+  );
+  console.log(line);
+  console.log('');
+}
+
 export function computeBulkCvTokenTotals(records: BulkCvTokenRecord[]): BulkCvTokenTotals {
   return records.reduce(
     (acc, row) => {
@@ -282,8 +403,23 @@ export function normalizeTokenUsageFromApi(raw: unknown): CvTokenUsageMeta | nul
     !u.aiFailed &&
     (Number(u.inputTokens) > 0 || Number(u.outputTokens) > 0);
 
+  const parseRouteRaw = String(u.parseRoute || '').toLowerCase();
+  const parseRoute: CvParseRoute | undefined =
+    parseRouteRaw === 'openai' || parseRouteRaw === 'mistral' || parseRouteRaw === 'regex'
+      ? parseRouteRaw
+      : billableFromApi || inferredBillable
+        ? safeProvider === 'openai'
+          ? 'openai'
+          : safeProvider === 'mistral'
+            ? 'mistral'
+            : undefined
+        : safeProvider === 'system' || safeProvider === 'none'
+          ? 'regex'
+          : undefined;
+
   return {
     provider: safeProvider,
+    parseRoute,
     model: u.model != null ? String(u.model) : null,
     inputTokens: Number(u.inputTokens) || 0,
     outputTokens: Number(u.outputTokens) || 0,
