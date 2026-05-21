@@ -3,6 +3,7 @@ import {
   buildEducationSummaryFromCvEntries,
   isGarbageEducationSummary,
 } from './candidateEducation';
+import { computeTotalExperienceYears } from './candidateExperience';
 import { resolveCandidateListStage } from './candidateListMapping';
 import type { CandidateProfileDrawerData } from '../components/drawers/CandidateProfileDrawer';
 import type { MatchCandidate } from '../components/matches/types';
@@ -395,7 +396,11 @@ export function mapCandidateProfile(c: BackendCandidate): CandidateProfileDrawer
     currentTitle: c.currentTitle || null,
     currentCompany: c.currentCompany || null,
     stage,
-    experience: c.experience ?? 0,
+    experience:
+      computeTotalExperienceYears(
+        Array.isArray(c.cvWorkExperienceEntries) ? c.cvWorkExperienceEntries : [],
+        c.experience ?? c.experienceYears ?? null,
+      ) ?? c.experience ?? c.experienceYears ?? 0,
     location: c.location || '—',
     email: c.email,
     phone: c.phone || '—',

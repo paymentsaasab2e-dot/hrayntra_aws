@@ -43,6 +43,9 @@ import {
   Coins,
 } from 'lucide-react';
 import { downloadCsv } from '../../utils/csv';
+import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
+import { buildCandidatesCsvColumns, CANDIDATES_EXPORT_COLUMNS } from '../../lib/export/candidatesExportColumns';
+import { fetchAllPaginated, totalPagesFromPagination } from '../../lib/export/fetchAllPaginated';
 import { CreateTaskModal } from '../../components/CreateTaskModal';
 import { Toaster, toast } from 'sonner';
 import PaginationAll from '../../components/PaginationAll';
@@ -271,6 +274,9 @@ function CandidatesPageContent() {
   const [failedBulkResumeCount, setFailedBulkResumeCount] = useState(0);
   const [recycleBinModuleOpen, setRecycleBinModuleOpen] = useState(false);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportCandidates, setExportCandidates] = useState<Candidate[]>([]);
+  const [exportCandidatesLoading, setExportCandidatesLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [tableLoading, setTableLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -823,6 +829,97 @@ function CandidatesPageContent() {
 
   const filteredCandidates = candidates;
 
+  const buildCandidatesExportQueryParams = useCallback(
+    (page: number, limit: number): Record<string, string | number | boolean> => {
+      const queryParams: Record<string, string | number | boolean> = { page, limit };
+      if (filters.search) queryParams.search = filters.search;
+      if (debouncedColumnFilters.company) queryParams.company = debouncedColumnFilters.company;
+      if (debouncedColumnFilters.location) queryParams.location = debouncedColumnFilters.location;
+      if (debouncedColumnFilters.jobId) queryParams.jobId = debouncedColumnFilters.jobId;
+      if (debouncedColumnFilters.experienceRange) {
+        queryParams.experienceRange = debouncedColumnFilters.experienceRange;
+      }
+      if (debouncedColumnFilters.ownerId) {
+        queryParams.assignedToId = debouncedColumnFilters.ownerId;
+      }
+      const stageFilterKey =
+        debouncedColumnFilters.stage || (activeStage !== 'all' ? activeStage : '');
+      if (stageFilterKey) {
+        queryParams.stage =
+          CANDIDATE_STAGE_API_MAP[stageFilterKey.toLowerCase()] || stageFilterKey;
+      } else if (filters.status) {
+        queryParams.status = filters.status;
+      }
+      return queryParams;
+    },
+    [activeStage, debouncedColumnFilters, filters.search, filters.status],
+  );
+
+  const fetchAllCandidatesForExport = useCallback(async (): Promise<Candidate[]> => {
+    return fetchAllPaginated({
+      fetchPage: async (page, limit) => {
+        const res = await apiGetCandidates(buildCandidatesExportQueryParams(page, limit));
+        let backendCandidates: BackendCandidate[] = [];
+        const payload = res.data as
+          | BackendCandidate[]
+          | { data?: BackendCandidate[]; items?: BackendCandidate[]; pagination?: { totalPages?: number; total?: number } }
+          | undefined;
+        if (payload) {
+          if (Array.isArray(payload)) {
+            backendCandidates = payload;
+          } else if (Array.isArray(payload.data)) {
+            backendCandidates = payload.data;
+          } else if (Array.isArray(payload.items)) {
+            backendCandidates = payload.items;
+          }
+        }
+        const pagination =
+          payload && typeof payload === 'object' && !Array.isArray(payload) ? payload.pagination : undefined;
+        return {
+          items: backendCandidates.map(mapBackendCandidate),
+          totalPages: totalPagesFromPagination(pagination, backendCandidates.length, limit),
+        };
+      },
+    });
+  }, [buildCandidatesExportQueryParams]);
+
+  const openExportModal = async () => {
+    if (!canExportCandidate) return;
+    setExportCandidatesLoading(true);
+    setExportModalOpen(true);
+    try {
+      const all = await fetchAllCandidatesForExport();
+      setExportCandidates(all);
+      if (all.length === 0) {
+        toast.message('No candidates to export with current filters.');
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to load candidates for export';
+      toast.error(message);
+      setExportModalOpen(false);
+      setExportCandidates([]);
+    } finally {
+      setExportCandidatesLoading(false);
+    }
+  };
+
+  const handleExportCandidatesCsv = (selectedColumnIds: string[]) => {
+    const columns = buildCandidatesCsvColumns(selectedColumnIds);
+    if (columns.length === 0) {
+      toast.message('Select at least one column to export.');
+      return;
+    }
+    const rowsToExport = exportCandidates.length > 0 ? exportCandidates : filteredCandidates;
+    downloadCsv<Candidate>(
+      `candidates-${new Date().toISOString().slice(0, 10)}.csv`,
+      columns,
+      rowsToExport,
+    );
+    toast.success(
+      `Exported ${rowsToExport.length} candidate${rowsToExport.length === 1 ? '' : 's'} to CSV`,
+    );
+  };
+
   const handleToggleSelect = (id: string) => {
     setSelectedIds(prev => 
       prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
@@ -1296,41 +1393,9 @@ function CandidatesPageContent() {
               ) : null}
               <button
                 type="button"
-                onClick={() => {
-                  if (filteredCandidates.length === 0) {
-                    toast.message('No candidates to export with current filters.');
-                    return;
-                  }
-                  downloadCsv<Candidate>(
-                    `candidates-${new Date().toISOString().slice(0, 10)}.csv`,
-                    [
-                      { id: 'name', accessor: (c) => c.name },
-                      { id: 'email', accessor: (c) => c.email || '' },
-                      { id: 'phone', accessor: (c) => c.phone || '' },
-                      { id: 'designation', accessor: (c) => c.designation || '' },
-                      { id: 'company', accessor: (c) => c.company || '' },
-                      { id: 'experience', accessor: (c) => c.experience ?? '' },
-                      { id: 'location', accessor: (c) => c.location || '' },
-                      { id: 'stage', accessor: (c) => c.stage || '' },
-                      { id: 'owner', accessor: (c) => c.owner || '' },
-                      { id: 'lastActivity', accessor: (c) => c.lastActivity || '' },
-                      { id: 'hotlist', accessor: (c) => (c.hotlist ? 'true' : 'false') },
-                      { id: 'noticePeriod', accessor: (c) => c.noticePeriod || '' },
-                      { id: 'currentSalary', accessor: (c) => c.salary?.current || '' },
-                      { id: 'expectedSalary', accessor: (c) => c.salary?.expected || '' },
-                      { id: 'source', accessor: (c) => c.source || '' },
-                      { id: 'rating', accessor: (c) => c.rating ?? '' },
-                      { id: 'skills', accessor: (c) => (c.skills || []).join('; ') },
-                      { id: 'assignedJobs', accessor: (c) => (c.assignedJobs || []).join('; ') },
-                    ],
-                    filteredCandidates,
-                  );
-                  toast.success(
-                    `Exported ${filteredCandidates.length} candidate${filteredCandidates.length === 1 ? '' : 's'} to CSV`,
-                  );
-                }}
+                onClick={() => void openExportModal()}
                 className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
-                title="Export visible candidates to CSV"
+                title="Export candidates to CSV"
               >
                 <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
                 <span>Export</span>
@@ -2054,6 +2119,22 @@ function CandidatesPageContent() {
       />
 
       {submitModalElement}
+      <ExportColumnsModal
+        isOpen={exportModalOpen}
+        onClose={() => {
+          setExportModalOpen(false);
+          setExportCandidates([]);
+        }}
+        title="Export candidates"
+        rowCount={exportCandidates.length}
+        rowLabelSingular="candidate"
+        rowLabelPlural="candidates"
+        columns={CANDIDATES_EXPORT_COLUMNS}
+        rows={exportCandidates}
+        isLoading={exportCandidatesLoading}
+        getRowKey={(candidate) => candidate.id}
+        onExport={handleExportCandidatesCsv}
+      />
     </div>
     </>
   );

@@ -15,6 +15,13 @@ import {
   buildEducationSummaryFromCvEntries,
   isGarbageEducationSummary,
 } from '@/lib/candidateEducation';
+import {
+  computeTotalExperienceYears,
+  formatExperienceYearsLabel,
+  formatWorkEntryHeadline,
+  formatWorkEntryMeta,
+  type CvWorkEntryLike,
+} from '@/lib/candidateExperience';
 
 type SectionKey = 'personal' | 'education' | 'professional' | 'social' | 'summary';
 
@@ -70,6 +77,7 @@ function SectionBlock({
   children,
   filled,
   total,
+  extraHint,
 }: {
   id: SectionKey;
   title: string;
@@ -79,6 +87,7 @@ function SectionBlock({
   children: React.ReactNode;
   filled: number;
   total: number;
+  extraHint?: string;
 }) {
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50/80">
@@ -95,6 +104,7 @@ function SectionBlock({
             <h3 className="text-sm font-bold text-slate-900">{title}</h3>
             <p className="text-[11px] text-slate-500">
               {filled}/{total} fields captured
+              {extraHint ? ` · ${extraHint}` : ''}
             </p>
           </div>
         </div>
@@ -103,8 +113,49 @@ function SectionBlock({
           className={`shrink-0 text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`}
         />
       </button>
-      {open ? <div className="space-y-2 border-t border-slate-200/80 px-4 pb-4 pt-3">{children}</div> : null}
+      {open ? <div className="space-y-3 border-t border-slate-200/80 px-4 pb-4 pt-3">{children}</div> : null}
     </section>
+  );
+}
+
+function WorkExperienceEntryCard({ entry, index }: { entry: CvWorkEntryLike; index: number }) {
+  const meta = formatWorkEntryMeta(entry);
+  const responsibilities = Array.isArray(entry.responsibilities)
+    ? entry.responsibilities.filter((line) => String(line || '').trim())
+    : [];
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm">
+      <p className="text-sm font-semibold text-slate-900">{formatWorkEntryHeadline(entry, index)}</p>
+      {meta ? <p className="mt-1 text-xs font-medium text-slate-500">{meta}</p> : null}
+      {responsibilities.length > 0 ? (
+        <ul className="mt-2.5 list-inside list-disc space-y-1 text-sm text-slate-700">
+          {responsibilities.slice(0, 6).map((line, i) => (
+            <li key={i}>{line}</li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+function EducationEntryCard({ entry, index }: { entry: Record<string, unknown>; index: number }) {
+  const qual = display(entry.qualification || entry.degree);
+  const inst = display(entry.instituteName || entry.institution);
+  const dates = [entry.startYear, entry.endYear].filter(Boolean).join(' → ');
+  const grade = display(entry.grade);
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm">
+      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Entry {index + 1}</p>
+      <p className="mt-1 text-sm font-semibold text-slate-900">{qual || 'Qualification'}</p>
+      {inst ? <p className="mt-0.5 text-sm text-slate-600">{inst}</p> : null}
+      {dates || grade ? (
+        <p className="mt-2 text-xs text-slate-500">
+          {[dates, grade ? `Grade ${grade}` : ''].filter(Boolean).join(' · ')}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -116,13 +167,14 @@ function buildOverviewModel(candidate: CandidateProfileDrawerData) {
   const socialPipe = (pipeline.social || extra.social || {}) as Record<string, unknown>;
   const summaryPipe = (pipeline.summary || {}) as Record<string, unknown>;
   const educationPipe = (pipeline.education || {}) as Record<string, unknown>;
-  const eduEntries = Array.isArray(educationPipe.entries)
-    ? (educationPipe.entries as Array<Record<string, unknown>>)
-    : candidate.cvEducationEntries || [];
 
-  const educationCourses = Array.isArray(educationPipe.courses)
-    ? (educationPipe.courses as string[]).join('; ')
-    : '';
+  const eduEntries = (
+    Array.isArray(educationPipe.entries)
+      ? (educationPipe.entries as Array<Record<string, unknown>>)
+      : candidate.cvEducationEntries || []
+  ) as Array<Record<string, unknown>>;
+
+  const workEntries = (candidate.cvWorkExperienceEntries || []) as CvWorkEntryLike[];
 
   const educationSummaryText =
     display(educationPipe.summaryText) ||
@@ -132,6 +184,14 @@ function buildOverviewModel(candidate: CandidateProfileDrawerData) {
       : display(candidate.cvEducation)) ||
     buildEducationSummaryFromCvEntries(eduEntries);
 
+  const educationCourses = Array.isArray(educationPipe.courses)
+    ? (educationPipe.courses as string[]).join('; ')
+    : Array.isArray(professional.courses)
+      ? (professional.courses as string[]).join('; ')
+      : Array.isArray(extra.courses)
+        ? (extra.courses as string[]).join('; ')
+        : '';
+
   const cityState = [candidate.cvCity, personal.state as string]
     .map((v) => display(v))
     .filter(Boolean)
@@ -140,6 +200,11 @@ function buildOverviewModel(candidate: CandidateProfileDrawerData) {
   const candidateScore =
     display(personal.candidateScore) ||
     (candidate.aiScore?.overall != null ? String(candidate.aiScore.overall) : '');
+
+  const computedExperienceYears = computeTotalExperienceYears(
+    workEntries,
+    candidate.experience ?? null,
+  );
 
   const langProf = Array.isArray(summaryPipe.languageProficiency)
     ? (summaryPipe.languageProficiency as Array<{ language?: string; proficiency?: string }>)
@@ -154,15 +219,21 @@ function buildOverviewModel(candidate: CandidateProfileDrawerData) {
       ? (extra.honoursAndAwards as string[]).join('; ')
       : '';
 
+  const workHistoryFromEntries = workEntries
+    .map((w, i) => {
+      const headline = formatWorkEntryHeadline(w, i).replace(/^\[\d+\]\s*/, '');
+      const meta = formatWorkEntryMeta(w);
+      const bullets = Array.isArray(w.responsibilities)
+        ? w.responsibilities.slice(0, 2).join('; ')
+        : '';
+      return [headline, meta, bullets].filter(Boolean).join(': ');
+    })
+    .join('\n');
+
   const workHistory =
     display(summaryPipe.workHistory) ||
-    (candidate.cvWorkExperienceEntries || [])
-      .map((w) => {
-        const parts = [w.title, w.company ? `at ${w.company}` : ''].filter(Boolean);
-        const dates = [w.startDate, w.endDate].filter(Boolean).join(' – ');
-        return `${parts.join(' ')}${dates ? ` (${dates})` : ''}`;
-      })
-      .join('\n');
+    workHistoryFromEntries ||
+    '';
 
   return {
     personal: {
@@ -182,18 +253,14 @@ function buildOverviewModel(candidate: CandidateProfileDrawerData) {
       passport: display(personal.passportNumber),
     },
     education: {
-      entries: eduEntries as Array<Record<string, unknown>>,
-      courses: Array.isArray(professional.courses)
-        ? (professional.courses as string[]).join('; ')
-        : Array.isArray(extra.courses)
-          ? (extra.courses as string[]).join('; ')
-          : '',
-      summaryText: candidate.cvEducation || '',
+      entries: eduEntries,
+      courses: educationCourses,
+      summaryText: educationSummaryText,
     },
     professional: {
       remarks: candidate.cvNotes || display(professional.remarks) || display(extra.remarks),
-      experience:
-        candidate.experience != null ? `${candidate.experience} years` : '',
+      experienceYears: computedExperienceYears,
+      experienceLabel: formatExperienceYearsLabel(computedExperienceYears),
       employer: candidate.currentCompany,
       designation: candidate.designation || candidate.currentTitle,
       currentSalary: candidate.cvCurrentSalary,
@@ -202,17 +269,17 @@ function buildOverviewModel(candidate: CandidateProfileDrawerData) {
         (candidate.cvCurrentSalary || candidate.currentSalaryValue != null
           ? candidate.salaryCurrency
           : ''),
-      courses: Array.isArray(professional.courses)
-        ? (professional.courses as string[]).join('; ')
-        : Array.isArray(extra.courses)
-          ? (extra.courses as string[]).join('; ')
-          : '',
       currentBenefits: display(professional.currentBenefits),
       expectedSalary: candidate.cvExpectedSalary || candidate.expectedSalary,
       expectedSalaryCurrency: display(professional.expectedSalaryCurrency),
       expectedBenefits: display(professional.expectedBenefits),
       noticePeriod: candidate.noticePeriod,
       resume: candidate.resumeUrl,
+      courses: Array.isArray(professional.courses)
+        ? (professional.courses as string[]).join('; ')
+        : Array.isArray(extra.courses)
+          ? (extra.courses as string[]).join('; ')
+          : '',
       extracurricular: Array.isArray(professional.extracurricularActivities)
         ? (professional.extracurricularActivities as string[]).join('; ')
         : Array.isArray(extra.extracurricularActivities)
@@ -223,7 +290,7 @@ function buildOverviewModel(candidate: CandidateProfileDrawerData) {
         : Array.isArray(extra.volunteers)
           ? (extra.volunteers as string[]).join('; ')
           : '',
-      workEntries: candidate.cvWorkExperienceEntries || [],
+      workEntries,
     },
     social: {
       linkedIn: candidate.linkedIn || display(socialPipe.linkedIn),
@@ -239,7 +306,7 @@ function buildOverviewModel(candidate: CandidateProfileDrawerData) {
     summary: {
       summary: candidate.cvSummary || candidate.summary,
       workHistory,
-      educationText: candidate.cvEducation || '',
+      educationText: educationSummaryText,
       certificates: candidate.cvCertifications?.join('; ') || '',
       honours,
       languages: langProf,
@@ -290,24 +357,34 @@ export function CandidateAtsExtractedOverview({ candidate }: Props) {
     p.passport,
   ]);
 
+  const edu = model.education;
+  const eduEntryFilled = edu.entries.filter(
+    (e) => display(e.qualification || e.degree) || display(e.instituteName || e.institution),
+  ).length;
   const eduFilled =
-    model.education.entries.length +
-    (model.education.courses ? 1 : 0);
+    eduEntryFilled + (edu.courses ? 1 : 0) + (edu.summaryText ? 1 : 0);
+  const eduTotal = Math.max(edu.entries.length, 1) + 2;
 
   const prof = model.professional;
-  const profFilled =
-    countFilled([
-      prof.remarks,
-      prof.experience,
-      prof.employer,
-      prof.designation,
-      prof.currentSalary,
-      prof.expectedSalary,
-      prof.noticePeriod,
-      prof.resume,
-      prof.extracurricular,
-      prof.volunteers,
-    ]) + (prof.workEntries.length > 0 ? 1 : 0);
+  const profScalarFilled = countFilled([
+    prof.remarks,
+    prof.experienceLabel,
+    prof.employer,
+    prof.designation,
+    prof.currentSalary,
+    prof.currentSalaryCurrency,
+    prof.currentBenefits,
+    prof.expectedSalary,
+    prof.expectedSalaryCurrency,
+    prof.expectedBenefits,
+    prof.noticePeriod,
+    prof.resume,
+    prof.courses,
+    prof.extracurricular,
+    prof.volunteers,
+  ]);
+  const profTotal = 15;
+  const workCount = prof.workEntries.length;
 
   const s = model.social;
   const socialFilled =
@@ -338,7 +415,8 @@ export function CandidateAtsExtractedOverview({ candidate }: Props) {
   const hasAnyExtracted =
     personalFilled > 0 ||
     eduFilled > 0 ||
-    profFilled > 0 ||
+    profScalarFilled > 0 ||
+    workCount > 0 ||
     socialFilled > 0 ||
     summaryFilled > 0;
 
@@ -357,8 +435,9 @@ export function CandidateAtsExtractedOverview({ candidate }: Props) {
   return (
     <div className="space-y-4">
       <p className="text-xs text-slate-500">
-        Parsed from resume (bulk CV pipeline). Sections match ATS import fields — expand each block
-        for full detail.
+        Parsed from resume (bulk CV pipeline). Education and work history are shown as structured
+        entries; total experience is calculated from role durations or employment dates when
+        available.
       </p>
 
       <SectionBlock
@@ -395,35 +474,22 @@ export function CandidateAtsExtractedOverview({ candidate }: Props) {
         open={open.education}
         onToggle={toggle}
         filled={eduFilled}
-        total={Math.max(model.education.entries.length, 1) + 1}
+        total={eduTotal}
+        extraHint={
+          edu.entries.length ? `${edu.entries.length} education ${edu.entries.length === 1 ? 'entry' : 'entries'}` : undefined
+        }
       >
-        {model.education.entries.length ? (
+        {edu.entries.length > 0 ? (
           <div className="space-y-2">
-            {model.education.entries.map((entry, index) => {
-              const qual = display(entry.qualification || entry.degree);
-              const inst = display(entry.instituteName || entry.institution);
-              return (
-                <div
-                  key={`edu-${index}`}
-                  className="rounded-xl border border-slate-200 bg-white p-3"
-                >
-                  <p className="text-[10px] font-bold uppercase text-slate-400">Entry {index + 1}</p>
-                  <FieldRow label="Qualification" value={qual} optional={false} />
-                  <FieldRow label="Institute Name" value={inst} optional={false} />
-                  {(entry.startYear || entry.endYear) && (
-                    <p className="mt-2 text-xs text-slate-500">
-                      {[entry.startYear, entry.endYear].filter(Boolean).join(' → ')}
-                      {entry.grade ? ` · Grade ${entry.grade}` : ''}
-                    </p>
-                  )}
-                </div>
-              );
-            })}
+            {edu.entries.map((entry, index) => (
+              <EducationEntryCard key={`edu-${index}`} entry={entry} index={index} />
+            ))}
           </div>
         ) : (
-          <FieldRow label="Qualification" value="" />
+          <FieldRow label="Qualification" value="" optional={false} />
         )}
-        <FieldRow label="Courses" value={model.education.courses} />
+        <FieldRow label="Education (summary text)" value={edu.summaryText} />
+        <FieldRow label="Courses" value={edu.courses} />
       </SectionBlock>
 
       <SectionBlock
@@ -432,12 +498,37 @@ export function CandidateAtsExtractedOverview({ candidate }: Props) {
         icon={Briefcase}
         open={open.professional}
         onToggle={toggle}
-        filled={profFilled}
-        total={12}
+        filled={profScalarFilled}
+        total={profTotal}
+        extraHint={
+          workCount > 0
+            ? `${workCount} work ${workCount === 1 ? 'entry' : 'entries'}`
+            : undefined
+        }
       >
+        {workCount > 0 ? (
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+              Work experience entries
+            </p>
+            {prof.workEntries.map((job, index) => (
+              <WorkExperienceEntryCard key={`work-${index}`} entry={job} index={index} />
+            ))}
+          </div>
+        ) : null}
+
         <div className="grid gap-2 sm:grid-cols-2">
           <FieldRow label="Remarks" value={prof.remarks} />
-          <FieldRow label="Experience" value={prof.experience} />
+          <FieldRow
+            label="Experience"
+            value={
+              prof.experienceLabel
+                ? workCount > 0
+                  ? `${prof.experienceLabel} (from ${workCount} role${workCount === 1 ? '' : 's'})`
+                  : prof.experienceLabel
+                : ''
+            }
+          />
           <FieldRow label="Current Employer" value={prof.employer} />
           <FieldRow label="Current Designation" value={prof.designation} />
           <FieldRow label="Current Salary" value={prof.currentSalary} />
@@ -452,32 +543,6 @@ export function CandidateAtsExtractedOverview({ candidate }: Props) {
           <FieldRow label="Extracurricular Activities" value={prof.extracurricular} />
           <FieldRow label="Volunteers" value={prof.volunteers} />
         </div>
-        {prof.workEntries.length > 0 ? (
-          <div className="mt-2 space-y-2">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Work History</p>
-            {prof.workEntries.map((job, index) => (
-              <div key={`work-${index}`} className="rounded-xl border border-slate-200 bg-white p-3">
-                <p className="text-sm font-semibold text-slate-900">
-                  {[job.title, job.company].filter(Boolean).join(' @ ') || 'Role'}
-                </p>
-                {job.location || job.startDate || job.endDate ? (
-                  <p className="mt-1 text-xs text-slate-500">
-                    {[job.location, [job.startDate, job.endDate].filter(Boolean).join(' – ')]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </p>
-                ) : null}
-                {Array.isArray(job.responsibilities) && job.responsibilities.length > 0 ? (
-                  <ul className="mt-2 list-inside list-disc text-sm text-slate-700">
-                    {job.responsibilities.slice(0, 5).map((line, i) => (
-                      <li key={i}>{line}</li>
-                    ))}
-                  </ul>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        ) : null}
       </SectionBlock>
 
       <SectionBlock
@@ -499,7 +564,7 @@ export function CandidateAtsExtractedOverview({ candidate }: Props) {
           <FieldRow label="Website" value={s.website} href={s.website} />
         </div>
         {s.links.length > 0 ? (
-          <div className="mt-2 rounded-xl border border-slate-200 bg-white p-3">
+          <div className="rounded-xl border border-slate-200 bg-white p-3">
             <p className="text-[10px] font-bold uppercase text-slate-400">Portfolio / project links</p>
             <ul className="mt-2 space-y-1">
               {s.links.map((link, i) => {
@@ -532,7 +597,16 @@ export function CandidateAtsExtractedOverview({ candidate }: Props) {
         total={8}
       >
         <FieldRow label="Summary" value={sum.summary} optional={false} />
-        <FieldRow label="Work History" value={sum.workHistory} />
+        {workCount > 0 ? (
+          <div className="rounded-xl border border-slate-200/80 bg-white px-3 py-2.5">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+              Work History (optional)
+            </p>
+            <p className="mt-1 whitespace-pre-line text-sm text-slate-700">{sum.workHistory}</p>
+          </div>
+        ) : (
+          <FieldRow label="Work History" value={sum.workHistory} />
+        )}
         <FieldRow label="Education" value={sum.educationText} />
         <FieldRow label="Certificate" value={sum.certificates} />
         <FieldRow label="Honours & Awards" value={sum.honours} />

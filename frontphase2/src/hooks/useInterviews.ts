@@ -39,6 +39,7 @@ import type {
     UpdateInterviewPayload,
   } from '../types/interview.types';
 import { ALL_STATUS_LABEL } from '../constants/filterLabels';
+import { fetchAllPaginated } from '../lib/export/fetchAllPaginated';
 
 const defaultFilters: InterviewFiltersState = {
   date: 'This Week',
@@ -712,6 +713,48 @@ export function useInterviews() {
     void fetchInterviews();
   }, [fetchMeta, fetchInterviews]);
 
+  const fetchAllInterviewsForExport = useCallback(async (): Promise<Interview[]> => {
+    const buildParams = (page: number, limit: number) => ({
+      page,
+      limit,
+      status: filters.status !== ALL_STATUS_LABEL ? filters.status.toUpperCase().replace(/\s+/g, '_') : undefined,
+      round: filters.round !== 'All Rounds' ? filters.round.toUpperCase().replace(/\s+/g, '_') : undefined,
+      mode: filters.mode === 'Online' ? 'ONLINE' : filters.mode === 'Offline' ? 'OFFLINE' : undefined,
+      interviewerId:
+        filters.interviewer !== 'All Interviewers'
+          ? interviewerOptions.find((user) => user.name === filters.interviewer)?.id
+          : undefined,
+      jobId:
+        filters.clientJob !== 'All Clients'
+          ? jobOptions.find((job) => `${job.client} • ${job.title}` === filters.clientJob)?.id
+          : undefined,
+      search: searchQuery || undefined,
+    });
+
+    const all = await fetchAllPaginated({
+      fetchPage: async (page, limit) => {
+        const response = await apiGetInterviews(buildParams(page, limit));
+        const snapshot = normalizeInterviewListResponse(response.data);
+        return {
+          items: snapshot.interviews,
+          totalPages: snapshot.totalPages,
+        };
+      },
+    });
+
+    return all.filter((interview) => !deletedInterviewIdSet.has(interview.id));
+  }, [
+    deletedInterviewIdSet,
+    filters.clientJob,
+    filters.interviewer,
+    filters.mode,
+    filters.round,
+    filters.status,
+    interviewerOptions,
+    jobOptions,
+    searchQuery,
+  ]);
+
   return {
     interviews,
     filteredInterviews,
@@ -748,5 +791,6 @@ export function useInterviews() {
     updatePanel,
     markNoShow,
     attachRecording,
+    fetchAllInterviewsForExport,
   };
 }

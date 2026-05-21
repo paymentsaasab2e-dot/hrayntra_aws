@@ -78,6 +78,8 @@ export function ExportColumnsModal<T>({
   const removedColumns = columns.filter((c) => !selectedSet.has(c.id));
   const previewRows =
     maxPreviewRows != null && maxPreviewRows > 0 ? rows.slice(0, maxPreviewRows) : rows;
+  const previewTruncated =
+    maxPreviewRows != null && maxPreviewRows > 0 && rows.length > maxPreviewRows;
   const rowWord = rowCount === 1 ? rowLabelSingular : rowLabelPlural;
 
   const removeColumn = (id: string) => {
@@ -126,6 +128,9 @@ export function ExportColumnsModal<T>({
     .export-preview-table-scroll::-webkit-scrollbar-corner {
       background: #f1f5f9;
     }
+    .export-preview-table-scroll {
+      overscroll-behavior: contain;
+    }
   `;
 
   return createPortal(
@@ -153,7 +158,7 @@ export function ExportColumnsModal<T>({
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.96 }}
             transition={{ type: 'spring', damping: 26, stiffness: 320 }}
-            className="relative z-[1] flex max-h-[min(92vh,44rem)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-indigo-100/90 bg-white shadow-2xl shadow-indigo-500/10"
+            className="relative z-[1] flex h-[min(92vh,56rem)] w-full max-w-7xl flex-col overflow-hidden rounded-2xl border border-indigo-100/90 bg-white shadow-2xl shadow-indigo-500/10"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
@@ -165,7 +170,11 @@ export function ExportColumnsModal<T>({
                 <p className="mt-2 text-xs font-medium text-indigo-700">
                   {rowCount} {rowWord} · {activeColumns.length} column
                   {activeColumns.length === 1 ? '' : 's'} selected
-                  {` · showing all ${previewRows.length} in table`}
+                  {previewTruncated
+                    ? ` · preview: first ${previewRows.length} of ${rows.length} (export includes all ${rowCount})`
+                    : previewRows.length > 0
+                      ? ` · ${previewRows.length} in preview — scroll the table below to see every row`
+                      : ''}
                 </p>
               </div>
               <button
@@ -178,18 +187,25 @@ export function ExportColumnsModal<T>({
               </button>
             </div>
 
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-5 py-4">
+            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden px-5 py-4">
               {isLoading ? (
                 <div className="flex min-h-[12rem] flex-1 flex-col items-center justify-center gap-3 rounded-xl border border-slate-200 bg-slate-50/80">
                   <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
                   <p className="text-sm font-medium text-slate-600">Loading all leads for export…</p>
                 </div>
               ) : activeColumns.length === 0 ? (
-                <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                <p className="shrink-0 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                   Add at least one column to export, or click Reset columns.
                 </p>
               ) : (
-                <div className="export-preview-table-scroll min-h-0 flex-1 overflow-x-scroll overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/50">
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-50/50">
+                  {previewRows.length > 8 ? (
+                    <p className="shrink-0 border-b border-slate-200 bg-slate-100/90 px-3 py-1.5 text-center text-[11px] font-medium text-slate-600">
+                      Scroll vertically ↓ to view all {previewRows.length} {previewRows.length === 1 ? rowLabelSingular : rowLabelPlural}
+                      {previewTruncated ? ` (first ${previewRows.length} of ${rows.length} shown)` : ''}
+                    </p>
+                  ) : null}
+                  <div className="export-preview-table-scroll min-h-0 flex-1 overflow-x-auto overflow-y-auto">
                   <table className="w-max min-w-full border-collapse text-left text-sm">
                     <thead className="sticky top-0 z-10 bg-indigo-50/95 backdrop-blur-sm">
                       <tr>
@@ -250,11 +266,18 @@ export function ExportColumnsModal<T>({
                       )}
                     </tbody>
                   </table>
+                  </div>
+                  {previewRows.length > 0 ? (
+                    <p className="shrink-0 border-t border-slate-200 bg-slate-100/80 px-3 py-1.5 text-center text-[11px] text-slate-500">
+                      {previewRows.length} {previewRows.length === 1 ? rowLabelSingular : rowLabelPlural} in preview
+                      {previewTruncated ? ` · CSV export will include all ${rowCount} ${rowWord}` : ''}
+                    </p>
+                  ) : null}
                 </div>
               )}
 
               {removedColumns.length > 0 ? (
-                <div className="mt-3 flex flex-wrap items-center gap-2">
+                <div className="shrink-0 flex flex-wrap items-center gap-2">
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                     Removed:
                   </span>

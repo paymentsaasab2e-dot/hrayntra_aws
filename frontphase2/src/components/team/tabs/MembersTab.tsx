@@ -21,7 +21,9 @@ import {
   Building2,
   XCircle,
 } from 'lucide-react';
-import { downloadCsv, csvDateTime } from '../../../utils/csv';
+import { downloadCsv } from '../../../utils/csv';
+import { ExportColumnsModal } from '../../export/ExportColumnsModal';
+import { buildTeamCsvColumns, TEAM_EXPORT_COLUMNS } from '../../../lib/export/teamExportColumns';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import useSWR from 'swr';
@@ -131,6 +133,7 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<TablePageSize>(10);
   const [totalMembers, setTotalMembers] = useState(0);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
 
   const positionMenuFromTrigger = useCallback((trigger: HTMLButtonElement | null) => {
     if (!trigger) {
@@ -452,33 +455,33 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
 
   const openMember = useMemo(() => members.find((m) => m.id === menuOpen) || null, [members, menuOpen]);
 
-  /** Export the visible (already filtered server-side + by selected filters) team members. */
-  const handleExportMembersCsv = useCallback(() => {
+  const openExportModal = useCallback(() => {
+    setExportModalOpen(true);
     if (members.length === 0) {
       toast.message('No team members to export with the current filters.');
-      return;
     }
-    downloadCsv<TeamMember>(
-      `team-members-${new Date().toISOString().slice(0, 10)}.csv`,
-      [
-        { id: 'firstName', accessor: (m) => m.firstName || '' },
-        { id: 'lastName', accessor: (m) => m.lastName || '' },
-        { id: 'email', accessor: (m) => m.email || '' },
-        { id: 'phone', accessor: (m) => m.phone || '' },
-        { id: 'designation', accessor: (m) => m.designation || '' },
-        { id: 'location', accessor: (m) => m.location || '' },
-        { id: 'department', accessor: (m) => m.department?.name || '' },
-        { id: 'role', accessor: (m) => m.role?.roleName || '' },
-        { id: 'status', accessor: (m) => m.status || '' },
-        { id: 'loginId', accessor: (m) => m.credential?.loginId || '' },
-        { id: 'isLocked', accessor: (m) => (m.credential?.isLocked ? 'true' : 'false') },
-        { id: 'lastLoginAt', accessor: (m) => csvDateTime(m.credential?.lastLoginAt) },
-        { id: 'createdAt', accessor: (m) => csvDateTime(m.createdAt) },
-      ],
-      members,
-    );
-    toast.success(`Exported ${members.length} team member${members.length === 1 ? '' : 's'} to CSV`);
-  }, [members]);
+  }, [members.length]);
+
+  const handleExportMembersCsv = useCallback(
+    (selectedColumnIds: string[]) => {
+      const columns = buildTeamCsvColumns(selectedColumnIds);
+      if (columns.length === 0) {
+        toast.message('Select at least one column to export.');
+        return;
+      }
+      if (members.length === 0) {
+        toast.message('No team members to export with the current filters.');
+        return;
+      }
+      downloadCsv<TeamMember>(
+        `team-members-${new Date().toISOString().slice(0, 10)}.csv`,
+        columns,
+        members,
+      );
+      toast.success(`Exported ${members.length} team member${members.length === 1 ? '' : 's'} to CSV`);
+    },
+    [members],
+  );
 
   useEffect(() => {
     if (!onHeaderExtrasChange) return;
@@ -489,7 +492,7 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
       onRefresh: () => {
         void mutate();
       },
-      onExport: handleExportMembersCsv,
+      onExport: openExportModal,
     });
     return () => {
       onHeaderExtrasChange(null);
@@ -500,7 +503,7 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
     totalMembers,
     isLoading,
     mutate,
-    handleExportMembersCsv,
+    openExportModal,
   ]);
 
   const hasToolbarFilters =
@@ -937,6 +940,19 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
           </>,
           document.body
         )}
+
+      <ExportColumnsModal
+        isOpen={exportModalOpen}
+        onClose={() => setExportModalOpen(false)}
+        title="Export team members"
+        rowCount={members.length}
+        rowLabelSingular="member"
+        rowLabelPlural="members"
+        columns={TEAM_EXPORT_COLUMNS}
+        rows={members}
+        getRowKey={(member) => member.id}
+        onExport={handleExportMembersCsv}
+      />
     </div>
   );
 };

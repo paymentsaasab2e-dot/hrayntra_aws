@@ -4,6 +4,9 @@ import React, { Suspense, useState, useEffect, useMemo, useCallback, useRef } fr
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Plus, Upload, Download, RefreshCcw, BookUser } from 'lucide-react';
 import { downloadCsv } from '../../utils/csv';
+import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
+import { buildContactsCsvColumns, CONTACTS_EXPORT_COLUMNS } from '../../lib/export/contactsExportColumns';
+import { fetchAllPaginated, totalPagesFromPagination } from '../../lib/export/fetchAllPaginated';
 import { Toaster, toast } from 'sonner';
 import {
   apiGetContacts,
@@ -40,6 +43,9 @@ function ContactsPageContent() {
   const searchParams = useSearchParams();
   
   const [contacts, setContacts] = useState<BackendContact[]>([]);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportContacts, setExportContacts] = useState<BackendContact[]>([]);
+  const [exportContactsLoading, setExportContactsLoading] = useState(false);
   const [stats, setStats] = useState<ContactStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedContact, setSelectedContact] = useState<BackendContact | null>(null);
@@ -315,37 +321,67 @@ function ContactsPageContent() {
     }
   };
 
-  const handleExport = async () => {
+  const exportFilters = useMemo(() => {
+    const { page: _page, limit: _limit, ...rest } = filters;
+    return rest;
+  }, [filters]);
+
+  const fetchAllContactsForExport = useCallback(async (): Promise<BackendContact[]> => {
+    return fetchAllPaginated({
+      fetchPage: async (page, limit) => {
+        const response = await apiGetContacts({ ...exportFilters, page, limit });
+        const payload = response.data;
+        const contactsData: BackendContact[] = Array.isArray(payload)
+          ? payload
+          : (payload as { data?: BackendContact[] })?.data || [];
+        const pagination = Array.isArray(payload)
+          ? response.pagination
+          : (payload as { pagination?: { totalPages?: number; total?: number } })?.pagination ||
+            response.pagination;
+        return {
+          items: contactsData,
+          totalPages: totalPagesFromPagination(pagination, contactsData.length, limit),
+        };
+      },
+    });
+  }, [exportFilters]);
+
+  const openExportModal = async () => {
+    setExportContactsLoading(true);
+    setExportModalOpen(true);
     try {
-      const response = await apiGetContacts({ ...filters, limit: 10000 });
-      const contactsData: BackendContact[] = Array.isArray(response.data)
-        ? response.data
-        : response.data?.data || [];
-
-      if (contactsData.length === 0) {
+      const all = await fetchAllContactsForExport();
+      setExportContacts(all);
+      if (all.length === 0) {
         toast.message('No contacts to export with current filters.');
-        return;
       }
-
-      downloadCsv<BackendContact>(
-        `contacts-export-${new Date().toISOString().split('T')[0]}.csv`,
-        [
-          { id: 'firstName', accessor: (c) => c.firstName || '' },
-          { id: 'lastName', accessor: (c) => c.lastName || '' },
-          { id: 'email', accessor: (c) => c.email || '' },
-          { id: 'phone', accessor: (c) => c.phone || '' },
-          { id: 'company', accessor: (c) => c.company?.companyName || '' },
-          { id: 'designation', accessor: (c) => c.designation || '' },
-          { id: 'contactType', accessor: (c) => c.contactType || '' },
-          { id: 'status', accessor: (c) => c.status || '' },
-          { id: 'location', accessor: (c) => c.location || '' },
-        ],
-        contactsData,
-      );
-      toast.success(`Exported ${contactsData.length} contact${contactsData.length === 1 ? '' : 's'} to CSV`);
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to export contacts');
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to load contacts for export';
+      toast.error(message);
+      setExportModalOpen(false);
+      setExportContacts([]);
+    } finally {
+      setExportContactsLoading(false);
     }
+  };
+
+  const handleExportContactsCsv = (selectedColumnIds: string[]) => {
+    const columns = buildContactsCsvColumns(selectedColumnIds);
+    if (columns.length === 0) {
+      toast.message('Select at least one column to export.');
+      return;
+    }
+    const rowsToExport = exportContacts.length > 0 ? exportContacts : contacts;
+    if (rowsToExport.length === 0) {
+      toast.message('No contacts to export with current filters.');
+      return;
+    }
+    downloadCsv<BackendContact>(
+      `contacts-export-${new Date().toISOString().split('T')[0]}.csv`,
+      columns,
+      rowsToExport,
+    );
+    toast.success(`Exported ${rowsToExport.length} contact${rowsToExport.length === 1 ? '' : 's'} to CSV`);
   };
 
   return (
@@ -368,7 +404,7 @@ function ContactsPageContent() {
             </button>
             <button
               type="button"
-              onClick={handleExport}
+              onClick={() => void openExportModal()}
               className="bg-white hover:bg-indigo-50/90 text-indigo-900 px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] border border-indigo-200/70 hover:border-indigo-300 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
               title="Export contacts to CSV"
             >
@@ -495,6 +531,23 @@ function ContactsPageContent() {
           />
         </div>
       ) : null}
+
+      <ExportColumnsModal
+        isOpen={exportModalOpen}
+        onClose={() => {
+          setExportModalOpen(false);
+          setExportContacts([]);
+        }}
+        title="Export contacts"
+        rowCount={exportContacts.length}
+        rowLabelSingular="contact"
+        rowLabelPlural="contacts"
+        columns={CONTACTS_EXPORT_COLUMNS}
+        rows={exportContacts}
+        isLoading={exportContactsLoading}
+        getRowKey={(contact) => contact.id}
+        onExport={handleExportContactsCsv}
+      />
     </>
   );
 }
