@@ -1218,6 +1218,14 @@ async function getCandidateDashboard(req, res) {
       });
     }
 
+    // Sync this candidate to candidatecommon only when they open the dashboard (non-blocking).
+    setImmediate(() => {
+      const { persistCandidateSnapshotAndSync } = require('../services/candidateCommonSync.service');
+      void persistCandidateSnapshotAndSync(candidateId, { lastLogin: true }).catch((err) => {
+        console.warn('[candidateCommon] dashboard sync skipped:', err?.message || err);
+      });
+    });
+
     console.log(
       `📦 DB fetch result: dashboard | candidateId=${candidateId} | applications=${candidate.applications.length} | notifications=${candidate.notifications.length} | savedJobs=${candidate.savedJobs.length} | elapsedMs=${Date.now() - startedAt}`
     );

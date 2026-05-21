@@ -51,8 +51,11 @@ import {
 } from 'lucide-react';
 import { apiCreateMatch, apiGetMatches, apiToggleSavedMatch } from '../../lib/api';
 import {
+  extractApplicationsJobCandidateItems,
   loadJobAppliedCandidates,
+  mergeJobCandidateSeeds,
   parseJobCandidateScore,
+  resolveJobCandidateDisplayStage,
   unwrapMatchRows,
 } from '../../lib/jobAppliedMatches';
 import { mapBackendMatch } from '../../lib/mapBackendMatch';
@@ -291,6 +294,8 @@ export interface JobCandidateItem {
   recruiter: string;
   interviewStatus: string;
   lastActivity: string;
+  /** True when linked via apply/assign and CRM stage is Applied */
+  isJobAppliedCandidate?: boolean;
 }
 
 export interface JobDetailsDrawerProps {
@@ -397,7 +402,10 @@ function mapJobCandidateToTableRow(
     experience: candidate.experience ?? 0,
     location: candidate.location || '—',
     assignedJobs: jobTitle ? [jobTitle] : [],
-    stage: candidate.currentStage || 'New',
+    stage: resolveJobCandidateDisplayStage(candidate.currentStage),
+    isJobAppliedCandidate:
+      candidate.isJobAppliedCandidate ??
+      resolveJobCandidateDisplayStage(candidate.currentStage) === 'Applied',
     owner: candidate.recruiter || 'Unassigned',
     lastActivity: candidate.lastActivity || '—',
     hotlist: false,
@@ -717,7 +725,7 @@ export function JobDetailsDrawer({
         }
       }
     },
-    [job?.id, jobCandidates, onJobCandidatesChange, recruiterFallbackForJob],
+    [job?.id, job?.applications, jobCandidates, onJobCandidatesChange, recruiterFallbackForJob],
   );
 
   const handleRunAppliedMatches = useCallback(async () => {
@@ -883,9 +891,9 @@ export function JobDetailsDrawer({
     prevAiTabJobIdRef.current = job.id;
     prevOnAiTabRef.current = true;
     if (switchedToAi || jobChanged) {
-      void handleRunAiMatches();
+      void refreshAiMatches();
     }
-  }, [activeTab, handleRunAiMatches, isOpen, job?.id]);
+  }, [activeTab, refreshAiMatches, isOpen, job?.id]);
 
   useEffect(() => {
     if (!isOpen) {

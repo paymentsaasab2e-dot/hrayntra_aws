@@ -10,22 +10,34 @@ import {
   CreditCard,
   Download,
   FileCheck2,
-  Filter,
+  FilePenLine,
+  Plus,
   Receipt,
   Search,
   Settings,
+  Trash2,
+  TrendingUp,
   Wallet,
+  XCircle,
 } from 'lucide-react';
+import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
+import { toast } from 'sonner';
+import { CreatePlacementInvoiceModal } from '../../components/placements/modals/CreatePlacementInvoiceModal';
+import { usePlacementInvoiceModal } from '../../hooks/usePlacementInvoiceModal';
+import type { Placement } from '../../types/placement';
 import {
+  apiDeleteBillingRecord,
   apiFetch,
+  apiUpdateBillingRecord,
   getCachedOrgDefaultCurrency,
   isOrgBillingNavEnabled,
   ORG_RECRUITMENT_CACHE_EVENT,
 } from '../../lib/api';
+import { requestConfirm } from '../../lib/appDialog';
 import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { Skeleton } from '../../components/ui/Skeleton';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import PaginationAll from '../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 import InvoiceActivityDrawer from '../../components/billing/InvoiceActivityDrawer';
@@ -36,6 +48,7 @@ import {
 } from '../../utils/currency';
 
 type BillingTab =
+  | 'Saved drafts'
   | 'Invoices'
   | 'Payments'
   | 'Clients & Contracts'
@@ -79,8 +92,10 @@ type SummaryResponse = {
     monthRevenue: number;
     nextPayout: number;
     invoiceCount: number;
+    draftCount?: number;
     collectionRate: number;
   };
+  draftInvoices?: Array<Record<string, any>>;
   invoices: Array<Record<string, any>>;
   payments: Array<Record<string, any>>;
   placements: Array<Record<string, any>>;
@@ -108,6 +123,7 @@ type FiltersState = {
 // retired here. Payments now strictly shows received receipts (no pending
 // data already covered by the Invoices tab).
 const TABS: Array<{ name: BillingTab; icon: React.ComponentType<{ size?: number; className?: string }> }> = [
+  { name: 'Saved drafts', icon: FilePenLine },
   { name: 'Invoices', icon: Receipt },
   { name: 'Payments', icon: CreditCard },
   { name: 'Clients & Contracts', icon: Building2 },
@@ -124,7 +140,19 @@ const DEFAULT_FILTERS: FiltersState = {
   search: '',
 };
 
+const BILLING_FILTER_SELECT =
+  'rounded-lg border border-indigo-100/90 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 cursor-pointer hover:border-indigo-200/90 hover:bg-indigo-50/40';
+
+const TABLE_TABS: BillingTab[] = [
+  'Saved drafts',
+  'Invoices',
+  'Payments',
+  'Clients & Contracts',
+  'Commission & Payouts',
+];
+
 const TAB_EXPORT_KEY: Record<BillingTab, string> = {
+  'Saved drafts': 'saved-drafts',
   Invoices: 'invoices',
   Payments: 'payments',
   'Clients & Contracts': 'clients-contracts',
@@ -139,6 +167,7 @@ const TAB_EXPORT_KEY: Record<BillingTab, string> = {
 //   Billed / Outstanding" were duplicates of figures already on Invoices and
 //   Payments, so they're dropped from this tab.
 const DEFAULT_COLUMNS: Record<Exclude<BillingTab, 'Taxes & Compliance' | 'Billing Settings'>, string[]> = {
+  'Saved drafts': ['Invoice #', 'Client', 'Candidate', 'Job', 'Date', 'Due Date', 'Amount', 'Total', 'Status'],
   Invoices: ['Invoice #', 'Client', 'Candidate', 'Job', 'Date', 'Due Date', 'Amount', 'Total', 'Status'],
   Payments: ['Receipt #', 'Client', 'Amount', 'Mode', 'Date', 'Received By', 'Status'],
   'Clients & Contracts': ['Client', 'Status', 'Industry', 'Location', 'Owner', 'SLA'],
@@ -150,6 +179,7 @@ function formatCurrency(value: number, currency = 'USD') {
 }
 
 const MONETARY_COLUMNS_BY_TAB: Record<string, Set<string>> = {
+  'Saved drafts': new Set(['Amount', 'Total']),
   Invoices: new Set(['Amount', 'Total']),
   Payments: new Set(['Amount']),
   'Clients & Contracts': new Set(),
@@ -174,6 +204,38 @@ function buildDownloadHref(fileUrl: string, filename: string) {
   return `/api/download-file?${params.toString()}`;
 }
 
+function InvoiceStatusSelect({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: string;
+  disabled?: boolean;
+  onChange: (next: 'Paid' | 'Pending') => void;
+}) {
+  const normalized = String(value || '').toLowerCase();
+  const isPaid = normalized === 'paid' || normalized === 'confirmed';
+  if (isPaid) {
+    return <Badge value={value} />;
+  }
+  return (
+    <select
+      value={value}
+      disabled={disabled}
+      onClick={(event) => event.stopPropagation()}
+      onChange={(event) => {
+        const next = event.target.value as 'Paid' | 'Pending';
+        if (next === 'Paid') onChange(next);
+      }}
+      className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800 outline-none focus:border-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+      title="Change invoice status"
+    >
+      <option value={value}>{value}</option>
+      <option value="Paid">Paid</option>
+    </select>
+  );
+}
+
 function Badge({ value }: { value: string }) {
   const key = String(value || '').toLowerCase();
   const style =
@@ -183,7 +245,9 @@ function Badge({ value }: { value: string }) {
         ? 'bg-red-50 text-red-700 border-red-200'
         : key === 'pending'
           ? 'bg-amber-50 text-amber-700 border-amber-200'
-          : key === 'info'
+          : key === 'draft' || key === 'sent'
+            ? 'bg-slate-100 text-slate-700 border-slate-200'
+            : key === 'info'
             ? 'bg-blue-50 text-blue-700 border-blue-200'
             : 'bg-slate-50 text-slate-700 border-slate-200';
   return <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${style}`}>{value}</span>;
@@ -238,6 +302,12 @@ function Table({
   rowCurrency,
   onRowCurrencyChange,
   onRowOpen,
+  onRowClick,
+  onRowDelete,
+  canUpdateInvoiceStatus,
+  updatingInvoiceId,
+  deletingRowId,
+  onInvoiceStatusChange,
 }: {
   columns: string[];
   rows: Array<Record<string, any>>;
@@ -250,35 +320,61 @@ function Table({
    * row. Clicking the chevron opens a deeper view (e.g. invoice activity).
    */
   onRowOpen?: (rowId: string, row: Record<string, any>) => void;
+  onRowClick?: (rowId: string, row: Record<string, any>) => void;
+  onRowDelete?: (rowId: string, row: Record<string, any>) => void;
+  canUpdateInvoiceStatus?: boolean;
+  updatingInvoiceId?: string | null;
+  deletingRowId?: string | null;
+  onInvoiceStatusChange?: (invoiceId: string) => void;
 }) {
-  const trailingActionColumn = onRowOpen ? 1 : 0;
+  const trailingActionColumn = onRowOpen || onRowDelete ? 1 : 0;
   const totalCols = columns.length + trailingActionColumn;
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[900px] border-collapse">
         <thead>
-          <tr className="border-b border-slate-100">
+          <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em]">
             {columns.map((column) => (
-              <th key={column} className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              <th key={column} className="px-3 sm:px-4 py-2 text-left first:pl-4">
                 {column}
               </th>
             ))}
-            {onRowOpen ? <th className="px-3 py-3" aria-label="Actions" /> : null}
+            {trailingActionColumn ? (
+              <th className="px-3 sm:px-4 py-2 text-right">Actions</th>
+            ) : null}
           </tr>
         </thead>
-        <tbody>
+        <tbody className="divide-y divide-slate-100/80">
           {rows.length ? (
             rows.map((row, index) => {
               const rowId = String(row.id ?? index);
               return (
-                <tr key={rowId} className="border-b border-slate-50 last:border-b-0 hover:bg-slate-50/60">
+                <tr
+                  key={rowId}
+                  className={`transition-colors duration-200 even:bg-slate-50/35 hover:bg-indigo-50/45 ${
+                    onRowClick ? 'cursor-pointer' : ''
+                  }`}
+                  onClick={onRowClick ? () => onRowClick(rowId, row) : undefined}
+                >
                   {columns.map((column) => {
                     const value = row[column];
-                    const isStatus = String(column).toLowerCase().includes('status');
+                    const isStatus = column === 'Status';
                     const isMonetary = monetaryColumns.has(column) && typeof value === 'number';
                     return (
-                      <td key={column} className="px-4 py-3 text-sm text-slate-700">
-                        {isStatus ? (
+                      <td
+                        key={column}
+                        className="px-4 py-3 text-sm text-slate-700"
+                        onClick={(event) => {
+                          if (isStatus || isMonetary) event.stopPropagation();
+                        }}
+                      >
+                        {isStatus && canUpdateInvoiceStatus && onInvoiceStatusChange ? (
+                          <InvoiceStatusSelect
+                            value={String(value ?? 'Pending')}
+                            disabled={updatingInvoiceId === rowId}
+                            onChange={() => onInvoiceStatusChange(rowId)}
+                          />
+                        ) : isStatus ? (
                           <Badge value={String(value ?? '-')} />
                         ) : isMonetary ? (
                           <CurrencyCell
@@ -293,20 +389,33 @@ function Table({
                       </td>
                     );
                   })}
-                  {onRowOpen ? (
-                    <td className="px-3 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onRowOpen(rowId, row);
-                        }}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600"
-                        aria-label="Open activity timeline"
-                        title="See full activity for this entry"
-                      >
-                        <ChevronRight size={14} />
-                      </button>
+                  {trailingActionColumn ? (
+                    <td className="px-3 py-3 text-right" onClick={(event) => event.stopPropagation()}>
+                      <div className="inline-flex items-center justify-end gap-1">
+                        {onRowDelete ? (
+                          <button
+                            type="button"
+                            disabled={deletingRowId === rowId}
+                            onClick={() => onRowDelete(rowId, row)}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
+                            aria-label="Delete draft"
+                            title="Delete draft"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        ) : null}
+                        {onRowOpen ? (
+                          <button
+                            type="button"
+                            onClick={() => onRowOpen(rowId, row)}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600"
+                            aria-label="Open activity timeline"
+                            title="See full activity for this entry"
+                          >
+                            <ChevronRight size={14} />
+                          </button>
+                        ) : null}
+                      </div>
                     </td>
                   ) : null}
                 </tr>
@@ -327,6 +436,7 @@ function Table({
 
 export default function BillingPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { hasPermission } = usePermissions();
 
   useEffect(() => {
@@ -341,9 +451,49 @@ export default function BillingPage() {
   }, [router]);
   const canExportData = hasPermission('export_data');
   const canManageSettings = hasPermission('manage_settings');
+  const canCreateInvoice = hasPermission('create_invoice');
+  const canCreatePlacement = hasPermission('placements_create');
+  const canRecordPayment = hasPermission('record_payment') || canCreateInvoice;
+  const [updatingInvoiceId, setUpdatingInvoiceId] = useState<string | null>(null);
+  const [deletingDraftId, setDeletingDraftId] = useState<string | null>(null);
+  const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
+  const [invoicePlacementId, setInvoicePlacementId] = useState<string | undefined>();
+  const [editBillingRecordId, setEditBillingRecordId] = useState<string | undefined>();
+  const [currentUserId, setCurrentUserId] = useState<string | undefined>();
+  const {
+    placements: invoicePlacements,
+    candidateOptions,
+    jobOptions,
+    recruiterOptions,
+    submitting: invoiceSubmitting,
+    createPlacement,
+    createInvoice,
+    updateDraftInvoice,
+  } = usePlacementInvoiceModal(invoiceModalOpen);
+
+  useEffect(() => {
+    try {
+      const currentUser = localStorage.getItem('currentUser');
+      if (!currentUser) return;
+      const parsed = JSON.parse(currentUser);
+      setCurrentUserId(parsed.id);
+    } catch {
+      setCurrentUserId(undefined);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!canCreateInvoice) return;
+    const shouldOpen =
+      searchParams.get('createInvoice') === '1' || searchParams.get('createInvoice') === 'true';
+    if (!shouldOpen) return;
+    const placementId = searchParams.get('placementId') || undefined;
+    setInvoicePlacementId(placementId);
+    setInvoiceModalOpen(true);
+    router.replace('/billing');
+  }, [canCreateInvoice, router, searchParams]);
   const [activeTab, setActiveTab] = useState<BillingTab>('Invoices');
-  const [draftFilters, setDraftFilters] = useState<FiltersState>(DEFAULT_FILTERS);
-  const [appliedFilters, setAppliedFilters] = useState<FiltersState>(DEFAULT_FILTERS);
+  const [filters, setFilters] = useState<FiltersState>(DEFAULT_FILTERS);
   const [data, setData] = useState<SummaryResponse | null>(null);
   const [settingsForm, setSettingsForm] = useState<BillingSettings | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -361,7 +511,7 @@ export default function BillingPage() {
       if (!opts?.silent) setLoading(true);
       setError('');
       try {
-        const query = buildQuery(appliedFilters);
+        const query = buildQuery(filters);
         const response = await apiFetch<SummaryResponse>(`/billing/summary?${query}`, { auth: true });
         if (!active) return;
         setData(response.data);
@@ -380,7 +530,7 @@ export default function BillingPage() {
     return () => {
       active = false;
     };
-  }, [appliedFilters]);
+  }, [filters]);
 
   // Auto-refresh on focus / interval / billing-changed events.
   usePageAutoRefresh(
@@ -398,6 +548,21 @@ export default function BillingPage() {
 
   const tableRows = useMemo(() => {
     if (!data) return [];
+    if (activeTab === 'Saved drafts') {
+      return (data.draftInvoices || []).map((row) => ({
+        id: row.id ?? row.invoiceNumber,
+        placementId: row.placementId || '',
+        'Invoice #': row.invoiceNumber,
+        Client: row.clientName,
+        Candidate: row.candidateName,
+        Job: row.jobTitle,
+        Date: row.date,
+        'Due Date': row.dueDate,
+        Amount: Number(row.amount || 0),
+        Total: Number(row.total || 0),
+        Status: row.status,
+      }));
+    }
     if (activeTab === 'Invoices') {
       return data.invoices.map((row) => ({
         id: row.id ?? row.invoiceNumber,
@@ -476,12 +641,12 @@ export default function BillingPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [activeTab, appliedFilters, data]);
+  }, [activeTab, filters, data]);
 
   async function exportTab(format: 'csv' | 'excel' | 'pdf') {
     try {
       setExporting(format);
-      const query = buildQuery(appliedFilters);
+      const query = buildQuery(filters);
       const key = TAB_EXPORT_KEY[activeTab];
       const response = await apiFetch<{ fileUrl: string }>(`/billing/export/${key}/${format}?${query}`, { auth: true });
       const extension = format === 'excel' ? 'xlsx' : format;
@@ -498,6 +663,66 @@ export default function BillingPage() {
       setError(err?.message || 'Failed to export billing data.');
     } finally {
       setExporting(null);
+    }
+  }
+
+  const reloadBilling = () => {
+    const fn = (window as any).__billingReload as ((o?: { silent?: boolean }) => Promise<void>) | undefined;
+    if (fn) void fn({ silent: true });
+  };
+
+  async function deleteDraftInvoice(invoiceId: string, invoiceNumber?: string) {
+    if (!canCreateInvoice) return;
+
+    const label = invoiceNumber?.trim() || 'this draft';
+    const confirmed = await requestConfirm(
+      `Are you sure you want to delete draft invoice "${label}"? This action cannot be undone.`,
+      {
+        title: 'Delete draft invoice?',
+        tone: 'warning',
+        confirmLabel: 'Delete',
+        cancelLabel: 'Cancel',
+      },
+    );
+    if (!confirmed) return;
+
+    try {
+      setDeletingDraftId(invoiceId);
+      await apiDeleteBillingRecord(invoiceId);
+
+      if (editBillingRecordId === invoiceId) {
+        setInvoiceModalOpen(false);
+        setEditBillingRecordId(undefined);
+        setInvoicePlacementId(undefined);
+      }
+      if (activeInvoiceId === invoiceId) {
+        setActiveInvoiceId(null);
+      }
+
+      toast.success(`Draft ${label} deleted`);
+      window.dispatchEvent(new CustomEvent('jobportal:billing-changed'));
+      window.dispatchEvent(new CustomEvent('jobportal:placements-changed'));
+      reloadBilling();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to delete draft');
+    } finally {
+      setDeletingDraftId(null);
+    }
+  }
+
+  async function markInvoicePaid(invoiceId: string) {
+    if (!canRecordPayment) return;
+    try {
+      setUpdatingInvoiceId(invoiceId);
+      await apiUpdateBillingRecord(invoiceId, { status: 'PAID' });
+      toast.success('Invoice marked as paid');
+      window.dispatchEvent(new CustomEvent('jobportal:billing-changed'));
+      window.dispatchEvent(new CustomEvent('jobportal:placements-changed'));
+      reloadBilling();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to update invoice status');
+    } finally {
+      setUpdatingInvoiceId(null);
     }
   }
 
@@ -520,110 +745,153 @@ export default function BillingPage() {
     }
   }
 
+  const showsTablePanel = TABLE_TABS.includes(activeTab);
+
+  const clearFilters = () => {
+    setCurrentPage(1);
+    setFilters(DEFAULT_FILTERS);
+  };
+
+  const patchFilter = (patch: Partial<FiltersState>) => {
+    setCurrentPage(1);
+    setFilters((current) => ({ ...current, ...patch }));
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50 px-6 py-6 text-slate-900 md:px-8">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
-              <span>Finance</span>
-              <ChevronRight size={10} />
-              <span className="text-blue-600">Billing Overview</span>
+    <div className="w-full min-h-screen overflow-hidden text-slate-900">
+      <main className="flex flex-col overflow-hidden relative">
+        <header className="min-h-[4.5rem] flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-3 shrink-0 border-b border-indigo-100/50 bg-white/80 backdrop-blur-md shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)]">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20">
+              <Receipt className="h-5 w-5" strokeWidth={2.2} />
             </div>
-            <h1 className="text-3xl font-bold tracking-tight">Billing</h1>
-            <p className="mt-1 text-sm text-slate-500">Live invoice, payment, placement, commission, and tax data from your recruitment system.</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {canExportData && (
-              <button onClick={() => exportTab('csv')} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">{exporting === 'csv' ? 'Exporting...' : 'CSV'}</button>
-            )}
-            {canExportData && (
-              <button onClick={() => exportTab('excel')} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">{exporting === 'excel' ? 'Exporting...' : 'Excel'}</button>
-            )}
-            {canExportData && (
-              <button onClick={() => exportTab('pdf')} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"><Download size={16} />{exporting === 'pdf' ? 'Exporting...' : 'PDF'}</button>
-            )}
-          </div>
-        </div>
-
-        <Card className="p-4">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-            <div className="xl:col-span-2">
-              <label className="mb-2 block text-[11px] font-bold uppercase tracking-wider text-slate-500">Search</label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                <input value={draftFilters.search} onChange={(e) => setDraftFilters((current) => ({ ...current, search: e.target.value }))} placeholder="Search invoices, clients, candidates..." className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-500" />
-              </div>
+            <div>
+              <h1 className="text-xl sm:text-[1.35rem] font-bold tracking-tight text-slate-900 leading-none">Billing</h1>
             </div>
-            {[{ key: 'dateRange', label: 'Date Range', options: data?.options.dateRanges || [] }, { key: 'clientId', label: 'Client', options: [{ id: '', name: 'All Clients' }, ...(data?.options.clients || [])] }, { key: 'recruiterId', label: 'Recruiter', options: [{ id: '', name: 'All Recruiters' }, ...(data?.options.recruiters || [])] }, { key: 'invoiceStatus', label: 'Invoice Status', options: [{ id: '', name: 'All Status' }, ...((data?.options.invoiceStatuses || []).map((value) => ({ id: value, name: value })))] }].map((field) => (
-              <div key={field.key}>
-                <label className="mb-2 block text-[11px] font-bold uppercase tracking-wider text-slate-500">{field.label}</label>
-                <select value={(draftFilters as any)[field.key]} onChange={(e) => setDraftFilters((current) => ({ ...current, [field.key]: e.target.value }))} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500">
-                  {field.options.map((option: any) => (
-                    <option key={option.id || option.value || option.name} value={option.id ?? option.value}>
-                      {option.name ?? option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ))}
           </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button onClick={() => setAppliedFilters(draftFilters)} className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"><Filter size={16} />Apply Filters</button>
-            <button onClick={() => { setDraftFilters(DEFAULT_FILTERS); setAppliedFilters(DEFAULT_FILTERS); }} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Reset</button>
-          </div>
-        </Card>
-
-        {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
-
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-          {[
-            ['Total Billed', formatCurrency(data?.kpis.totalBilled || 0, currency)],
-            ['Total Received', `${formatCurrency(data?.kpis.totalReceived || 0, currency)} (${data?.kpis.collectionRate || 0}%)`],
-            ['Pending', formatCurrency(data?.kpis.pendingAmount || 0, currency)],
-            ['Overdue', formatCurrency(data?.kpis.overdueAmount || 0, currency)],
-            ['This Month Revenue', formatCurrency(data?.kpis.monthRevenue || 0, currency)],
-            ['Next Payout', formatCurrency(data?.kpis.nextPayout || 0, currency)],
-          ].map(([label, value]) => (
-            <Card key={String(label)} className="p-4">
-              <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{label}</div>
-              <div className="mt-2 text-2xl font-bold text-slate-900">
-                {loading ? <Skeleton className="h-7 w-24 rounded-md" /> : value}
-              </div>
-            </Card>
-          ))}
-        </div>
-
-        <div className="flex gap-6 overflow-x-auto border-b border-slate-200">
-          {TABS.map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.name;
-            // Billing Settings is intentionally restricted with a "Soon" badge —
-            // the tab still navigates so users can see what's coming, but the
-            // panel is read-only.
-            const comingSoon = tab.name === 'Billing Settings';
-            return (
+          <div className="flex flex-wrap items-center gap-2">
+            {canCreateInvoice ? (
               <button
-                key={tab.name}
-                onClick={() => setActiveTab(tab.name)}
-                className={`relative flex items-center gap-2 border-b-2 pb-4 text-sm font-semibold whitespace-nowrap ${
-                  isActive ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'
-                }`}
+                type="button"
+                onClick={() => {
+                  setEditBillingRecordId(undefined);
+                  setInvoicePlacementId(undefined);
+                  setInvoiceModalOpen(true);
+                }}
+                className="bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 text-white px-3.5 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-lg shadow-indigo-500/30 active:scale-[0.98]"
               >
-                <Icon size={16} />
-                {tab.name}
-                {comingSoon ? (
-                  <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-700 ring-1 ring-amber-200">
-                    Soon
-                  </span>
-                ) : null}
+                <Plus size={16} className="text-white" strokeWidth={2.5} />
+                <span>Create invoice</span>
               </button>
-            );
-          })}
-        </div>
+            ) : null}
+            {canExportData ? (
+              <button
+                type="button"
+                onClick={() => exportTab('csv')}
+                className="bg-white hover:bg-indigo-50/90 text-indigo-900 px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] border border-indigo-200/70 hover:border-indigo-300 active:scale-[0.98]"
+              >
+                <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
+                <span>{exporting === 'csv' ? 'Exporting…' : 'CSV'}</span>
+              </button>
+            ) : null}
+            {canExportData ? (
+              <button
+                type="button"
+                onClick={() => exportTab('excel')}
+                className="bg-white hover:bg-indigo-50/90 text-indigo-900 px-3 py-2 rounded-lg font-semibold text-xs transition-all border border-indigo-200/70 hover:border-indigo-300 active:scale-[0.98]"
+              >
+                {exporting === 'excel' ? 'Exporting…' : 'Excel'}
+              </button>
+            ) : null}
+            {canExportData ? (
+              <button
+                type="button"
+                onClick={() => exportTab('pdf')}
+                className="bg-white hover:bg-indigo-50/90 text-indigo-900 px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all border border-indigo-200/70 hover:border-indigo-300 active:scale-[0.98]"
+              >
+                <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
+                <span>{exporting === 'pdf' ? 'Exporting…' : 'PDF'}</span>
+              </button>
+            ) : null}
+          </div>
+        </header>
 
-        {loading ? (
-          <Card className="p-6">
+        <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
+          {error ? (
+            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+          ) : null}
+
+          <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4 mb-5">
+            {loading ? (
+              (['blue', 'green', 'indigo', 'purple'] as SummaryCardColor[]).map((c, i) => (
+                <SummaryCardSkeleton key={i} color={c} />
+              ))
+            ) : (
+              <>
+                <SummaryCard
+                  label="Total Billed"
+                  count={formatCurrency(data?.kpis.totalBilled || 0, currency)}
+                  color="blue"
+                  icon={<Receipt size={16} strokeWidth={2.35} />}
+                />
+                <SummaryCard
+                  label="Total Received"
+                  count={formatCurrency(data?.kpis.totalReceived || 0, currency)}
+                  color="green"
+                  icon={<CheckCircle2 size={16} strokeWidth={2.35} />}
+                  hint={`${data?.kpis.collectionRate || 0}%`}
+                />
+                <SummaryCard
+                  label="This Month"
+                  count={formatCurrency(data?.kpis.monthRevenue || 0, currency)}
+                  color="indigo"
+                  icon={<TrendingUp size={16} strokeWidth={2.35} />}
+                />
+                <SummaryCard
+                  label="Next Payout"
+                  count={formatCurrency(data?.kpis.nextPayout || 0, currency)}
+                  color="purple"
+                  icon={<CreditCard size={16} strokeWidth={2.35} />}
+                />
+              </>
+            )}
+          </div>
+
+          <div className="mb-4 flex gap-4 overflow-x-auto border-b border-indigo-100/70">
+            {TABS.map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.name;
+              const comingSoon = tab.name === 'Billing Settings';
+              return (
+                <button
+                  key={tab.name}
+                  type="button"
+                  onClick={() => setActiveTab(tab.name)}
+                  className={`relative flex items-center gap-2 border-b-2 pb-3 text-xs font-semibold whitespace-nowrap transition-colors ${
+                    isActive
+                      ? 'border-indigo-600 text-indigo-700'
+                      : 'border-transparent text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <Icon size={15} />
+                  {tab.name}
+                  {tab.name === 'Saved drafts' && !loading && (data?.kpis.draftCount ?? 0) > 0 ? (
+                    <span className="ml-0.5 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-indigo-800">
+                      {data?.kpis.draftCount}
+                    </span>
+                  ) : null}
+                  {comingSoon ? (
+                    <span className="ml-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-700 ring-1 ring-amber-200">
+                      Soon
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+
+        {loading && showsTablePanel ? (
+          <div className="overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] p-6">
             <Skeleton className="h-4 w-1/3 rounded-md mb-6" />
             <div className="space-y-3">
               {Array.from({ length: 8 }).map((_, i) => (
@@ -634,7 +902,7 @@ export default function BillingPage() {
                 </div>
               ))}
             </div>
-          </Card>
+          </div>
         ) : activeTab === 'Taxes & Compliance' && data ? (
           <div className="grid gap-6 lg:grid-cols-2">
             <Card className="p-6">
@@ -708,25 +976,134 @@ export default function BillingPage() {
               </p>
             </div>
           </Card>
-        ) : (
-          <Card>
-            <Table
-              columns={columns}
-              rows={visibleRows}
-              monetaryColumns={monetaryColumns}
-              baseCurrency={currency}
-              rowCurrency={getRowCurrency}
-              onRowCurrencyChange={setRowCurrency}
-              // Only the Invoices tab opens the activity drawer — every other
-              // tab is a flat list and the row already exposes everything.
-              onRowOpen={
-                activeTab === 'Invoices'
-                  ? (rowId) => setActiveInvoiceId(rowId)
-                  : undefined
-              }
-            />
+        ) : showsTablePanel ? (
+          <div className="overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm transition-shadow hover:shadow-[0_16px_48px_-14px_rgba(79,70,229,0.16)]">
+            <div className="p-3 sm:p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20">
+              <div className="relative w-full lg:max-w-md lg:flex-1">
+                <Search
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400"
+                  size={16}
+                  strokeWidth={2.25}
+                />
+                <input
+                  type="text"
+                  placeholder="Search invoices, clients, candidates..."
+                  className="w-full h-9 pl-10 pr-3 bg-white/95 border border-indigo-100/90 rounded-xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-300 transition-all [box-shadow:inset_0_1px_2px_rgba(15,23,42,0.04)]"
+                  value={filters.search}
+                  onChange={(e) => patchFilter({ search: e.target.value })}
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                <select
+                  className={BILLING_FILTER_SELECT}
+                  value={filters.dateRange}
+                  onChange={(e) => patchFilter({ dateRange: e.target.value })}
+                >
+                  {(data?.options.dateRanges || []).map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  className={BILLING_FILTER_SELECT}
+                  value={filters.clientId}
+                  onChange={(e) => patchFilter({ clientId: e.target.value })}
+                >
+                  <option value="">All Clients</option>
+                  {(data?.options.clients || []).map((client) => (
+                    <option key={client.id} value={client.id}>
+                      {client.name}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  className={BILLING_FILTER_SELECT}
+                  value={filters.recruiterId}
+                  onChange={(e) => patchFilter({ recruiterId: e.target.value })}
+                >
+                  <option value="">All Recruiters</option>
+                  {(data?.options.recruiters || []).map((recruiter) => (
+                    <option key={recruiter.id} value={recruiter.id}>
+                      {recruiter.name}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  className={BILLING_FILTER_SELECT}
+                  value={filters.invoiceStatus}
+                  onChange={(e) => patchFilter({ invoiceStatus: e.target.value })}
+                >
+                  <option value="">All Status</option>
+                  {(data?.options.invoiceStatuses || []).map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+
+                <button
+                  type="button"
+                  className="text-xs text-rose-600 hover:text-rose-700 font-semibold px-2 py-1.5 rounded-lg hover:bg-rose-50 flex items-center gap-1 transition-colors"
+                  onClick={clearFilters}
+                >
+                  <XCircle size={15} className="text-rose-500 shrink-0" strokeWidth={2.35} />
+                  Clear
+                </button>
+              </div>
+            </div>
+
+            {activeTab === 'Saved drafts' ? (
+              <div className="border-b border-indigo-50/80 bg-indigo-50/20 px-4 py-2.5 text-xs text-slate-600">
+                Saved drafts from <span className="font-semibold text-slate-800">Create invoice</span> — click a row to
+                edit, chevron for activity, trash to delete.
+              </div>
+            ) : null}
+
+            <div className="overflow-x-auto">
+              <Table
+                columns={columns}
+                rows={visibleRows}
+                monetaryColumns={monetaryColumns}
+                baseCurrency={currency}
+                rowCurrency={getRowCurrency}
+                onRowCurrencyChange={setRowCurrency}
+                canUpdateInvoiceStatus={activeTab === 'Invoices' && canRecordPayment}
+                updatingInvoiceId={updatingInvoiceId}
+                onInvoiceStatusChange={activeTab === 'Invoices' ? markInvoicePaid : undefined}
+                deletingRowId={deletingDraftId}
+                onRowClick={
+                  activeTab === 'Saved drafts' && canCreateInvoice
+                    ? (rowId, row) => {
+                        setEditBillingRecordId(rowId);
+                        setInvoicePlacementId(String(row.placementId || '') || undefined);
+                        setInvoiceModalOpen(true);
+                      }
+                    : undefined
+                }
+                onRowDelete={
+                  activeTab === 'Saved drafts' && canCreateInvoice
+                    ? (rowId, row) => {
+                        void deleteDraftInvoice(rowId, String(row['Invoice #'] || ''));
+                      }
+                    : undefined
+                }
+                onRowOpen={
+                  activeTab === 'Invoices' || activeTab === 'Saved drafts'
+                    ? (rowId) => {
+                        setActiveInvoiceId(rowId);
+                      }
+                    : undefined
+                }
+              />
+            </div>
+
             {columns.length ? (
-              <div className="flex items-center justify-between gap-4 border-t border-[#E5E7EB] px-5 py-4">
+              <div className="flex items-center justify-between gap-4 border-t border-indigo-100/50 px-4 sm:px-5 py-3">
                 <PaginationAll
                   initialPage={currentPage}
                   totalPages={Math.max(totalPages, 1)}
@@ -743,24 +1120,100 @@ export default function BillingPage() {
                 />
               </div>
             ) : null}
-          </Card>
-        )}
-      </div>
+          </div>
+        ) : null}
+        </div>
+      </main>
+
+      <CreatePlacementInvoiceModal
+        isOpen={canCreateInvoice && invoiceModalOpen}
+        placements={invoicePlacements}
+        initialPlacementId={invoicePlacementId}
+        initialBillingRecordId={editBillingRecordId}
+        isSubmitting={invoiceSubmitting}
+        canCreatePlacement={canCreatePlacement}
+        currentUserId={currentUserId}
+        candidates={candidateOptions}
+        jobs={jobOptions}
+        recruiters={recruiterOptions}
+        onClose={() => {
+          setInvoiceModalOpen(false);
+          setInvoicePlacementId(undefined);
+          setEditBillingRecordId(undefined);
+        }}
+        onSubmit={async ({ placementId, billingRecordId, newPlacement, invoice, intent }) => {
+          const closeModal = intent !== 'send';
+          try {
+            let updated: Placement | Record<string, any> | undefined;
+            let resolvedBillingRecordId = billingRecordId;
+            let inv = invoice.invoiceNo || '';
+
+            if (billingRecordId) {
+              updated = await updateDraftInvoice(billingRecordId, invoice);
+              inv = updated?.invoiceNumber || invoice.invoiceNo || '';
+              resolvedBillingRecordId = billingRecordId;
+              if (closeModal) {
+                toast.success(inv ? `Draft ${inv} updated` : 'Draft invoice updated');
+              }
+            } else {
+              let targetId = placementId;
+              if (newPlacement) {
+                const created = await createPlacement(newPlacement);
+                if (!created?.id) {
+                  throw new Error('Placement was created but could not be loaded');
+                }
+                targetId = created.id;
+              }
+              if (!targetId) {
+                throw new Error('No placement selected');
+              }
+              updated = await createInvoice(targetId, invoice);
+              inv =
+                updated?.createdInvoice?.invoiceNumber ||
+                updated?.invoiceNumber ||
+                updated?.billing?.[0]?.invoiceNumber ||
+                invoice.invoiceNo ||
+                '';
+              resolvedBillingRecordId = updated?.createdInvoice?.id;
+              if (closeModal) {
+                toast.success(
+                  newPlacement
+                    ? inv
+                      ? `Placement and invoice ${inv} created`
+                      : 'Placement and invoice created'
+                    : inv
+                      ? `Invoice ${inv} created`
+                      : 'Invoice created successfully',
+                );
+              }
+            }
+
+            if (closeModal) {
+              setInvoiceModalOpen(false);
+              setInvoicePlacementId(undefined);
+              setEditBillingRecordId(undefined);
+            }
+            window.dispatchEvent(new CustomEvent('jobportal:billing-changed'));
+            window.dispatchEvent(new CustomEvent('jobportal:placements-changed'));
+            if (closeModal) reloadBilling();
+            return {
+              placement: updated as Placement,
+              invoiceNumber: inv,
+              billingRecordId: resolvedBillingRecordId,
+            };
+          } catch (invoiceError: any) {
+            toast.error(invoiceError.message || 'Failed to create invoice');
+            throw invoiceError;
+          }
+        }}
+      />
 
       <InvoiceActivityDrawer
         invoiceId={activeInvoiceId}
         open={Boolean(activeInvoiceId)}
         onClose={() => setActiveInvoiceId(null)}
-        onCurrencyChanged={() => {
-          // Refresh the table so the new currency is reflected immediately
-          // for this invoice and any siblings that share its placement.
-          // The page exposes its loader on the window for the auto-refresh
-          // hook; we reuse it here for a silent reload.
-          const fn = (window as any).__billingReload as
-            | ((o?: { silent?: boolean }) => Promise<void>)
-            | undefined;
-          if (fn) void fn({ silent: true });
-        }}
+        onCurrencyChanged={() => reloadBilling()}
+        onStatusChanged={() => reloadBilling()}
       />
     </div>
   );

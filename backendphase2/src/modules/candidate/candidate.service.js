@@ -2,6 +2,8 @@ import { prisma, getActiveTenantDbName, getJobPortalPrismaClient } from '../../c
 import {
   fetchCandidateCommonForMatchPipeline,
   fetchCandidateCommonForTenant,
+  fetchCandidateCommonForCandidatesList,
+  fetchCandidateCommonByCandidateId,
 } from '../../services/candidateCommon/candidateCommonPool.service.js';
 import {
   PIPELINE_STAGES,
@@ -47,23 +49,96 @@ function candidateHasRealJobLink(candidate) {
   return false;
 }
 
+function isTerminalCandidateStage(stage) {
+  const normalized = String(stage || '').trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.includes('hire') ||
+    normalized === 'placed' ||
+    normalized === 'joined' ||
+    normalized === 'onboarded' ||
+    normalized.includes('reject')
+  );
+}
+
+/** CRM list/drawer stage: job-linked candidates default to Applied unless a later stage is set. */
+function resolveCandidateStageForList(candidate) {
+  const explicit = String(candidate?.stage || '').trim();
+  const explicitLower = explicit.toLowerCase();
+  if (explicit && explicitLower !== 'new') {
+    return explicit;
+  }
+  if (candidateHasRealJobLink(candidate)) {
+    return 'Applied';
+  }
+  const status = String(candidate?.status || '').toUpperCase();
+  if (status === 'NEW' || status === 'ACTIVE') return 'New';
+  return explicit || 'New';
+}
+
+function stageWhenLinkingToJob(existingStage) {
+  const current = String(existingStage || '').trim();
+  if (isTerminalCandidateStage(current)) return current;
+  if (!current || current.toLowerCase() === 'new') return 'Applied';
+  return current;
+}
+
 /**
  * CRM Candidates page: show Phase 1 / AI-pool rows only after a real job link (apply, assign, pipeline).
  * Hide sparse rows created only so Match records can reference a tenant candidate id.
  */
-function shouldShowOnCrmCandidatesList(candidate) {
+function candidateHasListIdentity(candidate) {
+  return (
+    Boolean(String(candidate?.firstName || '').trim()) ||
+    Boolean(String(candidate?.lastName || '').trim()) ||
+    Boolean(String(candidate?.email || '').trim())
+  );
+}
+
+function shouldShowOnCrmCandidatesList(candidate, options = {}) {
   if (!candidate) return false;
+  const includeCommonPool = options.includeCommonPool === true;
   if (isPhase1CandidateSource(candidate.source) && !candidateHasRealJobLink(candidate)) {
+    if (includeCommonPool) {
+      return candidateHasListIdentity(candidate);
+    }
     return false;
   }
-  const hasIdentity =
-    Boolean(String(candidate.firstName || '').trim()) ||
-    Boolean(String(candidate.lastName || '').trim()) ||
-    Boolean(String(candidate.email || '').trim());
-  if (!hasIdentity && !candidateHasRealJobLink(candidate)) {
+  if (!candidateHasListIdentity(candidate) && !candidateHasRealJobLink(candidate)) {
     return false;
   }
   return true;
+}
+
+function candidateMatchesSearch(candidate, search) {
+  if (!search) return true;
+  const needle = String(search).trim().toLowerCase();
+  if (!needle) return true;
+  const hay = [
+    candidate?.firstName,
+    candidate?.lastName,
+    candidate?.email,
+    candidate?.phone,
+  ]
+    .map((value) => String(value || '').toLowerCase())
+    .join(' ');
+  return hay.includes(needle);
+}
+
+function annotateCandidateListFlags(candidate) {
+  const phase1 = isPhase1CandidateRecord(candidate);
+  const hasJob = candidateHasRealJobLink(candidate);
+  const discoveryOnly = phase1 && !hasJob;
+  const resolvedStage = resolveCandidateStageForList(candidate);
+  const stageNew = ['new', ''].includes(String(resolvedStage || '').trim().toLowerCase());
+  return {
+    ...candidate,
+    stage: resolvedStage,
+    isPhase1Candidate: phase1,
+    isNewCandidate: discoveryOnly || (phase1 && stageNew && !hasJob),
+    isJobAppliedCandidate: hasJob && resolvedStage === 'Applied',
+    poolOrigin: discoveryOnly ? 'phase1_common' : phase1 ? 'phase1' : 'tenant',
+  };
 }
 
 /** Prisma scope: non-phase1 OR phase1 with a real job/application/pipeline link. */
@@ -122,6 +197,14 @@ const candidateDetailInclude = {
 const candidateListInclude = {
   assignedTo: {
     select: { id: true, name: true, email: true },
+  },
+  applications: {
+    select: { id: true, jobId: true },
+    take: 30,
+  },
+  pipelineEntries: {
+    select: { id: true, jobId: true },
+    take: 30,
   },
   matches: {
     include: {
@@ -672,16 +755,26 @@ function buildMatchMaterializeProfileFields(poolRow, skills, languages, recruite
   };
 }
 
+function isAppliedMatchEvaluation(evaluation) {
+  return evaluation && typeof evaluation === 'object' && evaluation.origin === 'applied';
+}
+
 /**
  * Full materialize for AI match: create tenant row for Match FK.
  * Phase 1 rows stay discovery-only (New stage, no job assignment, hidden from Candidates list).
+ * When aiMatchOnly is true, never link the scoring job to assignedJobs (score-only, no assignment).
  */
-async function materializeCandidateForMatch(poolRow) {
+async function materializeCandidateForMatch(poolRow, options = {}) {
+  const matchingJobId = String(options.matchingJobId || '').trim();
+  const aiMatchOnly = Boolean(options.aiMatchOnly);
   const phase1 = isPhase1CandidateSource(poolRow?.source);
-  const poolAssignedJobs = Array.isArray(poolRow.assignedJobs)
+  let poolAssignedJobs = Array.isArray(poolRow.assignedJobs)
     ? poolRow.assignedJobs.map((id) => String(id || '').trim()).filter(Boolean)
     : [];
-  const hasRealJobLink = poolAssignedJobs.length > 0;
+  if (aiMatchOnly && matchingJobId) {
+    poolAssignedJobs = poolAssignedJobs.filter((id) => id !== matchingJobId);
+  }
+  const hasRealJobLink = !aiMatchOnly && poolAssignedJobs.length > 0;
   const assignedJobs =
     phase1 && !hasRealJobLink ? [] : poolAssignedJobs;
   const skills =
@@ -752,8 +845,15 @@ async function materializeCandidateForMatch(poolRow) {
       } else if (existing.stage === 'Applied' && poolStage && poolStage !== 'Applied') {
         restoreData.stage = poolStage;
       }
-      if (!Array.isArray(existing.assignedJobs) || !existing.assignedJobs.length) {
+      if (!aiMatchOnly && (!Array.isArray(existing.assignedJobs) || !existing.assignedJobs.length)) {
         restoreData.assignedJobs = assignedJobs;
+      } else if (aiMatchOnly && matchingJobId && Array.isArray(existing.assignedJobs)) {
+        const trimmed = existing.assignedJobs
+          .map((id) => String(id || '').trim())
+          .filter((id) => id && id !== matchingJobId);
+        if (trimmed.length !== existing.assignedJobs.length) {
+          restoreData.assignedJobs = trimmed;
+        }
       }
     }
     return prisma.candidate.update({
@@ -975,7 +1075,24 @@ async function loadAppliedMatchCandidatePool(req, jobId) {
     ...new Set(pipelineRows.map((row) => String(row.candidateId || '').trim()).filter(Boolean)),
   ];
 
-  const linkedIdSet = new Set([...applicationCandidateIds, ...pipelineCandidateIds]);
+  const matchRows = await prisma.match.findMany({
+    where: { jobId: jobIdStr },
+    select: { candidateId: true, evaluation: true },
+  });
+  const matchCandidateIds = [
+    ...new Set(
+      matchRows
+        .filter((row) => isAppliedMatchEvaluation(row.evaluation))
+        .map((row) => String(row.candidateId || '').trim())
+        .filter(Boolean),
+    ),
+  ];
+
+  const linkedIdSet = new Set([
+    ...applicationCandidateIds,
+    ...pipelineCandidateIds,
+    ...matchCandidateIds,
+  ]);
 
   const assignedCandidates = await prisma.candidate.findMany({
     where: {
@@ -999,17 +1116,105 @@ async function loadAppliedMatchCandidatePool(req, jobId) {
   const byId = new Map();
   for (const row of assignedCandidates) byId.set(row.id, row);
   for (const row of extraCandidates) byId.set(row.id, row);
+
+  let portalCount = 0;
+  if (isTenantScopedRequest()) {
+    try {
+      const portalPrisma = getJobPortalPrismaClient();
+      const portalLinkedIds = new Set();
+
+      const portalApplications = await portalPrisma.application.findMany({
+        where: { jobId: jobIdStr },
+        select: { candidateId: true },
+      });
+      for (const row of portalApplications) {
+        const id = String(row.candidateId || '').trim();
+        if (id) portalLinkedIds.add(id);
+      }
+
+      const portalMatches = await portalPrisma.match.findMany({
+        where: { jobId: jobIdStr },
+        select: { candidateId: true, evaluation: true },
+      });
+      for (const row of portalMatches) {
+        if (!isAppliedMatchEvaluation(row.evaluation)) continue;
+        const id = String(row.candidateId || '').trim();
+        if (id) portalLinkedIds.add(id);
+      }
+
+      const portalAssigned = await portalPrisma.candidate.findMany({
+        where: { assignedJobs: { has: jobIdStr } },
+        select: { id: true },
+      });
+      for (const row of portalAssigned) {
+        const id = String(row.id || '').trim();
+        if (id) portalLinkedIds.add(id);
+      }
+
+      if (portalLinkedIds.size) {
+        const portalCandidates = await portalPrisma.candidate.findMany({
+          where: { id: { in: [...portalLinkedIds] } },
+        });
+        for (const portalRow of portalCandidates) {
+          const id = String(portalRow.id || '').trim();
+          if (!id) continue;
+          portalCount += 1;
+          const tenantRow = byId.get(id);
+          const mappedPortal = {
+            id,
+            firstName: portalRow.firstName ?? null,
+            lastName: portalRow.lastName ?? null,
+            email: portalRow.email ?? null,
+            phone: portalRow.phone ?? null,
+            linkedIn: portalRow.linkedIn ?? null,
+            resume: portalRow.resumeUrl ?? null,
+            resumeUrl: portalRow.resumeUrl ?? null,
+            experience: portalRow.experience ?? portalRow.experienceYears ?? null,
+            experienceYears: portalRow.experienceYears ?? portalRow.experience ?? null,
+            currentTitle: portalRow.currentTitle ?? portalRow.designation ?? null,
+            currentCompany: portalRow.currentCompany ?? null,
+            location: portalRow.location ?? null,
+            city: portalRow.city ?? null,
+            country: portalRow.country ?? null,
+            designation: portalRow.designation ?? portalRow.currentTitle ?? null,
+            avatar: portalRow.avatar ?? null,
+            stage: portalRow.stage ?? 'Applied',
+            source: portalRow.source || 'Job Portal',
+            assignedJobs: Array.isArray(portalRow.assignedJobs)
+              ? portalRow.assignedJobs.map(String)
+              : [jobIdStr],
+            status: 'ACTIVE',
+          };
+          const jobSet = new Set([
+            ...(Array.isArray(mappedPortal.assignedJobs) ? mappedPortal.assignedJobs : []),
+            jobIdStr,
+          ]);
+          mappedPortal.assignedJobs = Array.from(jobSet);
+          byId.set(
+            id,
+            tenantRow ? mergePortalAndTenantCandidateRow(mappedPortal, tenantRow) : mappedPortal
+          );
+        }
+      }
+    } catch (portalErr) {
+      console.warn(
+        '[loadAppliedMatchCandidatePool] portal applicants merge failed:',
+        portalErr?.message || portalErr
+      );
+    }
+  }
+
   const candidates = Array.from(byId.values());
 
   return {
     candidates,
-    tenantCount: candidates.length,
+    tenantCount: assignedCandidates.length + extraCandidates.length,
     commonCount: 0,
-    portalCount: 0,
+    portalCount,
     mergedCount: candidates.length,
     phase1TombstoneReincluded: 0,
     commonIncluded: false,
-    portalIncluded: false,
+    portalIncluded: portalCount > 0,
   };
 }
 
@@ -1213,6 +1418,8 @@ async function buildMineCandidatesScope(userId) {
     orClause.push({ matches: { some: { jobId: { in: myJobIds } } } });
     orClause.push({ pipelineEntries: { some: { jobId: { in: myJobIds } } } });
     orClause.push({ interviews: { some: { jobId: { in: myJobIds } } } });
+    orClause.push({ assignedJobs: { hasSome: myJobIds } });
+    orClause.push({ applications: { some: { jobId: { in: myJobIds } } } });
   }
   return { OR: orClause };
 }
@@ -1519,6 +1726,8 @@ export const candidateService = {
     const { page, limit, skip } = getPaginationParams(req);
     const { status, assignedToId, search } = req.query;
     const listFilters = parseCandidateListFilters(req.query);
+    const includeCommonPool =
+      req.query?.includeCommonPool === 'true' || req.query?.includeCommonPool === '1';
     const mine =
       req.query?.mine === 'true' || req.query?.mine === '1' || req.query?.mine === true;
 
@@ -1605,8 +1814,21 @@ export const candidateService = {
         );
       }
 
+      if (includeCommonPool) {
+        const commonCandidates = await fetchCandidateCommonForCandidatesList(req);
+        for (const commonRow of commonCandidates) {
+          if (softDeletedTenantIds.has(commonRow.id)) continue;
+          const prior = mergedById.get(commonRow.id);
+          mergedById.set(
+            commonRow.id,
+            prior ? mergePortalAndTenantCandidateRow(commonRow, prior) : commonRow
+          );
+        }
+      }
+
       const merged = Array.from(mergedById.values())
-        .filter((candidate) => shouldShowOnCrmCandidatesList(candidate))
+        .filter((candidate) => shouldShowOnCrmCandidatesList(candidate, { includeCommonPool }))
+        .filter((candidate) => candidateMatchesSearch(candidate, search))
         .filter((candidate) => candidateMatchesListFilters(candidate, listFilters))
         .sort((a, b) => {
         const aTime = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
@@ -1662,7 +1884,7 @@ export const candidateService = {
       const titles = (Array.isArray(candidate.assignedJobs) ? candidate.assignedJobs : [])
         .map((jobId) => jobsById.get(jobId))
         .filter(Boolean);
-      return {
+      return annotateCandidateListFlags({
         ...candidate,
         resume: candidate.resume || candidate.resumeUrl || null,
         skills:
@@ -1682,7 +1904,7 @@ export const candidateService = {
               : [],
         notes: candidate.notes || candidate.recruiterNotes || null,
         assignedJobTitles: titles,
-      };
+      });
     });
 
     return formatPaginationResponse(enriched, page, limit, total);
@@ -1731,7 +1953,20 @@ export const candidateService = {
       if (candidate) {
         const careerPrefs = await fetchPortalCareerPreferencesRaw(portalPrisma, candidate.id);
         mergeCareerPreferencesIntoCandidate(candidate, careerPrefs);
-        return buildCandidateResponse(candidate, portalPrisma);
+        return buildCandidateResponse(annotateCandidateListFlags(candidate), portalPrisma);
+      }
+
+      const commonCandidate = await fetchCandidateCommonByCandidateId(id);
+      if (commonCandidate) {
+        let portalClientForPrefs = null;
+        try {
+          portalClientForPrefs = getJobPortalPrismaClient();
+        } catch {
+          portalClientForPrefs = null;
+        }
+        const careerPrefs = await fetchPortalCareerPreferencesRaw(portalClientForPrefs, id);
+        mergeCareerPreferencesIntoCandidate(commonCandidate, careerPrefs);
+        return buildCandidateResponse(annotateCandidateListFlags(commonCandidate), portalClientForPrefs);
       }
     }
 
@@ -1885,6 +2120,30 @@ export const candidateService = {
 
     if (Object.prototype.hasOwnProperty.call(data || {}, 'lastActivity')) {
       updateData.lastActivity = data.lastActivity ? new Date(data.lastActivity) : null;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(data || {}, 'assignedJobs')) {
+      const existingRow = await prisma.candidate.findUnique({
+        where: { id },
+        select: { assignedJobs: true, stage: true },
+      });
+      if (existingRow) {
+        const prevIds = new Set(
+          (Array.isArray(existingRow.assignedJobs) ? existingRow.assignedJobs : []).map((jid) =>
+            String(jid || '').trim(),
+          ),
+        );
+        const nextIds = (Array.isArray(data.assignedJobs) ? data.assignedJobs : [])
+          .map((jid) => String(jid || '').trim())
+          .filter(Boolean);
+        const addedJob = nextIds.some((jid) => !prevIds.has(jid));
+        if (addedJob && !Object.prototype.hasOwnProperty.call(updateData, 'stage')) {
+          updateData.stage = stageWhenLinkingToJob(existingRow.stage);
+          if (!Object.prototype.hasOwnProperty.call(updateData, 'status')) {
+            updateData.status = 'ACTIVE';
+          }
+        }
+      }
     }
 
     dbLogger.logUpdate('CANDIDATE', id, updateData);
@@ -2475,10 +2734,17 @@ export const candidateService = {
       });
     }
 
+    const priorStage = String(candidate.stage || '').trim().toLowerCase();
+    const crmStage =
+      stageName ||
+      ((!priorStage || priorStage === 'new') && updatedAssignedJobs.length
+        ? 'Applied'
+        : stageWhenLinkingToJob(candidate.stage));
+
     await prisma.candidate.update({
       where: { id: candidateId },
       data: {
-        stage: stageName,
+        stage: crmStage,
         assignedToId: data?.recruiterId || candidate.assignedToId || undefined,
         assignedJobs: updatedAssignedJobs,
         lastActivity: new Date(),
@@ -3105,6 +3371,8 @@ export const candidateService = {
   },
 
   async getStats(req = {}) {
+    const includeCommonPool =
+      req.query?.includeCommonPool === 'true' || req.query?.includeCommonPool === '1';
     const mine =
       req.query?.mine === 'true' || req.query?.mine === '1' || req.query?.mine === true;
     const userId = req.user?.id;
@@ -3173,7 +3441,24 @@ export const candidateService = {
       scopedCandidates = Array.from(byId.values());
     }
 
-    scopedCandidates = scopedCandidates.filter((candidate) => shouldShowOnCrmCandidatesList(candidate));
+    if (includeCommonPool && isTenantScopedRequest()) {
+      const commonCandidates = await fetchCandidateCommonForCandidatesList(req);
+      const softDeletedTenantIds = await collectSoftDeletedTenantCandidateIds(
+        commonCandidates.map((c) => c.id)
+      );
+      const byId = new Map(scopedCandidates.map((candidate) => [candidate.id, candidate]));
+      for (const commonRow of commonCandidates) {
+        if (softDeletedTenantIds.has(commonRow.id)) continue;
+        if (!byId.has(commonRow.id)) {
+          byId.set(commonRow.id, { id: commonRow.id, stage: commonRow.stage || null, source: commonRow.source });
+        }
+      }
+      scopedCandidates = Array.from(byId.values());
+    }
+
+    scopedCandidates = scopedCandidates.filter((candidate) =>
+      shouldShowOnCrmCandidatesList(candidate, { includeCommonPool })
+    );
 
     const stageCounts = stages.map((stageName) => ({
       stage: stageName,

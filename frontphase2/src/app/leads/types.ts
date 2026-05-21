@@ -75,6 +75,9 @@ export interface Lead {
   linkedIn?: string;
   location?: string;
   designation?: string;
+  teamMemberDesignation?: string;
+  teamMemberEmail?: string;
+  teamMemberPhone?: string;
   country?: string;
   city?: string;
   state?: string;
@@ -92,4 +95,11 @@ export interface Lead {
   agreementsFileName?: string | null;
   agreementsFileUrl?: string | null;
   agreementsUploadedAt?: string | null;
+  agreementTotalPayment?: string | null;
+  agreementLevel?: string | null;
+  agreementServiceChargePercent?: string | null;
+  agreementTimePeriod?: string | null;
+  agreementAdvancePaymentPercent?: string | null;
+  agreementFreeReplacementValue?: number | null;
+  agreementFreeReplacementUnit?: 'MONTHS' | 'DAYS' | null;
 }

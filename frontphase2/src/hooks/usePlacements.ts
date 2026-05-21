@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { CreatePlacementInvoicePayload } from '../types/recruitmentInvoice';
 import {
   apiCreatePlacement,
+  apiCreatePlacementInvoice,
   apiDeletePlacement,
   apiExportPlacements,
   apiGetCandidates,
@@ -120,6 +122,17 @@ export function usePlacements(filters: PlacementFilters) {
           title: job.title,
           clientId: job.client?.id,
           clientName: job.client?.companyName || 'Unknown Client',
+          clientEmail: (() => {
+            const c = job.client;
+            if (!c) return '';
+            const fromEmails = Array.isArray(c.emails)
+              ? c.emails.map((e: string) => String(e || '').trim()).find(Boolean)
+              : '';
+            const fromContacts = Array.isArray(c.contacts)
+              ? c.contacts.map((ct: { email?: string }) => String(ct?.email || '').trim()).find(Boolean)
+              : '';
+            return fromEmails || c.teamMemberEmail?.trim() || fromContacts || '';
+          })(),
         }))
       );
       setClientOptions(
@@ -153,8 +166,9 @@ export function usePlacements(filters: PlacementFilters) {
       async createPlacement(payload: CreatePlacementPayload, offerLetter?: File | null) {
         setSubmitting(true);
         try {
-          await apiCreatePlacement(payload, offerLetter);
+          const response = await apiCreatePlacement(payload, offerLetter);
           await fetchData();
+          return response?.data;
         } finally {
           setSubmitting(false);
         }
@@ -191,6 +205,16 @@ export function usePlacements(filters: PlacementFilters) {
         try {
           await apiDeletePlacement(id);
           await fetchData();
+        } finally {
+          setSubmitting(false);
+        }
+      },
+      async createInvoice(placementId: string, payload: CreatePlacementInvoicePayload) {
+        setSubmitting(true);
+        try {
+          const response = await apiCreatePlacementInvoice(placementId, payload);
+          await fetchData();
+          return response?.data;
         } finally {
           setSubmitting(false);
         }

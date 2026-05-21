@@ -241,7 +241,17 @@ export default function PlacementDetailPage() {
             </section>
 
             <section className="rounded-2xl border border-[#E5E7EB] bg-white p-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-[#111827]">Billing</h2>
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-lg font-semibold text-[#111827]">Billing</h2>
+                {!(placement.billing || []).length && (placement.placementFee ?? 0) > 0 ? (
+                  <Link
+                    href={`/billing?createInvoice=1&placementId=${placement.id}`}
+                    className="text-xs font-semibold text-[#2563EB] hover:underline"
+                  >
+                    Create invoice in Billing
+                  </Link>
+                ) : null}
+              </div>
               <div className="mt-4 space-y-3">
                 {(placement.billing || []).length ? (
                   placement.billing?.map((bill) => (
@@ -260,6 +270,7 @@ export default function PlacementDetailPage() {
           </div>
         </div>
       </div>
+
     </div>
   );
 }

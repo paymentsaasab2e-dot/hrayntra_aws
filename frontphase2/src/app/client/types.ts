@@ -129,6 +129,9 @@ export interface Client {
   revenue?: string;
   // Overview — Company Snapshot
   companySize?: string;
+  teamMemberDesignation?: string;
+  teamMemberEmail?: string;
+  teamMemberPhone?: string;
   hiringLocations?: string;
   servicesNeeded?: string;
   expectedBusinessValue?: string;

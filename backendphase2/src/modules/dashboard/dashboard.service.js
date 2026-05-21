@@ -41,8 +41,47 @@ function metricsToRows(metrics) {
   return rows;
 }
 
+async function buildJobPipelineCounts(jobIds) {
+  const map = new Map();
+  if (!Array.isArray(jobIds) || !jobIds.length) return map;
+
+  const entries = await prisma.pipelineEntry.findMany({
+    where: { jobId: { in: jobIds } },
+    select: {
+      jobId: true,
+      candidateId: true,
+      stage: { select: { name: true, systemRole: true } },
+    },
+  });
+
+  const seenByJobBucket = new Map();
+
+  for (const entry of entries) {
+    if (!entry.jobId || !entry.candidateId) continue;
+    const stageText = String(entry.stage?.systemRole || entry.stage?.name || '').toLowerCase();
+    let bucket = 'applied';
+    if (stageText.includes('interview')) bucket = 'interviewed';
+    else if (stageText.includes('offer')) bucket = 'offered';
+    else if (stageText.includes('join') || stageText.includes('hire') || stageText.includes('placed')) {
+      bucket = 'joined';
+    }
+
+    const dedupeKey = `${entry.jobId}:${entry.candidateId}:${bucket}`;
+    if (seenByJobBucket.has(dedupeKey)) continue;
+    seenByJobBucket.set(dedupeKey, true);
+
+    if (!map.has(entry.jobId)) {
+      map.set(entry.jobId, { applied: 0, interviewed: 0, offered: 0, joined: 0 });
+    }
+    map.get(entry.jobId)[bucket] += 1;
+  }
+
+  return map;
+}
+
 async function fetchJobsList() {
   const jobs = await prisma.job.findMany({
+    where: { isDeleted: { not: true } },
     take: LIST_TAKE,
     orderBy: { updatedAt: 'desc' },
     select: {
@@ -50,30 +89,42 @@ async function fetchJobsList() {
       title: true,
       status: true,
       openings: true,
-      applied: true,
-      interviewed: true,
-      offered: true,
-      joined: true,
       postedDate: true,
       createdAt: true,
       updatedAt: true,
       client: { select: { companyName: true } },
+      _count: {
+        select: { matches: true, interviews: true, placements: true },
+      },
     },
   });
-  return jobs.map((j) => ({
-    id: j.id,
-    title: j.title,
-    status: j.status,
-    openings: j.openings,
-    applied: j.applied,
-    interviewed: j.interviewed,
-    offered: j.offered,
-    joined: j.joined,
-    client: j.client?.companyName || 'No client',
-    postedDate: j.postedDate,
-    createdAt: j.createdAt,
-    updatedAt: j.updatedAt,
-  }));
+
+  const pipelineCountsByJob = await buildJobPipelineCounts(jobs.map((j) => j.id));
+
+  return jobs.map((j) => {
+    const pipeline = pipelineCountsByJob.get(j.id) || {
+      applied: 0,
+      interviewed: 0,
+      offered: 0,
+      joined: 0,
+    };
+    const hasPipeline = pipeline.applied + pipeline.interviewed + pipeline.offered + pipeline.joined > 0;
+
+    return {
+      id: j.id,
+      title: j.title,
+      status: j.status,
+      openings: j.openings,
+      applied: hasPipeline ? pipeline.applied : Number(j._count?.matches ?? 0),
+      interviewed: hasPipeline ? pipeline.interviewed : Number(j._count?.interviews ?? 0),
+      offered: hasPipeline ? pipeline.offered : Number(j._count?.placements ?? 0),
+      joined: hasPipeline ? pipeline.joined : 0,
+      client: j.client?.companyName || 'No client',
+      postedDate: j.postedDate,
+      createdAt: j.createdAt,
+      updatedAt: j.updatedAt,
+    };
+  });
 }
 
 async function fetchClientsList() {
@@ -344,6 +395,9 @@ function enrichSuggestedConfig(datasetId, analysis) {
     suggested.categoryField = suggested.categoryField || (datasetId === 'departments' ? 'name' : 'status');
     suggested.valueField = datasetId === 'departments' ? 'memberCount' : null;
     if (suggested.chartType === 'kpi') suggested.chartType = 'pie';
+    if (suggested.chartType === 'pie' || suggested.chartType === 'donut') {
+      suggested.categoryField = suggested.categoryField || 'status';
+    }
   } else if (datasetId === 'tasks_and_activity') {
     suggested.categoryField = suggested.categoryField || 'recordType';
     suggested.valueField = null;
@@ -471,7 +525,7 @@ export const dashboardService = {
     const filterDefinitions = getFilterOptions(resolvedId, filters, rows);
 
     return {
-      dataset: { id: dataset.id, label: dataset.label, module: dataset.module },
+      dataset: { id: dataset.id, label: dataset.label, module: dataset.module, kind: dataset.kind },
       rows,
       rowCount: rows.length,
       filters: filterDefinitions,

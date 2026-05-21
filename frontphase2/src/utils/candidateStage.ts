@@ -2,6 +2,9 @@ export function getCandidateStageLabel(stage?: string | null) {
   const normalized = (stage || '').trim().toLowerCase();
   if (!normalized) return 'Unknown';
   if (normalized === 'new') return 'New';
+  if (normalized === 'suggested') return 'Applied';
+  if (normalized === 'shortlisted' || normalized === 'selected') return 'Shortlisted';
+  if (normalized === 'reviewed') return 'Reviewed';
   if (normalized === 'offer' || normalized === 'offered') return 'Offer letter sent';
   if (normalized === 'hired') return 'Hired';
   return stage || 'Unknown';
@@ -10,6 +13,7 @@ export function getCandidateStageLabel(stage?: string | null) {
 /** Background-forward stage chips: saturated bg + white label text */
 const STAGE_BADGE_CLASSES: Record<string, string> = {
   new: 'bg-green-500 text-white border-green-500',
+  suggested: 'bg-blue-500 text-white border-blue-500',
   applied: 'bg-blue-500 text-white border-blue-500',
   screening: 'bg-violet-500 text-white border-violet-500',
   shortlist: 'bg-purple-500 text-white border-purple-500',

@@ -188,6 +188,9 @@ function mapBackendClientToFrontend(backendClient: BackendClient): Client {
     logo: backendClient.logo || '',
     revenue: backendClient.revenueGenerated || undefined,
     companySize: backendClient.companySize || undefined,
+    teamMemberDesignation: backendClient.teamMemberDesignation || undefined,
+    teamMemberEmail: backendClient.teamMemberEmail || undefined,
+    teamMemberPhone: backendClient.teamMemberPhone || undefined,
     hiringLocations: backendClient.hiringLocations || undefined,
     servicesNeeded: backendClient.servicesNeeded || undefined,
     expectedBusinessValue: backendClient.expectedBusinessValue || undefined,
@@ -646,15 +649,12 @@ export default function App() {
     <div className="w-full min-h-screen overflow-hidden text-slate-900">
       <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <header className="min-h-[4.5rem] flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-3 shrink-0 border-b border-indigo-100/50 bg-white/80 backdrop-blur-md shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)]">
-          <div className="flex items-start gap-2.5 sm:gap-3">
-            <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20">
               <Building2 className="h-5 w-5" strokeWidth={2.2} />
             </div>
             <div>
-              <h1 className="text-xl sm:text-[1.35rem] font-bold tracking-tight text-slate-900 leading-tight">Clients</h1>
-              <p className="text-xs text-slate-500 max-w-xl">
-                Manage your client relationships, track stages, and open roles in one place.
-              </p>
+              <h1 className="text-xl sm:text-[1.35rem] font-bold tracking-tight text-slate-900 leading-none">Clients</h1>
             </div>
           </div>
           <div className="flex items-center gap-2">

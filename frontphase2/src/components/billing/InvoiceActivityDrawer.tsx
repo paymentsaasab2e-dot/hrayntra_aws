@@ -30,10 +30,12 @@ import {
 } from 'lucide-react';
 import {
   apiGetInvoiceActivity,
+  apiUpdateBillingRecord,
   apiUpdateInvoiceCurrency,
   type InvoiceActivityEvent,
   type InvoiceActivityResponse,
 } from '../../lib/api';
+import { usePermissions } from '../../hooks/usePermissions';
 import { SUPPORTED_CURRENCIES, formatCurrencyAmount } from '../../utils/currency';
 import { formatDateTimeDMY } from '../../utils/dateDisplay';
 import { Skeleton } from '../ui/Skeleton';
@@ -82,13 +84,24 @@ interface Props {
   onClose: () => void;
   /** Called after a successful currency save so the parent table can refresh. */
   onCurrencyChanged?: (next: string) => void;
+  /** Called after invoice status changes (e.g. marked paid). */
+  onStatusChanged?: () => void;
 }
 
-export default function InvoiceActivityDrawer({ invoiceId, open, onClose, onCurrencyChanged }: Props) {
+export default function InvoiceActivityDrawer({
+  invoiceId,
+  open,
+  onClose,
+  onCurrencyChanged,
+  onStatusChanged,
+}: Props) {
+  const { hasPermission } = usePermissions();
+  const canRecordPayment = hasPermission('record_payment') || hasPermission('create_invoice');
   const [data, setData] = useState<InvoiceActivityResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
   const [savingCurrency, setSavingCurrency] = useState(false);
+  const [savingStatus, setSavingStatus] = useState(false);
   const [currencyDraft, setCurrencyDraft] = useState<string>('');
   const [savedFlash, setSavedFlash] = useState<string>('');
 
@@ -119,6 +132,31 @@ export default function InvoiceActivityDrawer({ invoiceId, open, onClose, onCurr
 
   const baseCurrency = data?.invoice?.currency || 'USD';
   const currencyDirty = currencyDraft && currencyDraft !== baseCurrency;
+
+  const canMarkPaid =
+    canRecordPayment &&
+    data?.invoice &&
+    data.invoice.status !== 'Paid' &&
+    data.invoice.status !== 'Cancelled';
+
+  const handleMarkPaid = async () => {
+    if (!invoiceId || !canMarkPaid) return;
+    setSavingStatus(true);
+    setError('');
+    try {
+      await apiUpdateBillingRecord(invoiceId, { status: 'PAID' });
+      const res = await apiGetInvoiceActivity(invoiceId);
+      setData(res.data || null);
+      setSavedFlash('Invoice marked as paid.');
+      onStatusChanged?.();
+      window.dispatchEvent(new CustomEvent('jobportal:billing-changed'));
+      window.dispatchEvent(new CustomEvent('jobportal:placements-changed'));
+    } catch (err: any) {
+      setError(err?.message || 'Failed to update invoice status');
+    } finally {
+      setSavingStatus(false);
+    }
+  };
 
   const handleSaveCurrency = async () => {
     if (!invoiceId || !currencyDirty) return;
@@ -199,17 +237,29 @@ export default function InvoiceActivityDrawer({ invoiceId, open, onClose, onCurr
                     <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Total</p>
                     <p className="mt-0.5 text-2xl font-black tracking-tight text-slate-900">{headerSummary}</p>
                   </div>
-                  <span
-                    className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
-                      data.invoice.status === 'Paid'
-                        ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
-                        : data.invoice.status === 'Overdue'
-                          ? 'bg-rose-50 text-rose-700 ring-1 ring-rose-200'
-                          : 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'
-                    }`}
-                  >
-                    {data.invoice.status}
-                  </span>
+                  <div className="flex flex-col items-end gap-2">
+                    <span
+                      className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                        data.invoice.status === 'Paid'
+                          ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
+                          : data.invoice.status === 'Overdue'
+                            ? 'bg-rose-50 text-rose-700 ring-1 ring-rose-200'
+                            : 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'
+                      }`}
+                    >
+                      {data.invoice.status}
+                    </span>
+                    {canMarkPaid ? (
+                      <button
+                        type="button"
+                        onClick={handleMarkPaid}
+                        disabled={savingStatus}
+                        className="rounded-lg bg-emerald-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {savingStatus ? 'Saving…' : 'Mark as paid'}
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-500">
                   <div>

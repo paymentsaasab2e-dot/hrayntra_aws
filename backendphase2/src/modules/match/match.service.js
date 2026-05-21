@@ -159,6 +159,24 @@ function deriveDisplayStatus(match, candidate, activities, jobId) {
   return 'New';
 }
 
+/** CRM pipeline stage for job drawer / candidates list — not Match.status (SUGGESTED, etc.). */
+function resolveCandidateCrmStageForMatch(candidate, jobId) {
+  const explicit = String(candidate?.stage || '').trim();
+  if (explicit && explicit.toLowerCase() !== 'new') {
+    return explicit;
+  }
+  const assigned = Array.isArray(candidate?.assignedJobs)
+    ? candidate.assignedJobs.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  if (jobId && assigned.includes(String(jobId))) {
+    return 'Applied';
+  }
+  if (assigned.length) {
+    return 'Applied';
+  }
+  return explicit || 'Applied';
+}
+
 function mapNotes(activities) {
   return activities
     .filter((activity) => getActivityMetadata(activity).kind === NOTE_ACTIVITY_KIND)
@@ -301,6 +319,8 @@ function mapMatchRecord(match, activitiesByCandidateId) {
     salary,
     noticePeriod: candidate.noticePeriod || 'Not shared',
     status: displayStatus,
+    candidateStage: resolveCandidateCrmStageForMatch(candidate, job.id),
+    matchRecordStatus: match.status,
     matchSource: match.createdById ? 'manual' : 'ai',
     createdBy: match.createdBy ? { name: match.createdBy.name } : { name: '—' },
     createdAt: match.createdAt,
@@ -347,13 +367,9 @@ export const matchService = {
     }
     if (source === 'manual') where.createdById = MANUAL_MATCH_AUTHOR_WHERE;
     if (source === 'ai') where.createdById = AI_MATCH_AUTHOR_WHERE;
+    // Applied tab / job drawer: all match rows for this job (pool merge adds non-match applicants).
     if (source === 'applied' && jobId) {
-      where.createdById = AI_MATCH_AUTHOR_WHERE;
-      where.candidate = {
-        is: {
-          assignedJobs: { has: String(jobId) },
-        },
-      };
+      where.jobId = String(jobId);
     }
     if (saved === 'true') {
       where.candidate = {
@@ -408,15 +424,20 @@ export const matchService = {
               `[matchService] AI pool: tenant=${pool.tenantCount} common=${pool.commonCount ?? 0} portal=${pool.portalCount} merged=${pool.mergedCount}${tombstoneNote} (job ${jobId})`
             );
           }
+          const jobIdStr = String(jobId);
           await runMatchPipeline({
-            jobId: String(jobId),
+            jobId: jobIdStr,
             prisma,
             minScore: Number.isFinite(minForPipeline) ? minForPipeline : suggestionMin,
             forceRefresh,
             candidates: pool.candidates,
             poolStats: pool,
             pipelineMode: 'ai',
-            materializeCandidate: ensureCandidateMaterializedForMatch,
+            materializeCandidate: (row) =>
+              ensureCandidateMaterializedForMatch(row, {
+                matchingJobId: jobIdStr,
+                aiMatchOnly: true,
+              }),
           });
         }
       } catch (pipeErr) {
@@ -491,11 +512,8 @@ export const matchService = {
     if (source === 'applied' && jobId) {
       const pool = await loadAppliedMatchCandidatePool(req, String(jobId));
       const poolIdSet = new Set(pool.candidates.map((candidate) => candidate.id));
-      // Exclude AI / Phase 1 pool scores — only applied-pipeline rows for this job.
-      matches = matches.filter(
-        (match) =>
-          poolIdSet.has(match.candidateId) && isAppliedPipelineEvaluation(match.evaluation)
-      );
+      // Anyone linked to this job (applied, assigned, pipeline, portal) — keep AI/manual match scores too.
+      matches = matches.filter((match) => poolIdSet.has(match.candidateId));
       const jobRow = await prisma.job.findFirst({
         where: { id: String(jobId), isDeleted: { not: true } },
         include: { client: { select: { companyName: true, logo: true } } },

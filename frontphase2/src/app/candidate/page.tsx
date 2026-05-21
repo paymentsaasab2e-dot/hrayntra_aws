@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, useRef, Suspense } from 'react';
-import type { CandidateStageStats } from './components/StageTabs';
 import { CandidateTable, Candidate } from './components/CandidateTable';
 import {
   CandidateTableFilters,
@@ -63,7 +62,6 @@ import {
   apiDeleteCandidateNote,
   apiGetCandidate,
   apiGetCandidates,
-  apiGetCandidateStats,
   apiGetClients,
   apiGetJobs,
   apiGetPipelineStages,
@@ -88,7 +86,10 @@ import {
   PH2_TABLE_CARD_FOOTER_CLASS,
   PH2_TOOLBAR_ROW_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
-import { resolveCandidateListStage } from '../../lib/candidateListMapping';
+import {
+  candidateShowsAppliedTag,
+  resolveCandidateListStage,
+} from '../../lib/candidateListMapping';
 import {
   extractApiData,
   getTagColor,
@@ -105,16 +106,13 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-function isSuperAdminRole(role?: string | null): boolean {
-  const normalized = String(role || '')
-    .trim()
-    .toUpperCase()
-    .replace(/\s+/g, '_');
-  return normalized === 'SUPER_ADMIN';
-}
+type CandidateListTab = 'all' | 'mine';
 
-/** List all candidates for the candidate page. */
-const ALL_CANDIDATES_LIST_PARAMS = { page: 1, limit: 200 };
+/** Full pool: tenant + job portal + Phase 1 common DB. */
+const ALL_CANDIDATES_LIST_PARAMS = { page: 1, limit: 500, includeCommonPool: true };
+
+const CANDIDATE_TABLE_TAB_CLASS =
+  'px-4 py-3 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap';
 
 const CANDIDATE_STAGE_API_MAP: Record<string, string> = {
   new: 'New',
@@ -247,6 +245,9 @@ function mapBackendCandidate(c: BackendCandidate): Candidate {
     source: c.source || '',
     rating: c.rating ?? 0,
     pipelineJobId: resolveSubmitJobIdFromBackend(c),
+    isPhase1Candidate: Boolean(c.isPhase1Candidate),
+    isNewCandidate: Boolean(c.isNewCandidate),
+    isJobAppliedCandidate: candidateShowsAppliedTag(c),
   };
 }
 
@@ -262,7 +263,6 @@ function CandidatesPageContent() {
   const canDeleteCandidate = hasAnyPermission(['candidates_delete', 'delete_candidate']);
   const canAssignCandidate = hasAnyPermission(['candidates_update', 'move_pipeline']);
   const canExportCandidate = hasPermission('export_data');
-  const [activeStage, setActiveStage] = useState(searchParams.get('stage') || 'all');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [isAddCandidateOpen, setIsAddCandidateOpen] = useState(false);
@@ -281,6 +281,9 @@ function CandidatesPageContent() {
   const [tableLoading, setTableLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const hasLoadedCandidatesOnceRef = useRef(false);
+  const [listTab, setListTab] = useState<CandidateListTab>(() =>
+    searchParams.get('tab') === 'mine' ? 'mine' : 'all',
+  );
   const [filters, setFilters] = useState({
     search: searchParams.get('search') || '',
     status: searchParams.get('status') || '',
@@ -329,7 +332,7 @@ function CandidatesPageContent() {
     let cancelled = false;
     void (async () => {
       try {
-        const res = await apiGetCandidates({ page: 1, limit: 500 });
+        const res = await apiGetCandidates(ALL_CANDIDATES_LIST_PARAMS);
         if (cancelled) return;
         const rows = extractBackendCandidatesList(
           res.data as BackendCandidate[] | { data?: BackendCandidate[]; items?: BackendCandidate[] } | undefined,
@@ -362,12 +365,6 @@ function CandidatesPageContent() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<TablePageSize>(10);
   const [totalEntries, setTotalEntries] = useState(0);
-  const [stageStatsRefreshTick, setStageStatsRefreshTick] = useState(0);
-  // Hoisted stats: drives both the stage tab strip and the KPI card row above
-  // the table so they share one round-trip and stay in sync.
-  const [stageStats, setStageStats] = useState<CandidateStageStats | null>(null);
-  const [stageStatsLoading, setStageStatsLoading] = useState(true);
-
   const [inlineStageOptionsByJobId, setInlineStageOptionsByJobId] = useState<
     Record<string, Array<{ id: string; name: string }>>
   >({});
@@ -555,13 +552,16 @@ function CandidatesPageContent() {
         queryParams.assignedToId = debouncedColumnFilters.ownerId;
       }
 
-      const stageFilterKey =
-        debouncedColumnFilters.stage || (activeStage !== 'all' ? activeStage : '');
-      if (stageFilterKey) {
-        queryParams.stage =
-          CANDIDATE_STAGE_API_MAP[stageFilterKey.toLowerCase()] || stageFilterKey;
+      if (debouncedColumnFilters.stage) {
+        const stageKey = debouncedColumnFilters.stage.toLowerCase();
+        queryParams.stage = CANDIDATE_STAGE_API_MAP[stageKey] || debouncedColumnFilters.stage;
       } else if (filters.status) {
         queryParams.status = filters.status;
+      }
+      if (listTab === 'mine') {
+        queryParams.mine = true;
+      } else {
+        queryParams.includeCommonPool = true;
       }
 
       const res = await apiGetCandidates(queryParams);
@@ -625,7 +625,7 @@ function CandidatesPageContent() {
         }
       }
     }
-  }, [filters, debouncedColumnFilters, activeStage, currentPage, pageSize]);
+  }, [filters, debouncedColumnFilters, currentPage, pageSize, listTab]);
 
   const refreshJobFilterOptions = useCallback(async () => {
     try {
@@ -644,39 +644,6 @@ function CandidatesPageContent() {
     loadCandidates();
   }, [loadCandidates]);
 
-  // Fetch stage stats once at page level — feeds the KPI card row.
-  // Refreshes when `stageStatsRefreshTick` bumps after a mutation.
-  const statsMine = useMemo(
-    () => !isSuperAdminRole(currentUser?.role),
-    [currentUser?.role]
-  );
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        setStageStatsLoading(true);
-        const res = await apiGetCandidateStats(statsMine ? { mine: true } : undefined);
-        const raw = res.data as CandidateStageStats | { data?: CandidateStageStats } | undefined;
-        const statsData =
-          raw && typeof raw === 'object' && 'data' in raw && raw.data && typeof raw.data === 'object'
-            ? (raw.data as CandidateStageStats)
-            : (raw as CandidateStageStats);
-        if (!cancelled) setStageStats(statsData);
-      } catch (err) {
-        console.error('Failed to fetch candidate stats:', err);
-        if (!cancelled) {
-          setStageStats({
-            all: 0, applied: 0, longlist: 0, shortlist: 0, screening: 0,
-            submitted: 0, interviewing: 0, offered: 0, hired: 0, rejected: 0,
-          });
-        }
-      } finally {
-        if (!cancelled) setStageStatsLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [statsMine, stageStatsRefreshTick]);
-
   // Reusable auto-refresh: polls while visible, refreshes on tab focus and on
   // candidate / job-pipeline change events.
   const candidatesAutoLoad = useCallback(
@@ -688,24 +655,14 @@ function CandidatesPageContent() {
   });
 
   useEffect(() => {
-    const onCandidatesChanged = () => {
-      setStageStatsRefreshTick((t) => t + 1);
-    };
     const onJobsChanged = () => {
       void refreshJobFilterOptions();
     };
-    window.addEventListener('jobportal:candidates-changed', onCandidatesChanged);
     window.addEventListener('jobportal:jobs-changed', onJobsChanged);
     return () => {
-      window.removeEventListener('jobportal:candidates-changed', onCandidatesChanged);
       window.removeEventListener('jobportal:jobs-changed', onJobsChanged);
     };
   }, [refreshJobFilterOptions]);
-
-  // Refresh stats when candidates are updated
-  const refreshStats = useCallback(() => {
-    setStageStatsRefreshTick((current) => current + 1);
-  }, []);
 
   const hasTableColumnFilters = Boolean(
     columnFilters.company.trim() ||
@@ -717,32 +674,19 @@ function CandidatesPageContent() {
   );
 
   const hasToolbarFilters = Boolean(
-    filters.search.trim() || filters.status || activeStage !== 'all' || hasTableColumnFilters,
+    filters.search.trim() || filters.status || hasTableColumnFilters,
   );
-
-  const isAllCandidatesView =
-    activeStage === 'all' && !columnFilters.stage && !filters.status;
-
-  const handleShowAllCandidates = useCallback(() => {
-    setCurrentPage(1);
-    setActiveStage('all');
-    setColumnFilters((prev) => ({ ...prev, stage: '' }));
-    setFilters((prev) => ({ ...prev, status: '' }));
-  }, []);
 
   const handleClearToolbar = useCallback(() => {
     setFilters({ search: '', status: '' });
     setColumnFilters(EMPTY_CANDIDATE_TABLE_COLUMN_FILTERS);
-    setActiveStage('all');
     setCurrentPage(1);
-    refreshStats();
-  }, [refreshStats]);
+  }, []);
 
   const handleColumnFiltersChange = useCallback((next: CandidateTableColumnFilters) => {
     setCurrentPage(1);
     setColumnFilters(next);
     if (next.stage) {
-      setActiveStage('all');
       setFilters((prev) => ({ ...prev, status: '' }));
     }
   }, []);
@@ -750,7 +694,7 @@ function CandidatesPageContent() {
   // Update URL params when filters or stage change
   useEffect(() => {
     const params = new URLSearchParams();
-    if (activeStage !== 'all') params.set('stage', activeStage);
+    if (listTab === 'mine') params.set('tab', 'mine');
     if (filters.search) params.set('search', filters.search);
     if (filters.status) params.set('status', filters.status);
     if (columnFilters.company) params.set('company', columnFilters.company);
@@ -760,7 +704,7 @@ function CandidatesPageContent() {
     if (columnFilters.stage) params.set('tableStage', columnFilters.stage);
     if (columnFilters.ownerId) params.set('assignedToId', columnFilters.ownerId);
     router.replace(`/candidate?${params.toString()}`, { scroll: false });
-  }, [activeStage, filters, columnFilters, router]);
+  }, [listTab, filters, columnFilters, router]);
 
   useEffect(() => {
     let cancelled = false;
@@ -842,17 +786,16 @@ function CandidatesPageContent() {
       if (debouncedColumnFilters.ownerId) {
         queryParams.assignedToId = debouncedColumnFilters.ownerId;
       }
-      const stageFilterKey =
-        debouncedColumnFilters.stage || (activeStage !== 'all' ? activeStage : '');
-      if (stageFilterKey) {
-        queryParams.stage =
-          CANDIDATE_STAGE_API_MAP[stageFilterKey.toLowerCase()] || stageFilterKey;
+      if (debouncedColumnFilters.stage) {
+        const stageKey = debouncedColumnFilters.stage.toLowerCase();
+        queryParams.stage = CANDIDATE_STAGE_API_MAP[stageKey] || debouncedColumnFilters.stage;
       } else if (filters.status) {
         queryParams.status = filters.status;
       }
+      queryParams.includeCommonPool = true;
       return queryParams;
     },
-    [activeStage, debouncedColumnFilters, filters.search, filters.status],
+    [debouncedColumnFilters, filters.search, filters.status],
   );
 
   const fetchAllCandidatesForExport = useCallback(async (): Promise<Candidate[]> => {
@@ -1036,8 +979,6 @@ function CandidatesPageContent() {
         }
 
         await loadCandidates({ silent: true });
-        refreshStats();
-        setStageStatsRefreshTick((current) => current + 1);
         toast.success(`Stage updated to ${nextStageName}`);
       } catch (error: any) {
         console.error('Failed to update candidate stage from table:', error);
@@ -1046,7 +987,7 @@ function CandidatesPageContent() {
         setInlineStageUpdatingCandidateId((prev) => (prev === candidate.id ? null : prev));
       }
     },
-    [inlineStageOptionsByJobId, loadCandidateProfile, loadCandidates, refreshStats, selectedCandidateProfile?.id]
+    [inlineStageOptionsByJobId, loadCandidateProfile, loadCandidates, selectedCandidateProfile?.id]
   );
 
   const openBulkMoveStageModal = useCallback(async () => {
@@ -1137,8 +1078,6 @@ function CandidatesPageContent() {
       setBulkMoveStageOptions([]);
       setSelectedIds([]);
       await loadCandidates({ silent: true });
-      refreshStats();
-      setStageStatsRefreshTick((current) => current + 1);
     } catch (moveError: any) {
       console.error('Failed to move candidates to stage:', moveError);
       toast.error(moveError?.message || 'Failed to move candidates');
@@ -1151,7 +1090,6 @@ function CandidatesPageContent() {
     bulkMoveStageOptions,
     bulkMoveStageStageId,
     loadCandidates,
-    refreshStats,
     selectedIds,
   ]);
 
@@ -1182,17 +1120,15 @@ function CandidatesPageContent() {
           window.dispatchEvent(new CustomEvent(RECYCLE_BIN_SYNC_EVENT));
         }
         await loadCandidates({ silent: true });
-        refreshStats();
       } catch (err: unknown) {
         await loadCandidates({ silent: true });
-        refreshStats();
         const msg = err instanceof Error ? err.message : 'Failed to delete candidate';
         toast.error(msg);
       } finally {
         setDeletingCandidateId(null);
       }
     },
-    [loadCandidates, refreshStats, selectedCandidateProfile?.id]
+    [loadCandidates, selectedCandidateProfile?.id]
   );
 
   const handleViewProfile = async (candidate: Candidate) => {
@@ -1310,24 +1246,20 @@ function CandidatesPageContent() {
       <div className="w-full min-h-screen overflow-hidden text-slate-900">
         <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">
-            <div className="flex items-start gap-2.5 sm:gap-3">
-              <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 via-blue-600 to-indigo-600 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20">
+            <div className="flex items-center gap-2.5 sm:gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 via-blue-600 to-indigo-600 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20">
                 <Users className="h-5 w-5" strokeWidth={2.2} />
               </div>
               <div>
-                <h1 className="text-xl font-bold leading-tight tracking-tight text-slate-900 sm:text-[1.35rem]">
+                <h1 className="text-xl font-bold leading-none tracking-tight text-slate-900 sm:text-[1.35rem]">
                   Candidates
                 </h1>
-                <p className="mt-0.5 max-w-xl text-xs text-slate-500">
-                  View and manage every candidate in the pool — search and open profiles in one place.
-                </p>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => {
-                  refreshStats();
                   void loadCandidates();
                 }}
                 disabled={loading || tableLoading}
@@ -1443,31 +1375,47 @@ function CandidatesPageContent() {
             <div className="mx-auto max-w-[1600px]">
 
               <div className={PH2_TABLE_CARD_CLASS}>
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-indigo-100/80 bg-gradient-to-r from-indigo-50/90 via-white to-slate-50/80 px-4 py-3 sm:px-5">
-              <div>
-                    <h2 className="text-sm font-bold text-slate-900 sm:text-base">All candidates</h2>
-                    <p className="mt-0.5 text-xs text-slate-500">
-                      {stageStatsLoading || !stageStats
-                        ? 'Loading candidate pool…'
-                        : isAllCandidatesView
-                          ? `Showing ${totalEntries.toLocaleString()} candidate${totalEntries === 1 ? '' : 's'} — full pool (${stageStats.all.toLocaleString()} total)`
-                          : `Filtered list — ${totalEntries.toLocaleString()} of ${stageStats.all.toLocaleString()} in pool`}
-                </p>
-              </div>
-                  {isAllCandidatesView ? (
-                    <span className="inline-flex items-center rounded-full bg-indigo-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-indigo-800">
-                      All candidates
-                    </span>
-                  ) : (
-                <button 
-                      type="button"
-                      onClick={handleShowAllCandidates}
-                      className="inline-flex items-center rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-xs font-semibold text-indigo-700 shadow-sm transition-colors hover:bg-indigo-50"
-                >
-                      View all ({stageStats?.all ?? totalEntries})
-                </button>
-                  )}
-              </div>
+                <div className="flex items-center gap-1 border-b border-indigo-100/80 bg-gradient-to-r from-indigo-50/90 via-white to-slate-50/80 px-4 sm:px-5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setListTab('all');
+                      setCurrentPage(1);
+                    }}
+                    className={`${CANDIDATE_TABLE_TAB_CLASS} ${
+                      listTab === 'all'
+                        ? 'border-indigo-600 text-indigo-700'
+                        : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800'
+                    }`}
+                    aria-current={listTab === 'all' ? 'page' : undefined}
+                  >
+                    All candidates
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setListTab('mine');
+                      setCurrentPage(1);
+                    }}
+                    className={`${CANDIDATE_TABLE_TAB_CLASS} ${
+                      listTab === 'mine'
+                        ? 'border-indigo-600 text-indigo-700'
+                        : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800'
+                    }`}
+                    aria-current={listTab === 'mine' ? 'page' : undefined}
+                  >
+                    My candidates
+                  </button>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-indigo-100/50 px-4 py-2 sm:px-5">
+                  <p className="text-xs text-slate-500">
+                    {loading || tableLoading
+                      ? 'Loading candidates…'
+                      : listTab === 'mine'
+                        ? `Showing ${totalEntries.toLocaleString()} candidate${totalEntries === 1 ? '' : 's'} you added or who applied to your jobs`
+                        : `Showing ${totalEntries.toLocaleString()} candidate${totalEntries === 1 ? '' : 's'} — tenant uploads + Phase 1 pool`}
+                  </p>
+                </div>
                 <div className={PH2_TOOLBAR_ROW_CLASS}>
                   <div className="flex w-full flex-col gap-2 xl:flex-row xl:items-center xl:gap-2">
                     <div className="relative w-full shrink-0 sm:w-48 lg:w-52">
@@ -1539,10 +1487,8 @@ function CandidatesPageContent() {
                         window.dispatchEvent(new CustomEvent(RECYCLE_BIN_SYNC_EVENT));
                       }
                       await loadCandidates();
-                      refreshStats();
                     } catch (err: any) {
                       await loadCandidates({ silent: true });
-                      refreshStats();
                       toast.error(err?.message || 'Failed to delete candidates');
                     }
                   } : undefined}
@@ -1743,7 +1689,6 @@ function CandidatesPageContent() {
           kind="candidates"
           onRestored={() => {
             void loadCandidates({ silent: true });
-            refreshStats();
           }}
         />
       )}
@@ -1983,14 +1928,14 @@ function CandidatesPageContent() {
         onAction={(action, candidate) => {
           console.log('Candidate drawer action:', action, candidate.id);
         }}
-        onRejectCandidate={canUpdateCandidate ? async (reason, feedback, sendEmail, showFeedbackToCandidate) => {
+        onRejectCandidate={canUpdateCandidate ? async (reason, feedback, sendEmail, showFeedbackToCandidate, jobId) => {
           if (!selectedCandidateProfile) return;
           await apiRejectCandidate(selectedCandidateProfile.id, {
             reason,
             feedback,
             sendEmail,
             showFeedbackToCandidate,
-            jobId: selectedCandidateProfile.assignedJobId || undefined,
+            jobId: jobId || selectedCandidateProfile.assignedJobId || undefined,
           });
           await loadCandidateProfile(selectedCandidateProfile.id);
         } : undefined}

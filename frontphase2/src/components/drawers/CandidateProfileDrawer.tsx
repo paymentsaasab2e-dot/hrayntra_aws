@@ -278,7 +278,7 @@ interface CandidateProfileDrawerProps {
   existingInterviews?: CandidateScheduledInterview[];
   editModalOpenToken?: number | null;
   onAction?: (
-    action: 'move-stage' | 'schedule-interview' | 'send-email' | 'reject' | 'more' | 'edit',
+    action: 'move-stage' | 'schedule-interview' | 'send-email' | 'more' | 'edit',
     candidate: CandidateProfileDrawerData
   ) => void;
   onAddNote?: (candidateId: string, note: { text: string; tags: string[] }) => void | Promise<void>;
@@ -301,7 +301,8 @@ interface CandidateProfileDrawerProps {
     reason: string,
     feedback: string,
     sendEmail: boolean,
-    showFeedbackToCandidate: boolean
+    showFeedbackToCandidate: boolean,
+    jobId?: string
   ) => void | Promise<void>;
   onScheduleInterview?: (interviewData: CandidateScheduledInterview) => void | Promise<void>;
   onUpdateCandidate?: (candidateId: string, payload: UpdateCandidatePayload) => void | Promise<void>;
@@ -752,6 +753,14 @@ interface AddToPipelineModalProps {
     notes?: string;
   }) => void | Promise<void>;
   onRemoveFromPipeline?: (payload: { candidateId: string; jobId: string }) => void | Promise<void>;
+  /** Opens reject modal (reason, feedback, email) when user picks Rejected in move stage. */
+  onRequestReject?: (payload: { candidateId: string; jobId: string }) => void;
+}
+
+const PIPELINE_REJECTED_STAGE = 'Rejected';
+
+function isRejectedPipelineStage(stage: string): boolean {
+  return stage.trim().toLowerCase().includes('reject');
 }
 
 const REJECT_REASONS = [
@@ -1986,6 +1995,7 @@ function AddToPipelineModal({
   onClose,
   onSubmit,
   onRemoveFromPipeline,
+  onRequestReject,
 }: AddToPipelineModalProps) {
   const [jobSearch, setJobSearch] = useState('');
   const [recruiterSearch, setRecruiterSearch] = useState('');
@@ -2154,7 +2164,10 @@ function AddToPipelineModal({
               .filter(Boolean)
           : [];
 
-        setJobStageOptions(stageNames);
+        const withRejected = stageNames.some((name) => isRejectedPipelineStage(name))
+          ? stageNames
+          : [...stageNames, PIPELINE_REJECTED_STAGE];
+        setJobStageOptions(withRejected);
       } catch (error) {
         console.error('Failed to load pipeline stages for selected job:', error);
         setJobStageOptions([]);
@@ -2227,10 +2240,24 @@ function AddToPipelineModal({
     setSelectedStage(path[path.length - 1] || '');
   };
 
+  const openRejectFlowForSelectedJob = () => {
+    if (!candidate?.id || !onRequestReject) return false;
+    if (!selectedJobId) {
+      setErrors((prev) => ({ ...prev, job: 'Select a job before rejecting this candidate' }));
+      return true;
+    }
+    onRequestReject({ candidateId: candidate.id, jobId: selectedJobId });
+    return true;
+  };
+
   const handleSelectStageFromDropdown = (stageName: string) => {
     if (!stageName) return;
     const normalized = stageName.trim();
     if (!normalized) return;
+    if (isRejectedPipelineStage(normalized)) {
+      openRejectFlowForSelectedJob();
+      return;
+    }
     const without = stagePath.filter((s) => s.toLowerCase() !== normalized.toLowerCase());
     syncStageFromPath([...without, normalized]);
     setErrors((prev) => ({ ...prev, stage: undefined }));
@@ -2305,6 +2332,11 @@ function AddToPipelineModal({
   const handleSubmit = async () => {
     if (!candidate) return;
     if (!validate()) return;
+
+    if (isRejectedPipelineStage(targetStage)) {
+      openRejectFlowForSelectedJob();
+      return;
+    }
 
     try {
       setSubmitting(true);
@@ -3540,6 +3572,7 @@ export function CandidateProfileDrawer({
   const [showAddToPipelineModal, setShowAddToPipelineModal] = useState(false);
   const [showScheduleInterviewModal, setShowScheduleInterviewModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
+  const [rejectModalJobId, setRejectModalJobId] = useState<string | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editForm, setEditForm] = useState<CandidateEditFormState | null>(null);
   const [editError, setEditError] = useState('');
@@ -3611,7 +3644,7 @@ export function CandidateProfileDrawer({
   }, [candidate]);
 
   const handleAction = (
-    action: 'move-stage' | 'schedule-interview' | 'send-email' | 'reject' | 'more' | 'edit'
+    action: 'move-stage' | 'schedule-interview' | 'send-email' | 'more' | 'edit'
   ) => {
     if (action === 'move-stage') {
       setShowAddToPipelineModal(true);
@@ -3619,10 +3652,6 @@ export function CandidateProfileDrawer({
     }
     if (action === 'schedule-interview') {
       setShowScheduleInterviewModal(true);
-      return;
-    }
-    if (action === 'reject') {
-      setShowRejectModal(true);
       return;
     }
     if (action === 'edit') {
@@ -3757,6 +3786,15 @@ export function CandidateProfileDrawer({
             onClose={() => setShowAddToPipelineModal(false)}
             onSubmit={onAddToPipeline}
             onRemoveFromPipeline={onRemoveFromPipeline}
+            onRequestReject={
+              onRejectCandidate
+                ? ({ jobId }) => {
+                    setRejectModalJobId(jobId);
+                    setShowAddToPipelineModal(false);
+                    setShowRejectModal(true);
+                  }
+                : undefined
+            }
           />
           <ScheduleInterviewModal
             isOpen={showScheduleInterviewModal}
@@ -4012,13 +4050,6 @@ export function CandidateProfileDrawer({
                       className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                     >
                       Send Email
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleAction('reject')}
-                      className="rounded-xl bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700"
-                    >
-                      Reject
                     </button>
                   </div>
                 </div>

@@ -6,6 +6,10 @@ import { sendClientAssignmentEmail } from '../../services/emailService.js';
 import { normalizeContactChannels } from '../../utils/contact-channels.js';
 import { buildSuperAdminOwnerScope, mergeWhereWithScope } from '../../utils/superAdminScope.js';
 import { canViewAllClients } from '../../utils/permissionScope.js';
+import {
+  applyAgreementTermsUpdateFields,
+  buildAgreementTermsCreateFields,
+} from '../../utils/agreementTermsFields.js';
 
 /**
  * Recruiters / portal users: clients assigned to them, or they created/sourced (createdById).
@@ -376,6 +380,9 @@ export const clientService = {
       latitude: Number.isFinite(Number(data.latitude)) ? Number(data.latitude) : undefined,
       longitude: Number.isFinite(Number(data.longitude)) ? Number(data.longitude) : undefined,
       directorSalutation: data.directorSalutation ?? undefined,
+      teamMemberDesignation: data.teamMemberDesignation ?? undefined,
+      teamMemberEmail: data.teamMemberEmail ?? undefined,
+      teamMemberPhone: data.teamMemberPhone ?? undefined,
       emails: contactChannels.emails,
       phones: contactChannels.phones,
       // Lead-style next follow-up timestamp (Add Client form uses datetime-local now).
@@ -386,6 +393,7 @@ export const clientService = {
       agreementsUploadedAt: data.agreementsUploadedAt
         ? new Date(data.agreementsUploadedAt)
         : (data.agreementsFileUrl ? new Date() : undefined),
+      ...buildAgreementTermsCreateFields(data),
       // Only include fields that exist in the Prisma schema
       // Removed: annualRevenue, taxId, paymentTerms, contractStartDate, contractEndDate,
       // billingEmail, billingPhone, billingAddress, notes, tags, hot (not in schema)
@@ -526,6 +534,15 @@ export const clientService = {
     if (data.directorSalutation !== undefined) {
       updateData.directorSalutation = data.directorSalutation || null;
     }
+    if (data.teamMemberDesignation !== undefined) {
+      updateData.teamMemberDesignation = data.teamMemberDesignation || null;
+    }
+    if (data.teamMemberEmail !== undefined) {
+      updateData.teamMemberEmail = data.teamMemberEmail || null;
+    }
+    if (data.teamMemberPhone !== undefined) {
+      updateData.teamMemberPhone = data.teamMemberPhone || null;
+    }
     if (
       data.email !== undefined ||
       data.phone !== undefined ||
@@ -565,6 +582,7 @@ export const clientService = {
         ? new Date(data.agreementsUploadedAt)
         : null;
     }
+    applyAgreementTermsUpdateFields(data, updateData);
 
     // Remove undefined values to avoid Prisma errors
     Object.keys(updateData).forEach(key => {

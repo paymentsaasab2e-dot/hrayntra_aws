@@ -256,7 +256,20 @@ async function fetchPlacementOrThrow(id) {
     include: {
       candidate: true,
       job: true,
-      client: true,
+      client: {
+        select: {
+          id: true,
+          companyName: true,
+          emails: true,
+          teamMemberEmail: true,
+          contacts: {
+            where: { status: 'ACTIVE' },
+            orderBy: { updatedAt: 'desc' },
+            take: 10,
+            select: { email: true, contactType: true },
+          },
+        },
+      },
       recruiter: {
         select: { id: true, name: true, email: true, avatar: true },
       },
@@ -362,7 +375,18 @@ export const placementService = {
             select: { id: true, title: true },
           },
           client: {
-            select: { id: true, companyName: true },
+            select: {
+              id: true,
+              companyName: true,
+              emails: true,
+              teamMemberEmail: true,
+              contacts: {
+                where: { status: 'ACTIVE' },
+                orderBy: { updatedAt: 'desc' },
+                take: 10,
+                select: { email: true, contactType: true },
+              },
+            },
           },
           recruiter: {
             select: { id: true, name: true, email: true },
@@ -974,5 +998,137 @@ export const placementService = {
     ]);
 
     return [headers, ...rows].map((row) => row.map(csvEscape).join(',')).join('\n');
+  },
+
+  async createInvoice(id, data = {}, userId) {
+    const placement = await fetchPlacementOrThrow(id);
+
+    const { recalcInvoiceTotals } = await import('../../utils/invoiceCalculations.js');
+
+    const rawLineItems = Array.isArray(data.lineItems) ? data.lineItems : [];
+    const rawCharges = Array.isArray(data.additionalCharges) ? data.additionalCharges : [];
+    const taxRate = Math.max(Number(data.taxRate) || 0, 0);
+
+    const {
+      lineItems,
+      subtotal,
+      taxAmount,
+      total,
+    } = recalcInvoiceTotals(rawLineItems, rawCharges, taxRate);
+
+    const filteredLineItems = lineItems.filter((item) => item.name && item.quantity > 0);
+    const additionalCharges = rawCharges
+      .map((charge) => ({
+        name: String(charge?.name || '').trim(),
+        amount: Math.max(Number(charge?.amount) || 0, 0),
+      }))
+      .filter((charge) => charge.name && charge.amount > 0);
+
+    if (!filteredLineItems.length) {
+      throw new Error('At least one line item with a description is required');
+    }
+
+    if (!Number.isFinite(total) || total <= 0) {
+      throw new Error('Invoice total must be greater than zero');
+    }
+
+    const currency = String(data.currency || 'USD').trim() || 'USD';
+    const status = String(data.status || 'DRAFT').trim().toUpperCase() === 'SENT' ? 'SENT' : 'DRAFT';
+    const invoiceDate = data.invoiceDate ? parseDate(data.invoiceDate, 'Invoice date') : new Date();
+    const dueDate = data.dueDate
+      ? parseDate(data.dueDate, 'Due date')
+      : (() => {
+          const next = new Date();
+          next.setDate(next.getDate() + 30);
+          return next;
+        })();
+
+    const candidateName = `${placement.candidate?.firstName || ''} ${placement.candidate?.lastName || ''}`.trim();
+    const invoicePayload = {
+      lineItems: filteredLineItems,
+      additionalCharges,
+      subtotal,
+      taxRate,
+      taxAmount,
+      total,
+      buyer: data.buyer || null,
+      seller: data.seller || null,
+      placementSummary: {
+        candidateName,
+        jobTitle: placement.job?.title || '',
+        clientName: placement.client?.companyName || '',
+        offerDate: placement.offerDate,
+        joiningDate: placement.joiningDate,
+      },
+    };
+
+    let createdBillingRecordId = null;
+
+    await prisma.$transaction(async (tx) => {
+      let invoiceNumber = String(data.invoiceNo || data.invoiceNumber || '').trim();
+      if (!invoiceNumber) {
+        const billingCount = await tx.placementBilling.count();
+        invoiceNumber = `INV-${new Date().getFullYear()}-${String(billingCount + 1).padStart(4, '0')}`;
+      }
+
+      const duplicate = await tx.billingRecord.findFirst({
+        where: { invoiceNumber },
+        select: { id: true },
+      });
+      if (duplicate) {
+        const billingCount = await tx.placementBilling.count();
+        invoiceNumber = `INV-${new Date().getFullYear()}-${String(billingCount + 1).padStart(4, '0')}`;
+      }
+
+      await tx.placementBilling.create({
+        data: {
+          placementId: id,
+          invoiceNumber,
+          invoiceDate,
+          amount: subtotal || total,
+          taxPercentage: taxRate,
+          taxAmount,
+          totalAmount: total,
+          paymentStatus: 'PENDING',
+        },
+      });
+
+      const billingRecord = await tx.billingRecord.create({
+        data: {
+          clientId: placement.clientId,
+          placementId: id,
+          amount: total,
+          subtotal,
+          taxAmount,
+          currency,
+          status,
+          dueDate,
+          invoiceNumber,
+          invoiceDate,
+          invoicePayload,
+          notes:
+            data.notes?.trim() ||
+            `Placement invoice for ${candidateName || placement.job?.title || 'candidate'}`,
+        },
+      });
+      createdBillingRecordId = billingRecord.id;
+
+      await createPlacementActivity(tx, id, 'Invoice created', userId, {
+        invoiceNumber,
+        amount: total,
+        currency,
+        status,
+        billingRecordId: createdBillingRecordId,
+      });
+    });
+
+    const refreshed = await fetchPlacementOrThrow(id);
+    return {
+      ...refreshed,
+      createdInvoice: {
+        id: createdBillingRecordId,
+        invoiceNumber: refreshed.billing?.[0]?.invoiceNumber || data.invoiceNo,
+      },
+    };
   },
 };

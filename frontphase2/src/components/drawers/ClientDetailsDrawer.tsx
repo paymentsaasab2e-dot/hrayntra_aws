@@ -7,11 +7,24 @@ import { NAME_SALUTATION_OPTIONS } from '../../constants/salutations';
 import { WhatsAppIcon } from '../icons/WhatsAppIcon';
 import { LeadAssigneesMultiSelect } from './LeadAssigneesMultiSelect';
 import { ServicesNeededSelect } from '../forms/ServicesNeededSelect';
+import { TeamMemberOptionalFields } from '../forms/TeamMemberOptionalFields';
+import {
+  resolveTeamMemberFields,
+  teamMemberHasAnyValue,
+  teamMemberPayloadFromForm,
+} from '../../lib/teamMemberFormDetails';
 import { formatServicesNeededDisplay } from '../../lib/companyServices';
 import { type LocationSelection } from '../LocationAutocomplete';
 import { CscLocationFields } from '../location/CscLocationFields';
 import { KycDocumentsField, KycDocumentsView } from '../documents/KycDocumentsField';
 import { AgreementDocumentUpload } from '../documents/AgreementDocumentUpload';
+import { AgreementTermsSection } from '../agreements/AgreementTermsSection';
+import {
+  agreementTermsApiPayload,
+  agreementTermsFromRecord,
+  emptyAgreementTerms,
+  formatAgreementTermsSummary,
+} from '../../lib/agreementTerms';
 import { DocumentUploadButton, useDocumentUploadFeedback } from '../import/documentUploadUi';
 import { filterKycFiles, uploadKycDocuments } from '../../lib/kycDocuments';
 import { inferTimezoneDisplay, type LocationTimezoneInput } from '../../utils/inferTimezone';
@@ -165,6 +178,15 @@ type ClientOverviewForm = {
   agreementsFileName: string;
   agreementsFileUrl: string;
   agreementsUploadedAt: string;
+  agreementLevel: string;
+  agreementServiceChargePercent: string;
+  agreementTimePeriod: string;
+  agreementAdvancePaymentPercent: string;
+  agreementFreeReplacementValue: string;
+  agreementFreeReplacementUnit: 'MONTHS' | 'DAYS' | '';
+  teamMemberDesignation: string;
+  teamMemberEmail: string;
+  teamMemberPhone: string;
 };
 
 function mergeClientLocationSelection<T extends ClientOverviewForm>(
@@ -467,6 +489,10 @@ export function ClientDetailsDrawer({
     agreementsFileName: '' as string,
     agreementsFileUrl: '' as string,
     agreementsUploadedAt: '' as string,
+    ...emptyAgreementTerms(),
+    teamMemberDesignation: '',
+    teamMemberEmail: '',
+    teamMemberPhone: '',
   });
   const clientLogoInputRef = useRef<HTMLInputElement>(null);
   const agreementsInputRef = useRef<HTMLInputElement>(null);
@@ -494,6 +520,7 @@ export function ClientDetailsDrawer({
   /** Pending file selected while editing — uploaded after Save (Add) or immediately on Save (Edit). */
   const [pendingAgreementsFile, setPendingAgreementsFile] = useState<File | null>(null);
   const [pendingKycFiles, setPendingKycFiles] = useState<File[]>([]);
+  const [pendingTeamMemberKycFiles, setPendingTeamMemberKycFiles] = useState<File[]>([]);
   const [uploadingAgreements, setUploadingAgreements] = useState(false);
   const [uploadingKyc, setUploadingKyc] = useState(false);
   const agreementsUploadFeedback = useDocumentUploadFeedback(uploadingAgreements);
@@ -1185,10 +1212,13 @@ export function ClientDetailsDrawer({
       agreementsFileName: fetchedClient?.agreementsFileName || client.agreementsFileName || '',
       agreementsFileUrl: fetchedClient?.agreementsFileUrl || client.agreementsFileUrl || '',
       agreementsUploadedAt: fetchedClient?.agreementsUploadedAt || client.agreementsUploadedAt || '',
+      ...agreementTermsFromRecord(fetchedClient || client),
+      ...resolveTeamMemberFields(fetchedClient || client),
     });
     resetClientLogoDraft();
     setPendingAgreementsFile(null);
     setPendingKycFiles([]);
+    setPendingTeamMemberKycFiles([]);
     setOverviewEditMode(true);
     // Open all sections for editing
     setOverviewOpen({
@@ -1205,6 +1235,7 @@ export function ClientDetailsDrawer({
     resetClientLogoDraft();
     setPendingAgreementsFile(null);
     setPendingKycFiles([]);
+    setPendingTeamMemberKycFiles([]);
   };
 
   const saveOverviewEdit = async () => {
@@ -1257,10 +1288,19 @@ export function ClientDetailsDrawer({
           latitude: typeof overviewEditForm.latitude === 'number' ? overviewEditForm.latitude : undefined,
           longitude: typeof overviewEditForm.longitude === 'number' ? overviewEditForm.longitude : undefined,
           directorSalutation: overviewEditForm.directorSalutation || undefined,
+          ...teamMemberPayloadFromForm(
+            {
+              teamMemberDesignation: overviewEditForm.teamMemberDesignation,
+              teamMemberEmail: overviewEditForm.teamMemberEmail,
+              teamMemberPhone: overviewEditForm.teamMemberPhone,
+            },
+            overviewEditForm.companySize,
+          ),
           email: contactChannels.email,
           phone: contactChannels.phone,
           emails: contactChannels.emails,
           phones: contactChannels.phones,
+          ...agreementTermsApiPayload(overviewEditForm),
         };
 
         const createdClient = await apiCreateClient(createData);
@@ -1306,6 +1346,34 @@ export function ClientDetailsDrawer({
           }
         }
 
+        const teamMember = {
+          teamMemberDesignation: overviewEditForm.teamMemberDesignation,
+          teamMemberEmail: overviewEditForm.teamMemberEmail,
+          teamMemberPhone: overviewEditForm.teamMemberPhone,
+        };
+        if (
+          createdClientId &&
+          overviewEditForm.companySize.trim() &&
+          teamMemberHasAnyValue(teamMember)
+        ) {
+          try {
+            await apiCreateContact({
+              firstName: overviewEditForm.companySize.trim(),
+              lastName: 'Member',
+              email: teamMember.teamMemberEmail?.trim() || undefined,
+              phone: teamMember.teamMemberPhone?.trim() || undefined,
+              designation: teamMember.teamMemberDesignation?.trim() || 'Team Member',
+              companyId: createdClientId,
+              ownerId: primaryAssignedToId,
+              isPrimary: false,
+              contactType: 'CLIENT',
+              notes: `Team: ${overviewEditForm.companySize.trim()}`,
+            });
+          } catch (contactError: any) {
+            console.error('Failed to create team member contact for new client:', contactError);
+          }
+        }
+
         // Agreements & Terms — upload after creation so we have a client id to scope the file under.
         if (createdClientId && pendingAgreementsFile) {
           try {
@@ -1337,14 +1405,15 @@ export function ClientDetailsDrawer({
 
         resetClientLogoDraft();
         setPendingAgreementsFile(null);
-        if (createdClientId && pendingKycFiles.length > 0) {
+        const pendingClientKyc = [...pendingKycFiles, ...pendingTeamMemberKycFiles];
+        if (createdClientId && pendingClientKyc.length > 0) {
           try {
             setUploadingKyc(true);
-            await uploadKycDocuments('client', createdClientId, pendingKycFiles);
+            await uploadKycDocuments('client', createdClientId, pendingClientKyc);
             kycUploadFeedback.markSuccess(
-              pendingKycFiles.length === 1
-                ? pendingKycFiles[0].name
-                : `${pendingKycFiles.length} documents`
+              pendingClientKyc.length === 1
+                ? pendingClientKyc[0].name
+                : `${pendingClientKyc.length} documents`
             );
           } catch (uploadError: any) {
             console.error('Failed to upload client KYC documents:', uploadError);
@@ -1355,6 +1424,7 @@ export function ClientDetailsDrawer({
           }
         }
         setPendingKycFiles([]);
+        setPendingTeamMemberKycFiles([]);
         onClientCreated?.();
         onClose();
       } catch (error: any) {
@@ -1401,6 +1471,17 @@ export function ClientDetailsDrawer({
           updateData.assignedToId = overviewEditForm.assignedToId || null;
         }
         if (overviewEditForm.logo !== undefined) updateData.logo = overviewEditForm.logo || null;
+        Object.assign(
+          updateData,
+          teamMemberPayloadFromForm(
+            {
+              teamMemberDesignation: overviewEditForm.teamMemberDesignation,
+              teamMemberEmail: overviewEditForm.teamMemberEmail,
+              teamMemberPhone: overviewEditForm.teamMemberPhone,
+            },
+            overviewEditForm.companySize,
+          ),
+        );
 
         // Agreements & Terms — upload the new file (if any) before patching the client so the
         // URL/filename land on the same update call as the rest of the overview fields.
@@ -1434,6 +1515,8 @@ export function ClientDetailsDrawer({
           updateData.agreementsFileUrl = null;
           updateData.agreementsUploadedAt = null;
         }
+
+        Object.assign(updateData, agreementTermsApiPayload(overviewEditForm));
 
         console.log('Updating client with data:', updateData);
         await apiUpdateClient(client.id, updateData);
@@ -1482,15 +1565,16 @@ export function ClientDetailsDrawer({
         });
         resetClientLogoDraft();
         setPendingAgreementsFile(null);
-        if (pendingKycFiles.length > 0) {
+        const pendingClientKycUpdate = [...pendingKycFiles, ...pendingTeamMemberKycFiles];
+        if (pendingClientKycUpdate.length > 0) {
           try {
             setUploadingKyc(true);
-            await uploadKycDocuments('client', client.id, pendingKycFiles);
+            await uploadKycDocuments('client', client.id, pendingClientKycUpdate);
             await refetchClientFiles();
             kycUploadFeedback.markSuccess(
-              pendingKycFiles.length === 1
-                ? pendingKycFiles[0].name
-                : `${pendingKycFiles.length} documents`
+              pendingClientKycUpdate.length === 1
+                ? pendingClientKycUpdate[0].name
+                : `${pendingClientKycUpdate.length} documents`
             );
           } catch (uploadError: any) {
             console.error('Failed to upload client KYC documents:', uploadError);
@@ -1501,6 +1585,7 @@ export function ClientDetailsDrawer({
           }
         }
         setPendingKycFiles([]);
+        setPendingTeamMemberKycFiles([]);
         onClientCreated?.();
         setOverviewEditMode(false);
         
@@ -1785,6 +1870,7 @@ export function ClientDetailsDrawer({
         agreementsFileName: '',
         agreementsFileUrl: '',
         agreementsUploadedAt: '',
+        ...emptyAgreementTerms(),
       }));
       resetClientLogoDraft();
       setPendingAgreementsFile(null);
@@ -2281,6 +2367,21 @@ export function ClientDetailsDrawer({
                               placeholder="e.g. Growth Team"
                             />
                           </div>
+                          <TeamMemberOptionalFields
+                            teamName={overviewEditForm.companySize}
+                            values={{
+                              teamMemberDesignation: overviewEditForm.teamMemberDesignation,
+                              teamMemberEmail: overviewEditForm.teamMemberEmail,
+                              teamMemberPhone: overviewEditForm.teamMemberPhone,
+                            }}
+                            onChange={(patch) => setOverviewEditForm((p) => ({ ...p, ...patch }))}
+                            pendingKycFiles={pendingTeamMemberKycFiles}
+                            onPendingKycFilesChange={setPendingTeamMemberKycFiles}
+                            uploadingKyc={uploadingKyc}
+                            uploadSuccess={kycUploadFeedback.uploadSuccess}
+                            uploadPercent={kycUploadFeedback.uploadPercent}
+                            kycDisabled={uploadingKyc || uploadingAgreements}
+                          />
                           <div>
                             <MultiContactFields
                               label="Email"
@@ -2430,25 +2531,29 @@ export function ClientDetailsDrawer({
                           uploadPercent={kycUploadFeedback.uploadPercent}
                           disabled={uploadingAgreements}
                         />
-                        <div>
-                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                            Agreements &amp; Terms
-                          </label>
-                          <AgreementDocumentUpload
-                            description="Upload the signed contract, NDA, or terms agreement for this client. PDF, DOC, DOCX up to 10MB."
-                            pendingFile={pendingAgreementsFile}
-                            onPendingFileChange={(file) => {
-                              setPendingAgreementsFile(file);
-                              if (file) {
-                                setOverviewEditForm((p) => ({ ...p, agreementsFileName: file.name }));
-                              }
-                            }}
-                            isUploading={uploadingAgreements}
-                            uploadSuccess={agreementsUploadFeedback.uploadSuccess}
-                            uploadPercent={agreementsUploadFeedback.uploadPercent}
-                            disabled={uploadingKyc}
-                          />
-                        </div>
+                        <AgreementTermsSection
+                          values={overviewEditForm}
+                          onChange={(patch) => setOverviewEditForm((p) => ({ ...p, ...patch }))}
+                          disabled={uploadingKyc || uploadingAgreements}
+                          uploadSlot={
+                            <AgreementDocumentUpload
+                              description="Upload the signed contract, NDA, or terms agreement for this client. PDF, DOC, DOCX up to 10MB."
+                              pendingFile={pendingAgreementsFile}
+                              onPendingFileChange={(file) => {
+                                setPendingAgreementsFile(file);
+                                if (file) {
+                                  setOverviewEditForm((p) => ({ ...p, agreementsFileName: file.name }));
+                                }
+                              }}
+                              currentTerms={overviewEditForm}
+                              onTermsExtracted={(terms) => setOverviewEditForm((p) => ({ ...p, ...terms }))}
+                              isUploading={uploadingAgreements}
+                              uploadSuccess={agreementsUploadFeedback.uploadSuccess}
+                              uploadPercent={agreementsUploadFeedback.uploadPercent}
+                              disabled={uploadingKyc}
+                            />
+                          }
+                        />
                       </div>
                     </section>
                     {/* Legacy Add Client sections (logo / SLA / placeholder cards) — kept below for now but hidden. */}
@@ -3162,6 +3267,17 @@ export function ClientDetailsDrawer({
                               <div><FieldRow label="Company Links" value={companyLinksValue} href={!!companyLinksValue} /></div>
                               <div><FieldRow label="Director Name *" value={primaryClientContact?.name || ''} /></div>
                               <div><FieldRow label="Team Name" value={fullClientData?.companySize || client?.companySize || ''} /></div>
+                              {(() => {
+                                const tm = resolveTeamMemberFields(fullClientData || client);
+                                if (!(fullClientData?.companySize || client?.companySize || '').trim()) return null;
+                                return (
+                                  <>
+                                    <div><FieldRow label="Team Member Designation" value={tm.teamMemberDesignation ?? ''} /></div>
+                                    <div><FieldRow label="Team Member Email" value={tm.teamMemberEmail ?? ''} href={!!tm.teamMemberEmail} /></div>
+                                    <div><FieldRow label="Team Member Phone" value={tm.teamMemberPhone ?? ''} /></div>
+                                  </>
+                                );
+                              })()}
                               <div><FieldRow label="Email *" value={formatContactListMultiline(fullClientData?.emails || client?.emails, primaryClientContactEmail)} href={!!primaryClientContactEmail} multiline /></div>
                               <div><FieldRow label="Phone" value={formatContactListMultiline(fullClientData?.phones || client?.phones, primaryClientContactPhone)} multiline /></div>
                               <div><FieldRow label="Location" value={fullClientData?.location || client?.location || ''} /></div>
@@ -3174,25 +3290,37 @@ export function ClientDetailsDrawer({
                             </div>
                             <div><FieldRow label="Services Needed" value={servicesNeededValue} /></div>
                             <div><FieldRow label="Expected Business Value" value={businessValue} /></div>
-                            {(fullClientData?.agreementsFileUrl || client?.agreementsFileUrl) && (
-                              <div>
-                                <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Agreements &amp; Terms</div>
-                                <a
-                                  href={String(fullClientData?.agreementsFileUrl || client?.agreementsFileUrl)}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 hover:bg-slate-100 transition-colors"
-                                >
-                                  <Paperclip size={14} className="text-slate-500" />
-                                  <span className="truncate max-w-[280px]">
-                                    {fullClientData?.agreementsFileName || client?.agreementsFileName || 'Agreement document'}
-                                  </span>
-                                  {(fullClientData?.agreementsUploadedAt || client?.agreementsUploadedAt) && (
-                                    <span className="text-xs text-slate-400 shrink-0">
-                                      Uploaded {formatDateDMY(String(fullClientData?.agreementsUploadedAt || client?.agreementsUploadedAt))}
+                            {(fullClientData?.agreementsFileUrl ||
+                              client?.agreementsFileUrl ||
+                              formatAgreementTermsSummary(
+                                agreementTermsFromRecord(fullClientData || client),
+                              ).length > 0) && (
+                              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 space-y-2">
+                                <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                                  Agreements &amp; Terms
+                                </div>
+                                {fullClientData?.agreementsFileUrl || client?.agreementsFileUrl ? (
+                                  <a
+                                    href={String(fullClientData?.agreementsFileUrl || client?.agreementsFileUrl)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-2 text-sm text-slate-900 hover:underline"
+                                  >
+                                    <Paperclip size={14} className="text-slate-500" />
+                                    <span className="truncate max-w-[280px]">
+                                      {fullClientData?.agreementsFileName ||
+                                        client?.agreementsFileName ||
+                                        'Agreement document'}
                                     </span>
-                                  )}
-                                </a>
+                                  </a>
+                                ) : null}
+                                {formatAgreementTermsSummary(
+                                  agreementTermsFromRecord(fullClientData || client),
+                                ).map((line) => (
+                                  <p key={line} className="text-sm text-slate-700">
+                                    {line}
+                                  </p>
+                                ))}
                               </div>
                             )}
 
@@ -3295,6 +3423,21 @@ export function ClientDetailsDrawer({
                                   placeholder="e.g. Growth Team"
                                 />
                               </div>
+                              <TeamMemberOptionalFields
+                                teamName={overviewEditForm.companySize}
+                                values={{
+                                  teamMemberDesignation: overviewEditForm.teamMemberDesignation,
+                                  teamMemberEmail: overviewEditForm.teamMemberEmail,
+                                  teamMemberPhone: overviewEditForm.teamMemberPhone,
+                                }}
+                                onChange={(patch) => setOverviewEditForm((p) => ({ ...p, ...patch }))}
+                                pendingKycFiles={pendingTeamMemberKycFiles}
+                                onPendingKycFilesChange={setPendingTeamMemberKycFiles}
+                                uploadingKyc={uploadingKyc}
+                                uploadSuccess={kycUploadFeedback.uploadSuccess}
+                                uploadPercent={kycUploadFeedback.uploadPercent}
+                                kycDisabled={uploadingKyc || uploadingAgreements}
+                              />
                               <MultiContactFields
                                 label="Email"
                                 type="email"
@@ -3447,59 +3590,60 @@ export function ClientDetailsDrawer({
                               uploadPercent={kycUploadFeedback.uploadPercent}
                               disabled={uploadingAgreements}
                             />
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                                Agreements &amp; Terms
-                              </label>
-                              {overviewEditForm.agreementsFileUrl && !pendingAgreementsFile ? (
-                                <div className="mb-2 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900">
-                                  <Paperclip size={14} className="shrink-0 text-slate-500" />
-                                  <a
-                                    href={overviewEditForm.agreementsFileUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="min-w-0 flex-1 truncate hover:underline"
-                                  >
-                                    {overviewEditForm.agreementsFileName || 'Agreement document'}
-                                  </a>
-                                  {overviewEditForm.agreementsUploadedAt ? (
-                                    <span className="shrink-0 text-xs text-slate-500">
-                                      Uploaded {formatDateDMY(overviewEditForm.agreementsUploadedAt)}
-                                    </span>
+                            <AgreementTermsSection
+                              values={overviewEditForm}
+                              onChange={(patch) => setOverviewEditForm((p) => ({ ...p, ...patch }))}
+                              disabled={uploadingKyc || uploadingAgreements}
+                              uploadSlot={
+                                <>
+                                  {overviewEditForm.agreementsFileUrl && !pendingAgreementsFile ? (
+                                    <div className="mb-2 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900">
+                                      <Paperclip size={14} className="shrink-0 text-slate-500" />
+                                      <a
+                                        href={overviewEditForm.agreementsFileUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="min-w-0 flex-1 truncate hover:underline"
+                                      >
+                                        {overviewEditForm.agreementsFileName || 'Agreement document'}
+                                      </a>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setOverviewEditForm((p) => ({
+                                            ...p,
+                                            agreementsFileName: '',
+                                            agreementsFileUrl: '',
+                                            agreementsUploadedAt: '',
+                                          }));
+                                          if (agreementsInputRef.current) agreementsInputRef.current.value = '';
+                                        }}
+                                        className="shrink-0 rounded-lg p-1 text-red-500 hover:bg-red-50"
+                                        aria-label="Remove agreement"
+                                      >
+                                        <X size={16} strokeWidth={2.25} />
+                                      </button>
+                                    </div>
                                   ) : null}
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setOverviewEditForm((p) => ({
-                                        ...p,
-                                        agreementsFileName: '',
-                                        agreementsFileUrl: '',
-                                        agreementsUploadedAt: '',
-                                      }));
-                                      if (agreementsInputRef.current) agreementsInputRef.current.value = '';
+                                  <AgreementDocumentUpload
+                                    description="Upload the signed contract, NDA, or terms agreement for this client. PDF, DOC, DOCX up to 10MB."
+                                    pendingFile={pendingAgreementsFile}
+                                    onPendingFileChange={(file) => {
+                                      setPendingAgreementsFile(file);
+                                      if (file) {
+                                        setOverviewEditForm((p) => ({ ...p, agreementsFileName: file.name }));
+                                      }
                                     }}
-                                    className="shrink-0 rounded-lg p-1 text-red-500 hover:bg-red-50 hover:text-red-600"
-                                    aria-label="Remove agreement"
-                                  >
-                                    <X size={16} strokeWidth={2.25} />
-                                  </button>
-                                </div>
-                              ) : null}
-                              <AgreementDocumentUpload
-                                description="Upload the signed contract, NDA, or terms agreement for this client. PDF, DOC, DOCX up to 10MB."
-                                pendingFile={pendingAgreementsFile}
-                                onPendingFileChange={(file) => {
-                                  setPendingAgreementsFile(file);
-                                  if (file) {
-                                    setOverviewEditForm((p) => ({ ...p, agreementsFileName: file.name }));
-                                  }
-                                }}
-                                isUploading={uploadingAgreements}
-                                uploadSuccess={agreementsUploadFeedback.uploadSuccess}
-                                uploadPercent={agreementsUploadFeedback.uploadPercent}
-                                disabled={uploadingKyc}
-                              />
-                            </div>
+                                    currentTerms={overviewEditForm}
+                                    onTermsExtracted={(terms) => setOverviewEditForm((p) => ({ ...p, ...terms }))}
+                                    isUploading={uploadingAgreements}
+                                    uploadSuccess={agreementsUploadFeedback.uploadSuccess}
+                                    uploadPercent={agreementsUploadFeedback.uploadPercent}
+                                    disabled={uploadingKyc}
+                                  />
+                                </>
+                              }
+                            />
                           </>
                         )}
                       </div>

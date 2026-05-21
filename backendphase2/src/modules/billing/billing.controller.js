@@ -29,6 +29,15 @@ export const billingController = {
     }
   },
 
+  async getNextInvoiceNumber(req, res) {
+    try {
+      const result = await billingService.getNextInvoiceNumber(req.user?.id);
+      sendResponse(res, 200, 'Next invoice number retrieved successfully', result);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
   async updateSettings(req, res) {
     try {
       const result = await billingService.updateSettings(req.body || {}, req.user);
@@ -74,6 +83,30 @@ export const billingController = {
       sendResponse(res, 200, 'Billing record updated successfully', record);
     } catch (error) {
       sendError(res, 400, error.message, error);
+    }
+  },
+
+  async updateDraftInvoice(req, res) {
+    try {
+      const record = await billingService.updateDraftInvoice(req.params.id, req.body || {});
+      sendResponse(res, 200, 'Draft invoice updated successfully', record);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async sendInvoiceToClient(req, res) {
+    try {
+      const result = await billingService.sendInvoiceToClient(
+        req.params.id,
+        req.body || {},
+        req.user?.id,
+      );
+      sendResponse(res, 200, 'Invoice sent to client successfully', result);
+    } catch (error) {
+      const message = String(error?.message || '');
+      const status = message.includes('not found') ? 404 : message.includes('email') ? 400 : 500;
+      sendError(res, status, message, error);
     }
   },
 

@@ -91,7 +91,13 @@ import {
 import { candidateTableRowToProfileStub } from '../../lib/candidateTableToProfileStub';
 import {
   extractPipelineJobCandidateItems,
+  extractApplicationsJobCandidateItems,
+  isJobLinkedBackendMatch,
+  isJobAppliedDisplayStage,
+  mergeJobCandidateSeeds,
   loadJobAppliedCandidates,
+  resolveJobCandidateDisplayStage,
+  resolveJobCandidateStageFromMatchRow,
 } from '../../lib/jobAppliedMatches';
 import { combineInterviewDateAndTimeToIso, mapInterviewUiTypeToBackend } from '../../lib/interview-schedule-helpers';
 import type {
@@ -687,9 +693,7 @@ function formatSalaryRange(salary?: BackendJob['salary']): string | undefined {
   return undefined;
 }
 
-function mapBackendJob(job: BackendJob, assignedCandidateCount = 0): Job {
-  const appliedFromMatches = job._count?.matches ?? 0;
-  const applied = Math.max(appliedFromMatches, assignedCandidateCount);
+function mapBackendJob(job: BackendJob): Job {
   const interviewed = job._count?.interviews ?? 0;
   const joined = job._count?.placements ?? 0;
 
@@ -709,6 +713,20 @@ function mapBackendJob(job: BackendJob, assignedCandidateCount = 0): Job {
     .sort((a: JobPipelineStageSummary, b: JobPipelineStageSummary) => a.order - b.order);
 
   const pipelineStagesDeduped = dedupeRedundantApplyPipelineStages(pipelineStages);
+
+  const appliedFromBackend =
+    typeof (job as any).appliedCount === 'number'
+      ? Number((job as any).appliedCount)
+      : Number(job._count?.applications ?? 0);
+  const appliedStageCount = pipelineStagesDeduped.find(
+    (stage) =>
+      String(stage.systemRole || '').toUpperCase() === 'APPLIED' ||
+      /^applied$/i.test(String(stage.name || '').trim())
+  )?.count;
+  const applied =
+    typeof appliedStageCount === 'number' && appliedStageCount > 0
+      ? appliedStageCount
+      : appliedFromBackend;
 
   return {
     id: job.id,
@@ -732,21 +750,6 @@ function mapBackendJob(job: BackendJob, assignedCandidateCount = 0): Job {
   };
 }
 
-function buildAssignedCandidateCountByJob(candidates: BackendCandidate[]): Map<string, number> {
-  const counts = new Map<string, number>();
-
-  candidates.forEach((candidate) => {
-    const assigned = Array.isArray(candidate.assignedJobs) ? candidate.assignedJobs : [];
-    assigned.forEach((jobId) => {
-      const normalizedId = String(jobId || '').trim();
-      if (!normalizedId) return;
-      counts.set(normalizedId, (counts.get(normalizedId) || 0) + 1);
-    });
-  });
-
-  return counts;
-}
-
 function toJobCandidateItemFromApplied(match: any, fallbackRecruiter = '-'): JobCandidateItem {
   const emailFromMatch =
     (match.candidate?.email && String(match.candidate.email).trim()) ||
@@ -765,7 +768,18 @@ function toJobCandidateItemFromApplied(match: any, fallbackRecruiter = '-'): Job
     experience: typeof cand?.experience === 'number' ? cand.experience : 0,
     location: cand?.location ? String(cand.location).trim() : '—',
     phone: cand?.phone ? String(cand.phone).trim() : '',
-    currentStage: match.status || cand?.stage || 'Applied',
+    currentStage: resolveJobCandidateStageFromMatchRow({
+      status: match.status,
+      candidateStage: match.candidateStage ?? cand?.stage,
+      candidate: cand,
+    }),
+    isJobAppliedCandidate: isJobAppliedDisplayStage(
+      resolveJobCandidateStageFromMatchRow({
+        status: match.status,
+        candidateStage: match.candidateStage ?? cand?.stage,
+        candidate: cand,
+      }),
+    ),
     score: typeof match.score === 'number' ? `${Math.round(match.score)}%` : '-',
     recruiter: match.createdBy?.name || fallbackRecruiter,
     interviewStatus: 'Not scheduled',
@@ -784,7 +798,8 @@ function toJobCandidateItemFromAssigned(candidate: BackendCandidate): JobCandida
     experience: candidate.experience ?? 0,
     location: candidate.location ? String(candidate.location).trim() : '—',
     phone: candidate.phone ? String(candidate.phone).trim() : '',
-    currentStage: candidate.stage || 'Applied',
+    currentStage: resolveJobCandidateDisplayStage(candidate.stage),
+    isJobAppliedCandidate: isJobAppliedDisplayStage(candidate.stage),
     score: '-',
     recruiter: candidate.assignedTo?.name || '-',
     interviewStatus: 'Not scheduled',
@@ -1124,10 +1139,7 @@ export default function JobsPage() {
         setError(null);
       }
       try {
-        const [jobsRes, candidatesRes] = await Promise.all([
-          apiGetJobs(buildJobsQueryParams()),
-          apiGetCandidates({ page: 1, limit: 500 }),
-        ]);
+        const jobsRes = await apiGetJobs(buildJobsQueryParams());
 
         const parsed = parseJobsApiPayload(jobsRes);
         if (!Array.isArray(parsed.jobs)) {
@@ -1140,17 +1152,7 @@ export default function JobsPage() {
           return;
         }
 
-        const candidatesData =
-          (candidatesRes as any)?.data?.data ||
-          (candidatesRes as any)?.data?.items ||
-          (candidatesRes as any)?.data ||
-          [];
-        const allCandidates: BackendCandidate[] = Array.isArray(candidatesData) ? candidatesData : [];
-        const assignedCandidateCountByJob = buildAssignedCandidateCountByJob(allCandidates);
-
-        const mapped = parsed.jobs.map((job) =>
-          mapBackendJob(job, assignedCandidateCountByJob.get(String(job.id)) || 0)
-        );
+        const mapped = parsed.jobs.map((job) => mapBackendJob(job));
         setJobs(mapped);
         const total = parsed.total || mapped.length;
         setTotalEntries(total);
@@ -1307,15 +1309,25 @@ export default function JobsPage() {
   const fetchJobCandidates = useCallback(async (jobId: string, backendJob?: any) => {
     const recruiterFallback = backendJob?.assignedTo?.name || '-';
     const pipelineSeed = extractPipelineJobCandidateItems(backendJob, recruiterFallback);
+    const applicationSeed = extractApplicationsJobCandidateItems(
+      backendJob?.applications,
+      recruiterFallback,
+    );
+    const matchSeed = (Array.isArray(backendJob?.matches) ? backendJob.matches : [])
+      .filter((match: { evaluation?: unknown; createdById?: string | null }) =>
+        isJobLinkedBackendMatch(match),
+      )
+      .map((match: any) => toJobCandidateItemFromApplied(match, recruiterFallback));
+    const initialSeed = mergeJobCandidateSeeds(pipelineSeed, applicationSeed, matchSeed);
     try {
       const merged = await loadJobAppliedCandidates(jobId, {
-        pipelineSeed,
+        pipelineSeed: initialSeed,
         fallbackRecruiter: recruiterFallback,
       });
       setJobCandidates(merged);
     } catch (error) {
       console.error('Failed to fetch job-linked candidates:', error);
-      setJobCandidates(pipelineSeed);
+      setJobCandidates(initialSeed);
     }
   }, []);
 
@@ -1346,7 +1358,10 @@ export default function JobsPage() {
                    backendJob.createdAt ? backendJob.createdAt.split('T')[0] : job.createdDate,
         recruiter: backendJob.assignedTo?.name || job.owner,
         hiringManager: backendJob.hiringManager || undefined,
-        applied: backendJob._count?.matches || job.applied,
+        applied:
+          typeof backendJob.appliedCount === 'number'
+            ? backendJob.appliedCount
+            : backendJob._count?.applications ?? job.applied,
         interviewed: backendJob._count?.interviews || job.interviewed,
         offered: 0,
         joined: backendJob._count?.placements || job.joined,
@@ -1462,7 +1477,7 @@ export default function JobsPage() {
         if (cancelled) return;
         const backendJob = (response as any).data?.data || (response as any).data || response;
         if (!backendJob) return;
-        const mappedJob = mapBackendJob(backendJob, backendJob._count?.matches || 0);
+        const mappedJob = mapBackendJob(backendJob, backendJob._count?.applications || 0);
         await openJobDrawer(mappedJob);
       } catch (error) {
         console.error('Failed to open job from search:', error);
@@ -1898,7 +1913,6 @@ export default function JobsPage() {
       <Toaster position="top-right" richColors />
       <Ph2ModulePageLayout
         title="Jobs"
-        subtitle="All jobs from the database are loaded here."
         icon={<Briefcase className="h-5 w-5" strokeWidth={2.2} />}
         actions={
           <div className="flex flex-wrap items-center gap-2">
@@ -2237,14 +2251,17 @@ export default function JobsPage() {
         }}
         onRejectCandidate={
           canUpdateCandidate
-            ? async (reason, feedback, sendEmail, showFeedbackToCandidate) => {
+            ? async (reason, feedback, sendEmail, showFeedbackToCandidate, jobId) => {
                 if (!selectedCandidateProfile) return;
                 await apiRejectCandidate(selectedCandidateProfile.id, {
                   reason,
                   feedback,
                   sendEmail,
                   showFeedbackToCandidate,
-                  jobId: selectedCandidateProfile.assignedJobId || activeJobForCandidateDrawer?.id,
+                  jobId:
+                    jobId ||
+                    selectedCandidateProfile.assignedJobId ||
+                    activeJobForCandidateDrawer?.id,
                 });
                 await loadCandidateProfileInJobContext(selectedCandidateProfile.id);
                 if (activeJobForCandidateDrawer?.id) {

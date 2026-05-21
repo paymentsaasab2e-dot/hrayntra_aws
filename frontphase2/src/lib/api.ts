@@ -1,6 +1,10 @@
 /* Simple API client for talking to the Express backend */
 
 import type {
+  BillingSettingsSnapshot,
+  CreatePlacementInvoicePayload,
+} from '../types/recruitmentInvoice';
+import type {
   CreatePlacementPayload,
   MarkFailedPayload,
   MarkJoinedPayload,
@@ -10,6 +14,8 @@ import type {
   PlacementStats,
   RequestReplacementPayload,
 } from '../types/placement';
+
+export type { BillingSettingsSnapshot, CreatePlacementInvoicePayload };
 
 const LOCAL_API_BASE = 'http://127.0.0.1:5001/api/v1';
 const PRODUCTION_API_BASE = 'https://api2.hryantra.com/api/v1';
@@ -681,6 +687,53 @@ export async function apiUpdateInvoiceCurrency(invoiceId: string, currency: stri
     `/billing/invoice/${encodeURIComponent(invoiceId)}/currency`,
     { method: 'PATCH', auth: true, body: { currency } }
   );
+}
+
+export async function apiUpdateBillingRecord(
+  invoiceId: string,
+  payload: { status?: 'DRAFT' | 'SENT' | 'PAID' | 'OVERDUE' | 'CANCELLED'; paidAt?: string }
+) {
+  return apiFetch<{ id: string; status: string; paidAt: string | null }>(`/billing/${encodeURIComponent(invoiceId)}`, {
+    method: 'PATCH',
+    auth: true,
+    body: payload,
+  });
+}
+
+export async function apiGetBillingRecord(invoiceId: string) {
+  return apiFetch<Record<string, any>>(`/billing/${encodeURIComponent(invoiceId)}`, { auth: true });
+}
+
+export async function apiUpdateBillingDraftInvoice(
+  invoiceId: string,
+  payload: CreatePlacementInvoicePayload
+) {
+  return apiFetch<Record<string, any>>(`/billing/${encodeURIComponent(invoiceId)}/draft-invoice`, {
+    method: 'PATCH',
+    auth: true,
+    body: payload,
+  });
+}
+
+export async function apiSendBillingInvoice(
+  invoiceId: string,
+  payload?: { toEmail?: string; pdfBase64?: string; pdfFilename?: string }
+) {
+  return apiFetch<{ billingRecordId: string; toEmail: string; invoiceNumber?: string }>(
+    `/billing/${encodeURIComponent(invoiceId)}/send-invoice`,
+    {
+      method: 'POST',
+      auth: true,
+      body: payload || {},
+    },
+  );
+}
+
+export async function apiDeleteBillingRecord(invoiceId: string) {
+  return apiFetch<{ message: string }>(`/billing/${encodeURIComponent(invoiceId)}`, {
+    method: 'DELETE',
+    auth: true,
+  });
 }
 
 export async function apiHqDeleteTenant(body: { email: string; dropDatabase?: boolean }) {
@@ -1386,6 +1439,15 @@ export interface BackendCandidate {
   availability?: string | null;
   noticePeriod?: string | null;
   stage?: string | null;
+  /** Phase 1 / candidatecommon pool row */
+  isPhase1Candidate?: boolean;
+  /** Discovery-only Phase 1 candidate (not yet on a tenant job) */
+  isNewCandidate?: boolean;
+  /** Assigned to a job and/or applied — CRM stage is Applied */
+  isJobAppliedCandidate?: boolean;
+  applications?: Array<{ id?: string; jobId?: string }>;
+  pipelineEntries?: Array<{ id?: string; jobId?: string }>;
+  poolOrigin?: 'phase1_common' | 'phase1' | 'tenant' | string | null;
   tags?: string[];
   expectedSalary?: number | null;
   currentSalary?: number | null;
@@ -1575,6 +1637,8 @@ export async function apiGetCandidates(params: {
   page?: number;
   limit?: number;
   mine?: boolean;
+  /** Merge verified Phase 1 snapshots from candidatecommon DB */
+  includeCommonPool?: boolean;
 }) {
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
@@ -1943,6 +2007,33 @@ export const apiImportClients = async (payload: {
   });
 };
 
+export type AgreementDocumentParseData = {
+  terms: {
+    agreementLevel?: string;
+    agreementServiceChargePercent?: string;
+    agreementTimePeriod?: string;
+    agreementAdvancePaymentPercent?: string;
+    agreementFreeReplacementValue?: string;
+    agreementFreeReplacementUnit?: 'MONTHS' | 'DAYS';
+  };
+  filledCount: number;
+  textLength?: number;
+};
+
+export const apiParseAgreementDocument = async (
+  file: File,
+  options: { signal?: AbortSignal } = {},
+) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await apiFetchFormData<AgreementDocumentParseData>('/agreements/parse-document', formData, {
+    method: 'POST',
+    auth: true,
+    signal: options.signal,
+  });
+  return res.data;
+};
+
 export const apiPreviewLeadImport = async (file: File) => {
   const formData = new FormData();
   formData.append('file', file);
@@ -2093,8 +2184,14 @@ export const apiRejectCandidate = async (
   });
 };
 
-export const apiGetCandidateStats = async (params?: { mine?: boolean }) => {
-  const qs = params?.mine === true ? '?mine=true' : '';
+export const apiGetCandidateStats = async (params?: {
+  mine?: boolean;
+  includeCommonPool?: boolean;
+}) => {
+  const query = new URLSearchParams();
+  if (params?.mine === true) query.set('mine', 'true');
+  if (params?.includeCommonPool === true) query.set('includeCommonPool', 'true');
+  const qs = query.toString();
   return apiFetch<{
     all: number;
     applied: number;
@@ -2106,7 +2203,7 @@ export const apiGetCandidateStats = async (params?: { mine?: boolean }) => {
     offered: number;
     hired: number;
     rejected: number;
-  }>(`/candidates/stats${qs}`, { auth: true });
+  }>(`/candidates/stats${qs ? `?${qs}` : ''}`, { auth: true });
 };
 
 export const apiBulkActionCandidates = async (
@@ -2704,6 +2801,33 @@ export const apiMarkPlacementFailed = async (id: string, payload: MarkFailedPayl
   });
 };
 
+export type PlacementInvoiceCreateResponse = Placement & {
+  createdInvoice?: { id: string; invoiceNumber?: string | null };
+};
+
+export const apiGetBillingSettings = async () => {
+  return apiFetch<BillingSettingsSnapshot>('/billing/settings', {
+    auth: true,
+  });
+};
+
+export const apiGetNextInvoiceNumber = async () => {
+  return apiFetch<{ nextInvoiceNo: string }>('/billing/next-invoice-number', {
+    auth: true,
+  });
+};
+
+export const apiCreatePlacementInvoice = async (
+  placementId: string,
+  payload: CreatePlacementInvoicePayload = {} as CreatePlacementInvoicePayload
+) => {
+  return apiFetch<PlacementInvoiceCreateResponse>(`/placements/${placementId}/invoice`, {
+    method: 'POST',
+    body: payload,
+    auth: true,
+  });
+};
+
 export const apiRequestPlacementReplacement = async (id: string, payload: RequestReplacementPayload) => {
   return apiFetch<Placement>(`/placements/${id}/request-replacement`, {
     method: 'PATCH',
@@ -2771,6 +2895,10 @@ export interface BackendMatch {
   };
   noticePeriod: string;
   status: string;
+  /** CRM candidate.stage for job drawer — use this instead of match workflow status */
+  candidateStage?: string | null;
+  /** Raw Match.status enum (SUGGESTED, SHORTLISTED, …) */
+  matchRecordStatus?: string | null;
   matchSource: 'ai' | 'manual';
   /** True when match came from Phase 1 / candidatecommon pool. */
   isPhase1Candidate?: boolean;
@@ -2976,6 +3104,9 @@ export interface BackendLead {
   linkedIn?: string | null;
   location?: string | null;
   designation?: string | null;
+  teamMemberDesignation?: string | null;
+  teamMemberEmail?: string | null;
+  teamMemberPhone?: string | null;
   country?: string | null;
   city?: string | null;
   /** Smart-location autofill metadata sourced from OpenStreetMap/Nominatim. */
@@ -2996,6 +3127,13 @@ export interface BackendLead {
   agreementsFileName?: string | null;
   agreementsFileUrl?: string | null;
   agreementsUploadedAt?: string | null;
+  agreementTotalPayment?: string | null;
+  agreementLevel?: string | null;
+  agreementServiceChargePercent?: string | null;
+  agreementTimePeriod?: string | null;
+  agreementAdvancePaymentPercent?: string | null;
+  agreementFreeReplacementValue?: number | null;
+  agreementFreeReplacementUnit?: 'MONTHS' | 'DAYS' | null;
   assignedTo?: {
     id: string;
     name: string;
@@ -3041,6 +3179,9 @@ export interface CreateLeadData {
   linkedIn?: string;
   location?: string;
   designation?: string;
+  teamMemberDesignation?: string | null;
+  teamMemberEmail?: string | null;
+  teamMemberPhone?: string | null;
   country?: string;
   city?: string;
   /** Smart-location autofill metadata. Latitude/Longitude are decimal degrees. */
@@ -3061,6 +3202,13 @@ export interface CreateLeadData {
   agreementsFileName?: string | null;
   agreementsFileUrl?: string | null;
   agreementsUploadedAt?: string | null;
+  agreementTotalPayment?: string | null;
+  agreementLevel?: string | null;
+  agreementServiceChargePercent?: string | null;
+  agreementTimePeriod?: string | null;
+  agreementAdvancePaymentPercent?: string | null;
+  agreementFreeReplacementValue?: number | null;
+  agreementFreeReplacementUnit?: 'MONTHS' | 'DAYS' | null;
   assignedToId?: string;
   /** Multi-assignee list. First item also written to `assignedToId` (primary). */
   assignedToIds?: string[];
@@ -3197,6 +3345,9 @@ export interface BackendClient {
   longitude?: number | null;
   /** Salutation captured on the Add Client form alongside the primary director. */
   directorSalutation?: string | null;
+  teamMemberDesignation?: string | null;
+  teamMemberEmail?: string | null;
+  teamMemberPhone?: string | null;
   /** Director / company contact channels (primary also on Contact when applicable). */
   emails?: string[];
   phones?: string[];
@@ -3204,6 +3355,13 @@ export interface BackendClient {
   agreementsFileName?: string | null;
   agreementsFileUrl?: string | null;
   agreementsUploadedAt?: string | null;
+  agreementTotalPayment?: string | null;
+  agreementLevel?: string | null;
+  agreementServiceChargePercent?: string | null;
+  agreementTimePeriod?: string | null;
+  agreementAdvancePaymentPercent?: string | null;
+  agreementFreeReplacementValue?: number | null;
+  agreementFreeReplacementUnit?: 'MONTHS' | 'DAYS' | null;
   avgTimeToFill?: string | null;
   healthStatus?: string | null;
   revenueGenerated?: string | null;
@@ -3988,6 +4146,9 @@ export interface CreateClientData {
   longitude?: number | null;
   /** Salutation captured on the Add Client form alongside the primary director. */
   directorSalutation?: string;
+  teamMemberDesignation?: string | null;
+  teamMemberEmail?: string | null;
+  teamMemberPhone?: string | null;
   email?: string;
   phone?: string;
   emails?: string[];
@@ -3996,6 +4157,13 @@ export interface CreateClientData {
   agreementsFileName?: string | null;
   agreementsFileUrl?: string | null;
   agreementsUploadedAt?: string | null;
+  agreementTotalPayment?: string | null;
+  agreementLevel?: string | null;
+  agreementServiceChargePercent?: string | null;
+  agreementTimePeriod?: string | null;
+  agreementAdvancePaymentPercent?: string | null;
+  agreementFreeReplacementValue?: number | null;
+  agreementFreeReplacementUnit?: 'MONTHS' | 'DAYS' | null;
 }
 
 export interface UpdateClientData {
@@ -4025,6 +4193,9 @@ export interface UpdateClientData {
   longitude?: number | null;
   /** Salutation captured on the Add Client form alongside the primary director. */
   directorSalutation?: string | null;
+  teamMemberDesignation?: string | null;
+  teamMemberEmail?: string | null;
+  teamMemberPhone?: string | null;
   email?: string | null;
   phone?: string | null;
   emails?: string[];
@@ -4033,6 +4204,13 @@ export interface UpdateClientData {
   agreementsFileName?: string | null;
   agreementsFileUrl?: string | null;
   agreementsUploadedAt?: string | null;
+  agreementTotalPayment?: string | null;
+  agreementLevel?: string | null;
+  agreementServiceChargePercent?: string | null;
+  agreementTimePeriod?: string | null;
+  agreementAdvancePaymentPercent?: string | null;
+  agreementFreeReplacementValue?: number | null;
+  agreementFreeReplacementUnit?: 'MONTHS' | 'DAYS' | null;
 }
 
 export const apiCreateClient = async (data: CreateClientData) => {

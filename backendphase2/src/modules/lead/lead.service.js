@@ -10,6 +10,10 @@ import {
   filterMeaningfulImportColumns,
   slimImportRows,
 } from '../../utils/importSpreadsheet.js';
+import {
+  applyAgreementTermsUpdateFields,
+  buildAgreementTermsCreateFields,
+} from '../../utils/agreementTermsFields.js';
 
 function isValidObjectId(value) {
   return typeof value === 'string' && /^[a-fA-F0-9]{24}$/.test(value.trim());
@@ -320,6 +324,9 @@ export const leadService = {
       location: normalizeNullableString(data.location),
       // Extended contact fields
       designation: normalizeNullableString(data.designation),
+      teamMemberDesignation: normalizeNullableString(data.teamMemberDesignation),
+      teamMemberEmail: normalizeNullableString(data.teamMemberEmail),
+      teamMemberPhone: normalizeNullableString(data.teamMemberPhone),
       country: normalizeNullableString(data.country),
       city: normalizeNullableString(data.city),
       // Smart-location autofill metadata (Nominatim) — all optional.
@@ -342,6 +349,7 @@ export const leadService = {
       agreementsUploadedAt: data.agreementsUploadedAt
         ? new Date(data.agreementsUploadedAt)
         : (normalizeNullableString(data.agreementsFileUrl) ? new Date() : null),
+      ...buildAgreementTermsCreateFields(data),
       // Relations
       assignedToId:
         resolvedAssignedToId ||
@@ -487,6 +495,11 @@ export const leadService = {
     if (data.location !== undefined) updateData.location = data.location || null;
     // Extended contact fields
     if (data.designation !== undefined) updateData.designation = data.designation || null;
+    if (data.teamMemberDesignation !== undefined) {
+      updateData.teamMemberDesignation = data.teamMemberDesignation || null;
+    }
+    if (data.teamMemberEmail !== undefined) updateData.teamMemberEmail = data.teamMemberEmail || null;
+    if (data.teamMemberPhone !== undefined) updateData.teamMemberPhone = data.teamMemberPhone || null;
     if (data.country !== undefined) updateData.country = data.country || null;
     if (data.city !== undefined) updateData.city = data.city || null;
     if (data.state !== undefined) updateData.state = data.state || null;
@@ -524,6 +537,7 @@ export const leadService = {
         ? new Date(data.agreementsUploadedAt)
         : null;
     }
+    applyAgreementTermsUpdateFields(data, updateData);
     // Relations
     if (resolvedAssignedToIdsUpdate !== undefined) {
       // Multi-assignee: array drives both list + primary owner.
@@ -860,6 +874,10 @@ export const leadService = {
       location: clientData.location || lead.location || lead.city || lead.country || null,
       address: clientData.address || lead.location || (lead.city && lead.country ? `${lead.city}, ${lead.country}` : lead.city || lead.country || null),
       companySize: clientData.companySize || lead.teamName || lead.companySize || null,
+      teamMemberDesignation:
+        clientData.teamMemberDesignation || lead.teamMemberDesignation || null,
+      teamMemberEmail: clientData.teamMemberEmail || lead.teamMemberEmail || null,
+      teamMemberPhone: clientData.teamMemberPhone || lead.teamMemberPhone || null,
       linkedin: clientData.linkedin || lead.linkedIn || null, // Map linkedIn to linkedin
       hiringLocations: clientData.hiringLocations || (lead.city && lead.country ? `${lead.city}, ${lead.country}` : lead.city || lead.country || null),
       timezone: clientData.timezone || null,

@@ -3,6 +3,8 @@ import path from 'path';
 import * as XLSX from 'xlsx';
 import { prisma } from '../../config/prisma.js';
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
+import { clientBillingEmailSelect, resolveClientBillingEmail } from '../../utils/resolveClientBillingEmail.js';
+import { sendPlacementInvoiceEmail } from '../../services/emailService.js';
 
 const EXPORT_DIR = path.join(process.cwd(), 'uploads', 'reports');
 const DEFAULT_SETTINGS = {
@@ -274,12 +276,18 @@ function displayDate(value) {
 
 function deriveInvoiceStatus(record) {
   if (!record) return 'Pending';
+  if (record.status === 'DRAFT') return 'Draft';
+  if (record.status === 'SENT') return 'Sent';
   if (record.status === 'PAID' || record.paidAt) return 'Paid';
   if (record.status === 'CANCELLED') return 'Cancelled';
   const dueDate = record.dueDate ? new Date(record.dueDate) : null;
   if (record.status === 'OVERDUE') return 'Overdue';
   if (dueDate && dueDate.getTime() < Date.now() && record.status !== 'PAID') return 'Overdue';
   return 'Pending';
+}
+
+function isDraftBillingRecord(record) {
+  return String(record?.recordStatus || record?.status || '').toUpperCase() === 'DRAFT';
 }
 
 function recruiterScopedClientWhere(user, clientId) {
@@ -316,7 +324,7 @@ function applySearch(rows, search, fields) {
 }
 
 function getInvoiceExportRows(summary) {
-  return summary.invoices.map((invoice) => ({
+  return (summary.invoices || []).map((invoice) => ({
     invoiceNumber: invoice.invoiceNumber,
     clientName: invoice.clientName,
     candidateName: invoice.candidateName,
@@ -418,8 +426,24 @@ function getSettingsExportRows(summary) {
   ];
 }
 
+function getDraftInvoiceExportRows(summary) {
+  return (summary.draftInvoices || []).map((invoice) => ({
+    invoiceNumber: invoice.invoiceNumber,
+    clientName: invoice.clientName,
+    candidateName: invoice.candidateName,
+    jobTitle: invoice.jobTitle,
+    invoiceDate: invoice.date,
+    dueDate: invoice.dueDate,
+    amount: invoice.amount,
+    tax: invoice.tax,
+    total: invoice.total,
+    status: invoice.status,
+  }));
+}
+
 function tabToRows(tab, summary) {
   const normalized = String(tab || '').trim().toLowerCase();
+  if (normalized === 'saved-drafts' || normalized === 'invoice-drafts') return getDraftInvoiceExportRows(summary);
   if (normalized === 'invoices') return getInvoiceExportRows(summary);
   if (normalized === 'payments') return getPaymentExportRows(summary);
   if (normalized === 'placements-billing') return getPlacementExportRows(summary);
@@ -507,7 +531,36 @@ async function saveBillingSettings(userId, payload) {
   return value;
 }
 
+async function generateNextInvoiceNumber(userId) {
+  const settings = await loadBillingSettings(userId);
+  const prefix = String(settings.invoicePrefix || 'INV').trim() || 'INV';
+  const year = new Date().getFullYear();
+
+  const records = await prisma.billingRecord.findMany({
+    where: {
+      invoiceNumber: { startsWith: `${prefix}-${year}-` },
+    },
+    select: { invoiceNumber: true },
+  });
+
+  let max = 0;
+  const pattern = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-${year}-(\\d+)$`);
+  for (const row of records) {
+    const match = String(row.invoiceNumber || '').match(pattern);
+    if (match) {
+      max = Math.max(max, Number(match[1]) || 0);
+    }
+  }
+
+  const next = max + 1;
+  return `${prefix}-${year}-${String(next).padStart(4, '0')}`;
+}
+
 export const billingService = {
+  async getNextInvoiceNumber(userId) {
+    const nextInvoiceNo = await generateNextInvoiceNumber(userId);
+    return { nextInvoiceNo };
+  },
   async getAll(req) {
     const { page, limit, skip } = getPaginationParams(req);
     const { clientId, status, dueDate } = req.query;
@@ -556,6 +609,7 @@ export const billingService = {
           include: {
             candidate: true,
             job: true,
+            client: { select: clientBillingEmailSelect },
             recruiter: {
               select: { id: true, name: true, email: true },
             },
@@ -585,30 +639,306 @@ export const billingService = {
   },
 
   async update(id, data) {
-    return prisma.billingRecord.update({
+    const existing = await prisma.billingRecord.findUnique({
+      where: { id },
+      select: { id: true, placementId: true, invoiceNumber: true, status: true },
+    });
+    if (!existing) throw new Error('Invoice not found');
+
+    const nextStatus = data.status ? String(data.status).toUpperCase() : undefined;
+    const markingPaid = nextStatus === 'PAID';
+    const paidAt =
+      markingPaid && !data.paidAt
+        ? new Date()
+        : data.paidAt
+          ? new Date(data.paidAt)
+          : nextStatus && nextStatus !== 'PAID'
+            ? null
+            : undefined;
+
+    const updated = await prisma.billingRecord.update({
       where: { id },
       data: {
         amount: data.amount == null ? undefined : Number(data.amount),
         currency: data.currency,
-        status: data.status,
+        status: nextStatus,
         dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
-        paidAt:
-          data.status === 'PAID' && !data.paidAt
-            ? new Date()
-            : data.paidAt
-              ? new Date(data.paidAt)
-              : undefined,
+        paidAt,
         invoiceUrl: data.invoiceUrl,
         invoiceNumber: data.invoiceNumber,
         invoiceDate: data.invoiceDate ? new Date(data.invoiceDate) : undefined,
         notes: data.notes,
       },
     });
+
+    if (markingPaid && existing.placementId) {
+      const placementBillingWhere = {
+        placementId: existing.placementId,
+        ...(existing.invoiceNumber ? { invoiceNumber: existing.invoiceNumber } : {}),
+      };
+      await prisma.placementBilling.updateMany({
+        where: placementBillingWhere,
+        data: {
+          paymentStatus: 'PAID',
+          paymentDate: paidAt || new Date(),
+        },
+      });
+    }
+
+    return updated;
+  },
+
+  async updateDraftInvoice(id, data = {}) {
+    const existing = await prisma.billingRecord.findUnique({
+      where: { id },
+      include: {
+        placement: {
+          include: {
+            candidate: true,
+            job: true,
+            client: true,
+          },
+        },
+      },
+    });
+    if (!existing) throw new Error('Invoice not found');
+    if (existing.status !== 'DRAFT') {
+      throw new Error('Only draft invoices can be edited');
+    }
+    if (!existing.placementId) {
+      throw new Error('This invoice is not linked to a placement');
+    }
+
+    const { recalcInvoiceTotals } = await import('../../utils/invoiceCalculations.js');
+
+    const rawLineItems = Array.isArray(data.lineItems) ? data.lineItems : [];
+    const rawCharges = Array.isArray(data.additionalCharges) ? data.additionalCharges : [];
+    const taxRate = Math.max(Number(data.taxRate) || 0, 0);
+
+    const { lineItems, subtotal, taxAmount, total } = recalcInvoiceTotals(rawLineItems, rawCharges, taxRate);
+
+    const filteredLineItems = lineItems.filter((item) => item.name && item.quantity > 0);
+    const additionalCharges = rawCharges
+      .map((charge) => ({
+        name: String(charge?.name || '').trim(),
+        amount: Math.max(Number(charge?.amount) || 0, 0),
+      }))
+      .filter((charge) => charge.name && charge.amount > 0);
+
+    if (!filteredLineItems.length) {
+      throw new Error('At least one line item with a description is required');
+    }
+    if (!Number.isFinite(total) || total <= 0) {
+      throw new Error('Invoice total must be greater than zero');
+    }
+
+    const currency = String(data.currency || existing.currency || 'USD').trim() || 'USD';
+    const nextStatus = String(data.status || 'DRAFT').trim().toUpperCase() === 'SENT' ? 'SENT' : 'DRAFT';
+    const invoiceDate = data.invoiceDate ? new Date(data.invoiceDate) : existing.invoiceDate || new Date();
+    const dueDate = data.dueDate
+      ? new Date(data.dueDate)
+      : existing.dueDate ||
+        (() => {
+          const next = new Date(invoiceDate);
+          next.setDate(next.getDate() + 30);
+          return next;
+        })();
+
+    const placement = existing.placement;
+    const candidateName = `${placement?.candidate?.firstName || ''} ${placement?.candidate?.lastName || ''}`.trim();
+    const invoiceNumber = String(data.invoiceNo || data.invoiceNumber || existing.invoiceNumber || '').trim();
+    if (!invoiceNumber) {
+      throw new Error('Invoice number is required');
+    }
+
+    const duplicate = await prisma.billingRecord.findFirst({
+      where: {
+        invoiceNumber,
+        id: { not: id },
+      },
+      select: { id: true },
+    });
+    if (duplicate) {
+      throw new Error(`Invoice number ${invoiceNumber} is already in use`);
+    }
+
+    const invoicePayload = {
+      lineItems: filteredLineItems,
+      additionalCharges,
+      subtotal,
+      taxRate,
+      taxAmount,
+      total,
+      buyer: data.buyer || null,
+      seller: data.seller || null,
+      placementSummary: {
+        candidateName,
+        jobTitle: placement?.job?.title || '',
+        clientName: placement?.client?.companyName || '',
+        offerDate: placement?.offerDate,
+        joiningDate: placement?.joiningDate,
+      },
+    };
+
+    await prisma.$transaction(async (tx) => {
+      await tx.billingRecord.update({
+        where: { id },
+        data: {
+          amount: total,
+          subtotal,
+          taxAmount,
+          currency,
+          status: nextStatus,
+          dueDate,
+          invoiceNumber,
+          invoiceDate,
+          invoicePayload,
+          notes: data.notes?.trim() || existing.notes,
+        },
+      });
+
+      const placementBillingWhere = {
+        placementId: existing.placementId,
+        ...(existing.invoiceNumber ? { invoiceNumber: existing.invoiceNumber } : {}),
+      };
+      await tx.placementBilling.updateMany({
+        where: placementBillingWhere,
+        data: {
+          invoiceNumber,
+          invoiceDate,
+          amount: subtotal || total,
+          taxPercentage: taxRate,
+          taxAmount,
+          totalAmount: total,
+        },
+      });
+    });
+
+    return this.getById(id);
+  },
+
+  async sendInvoiceToClient(id, data = {}, senderUserId) {
+    const existing = await prisma.billingRecord.findUnique({
+      where: { id },
+      include: {
+        client: {
+          select: clientBillingEmailSelect,
+        },
+        placement: {
+          include: {
+            candidate: { select: { firstName: true, lastName: true } },
+            job: { select: { title: true } },
+            client: { select: clientBillingEmailSelect },
+          },
+        },
+      },
+    });
+
+    if (!existing) {
+      throw new Error('Invoice not found');
+    }
+    if (existing.status === 'CANCELLED') {
+      throw new Error('Cannot send a cancelled invoice');
+    }
+
+    const payload = (existing.invoicePayload || {}) || {};
+    const buyer = payload.buyer || {};
+    const toEmail =
+      String(data.toEmail || buyer.email || '').trim() ||
+      resolveClientBillingEmail(existing.client, existing.client?.contacts) ||
+      resolveClientBillingEmail(existing.placement?.client, existing.placement?.client?.contacts);
+
+    if (!toEmail) {
+      throw new Error('Client billing email is required before sending the invoice');
+    }
+
+    const settings = await this.getSettings({ id: senderUserId });
+    const lineItems = Array.isArray(payload.lineItems) ? payload.lineItems : [];
+    const additionalCharges = Array.isArray(payload.additionalCharges) ? payload.additionalCharges : [];
+
+    const pdfBase64 = String(data.pdfBase64 || '').trim();
+    const pdfFilename =
+      String(data.pdfFilename || '').trim() ||
+      `${String(existing.invoiceNumber || 'invoice').replace(/[^\w-]+/g, '_')}.pdf`;
+
+    const emailResult = await sendPlacementInvoiceEmail({
+      senderUserId,
+      toEmail,
+      pdfBase64: pdfBase64 || undefined,
+      pdfFilename,
+      invoiceNumber: existing.invoiceNumber,
+      invoiceDate: existing.invoiceDate,
+      dueDate: existing.dueDate,
+      currency: existing.currency,
+      status: 'SENT',
+      seller: payload.seller || { name: settings?.companyName || 'Your agency' },
+      buyer: { ...buyer, email: toEmail },
+      lineItems,
+      additionalCharges,
+      subtotal: payload.subtotal ?? existing.subtotal ?? existing.amount,
+      taxRate: payload.taxRate ?? 0,
+      taxAmount: payload.taxAmount ?? existing.taxAmount ?? 0,
+      total: payload.total ?? existing.amount,
+      notes: existing.notes,
+      placementSummary: payload.placementSummary,
+      settings,
+    });
+
+    if (!emailResult?.success) {
+      throw new Error(emailResult?.error || 'Failed to send invoice email');
+    }
+
+    if (existing.status !== 'SENT') {
+      await prisma.billingRecord.update({
+        where: { id },
+        data: { status: 'SENT' },
+      });
+    }
+
+    if (existing.placementId) {
+      await prisma.placementActivityLog.create({
+        data: {
+          placementId: existing.placementId,
+          action: 'Invoice emailed to client',
+          performedBy: senderUserId || null,
+          details: {
+            billingRecordId: id,
+            invoiceNumber: existing.invoiceNumber,
+            toEmail,
+          },
+        },
+      });
+    }
+
+    return {
+      billingRecordId: id,
+      toEmail,
+      invoiceNumber: existing.invoiceNumber,
+    };
   },
 
   async delete(id) {
-    await prisma.billingRecord.delete({ where: { id } });
-    return { message: 'Billing record deleted successfully' };
+    const existing = await prisma.billingRecord.findUnique({
+      where: { id },
+      select: { id: true, status: true, placementId: true, invoiceNumber: true },
+    });
+    if (!existing) throw new Error('Invoice not found');
+    if (existing.status !== 'DRAFT') {
+      throw new Error('Only draft invoices can be deleted');
+    }
+
+    await prisma.$transaction(async (tx) => {
+      if (existing.placementId) {
+        const placementBillingWhere = {
+          placementId: existing.placementId,
+          ...(existing.invoiceNumber ? { invoiceNumber: existing.invoiceNumber } : {}),
+        };
+        await tx.placementBilling.deleteMany({ where: placementBillingWhere });
+      }
+      await tx.billingRecord.delete({ where: { id } });
+    });
+
+    return { message: 'Draft invoice deleted successfully' };
   },
 
   async getSummary(query, user) {
@@ -758,6 +1088,8 @@ export const billingService = {
         tax: 0,
         total,
         status: invoiceStatusValue,
+        recordStatus: record.status,
+        placementId: record.placementId || '',
         invoiceUrl: record.invoiceUrl || '',
       };
     });
@@ -884,7 +1216,7 @@ export const billingService = {
       };
     });
 
-    let invoices = invoicesMapped;
+    let scopedInvoices = invoicesMapped;
     // BillingRecord is the canonical invoice ledger — prefer it. Only pull in
     // a PlacementBilling row when its invoiceNumber doesn't already appear on
     // an invoice-record receipt. This eliminates the duplicate "same payment
@@ -904,7 +1236,7 @@ export const billingService = {
     let commissions = commissionsMapped;
 
     if (clientId) {
-      invoices = invoices.filter((item) => item.clientId === clientId);
+      scopedInvoices = scopedInvoices.filter((item) => item.clientId === clientId);
       payments = payments.filter((item) => item.clientId === clientId);
       placements = placements.filter((item) => item.clientId === clientId);
       clients = clients.filter((item) => item.id === clientId);
@@ -912,16 +1244,32 @@ export const billingService = {
     }
 
     if (recruiterId) {
-      invoices = invoices.filter((item) => item.recruiterId === recruiterId);
+      scopedInvoices = scopedInvoices.filter((item) => item.recruiterId === recruiterId);
       payments = payments.filter((item) => item.recruiterId === recruiterId);
       placements = placements.filter((item) => item.recruiterId === recruiterId);
       commissions = commissions.filter((item) => item.recruiterId === recruiterId);
     }
 
+    let draftInvoices = scopedInvoices.filter(isDraftBillingRecord);
+    let invoices = scopedInvoices.filter((item) => !isDraftBillingRecord(item));
+
     if (invoiceStatus) {
-      invoices = invoices.filter((item) => lower(item.status) === lower(invoiceStatus));
+      const statusFilter = lower(invoiceStatus);
+      if (statusFilter === 'draft') {
+        draftInvoices = draftInvoices.filter((item) => lower(item.status) === 'draft');
+        invoices = [];
+      } else {
+        invoices = invoices.filter((item) => lower(item.status) === statusFilter);
+      }
     }
 
+    draftInvoices = applySearch(draftInvoices, search, [
+      'invoiceNumber',
+      'clientName',
+      'candidateName',
+      'jobTitle',
+      'status',
+    ]);
     invoices = applySearch(invoices, search, ['invoiceNumber', 'clientName', 'candidateName', 'jobTitle', 'status']);
     payments = applySearch(payments, search, [
       'clientName',
@@ -977,7 +1325,7 @@ export const billingService = {
         ],
         clients: clientsRaw.map((client) => ({ id: client.id, name: client.companyName })),
         recruiters: recruiters.map((recruiter) => ({ id: recruiter.id, name: recruiter.name || recruiter.email })),
-        invoiceStatuses: ['Paid', 'Pending', 'Overdue', 'Cancelled'],
+        invoiceStatuses: ['Draft', 'Sent', 'Paid', 'Pending', 'Overdue', 'Cancelled'],
       },
       kpis: {
         totalBilled: formatMoney(totalBilled),
@@ -987,8 +1335,10 @@ export const billingService = {
         monthRevenue: formatMoney(monthRevenue),
         nextPayout: formatMoney(nextPayout),
         invoiceCount: invoices.length,
+        draftCount: draftInvoices.length,
         collectionRate,
       },
+      draftInvoices,
       invoices,
       payments,
       placements,

@@ -365,6 +365,121 @@ async function getPortalMatchCountMap(jobIds = []) {
   return counts;
 }
 
+/**
+ * Unique candidates who actually applied to each job (applications + job-linked matches),
+ * merged across tenant and job portal DB without double-counting.
+ */
+async function getMergedAppliedCountByJobId(jobIds = []) {
+  const counts = new Map();
+  if (!Array.isArray(jobIds) || !jobIds.length) return counts;
+
+  const uniqIds = [...new Set(jobIds.map((id) => String(id || '').trim()).filter(Boolean))];
+  const pairsByJob = new Map();
+
+  const addPair = (jobId, candidateId) => {
+    const j = String(jobId || '').trim();
+    const c = String(candidateId || '').trim();
+    if (!j || !c) return;
+    if (!pairsByJob.has(j)) pairsByJob.set(j, new Set());
+    pairsByJob.get(j).add(c);
+  };
+
+  const [tenantApplications, tenantMatches] = await Promise.all([
+    prisma.application.findMany({
+      where: { jobId: { in: uniqIds } },
+      select: { jobId: true, candidateId: true },
+    }),
+    prisma.match.findMany({
+      where: { jobId: { in: uniqIds } },
+      select: {
+        id: true,
+        jobId: true,
+        candidateId: true,
+        evaluation: true,
+        createdById: true,
+      },
+    }),
+  ]);
+
+  for (const app of tenantApplications) addPair(app.jobId, app.candidateId);
+
+  let portalMatches = [];
+  let portalApplications = [];
+  if (isTenantScopedRequest()) {
+    const portalPrisma = getDefaultPrismaClient();
+    [portalMatches, portalApplications] = await Promise.all([
+      portalPrisma.match.findMany({
+        where: { jobId: { in: uniqIds } },
+        select: {
+          id: true,
+          jobId: true,
+          candidateId: true,
+          evaluation: true,
+          createdById: true,
+        },
+      }),
+      portalPrisma.application.findMany({
+        where: { jobId: { in: uniqIds } },
+        select: { jobId: true, candidateId: true },
+      }),
+    ]);
+    for (const app of portalApplications) addPair(app.jobId, app.candidateId);
+  }
+
+  const jobLinkedMatches = mergeJobMatches(tenantMatches, portalMatches);
+  for (const match of jobLinkedMatches) addPair(match.jobId, match.candidateId);
+
+  for (const jobId of uniqIds) {
+    counts.set(jobId, pairsByJob.get(jobId)?.size || 0);
+  }
+  return counts;
+}
+
+function hydrateAppliedPipelineStageCounts(pipelineStages = [], appliedCount = 0) {
+  if (!appliedCount || !Array.isArray(pipelineStages) || !pipelineStages.length) {
+    return pipelineStages;
+  }
+  return pipelineStages.map((stage) => {
+    const role = String(stage?.systemRole || '').toUpperCase();
+    const isApplied =
+      role === 'APPLIED' || /^applied$/i.test(String(stage?.name || '').trim());
+    const entryCount = Number(stage?._count?.entries ?? stage?.entriesCount ?? 0);
+    if (!isApplied || entryCount > 0) return stage;
+    return {
+      ...stage,
+      _count: { ...(stage._count || {}), entries: appliedCount },
+      entriesCount: appliedCount,
+    };
+  });
+}
+
+function attachAppliedCountsToJobs(jobs = [], appliedCountMap = new Map()) {
+  return jobs.map((job) => {
+    const appliedCount = Number(appliedCountMap.get(job.id) || 0);
+    const pipelineStages = hydrateAppliedPipelineStageCounts(job.pipelineStages, appliedCount);
+    return {
+      ...job,
+      appliedCount,
+      pipelineStages,
+      _count: {
+        ...(job._count || {}),
+        applications: Math.max(Number(job?._count?.applications || 0), appliedCount),
+      },
+      noCandidates: appliedCount === 0 ? job.noCandidates : false,
+    };
+  });
+}
+
+function isJobLinkedMatchRow(match) {
+  const evaluation = match?.evaluation;
+  if (evaluation && typeof evaluation === 'object' && evaluation.origin != null) {
+    const origin = String(evaluation.origin);
+    if (origin === 'ai' || origin === 'tenant' || origin === 'phase1') return false;
+    if (origin === 'applied') return true;
+  }
+  return Boolean(match?.createdById);
+}
+
 function mergeJobMatches(tenantMatches = [], portalMatches = []) {
   const mergedByKey = new Map();
   for (const match of portalMatches) {
@@ -375,7 +490,7 @@ function mergeJobMatches(tenantMatches = [], portalMatches = []) {
     const key = match?.candidateId || `match:${match?.id || Math.random()}`;
     mergedByKey.set(key, match);
   }
-  return Array.from(mergedByKey.values());
+  return Array.from(mergedByKey.values()).filter(isJobLinkedMatchRow);
 }
 
 function mergeJobApplications(tenantApplications = [], portalApplications = []) {
@@ -531,7 +646,19 @@ export const jobService = {
         take: limit,
         include: {
           client: {
-            select: { id: true, companyName: true, logo: true },
+            select: {
+              id: true,
+              companyName: true,
+              logo: true,
+              emails: true,
+              teamMemberEmail: true,
+              contacts: {
+                where: { status: 'ACTIVE' },
+                orderBy: { updatedAt: 'desc' },
+                take: 10,
+                select: { email: true, contactType: true },
+              },
+            },
           },
           assignedTo: {
             select: { id: true, name: true, email: true, avatar: true },
@@ -551,7 +678,7 @@ export const jobService = {
             orderBy: { order: 'asc' },
           },
           _count: {
-            select: { matches: true, interviews: true, placements: true },
+            select: { matches: true, interviews: true, placements: true, applications: true },
           },
         },
         orderBy: { createdAt: 'desc' },
@@ -559,21 +686,9 @@ export const jobService = {
       prisma.job.count({ where: scopedWhere }),
     ]);
 
-    if (isTenantScopedRequest() && jobs.length) {
-      const matchCountMap = await getPortalMatchCountMap(jobs.map((job) => job.id));
-      const mergedJobs = jobs.map((job) => {
-        const portalMatchCount = matchCountMap.get(job.id) || 0;
-        const tenantMatchCount = Number(job?._count?.matches || 0);
-        const mergedMatchCount = tenantMatchCount + portalMatchCount;
-        return {
-          ...job,
-          _count: {
-            ...(job._count || {}),
-            matches: mergedMatchCount,
-          },
-          noCandidates: mergedMatchCount === 0 ? job.noCandidates : false,
-        };
-      });
+    if (jobs.length) {
+      const appliedCountMap = await getMergedAppliedCountByJobId(jobs.map((job) => job.id));
+      const mergedJobs = attachAppliedCountsToJobs(jobs, appliedCountMap);
       return formatPaginationResponse(mergedJobs, page, limit, total);
     }
 
@@ -654,8 +769,26 @@ export const jobService = {
       },
     });
 
-    if (!job || !isTenantScopedRequest()) {
-      return job;
+    if (!job) return null;
+
+    const appliedCountMap = await getMergedAppliedCountByJobId([id]);
+    const appliedCount = Number(appliedCountMap.get(id) || 0);
+    const baseWithApplied = {
+      ...job,
+      appliedCount,
+      pipelineStages: hydrateAppliedPipelineStageCounts(job.pipelineStages, appliedCount),
+      _count: {
+        ...(job._count || {}),
+        applications: Math.max(
+          Number(job._count?.applications || 0),
+          Array.isArray(job.applications) ? job.applications.length : 0,
+          appliedCount
+        ),
+      },
+    };
+
+    if (!isTenantScopedRequest()) {
+      return baseWithApplied;
     }
 
     const portalPrisma = getJobPortalPrismaClient();
@@ -684,18 +817,25 @@ export const jobService = {
     });
 
     if (!portalJob?.matches?.length && !portalJob?.applications?.length) {
-      return job;
+      return baseWithApplied;
     }
 
     const mergedMatches = mergeJobMatches(job.matches || [], portalJob.matches || []);
     const mergedApplications = mergeJobApplications(job.applications || [], portalJob.applications || []);
+    const mergedAppliedCount = mergedApplications.length || mergedMatches.length || appliedCount;
 
     return {
-      ...job,
+      ...baseWithApplied,
       matches: mergedMatches,
       applications: mergedApplications,
+      appliedCount: mergedAppliedCount,
+      pipelineStages: hydrateAppliedPipelineStageCounts(
+        baseWithApplied.pipelineStages,
+        mergedAppliedCount
+      ),
       _count: {
         matches: mergedMatches.length,
+        applications: mergedApplications.length,
         interviews: Array.isArray(job.interviews) ? job.interviews.length : 0,
         placements: Array.isArray(job.placements) ? job.placements.length : 0,
       },
@@ -1259,7 +1399,21 @@ export const jobService = {
         take: limit,
         orderBy: { deletedAt: 'desc' },
         include: {
-          client: { select: { id: true, companyName: true, logo: true } },
+          client: {
+            select: {
+              id: true,
+              companyName: true,
+              logo: true,
+              emails: true,
+              teamMemberEmail: true,
+              contacts: {
+                where: { status: 'ACTIVE' },
+                orderBy: { updatedAt: 'desc' },
+                take: 10,
+                select: { email: true, contactType: true },
+              },
+            },
+          },
           assignedTo: { select: { id: true, name: true, email: true, avatar: true } },
         },
       }),
@@ -1362,28 +1516,25 @@ export const jobService = {
       },
     });
 
-    // Candidate metrics: derive from actual match rows (tenant + jobportal mirror when applicable)
+    // Applied = unique candidates who applied (applications + job-linked matches), not all AI matches
     const jobsForCandidateMetrics = await prisma.job.findMany({
       where: {
         ...scope,
       },
       select: {
         id: true,
-        _count: {
-          select: { matches: true },
-        },
       },
     });
 
-    const portalMatchCountMap = await getPortalMatchCountMap(jobsForCandidateMetrics.map((job) => job.id));
-    const mergedMatchCounts = jobsForCandidateMetrics.map((job) => {
-      const tenantMatches = Number(job?._count?.matches || 0);
-      const portalMatches = Number(portalMatchCountMap.get(job.id) || 0);
-      return tenantMatches + portalMatches;
-    });
+    const appliedCountMap = await getMergedAppliedCountByJobId(
+      jobsForCandidateMetrics.map((job) => job.id)
+    );
+    const appliedCounts = jobsForCandidateMetrics.map(
+      (job) => Number(appliedCountMap.get(job.id) || 0)
+    );
 
-    const appliedCandidates = mergedMatchCounts.reduce((sum, count) => sum + count, 0);
-    const noCandidatesCount = mergedMatchCounts.filter((count) => count === 0).length;
+    const appliedCandidates = appliedCounts.reduce((sum, count) => sum + count, 0);
+    const noCandidatesCount = appliedCounts.filter((count) => count === 0).length;
 
     // Near SLA - jobs with slaRisk = true
     const nearSlaCount = await prisma.job.count({
