@@ -1,9 +1,42 @@
 import { prisma } from '../config/prisma.js';
 
-/** Active (non–recycle-bin) candidates — reuse anywhere we must not treat soft-deleted rows as duplicates. */
-export const notDeletedClause = {
-  OR: [{ isDeleted: false }, { isDeleted: null }],
-};
+/** Active candidates only — matches Candidates list (`isDeleted: { not: true }`). */
+export const activeCandidateClause = { isDeleted: { not: true } };
+
+/** @deprecated Use activeCandidateClause */
+export const notDeletedClause = activeCandidateClause;
+
+function isPhase1CandidateSource(source) {
+  return String(source || '').trim().toLowerCase() === 'phase1';
+}
+
+function candidateHasRealJobLinkFromRow(row) {
+  if (!row) return false;
+  const assigned = Array.isArray(row.assignedJobs) ? row.assignedJobs : [];
+  if (assigned.some((id) => String(id || '').trim())) return true;
+  if (row._count?.applications > 0) return true;
+  if (row._count?.pipelineEntries > 0) return true;
+  return false;
+}
+
+/**
+ * CRM list hides phase1 snapshot rows with no job link. Those must not block bulk CV re-import
+ * when the user has cleared the visible Candidates page.
+ */
+export function shouldTreatAsActiveDuplicate(existing) {
+  if (!existing) return false;
+  if (isPhase1CandidateSource(existing.source) && !candidateHasRealJobLinkFromRow(existing)) {
+    return false;
+  }
+  const hasIdentity =
+    Boolean(String(existing.firstName || '').trim()) ||
+    Boolean(String(existing.lastName || '').trim()) ||
+    Boolean(String(existing.email || '').trim());
+  if (!hasIdentity && !candidateHasRealJobLinkFromRow(existing)) {
+    return false;
+  }
+  return true;
+}
 
 /**
  * Normalize email for duplicate comparison: trim, lowercase, remove all whitespace.
@@ -37,9 +70,34 @@ function stripCopySuffix(lastName) {
   return String(lastName || '').replace(/\s+copy\s+\d+$/i, '').trim();
 }
 
+const duplicateSelect = {
+  id: true,
+  firstName: true,
+  lastName: true,
+  email: true,
+  designation: true,
+  currentTitle: true,
+  createdAt: true,
+  source: true,
+  assignedJobs: true,
+  _count: {
+    select: {
+      applications: true,
+      pipelineEntries: true,
+    },
+  },
+};
+
+function duplicateCandidateResult(candidate) {
+  if (!shouldTreatAsActiveDuplicate(candidate)) {
+    return null;
+  }
+  return { match: 'email', candidate };
+}
+
 /**
  * Duplicate detection: email only (names are ignored).
- * Compares the full normalized address one-by-one against active candidates.
+ * Compares the full normalized address one-by-one against active, visible CRM candidates.
  *
  * @returns {Promise<{ match: 'email', candidate: object } | null>}
  */
@@ -49,54 +107,50 @@ export async function findExistingCandidateDuplicate({ email, firstName: _firstN
     return null;
   }
 
-  const select = {
-    id: true,
-    firstName: true,
-    lastName: true,
-    email: true,
-    designation: true,
-    currentTitle: true,
-    createdAt: true,
-  };
-
   // Fast path: exact match when DB email is already normalized
   const byEmail = await prisma.candidate.findFirst({
     where: {
       AND: [
-        notDeletedClause,
+        activeCandidateClause,
         { email: { equals: normalizedIncoming, mode: 'insensitive' } },
       ],
     },
-    select,
+    select: duplicateSelect,
   });
   if (byEmail && candidateEmailsAreDuplicate(normalizedIncoming, byEmail.email)) {
-    console.log('[bulk-cv] duplicate FOUND by email', {
-      existingId: byEmail.id,
-      email: normalizedIncoming,
-    });
-    return { match: 'email', candidate: byEmail };
+    const result = duplicateCandidateResult(byEmail);
+    if (result) {
+      console.log('[bulk-cv] duplicate FOUND by email', {
+        existingId: byEmail.id,
+        email: normalizedIncoming,
+      });
+      return result;
+    }
   }
 
   // One-by-one: catch stored emails with spaces/casing Prisma equality may miss
   const withEmail = await prisma.candidate.findMany({
     where: {
       AND: [
-        notDeletedClause,
+        activeCandidateClause,
         { email: { not: null } },
         { email: { not: '' } },
       ],
     },
-    select,
+    select: duplicateSelect,
   });
 
   for (const candidate of withEmail) {
     if (candidateEmailsAreDuplicate(normalizedIncoming, candidate.email)) {
-      console.log('[bulk-cv] duplicate FOUND by email (normalized scan)', {
-        existingId: candidate.id,
-        email: normalizedIncoming,
-        stored: candidate.email,
-      });
-      return { match: 'email', candidate };
+      const result = duplicateCandidateResult(candidate);
+      if (result) {
+        console.log('[bulk-cv] duplicate FOUND by email (normalized scan)', {
+          existingId: candidate.id,
+          email: normalizedIncoming,
+          stored: candidate.email,
+        });
+        return result;
+      }
     }
   }
 
@@ -114,7 +168,7 @@ export async function nextCopyLastNameForBulk(firstName, currentLastName) {
   const rows = await prisma.candidate.findMany({
     where: {
       AND: [
-        notDeletedClause,
+        activeCandidateClause,
         { firstName: { equals: fn, mode: 'insensitive' } },
         {
           OR: [
@@ -161,7 +215,7 @@ export async function nextUniqueEmailVariant(email) {
     const exists = await prisma.candidate.findFirst({
       where: {
         AND: [
-          notDeletedClause,
+          activeCandidateClause,
           { email: { equals: candidateEmail, mode: 'insensitive' } },
         ],
       },
@@ -178,7 +232,7 @@ export async function nextUniqueEmailVariant(email) {
   const stampExists = await prisma.candidate.findFirst({
     where: {
       AND: [
-        notDeletedClause,
+        activeCandidateClause,
         { email: { equals: stampEmail, mode: 'insensitive' } },
       ],
     },

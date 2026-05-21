@@ -746,14 +746,9 @@ export const addCandidateController = {
         existing = dup?.candidate ?? null;
       }
 
-      const isBulkCvPool =
-        !req.body.jobId &&
-        String(req.body.source || '')
-          .trim()
-          .toLowerCase() === 'bulk cv upload';
-      const recruiterId = isBulkCvPool ? null : req.body.recruiterId || req.user.id;
+      const recruiterId = isBulkCvPoolCreate ? null : req.body.recruiterId || req.user.id;
       const creatorId = req.user.id;
-      const stageLabel = isBulkCvPool
+      const stageLabel = isBulkCvPoolCreate
         ? null
         : req.body.jobId
           ? getStageLabel(req.body.stage || 'Applied')
@@ -763,6 +758,11 @@ export const addCandidateController = {
       const expectedSalary = parsePositiveNumber(req.body.expectedSalary);
       const currentSalary = parsePositiveNumber(req.body.currentSalary);
       const duplicateAction = String(req.body.duplicateAction || 'create');
+      const isBulkCvPoolCreate =
+        !req.body.jobId &&
+        String(req.body.source || '')
+          .trim()
+          .toLowerCase() === 'bulk cv upload';
       const candidateData = {
         firstName: String(req.body.firstName).trim(),
         lastName: String(req.body.lastName).trim(),
@@ -851,6 +851,17 @@ export const addCandidateController = {
         });
       }
 
+      if (existing && duplicateAction === 'create_anyway') {
+        const fnForCopy = String(candidateData.firstName || '').trim();
+        const lnForCopy = String(candidateData.lastName || '').trim();
+        candidateData.lastName = await nextCopyLastNameForBulk(fnForCopy, lnForCopy);
+        const variantEmail = await nextUniqueEmailVariant(email);
+        if (variantEmail) {
+          candidateData.email = variantEmail;
+        }
+        existing = null;
+      }
+
       if (existing) {
         return res.status(409).json({
           success: false,
@@ -859,7 +870,7 @@ export const addCandidateController = {
           data: {
             existingCandidate: buildExistingCandidateSummary(existing),
             canUpdate: true,
-            canCreateAnyway: false,
+            canCreateAnyway: isBulkCvPoolCreate,
           },
         });
       }
@@ -1365,6 +1376,94 @@ export const addCandidateController = {
           null,
           tenantDbName
         );
+      }
+
+      const postAiEmail = normalizeCandidateEmailForDuplicate(
+        normalizedData?.email || normalizedData?.contactEmail || fb.email
+      );
+      if (!dup && postAiEmail) {
+        const postDup = await findExistingCandidateDuplicate({ email: postAiEmail });
+        if (postDup?.candidate) {
+          const io = getBulkCvIo();
+          if (!io) {
+            safeUnlink();
+            return res.status(503).json({
+              success: false,
+              message: 'Bulk duplicate resolution unavailable (real-time). Restart the API server.',
+            });
+          }
+
+          const existing = postDup.candidate;
+          const decisionPromise = waitBulkCvDuplicateDecision(userId, sessionId, fileIndex);
+          emitBulkCvDuplicateFound(userId, sessionId, {
+            fileIndex,
+            fileName: file.originalname || file.filename || 'resume',
+            newCandidate: {
+              firstName: normalizedData?.firstName || fb.firstName || '',
+              lastName: normalizedData?.lastName || fb.lastName || '',
+              email: postAiEmail,
+            },
+            existingCandidate: {
+              id: existing.id,
+              firstName: existing.firstName,
+              lastName: existing.lastName,
+              email: existing.email,
+              designation: existing.designation || existing.currentTitle || null,
+              createdAt: existing.createdAt,
+            },
+            match: postDup.match,
+          });
+          const decision = String((await decisionPromise) || 'cancel').trim();
+          console.log('[bulk-cv] post-AI duplicate decision', {
+            file: file.originalname,
+            fileIndex,
+            decision,
+          });
+
+          if (decision === 'cancel') {
+            safeUnlink();
+            const { cvParseMeta: skippedTokenUsage } = stripCvParseMeta(normalizedData);
+            return res.status(200).json({
+              success: true,
+              message: 'duplicate_skipped',
+              data: {
+                skipped: true,
+                reason: 'duplicate_cancelled',
+                fileIndex,
+                tokenUsage: skippedTokenUsage,
+              },
+            });
+          }
+
+          if (decision === 'replace') {
+            await hardDeleteCandidateById(existing.id);
+            duplicateResolution = 'replaced';
+          } else if (decision === 'create_anyway') {
+            const fnForCopy = String(normalizedData?.firstName || fb.firstName || '').trim();
+            const lnForCopy = String(normalizedData?.lastName || fb.lastName || '').trim();
+            identityPatch = {
+              lastName: await nextCopyLastNameForBulk(fnForCopy, lnForCopy),
+            };
+            if (postDup.match === 'email') {
+              identityPatch.email = await nextUniqueEmailVariant(postAiEmail);
+            }
+            duplicateResolution = 'create_anyway';
+            normalizedData = applyBulkCreateAnywayIdentityPatch(normalizedData, identityPatch);
+          } else {
+            safeUnlink();
+            const { cvParseMeta: skippedTokenUsage } = stripCvParseMeta(normalizedData);
+            return res.status(200).json({
+              success: true,
+              message: 'duplicate_skipped',
+              data: {
+                skipped: true,
+                reason: 'duplicate_cancelled',
+                fileIndex,
+                tokenUsage: skippedTokenUsage,
+              },
+            });
+          }
+        }
       }
 
       safeUnlink();
