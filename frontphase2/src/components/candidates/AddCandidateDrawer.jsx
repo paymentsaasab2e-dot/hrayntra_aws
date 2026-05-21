@@ -1801,10 +1801,34 @@ export default function AddCandidateDrawer({
           email: identity.email,
         };
 
-        const createResponse = await apiCreateCandidateFromDrawer(
-          buildBulkResumePayload(enrichedCandidate),
-          { signal: abortSignal }
-        );
+        let createResponse;
+        try {
+          createResponse = await apiCreateCandidateFromDrawer(
+            buildBulkResumePayload(enrichedCandidate),
+            { signal: abortSignal }
+          );
+        } catch (createError) {
+          const dupExisting =
+            createError?.data?.existingCandidate || createError?.raw?.data?.existingCandidate;
+          const canCreateAnyway =
+            createError?.data?.canCreateAnyway === true ||
+            createError?.raw?.data?.canCreateAnyway === true;
+          if (
+            canCreateAnyway &&
+            dupExisting &&
+            String(createError?.message || '').toLowerCase().includes('already exists')
+          ) {
+            createResponse = await apiCreateCandidateFromDrawer(
+              {
+                ...buildBulkResumePayload(enrichedCandidate),
+                duplicateAction: 'create_anyway',
+              },
+              { signal: abortSignal }
+            );
+          } else {
+            throw createError;
+          }
+        }
         const candidate = createResponse.data;
         const savedFirst = String(candidate?.firstName || enrichedCandidate.firstName || '').trim();
         const savedLast = String(candidate?.lastName || enrichedCandidate.lastName || '').trim();
@@ -1861,10 +1885,16 @@ export default function AddCandidateDrawer({
           });
         } else {
           appendBulkCvTokenRecord(displayName, 'failed', null);
+          const dupExisting = error?.data?.existingCandidate || error?.raw?.data?.existingCandidate;
+          const dupLabel = dupExisting
+            ? `${dupExisting.name || [dupExisting.firstName, dupExisting.lastName].filter(Boolean).join(' ') || 'Existing profile'}${dupExisting.email ? ` (${dupExisting.email})` : ''}`
+            : null;
           markFinalRow(index, {
             fileName: displayName,
             status: 'failed',
-            message: error.message || 'Failed to create candidate',
+            message: dupLabel
+              ? `Candidate already exists — ${dupLabel}. Remove that profile from Candidates or Recycle Bin, then retry.`
+              : error.message || 'Failed to create candidate',
           });
         }
       }

@@ -551,6 +551,14 @@ model Candidate {
   @@map("candidates")
 }
 
+/// After Recycle Bin "Delete forever": tenant candidate row is removed; this id blocks portal re-merge and duplicate checks.
+model PurgedCandidateRef {
+  candidateId String   @id @map("_id") @db.ObjectId
+  purgedAt    DateTime @default(now())
+
+  @@map("purged_candidate_refs")
+}
+
 model CandidateFile {
   id           String   @id @default(auto()) @map("_id") @db.ObjectId
   candidateId  String   @db.ObjectId
