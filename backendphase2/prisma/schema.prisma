@@ -210,12 +210,23 @@ model Client {
   emails             String[] @default([])
   /// Director / company contact phone numbers.
   phones             String[] @default([])
+  /// Optional team-member contact (when a team name is set on the client).
+  teamMemberDesignation String?
+  teamMemberEmail       String?
+  teamMemberPhone       String?
 
   // Agreements & Terms (single primary document attached during onboarding)
   // Detailed multi-document history continues to live in ClientFile.
-  agreementsFileName   String?
-  agreementsFileUrl    String?
-  agreementsUploadedAt DateTime?
+  agreementsFileName              String?
+  agreementsFileUrl               String?
+  agreementsUploadedAt            DateTime?
+  agreementTotalPayment           String? // Professional fees
+  agreementLevel                  String?
+  agreementServiceChargePercent   String?
+  agreementTimePeriod             String? // Payment terms
+  agreementAdvancePaymentPercent  String?
+  agreementFreeReplacementValue   Int?    // legacy
+  agreementFreeReplacementUnit    String? // legacy MONTHS | DAYS
 
   // Performance metrics (calculated/display fields from drawer)
   avgTimeToFill       String? // Average time to fill positions
@@ -798,6 +809,10 @@ model Lead {
   location               String?
   // Extended contact fields
   designation            String?
+  /// Optional team-member contact (when a team name is set on the lead).
+  teamMemberDesignation  String?
+  teamMemberEmail        String?
+  teamMemberPhone        String?
   country                String?
   city                   String?
   /// Smart-location autofill (Nominatim/OpenStreetMap). Optional metadata.
@@ -817,9 +832,16 @@ model Lead {
   lostReason             String? // Reason when marked as lost
   // Agreements & Terms uploaded against the lead (single primary doc).
   // Detailed multi-document history continues to live in LeadFile.
-  agreementsFileName     String?
-  agreementsFileUrl      String?
-  agreementsUploadedAt   DateTime?
+  agreementsFileName              String?
+  agreementsFileUrl               String?
+  agreementsUploadedAt            DateTime?
+  agreementTotalPayment           String? // Professional fees
+  agreementLevel                  String?
+  agreementServiceChargePercent   String?
+  agreementTimePeriod             String? // Payment terms
+  agreementAdvancePaymentPercent  String?
+  agreementFreeReplacementValue   Int?    // legacy
+  agreementFreeReplacementUnit    String? // legacy MONTHS | DAYS
   // Relations
   assignedToId           String?    @db.ObjectId
   /// Multi-assignee support — full list (assignedToId stays the primary owner).
@@ -1401,6 +1423,10 @@ model BillingRecord {
   invoiceNumber String? // Invoice number (e.g., "INV-2026-001")
   invoiceDate   DateTime? // Invoice date (can use createdAt if not specified)
   notes         String? // Additional notes
+  /// Line items, charges, tax breakdown, buyer/seller snapshot (placement-centric invoice builder).
+  invoicePayload Json?
+  subtotal      Float?
+  taxAmount     Float?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 

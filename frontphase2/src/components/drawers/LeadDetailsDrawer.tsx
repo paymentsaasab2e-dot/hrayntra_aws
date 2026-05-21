@@ -67,6 +67,14 @@ import { NotesService } from '../NotesService';
 import { apiCreateLead, apiUpdateLead, apiGetLead, apiGetLeadActivities, apiGenerateLeadDetails, filesApiUpload, type CreateLeadData, type BackendActivity, type BackendLead } from '../../lib/api';
 import { KycDocumentsField, KycDocumentsView } from '../documents/KycDocumentsField';
 import { AgreementDocumentUpload } from '../documents/AgreementDocumentUpload';
+import { AgreementTermsSection } from '../agreements/AgreementTermsSection';
+import {
+  agreementTermsApiPayload,
+  agreementTermsFromRecord,
+  emptyAgreementTerms,
+  formatAgreementTermsSummary,
+  type AgreementTermsFormValues,
+} from '../../lib/agreementTerms';
 import { DocumentUploadButton, useDocumentUploadFeedback } from '../import/documentUploadUi';
 import { filterKycFiles, uploadKycDocuments } from '../../lib/kycDocuments';
 import { useFiles } from '../../hooks/useFiles';
@@ -74,6 +82,13 @@ import { getAllTeamMembersForAssign } from '../../lib/api/teamApi';
 import type { TeamMember } from '../../types/team';
 import { LeadAssigneesMultiSelect } from './LeadAssigneesMultiSelect';
 import { ServicesNeededSelect } from '../forms/ServicesNeededSelect';
+import { TeamMemberOptionalFields } from '../forms/TeamMemberOptionalFields';
+import {
+  mergeTeamMemberIntoOtherDetails,
+  resolveTeamMemberFields,
+  teamMemberPayloadFromForm,
+  TEAM_MEMBER_DETAIL_LABELS,
+} from '../../lib/teamMemberFormDetails';
 import { formatServicesNeededDisplay } from '../../lib/companyServices';
 import { DrawerCloseButton } from './DrawerCloseButton';
 import { LeadSourceFields } from './LeadSourceFields';
@@ -231,7 +246,7 @@ export type MarkLostFormData = {
   notes: string;
 };
 
-export type AddLeadFormData = {
+export type AddLeadFormData = AgreementTermsFormValues & {
   /** Agreements & Terms — single signed document uploaded against the lead. */
   agreementsFile?: File | null;
   agreementsFileName?: string;
@@ -268,6 +283,9 @@ export type AddLeadFormData = {
   sourceLinkedInUrl?: string;
   sourceEmail?: string;
   otherDetails?: Array<{ label: string; value: string }>;
+  teamMemberDesignation?: string;
+  teamMemberEmail?: string;
+  teamMemberPhone?: string;
   assignedToName?: string;
   assignedToId?: string;
   /** Multi-assignee ids — primary owner is the first entry. */
@@ -435,6 +453,7 @@ export function LeadDetailsDrawer({
   }, [addLeadMode, initialMode, lead?.id]);
 
   const [addLeadForm, setAddLeadForm] = useState<AddLeadFormData>({
+    ...emptyAgreementTerms(),
     // Company Information
     companyName: '',
     industry: '',
@@ -464,6 +483,10 @@ export function LeadDetailsDrawer({
     sourceWebsiteUrl: '',
     sourceLinkedInUrl: '',
     sourceEmail: '',
+    otherDetails: [],
+    teamMemberDesignation: '',
+    teamMemberEmail: '',
+    teamMemberPhone: '',
     assignedToName: '',
     assignedToId: '',
     assignedToIds: [],
@@ -479,10 +502,12 @@ export function LeadDetailsDrawer({
   /** Pending Agreements & Terms file selected in the Add Lead form (uploaded after the lead is created). */
   const [pendingAddLeadAgreementsFile, setPendingAddLeadAgreementsFile] = useState<File | null>(null);
   const [pendingAddLeadKycFiles, setPendingAddLeadKycFiles] = useState<File[]>([]);
+  const [pendingAddLeadTeamMemberKycFiles, setPendingAddLeadTeamMemberKycFiles] = useState<File[]>([]);
   const addLeadAgreementsInputRef = useRef<HTMLInputElement | null>(null);
   /** Pending Agreements & Terms file selected in the Overview edit form (uploaded immediately on save). */
   const [pendingOverviewAgreementsFile, setPendingOverviewAgreementsFile] = useState<File | null>(null);
   const [pendingOverviewKycFiles, setPendingOverviewKycFiles] = useState<File[]>([]);
+  const [pendingOverviewTeamMemberKycFiles, setPendingOverviewTeamMemberKycFiles] = useState<File[]>([]);
   const overviewAgreementsInputRef = useRef<HTMLInputElement | null>(null);
   const [uploadingAgreements, setUploadingAgreements] = useState(false);
   const [uploadingKyc, setUploadingKyc] = useState(false);
@@ -606,7 +631,19 @@ export function LeadDetailsDrawer({
       sourceWebsiteUrl: form.sourceWebsiteUrl?.trim() || undefined,
       sourceLinkedInUrl: form.sourceLinkedInUrl?.trim() || undefined,
       sourceEmail: form.sourceEmail?.trim() || undefined,
-      otherDetails: Array.isArray(form.otherDetails) && form.otherDetails.length ? form.otherDetails : undefined,
+      ...teamMemberPayloadFromForm(
+        {
+          teamMemberDesignation: form.teamMemberDesignation,
+          teamMemberEmail: form.teamMemberEmail,
+          teamMemberPhone: form.teamMemberPhone,
+        },
+        form.companySize,
+      ),
+      otherDetails: mergeTeamMemberIntoOtherDetails(form.otherDetails, form.companySize, {
+        teamMemberDesignation: form.teamMemberDesignation,
+        teamMemberEmail: form.teamMemberEmail,
+        teamMemberPhone: form.teamMemberPhone,
+      }),
       status: form.status || 'New',
       priority: form.priority || 'Medium',
       servicesNeeded: form.interestedNeeds?.trim() || undefined,
@@ -617,11 +654,13 @@ export function LeadDetailsDrawer({
       nextFollowUp: form.nextFollowUp || undefined,
       assignedToId: form.assignedToIds?.[0] || form.assignedToId || undefined,
       assignedToIds: form.assignedToIds && form.assignedToIds.length > 0 ? form.assignedToIds : undefined,
+      ...agreementTermsApiPayload(form),
     };
   };
 
   const resetAddLeadForm = () => {
     setAddLeadForm({
+      ...emptyAgreementTerms(),
       companyName: '',
       industry: '',
       companySize: '',
@@ -649,6 +688,9 @@ export function LeadDetailsDrawer({
     sourceLinkedInUrl: '',
     sourceEmail: '',
     otherDetails: [],
+    teamMemberDesignation: '',
+    teamMemberEmail: '',
+    teamMemberPhone: '',
       assignedToName: '',
       assignedToId: '',
       assignedToIds: [],
@@ -662,6 +704,7 @@ export function LeadDetailsDrawer({
     setAddLeadErrors({});
     setPendingAddLeadAgreementsFile(null);
     setPendingAddLeadKycFiles([]);
+    setPendingAddLeadTeamMemberKycFiles([]);
     if (addLeadAgreementsInputRef.current) addLeadAgreementsInputRef.current.value = '';
   };
 
@@ -706,14 +749,15 @@ export function LeadDetailsDrawer({
       }
     }
 
-    if (createdLead?.id && pendingAddLeadKycFiles.length > 0) {
+    const pendingLeadKyc = [...pendingAddLeadKycFiles, ...pendingAddLeadTeamMemberKycFiles];
+    if (createdLead?.id && pendingLeadKyc.length > 0) {
       try {
         setUploadingKyc(true);
-        await uploadKycDocuments('lead', createdLead.id, pendingAddLeadKycFiles);
+        await uploadKycDocuments('lead', createdLead.id, pendingLeadKyc);
         kycUploadFeedback.markSuccess(
-          pendingAddLeadKycFiles.length === 1
-            ? pendingAddLeadKycFiles[0].name
-            : `${pendingAddLeadKycFiles.length} documents`
+          pendingLeadKyc.length === 1
+            ? pendingLeadKyc[0].name
+            : `${pendingLeadKyc.length} documents`
         );
       } catch (uploadError: any) {
         console.error('Failed to upload lead KYC documents:', uploadError);
@@ -727,6 +771,7 @@ export function LeadDetailsDrawer({
     onAddLead?.(form, createdLead);
     setPendingAddLeadAgreementsFile(null);
     setPendingAddLeadKycFiles([]);
+    setPendingAddLeadTeamMemberKycFiles([]);
     if (addLeadAgreementsInputRef.current) addLeadAgreementsInputRef.current.value = '';
     resetAddLeadForm();
     setShowAiLeadDrawer(false);
@@ -921,6 +966,9 @@ export function LeadDetailsDrawer({
     agreementsFileName: '' as string,
     agreementsFileUrl: '' as string,
     agreementsUploadedAt: '' as string,
+    teamMemberDesignation: '',
+    teamMemberEmail: '',
+    teamMemberPhone: '',
   });
   const [activityFilter, setActivityFilter] = useState<'all' | 'calls' | 'messages' | 'emails'>('all');
   const [activities, setActivities] = useState<LeadActivity[]>([]);
@@ -1312,9 +1360,24 @@ export function LeadDetailsDrawer({
       sourceWebsiteUrl: lead.sourceWebsiteUrl ?? '',
       sourceLinkedInUrl: lead.sourceLinkedInUrl ?? '',
       sourceEmail: lead.sourceEmail ?? '',
-      otherDetailsText: Array.isArray(lead.otherDetails)
-        ? lead.otherDetails.map((item) => `${item.label}: ${item.value}`).join('\n')
-        : '',
+      ...(() => {
+        const teamMember = resolveTeamMemberFields(lead);
+        const otherLines = Array.isArray(lead.otherDetails)
+          ? lead.otherDetails
+              .filter(
+                (item) =>
+                  !Object.values(TEAM_MEMBER_DETAIL_LABELS).includes(
+                    String(item.label || '').trim() as (typeof TEAM_MEMBER_DETAIL_LABELS)[keyof typeof TEAM_MEMBER_DETAIL_LABELS],
+                  ),
+              )
+              .map((item) => `${item.label}: ${item.value}`)
+              .join('\n')
+          : '';
+        return {
+          otherDetailsText: otherLines,
+          ...teamMember,
+        };
+      })(),
       leadOwner: lead.assignedTo?.name ?? '',
       assignedToId: lead.assignedTo?.id ?? '',
       assignedToIds: Array.isArray(lead.assignedToIds) && lead.assignedToIds.length > 0
@@ -1330,9 +1393,11 @@ export function LeadDetailsDrawer({
       agreementsFileName: lead.agreementsFileName ?? '',
       agreementsFileUrl: lead.agreementsFileUrl ?? '',
       agreementsUploadedAt: lead.agreementsUploadedAt ?? '',
+      ...agreementTermsFromRecord(lead),
     });
     setPendingOverviewAgreementsFile(null);
     setPendingOverviewKycFiles([]);
+    setPendingOverviewTeamMemberKycFiles([]);
     if (overviewAgreementsInputRef.current) overviewAgreementsInputRef.current.value = '';
     setOverviewEditMode(true);
     setOverviewOpen({ company: true, contact: true, leadDetails: true });
@@ -1385,20 +1450,36 @@ export function LeadDetailsDrawer({
         sourceWebsiteUrl: overviewEditForm.sourceWebsiteUrl || undefined,
         sourceLinkedInUrl: overviewEditForm.sourceLinkedInUrl || undefined,
         sourceEmail: overviewEditForm.sourceEmail || undefined,
-        otherDetails: overviewEditForm.otherDetailsText
-          ? overviewEditForm.otherDetailsText
-              .split('\n')
-              .map((line) => line.trim())
-              .filter(Boolean)
-              .map((line) => {
-                const parts = line.split(':');
-                return {
-                  label: (parts.shift() || '').trim(),
-                  value: parts.join(':').trim(),
-                };
-              })
-              .filter((item) => item.label && item.value)
-          : undefined,
+        ...teamMemberPayloadFromForm(
+          {
+            teamMemberDesignation: overviewEditForm.teamMemberDesignation,
+            teamMemberEmail: overviewEditForm.teamMemberEmail,
+            teamMemberPhone: overviewEditForm.teamMemberPhone,
+          },
+          overviewEditForm.companySize,
+        ),
+        otherDetails: mergeTeamMemberIntoOtherDetails(
+          overviewEditForm.otherDetailsText
+            ? overviewEditForm.otherDetailsText
+                .split('\n')
+                .map((line) => line.trim())
+                .filter(Boolean)
+                .map((line) => {
+                  const parts = line.split(':');
+                  return {
+                    label: (parts.shift() || '').trim(),
+                    value: parts.join(':').trim(),
+                  };
+                })
+                .filter((item) => item.label && item.value)
+            : undefined,
+          overviewEditForm.companySize,
+          {
+            teamMemberDesignation: overviewEditForm.teamMemberDesignation,
+            teamMemberEmail: overviewEditForm.teamMemberEmail,
+            teamMemberPhone: overviewEditForm.teamMemberPhone,
+          },
+        ),
         status: overviewEditForm.status,
         priority: overviewEditForm.priority,
         assignedToId: overviewEditForm.assignedToIds?.[0] || overviewEditForm.assignedToId || undefined,
@@ -1447,15 +1528,18 @@ export function LeadDetailsDrawer({
         (updateData as any).agreementsUploadedAt = null;
       }
 
-      if (pendingOverviewKycFiles.length > 0) {
+      Object.assign(updateData, agreementTermsApiPayload(overviewEditForm));
+
+      const pendingOverviewLeadKyc = [...pendingOverviewKycFiles, ...pendingOverviewTeamMemberKycFiles];
+      if (pendingOverviewLeadKyc.length > 0) {
         try {
           setUploadingKyc(true);
-          await uploadKycDocuments('lead', lead.id, pendingOverviewKycFiles);
+          await uploadKycDocuments('lead', lead.id, pendingOverviewLeadKyc);
           await refetchLeadFiles();
           kycUploadFeedback.markSuccess(
-            pendingOverviewKycFiles.length === 1
-              ? pendingOverviewKycFiles[0].name
-              : `${pendingOverviewKycFiles.length} documents`
+            pendingOverviewLeadKyc.length === 1
+              ? pendingOverviewLeadKyc[0].name
+              : `${pendingOverviewLeadKyc.length} documents`
           );
         } catch (uploadError: any) {
           console.error('Failed to upload lead KYC documents:', uploadError);
@@ -1469,6 +1553,7 @@ export function LeadDetailsDrawer({
       const updatedLeadResponse = await apiUpdateLead(lead.id, updateData);
       setPendingOverviewAgreementsFile(null);
       setPendingOverviewKycFiles([]);
+      setPendingOverviewTeamMemberKycFiles([]);
       if (overviewAgreementsInputRef.current) overviewAgreementsInputRef.current.value = '';
       setOverviewEditMode(false);
       setOverviewEditErrors({});
@@ -2543,6 +2628,21 @@ export function LeadDetailsDrawer({
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Team Name</label>
                           <input value={addLeadForm.companySize ?? ''} onChange={(e) => setAddLeadForm((p) => ({ ...p, companySize: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" placeholder="e.g. Growth Team" />
                         </div>
+                        <TeamMemberOptionalFields
+                          teamName={addLeadForm.companySize ?? ''}
+                          values={{
+                            teamMemberDesignation: addLeadForm.teamMemberDesignation,
+                            teamMemberEmail: addLeadForm.teamMemberEmail,
+                            teamMemberPhone: addLeadForm.teamMemberPhone,
+                          }}
+                          onChange={(patch) => setAddLeadForm((p) => ({ ...p, ...patch }))}
+                          pendingKycFiles={pendingAddLeadTeamMemberKycFiles}
+                          onPendingKycFilesChange={setPendingAddLeadTeamMemberKycFiles}
+                          uploadingKyc={uploadingKyc}
+                          uploadSuccess={kycUploadFeedback.uploadSuccess}
+                          uploadPercent={kycUploadFeedback.uploadPercent}
+                          kycDisabled={uploadingKyc || uploadingAgreements}
+                        />
                         <MultiContactFields
                           label="Email"
                           type="email"
@@ -2667,20 +2767,24 @@ export function LeadDetailsDrawer({
                         uploadPercent={kycUploadFeedback.uploadPercent}
                         disabled={uploadingAgreements}
                       />
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                          Agreements &amp; Terms
-                        </label>
-                        <AgreementDocumentUpload
-                          description="Upload the signed agreement, MoU, or terms document for this lead. PDF, DOC, DOCX up to 10MB."
-                          pendingFile={pendingAddLeadAgreementsFile}
-                          onPendingFileChange={setPendingAddLeadAgreementsFile}
-                          isUploading={uploadingAgreements}
-                          uploadSuccess={agreementsUploadFeedback.uploadSuccess}
-                          uploadPercent={agreementsUploadFeedback.uploadPercent}
-                          disabled={uploadingKyc}
-                        />
-                      </div>
+                      <AgreementTermsSection
+                        values={addLeadForm}
+                        onChange={(patch) => setAddLeadForm((p) => ({ ...p, ...patch }))}
+                        disabled={uploadingKyc || uploadingAgreements}
+                        uploadSlot={
+                          <AgreementDocumentUpload
+                            description="Upload the signed agreement, MoU, or terms document for this lead. PDF, DOC, DOCX up to 10MB."
+                            pendingFile={pendingAddLeadAgreementsFile}
+                            onPendingFileChange={setPendingAddLeadAgreementsFile}
+                            currentTerms={addLeadForm}
+                            onTermsExtracted={(terms) => setAddLeadForm((p) => ({ ...p, ...terms }))}
+                            isUploading={uploadingAgreements}
+                            uploadSuccess={agreementsUploadFeedback.uploadSuccess}
+                            uploadPercent={agreementsUploadFeedback.uploadPercent}
+                            disabled={uploadingKyc}
+                          />
+                        }
+                      />
                       {Array.isArray(addLeadForm.otherDetails) && addLeadForm.otherDetails.length ? (
                         <div>
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Other Details</label>
@@ -2941,20 +3045,24 @@ export function LeadDetailsDrawer({
                             }}
                           />
                         </div>
-                        <div>
-                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                            Agreements &amp; Terms
-                          </label>
-                          <AgreementDocumentUpload
-                            description="Upload the signed agreement, MoU, or terms document for this lead. PDF, DOC, DOCX up to 10MB."
-                            pendingFile={pendingAddLeadAgreementsFile}
-                            onPendingFileChange={setPendingAddLeadAgreementsFile}
-                            isUploading={uploadingAgreements}
-                            uploadSuccess={agreementsUploadFeedback.uploadSuccess}
-                            uploadPercent={agreementsUploadFeedback.uploadPercent}
-                            disabled={uploadingKyc}
-                          />
-                        </div>
+                        <AgreementTermsSection
+                          values={addLeadForm}
+                          onChange={(patch) => setAddLeadForm((p) => ({ ...p, ...patch }))}
+                          disabled={uploadingKyc || uploadingAgreements}
+                          uploadSlot={
+                            <AgreementDocumentUpload
+                              description="Upload the signed agreement, MoU, or terms document for this lead. PDF, DOC, DOCX up to 10MB."
+                              pendingFile={pendingAddLeadAgreementsFile}
+                              onPendingFileChange={setPendingAddLeadAgreementsFile}
+                              currentTerms={addLeadForm}
+                              onTermsExtracted={(terms) => setAddLeadForm((p) => ({ ...p, ...terms }))}
+                              isUploading={uploadingAgreements}
+                              uploadSuccess={agreementsUploadFeedback.uploadSuccess}
+                              uploadPercent={agreementsUploadFeedback.uploadPercent}
+                              disabled={uploadingKyc}
+                            />
+                          }
+                        />
                         <div className="mt-4">
                           <KycDocumentsField
                             pendingFiles={pendingAddLeadKycFiles}
@@ -3027,9 +3135,23 @@ export function LeadDetailsDrawer({
                             sourceWebsiteUrl: addLeadForm.sourceWebsiteUrl?.trim() || undefined,
                             sourceLinkedInUrl: addLeadForm.sourceLinkedInUrl?.trim() || undefined,
                             sourceEmail: addLeadForm.sourceEmail?.trim() || undefined,
-                            otherDetails: Array.isArray(addLeadForm.otherDetails) && addLeadForm.otherDetails.length
-                              ? addLeadForm.otherDetails
-                              : undefined,
+                            ...teamMemberPayloadFromForm(
+                              {
+                                teamMemberDesignation: addLeadForm.teamMemberDesignation,
+                                teamMemberEmail: addLeadForm.teamMemberEmail,
+                                teamMemberPhone: addLeadForm.teamMemberPhone,
+                              },
+                              addLeadForm.companySize,
+                            ),
+                            otherDetails: mergeTeamMemberIntoOtherDetails(
+                              addLeadForm.otherDetails,
+                              addLeadForm.companySize,
+                              {
+                                teamMemberDesignation: addLeadForm.teamMemberDesignation,
+                                teamMemberEmail: addLeadForm.teamMemberEmail,
+                                teamMemberPhone: addLeadForm.teamMemberPhone,
+                              },
+                            ),
                             status: addLeadForm.status || 'New',
                             priority: addLeadForm.priority || 'Medium',
                             servicesNeeded: addLeadForm.interestedNeeds?.trim() || undefined,
@@ -3039,6 +3161,7 @@ export function LeadDetailsDrawer({
                             lastFollowUp: addLeadForm.lastFollowUp || undefined,
                             nextFollowUp: addLeadForm.nextFollowUp || undefined,
                             assignedToId: addLeadForm.assignedToId || undefined,
+                            ...agreementTermsApiPayload(addLeadForm),
                           };
 
                           const createdLeadResponse = await apiCreateLead(createData);
@@ -3076,10 +3199,11 @@ export function LeadDetailsDrawer({
                               setUploadingAgreements(false);
                             }
                           }
-                          if (createdLead?.id && pendingAddLeadKycFiles.length > 0) {
+                          const pendingLeadKyc = [...pendingAddLeadKycFiles, ...pendingAddLeadTeamMemberKycFiles];
+                          if (createdLead?.id && pendingLeadKyc.length > 0) {
                             try {
                               setUploadingKyc(true);
-                              await uploadKycDocuments('lead', createdLead.id, pendingAddLeadKycFiles);
+                              await uploadKycDocuments('lead', createdLead.id, pendingLeadKyc);
                             } catch (uploadError: any) {
                               console.error('Failed to upload lead KYC documents:', uploadError);
                               void requestError(uploadError.message || 'Failed to upload KYC documents');
@@ -3090,6 +3214,7 @@ export function LeadDetailsDrawer({
 
                           setPendingAddLeadAgreementsFile(null);
                           setPendingAddLeadKycFiles([]);
+                          setPendingAddLeadTeamMemberKycFiles([]);
                           if (addLeadAgreementsInputRef.current) addLeadAgreementsInputRef.current.value = '';
 
                           // Call the parent handler so table can update immediately
@@ -3121,6 +3246,9 @@ export function LeadDetailsDrawer({
                             sourceLinkedInUrl: '',
                             sourceEmail: '',
                             otherDetails: [],
+                            teamMemberDesignation: '',
+                            teamMemberEmail: '',
+                            teamMemberPhone: '',
                             assignedToName: '',
                             assignedToId: '',
                             status: 'New',
@@ -3167,6 +3295,17 @@ export function LeadDetailsDrawer({
                             <div><FieldRow label="Company Links" value={lead?.website ?? ''} href={!!lead?.website} /></div>
                             <div><FieldRow label="Director Name *" value={formatDirectorDisplay(lead?.directorSalutation, lead?.directorName || lead?.contactPerson)} /></div>
                             <div><FieldRow label="Team Name" value={lead?.companySize ?? ''} /></div>
+                            {(() => {
+                              const tm = resolveTeamMemberFields(lead);
+                              if (!lead?.companySize?.trim()) return null;
+                              return (
+                                <>
+                                  <div><FieldRow label="Team Member Designation" value={tm.teamMemberDesignation ?? ''} /></div>
+                                  <div><FieldRow label="Team Member Email" value={tm.teamMemberEmail ?? ''} href={!!tm.teamMemberEmail} /></div>
+                                  <div><FieldRow label="Team Member Phone" value={tm.teamMemberPhone ?? ''} /></div>
+                                </>
+                              );
+                            })()}
                             <div>
                               <FieldRow
                                 label="Email *"
@@ -3217,25 +3356,30 @@ export function LeadDetailsDrawer({
                           <div>
                             <FieldRow label="Expected Business Value" value={lead?.notes ?? ''} />
                           </div>
-                          {lead?.agreementsFileUrl && (
-                            <div>
-                              <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Agreements &amp; Terms</div>
-                              <a
-                                href={lead.agreementsFileUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 hover:bg-slate-100 transition-colors"
-                              >
-                                <Paperclip size={14} className="text-slate-500" />
-                                <span className="truncate max-w-[280px]">
-                                  {lead.agreementsFileName || 'Agreement document'}
-                                </span>
-                                {lead.agreementsUploadedAt && (
-                                  <span className="text-xs text-slate-400 shrink-0">
-                                    Uploaded {formatDateDMY(String(lead.agreementsUploadedAt))}
+                          {(lead?.agreementsFileUrl ||
+                            formatAgreementTermsSummary(agreementTermsFromRecord(lead)).length > 0) && (
+                            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 space-y-2">
+                              <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                                Agreements &amp; Terms
+                              </div>
+                              {lead?.agreementsFileUrl ? (
+                                <a
+                                  href={lead.agreementsFileUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-2 text-sm text-slate-900 hover:underline"
+                                >
+                                  <Paperclip size={14} className="text-slate-500" />
+                                  <span className="truncate max-w-[280px]">
+                                    {lead.agreementsFileName || 'Agreement document'}
                                   </span>
-                                )}
-                              </a>
+                                </a>
+                              ) : null}
+                              {formatAgreementTermsSummary(agreementTermsFromRecord(lead)).map((line) => (
+                                <p key={line} className="text-sm text-slate-700">
+                                  {line}
+                                </p>
+                              ))}
                             </div>
                           )}
                           
@@ -3322,6 +3466,21 @@ export function LeadDetailsDrawer({
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Team Name</label>
                               <input value={overviewEditForm.companySize} onChange={(e) => setOverviewEditForm((p) => ({ ...p, companySize: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
                             </div>
+                            <TeamMemberOptionalFields
+                              teamName={overviewEditForm.companySize}
+                              values={{
+                                teamMemberDesignation: overviewEditForm.teamMemberDesignation,
+                                teamMemberEmail: overviewEditForm.teamMemberEmail,
+                                teamMemberPhone: overviewEditForm.teamMemberPhone,
+                              }}
+                              onChange={(patch) => setOverviewEditForm((p) => ({ ...p, ...patch }))}
+                              pendingKycFiles={pendingOverviewTeamMemberKycFiles}
+                              onPendingKycFilesChange={setPendingOverviewTeamMemberKycFiles}
+                              uploadingKyc={uploadingKyc}
+                              uploadSuccess={kycUploadFeedback.uploadSuccess}
+                              uploadPercent={kycUploadFeedback.uploadPercent}
+                              kycDisabled={uploadingKyc || uploadingAgreements}
+                            />
                             <MultiContactFields
                               label="Email"
                               type="email"
@@ -3472,58 +3631,64 @@ export function LeadDetailsDrawer({
                             uploadPercent={kycUploadFeedback.uploadPercent}
                             disabled={uploadingAgreements}
                           />
-                          <div>
-                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                              Agreements &amp; Terms
-                            </label>
-                            {overviewEditForm.agreementsFileUrl && !pendingOverviewAgreementsFile ? (
-                              <div className="mb-2 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900">
-                                <Paperclip size={14} className="shrink-0 text-slate-500" />
-                                <a
-                                  href={overviewEditForm.agreementsFileUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="min-w-0 flex-1 truncate hover:underline"
-                                >
-                                  {overviewEditForm.agreementsFileName || 'Agreement document'}
-                                </a>
-                                {overviewEditForm.agreementsUploadedAt ? (
-                                  <span className="shrink-0 text-xs text-slate-500">
-                                    Uploaded {formatDateDMY(overviewEditForm.agreementsUploadedAt)}
-                                  </span>
+                          <AgreementTermsSection
+                            values={overviewEditForm}
+                            onChange={(patch) => setOverviewEditForm((p) => ({ ...p, ...patch }))}
+                            disabled={uploadingKyc || uploadingAgreements}
+                            uploadSlot={
+                              <>
+                                {overviewEditForm.agreementsFileUrl && !pendingOverviewAgreementsFile ? (
+                                  <div className="mb-2 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900">
+                                    <Paperclip size={14} className="shrink-0 text-slate-500" />
+                                    <a
+                                      href={overviewEditForm.agreementsFileUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="min-w-0 flex-1 truncate hover:underline"
+                                    >
+                                      {overviewEditForm.agreementsFileName || 'Agreement document'}
+                                    </a>
+                                    {overviewEditForm.agreementsUploadedAt ? (
+                                      <span className="shrink-0 text-xs text-slate-500">
+                                        Uploaded {formatDateDMY(overviewEditForm.agreementsUploadedAt)}
+                                      </span>
+                                    ) : null}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOverviewEditForm((p) => ({
+                                          ...p,
+                                          agreementsFileName: '',
+                                          agreementsFileUrl: '',
+                                          agreementsUploadedAt: '',
+                                        }));
+                                      }}
+                                      className="shrink-0 rounded-lg p-1 text-red-500 hover:bg-red-50 hover:text-red-600"
+                                      aria-label="Remove agreement"
+                                    >
+                                      <X size={16} strokeWidth={2.25} />
+                                    </button>
+                                  </div>
                                 ) : null}
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setOverviewEditForm((p) => ({
-                                      ...p,
-                                      agreementsFileName: '',
-                                      agreementsFileUrl: '',
-                                      agreementsUploadedAt: '',
-                                    }));
+                                <AgreementDocumentUpload
+                                  description="Upload the signed agreement, MoU, or terms document for this lead. PDF, DOC, DOCX up to 10MB."
+                                  pendingFile={pendingOverviewAgreementsFile}
+                                  onPendingFileChange={(file) => {
+                                    setPendingOverviewAgreementsFile(file);
+                                    if (file) {
+                                      setOverviewEditForm((p) => ({ ...p, agreementsFileName: file.name }));
+                                    }
                                   }}
-                                  className="shrink-0 rounded-lg p-1 text-red-500 hover:bg-red-50 hover:text-red-600"
-                                  aria-label="Remove agreement"
-                                >
-                                  <X size={16} strokeWidth={2.25} />
-                                </button>
-                              </div>
-                            ) : null}
-                            <AgreementDocumentUpload
-                              description="Upload the signed agreement, MoU, or terms document for this lead. PDF, DOC, DOCX up to 10MB."
-                              pendingFile={pendingOverviewAgreementsFile}
-                              onPendingFileChange={(file) => {
-                                setPendingOverviewAgreementsFile(file);
-                                if (file) {
-                                  setOverviewEditForm((p) => ({ ...p, agreementsFileName: file.name }));
-                                }
-                              }}
-                              isUploading={uploadingAgreements}
-                              uploadSuccess={agreementsUploadFeedback.uploadSuccess}
-                              uploadPercent={agreementsUploadFeedback.uploadPercent}
-                              disabled={uploadingKyc}
-                            />
-                          </div>
+                                  currentTerms={overviewEditForm}
+                                  onTermsExtracted={(terms) => setOverviewEditForm((p) => ({ ...p, ...terms }))}
+                                  isUploading={uploadingAgreements}
+                                  uploadSuccess={agreementsUploadFeedback.uploadSuccess}
+                                  uploadPercent={agreementsUploadFeedback.uploadPercent}
+                                  disabled={uploadingKyc}
+                                />
+                              </>
+                            }
+                          />
                         </>
                       )}
                     </div>
@@ -3897,89 +4062,59 @@ export function LeadDetailsDrawer({
                               />
                             </div>
                             <div className="md:col-span-2">
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                                Agreements &amp; Terms
-                              </label>
-                              <p className="text-xs text-slate-500 mb-2">
-                                Upload the signed agreement, MoU, or terms document for this lead. PDF, DOC, DOCX up to 10MB.
-                              </p>
-                              <input
-                                ref={overviewAgreementsInputRef}
-                                type="file"
-                                accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.pdf,.doc,.docx"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  if (!file) return;
-                                  setPendingOverviewAgreementsFile(file);
-                                  setOverviewEditForm((p) => ({
-                                    ...p,
-                                    agreementsFileName: file.name,
-                                  }));
-                                }}
-                                className="hidden"
+                              <AgreementTermsSection
+                                values={overviewEditForm}
+                                onChange={(patch) => setOverviewEditForm((p) => ({ ...p, ...patch }))}
+                                disabled={uploadingKyc || uploadingAgreements}
+                                uploadSlot={
+                                  <>
+                                    {overviewEditForm.agreementsFileUrl && !pendingOverviewAgreementsFile ? (
+                                      <div className="mb-2 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900">
+                                        <Paperclip size={14} className="shrink-0 text-slate-500" />
+                                        <a
+                                          href={overviewEditForm.agreementsFileUrl}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="truncate flex-1 hover:underline"
+                                        >
+                                          {overviewEditForm.agreementsFileName || 'Agreement document'}
+                                        </a>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setOverviewEditForm((p) => ({
+                                              ...p,
+                                              agreementsFileName: '',
+                                              agreementsFileUrl: '',
+                                              agreementsUploadedAt: '',
+                                            }));
+                                          }}
+                                          className="shrink-0 rounded-lg p-1 text-red-500 hover:bg-red-50"
+                                          aria-label="Remove agreement"
+                                        >
+                                          <X size={16} strokeWidth={2.25} />
+                                        </button>
+                                      </div>
+                                    ) : null}
+                                    <AgreementDocumentUpload
+                                      description="Upload the signed agreement, MoU, or terms document for this lead. PDF, DOC, DOCX up to 10MB."
+                                      pendingFile={pendingOverviewAgreementsFile}
+                                      onPendingFileChange={(file) => {
+                                        setPendingOverviewAgreementsFile(file);
+                                        if (file) {
+                                          setOverviewEditForm((p) => ({ ...p, agreementsFileName: file.name }));
+                                        }
+                                      }}
+                                      currentTerms={overviewEditForm}
+                                      onTermsExtracted={(terms) => setOverviewEditForm((p) => ({ ...p, ...terms }))}
+                                      isUploading={uploadingAgreements}
+                                      uploadSuccess={agreementsUploadFeedback.uploadSuccess}
+                                      uploadPercent={agreementsUploadFeedback.uploadPercent}
+                                      disabled={uploadingKyc}
+                                    />
+                                  </>
+                                }
                               />
-                              {pendingOverviewAgreementsFile ? (
-                                <div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
-                                  <Paperclip size={14} className="text-blue-600 shrink-0" />
-                                  <span className="truncate flex-1">{pendingOverviewAgreementsFile.name}</span>
-                                  <span className="text-xs text-blue-700 shrink-0">Pending upload</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setPendingOverviewAgreementsFile(null);
-                                      if (overviewAgreementsInputRef.current) overviewAgreementsInputRef.current.value = '';
-                                    }}
-                                    className="shrink-0 rounded-lg p-1 text-red-500 hover:bg-red-50 hover:text-red-600"
-                                    aria-label="Remove file"
-                                  >
-                                    <X size={16} strokeWidth={2.25} />
-                                  </button>
-                                </div>
-                              ) : overviewEditForm.agreementsFileUrl ? (
-                                <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900">
-                                  <Paperclip size={14} className="text-slate-500 shrink-0" />
-                                  <a
-                                    href={overviewEditForm.agreementsFileUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="truncate flex-1 hover:underline"
-                                  >
-                                    {overviewEditForm.agreementsFileName || 'Agreement document'}
-                                  </a>
-                                  {overviewEditForm.agreementsUploadedAt && (
-                                    <span className="text-xs text-slate-500 shrink-0">
-                                      Uploaded {formatDateDMY(overviewEditForm.agreementsUploadedAt)}
-                                    </span>
-                                  )}
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setOverviewEditForm((p) => ({
-                                        ...p,
-                                        agreementsFileName: '',
-                                        agreementsFileUrl: '',
-                                        agreementsUploadedAt: '',
-                                      }));
-                                      if (overviewAgreementsInputRef.current) overviewAgreementsInputRef.current.value = '';
-                                    }}
-                                    className="shrink-0 rounded-lg p-1 text-red-500 hover:bg-red-50 hover:text-red-600"
-                                    aria-label="Remove agreement"
-                                  >
-                                    <X size={16} strokeWidth={2.25} />
-                                  </button>
-                                </div>
-                              ) : null}
-                              <div className="mt-2">
-                                <button
-                                  type="button"
-                                  onClick={() => overviewAgreementsInputRef.current?.click()}
-                                  disabled={uploadingAgreements}
-                                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-60"
-                                >
-                                  <Upload size={14} className="text-slate-500" />
-                                  {overviewEditForm.agreementsFileUrl || pendingOverviewAgreementsFile ? 'Replace file' : 'Upload file'}
-                                </button>
-                              </div>
                             </div>
                             <div>
                               <KycDocumentsField

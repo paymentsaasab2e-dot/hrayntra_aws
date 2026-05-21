@@ -95,7 +95,7 @@ export type DashboardWidget = {
 };
 
 export type DatasetPayload = {
-  dataset: { id: string; label: string; module: string };
+  dataset: { id: string; label: string; module: string; kind?: 'list' | 'metrics' };
   rows: Record<string, unknown>[];
   rowCount: number;
   filters?: DashboardFilterDef[];

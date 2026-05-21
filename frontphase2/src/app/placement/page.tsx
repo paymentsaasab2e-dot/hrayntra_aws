@@ -11,6 +11,7 @@ import { CreatePlacementDrawer } from '../../components/placements/modals/Create
 import { MarkFailedDrawer } from '../../components/placements/modals/MarkFailedDrawer';
 import { MarkJoinedDrawer } from '../../components/placements/modals/MarkJoinedDrawer';
 import { RequestReplacementDrawer } from '../../components/placements/modals/RequestReplacementDrawer';
+import { PlacementDetailsDrawer } from '../../components/drawers/PlacementDetailsDrawer';
 import { usePlacements } from '../../hooks/usePlacements';
 import type { Placement, PlacementFilters } from '../../types/placement';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -79,6 +80,8 @@ function PlacementsPageContent() {
   const [failedPlacement, setFailedPlacement] = useState<Placement | null>(null);
   const [failedMode, setFailedMode] = useState<'FAILED' | 'NO_SHOW'>('FAILED');
   const [replacementPlacement, setReplacementPlacement] = useState<Placement | null>(null);
+  const [detailDrawerOpen, setDetailDrawerOpen] = useState(false);
+  const [detailPlacementId, setDetailPlacementId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | undefined>();
 
   const {
@@ -156,13 +159,12 @@ function PlacementsPageContent() {
       <div className="w-full min-h-screen overflow-hidden text-slate-900">
         <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">
-            <div className="flex items-start gap-2.5 sm:gap-3">
-              <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 via-teal-600 to-cyan-600 text-white shadow-lg shadow-emerald-500/25 ring-1 ring-white/20">
+            <div className="flex items-center gap-2.5 sm:gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 via-teal-600 to-cyan-600 text-white shadow-lg shadow-emerald-500/25 ring-1 ring-white/20">
                 <Trophy className="h-5 w-5" strokeWidth={2.2} />
               </div>
               <div>
-                <h1 className="text-xl font-bold leading-tight tracking-tight text-slate-900 sm:text-[1.35rem]">Placements</h1>
-                <p className="mt-0.5 max-w-xl text-xs text-slate-500">Manage and track candidates who have accepted offers.</p>
+                <h1 className="text-xl font-bold leading-none tracking-tight text-slate-900 sm:text-[1.35rem]">Placements</h1>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -196,6 +198,19 @@ function PlacementsPageContent() {
                 >
                   <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
                   <span>Export</span>
+                </button>
+              ) : null}
+              {canCreateInvoice ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInvoicePlacementId(undefined);
+                    setInvoiceDrawerOpen(true);
+                  }}
+                  className="flex items-center gap-1.5 rounded-lg border border-amber-200/80 bg-white px-3.5 py-2 text-xs font-semibold text-amber-800 shadow-[0_4px_14px_-4px_rgba(245,158,11,0.25)] transition-all hover:border-amber-300 hover:bg-amber-50/90 active:scale-[0.98]"
+                >
+                  <FileText size={16} className="text-amber-600" strokeWidth={2.25} />
+                  <span>Create invoice</span>
                 </button>
               ) : null}
               {canCreatePlacement ? (
@@ -266,7 +281,10 @@ function PlacementsPageContent() {
                               sortOrder: filters.sortBy === column && filters.sortOrder === 'desc' ? 'asc' : 'desc',
                             })
                           }
-                          onView={(placement) => router.push(`/placements/${placement.id}`)}
+                          onView={(placement) => {
+                            setDetailPlacementId(placement.id);
+                            setDetailDrawerOpen(true);
+                          }}
                           onMarkJoined={canUpdatePlacement ? (placement) => setJoinedPlacement(placement) : undefined}
                           onMarkFailed={
                             canUpdatePlacement
@@ -390,6 +408,15 @@ function PlacementsPageContent() {
           } catch (submitError: any) {
             toast.error(submitError.message || 'Failed to request replacement');
           }
+        }}
+      />
+
+      <PlacementDetailsDrawer
+        isOpen={detailDrawerOpen}
+        placementId={detailPlacementId}
+        onClose={() => {
+          setDetailDrawerOpen(false);
+          setDetailPlacementId(null);
         }}
       />
     </div>

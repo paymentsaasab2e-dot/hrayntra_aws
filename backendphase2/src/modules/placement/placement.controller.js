@@ -123,4 +123,13 @@ export const placementController = {
       sendError(res, getStatusCode(error), error.message, error);
     }
   },
+
+  async createInvoice(req, res) {
+    try {
+      const placement = await placementService.createInvoice(req.params.id, req.body || {}, req.user.id);
+      sendResponse(res, 201, 'Invoice created successfully', placement);
+    } catch (error) {
+      sendError(res, getStatusCode(error), error.message, error);
+    }
+  },
 };

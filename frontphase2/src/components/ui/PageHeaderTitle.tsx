@@ -101,19 +101,19 @@ export function PageHeaderTitle({
 }: PageHeaderTitleProps) {
   const g = GRADIENTS[gradient] ?? GRADIENTS.blue;
   return (
-    <div className={`flex items-start gap-3 sm:gap-4 ${className}`}>
+    <div className={`flex items-center gap-3 sm:gap-4 ${className}`}>
       <div
-        className={`mt-0.5 flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-white shadow-lg ring-1 ring-white/20 ${g.bg} ${g.shadow}`}
+        className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-white shadow-lg ring-1 ring-white/20 ${g.bg} ${g.shadow}`}
       >
         {icon}
       </div>
-      <div className="min-w-0">
+      <div className="flex min-w-0 items-center">
         <h1
           className={`${
             compact
               ? 'text-xl sm:text-2xl'
               : 'text-2xl sm:text-[1.65rem]'
-          } font-bold tracking-tight text-slate-900 leading-tight`}
+          } font-bold tracking-tight text-slate-900 leading-none`}
         >
           {title}
         </h1>

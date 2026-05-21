@@ -8,6 +8,7 @@ import {
   Eye,
   FileText,
   MoreHorizontal,
+  Receipt,
 } from 'lucide-react';
 import { ImageWithFallback } from '../ImageWithFallback';
 import type { Placement } from '../../types/placement';
@@ -38,6 +39,7 @@ interface PlacementsTableProps {
   onMarkFailed?: (placement: Placement, mode: 'FAILED' | 'NO_SHOW') => void;
   onRequestReplacement?: (placement: Placement) => void;
   onDelete?: (placement: Placement) => void;
+  onCreateInvoice?: (placement: Placement) => void;
   onPageChange: (page: number) => void;
   /** Parent provides frosted card + footer pagination (Leads-style). */
   embedded?: boolean;
@@ -235,6 +237,7 @@ export function PlacementsTable({
   onMarkFailed,
   onRequestReplacement,
   onDelete,
+  onCreateInvoice,
   onPageChange,
   embedded = false,
 }: PlacementsTableProps) {
@@ -403,6 +406,22 @@ export function PlacementsTable({
                       >
                         <FileText className="h-4 w-4" />
                       </button>
+
+                      {onCreateInvoice ? (
+                        <button
+                          type="button"
+                          disabled={!(placement.placementFee && placement.placementFee > 0)}
+                          onClick={() => onCreateInvoice(placement)}
+                          className="rounded-lg p-2 text-slate-400 hover:bg-amber-50 hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-40"
+                          title={
+                            placement.invoiceNumber
+                              ? `Create another invoice (latest: ${placement.invoiceNumber})`
+                              : 'Create invoice'
+                          }
+                        >
+                          <Receipt className="h-4 w-4" />
+                        </button>
+                      ) : null}
 
                       {onMarkJoined && (
                         <button

@@ -1,4 +1,214 @@
 const { prisma } = require('../lib/prisma');
+const { getCandidateCommonPrisma } = require('../lib/candidateCommonPrisma');
+const { destroyByCloudinaryUrl } = require('../lib/s3');
+
+const CANDIDATE_DELETE_PREVIEW_INCLUDE = {
+  profile: true,
+  summary: true,
+  gapExplanation: true,
+  internship: true,
+  portfolioLinks: true,
+  educations: { orderBy: { startYear: 'desc' } },
+  workExperiences: { orderBy: { startDate: 'desc' } },
+  skills: { include: { skill: true } },
+  languages: true,
+  careerPreferences: true,
+  resume: true,
+  resumeVersions: { orderBy: { createdAt: 'desc' } },
+  project: true,
+  academicAchievement: true,
+  competitiveExam: true,
+  certifications: { orderBy: { createdAt: 'desc' } },
+  accomplishments: { orderBy: { createdAt: 'desc' } },
+  visaWorkAuthorization: true,
+  vaccination: true,
+  cvAnalysis: true,
+  applications: {
+    orderBy: { appliedAt: 'desc' },
+    include: {
+      job: { select: { id: true, title: true, company: true, location: true } },
+    },
+  },
+  savedJobs: {
+    include: { job: { select: { id: true, title: true, company: true } } },
+  },
+  recruiterMatches: {
+    include: { job: { select: { id: true, title: true, company: true } } },
+  },
+  pipelineEntries: true,
+  notifications: { take: 20, orderBy: { createdAt: 'desc' } },
+  dashboardStats: true,
+  courseEnrollments: { take: 20, orderBy: { enrolledAt: 'desc' } },
+  _count: {
+    select: {
+      applications: true,
+      savedJobs: true,
+      recruiterMatches: true,
+      notifications: true,
+      courseEnrollments: true,
+      resumeVersions: true,
+      otpVerifications: true,
+    },
+  },
+};
+
+function jsonSafe(value) {
+  return JSON.parse(
+    JSON.stringify(value, (_key, v) => {
+      if (v instanceof Date) return v.toISOString();
+      return v;
+    })
+  );
+}
+
+function buildPhase1DeletePreview(candidate) {
+  const {
+    profile,
+    summary,
+    gapExplanation,
+    internship,
+    portfolioLinks,
+    educations,
+    workExperiences,
+    skills,
+    languages,
+    careerPreferences,
+    resume,
+    resumeVersions,
+    project,
+    academicAchievement,
+    competitiveExam,
+    certifications,
+    accomplishments,
+    visaWorkAuthorization,
+    vaccination,
+    cvAnalysis,
+    applications,
+    savedJobs,
+    recruiterMatches,
+    pipelineEntries,
+    notifications,
+    dashboardStats,
+    courseEnrollments,
+    _count,
+    ...core
+  } = candidate;
+
+  return jsonSafe({
+    core: {
+      id: core.id,
+      whatsappNumber: core.whatsappNumber,
+      countryCode: core.countryCode,
+      isVerified: core.isVerified,
+      firstName: core.firstName,
+      lastName: core.lastName,
+      email: core.email,
+      phone: core.phone,
+      linkedIn: core.linkedIn,
+      resumeUrl: core.resumeUrl,
+      recruiterSkills: core.recruiterSkills,
+      experienceYears: core.experienceYears,
+      currentTitle: core.currentTitle,
+      currentCompany: core.currentCompany,
+      location: core.location,
+      addressLine: core.addressLine,
+      city: core.city,
+      country: core.country,
+      recruiterStatus: core.recruiterStatus,
+      source: core.source,
+      rating: core.rating,
+      availability: core.availability,
+      noticePeriod: core.noticePeriod,
+      hotlist: core.hotlist,
+      avatar: core.avatar,
+      designation: core.designation,
+      expectedSalary: core.expectedSalary,
+      currentSalary: core.currentSalary,
+      recruiterEducation: core.recruiterEducation,
+      certificationsList: core.certificationsList,
+      recruiterLanguages: core.recruiterLanguages,
+      portfolio: core.portfolio,
+      website: core.website,
+      recruiterNotes: core.recruiterNotes,
+      cvSummary: core.cvSummary,
+      cvEducationEntries: core.cvEducationEntries,
+      cvWorkExperienceEntries: core.cvWorkExperienceEntries,
+      cvPortfolioLinks: core.cvPortfolioLinks,
+      preferredLocation: core.preferredLocation,
+      assignedJobs: core.assignedJobs,
+      stage: core.stage,
+      lastActivity: core.lastActivity,
+      createdAt: core.createdAt,
+      updatedAt: core.updatedAt,
+    },
+    profile,
+    summary,
+    gapExplanation,
+    internship,
+    portfolioLinks,
+    educations,
+    workExperiences,
+    skills: (skills || []).map((cs) => ({
+      ...cs,
+      skillName: cs.skill?.name || null,
+    })),
+    languages,
+    careerPreferences,
+    resume: resume
+      ? {
+          fileName: resume.fileName,
+          fileUrl: resume.fileUrl,
+          uploadedAt: resume.uploadedAt,
+          aiAnalyzed: resume.aiAnalyzed,
+          resumeJson: resume.resumeJson,
+        }
+      : null,
+    resumeVersions,
+    project,
+    academicAchievement,
+    competitiveExam,
+    certifications,
+    accomplishments,
+    visaWorkAuthorization,
+    vaccination,
+    cvAnalysis,
+    applications: (applications || []).map((app) => ({
+      id: app.id,
+      status: app.status,
+      matchScore: app.matchScore,
+      appliedAt: app.appliedAt,
+      job: app.job,
+    })),
+    savedJobs: (savedJobs || []).map((row) => ({
+      id: row.id,
+      savedAt: row.savedAt,
+      job: row.job,
+    })),
+    matches: (recruiterMatches || []).map((m) => ({
+      id: m.id,
+      score: m.score,
+      status: m.status,
+      notes: m.notes,
+      job: m.job,
+    })),
+    pipelineEntries,
+    notifications,
+    dashboardStats,
+    courseEnrollments,
+    relatedCounts: _count,
+  });
+}
+
+async function fetchCandidateCommonRow(candidateId) {
+  const commonPrisma = getCandidateCommonPrisma();
+  if (!commonPrisma) {
+    return { row: null, configured: false };
+  }
+  const row = await commonPrisma.candidateCommon.findUnique({
+    where: { candidateId },
+  });
+  return { row: row ? jsonSafe(row) : null, configured: true };
+}
 
 /**
  * Get all candidates
@@ -268,9 +478,165 @@ async function getCandidateById(req, res) {
 }
 
 /**
+ * Full Phase 1 + candidate common snapshot before delete (super admin).
+ * GET /api/candidates/:id/delete-preview
+ */
+async function getCandidateDeletePreview(req, res) {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Candidate ID is required',
+      });
+    }
+
+    const candidate = await prisma.candidate.findUnique({
+      where: { id },
+      include: CANDIDATE_DELETE_PREVIEW_INCLUDE,
+    });
+
+    if (!candidate) {
+      return res.status(404).json({
+        success: false,
+        message: 'Candidate not found',
+      });
+    }
+
+    const common = await fetchCandidateCommonRow(id);
+
+    return res.json({
+      success: true,
+      data: {
+        candidateId: id,
+        phase1: buildPhase1DeletePreview(candidate),
+        common: common.row,
+        commonDatabaseConfigured: common.configured,
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching candidate delete preview:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch candidate delete preview',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+}
+
+/**
+ * Bulk delete preview for super admin.
+ * POST /api/candidates/delete-preview  body: { ids: string[] }
+ */
+async function getCandidatesDeletePreview(req, res) {
+  try {
+    const ids = Array.isArray(req.body?.ids)
+      ? [...new Set(req.body.ids.map((v) => String(v || '').trim()).filter(Boolean))]
+      : [];
+
+    if (ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'At least one candidate ID is required',
+      });
+    }
+
+    if (ids.length > 25) {
+      return res.status(400).json({
+        success: false,
+        message: 'Maximum 25 candidates per delete preview request',
+      });
+    }
+
+    const candidates = await prisma.candidate.findMany({
+      where: { id: { in: ids } },
+      include: CANDIDATE_DELETE_PREVIEW_INCLUDE,
+    });
+
+    const commonPrisma = getCandidateCommonPrisma();
+    const commonConfigured = Boolean(commonPrisma);
+    let commonByCandidateId = new Map();
+
+    if (commonPrisma) {
+      const commonRows = await commonPrisma.candidateCommon.findMany({
+        where: { candidateId: { in: ids } },
+      });
+      commonByCandidateId = new Map(
+        commonRows.map((row) => [row.candidateId, jsonSafe(row)])
+      );
+    }
+
+    const previews = candidates.map((candidate) => ({
+      candidateId: candidate.id,
+      label:
+        candidate.profile?.fullName ||
+        candidate.profile?.email ||
+        candidate.email ||
+        candidate.id,
+      phase1: buildPhase1DeletePreview(candidate),
+      common: commonByCandidateId.get(candidate.id) || null,
+      commonDatabaseConfigured: commonConfigured,
+    }));
+
+    const missingIds = ids.filter((id) => !candidates.some((c) => c.id === id));
+
+    return res.json({
+      success: true,
+      data: {
+        previews,
+        missingIds,
+        commonDatabaseConfigured: commonConfigured,
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching bulk candidate delete preview:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch candidate delete previews',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+}
+
+/**
+ * Hard delete: remove candidate and all related Phase 1 rows + common DB + resume files.
+ */
+async function purgeCandidateCommonById(id) {
+  const commonPrisma = getCandidateCommonPrisma();
+  if (!commonPrisma) return { removed: false, configured: false };
+  const result = await commonPrisma.candidateCommon.deleteMany({ where: { candidateId: id } });
+  return { removed: result.count > 0, configured: true, count: result.count };
+}
+
+async function purgeCandidateResumeFiles(id) {
+  const resumes = await prisma.resume.findMany({
+    where: { candidateId: id },
+    select: { fileUrl: true },
+  });
+  const profile = await prisma.candidateProfile.findUnique({
+    where: { candidateId: id },
+    select: { profilePhotoUrl: true },
+  });
+  const urls = [
+    ...resumes.map((r) => r.fileUrl).filter(Boolean),
+    profile?.profilePhotoUrl,
+  ].filter(Boolean);
+  for (const url of urls) {
+    try {
+      await destroyByCloudinaryUrl(url);
+    } catch {
+      /* ignore missing S3 objects */
+    }
+  }
+}
+
+/**
  * Manual cascade delete for MongoDB/Prisma (onDelete: Cascade is not always enforced).
  */
 async function purgeCandidateById(id) {
+  await purgeCandidateResumeFiles(id);
+
   const applications = await prisma.application.findMany({
     where: { candidateId: id },
     select: { id: true },
@@ -328,6 +694,8 @@ async function purgeCandidateById(id) {
     prisma.lmsInterviewSet.deleteMany({ where: { userId: id } }),
 
     prisma.otpVerification.deleteMany({ where: { candidateId: id } }),
+    prisma.settings.deleteMany({ where: { candidateId: id } }),
+    prisma.session.deleteMany({ where: { candidateId: id } }),
     prisma.resumeVersion.deleteMany({ where: { candidateId: id } }),
     prisma.resume.deleteMany({ where: { candidateId: id } }),
 
@@ -400,11 +768,22 @@ async function deleteCandidate(req, res) {
       });
     }
 
-    await purgeCandidateById(id);
+    const purgeResult = await purgeCandidateById(id);
 
     res.json({
       success: true,
-      message: 'Candidate deleted successfully',
+      message:
+        'Candidate permanently deleted from Phase 1 database' +
+        (purgeResult.commonPurge?.configured
+          ? purgeResult.commonPurge.removed
+            ? ' and candidate common database'
+            : ' (no common database row found)'
+          : ''),
+      data: {
+        candidateId: id,
+        hardDelete: true,
+        commonDatabaseRemoved: Boolean(purgeResult.commonPurge?.removed),
+      },
     });
   } catch (error) {
     console.error('Error deleting candidate:', error);
@@ -471,9 +850,14 @@ async function bulkDeleteCandidates(req, res) {
 
     return res.json({
       success: true,
-      message: `${deletedCount} candidate(s) deleted successfully`,
+      message: `${deletedCount} candidate(s) permanently deleted from Phase 1` +
+        (commonRemoved.length
+          ? `; ${commonRemoved.length} also removed from candidate common database`
+          : ''),
       data: {
         count: deletedCount,
+        hardDelete: true,
+        commonDatabaseRemovedIds: commonRemoved,
         failed,
       },
     });
@@ -490,6 +874,8 @@ async function bulkDeleteCandidates(req, res) {
 module.exports = {
   getAllCandidates,
   getCandidateById,
+  getCandidateDeletePreview,
+  getCandidatesDeletePreview,
   deleteCandidate,
   bulkDeleteCandidates,
 };

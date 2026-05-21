@@ -207,9 +207,15 @@ export function analyzeDataset(rows = []) {
   const insights = buildInsights(classification, safeRows.length);
 
   const top = recommendations[0];
+  const partitionCategoryField =
+    classification.statusFields[0]?.key ||
+    classification.categoryFields.find((f) => !/(^name$|title|company|client|email|candidate|description)/i.test(f.key))
+      ?.key ||
+    classification.categoryFields[0]?.key ||
+    null;
   const suggested = {
     chartType: top?.id || 'table',
-    categoryField: classification.categoryFields[0]?.key || classification.statusFields[0]?.key || null,
+    categoryField: partitionCategoryField,
     valueField:
       classification.numberFields.find((f) => NUMERIC_AGG_RE.test(f.key))?.key ||
       classification.numberFields[0]?.key ||

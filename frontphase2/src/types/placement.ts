@@ -89,6 +89,7 @@ export interface Placement {
   createdAt: string;
   updatedAt: string;
   paymentStatus?: BillingPaymentStatus;
+  currency?: string | null;
   invoiceNumber?: string | null;
   offerLetterUrl?: string | null;
   candidate: {
@@ -105,6 +106,9 @@ export interface Placement {
   client: {
     id: string;
     companyName: string;
+    emails?: string[];
+    teamMemberEmail?: string | null;
+    contacts?: Array<{ email?: string | null; contactType?: string | null }>;
   };
   recruiter?: {
     id: string;

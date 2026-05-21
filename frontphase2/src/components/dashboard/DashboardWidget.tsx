@@ -3,7 +3,18 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Copy, Expand, GripVertical, RefreshCcw, Settings2, Trash2, X } from 'lucide-react';
 import { apiDashboardDataset } from '../../lib/dashboard/api';
-import { filterWidgetChartRecommendations, resolveWidgetConfig } from '../../lib/dashboard/chartData';
+import {
+  buildWidgetTitle,
+  filterWidgetChartRecommendations,
+  isMetricsDatasetId,
+  isPartitionChartType,
+  resolveWidgetConfig,
+} from '../../lib/dashboard/chartData';
+
+function datasetKindFromId(datasetId: string, kind?: 'list' | 'metrics') {
+  if (kind) return kind;
+  return isMetricsDatasetId(datasetId) ? 'metrics' : 'list';
+}
 import type { DashboardFilterDef, DashboardWidget, WidgetConfig, WidgetFilters } from '../../lib/dashboard/types';
 import { DashboardFilterFields } from './DashboardFilterFields';
 import { WidgetChart } from './WidgetChart';
@@ -67,14 +78,32 @@ export function DashboardWidgetCard({ widget, editMode, onUpdate, onRemove, onDu
     widget.chartType === 'expandableTable' ||
     widget.chartType === 'pivotTable';
 
-  const config: WidgetConfig = resolveWidgetConfig(datasetId, (data?.rows as Record<string, unknown>[]) || [], {
-    categoryField: widget.config?.categoryField || suggested?.categoryField || undefined,
-    valueField: widget.config?.valueField || suggested?.valueField || undefined,
-    timeField: widget.config?.timeField || suggested?.timeField || undefined,
-    sort: widget.config?.sort,
-    showLegend: widget.config?.showLegend,
-    aggregation: widget.config?.aggregation,
-  });
+  const config: WidgetConfig = resolveWidgetConfig(
+    datasetId,
+    (data?.rows as Record<string, unknown>[]) || [],
+    {
+      categoryField: widget.config?.categoryField || suggested?.categoryField || undefined,
+      valueField: widget.config?.valueField || suggested?.valueField || undefined,
+      timeField: widget.config?.timeField || suggested?.timeField || undefined,
+      sort: widget.config?.sort,
+      showLegend: widget.config?.showLegend,
+      aggregation: widget.config?.aggregation,
+    },
+    widget.chartType,
+  );
+
+  const datasetLabel = data?.dataset?.label;
+  const chartRecLabel = filterWidgetChartRecommendations(data?.analysis?.recommendations || [], {
+    datasetId,
+    datasetKind: data?.dataset?.kind,
+  }).find((r) => r.id === widget.chartType)?.label;
+
+  const displayTitle =
+    datasetLabel && isPartitionChartType(widget.chartType)
+      ? buildWidgetTitle(datasetLabel, widget.chartType, chartRecLabel)
+      : widget.title;
+
+  const datasetSubtitle = datasetLabel || widget.module || data?.dataset?.module || widget.datasetId;
 
   const panel = (
     <div
@@ -93,11 +122,9 @@ export function DashboardWidgetCard({ widget, editMode, onUpdate, onRemove, onDu
               className="w-full truncate bg-transparent text-sm font-semibold text-slate-900 outline-none"
             />
           ) : (
-            <h3 className="truncate text-sm font-semibold text-slate-900">{widget.title}</h3>
+            <h3 className="truncate text-sm font-semibold text-slate-900">{displayTitle}</h3>
           )}
-          <p className="truncate text-[10px] text-slate-500">
-            {widget.module || data?.dataset?.module || widget.datasetId}
-          </p>
+          <p className="truncate text-[10px] text-slate-500">{datasetSubtitle}</p>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
           <button type="button" onClick={() => void load()} className="rounded p-1 text-slate-500 hover:bg-slate-100" title="Refresh">
@@ -143,7 +170,10 @@ export function DashboardWidgetCard({ widget, editMode, onUpdate, onRemove, onDu
               onChange={(e) => onUpdate({ ...widget, chartType: e.target.value })}
               className="w-full rounded border border-slate-200 px-2 py-1"
             >
-              {filterWidgetChartRecommendations(data?.analysis?.recommendations || []).map((r) => (
+              {filterWidgetChartRecommendations(data?.analysis?.recommendations || [], {
+                datasetId,
+                datasetKind: datasetKindFromId(datasetId, data?.dataset?.kind),
+              }).map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.label} ({r.suitability}%)
                 </option>

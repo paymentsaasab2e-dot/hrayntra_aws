@@ -19,6 +19,8 @@ export type KycDocumentsFieldProps = {
   uploadSuccess?: boolean;
   uploadPercent?: number;
   uploadsBase?: string;
+  label?: string;
+  description?: string;
 };
 
 export function KycDocumentsField({
@@ -31,6 +33,8 @@ export function KycDocumentsField({
   uploadSuccess,
   uploadPercent = 0,
   uploadsBase = '',
+  label = 'KYC Documents',
+  description = 'Upload identity or compliance documents (PDF, DOC, DOCX, JPG, PNG). Up to 10MB each. You can add multiple files.',
 }: KycDocumentsFieldProps) {
   const inputId = useId();
 
@@ -40,12 +44,9 @@ export function KycDocumentsField({
         htmlFor={inputId}
         className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1"
       >
-        KYC Documents
+        {label}
       </label>
-      <p className="text-xs text-slate-500 mb-2">
-        Upload identity or compliance documents (PDF, DOC, DOCX, JPG, PNG). Up to 10MB each. You can
-        add multiple files.
-      </p>
+      <p className="text-xs text-slate-500 mb-2">{description}</p>
 
       {(storedFiles.length > 0 || pendingFiles.length > 0) && (
         <ul className="mb-2 space-y-2">

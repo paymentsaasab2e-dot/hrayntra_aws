@@ -4,7 +4,7 @@ import React from 'react';
 // (Longlist / Shortlist / Submitted / Rejected are still tracked in stats and
 // surfaced through the Filters drawer, but kept out of the top-level tab row.)
 const stages = [
-  { id: 'all', label: 'All', countKey: 'all' as const },
+  { id: 'all', label: 'All candidates', countKey: 'all' as const },
   { id: 'applied', label: 'Applied', countKey: 'applied' as const },
   { id: 'screening', label: 'Screening', countKey: 'screening' as const },
   { id: 'interviewing', label: 'Interviewing', countKey: 'interviewing' as const },

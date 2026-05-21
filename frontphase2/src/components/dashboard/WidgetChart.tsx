@@ -11,7 +11,6 @@ import {
   Funnel,
   FunnelChart,
   LabelList,
-  Legend,
   Line,
   LineChart,
   Pie,
@@ -40,6 +39,62 @@ function ChartShell({ height, children }: { height: number; children: React.Reac
   );
 }
 
+type PartitionSlice = { name: string; value: number };
+
+function PartitionPieTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: Array<{ name?: string; value?: number; payload?: PartitionSlice }>;
+}) {
+  if (!active || !payload?.length) return null;
+  const item = payload[0];
+  const name = item?.name ?? item?.payload?.name ?? '';
+  const value = Number(item?.value ?? item?.payload?.value ?? 0);
+  return (
+    <div
+      className="rounded-xl border border-indigo-200/60 bg-white px-3 py-2 text-xs shadow-lg"
+      style={CHART_TOOLTIP_STYLE as React.CSSProperties}
+    >
+      <p className="font-semibold text-slate-900">{name}</p>
+      <p className="mt-0.5 tabular-nums text-slate-600">{value.toLocaleString()} records</p>
+    </div>
+  );
+}
+
+function PartitionChartLegend({
+  data,
+  showLegend,
+}: {
+  data: PartitionSlice[];
+  showLegend: boolean;
+}) {
+  if (!showLegend || !data.length) return null;
+  const total = data.reduce((sum, item) => sum + item.value, 0) || 1;
+
+  return (
+    <ul className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
+      {data.map((item, i) => {
+        const pct = Math.round((item.value / total) * 100);
+        return (
+          <li key={`${item.name}-${i}`} className="flex items-center gap-2 text-xs">
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-full"
+              style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }}
+              aria-hidden
+            />
+            <span className="font-medium text-slate-800">{item.name}</span>
+            <span className="tabular-nums text-slate-500">
+              {item.value.toLocaleString()} · {pct}%
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 type Props = {
   chartType: string;
   rows: Record<string, unknown>[];
@@ -61,7 +116,9 @@ export function WidgetChart({
   expandTable = false,
 }: Props) {
   const built = buildChartSeries(rows, chartType, config, datasetId);
-  const { series, tableRows, kpiValue } = built;
+  const { series, tableRows, kpiValue, partitionMetricsBlocked } = built as typeof built & {
+    partitionMetricsBlocked?: boolean;
+  };
 
   if (chartType === 'kpi' || chartType === 'counter' || chartType === 'gauge') {
     const display = chartType === 'counter' ? kpiValue : kpiValue;
@@ -122,6 +179,17 @@ export function WidgetChart({
   const horizontal = chartType === 'horizontalBar';
 
   if (chartType === 'pie' || chartType === 'donut') {
+    if (partitionMetricsBlocked) {
+      return (
+        <div className="flex h-full min-h-[120px] flex-col items-center justify-center gap-2 px-4 text-center text-sm text-slate-600">
+          <p className="font-medium text-slate-800">Use a list dataset for this chart</p>
+          <p className="text-xs text-slate-500">
+            Pie and donut charts show status breakdowns (e.g. All clients). Remove this widget and
+            add one from <strong>All clients</strong>, not Client metrics.
+          </p>
+        </div>
+      );
+    }
     const pieData = series.filter((s) => s.value > 0);
     if (!pieData.length) {
       return (
@@ -130,27 +198,46 @@ export function WidgetChart({
         </div>
       );
     }
+    const showLegend = config.showLegend !== false;
+    const total = pieData.reduce((sum, item) => sum + item.value, 0);
+    const legendBlockHeight = showLegend ? 88 : 0;
+    const chartHeight = Math.max(160, height - legendBlockHeight);
+
     return (
-      <ChartShell height={height}>
-        <PieChart>
-          <Pie
-            data={pieData}
-            dataKey="value"
-            nameKey="name"
-            cx="50%"
-            cy="50%"
-            innerRadius={chartType === 'donut' ? 52 : 0}
-            outerRadius={88}
-            paddingAngle={2}
-          >
-            {pieData.map((_, i) => (
-              <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-            ))}
-          </Pie>
-          <Tooltip />
-          {config.showLegend !== false ? <Legend /> : null}
-        </PieChart>
-      </ChartShell>
+      <div className="flex h-full min-h-[200px] w-full flex-col" style={{ height }}>
+        <div className="min-h-0 w-full flex-1">
+          <ChartShell height={chartHeight}>
+            <PieChart>
+              <Pie
+                data={pieData}
+                dataKey="value"
+                nameKey="name"
+                cx="50%"
+                cy="50%"
+                innerRadius={chartType === 'donut' ? 52 : 0}
+                outerRadius={88}
+                paddingAngle={2}
+              >
+                {pieData.map((entry, i) => (
+                  <Cell key={`${entry.name}-${i}`} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip content={<PartitionPieTooltip />} />
+            </PieChart>
+          </ChartShell>
+        </div>
+        {showLegend ? (
+          <div className="shrink-0 border-t border-slate-100 pt-3 text-center">
+            <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              Breakdown
+            </p>
+            <PartitionChartLegend data={pieData} showLegend={showLegend} />
+            <p className="mt-2 text-[10px] tabular-nums text-slate-500">
+              Total {total.toLocaleString()}
+            </p>
+          </div>
+        ) : null}
+      </div>
     );
   }
 

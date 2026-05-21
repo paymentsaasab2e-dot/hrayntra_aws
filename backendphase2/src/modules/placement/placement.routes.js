@@ -51,6 +51,11 @@ router.get('/stats', requireAnyPermission(['placements_read']), placementControl
 router.get('/export', requireAnyPermission(['placements_read']), placementController.exportCsv);
 router.get('/', requireAnyPermission(['placements_read']), placementController.getAll);
 router.post('/', requireAnyPermission(['placements_create']), upload.single('offerLetter'), placementController.create);
+router.post(
+  '/:id/invoice',
+  requireAnyPermission(['create_invoice']),
+  placementController.createInvoice
+);
 router.get('/:id', requireAnyPermission(['placements_read']), placementController.getById);
 router.patch('/:id', requireAnyPermission(['placements_update']), placementController.update);
 router.patch('/:id/mark-joined', requireAnyPermission(['placements_update']), upload.single('joiningLetter'), placementController.markJoined);

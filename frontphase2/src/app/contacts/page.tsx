@@ -389,7 +389,6 @@ function ContactsPageContent() {
       <Toaster position="top-right" richColors />
       <Ph2ModulePageLayout
         title="Contacts"
-        subtitle="Manage client stakeholders, vendors, and hiring partners."
         icon={<BookUser className="h-5 w-5" strokeWidth={2.2} />}
         actions={
           <>

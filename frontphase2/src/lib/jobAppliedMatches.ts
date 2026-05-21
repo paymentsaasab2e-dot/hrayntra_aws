@@ -1,6 +1,76 @@
 import { apiCreateMatch, apiGetMatches, type BackendMatch } from './api';
 import type { JobCandidateItem } from '../components/drawers/JobDetailsDrawer';
 
+/** Stage label for job drawer / candidates tab — linked rows default to Applied. */
+export function resolveJobCandidateDisplayStage(currentStage?: string | null): string {
+  const normalized = String(currentStage || '').trim();
+  if (!normalized || normalized.toLowerCase() === 'new') return 'Applied';
+  return normalized;
+}
+
+export function isJobAppliedDisplayStage(stage?: string | null): boolean {
+  return resolveJobCandidateDisplayStage(stage) === 'Applied';
+}
+
+/** Match row workflow status — not the candidate CRM pipeline stage. */
+export function isMatchWorkflowStatus(status?: string | null): boolean {
+  const key = String(status || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '_');
+  if (!key) return false;
+  return (
+    key === 'SUGGESTED' ||
+    key === 'SHORTLISTED' ||
+    key === 'REVIEWED' ||
+    key === 'REJECTED' ||
+    key === 'SELECTED' ||
+    key === 'SUBMITTED' ||
+    key.startsWith('SENT_TO_PIPELINE')
+  );
+}
+
+/** Job drawer stage: CRM candidate stage first, never raw match status like SUGGESTED. */
+export function resolveJobCandidateStageFromMatchRow(
+  match: {
+    status?: string | null;
+    candidateStage?: string | null;
+    candidate?: { stage?: string | null } | null;
+  },
+  existingStage?: string | null,
+): string {
+  const seeded = String(existingStage || '').trim();
+  if (seeded && !isMatchWorkflowStatus(seeded)) {
+    return resolveJobCandidateDisplayStage(seeded);
+  }
+
+  const crmStage = String(match.candidateStage || match.candidate?.stage || '').trim();
+  if (crmStage && crmStage.toLowerCase() !== 'new') {
+    return crmStage;
+  }
+
+  const displayStatus = String(match.status || '').trim();
+  if (displayStatus && !isMatchWorkflowStatus(displayStatus)) {
+    return resolveJobCandidateDisplayStage(displayStatus);
+  }
+
+  return resolveJobCandidateDisplayStage(crmStage || 'Applied');
+}
+
+/** True when a match row represents a real job link (applied/manual), not AI score-only. */
+export function isJobLinkedBackendMatch(match: {
+  evaluation?: unknown;
+  createdById?: string | null;
+}): boolean {
+  const evaluation = match?.evaluation;
+  if (evaluation && typeof evaluation === 'object' && evaluation !== null && 'origin' in evaluation) {
+    const origin = String((evaluation as { origin?: string }).origin || '').toLowerCase();
+    if (origin === 'ai' || origin === 'tenant' || origin === 'phase1') return false;
+    if (origin === 'applied') return true;
+  }
+  return Boolean(match?.createdById);
+}
+
 export function parseJobCandidateScore(score: string | number | undefined): number {
   if (typeof score === 'number' && Number.isFinite(score)) return Math.round(score);
   const normalized = String(score ?? '')
@@ -80,7 +150,10 @@ export function mergeJobCandidatesWithAppliedMatches(
         (typeof match.experience === 'number' ? match.experience : 0),
       location: candidate.location || match.location || '—',
       phone: candidate.phone || match.phone || '',
-      currentStage: candidate.currentStage || match.status || 'Applied',
+      currentStage: resolveJobCandidateStageFromMatchRow(match, candidate.currentStage),
+      isJobAppliedCandidate:
+        candidate.isJobAppliedCandidate ??
+        isJobAppliedDisplayStage(resolveJobCandidateStageFromMatchRow(match, candidate.currentStage)),
     };
   });
 
@@ -115,6 +188,105 @@ type PipelineStagePayload = {
   }> | null;
 };
 
+type JobApplicationLike = {
+  candidateId?: string | null;
+  status?: string | null;
+  candidate?: {
+    id?: string | null;
+    firstName?: string | null;
+    lastName?: string | null;
+    email?: string | null;
+    avatar?: string | null;
+    currentTitle?: string | null;
+    currentCompany?: string | null;
+    experience?: number | null;
+    location?: string | null;
+    phone?: string | null;
+    stage?: string | null;
+  } | null;
+};
+
+/** Build seed rows from job application submissions (portal + tenant). */
+export function extractApplicationsJobCandidateItems(
+  applications: JobApplicationLike[] | null | undefined,
+  fallbackRecruiter = 'Unassigned',
+): JobCandidateItem[] {
+  const byId = new Map<string, JobCandidateItem>();
+  const rows = Array.isArray(applications) ? applications : [];
+
+  for (const app of rows) {
+    const c = app.candidate;
+    const id = String(app.candidateId || c?.id || '').trim();
+    if (!id || byId.has(id)) continue;
+    const fullName = `${c?.firstName || ''} ${c?.lastName || ''}`.trim() || '—';
+    byId.set(id, {
+      id,
+      candidateName: fullName,
+      email: c?.email ? String(c.email).trim() : undefined,
+      avatar: c?.avatar ? String(c.avatar).trim() : null,
+      designation: c?.currentTitle ? String(c.currentTitle).trim() : '',
+      company: c?.currentCompany ? String(c.currentCompany).trim() : '',
+      experience: typeof c?.experience === 'number' ? c.experience : 0,
+      location: c?.location ? String(c.location).trim() : '—',
+      phone: c?.phone ? String(c.phone).trim() : '',
+      currentStage: resolveJobCandidateDisplayStage(
+        String(app.status || c?.stage || 'Applied').trim() || 'Applied',
+      ),
+      isJobAppliedCandidate: true,
+      score: '-',
+      recruiter: fallbackRecruiter,
+      interviewStatus: 'Not scheduled',
+      lastActivity: '—',
+    });
+  }
+
+  return Array.from(byId.values());
+}
+
+function pickMergedJobCandidateStage(...stages: Array<string | null | undefined>): string {
+  const normalized = stages.map((value) => String(value || '').trim()).filter(Boolean);
+  for (const stage of normalized) {
+    if (!isMatchWorkflowStatus(stage)) {
+      return resolveJobCandidateDisplayStage(stage);
+    }
+  }
+  return resolveJobCandidateDisplayStage(normalized[0] || 'Applied');
+}
+
+/** Merge multiple seed lists (pipeline, applications, assigned) without duplicates. */
+export function mergeJobCandidateSeeds(
+  ...lists: JobCandidateItem[][]
+): JobCandidateItem[] {
+  const byId = new Map<string, JobCandidateItem>();
+  for (const list of lists) {
+    for (const row of list) {
+      if (!row?.id) continue;
+      const prev = byId.get(row.id);
+      if (!prev) {
+        byId.set(row.id, row);
+        continue;
+      }
+      const mergedStage = pickMergedJobCandidateStage(prev.currentStage, row.currentStage);
+      byId.set(row.id, {
+        ...prev,
+        ...row,
+        candidateName: prev.candidateName || row.candidateName,
+        email: prev.email || row.email,
+        designation: prev.designation || row.designation,
+        company: prev.company || row.company,
+        currentStage: mergedStage,
+        isJobAppliedCandidate: Boolean(
+          prev.isJobAppliedCandidate ||
+            row.isJobAppliedCandidate ||
+            isJobAppliedDisplayStage(mergedStage),
+        ),
+        score: prev.score !== '-' ? prev.score : row.score,
+      });
+    }
+  }
+  return Array.from(byId.values());
+}
+
 /** Build seed rows from job pipeline entries (candidates in this job's pipeline). */
 export function extractPipelineJobCandidateItems(
   backendJob: { pipelineStages?: PipelineStagePayload[] | null } | null | undefined,
@@ -142,6 +314,7 @@ export function extractPipelineJobCandidateItems(
         location: c?.location ? String(c.location).trim() : '—',
         phone: c?.phone ? String(c.phone).trim() : '',
         currentStage: stageName,
+        isJobAppliedCandidate: isJobAppliedDisplayStage(stageName),
         score: '-',
         recruiter: fallbackRecruiter,
         interviewStatus: 'Not scheduled',

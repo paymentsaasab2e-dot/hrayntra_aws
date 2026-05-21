@@ -5,13 +5,42 @@ const { Mistral } = require('@mistralai/mistralai');
 const pdfParse = require('pdf-parse');
 const path = require('path');
 
-// Initialize AI services
-const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+/** Treat placeholder .env values as unset so fallbacks can run. */
+function isConfiguredApiKey(value) {
+  const key = String(value || '').trim();
+  if (!key || key.length < 8) return false;
+  const lower = key.toLowerCase();
+  const placeholderHints = [
+    'your-key',
+    'your_key',
+    'your-api',
+    'api-key-here',
+    'changeme',
+    'placeholder',
+    'insert',
+    'example',
+    'todo',
+    'replace',
+  ];
+  return !placeholderHints.some((hint) => lower.includes(hint));
+}
 
-// Initialize AI clients
+const MISTRAL_API_KEY = isConfiguredApiKey(process.env.MISTRAL_API_KEY)
+  ? process.env.MISTRAL_API_KEY
+  : null;
+const GEMINI_API_KEY = isConfiguredApiKey(process.env.GEMINI_API_KEY)
+  ? process.env.GEMINI_API_KEY
+  : null;
+const ANTHROPIC_API_KEY = isConfiguredApiKey(process.env.ANTHROPIC_API_KEY)
+  ? process.env.ANTHROPIC_API_KEY
+  : null;
+const OPENAI_API_KEY = isConfiguredApiKey(process.env.OPENAI_API_KEY)
+  ? process.env.OPENAI_API_KEY
+  : null;
+
+const MISTRAL_CHAT_MODEL =
+  process.env.MISTRAL_CHAT_MODEL?.trim() || 'mistral-small-latest';
+
 const mistral = MISTRAL_API_KEY ? new Mistral({ apiKey: MISTRAL_API_KEY }) : null;
 const genAI = GEMINI_API_KEY ? new GoogleGenerativeAI(GEMINI_API_KEY) : null;
 const anthropic = ANTHROPIC_API_KEY ? new Anthropic({ apiKey: ANTHROPIC_API_KEY }) : null;
@@ -236,27 +265,90 @@ ${cleanResumeText}`;
 
   const { OPENAI_CHAT_MODEL } = require('../config/openaiModel');
 
-  if (!openai) {
-    throw new Error('OPENAI_API_KEY is required. Resume parsing uses only OpenAI gpt-4.1.');
+  let responseText = '';
+  let lastError = null;
+
+  if (openai) {
+    try {
+      console.log(`  📤 Using OpenAI (${OPENAI_CHAT_MODEL})...`);
+      const completion = await openai.chat.completions.create({
+        messages: [{ role: 'user', content: prompt }],
+        model: OPENAI_CHAT_MODEL,
+        temperature: 0.3,
+        max_tokens: 4096,
+      });
+      responseText = completion.choices[0]?.message?.content?.trim() || '';
+      if (responseText) {
+        console.log(`  ✅ Successfully used OpenAI (${OPENAI_CHAT_MODEL})`);
+      }
+    } catch (openaiError) {
+      lastError = openaiError;
+      console.warn(
+        `  ⚠️ OpenAI failed (${OPENAI_CHAT_MODEL}): ${openaiError?.message || openaiError}`
+      );
+    }
+  } else {
+    console.warn('  ⚠️ OpenAI not configured (missing or placeholder OPENAI_API_KEY)');
   }
 
-  let responseText = '';
-  try {
-    console.log(`  📤 Using OpenAI (${OPENAI_CHAT_MODEL})...`);
-    const completion = await openai.chat.completions.create({
-      messages: [{ role: 'user', content: prompt }],
-      model: OPENAI_CHAT_MODEL,
-      temperature: 0.3,
-      max_tokens: 4096,
-    });
-    responseText = completion.choices[0]?.message?.content?.trim() || '';
-    if (!responseText) {
-      throw new Error('Empty response from OpenAI');
+  if (!responseText && mistral) {
+    try {
+      console.log(`  📤 Using Mistral (${MISTRAL_CHAT_MODEL})...`);
+      const chatResponse = await mistral.chat.complete({
+        model: MISTRAL_CHAT_MODEL,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.3,
+        maxTokens: 4096,
+      });
+      responseText = chatResponse.choices[0]?.message?.content?.trim() || '';
+      if (responseText) {
+        console.log(`  ✅ Successfully used Mistral (${MISTRAL_CHAT_MODEL})`);
+      }
+    } catch (mistralError) {
+      lastError = mistralError;
+      console.warn(`  ⚠️ Mistral failed: ${mistralError?.message || mistralError}`);
     }
-    console.log(`  ✅ Successfully used OpenAI (${OPENAI_CHAT_MODEL})`);
-  } catch (openaiError) {
+  }
+
+  if (!responseText && genAI) {
+    try {
+      console.log('  📤 Using Google Gemini (gemini-1.5-flash)...');
+      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      responseText = response.text().trim();
+      if (responseText) {
+        console.log('  ✅ Successfully used Google Gemini');
+      }
+    } catch (geminiError) {
+      lastError = geminiError;
+      console.warn(`  ⚠️ Gemini failed: ${geminiError?.message || geminiError}`);
+    }
+  }
+
+  if (!responseText && anthropic) {
+    try {
+      console.log('  📤 Using Anthropic Claude...');
+      const message = await anthropic.messages.create({
+        model: 'claude-3-5-sonnet-20241022',
+        max_tokens: 4096,
+        messages: [{ role: 'user', content: prompt }],
+      });
+      responseText = message.content[0]?.text?.trim() || '';
+      if (responseText) {
+        console.log('  ✅ Successfully used Anthropic Claude');
+      }
+    } catch (anthropicError) {
+      lastError = anthropicError;
+      console.warn(`  ⚠️ Anthropic failed: ${anthropicError?.message || anthropicError}`);
+    }
+  }
+
+  if (!responseText) {
+    const hint =
+      'Configure a valid OPENAI_API_KEY, MISTRAL_API_KEY, GEMINI_API_KEY, or ANTHROPIC_API_KEY in backend1/.env (replace placeholder values like your-key-here).';
     throw new Error(
-      `OpenAI resume parse failed (${OPENAI_CHAT_MODEL}): ${openaiError?.message || openaiError}`
+      `Resume AI parsing failed. ${lastError?.message || 'No AI provider available'}. ${hint}`
     );
   }
   

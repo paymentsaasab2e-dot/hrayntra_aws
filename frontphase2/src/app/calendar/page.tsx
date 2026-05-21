@@ -288,9 +288,6 @@ export default function CalendarPage() {
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Recruiter Calendar</h1>
-            <p className="mt-1 text-sm text-slate-500">
-              Jobs created, interviews, client follow-ups, meetings, and task due dates in one place.
-            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">

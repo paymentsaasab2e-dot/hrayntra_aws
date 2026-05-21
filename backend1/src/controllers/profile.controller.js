@@ -631,13 +631,6 @@ async function updatePersonalInfo(req, res) {
     
     logProfileSave('Personal Information', 'upserted', candidateId, logData);
 
-    try {
-      const { scheduleCandidateCommonSync } = require('../services/candidateCommonSync.service');
-      scheduleCandidateCommonSync(candidateId);
-    } catch (commonSyncErr) {
-      console.warn('[candidateCommon] profile sync skipped:', commonSyncErr?.message);
-    }
-
     res.json({
       success: true,
       message: 'Personal information updated successfully',

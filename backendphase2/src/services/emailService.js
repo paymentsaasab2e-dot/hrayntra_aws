@@ -3,6 +3,7 @@ import { prisma } from '../config/prisma.js';
 import { env } from '../config/env.js';
 import { oauthTokenService } from '../modules/oauth/oauth-token.service.js';
 import { interviewScheduledTemplate } from '../utils/emailTemplates.js';
+import { buildPlacementInvoiceEmailHtml } from '../utils/invoiceEmailHtml.js';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 // Use the Resend configured from address; fallback to a generic placeholder.
@@ -36,7 +37,55 @@ function toBase64Url(value = '') {
     .replace(/=+$/g, '');
 }
 
-async function trySendWithConnectedGmail({ senderUserId, toEmail, subject, html }) {
+function buildGmailRawMessage({ fromEmail, toEmail, subject, html, attachments = [] }) {
+  const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
+  if (!hasAttachments) {
+    return [
+      `From: ${fromEmail}`,
+      `To: ${toEmail}`,
+      `Subject: ${subject}`,
+      'MIME-Version: 1.0',
+      'Content-Type: text/html; charset=UTF-8',
+      '',
+      html,
+    ].join('\r\n');
+  }
+
+  const boundary = `mixed_${Date.now()}`;
+  const parts = [
+    `From: ${fromEmail}`,
+    `To: ${toEmail}`,
+    `Subject: ${subject}`,
+    'MIME-Version: 1.0',
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    '',
+    `--${boundary}`,
+    'Content-Type: text/html; charset=UTF-8',
+    'Content-Transfer-Encoding: 7bit',
+    '',
+    html,
+  ];
+
+  for (const attachment of attachments) {
+    const filename = attachment.filename || 'attachment.pdf';
+    const content = Buffer.isBuffer(attachment.content)
+      ? attachment.content
+      : Buffer.from(String(attachment.content || ''), attachment.encoding || 'base64');
+    parts.push(
+      `--${boundary}`,
+      `Content-Type: ${attachment.contentType || 'application/pdf'}; name="${filename}"`,
+      'Content-Transfer-Encoding: base64',
+      `Content-Disposition: attachment; filename="${filename}"`,
+      '',
+      content.toString('base64'),
+    );
+  }
+
+  parts.push(`--${boundary}--`);
+  return parts.join('\r\n');
+}
+
+async function trySendWithConnectedGmail({ senderUserId, toEmail, subject, html, attachments = [] }) {
   if (!senderUserId) return { success: false, skipped: true };
 
   const oauth = await prisma.userOAuthTokens.findUnique({ where: { userId: senderUserId } });
@@ -57,15 +106,13 @@ async function trySendWithConnectedGmail({ senderUserId, toEmail, subject, html 
     return { success: false, skipped: true };
   }
 
-  const rawMessage = [
-    `From: ${oauth.googleEmail}`,
-    `To: ${toEmail}`,
-    `Subject: ${subject}`,
-    'MIME-Version: 1.0',
-    'Content-Type: text/html; charset=UTF-8',
-    '',
+  const rawMessage = buildGmailRawMessage({
+    fromEmail: oauth.googleEmail,
+    toEmail,
+    subject,
     html,
-  ].join('\r\n');
+    attachments,
+  });
 
   const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
     method: 'POST',
@@ -92,9 +139,33 @@ async function trySendWithConnectedGmail({ senderUserId, toEmail, subject, html 
   };
 }
 
-async function sendEmail({ senderUserId, toEmail, subject, html }) {
+async function sendEmail({ senderUserId, toEmail, subject, html, attachments = [] }) {
+  const normalizedAttachments = (Array.isArray(attachments) ? attachments : [])
+    .map((item) => {
+      const filename = String(item?.filename || 'attachment.pdf').trim();
+      const content = item?.content;
+      if (!content) return null;
+      return {
+        filename,
+        content: Buffer.isBuffer(content) ? content : Buffer.from(String(content), 'base64'),
+        contentType: item?.contentType || 'application/pdf',
+      };
+    })
+    .filter(Boolean);
+
+  const resendAttachments = normalizedAttachments.map((item) => ({
+    filename: item.filename,
+    content: item.content,
+  }));
+
   try {
-    const gmailResult = await trySendWithConnectedGmail({ senderUserId, toEmail, subject, html });
+    const gmailResult = await trySendWithConnectedGmail({
+      senderUserId,
+      toEmail,
+      subject,
+      html,
+      attachments: normalizedAttachments,
+    });
     if (gmailResult.success) {
       logEmailSent({
         provider: gmailResult.provider,
@@ -114,6 +185,7 @@ async function sendEmail({ senderUserId, toEmail, subject, html }) {
     to: toEmail,
     subject,
     html,
+    attachments: resendAttachments.length ? resendAttachments : undefined,
   });
 
   logEmailSent({
@@ -702,5 +774,76 @@ export async function sendInterviewPanelScheduledEmail(payload) {
   } catch (error) {
     console.error('Error sending interview panel scheduled email:', error);
     return { success: false, error: error.message || 'Failed to send email' };
+  }
+}
+
+/**
+ * Send placement invoice to the client billing contact.
+ */
+export async function sendPlacementInvoiceEmail(payload) {
+  try {
+    const toEmail = String(payload?.toEmail || '').trim();
+    if (!toEmail) {
+      return { success: false, error: 'Client email is required' };
+    }
+
+    const invoiceNumber = String(payload?.invoiceNumber || 'Invoice').trim();
+    const sellerName = String(payload?.seller?.name || 'Your agency').trim();
+    const subject =
+      String(payload?.subject || '').trim() ||
+      `Invoice ${invoiceNumber} from ${sellerName}`;
+
+    const html = buildPlacementInvoiceEmailHtml({
+      invoiceNumber,
+      invoiceDate: payload?.invoiceDate,
+      dueDate: payload?.dueDate,
+      currency: payload?.currency,
+      status: payload?.status || 'SENT',
+      seller: payload?.seller || {},
+      buyer: payload?.buyer || {},
+      lineItems: payload?.lineItems || [],
+      additionalCharges: payload?.additionalCharges || [],
+      subtotal: payload?.subtotal,
+      taxRate: payload?.taxRate,
+      taxAmount: payload?.taxAmount,
+      total: payload?.total,
+      notes: payload?.notes,
+      placementSummary: payload?.placementSummary,
+      settings: payload?.settings || {},
+    });
+
+    const pdfBase64 = String(payload?.pdfBase64 || '').trim();
+    const pdfFilename =
+      String(payload?.pdfFilename || '').trim() ||
+      `${invoiceNumber.replace(/[^\w-]+/g, '_') || 'invoice'}.pdf`;
+    const attachments = pdfBase64
+      ? [
+          {
+            filename: pdfFilename,
+            content: pdfBase64,
+            contentType: 'application/pdf',
+          },
+        ]
+      : [];
+
+    const htmlWithAttachmentNote = attachments.length
+      ? html.replace(
+          'Please find your placement invoice below.',
+          'Please find your placement invoice below. A PDF copy is attached to this email.',
+        )
+      : html;
+
+    await sendEmail({
+      senderUserId: payload?.senderUserId,
+      toEmail,
+      subject,
+      html: htmlWithAttachmentNote,
+      attachments,
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error sending placement invoice email:', error);
+    return { success: false, error: error.message || 'Failed to send invoice email' };
   }
 }

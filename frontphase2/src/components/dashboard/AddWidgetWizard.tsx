@@ -14,7 +14,16 @@ import type {
   WidgetFilters,
 } from '../../lib/dashboard/types';
 import { DashboardFilterFields } from './DashboardFilterFields';
-import { EXCLUDED_WIDGET_CHART_TYPES, filterWidgetChartRecommendations } from '../../lib/dashboard/chartData';
+import {
+  EXCLUDED_WIDGET_CHART_TYPES,
+  PARTITION_CHART_TYPES,
+  PARTITION_FIELD_BY_DATASET,
+  buildWidgetTitle,
+  filterWidgetChartRecommendations,
+  isMetricsDatasetId,
+  isPartitionChartType,
+  pickPrimaryListDataset,
+} from '../../lib/dashboard/chartData';
 
 type Props = {
   open: boolean;
@@ -56,14 +65,27 @@ function widgetSize(chartType: string) {
 }
 
 function analysisFromPayload(payload: DatasetPayload): DatasetAnalysisState {
-  const recommendations = filterWidgetChartRecommendations(payload.analysis.recommendations);
-  const suggestedType = EXCLUDED_WIDGET_CHART_TYPES.has(payload.analysis.suggested.chartType)
-    ? recommendations[0]?.id || 'table'
-    : payload.analysis.suggested.chartType;
+  const datasetKind = isMetricsDatasetId(payload.dataset.id) ? 'metrics' : 'list';
+  const recommendations = filterWidgetChartRecommendations(payload.analysis.recommendations, {
+    datasetId: payload.dataset.id,
+    datasetKind,
+  });
+  let suggestedType = payload.analysis.suggested.chartType;
+  if (EXCLUDED_WIDGET_CHART_TYPES.has(suggestedType)) {
+    suggestedType = recommendations[0]?.id || 'table';
+  }
+  if (isMetricsDatasetId(payload.dataset.id) && isPartitionChartType(suggestedType)) {
+    suggestedType = recommendations[0]?.id || 'bar';
+  }
+  const partitionField = PARTITION_FIELD_BY_DATASET[payload.dataset.id];
   return {
     recommendations,
     insights: payload.analysis.insights,
-    suggested: { ...payload.analysis.suggested, chartType: suggestedType },
+    suggested: {
+      ...payload.analysis.suggested,
+      chartType: suggestedType,
+      categoryField: partitionField || payload.analysis.suggested.categoryField,
+    },
     rowCount: payload.rowCount,
     label: payload.dataset.label,
   };
@@ -80,8 +102,6 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition, initialMod
   const [adding, setAdding] = useState(false);
   const [previewDatasetId, setPreviewDatasetId] = useState('');
   const [analysisByDataset, setAnalysisByDataset] = useState<Record<string, DatasetAnalysisState>>({});
-  const [title, setTitle] = useState('');
-
   const allDatasets = useMemo(
     () => modules.flatMap((m) => m.datasets.map((d) => ({ ...d, moduleName: m.name }))),
     [modules]
@@ -91,6 +111,16 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition, initialMod
     const mod = modules.find((m) => m.name === selectedModule);
     return mod?.datasets || [];
   }, [modules, selectedModule]);
+
+  const usesPartitionCharts = useMemo(
+    () => selectedChartTypes.some((t) => PARTITION_CHART_TYPES.has(t)),
+    [selectedChartTypes]
+  );
+
+  const selectableModuleDatasets = useMemo(() => {
+    if (!usesPartitionCharts) return moduleDatasets;
+    return moduleDatasets.filter((d) => d.kind === 'list');
+  }, [moduleDatasets, usesPartitionCharts]);
 
   const previewMeta = useMemo(
     () => allDatasets.find((d) => d.id === previewDatasetId) || moduleDatasets[0] || null,
@@ -121,7 +151,6 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition, initialMod
       .catch(() => setModules([]));
     setAnalysisByDataset({});
     setSelectedChartTypes([]);
-    setTitle('');
   }, [open, initialModule]);
 
   useEffect(() => {
@@ -143,9 +172,8 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition, initialMod
         setAnalysisByDataset((prev) => ({ ...prev, [previewDatasetId]: next }));
         setSelectedChartTypes((prev) => {
           if (prev.length) return prev;
-          return [payload.analysis.suggested.chartType];
+          return [next.suggested.chartType];
         });
-        setTitle((prev) => prev || payload.dataset.label);
       })
       .catch(() => {
         setAnalysisByDataset((prev) => {
@@ -159,8 +187,20 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition, initialMod
 
   useEffect(() => {
     if (!previewDatasetId || selectedDatasetIds.includes(previewDatasetId)) return;
-    setPreviewDatasetId(selectedDatasetIds[0] || moduleDatasets[0]?.id || '');
-  }, [selectedDatasetIds, previewDatasetId, moduleDatasets]);
+    setPreviewDatasetId(selectedDatasetIds[0] || selectableModuleDatasets[0]?.id || '');
+  }, [selectedDatasetIds, previewDatasetId, selectableModuleDatasets]);
+
+  useEffect(() => {
+    if (!usesPartitionCharts) return;
+    const allowed = new Set(selectableModuleDatasets.map((d) => d.id));
+    setSelectedDatasetIds((prev) => {
+      const next = prev.filter((id) => allowed.has(id));
+      return next.length ? next : selectableModuleDatasets[0] ? [selectableModuleDatasets[0].id] : [];
+    });
+    if (!allowed.has(previewDatasetId) && selectableModuleDatasets[0]) {
+      setPreviewDatasetId(selectableModuleDatasets[0].id);
+    }
+  }, [usesPartitionCharts, selectableModuleDatasets, previewDatasetId]);
 
   if (!open) return null;
 
@@ -180,8 +220,8 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition, initialMod
   };
 
   const selectAllInModule = () => {
-    const ids = moduleDatasets.map((d) => d.id);
-    setSelectedDatasetIds((prev) => [...new Set([...prev, ...ids])]);
+    const ids = selectableModuleDatasets.map((d) => d.id);
+    setSelectedDatasetIds(ids);
     if (ids[0]) setPreviewDatasetId(ids[0]);
   };
 
@@ -199,13 +239,18 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition, initialMod
   const handleModuleChange = (moduleName: string) => {
     setSelectedModule(moduleName);
     const mod = modules.find((m) => m.name === moduleName);
-    const first = mod?.datasets[0];
-    if (first && !selectedDatasetIds.length) {
+    const first = pickPrimaryListDataset(mod?.datasets || []);
+    if (first) {
       setSelectedDatasetIds([first.id]);
       setPreviewDatasetId(first.id);
       setFilterDefs(first.filters || []);
       setFilterValues(defaultFilters(first.filters || []));
+    } else {
+      setSelectedDatasetIds([]);
+      setPreviewDatasetId('');
     }
+    setSelectedChartTypes([]);
+    setAnalysisByDataset({});
   };
 
   const handleAdd = async () => {
@@ -231,6 +276,11 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition, initialMod
         const datasetMeta = allDatasets.find((d) => d.id === datasetId);
         const widgetModule = datasetMeta?.moduleName || datasetMeta?.module || selectedModule;
         const metaFilters = datasetMeta?.filters || payload?.filters || [];
+
+        if (isMetricsDatasetId(datasetId) && selectedChartTypes.some((t) => isPartitionChartType(t))) {
+          continue;
+        }
+
         const filtersForWidget =
           datasetId === previewDatasetId ? { ...filterValues } : defaultFilters(metaFilters);
 
@@ -238,12 +288,8 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition, initialMod
           const { w, h } = widgetSize(chartType);
           const chartLabel =
             payloadAnalysis.recommendations.find((r) => r.id === chartType)?.label || chartType;
-          const baseTitle = title.trim() || payloadAnalysis.label;
-          const widgetTitle = useSharedTitle
-            ? `${baseTitle} — ${chartLabel}`
-            : selectedChartTypes.length > 1
-              ? `${baseTitle} — ${chartLabel}`
-              : baseTitle;
+          const widgetTitle = buildWidgetTitle(payloadAnalysis.label, chartType, chartLabel);
+          const partitionField = PARTITION_FIELD_BY_DATASET[datasetId];
 
           newWidgets.push({
             id: `w_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -256,7 +302,10 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition, initialMod
             w,
             h,
             config: {
-              categoryField: payloadAnalysis.suggested.categoryField || undefined,
+              categoryField:
+                isPartitionChartType(chartType) && partitionField
+                  ? partitionField
+                  : payloadAnalysis.suggested.categoryField || undefined,
               valueField: payloadAnalysis.suggested.valueField || undefined,
               timeField: payloadAnalysis.suggested.timeField || undefined,
               showLegend: true,
@@ -333,8 +382,14 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition, initialMod
                 </button>
               </div>
             </div>
+            {usesPartitionCharts && selectableModuleDatasets.length < moduleDatasets.length ? (
+              <p className="mb-2 rounded-lg border border-indigo-100 bg-indigo-50/80 px-3 py-2 text-xs text-indigo-900">
+                Pie and donut charts use the main list dataset (e.g. All clients) and show counts by{' '}
+                <strong>status</strong>. KPI metric datasets are hidden for this chart type.
+              </p>
+            ) : null}
             <div className="max-h-40 space-y-1.5 overflow-y-auto rounded-xl border border-slate-200 p-2">
-              {moduleDatasets.map((d) => {
+              {selectableModuleDatasets.map((d) => {
                 const checked = selectedDatasetIds.includes(d.id);
                 return (
                   <label
@@ -467,15 +522,13 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition, initialMod
                 </div>
               </div>
 
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
-                Base title (optional)
-              </label>
-              <input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder={analysis.label}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              />
+              <p className="text-xs text-slate-500">
+                Widget titles are created automatically (e.g.{' '}
+                <span className="font-medium text-slate-700">
+                  {buildWidgetTitle(analysis.label, 'pie', 'Pie Chart')}
+                </span>
+                ).
+              </p>
             </>
           ) : null}
         </div>

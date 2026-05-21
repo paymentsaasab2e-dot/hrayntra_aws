@@ -52,6 +52,12 @@ export interface Candidate {
   /** Optional AI / applied match score (0–100) for job drawer and similar views */
   matchScore?: number;
   matchScoreBand?: string;
+  /** Phase 1 / candidatecommon pool */
+  isPhase1Candidate?: boolean;
+  /** Discovery-only — not yet linked to a tenant job */
+  isNewCandidate?: boolean;
+  /** Linked to a job via apply or assign — stage Applied */
+  isJobAppliedCandidate?: boolean;
 }
 
 interface CandidateTableProps {
@@ -166,13 +172,31 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                       </div>
                     </div>
                     <div>
-                      <button
-                        type="button"
-                        onClick={() => onViewProfile?.(candidate)}
-                        className="text-left text-sm font-semibold text-slate-900 hover:text-blue-600"
-                      >
-                        {candidate.name}
-                      </button>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => onViewProfile?.(candidate)}
+                          className="text-left text-sm font-semibold text-slate-900 hover:text-blue-600"
+                        >
+                          {candidate.name}
+                        </button>
+                        {candidate.isJobAppliedCandidate ? (
+                          <span className="inline-flex rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-blue-800">
+                            Applied
+                          </span>
+                        ) : candidate.isNewCandidate ? (
+                          <span className="inline-flex rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-800">
+                            New
+                          </span>
+                        ) : null}
+                        {candidate.isPhase1Candidate &&
+                        !candidate.isNewCandidate &&
+                        !candidate.isJobAppliedCandidate ? (
+                          <span className="inline-flex rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-violet-800">
+                            Phase 1
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
                 </td>

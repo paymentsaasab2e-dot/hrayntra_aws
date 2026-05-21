@@ -450,9 +450,7 @@ async function runMatchPipeline({
             : 'tenant',
       origin: isAppliedPipeline
         ? 'applied'
-        : String(ep.pair.rawCandidate?.source || '').toLowerCase() === 'phase1'
-          ? 'phase1'
-          : 'tenant',
+        : 'ai',
     };
 
     let candidateId = ep.pair.rawCandidate.id;

@@ -1,18 +1,30 @@
 const { prisma, retryQuery } = require('../lib/prisma');
 const { generateOTP, getOTPExpiration, isOTPExpired } = require('../utils/otp.util');
-const { generateCandidateId } = require('../utils/candidate.util');
+const { generateCandidateIdFromEmail } = require('../utils/candidate.util');
 const { sendOTPEmail } = require('../services/email.service');
 const { OtpStatus } = require('@prisma/client');
 const { isPortalPlaceholderFullName } = require('../utils/portal-profile-placeholder.util');
 const jwt = require('jsonwebtoken');
-const { scheduleCandidateCommonSync } = require('../services/candidateCommonSync.service');
 
-async function getOrCreateCandidateByWhatsApp({ candidateId, fullWhatsAppNumber, countryCode }) {
+async function getOrCreateCandidateForOtp({
+  candidateId,
+  normalizedEmail,
+  fullWhatsAppNumber,
+  countryCode,
+}) {
   let candidate = await retryQuery(async () => {
-    return await prisma.candidate.findUnique({
-      where: { id: candidateId },
+    return await prisma.candidate.findFirst({
+      where: { email: normalizedEmail },
     });
   });
+
+  if (!candidate) {
+    candidate = await retryQuery(async () => {
+      return await prisma.candidate.findUnique({
+        where: { id: candidateId },
+      });
+    });
+  }
 
   if (!candidate) {
     candidate = await retryQuery(async () => {
@@ -28,13 +40,15 @@ async function getOrCreateCandidateByWhatsApp({ candidateId, fullWhatsAppNumber,
         return await prisma.candidate.upsert({
           where: { id: candidateId },
           update: {
+            email: normalizedEmail,
             whatsappNumber: fullWhatsAppNumber,
-            countryCode: countryCode,
+            countryCode,
           },
           create: {
             id: candidateId,
+            email: normalizedEmail,
             whatsappNumber: fullWhatsAppNumber,
-            countryCode: countryCode,
+            countryCode,
             isVerified: false,
           },
         });
@@ -42,12 +56,13 @@ async function getOrCreateCandidateByWhatsApp({ candidateId, fullWhatsAppNumber,
     } catch (error) {
       if (error.code === 'P2002' || error.code === 'P2034') {
         candidate = await retryQuery(async () => {
-          return await prisma.candidate.findUnique({
-            where: { whatsappNumber: fullWhatsAppNumber },
+          return await prisma.candidate.findFirst({
+            where: {
+              OR: [{ email: normalizedEmail }, { whatsappNumber: fullWhatsAppNumber }],
+            },
           });
         });
       }
-
       if (!candidate) {
         throw error;
       }
@@ -55,6 +70,7 @@ async function getOrCreateCandidateByWhatsApp({ candidateId, fullWhatsAppNumber,
   }
 
   const needsUpdate =
+    (candidate.email || '').toLowerCase() !== normalizedEmail ||
     candidate.countryCode !== countryCode ||
     candidate.whatsappNumber !== fullWhatsAppNumber;
 
@@ -63,7 +79,8 @@ async function getOrCreateCandidateByWhatsApp({ candidateId, fullWhatsAppNumber,
       return await prisma.candidate.update({
         where: { id: candidate.id },
         data: {
-          countryCode: countryCode,
+          email: normalizedEmail,
+          countryCode,
           whatsappNumber: fullWhatsAppNumber,
         },
       });
@@ -110,11 +127,12 @@ async function sendOTP(req, res) {
 
     const fullWhatsAppNumber = `${countryCode}${cleanNumber}`;
 
-    // Generate unique ID based on WhatsApp number (deterministic - same number = same ID)
-    const candidateId = generateCandidateId(fullWhatsAppNumber);
+    // Deterministic candidate id from email (same Gmail = same account)
+    const candidateId = generateCandidateIdFromEmail(normalizedEmail);
 
-    let candidate = await getOrCreateCandidateByWhatsApp({
+    let candidate = await getOrCreateCandidateForOtp({
       candidateId,
+      normalizedEmail,
       fullWhatsAppNumber,
       countryCode,
     });
@@ -192,26 +210,40 @@ async function sendOTP(req, res) {
  */
 async function verifyOTP(req, res) {
   try {
-    const { whatsappNumber, countryCode, otp } = req.body;
+    const { whatsappNumber, countryCode, otp, email } = req.body;
 
-    // Validation
-    if (!whatsappNumber || !countryCode || !otp) {
+    if (!whatsappNumber || !countryCode || !otp || !email) {
       return res.status(400).json({
         success: false,
-        message: 'WhatsApp number, country code, and OTP are required',
+        message: 'WhatsApp number, country code, email, and OTP are required',
       });
     }
 
-    // Clean phone number
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(normalizedEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid email address',
+      });
+    }
+
     const cleanNumber = whatsappNumber.replace(/\D/g, '');
     const fullWhatsAppNumber = `${countryCode}${cleanNumber}`;
 
-    // Generate candidate ID from WhatsApp number (deterministic - same number = same ID)
-    const candidateId = generateCandidateId(fullWhatsAppNumber);
-    console.log('Verifying OTP for WhatsApp:', fullWhatsAppNumber, '| Candidate ID:', candidateId);
-
-    let candidate = await getOrCreateCandidateByWhatsApp({
+    const candidateId = generateCandidateIdFromEmail(normalizedEmail);
+    console.log(
+      'Verifying OTP for email:',
+      normalizedEmail,
+      '| WhatsApp:',
+      fullWhatsAppNumber,
+      '| Candidate ID:',
       candidateId,
+    );
+
+    let candidate = await getOrCreateCandidateForOtp({
+      candidateId,
+      normalizedEmail,
       fullWhatsAppNumber,
       countryCode,
     });
@@ -300,138 +332,18 @@ async function verifyOTP(req, res) {
       });
     });
 
-    // Check if candidate ID matches the generated ID based on WhatsApp number
-    // If not, we need to migrate to the correct ID
-    if (candidate.id !== candidateId) {
-      console.log('Candidate ID mismatch. Current:', candidate.id, 'Expected:', candidateId);
-      console.log('Migrating candidate to use ID based on WhatsApp number...');
-      
-      // Try to find candidate with the correct ID
-      let correctCandidate = await retryQuery(async () => {
-        return await prisma.candidate.findUnique({
-          where: { id: candidateId },
-        });
+    candidate = await retryQuery(async () => {
+      return await prisma.candidate.update({
+        where: { id: candidate.id },
+        data: {
+          isVerified: true,
+          email: normalizedEmail,
+          whatsappNumber: fullWhatsAppNumber,
+          countryCode,
+        },
       });
-
-      if (!correctCandidate) {
-        // Create new candidate with correct ID based on WhatsApp number
-        try {
-          // Create new candidate with correct ID
-          correctCandidate = await retryQuery(async () => {
-            return await prisma.candidate.create({
-              data: {
-                id: candidateId, // Use generated ID based on WhatsApp number
-                whatsappNumber: fullWhatsAppNumber,
-                countryCode: countryCode,
-                isVerified: true, // Mark as verified since OTP is verified
-              },
-            });
-          });
-          console.log('✅ Created candidate with correct ID and stored in DB:', correctCandidate.id);
-          console.log('✅ Candidate ID based on WhatsApp number:', candidateId);
-          console.log('✅ Verification: Stored ID matches generated ID:', correctCandidate.id === candidateId);
-
-          // Migrate all OTP verifications to new candidate
-          const otpCount = await retryQuery(async () => {
-            return await prisma.otpVerification.updateMany({
-              where: {
-                candidateId: candidate.id,
-              },
-              data: {
-                candidateId: correctCandidate.id,
-              },
-            });
-          });
-          console.log('Migrated', otpCount.count, 'OTP verifications to new candidate');
-
-          // Note: At this early stage (OTP verification), there shouldn't be other related data
-          // (profile, resume, etc.) as user hasn't completed registration yet
-          // If there is any, it will be lost, but that's acceptable at this stage
-
-          // Delete old candidate (cascade will clean up any remaining data)
-          await retryQuery(async () => {
-            return await prisma.candidate.delete({
-              where: { id: candidate.id },
-            });
-          });
-          console.log('Deleted old candidate with incorrect ID:', candidate.id);
-
-          candidate = correctCandidate;
-          
-          // Verify the candidate is stored in DB with correct ID
-          const verifyCandidate = await retryQuery(async () => {
-            return await prisma.candidate.findUnique({
-              where: { id: candidateId },
-            });
-          });
-          if (verifyCandidate) {
-            console.log('✅ VERIFICATION SUCCESS: Candidate stored in DB with ID:', verifyCandidate.id);
-            console.log('✅ WhatsApp Number:', verifyCandidate.whatsappNumber);
-            console.log('✅ Is Verified:', verifyCandidate.isVerified);
-          }
-        } catch (error) {
-          // If creation fails, log error but continue with existing candidate
-          console.error('Error migrating candidate to correct ID:', error);
-          // Mark existing candidate as verified
-          candidate = await retryQuery(async () => {
-            return await prisma.candidate.update({
-              where: { id: candidate.id },
-              data: { isVerified: true },
-            });
-          });
-        }
-      } else {
-        // Candidate with correct ID already exists
-        console.log('Candidate with correct ID already exists, migrating data...');
-        
-        // Update the existing candidate with correct ID
-        correctCandidate = await retryQuery(async () => {
-          return await prisma.candidate.update({
-            where: { id: candidateId },
-            data: {
-              whatsappNumber: fullWhatsAppNumber,
-              countryCode: countryCode,
-              isVerified: true,
-            },
-          });
-        });
-
-        // Migrate OTP verifications from old candidate to correct candidate
-        await retryQuery(async () => {
-          return await prisma.otpVerification.updateMany({
-            where: {
-              candidateId: candidate.id,
-            },
-            data: {
-              candidateId: correctCandidate.id,
-            },
-          });
-        });
-        console.log('Migrated OTP verifications to candidate with correct ID');
-
-        // Delete old candidate
-        await retryQuery(async () => {
-          return await prisma.candidate.delete({
-            where: { id: candidate.id },
-          });
-        });
-        console.log('Deleted old candidate with incorrect ID');
-
-        candidate = correctCandidate;
-      }
-    } else {
-      // Candidate ID is correct, just mark as verified
-      candidate = await retryQuery(async () => {
-        return await prisma.candidate.update({
-          where: { id: candidate.id },
-          data: { isVerified: true },
-        });
-      });
-      console.log('✅ Candidate ID is correct, marked as verified');
-      console.log('✅ Candidate stored in DB with ID:', candidate.id);
-      console.log('✅ Candidate ID based on WhatsApp number:', candidateId);
-      console.log('✅ Verification: Stored ID matches generated ID:', candidate.id === candidateId);
-    }
+    });
+    console.log('✅ Candidate verified:', candidate.id, '| email:', normalizedEmail);
 
     // Final verification: Confirm candidate is stored in DB with correct ID
     const finalCandidate = await retryQuery(async () => {
@@ -538,13 +450,11 @@ async function verifyOTP(req, res) {
       console.warn('⚠️ Non-critical: Failed to sync profile number:', profileSyncError.message);
     }
 
-    scheduleCandidateCommonSync(candidate.id, { lastLogin: true });
-
     res.json({
       success: true,
       message: 'OTP verified successfully',
       data: {
-        candidateId: candidate.id, // This will be the ID based on WhatsApp number
+        candidateId: candidate.id,
         isVerified: true,
         skipCvUpload,
         token,
@@ -589,20 +499,14 @@ async function resendOTP(req, res) {
     const cleanNumber = whatsappNumber.replace(/\D/g, '');
     const fullWhatsAppNumber = `${countryCode}${cleanNumber}`;
 
-    // Generate candidate ID from WhatsApp number
-    const candidateId = generateCandidateId(fullWhatsAppNumber);
+    const candidateId = generateCandidateIdFromEmail(normalizedEmail);
 
-    // Find candidate by ID (which is based on WhatsApp number)
-    const candidate = await prisma.candidate.findUnique({
-      where: { id: candidateId },
+    const candidate = await getOrCreateCandidateForOtp({
+      candidateId,
+      normalizedEmail,
+      fullWhatsAppNumber,
+      countryCode,
     });
-
-    if (!candidate) {
-      return res.status(404).json({
-        success: false,
-        message: 'Candidate not found',
-      });
-    }
 
     // Invalidate all previous pending OTPs
     await prisma.otpVerification.updateMany({

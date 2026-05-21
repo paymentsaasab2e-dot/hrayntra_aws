@@ -86,6 +86,42 @@ export async function fetchCandidateCommonForMatchPipeline(req) {
 }
 
 /**
+ * Verified Phase 1 snapshots for CRM "All candidates" (tenant uploads + portal pool).
+ */
+export async function fetchCandidateCommonForCandidatesList(req) {
+  const commonPrisma = getCandidateCommonPrismaClient();
+  if (!commonPrisma || !isTenantScopedRequest()) return [];
+
+  const limit = Math.min(
+    10000,
+    Math.max(1, Number(process.env.CANDIDATES_COMMON_POOL_MAX || 5000) || 5000),
+  );
+
+  const rows = await commonPrisma.candidateCommon.findMany({
+    where: { isVerified: true },
+    orderBy: { syncedAt: 'desc' },
+    take: limit,
+  });
+
+  return rows.map(mapCandidateCommonRowToCandidate).filter(Boolean);
+}
+
+/** Load one Phase 1 snapshot by portal candidate id (for profile drawer). */
+export async function fetchCandidateCommonByCandidateId(candidateId) {
+  const commonPrisma = getCandidateCommonPrismaClient();
+  if (!commonPrisma) return null;
+
+  const id = String(candidateId || '').trim();
+  if (!id) return null;
+
+  const row = await commonPrisma.candidateCommon.findFirst({
+    where: { candidateId: id, isVerified: true },
+  });
+
+  return row ? mapCandidateCommonRowToCandidate(row) : null;
+}
+
+/**
  * Phase 1 candidatecommon rows linked to this tenant's jobs (Candidates list scope).
  */
 export async function fetchCandidateCommonForTenant(req, jobId) {

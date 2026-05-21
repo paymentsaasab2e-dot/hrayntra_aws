@@ -634,16 +634,12 @@ export default function RecycleBinPage() {
     <div className="w-full min-h-screen overflow-hidden text-slate-900">
       <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">
-          <div className="flex items-start gap-2.5 sm:gap-3">
-            <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-slate-600 via-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-slate-600 via-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20">
               <Trash2 className="h-5 w-5" strokeWidth={2.2} />
             </div>
         <div>
-              <h1 className="text-xl font-bold leading-tight tracking-tight text-slate-900 sm:text-[1.35rem]">Recycle Bin</h1>
-              <p className="mt-0.5 max-w-2xl text-xs text-slate-500">
-                Restore or permanently delete soft-deleted records from Leads, Clients, Candidates, and Jobs. Failed bulk
-                CV rows removed on Candidates are kept locally in this browser until you clear them.
-              </p>
+              <h1 className="text-xl font-bold leading-none tracking-tight text-slate-900 sm:text-[1.35rem]">Recycle Bin</h1>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">

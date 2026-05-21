@@ -328,6 +328,9 @@ function mapBackendLeadToFrontend(backendLead: BackendLead): Lead {
     linkedIn: backendLead.linkedIn || undefined,
     location: backendLead.location || undefined,
     designation: backendLead.designation || undefined,
+    teamMemberDesignation: backendLead.teamMemberDesignation || undefined,
+    teamMemberEmail: backendLead.teamMemberEmail || undefined,
+    teamMemberPhone: backendLead.teamMemberPhone || undefined,
     country: backendLead.country || undefined,
     city: backendLead.city || undefined,
     state: backendLead.state || undefined,
@@ -1346,13 +1349,12 @@ export default function RecruitmentAgencyDashboard() {
       <main className="flex flex-col overflow-hidden relative">
         {/* Header */}
         <header className="min-h-[4.5rem] flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-3 shrink-0 border-b border-indigo-100/50 bg-white/80 backdrop-blur-md shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)]">
-          <div className="flex items-start gap-2.5 sm:gap-3">
-            <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-rose-500 via-orange-500 to-amber-500 text-white shadow-lg shadow-rose-500/30 ring-1 ring-white/20">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-rose-500 via-orange-500 to-amber-500 text-white shadow-lg shadow-rose-500/30 ring-1 ring-white/20">
               <Target className="h-5 w-5" strokeWidth={2.2} />
             </div>
             <div>
-              <h1 className="text-xl sm:text-[1.35rem] font-bold tracking-tight text-slate-900 leading-tight">Leads</h1>
-              <p className="text-xs text-slate-500 max-w-xl">Track, manage, and convert potential clients into active hiring partners</p>
+              <h1 className="text-xl sm:text-[1.35rem] font-bold tracking-tight text-slate-900 leading-none">Leads</h1>
             </div>
           </div>
           <div className="flex items-center gap-2">

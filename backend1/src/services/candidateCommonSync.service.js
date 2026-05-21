@@ -56,12 +56,72 @@ function collectSkillNames(candidate) {
   return [...new Set(merged.map((s) => String(s).trim()).filter(Boolean))];
 }
 
+function collectLanguageNames(candidate) {
+  if (!Array.isArray(candidate.languages)) return [];
+  return [...new Set(candidate.languages.map((l) => String(l?.name || '').trim()).filter(Boolean))];
+}
+
+function buildCvEducationEntriesFromRelations(candidate) {
+  if (Array.isArray(candidate.cvEducationEntries) && candidate.cvEducationEntries.length) {
+    return candidate.cvEducationEntries;
+  }
+  if (!Array.isArray(candidate.educations) || !candidate.educations.length) {
+    return null;
+  }
+  return candidate.educations.map((item) => ({
+    degree: item.degree || null,
+    institution: item.institution || null,
+    specialization: item.specialization || null,
+    field: item.specialization || null,
+    startYear: item.startYear ?? null,
+    endYear: item.endYear ?? (item.isOngoing ? 'Present' : null),
+  }));
+}
+
+function buildCvWorkEntriesFromRelations(candidate) {
+  if (Array.isArray(candidate.cvWorkExperienceEntries) && candidate.cvWorkExperienceEntries.length) {
+    return candidate.cvWorkExperienceEntries;
+  }
+  if (!Array.isArray(candidate.workExperiences) || !candidate.workExperiences.length) {
+    return null;
+  }
+  return candidate.workExperiences.map((item) => ({
+    title: item.jobTitle || null,
+    jobTitle: item.jobTitle || null,
+    company: item.company || null,
+    companyName: item.company || null,
+    location: item.workLocation || null,
+    startDate: item.startDate ? new Date(item.startDate).toISOString().split('T')[0] : null,
+    endDate: item.isCurrentJob
+      ? 'Present'
+      : item.endDate
+        ? new Date(item.endDate).toISOString().split('T')[0]
+        : null,
+    responsibilities: item.responsibilities || null,
+  }));
+}
+
+function normalizePortfolioLinksForCommon(links) {
+  if (!Array.isArray(links)) return null;
+  const cleaned = links
+    .map((link) => ({
+      linkType: link?.linkType || link?.type || 'Portfolio',
+      url: String(link?.url || '').trim(),
+      title: link?.title || null,
+      description: link?.description || null,
+    }))
+    .filter((link) => link.url && !/gmail\.com$/i.test(link.url.replace(/^https?:\/\//, '')));
+  return cleaned.length ? cleaned : null;
+}
+
 function buildCommonPayload(candidate, { lastLogin = false } = {}) {
   const profile = candidate.profile || null;
   const fromProfile = profile ? splitFullName(profile.fullName) : { firstName: null, lastName: null };
   const firstName = candidate.firstName || fromProfile.firstName;
   const lastName = candidate.lastName || fromProfile.lastName;
   const skillNames = collectSkillNames(candidate);
+  const languageNames = collectLanguageNames(candidate);
+  const mergedSkills = [...new Set([...skillNames, ...languageNames])];
   const matchJobIds = [
     ...new Set(
       (Array.isArray(candidate.recruiterMatches) ? candidate.recruiterMatches : [])
@@ -79,11 +139,19 @@ function buildCommonPayload(candidate, { lastLogin = false } = {}) {
     firstName: firstName || null,
     lastName: lastName || null,
     email: candidate.email || profile?.email || null,
-    phone: candidate.phone || profile?.phoneNumber || null,
+    phone:
+      candidate.phone ||
+      candidate.whatsappNumber ||
+      profile?.phoneNumber ||
+      null,
     linkedIn: candidate.linkedIn || profile?.linkedinUrl || null,
-    resumeUrl: candidate.resumeUrl || null,
-    skills: skillNames,
-    recruiterSkills: Array.isArray(candidate.recruiterSkills) ? candidate.recruiterSkills : skillNames,
+    resumeUrl: candidate.resume?.fileUrl || candidate.resumeUrl || null,
+    skills: mergedSkills.length ? mergedSkills : skillNames,
+    recruiterSkills: mergedSkills.length
+      ? mergedSkills
+      : Array.isArray(candidate.recruiterSkills)
+        ? candidate.recruiterSkills
+        : skillNames,
     experience: typeof experience === 'number' ? experience : null,
     experienceYears: typeof experience === 'number' ? experience : null,
     currentTitle: candidate.currentTitle || candidate.designation || null,
@@ -106,9 +174,12 @@ function buildCommonPayload(candidate, { lastLogin = false } = {}) {
     recruiterNotes: candidate.recruiterNotes || null,
     certifications: Array.isArray(candidate.certifications) ? candidate.certifications : [],
     certificationsList: Array.isArray(candidate.certificationsList) ? candidate.certificationsList : [],
-    cvEducationEntries: buildEducationEntries(candidate),
-    cvWorkExperienceEntries: buildWorkEntries(candidate),
-    cvPortfolioLinks: candidate.cvPortfolioLinks || null,
+    cvEducationEntries: buildEducationEntries(candidate) || buildCvEducationEntriesFromRelations(candidate),
+    cvWorkExperienceEntries: buildWorkEntries(candidate) || buildCvWorkEntriesFromRelations(candidate),
+    cvPortfolioLinks:
+      candidate.cvPortfolioLinks ||
+      normalizePortfolioLinksForCommon(candidate.portfolioLinks?.links) ||
+      null,
     assignedJobs: Array.isArray(candidate.assignedJobs) ? candidate.assignedJobs.map(String) : [],
     matchJobIds,
     stage: candidate.stage || null,
@@ -174,7 +245,16 @@ async function syncCandidateToCommon(candidateId, options = {}) {
   }
 }
 
-/** Fire-and-forget wrapper for HTTP handlers. */
+/**
+ * Alias used by dashboard sync — same as syncCandidateToCommon.
+ */
+async function persistCandidateSnapshotAndSync(candidateId, options = {}) {
+  return syncCandidateToCommon(candidateId, options);
+}
+
+/**
+ * Fire-and-forget sync — used after job application and from dashboard visit.
+ */
 function scheduleCandidateCommonSync(candidateId, options = {}) {
   void syncCandidateToCommon(candidateId, options).catch(() => {});
 }
@@ -182,5 +262,6 @@ function scheduleCandidateCommonSync(candidateId, options = {}) {
 module.exports = {
   syncCandidateToCommon,
   scheduleCandidateCommonSync,
+  persistCandidateSnapshotAndSync,
   buildCommonPayload,
 };
