@@ -738,6 +738,11 @@ export const addCandidateController = {
       }
 
       const email = normalizeCandidateEmail(req.body.email);
+      const isBulkCvPoolCreate =
+        !req.body.jobId &&
+        String(req.body.source || '')
+          .trim()
+          .toLowerCase() === 'bulk cv upload';
       // Only check email duplicates when a real email is present — `where: { email: null }`
       // would otherwise match unrelated profiles with no email.
       let existing = null;
@@ -758,11 +763,6 @@ export const addCandidateController = {
       const expectedSalary = parsePositiveNumber(req.body.expectedSalary);
       const currentSalary = parsePositiveNumber(req.body.currentSalary);
       const duplicateAction = String(req.body.duplicateAction || 'create');
-      const isBulkCvPoolCreate =
-        !req.body.jobId &&
-        String(req.body.source || '')
-          .trim()
-          .toLowerCase() === 'bulk cv upload';
       const candidateData = {
         firstName: String(req.body.firstName).trim(),
         lastName: String(req.body.lastName).trim(),
