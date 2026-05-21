@@ -8,7 +8,7 @@ const openai = new OpenAI({
 async function requestOpenAI(sysPrompt, userPrompt) {
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo', // or 'gpt-4o-mini' depending on system setup
+      model: 'gpt-4.1', // or 'gpt-4.1' depending on system setup
       messages: [
         { role: 'system', content: sysPrompt },
         { role: 'user', content: userPrompt },

@@ -20,9 +20,11 @@ import {
   Inbox,
   XCircle,
 } from 'lucide-react';
-import { downloadCsv, csvDate } from '../../utils/csv';
+import { downloadCsv } from '../../utils/csv';
 import { formatDateDMY } from '../../utils/dateDisplay';
-import { formatContactListDisplay } from '../../lib/contact-channels';
+import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
+import { buildClientsCsvColumns, CLIENTS_EXPORT_COLUMNS } from '../../lib/export/clientsExportColumns';
+import { fetchAllPaginated, totalPagesFromPagination } from '../../lib/export/fetchAllPaginated';
 import { ClientTable } from '../../components/ClientTable';
 import {
   ClientFilterDrawer,
@@ -288,6 +290,9 @@ export default function App() {
   const [showImportDrawer, setShowImportDrawer] = useState(false);
   const [recycleBinDrawerOpen, setRecycleBinDrawerOpen] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportClients, setExportClients] = useState<Client[]>([]);
+  const [exportClientsLoading, setExportClientsLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -544,52 +549,88 @@ export default function App() {
     if (assignedToId) await handleBulkUpdate({ assignedToId });
   };
 
-  /** Export the currently filtered + sorted client list to a CSV the importer can read back. */
-  const handleExportClientsCsv = () => {
-    const rowsToExport = sortedClients;
+  const applyExportClientFilters = useCallback(
+    (source: Client[]) => {
+      const advanced = applyClientFilters(source, advancedFilters, currentUserName);
+      const filtered = filterClientsByTab(advanced, activeTab);
+      const list = [...filtered];
+      list.sort((a, b) => {
+        const comparison = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+        return clientNameSortOrder === 'asc' ? comparison : -comparison;
+      });
+      return list;
+    },
+    [activeTab, advancedFilters, clientNameSortOrder, currentUserName],
+  );
+
+  const fetchAllClientsForExport = useCallback(async (): Promise<Client[]> => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+    if (!token) {
+      return applyExportClientFilters(INITIAL_CLIENTS);
+    }
+
+    const all = await fetchAllPaginated({
+      fetchPage: async (page, limit) => {
+        const response = await apiGetClients({
+          search: debouncedSearchQuery || undefined,
+          page,
+          limit,
+          includeContacts: false,
+          includeLeadFields: false,
+        });
+        const backendClients = response.data ? extractBackendClients(response.data) : [];
+        const mappedClients = (Array.isArray(backendClients) ? backendClients : []).map(mapBackendClientToFrontend);
+        const clientMap = new Map<string, Client>();
+        mappedClients.forEach((client) => {
+          const id = String(client.id);
+          clientMap.set(id, { ...client, id });
+        });
+        const items = Array.from(clientMap.values());
+        const pagination =
+          response.data && typeof response.data === 'object' && !Array.isArray(response.data)
+            ? (response.data as { pagination?: { totalPages?: number; total?: number } }).pagination
+            : undefined;
+        return {
+          items,
+          totalPages: totalPagesFromPagination(pagination, items.length, limit),
+        };
+      },
+    });
+
+    return applyExportClientFilters(all);
+  }, [applyExportClientFilters, debouncedSearchQuery]);
+
+  const openExportModal = async () => {
+    setExportClientsLoading(true);
+    setExportModalOpen(true);
+    try {
+      const all = await fetchAllClientsForExport();
+      setExportClients(all);
+      if (all.length === 0) {
+        toast.message('No clients to export with current filters.');
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to load clients for export';
+      toast.error(message);
+      setExportModalOpen(false);
+      setExportClients([]);
+    } finally {
+      setExportClientsLoading(false);
+    }
+  };
+
+  const handleExportClientsCsv = (selectedColumnIds: string[]) => {
+    const columns = buildClientsCsvColumns(selectedColumnIds);
+    if (columns.length === 0) {
+      toast.message('Select at least one column to export.');
+      return;
+    }
+    const rowsToExport = exportClients.length > 0 ? exportClients : sortedClients;
     if (rowsToExport.length === 0) {
       toast.message('No clients to export with current filters.');
       return;
     }
-    downloadCsv<Client>(
-      `clients-${new Date().toISOString().slice(0, 10)}.csv`,
-      [
-        { id: 'name', accessor: (c) => c.name },
-        { id: 'industry', accessor: (c) => (c.industry === 'Not specified' ? '' : c.industry) },
-        { id: 'location', accessor: (c) => (c.location === 'Not specified' ? '' : c.location) },
-        { id: 'city', accessor: () => '' },
-        { id: 'country', accessor: () => '' },
-        { id: 'contactPerson', accessor: (c) => c.contacts?.find((ct) => ct.isPrimary)?.name || c.contacts?.[0]?.name || '' },
-        {
-          id: 'email',
-          accessor: (c) =>
-            formatContactListDisplay(
-              c.emails,
-              c.contacts?.find((ct) => ct.isPrimary)?.email || c.contacts?.[0]?.email || '',
-            ),
-        },
-        {
-          id: 'phone',
-          accessor: (c) =>
-            formatContactListDisplay(
-              c.phones,
-              c.contacts?.find((ct) => ct.isPrimary)?.phone || c.contacts?.[0]?.phone || '',
-            ),
-        },
-        { id: 'companySize', accessor: (c) => c.companySize || '' },
-        { id: 'servicesNeeded', accessor: (c) => c.servicesNeeded || '' },
-        { id: 'leadStatus', accessor: (c) => c.leadStatus || c.stage },
-        { id: 'priority', accessor: (c) => c.priority || '' },
-        { id: 'expectedBusinessValue', accessor: (c) => c.expectedBusinessValue || '' },
-        { id: 'nextFollowUpDue', accessor: (c) => csvDate(c.nextFollowUpDue) },
-        { id: 'notes', accessor: () => '' },
-        { id: 'owner', accessor: (c) => c.owner?.name || '' },
-        { id: 'openJobs', accessor: (c) => c.openJobs ?? 0 },
-        { id: 'placements', accessor: (c) => c.placements ?? 0 },
-        { id: 'lastActivity', accessor: (c) => c.lastActivity || '' },
-      ],
-      rowsToExport,
-    );
+    downloadCsv<Client>(`clients-${new Date().toISOString().slice(0, 10)}.csv`, columns, rowsToExport);
     toast.success(`Exported ${rowsToExport.length} client${rowsToExport.length === 1 ? '' : 's'} to CSV`);
   };
 
@@ -638,7 +679,7 @@ export default function App() {
             </button>
             <button
               type="button"
-              onClick={handleExportClientsCsv}
+              onClick={() => void openExportModal()}
               className="bg-white hover:bg-indigo-50/90 text-indigo-900 px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] border border-indigo-200/70 hover:border-indigo-300 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
               title="Export visible clients to CSV"
             >
@@ -917,6 +958,22 @@ export default function App() {
           </div>
         </div>
       )}
+      <ExportColumnsModal
+        isOpen={exportModalOpen}
+        onClose={() => {
+          setExportModalOpen(false);
+          setExportClients([]);
+        }}
+        title="Export clients"
+        rowCount={exportClients.length}
+        rowLabelSingular="client"
+        rowLabelPlural="clients"
+        columns={CLIENTS_EXPORT_COLUMNS}
+        rows={exportClients}
+        isLoading={exportClientsLoading}
+        getRowKey={(client) => client.id}
+        onExport={handleExportClientsCsv}
+      />
     </div>
   );
 }

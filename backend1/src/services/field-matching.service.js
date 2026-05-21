@@ -29,12 +29,12 @@ class FieldMatchingService {
     const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
     const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-    this.mistral = MISTRAL_API_KEY ? new Mistral({ apiKey: MISTRAL_API_KEY }) : null;
-    this.genAI = GEMINI_API_KEY ? new GoogleGenerativeAI(GEMINI_API_KEY) : null;
-    this.anthropic = ANTHROPIC_API_KEY ? new Anthropic({ apiKey: ANTHROPIC_API_KEY }) : null;
+    this.mistral = null;
+    this.genAI = null;
+    this.anthropic = null;
     this.openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 
-    console.log('✅ Field Matching Service initialized with multi-AI fallback system');
+    console.log('✅ Field Matching Service initialized (OpenAI gpt-4.1 only)');
   }
 
   /**
@@ -163,102 +163,29 @@ Return ONLY the JSON mapping, no explanations:`;
     let responseText = null;
     let error = null;
 
-    // Try OpenAI first
+    const { OPENAI_CHAT_MODEL } = require('../config/openaiModel');
+
     if (this.openai) {
       try {
-        console.log('  📤 Trying OpenAI for field matching...');
+        console.log(`  📤 Using OpenAI (${OPENAI_CHAT_MODEL}) for field matching...`);
         const completion = await this.openai.chat.completions.create({
           messages: [{ role: 'user', content: prompt }],
-          model: 'gpt-4o-mini',
+          model: OPENAI_CHAT_MODEL,
           temperature: 0.3,
           max_tokens: 4096,
         });
         responseText = completion.choices[0]?.message?.content?.trim() || '';
         if (responseText) {
-          console.log('  ✅ Successfully used OpenAI for field matching');
+          console.log(`  ✅ Successfully used OpenAI (${OPENAI_CHAT_MODEL}) for field matching`);
           return this.parseAIResponse(responseText);
         }
       } catch (openaiError) {
-        console.log('  ⚠️  OpenAI failed, trying fallback...');
+        console.log('  ⚠️  OpenAI field matching failed:', openaiError?.message || openaiError);
         error = openaiError;
       }
     }
 
-    // Fallback to Mistral
-    if (!responseText && this.mistral) {
-      try {
-        console.log('  📤 Trying Mistral AI for field matching...');
-        const response = await this.mistral.chat.complete({
-          model: 'mistral-large-latest',
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.3,
-          maxTokens: 4096,
-        });
-        responseText = response.choices[0]?.message?.content?.trim() || '';
-        if (responseText) {
-          console.log('  ✅ Successfully used Mistral AI for field matching');
-          return this.parseAIResponse(responseText);
-        }
-      } catch (mistralError) {
-        console.log('  ⚠️  Mistral failed, trying fallback...');
-        error = mistralError;
-      }
-    }
-
-    // Fallback to Google Gemini
-    if (!responseText && this.genAI) {
-      try {
-        console.log('  📤 Trying Google Gemini for field matching...');
-        // Try different Gemini models in order
-        const geminiModels = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
-        
-        for (const modelName of geminiModels) {
-          try {
-            const model = this.genAI.getGenerativeModel({ model: modelName });
-            const result = await model.generateContent(prompt);
-            const response = await result.response;
-            responseText = response.text().trim();
-            if (responseText) {
-              console.log(`  ✅ Successfully used Google Gemini (${modelName}) for field matching`);
-              return this.parseAIResponse(responseText);
-            }
-          } catch (geminiError) {
-            // If 404, try next model
-            if (geminiError.status === 404 || geminiError.message?.includes('404')) {
-              continue;
-            }
-            throw geminiError;
-          }
-        }
-      } catch (geminiError) {
-        console.log('  ⚠️  Gemini failed, trying fallback...');
-        error = geminiError;
-      }
-    }
-
-    // Fallback to Anthropic Claude
-    if (!responseText && this.anthropic) {
-      try {
-        console.log('  📤 Trying Anthropic Claude for field matching...');
-        const message = await this.anthropic.messages.create({
-          model: 'claude-3-5-sonnet-20241022',
-          max_tokens: 4096,
-          temperature: 0.3,
-          messages: [{ role: 'user', content: prompt }],
-        });
-        responseText = message.content[0]?.text?.trim() || '';
-        if (responseText) {
-          console.log('  ✅ Successfully used Anthropic Claude for field matching');
-          return this.parseAIResponse(responseText);
-        }
-      } catch (anthropicError) {
-        console.log('  ⚠️  Anthropic failed, trying fallback...');
-        error = anthropicError;
-      }
-    }
-
-    // Final fallback to simple matching
-    console.log('⚠️  All AI services failed, falling back to simple rule-based matching');
+    console.log('⚠️  OpenAI unavailable, falling back to simple rule-based matching');
     return this.simpleMatchFields(dbFields, modalFields);
   }
 

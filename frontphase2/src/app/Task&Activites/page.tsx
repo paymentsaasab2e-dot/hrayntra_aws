@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { SHOW_TABLE_ROW_EDIT_ICON } from '../../constants/tableUi';
 import { 
   CheckSquare, 
@@ -23,7 +23,9 @@ import {
   XCircle,
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
-import { downloadCsv, csvDate } from '../../utils/csv';
+import { downloadCsv } from '../../utils/csv';
+import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
+import { buildTasksCsvColumns, TASKS_EXPORT_COLUMNS } from '../../lib/export/tasksExportColumns';
 import { motion, AnimatePresence } from 'motion/react';
 import { ImageWithFallback } from '../../components/ImageWithFallback';
 import PaginationAll from '../../components/PaginationAll';
@@ -439,6 +441,9 @@ export default function App() {
   const [deleteConfirmTask, setDeleteConfirmTask] = useState<Task | null>(null);
   const [slaDrawerOpen, setSlaDrawerOpen] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportTasks, setExportTasks] = useState<Task[]>([]);
+  const [exportTasksLoading, setExportTasksLoading] = useState(false);
   const [backendTasks, setBackendTasks] = useState<BackendTask[]>([]);
   const [jobTitleById, setJobTitleById] = useState<Record<string, string>>({});
   const [candidateNameById, setCandidateNameById] = useState<Record<string, string>>({});
@@ -635,28 +640,27 @@ export default function App() {
     setCandidateNameById(candidatesLookup);
     setClientNameById(clientsLookup);
     setInterviewNameById(interviewsLookup);
-    setTasks(
-      typedBackendTasks.map((backendTask) => {
-        return transformBackendTaskToFrontend(backendTask, {
-          relatedEntityName:
-            backendTask.linkedEntityType === 'JOB' && backendTask.linkedEntityId
-              ? jobsLookup[backendTask.linkedEntityId]
-              : backendTask.linkedEntityType === 'CANDIDATE' && backendTask.linkedEntityId
-                ? candidatesLookup[backendTask.linkedEntityId]
-                : backendTask.linkedEntityType === 'CLIENT' && backendTask.linkedEntityId
-                  ? clientsLookup[backendTask.linkedEntityId]
-                  : backendTask.linkedEntityType === 'INTERVIEW' && backendTask.linkedEntityId
-                    ? interviewsLookup[backendTask.linkedEntityId]
-                    : undefined,
-        });
-      })
-    );
+    const mappedTasks: Task[] = typedBackendTasks.map((backendTask) => {
+      return transformBackendTaskToFrontend(backendTask, {
+        relatedEntityName:
+          backendTask.linkedEntityType === 'JOB' && backendTask.linkedEntityId
+            ? jobsLookup[backendTask.linkedEntityId]
+            : backendTask.linkedEntityType === 'CANDIDATE' && backendTask.linkedEntityId
+              ? candidatesLookup[backendTask.linkedEntityId]
+              : backendTask.linkedEntityType === 'CLIENT' && backendTask.linkedEntityId
+                ? clientsLookup[backendTask.linkedEntityId]
+                : backendTask.linkedEntityType === 'INTERVIEW' && backendTask.linkedEntityId
+                  ? interviewsLookup[backendTask.linkedEntityId]
+                  : undefined,
+      });
+    });
+    setTasks(mappedTasks);
     if (includeStats) {
       const statsResponse = await apiGetTaskStats();
       setStats(extractTaskStats(statsResponse.data));
     }
 
-    return typedBackendTasks;
+    return mappedTasks;
   };
 
   // Fetch tasks and stats from API
@@ -729,27 +733,66 @@ export default function App() {
   }, [backendTasks]);
 
   const slaOverdueCount = stats?.overdue ?? 0;
-  const filteredTasks = useMemo(() => {
-    const todayString = new Date().toISOString().split('T')[0];
+  const applyTaskListFilters = useCallback(
+    (taskList: Task[]) => {
+      const todayString = new Date().toISOString().split('T')[0];
+      return taskList.filter((task) => {
+        if (filters.todayOnly && task.dueDate !== todayString) return false;
+        if (filters.priority && task.priority !== filters.priority) return false;
+        if (filters.assignedTo && task.owner.name !== filters.assignedTo) return false;
+        const q = filters.search.trim().toLowerCase();
+        if (q) {
+          const relatedLabel =
+            task.relatedTo.type === 'Job' && jobTitleById[task.relatedTo.id]
+              ? jobTitleById[task.relatedTo.id]
+              : task.relatedTo.name;
+          const hay = [task.title, relatedLabel, task.relatedTo.type, task.owner.name, task.type, task.status]
+            .join(' ')
+            .toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+    },
+    [filters, jobTitleById],
+  );
 
-    return tasks.filter((task) => {
-      if (filters.todayOnly && task.dueDate !== todayString) return false;
-      if (filters.priority && task.priority !== filters.priority) return false;
-      if (filters.assignedTo && task.owner.name !== filters.assignedTo) return false;
-      const q = filters.search.trim().toLowerCase();
-      if (q) {
-        const relatedLabel =
-          task.relatedTo.type === 'Job' && jobTitleById[task.relatedTo.id]
-            ? jobTitleById[task.relatedTo.id]
-            : task.relatedTo.name;
-        const hay = [task.title, relatedLabel, task.relatedTo.type, task.owner.name, task.type, task.status]
-          .join(' ')
-          .toLowerCase();
-        if (!hay.includes(q)) return false;
+  const filteredTasks = useMemo(() => applyTaskListFilters(tasks), [applyTaskListFilters, tasks]);
+
+  const openExportModal = async () => {
+    setExportTasksLoading(true);
+    setExportModalOpen(true);
+    try {
+      const mapped = await refreshTasksAndStats({ includeStats: false });
+      const filtered = applyTaskListFilters(mapped);
+      setExportTasks(filtered);
+      if (filtered.length === 0) {
+        toast.message('No tasks to export with current filters.');
       }
-      return true;
-    });
-  }, [filters, tasks, jobTitleById]);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to load tasks for export';
+      toast.error(message);
+      setExportModalOpen(false);
+      setExportTasks([]);
+    } finally {
+      setExportTasksLoading(false);
+    }
+  };
+
+  const handleExportTasksCsv = (selectedColumnIds: string[]) => {
+    const columns = buildTasksCsvColumns(selectedColumnIds);
+    if (columns.length === 0) {
+      toast.message('Select at least one column to export.');
+      return;
+    }
+    const rowsToExport = exportTasks.length > 0 ? exportTasks : filteredTasks;
+    if (rowsToExport.length === 0) {
+      toast.message('No tasks to export with current filters.');
+      return;
+    }
+    downloadCsv<Task>(`tasks-${new Date().toISOString().slice(0, 10)}.csv`, columns, rowsToExport);
+    toast.success(`Exported ${rowsToExport.length} task${rowsToExport.length === 1 ? '' : 's'} to CSV`);
+  };
 
   const totalPages = Math.max(Math.ceil(filteredTasks.length / pageSize), 1);
   const visibleTasks = filteredTasks.slice((currentPage - 1) * pageSize, currentPage * pageSize);
@@ -1032,27 +1075,7 @@ export default function App() {
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  if (filteredTasks.length === 0) {
-                    toast.message('No tasks to export with current filters.');
-                    return;
-                  }
-                  downloadCsv<Task>(
-                    `tasks-${new Date().toISOString().slice(0, 10)}.csv`,
-                    [
-                      { id: 'title', accessor: (t) => t.title },
-                      { id: 'type', accessor: (t) => t.type },
-                      { id: 'relatedTo', accessor: (t) => `${t.relatedTo?.type || ''}: ${t.relatedTo?.name || ''}`.replace(/^:\s*/, '') },
-                      { id: 'dueDate', accessor: (t) => csvDate(t.dueDate) },
-                      { id: 'time', accessor: (t) => t.time || '' },
-                      { id: 'priority', accessor: (t) => t.priority },
-                      { id: 'status', accessor: (t) => t.status },
-                      { id: 'owner', accessor: (t) => t.owner?.name || '' },
-                    ],
-                    filteredTasks,
-                  );
-                  toast.success(`Exported ${filteredTasks.length} task${filteredTasks.length === 1 ? '' : 's'} to CSV`);
-                }}
+                onClick={() => void openExportModal()}
                 className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98]"
                 title="Export visible tasks to CSV"
               >
@@ -1485,6 +1508,23 @@ export default function App() {
           }
         }}
         onRelatedEntityClick={(entity) => { /* TODO: navigate to /candidate, /job, /client by entity.type and entity.id */ }}
+      />
+
+      <ExportColumnsModal
+        isOpen={exportModalOpen}
+        onClose={() => {
+          setExportModalOpen(false);
+          setExportTasks([]);
+        }}
+        title="Export tasks"
+        rowCount={exportTasks.length}
+        rowLabelSingular="task"
+        rowLabelPlural="tasks"
+        columns={TASKS_EXPORT_COLUMNS}
+        rows={exportTasks}
+        isLoading={exportTasksLoading}
+        getRowKey={(task) => task.id}
+        onExport={handleExportTasksCsv}
       />
 
       <AnimatePresence>

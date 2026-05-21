@@ -2,8 +2,14 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
-import { ResumeInlinePreview } from '../candidates/ResumeInlinePreview';
 import { CandidateResumeTabPanel } from '../candidates/CandidateResumeTabPanel';
+import {
+  buildCandidateEditForm,
+  buildUpdatePayloadFromEditForm,
+  CandidateEditAtsSections,
+  validateEditFormStructured,
+  type CandidateEditFormState,
+} from '../candidates/CandidateEditAtsSections';
 import { useCandidateCvEditor } from '../../hooks/useCandidateCvEditor';
 import { formatDateDMY, formatDateTimeDMY } from '../../utils/dateDisplay';
 import { AnimatePresence, motion } from 'motion/react';
@@ -16,7 +22,6 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock3,
-  Download,
   FileSearch,
   FileText,
   Loader2,
@@ -59,6 +64,7 @@ import {
   getLocalDateInputMinToday,
 } from '../../utils/dateInputConstraints';
 import { profileCanSubmitToClient } from '../../lib/candidateSubmitToClient';
+import { CandidateAtsExtractedOverview } from '../candidates/CandidateAtsExtractedOverview';
 
 export interface CandidateTagItem {
   id: string;
@@ -191,6 +197,7 @@ export interface CandidateProfileDrawerData {
   }>;
   cvPortfolioLinks?: Array<{
     type?: string;
+    label?: string;
     url?: string;
   }>;
   cvCertifications?: string[];
@@ -199,6 +206,8 @@ export interface CandidateProfileDrawerData {
   cvWebsite?: string | null;
   cvSummary?: string | null;
   cvNotes?: string | null;
+  /** Parsed bulk CV / ATS pipeline payload (sections under `pipeline`). */
+  extraData?: Record<string, unknown> | null;
   cvPreferredLocation?: string | null;
   cvSkills?: string[];
   tags?: CandidateTagItem[];
@@ -306,51 +315,9 @@ interface CandidateProfileDrawerProps {
   stackAboveSiblingDrawers?: boolean;
 }
 
-type DrawerTab = 'Overview' | 'Resume' | 'Extracted CV' | 'Interviews' | 'Activity' | 'Notes' | 'Tags' | 'Files';
+type DrawerTab = 'Overview' | 'Resume' | 'Interviews' | 'Activity' | 'Notes' | 'Tags' | 'Files';
 
-const TABS: DrawerTab[] = ['Overview', 'Resume', 'Extracted CV', 'Interviews', 'Activity', 'Notes', 'Tags', 'Files'];
-const CANDIDATE_STATUS_OPTIONS = ['NEW', 'ACTIVE', 'PLACED', 'INACTIVE', 'BLACKLISTED'];
-const CANDIDATE_STAGE_OPTIONS = ['Applied', 'Shortlisted', 'Screening', 'Interviewing', 'Offered', 'Hired', 'Rejected'];
-const CANDIDATE_AVAILABILITY_OPTIONS = ['available', 'limited', 'unavailable'];
-const SALARY_CURRENCY_OPTIONS = ['INR', 'USD', 'EUR', 'GBP', 'AED'];
-
-type CandidateEditFormState = {
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  linkedIn: string;
-  currentTitle: string;
-  currentCompany: string;
-  experience: string;
-  location: string;
-  stage: string;
-  status: string;
-  source: string;
-  recruiterId: string;
-  assignedJobId: string;
-  noticePeriod: string;
-  availability: string;
-  salaryCurrency: string;
-  expectedSalary: string;
-  currentSalary: string;
-  address: string;
-  city: string;
-  country: string;
-  preferredLocation: string;
-  resumeUrl: string;
-  education: string;
-  portfolio: string;
-  website: string;
-  skills: string;
-  languages: string;
-  certifications: string;
-  cvSummary: string;
-  notes: string;
-  cvEducationEntries: string;
-  cvWorkExperienceEntries: string;
-  cvPortfolioLinks: string;
-};
+const TABS: DrawerTab[] = ['Overview', 'Resume', 'Interviews', 'Activity', 'Notes', 'Tags', 'Files'];
 
 function getInitials(name: string) {
   return name
@@ -400,24 +367,6 @@ function InfoRow({
   );
 }
 
-function splitCandidateName(candidate: CandidateProfileDrawerData) {
-  const firstName = candidate.firstName?.trim();
-  const lastName = candidate.lastName?.trim();
-
-  if (firstName || lastName) {
-    return {
-      firstName: firstName || '',
-      lastName: lastName || '',
-    };
-  }
-
-  const parts = String(candidate.name || '').trim().split(/\s+/).filter(Boolean);
-  return {
-    firstName: parts[0] || '',
-    lastName: parts.slice(1).join(' '),
-  };
-}
-
 /** CV JSON may store list fields as strings; coerce before .map(). */
 function normalizeStringList(value: unknown): string[] {
   if (Array.isArray(value)) {
@@ -440,193 +389,6 @@ function normalizeStringList(value: unknown): string[] {
       .filter(Boolean);
   }
   return [];
-}
-
-function formatEducationEntriesForEditor(
-  entries?: CandidateProfileDrawerData['cvEducationEntries']
-) {
-  const list = Array.isArray(entries) ? entries : [];
-  if (!list.length) return '';
-  return list
-    .map((item) =>
-      [item.degree, item.institution, item.startYear, item.endYear]
-        .map((part) => String(part || '').trim())
-        .filter(Boolean)
-        .join(' | ')
-    )
-    .filter(Boolean)
-    .join('\n');
-}
-
-function formatWorkExperienceEntriesForEditor(
-  entries?: CandidateProfileDrawerData['cvWorkExperienceEntries']
-) {
-  const list = Array.isArray(entries) ? entries : [];
-  if (!list.length) return '';
-  return list
-    .map((item) => {
-      const header = [item.title, item.company, item.location, item.startDate, item.endDate]
-        .map((part) => String(part || '').trim())
-        .filter(Boolean)
-        .join(' | ');
-      const responsibilities = normalizeStringList(
-        item.responsibilities ?? (item as { description?: unknown }).description
-      ).join('; ');
-
-      return [header, responsibilities].filter(Boolean).join('\n');
-    })
-    .filter(Boolean)
-    .join('\n\n');
-}
-
-function formatPortfolioLinksForEditor(
-  entries?: CandidateProfileDrawerData['cvPortfolioLinks']
-) {
-  if (!entries?.length) return '';
-  return entries
-    .map((item) =>
-      [item.type, item.url]
-        .map((part) => String(part || '').trim())
-        .filter(Boolean)
-        .join(' | ')
-    )
-    .filter(Boolean)
-    .join('\n');
-}
-
-function buildCandidateEditForm(candidate: CandidateProfileDrawerData): CandidateEditFormState {
-  const nameParts = splitCandidateName(candidate);
-  return {
-    firstName: nameParts.firstName,
-    lastName: nameParts.lastName,
-    email: candidate.email || '',
-    phone: candidate.phone && candidate.phone !== '—' ? candidate.phone : '',
-    linkedIn: candidate.linkedIn || '',
-    currentTitle: candidate.currentTitle && candidate.currentTitle !== '—' ? candidate.currentTitle : '',
-    currentCompany: candidate.currentCompany && candidate.currentCompany !== '—' ? candidate.currentCompany : '',
-    experience: candidate.experience != null ? String(candidate.experience) : '',
-    location: candidate.location && candidate.location !== '—' ? candidate.location : '',
-    stage: candidate.stage && candidate.stage !== '—' ? candidate.stage : 'Applied',
-    status: candidate.status && candidate.status !== '—' ? candidate.status : 'NEW',
-    source: candidate.source && candidate.source !== '—' ? candidate.source : '',
-    recruiterId: candidate.recruiterId || '',
-    assignedJobId: candidate.assignedJobId || '',
-    noticePeriod: candidate.noticePeriod && candidate.noticePeriod !== '—' ? candidate.noticePeriod : '',
-    availability: candidate.cvAvailability || candidate.availability || 'available',
-    salaryCurrency: candidate.salaryCurrency || 'INR',
-    expectedSalary:
-      candidate.expectedSalaryValue != null ? String(candidate.expectedSalaryValue) : '',
-    currentSalary:
-      candidate.currentSalaryValue != null ? String(candidate.currentSalaryValue) : '',
-    address: candidate.cvAddress || '',
-    city: candidate.cvCity || '',
-    country: candidate.cvCountry || '',
-    preferredLocation: candidate.cvPreferredLocation || candidate.location || '',
-    resumeUrl: candidate.resumeUrl || '',
-    education: candidate.cvEducation || '',
-    portfolio: candidate.cvPortfolio || '',
-    website: candidate.cvWebsite || '',
-    skills: Array.isArray(candidate.cvSkills) ? candidate.cvSkills.join(', ') : '',
-    languages: Array.isArray(candidate.cvLanguages) ? candidate.cvLanguages.join(', ') : '',
-    certifications: Array.isArray(candidate.cvCertifications) ? candidate.cvCertifications.join('\n') : '',
-    cvSummary: candidate.cvSummary || candidate.summary || '',
-    notes: candidate.cvNotes || candidate.summary || '',
-    cvEducationEntries: formatEducationEntriesForEditor(candidate.cvEducationEntries || []),
-    cvWorkExperienceEntries: formatWorkExperienceEntriesForEditor(candidate.cvWorkExperienceEntries || []),
-    cvPortfolioLinks: formatPortfolioLinksForEditor(candidate.cvPortfolioLinks || []),
-  };
-}
-
-function parseOptionalNumber(value: string) {
-  const normalized = String(value || '').trim();
-  if (!normalized) return null;
-  const numeric = Number(normalized.replace(/[^\d.-]/g, ''));
-  return Number.isFinite(numeric) ? Math.round(numeric) : null;
-}
-
-function parseCsvValues(value: string) {
-  return String(value || '')
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function parseLineValues(value: string) {
-  return String(value || '')
-    .split(/\r?\n/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function parseEducationEntriesEditorValue(value: string) {
-  return String(value || '')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [degree = '', institution = '', startYear = '', endYear = ''] = line
-        .split('|')
-        .map((part) => part.trim());
-      return { degree, institution, startYear, endYear };
-    });
-}
-
-function parseWorkExperienceEditorValue(value: string) {
-  return String(value || '')
-    .split(/\r?\n\r?\n/)
-    .map((block) => block.trim())
-    .filter(Boolean)
-    .map((block) => {
-      const [headerLine = '', responsibilitiesLine = ''] = block
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean);
-      const [title = '', company = '', location = '', startDate = '', endDate = ''] = headerLine
-        .split('|')
-        .map((part) => part.trim());
-      const responsibilities = responsibilitiesLine
-        ? responsibilitiesLine
-            .split(';')
-            .map((item) => item.trim())
-            .filter(Boolean)
-        : [];
-
-      return { title, company, location, startDate, endDate, responsibilities };
-    });
-}
-
-function parsePortfolioLinksEditorValue(value: string) {
-  return String(value || '')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [type = '', url = ''] = line.split('|').map((part) => part.trim());
-      return { type, url };
-    })
-    .filter((item) => item.type || item.url);
-}
-
-function validateStructuredTextEntries(editForm: CandidateEditFormState) {
-  const invalidEducationLine = String(editForm.cvEducationEntries || '')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .find((line) => line.split('|').length > 4);
-
-  if (invalidEducationLine) {
-    throw new Error('Education entries should use: Degree | Institution | Start Year | End Year');
-  }
-
-  const invalidPortfolioLine = String(editForm.cvPortfolioLinks || '')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .find((line) => line.split('|').length > 2);
-
-  if (invalidPortfolioLine) {
-    throw new Error('Portfolio links should use: Type | URL');
-  }
 }
 
 function CircularScore({ value }: { value: number }) {
@@ -972,93 +734,6 @@ function CandidateTagSystem({
         ) : null}
       </div>
     </div>
-  );
-}
-
-function EditField({
-  label,
-  value,
-  onChange,
-  type = 'text',
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  type?: string;
-  placeholder?: string;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">{label}</span>
-      <input
-        type={type}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder}
-        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-      />
-    </label>
-  );
-}
-
-function EditSelect({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  options: Array<{ label: string; value: string }>;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-      >
-        <option value="">Select</option>
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-function EditTextarea({
-  label,
-  value,
-  onChange,
-  rows = 4,
-  placeholder,
-  helper,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  rows?: number;
-  placeholder?: string;
-  helper?: string;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">{label}</span>
-      <textarea
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        rows={rows}
-        placeholder={placeholder}
-        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-      />
-      {helper ? <span className="mt-1 block text-xs text-slate-400">{helper}</span> : null}
-    </label>
   );
 }
 
@@ -3959,6 +3634,8 @@ export function CandidateProfileDrawer({
 
   const aiScore = candidate?.aiScore || {
     overall: 0,
+    source: 'estimated' as const,
+    jobTitle: null,
     breakdown: {
       skillsMatch: 0,
       experienceFit: 0,
@@ -3967,6 +3644,7 @@ export function CandidateProfileDrawer({
     },
     insights: [],
   };
+
   const fallbackCurrentUser = currentUser || {
     id: 'current-user',
     name: 'You',
@@ -4037,50 +3715,9 @@ export function CandidateProfileDrawer({
     try {
       setIsSavingEdit(true);
       setEditError('');
-      validateStructuredTextEntries(editForm);
+      validateEditFormStructured(editForm);
 
-      const payload: UpdateCandidatePayload = {
-        firstName: editForm.firstName.trim(),
-        lastName: editForm.lastName.trim(),
-        email: editForm.email.trim(),
-        phone: editForm.phone.trim() || undefined,
-        linkedIn: editForm.linkedIn.trim() || undefined,
-        currentTitle: editForm.currentTitle.trim() || undefined,
-        currentCompany: editForm.currentCompany.trim() || undefined,
-        designation: editForm.currentTitle.trim() || undefined,
-        experience: parseOptionalNumber(editForm.experience),
-        location: editForm.location.trim() || undefined,
-        stage: editForm.stage.trim() || undefined,
-        status: editForm.status.trim() || undefined,
-        source: editForm.source.trim() || undefined,
-        assignedToId: editForm.recruiterId || null,
-        assignedJobs: editForm.assignedJobId ? [editForm.assignedJobId] : [],
-        resume: editForm.resumeUrl.trim() || undefined,
-        noticePeriod: editForm.noticePeriod.trim() || undefined,
-        availability: editForm.availability.trim() || undefined,
-        salary: {
-          currency: editForm.salaryCurrency || 'INR',
-          min: parseOptionalNumber(editForm.currentSalary),
-          max: parseOptionalNumber(editForm.expectedSalary),
-        },
-        expectedSalary: parseOptionalNumber(editForm.expectedSalary),
-        currentSalary: parseOptionalNumber(editForm.currentSalary),
-        address: editForm.address.trim() || undefined,
-        city: editForm.city.trim() || undefined,
-        country: editForm.country.trim() || undefined,
-        preferredLocation: editForm.preferredLocation.trim() || undefined,
-        education: editForm.education.trim() || undefined,
-        portfolio: editForm.portfolio.trim() || undefined,
-        website: editForm.website.trim() || undefined,
-        skills: parseCsvValues(editForm.skills),
-        languages: parseCsvValues(editForm.languages),
-        certifications: parseLineValues(editForm.certifications),
-        cvSummary: editForm.cvSummary.trim() || undefined,
-        notes: editForm.notes.trim() || undefined,
-        cvEducationEntries: parseEducationEntriesEditorValue(editForm.cvEducationEntries) as UpdateCandidatePayload['cvEducationEntries'],
-        cvWorkExperienceEntries: parseWorkExperienceEditorValue(editForm.cvWorkExperienceEntries) as UpdateCandidatePayload['cvWorkExperienceEntries'],
-        cvPortfolioLinks: parsePortfolioLinksEditorValue(editForm.cvPortfolioLinks) as UpdateCandidatePayload['cvPortfolioLinks'],
-      };
+      const payload = buildUpdatePayloadFromEditForm(editForm, candidate.extraData);
 
       await Promise.resolve(onUpdateCandidate(candidate.id, payload));
       if (openEditDirectly) {
@@ -4178,7 +3815,9 @@ export function CandidateProfileDrawer({
                     <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 sm:px-6">
                       <div>
                         <h3 className="text-lg font-semibold text-slate-900">Edit Candidate</h3>
-                        <p className="mt-1 text-sm text-slate-500">Update the candidate profile and extracted CV details from this edit drawer.</p>
+                        <p className="mt-1 text-sm text-slate-500">
+                          Edit all ATS / parsed resume fields by section. Changes sync to the candidate profile and Overview.
+                        </p>
                       </div>
                       <button
                         type="button"
@@ -4198,152 +3837,12 @@ export function CandidateProfileDrawer({
                     </div>
 
                     <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-6">
-                      <div className="space-y-6">
-                      <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Basic Information</h4>
-                        <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                          <EditField label="First Name" value={editForm.firstName} onChange={(value) => updateEditField('firstName', value)} />
-                          <EditField label="Last Name" value={editForm.lastName} onChange={(value) => updateEditField('lastName', value)} />
-                          <EditField label="Email" value={editForm.email} onChange={(value) => updateEditField('email', value)} type="email" />
-                          <EditField label="Phone" value={editForm.phone} onChange={(value) => updateEditField('phone', value)} />
-                          <EditField label="LinkedIn URL" value={editForm.linkedIn} onChange={(value) => updateEditField('linkedIn', value)} />
-                          <EditField label="Source" value={editForm.source} onChange={(value) => updateEditField('source', value)} />
-                          <EditField label="Current Title" value={editForm.currentTitle} onChange={(value) => updateEditField('currentTitle', value)} />
-                          <EditField label="Current Company" value={editForm.currentCompany} onChange={(value) => updateEditField('currentCompany', value)} />
-                          <EditField label="Experience (years)" value={editForm.experience} onChange={(value) => updateEditField('experience', value)} type="number" />
-                          <EditField label="Location" value={editForm.location} onChange={(value) => updateEditField('location', value)} />
-                        </div>
-                      </section>
-
-                      <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Hiring Details</h4>
-                        <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                          <EditSelect
-                            label="Stage"
-                            value={editForm.stage}
-                            options={CANDIDATE_STAGE_OPTIONS.map((value) => ({ label: value, value }))}
-                            onChange={(value) => updateEditField('stage', value)}
-                          />
-                          <EditSelect
-                            label="Status"
-                            value={editForm.status}
-                            options={CANDIDATE_STATUS_OPTIONS.map((value) => ({ label: value, value }))}
-                            onChange={(value) => updateEditField('status', value)}
-                          />
-                          <EditSelect
-                            label="Assigned Recruiter"
-                            value={editForm.recruiterId}
-                            options={recruiters.map((recruiter) => ({ label: recruiter.name, value: recruiter.id }))}
-                            onChange={(value) => updateEditField('recruiterId', value)}
-                          />
-                          <EditSelect
-                            label="Assigned Job"
-                            value={editForm.assignedJobId}
-                            options={jobs.map((job) => ({
-                              label: `${job.title}${job.department ? ` · ${job.department}` : ''}`,
-                              value: job.id,
-                            }))}
-                            onChange={(value) => updateEditField('assignedJobId', value)}
-                          />
-                          <EditField label="Notice Period" value={editForm.noticePeriod} onChange={(value) => updateEditField('noticePeriod', value)} />
-                          <EditSelect
-                            label="Availability"
-                            value={editForm.availability}
-                            options={CANDIDATE_AVAILABILITY_OPTIONS.map((value) => ({ label: value, value }))}
-                            onChange={(value) => updateEditField('availability', value)}
-                          />
-                        </div>
-                      </section>
-
-                      <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Compensation & Location</h4>
-                        <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                          <EditSelect
-                            label="Salary Currency"
-                            value={editForm.salaryCurrency}
-                            options={SALARY_CURRENCY_OPTIONS.map((value) => ({ label: value, value }))}
-                            onChange={(value) => updateEditField('salaryCurrency', value)}
-                          />
-                          <div />
-                          <EditField label="Expected Salary" value={editForm.expectedSalary} onChange={(value) => updateEditField('expectedSalary', value)} />
-                          <EditField label="Current Salary" value={editForm.currentSalary} onChange={(value) => updateEditField('currentSalary', value)} />
-                          <EditField label="Address" value={editForm.address} onChange={(value) => updateEditField('address', value)} />
-                          <EditField label="City" value={editForm.city} onChange={(value) => updateEditField('city', value)} />
-                          <EditField label="Country" value={editForm.country} onChange={(value) => updateEditField('country', value)} />
-                          <EditField label="Preferred Location" value={editForm.preferredLocation} onChange={(value) => updateEditField('preferredLocation', value)} />
-                        </div>
-                      </section>
-
-                      <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500">CV Details</h4>
-                        <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                          <div className="md:col-span-2">
-                            <EditField label="Resume URL" value={editForm.resumeUrl} onChange={(value) => updateEditField('resumeUrl', value)} />
-                          </div>
-                          <EditField label="Portfolio URL" value={editForm.portfolio} onChange={(value) => updateEditField('portfolio', value)} />
-                          <EditField label="Website" value={editForm.website} onChange={(value) => updateEditField('website', value)} />
-                          <div className="md:col-span-2">
-                            <EditField label="Education" value={editForm.education} onChange={(value) => updateEditField('education', value)} />
-                          </div>
-                          <div className="md:col-span-2">
-                            <EditTextarea
-                              label="Skills"
-                              value={editForm.skills}
-                              onChange={(value) => updateEditField('skills', value)}
-                              rows={3}
-                              helper="Use comma-separated values."
-                            />
-                          </div>
-                          <EditTextarea
-                            label="Languages"
-                            value={editForm.languages}
-                            onChange={(value) => updateEditField('languages', value)}
-                            rows={3}
-                            helper="Use comma-separated values."
-                          />
-                          <EditTextarea
-                            label="Certifications"
-                            value={editForm.certifications}
-                            onChange={(value) => updateEditField('certifications', value)}
-                            rows={3}
-                            helper="Use one certification per line."
-                          />
-                          <div className="md:col-span-2">
-                            <EditTextarea label="CV Summary" value={editForm.cvSummary} onChange={(value) => updateEditField('cvSummary', value)} rows={4} />
-                          </div>
-                          <div className="md:col-span-2">
-                            <EditTextarea label="Notes" value={editForm.notes} onChange={(value) => updateEditField('notes', value)} rows={5} />
-                          </div>
-                          <div className="md:col-span-2">
-                            <EditTextarea
-                              label="Education Entries"
-                              value={editForm.cvEducationEntries}
-                              onChange={(value) => updateEditField('cvEducationEntries', value)}
-                              rows={8}
-                              helper="Use one line per entry: Degree | Institution | Start Year | End Year"
-                            />
-                          </div>
-                          <div className="md:col-span-2">
-                            <EditTextarea
-                              label="Work Experience"
-                              value={editForm.cvWorkExperienceEntries}
-                              onChange={(value) => updateEditField('cvWorkExperienceEntries', value)}
-                              rows={10}
-                              helper="Use one block per role. First line: Title | Company | Location | Start Date | End Date. Second line: responsibilities separated by semicolons."
-                            />
-                          </div>
-                          <div className="md:col-span-2">
-                            <EditTextarea
-                              label="Portfolio Links"
-                              value={editForm.cvPortfolioLinks}
-                              onChange={(value) => updateEditField('cvPortfolioLinks', value)}
-                              rows={6}
-                              helper="Use one line per link: Type | URL"
-                            />
-                          </div>
-                        </div>
-                      </section>
-                      </div>
+                      <CandidateEditAtsSections
+                        form={editForm}
+                        onChange={updateEditField}
+                        recruiters={recruiters}
+                        jobs={jobs}
+                      />
                     </div>
 
                     <div className="border-t border-slate-200 px-5 py-4 sm:px-6">
@@ -4544,116 +4043,32 @@ export function CandidateProfileDrawer({
 
               <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-6">
                 {activeTab === 'Overview' && (
-                  <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-                    <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
-                        Basic Info
-                      </h3>
-                      <div className="space-y-3">
-                        <InfoRow icon={Mail} label="Email" value={candidate.email} />
-                        <InfoRow icon={Phone} label="Phone" value={candidate.phone} />
-                        <InfoRow icon={MapPin} label="Location" value={candidate.location} />
-                        <InfoRow icon={Briefcase} label="Current Company" value={candidate.currentCompany} />
-                        <InfoRow icon={UserCircle2} label="Designation" value={candidate.designation || candidate.currentTitle} />
-                        <InfoRow
-                          icon={Clock3}
-                          label="Experience"
-                          value={`${candidate.experience ?? 0} years`}
-                        />
-                        <InfoRow icon={CheckCircle2} label="Expected Salary" value={candidate.expectedSalary} />
-                        <InfoRow icon={Calendar} label="Notice Period" value={candidate.noticePeriod} />
-                      </div>
-                    </section>
-
-                    <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
-                        Job Info
-                      </h3>
-                      <div className="space-y-3">
-                        <InfoRow icon={Briefcase} label="Assigned Job" value={linkedJobLabel || candidate.assignedJob} />
-                        {Array.isArray(candidate.assignedJobs) && candidate.assignedJobs.length > 1 ? (
-                          <div className="rounded-xl border border-slate-200 bg-white p-3">
-                            <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                              All applications ({candidate.assignedJobs.length})
-                            </p>
-                            <ul className="mt-2 space-y-2">
-                              {candidate.assignedJobs.map((row, idx) => {
-                                const key = row.id || `${row.title}-${idx}`;
-                                const status = String(row.status || '').trim();
-                                const lower = status.toLowerCase();
-                                const tone = lower.includes('reject')
-                                  ? 'bg-rose-50 text-rose-700 ring-1 ring-rose-200'
-                                  : lower.includes('hire') || lower.includes('placed') || lower.includes('selected')
-                                    ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
-                                    : lower.includes('interview')
-                                      ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'
-                                      : 'bg-slate-100 text-slate-700 ring-1 ring-slate-200';
-                                return (
-                                  <li key={key} className="flex items-center justify-between gap-2">
-                                    <span className="truncate text-sm font-medium text-slate-800">
-                                      {row.title || 'Untitled job'}
-                                    </span>
-                                    {status ? (
-                                      <span
-                                        className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${tone}`}
-                                      >
-                                        {status}
-                                      </span>
-                                    ) : null}
-                                  </li>
-                                );
-                              })}
-                            </ul>
-                          </div>
-                        ) : null}
-                        <InfoRow icon={UserCircle2} label="Recruiter" value={candidate.recruiter} />
-                        <InfoRow icon={Tag} label="Stage" value={candidate.stage} />
-                        <InfoRow icon={Send} label="Source" value={candidate.source} />
-                        <div className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3">
-                          <div className="mt-0.5 rounded-lg bg-slate-100 p-2 text-slate-500">
-                            <CheckCircle2 size={16} />
-                          </div>
-                          <div>
-                            <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Availability</p>
-                            <div className="mt-1 flex items-center gap-2 text-sm font-medium capitalize text-slate-700">
-                              <span
-                                className={`h-2.5 w-2.5 rounded-full ${getAvailabilityDot(candidate.availability)}`}
-                              />
-                              {candidate.availability || 'Unknown'}
-                            </div>
-                          </div>
+                  <div className="space-y-5">
+                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                      <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4 lg:col-span-2">
+                        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+                          Recruitment snapshot
+                        </h3>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <InfoRow icon={Briefcase} label="Assigned Job" value={linkedJobLabel || candidate.assignedJob} />
+                          <InfoRow icon={Tag} label="Stage" value={candidate.stage} />
+                          <InfoRow icon={UserCircle2} label="Recruiter" value={candidate.recruiter} />
+                          <InfoRow icon={Send} label="Source" value={candidate.source} />
                         </div>
-                      </div>
-                    </section>
+                      </section>
+                      <section className="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-4">
+                        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-indigo-700/80">
+                          Quick contact
+                        </h3>
+                        <div className="space-y-2">
+                          <InfoRow icon={Mail} label="Email" value={candidate.email} />
+                          <InfoRow icon={Phone} label="Phone" value={candidate.phone} />
+                          <InfoRow icon={MapPin} label="Location" value={candidate.location} />
+                        </div>
+                      </section>
+                    </div>
 
-                    <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4 lg:col-span-2">
-                      <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
-                        Skills
-                      </h3>
-                      <div className="flex flex-wrap gap-2">
-                        {candidate.cvSkills?.length ? (
-                          candidate.cvSkills.map((skill) => (
-                            <span
-                              key={skill}
-                              className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700"
-                            >
-                              {skill}
-                            </span>
-                          ))
-                        ) : candidate.skills?.length ? (
-                          candidate.skills.map((skill) => (
-                            <span
-                              key={skill}
-                              className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700"
-                            >
-                              {skill}
-                            </span>
-                          ))
-                        ) : (
-                          <p className="text-sm text-slate-500">No skills listed.</p>
-                        )}
-                      </div>
-                    </section>
+                    <CandidateAtsExtractedOverview candidate={candidate} />
                   </div>
                 )}
 
@@ -4678,7 +4093,13 @@ export function CandidateProfileDrawer({
                         <h3 className="text-base font-semibold text-slate-900">AI Candidate Analysis</h3>
                         {aiScore.jobTitle ? (
                           <p className="mt-1 text-xs text-slate-500">
-                            Based on applied job: <span className="font-medium text-slate-700">{aiScore.jobTitle}</span>
+                            Based on applied job:{' '}
+                            <span className="font-medium text-slate-700">{aiScore.jobTitle}</span>
+                          </p>
+                        ) : aiScore.source !== 'match' ? (
+                          <p className="mt-1 text-xs text-slate-500">
+                            No applied-job match score available yet. This is an estimated profile-fit
+                            score.
                           </p>
                         ) : null}
                       </div>
@@ -4689,10 +4110,26 @@ export function CandidateProfileDrawer({
                         </div>
 
                         <div className="mt-6 space-y-4">
-                          <ScoreBar label="Skills Match" value={aiScore.breakdown.skillsMatch} colorClass="bg-blue-600" />
-                          <ScoreBar label="Experience Fit" value={aiScore.breakdown.experienceFit} colorClass="bg-amber-500" />
-                          <ScoreBar label="Education Fit" value={aiScore.breakdown.educationFit} colorClass="bg-emerald-500" />
-                          <ScoreBar label="Keyword Match" value={aiScore.breakdown.keywordMatch} colorClass="bg-violet-500" />
+                          <ScoreBar
+                            label="Skills Match"
+                            value={aiScore.breakdown.skillsMatch}
+                            colorClass="bg-blue-600"
+                          />
+                          <ScoreBar
+                            label="Experience Fit"
+                            value={aiScore.breakdown.experienceFit}
+                            colorClass="bg-amber-500"
+                          />
+                          <ScoreBar
+                            label="Education Fit"
+                            value={aiScore.breakdown.educationFit}
+                            colorClass="bg-emerald-500"
+                          />
+                          <ScoreBar
+                            label="Keyword Match"
+                            value={aiScore.breakdown.keywordMatch}
+                            colorClass="bg-violet-500"
+                          />
                         </div>
 
                         <div className="mt-8">
@@ -4705,7 +4142,7 @@ export function CandidateProfileDrawer({
                                   className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3"
                                 >
                                   <span
-                                    className={`mt-1 h-2.5 w-2.5 rounded-full ${
+                                    className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${
                                       insight.type === 'strength' ? 'bg-emerald-500' : 'bg-red-500'
                                     }`}
                                   />
@@ -4718,259 +4155,6 @@ export function CandidateProfileDrawer({
                           </div>
                         </div>
                       </div>
-
-                      <div className="border-t border-slate-200 px-5 py-4">
-                        <div className="grid grid-cols-2 gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleAction('more')}
-                            className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                          >
-                            Shortlist
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleAction('move-stage')}
-                            className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                          >
-                            Add to Pipeline
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleAction('reject')}
-                            className="rounded-xl bg-red-600 px-3 py-2.5 text-sm font-medium text-white hover:bg-red-700"
-                          >
-                            Reject
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleAction('schedule-interview')}
-                            className="rounded-xl bg-blue-600 px-3 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
-                          >
-                            Request Assessment
-                          </button>
-                        </div>
-                      </div>
-                    </section>
-                  </div>
-                )}
-
-                {activeTab === 'Extracted CV' && (
-                  <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-                    {candidate.resumeUrl ? (
-                      <section className="rounded-2xl border border-blue-100 bg-blue-50/50 p-4 lg:col-span-2">
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                          <div className="flex items-center gap-3">
-                            <div className="rounded-xl bg-white p-2 text-blue-600 shadow-sm">
-                              <FileText size={18} />
-                            </div>
-                            <div>
-                              <p className="text-sm font-semibold text-slate-900">Resume on file</p>
-                              <p className="text-xs text-slate-500">
-                                Source for the parsed information shown below.
-                              </p>
-                            </div>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            <a
-                              href={candidate.resumeUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                            >
-                              Open Resume
-                            </a>
-                            <a
-                              href={candidate.resumeUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              download
-                              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-                            >
-                              <Download size={14} />
-                              Download
-                            </a>
-                          </div>
-                        </div>
-                        <ResumeInlinePreview
-                          resumeUrl={candidate.resumeUrl}
-                          candidateName={candidate.name}
-                          enabled={activeTab === 'Extracted CV'}
-                          className="mt-4"
-                          minHeightClass="h-[420px]"
-                        />
-                      </section>
-                    ) : null}
-
-                    <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
-                        Personal Information
-                      </h3>
-                      <div className="space-y-3">
-                        <InfoRow icon={Mail} label="Email" value={candidate.email} />
-                        <InfoRow icon={Phone} label="Phone" value={candidate.phone} />
-                        <InfoRow icon={MapPin} label="City" value={candidate.cvCity} />
-                        <InfoRow icon={MapPin} label="Country" value={candidate.cvCountry} />
-                        <InfoRow icon={MapPin} label="Address" value={candidate.cvAddress} />
-                        <InfoRow icon={Briefcase} label="Preferred Location" value={candidate.cvPreferredLocation} />
-                        <InfoRow icon={CheckCircle2} label="Availability" value={candidate.cvAvailability} />
-                      </div>
-                      {candidate.summary ? (
-                        <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Summary</p>
-                          <p className="mt-2 text-sm leading-6 text-slate-700">{candidate.summary}</p>
-                        </div>
-                      ) : null}
-                    </section>
-
-                    <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
-                        Compensation & Links
-                      </h3>
-                      <div className="space-y-3">
-                        <InfoRow icon={CheckCircle2} label="Expected Salary" value={candidate.cvExpectedSalary} />
-                        <InfoRow icon={CheckCircle2} label="Current Salary" value={candidate.cvCurrentSalary} />
-                        <InfoRow icon={Calendar} label="Notice Period" value={candidate.noticePeriod} />
-                        <InfoRow icon={FileText} label="Portfolio" value={candidate.cvPortfolio} />
-                        <InfoRow icon={FileSearch} label="Website" value={candidate.cvWebsite} />
-                      </div>
-                      {candidate.cvPortfolioLinks?.length ? (
-                        <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Extracted Links</p>
-                          <div className="mt-3 space-y-2">
-                            {candidate.cvPortfolioLinks.map((item, index) => (
-                              <a
-                                key={`${item.type || 'link'}-${item.url || index}`}
-                                href={item.url || '#'}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="block rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-blue-700 hover:bg-slate-100"
-                              >
-                                {(item.type || 'Link')}: {item.url || 'Unavailable'}
-                              </a>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-                    </section>
-
-                    <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
-                        Education
-                      </h3>
-                      {candidate.cvEducationEntries?.length ? (
-                        <div className="space-y-3">
-                          {candidate.cvEducationEntries.map((item, index) => (
-                            <div
-                              key={`${item.degree || 'education'}-${index}`}
-                              className="rounded-xl border border-slate-200 bg-white p-3"
-                            >
-                              <p className="text-sm font-semibold text-slate-900">{item.degree || 'Education entry'}</p>
-                              <p className="mt-1 text-sm text-slate-600">{item.institution || 'Institution not available'}</p>
-                              <p className="mt-2 text-xs text-slate-500">
-                                {[item.startYear, item.endYear].filter(Boolean).join(' - ') || 'Dates unavailable'}
-                              </p>
-                            </div>
-                          ))}
-                        </div>
-                      ) : candidate.cvEducation ? (
-                        <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm leading-6 text-slate-700">
-                          {candidate.cvEducation}
-                        </div>
-                      ) : (
-                        <div className="rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
-                          No extracted education data available.
-                        </div>
-                      )}
-                    </section>
-
-                    <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4 lg:col-span-2">
-                      <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
-                        Work Experience
-                      </h3>
-                      {candidate.cvWorkExperienceEntries?.length ? (
-                        <div className="space-y-3">
-                          {candidate.cvWorkExperienceEntries.map((item, index) => (
-                            <div
-                              key={`${item.title || 'work'}-${index}`}
-                              className="rounded-xl border border-slate-200 bg-white p-4"
-                            >
-                              <p className="text-sm font-semibold text-slate-900">
-                                {item.title || 'Role not available'}
-                                {item.company ? ` at ${item.company}` : ''}
-                              </p>
-                              <p className="mt-1 text-xs text-slate-500">
-                                {[item.location, [item.startDate, item.endDate].filter(Boolean).join(' - ')]
-                                  .filter(Boolean)
-                                  .join(' • ') || 'Details unavailable'}
-                              </p>
-                              {(() => {
-                                const responsibilityItems = normalizeStringList(
-                                  item.responsibilities ??
-                                    (item as { description?: unknown }).description
-                                );
-                                return responsibilityItems.length ? (
-                                  <ul className="mt-3 space-y-1 text-sm text-slate-700">
-                                    {responsibilityItems.map((responsibility, responsibilityIndex) => (
-                                      <li key={`${item.title || 'work'}-${responsibilityIndex}`}>
-                                        • {responsibility}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                ) : null;
-                              })()}
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
-                          No extracted work experience data available.
-                        </div>
-                      )}
-                    </section>
-
-                    <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
-                        Skills & Languages
-                      </h3>
-                      <div className="space-y-4">
-                        <div className="rounded-xl border border-slate-200 bg-white p-3">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Languages</p>
-                          {candidate.cvLanguages?.length ? (
-                            <p className="mt-2 text-sm text-slate-700">{candidate.cvLanguages.join(', ')}</p>
-                          ) : (
-                            <p className="mt-2 text-sm text-slate-500">No extracted languages available.</p>
-                          )}
-                        </div>
-
-                        <div className="rounded-xl border border-slate-200 bg-white p-3">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Certifications</p>
-                          {candidate.cvCertifications?.length ? (
-                            <ul className="mt-2 space-y-1 text-sm text-slate-700">
-                              {candidate.cvCertifications.map((item) => (
-                                <li key={item}>• {item}</li>
-                              ))}
-                            </ul>
-                          ) : (
-                            <p className="mt-2 text-sm text-slate-500">No extracted certifications available.</p>
-                          )}
-                        </div>
-                      </div>
-                    </section>
-
-                    <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4 lg:col-span-2">
-                      <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
-                        Extracted Notes
-                      </h3>
-                      {candidate.cvSummary || candidate.cvNotes ? (
-                        <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm leading-6 text-slate-700">
-                          {candidate.cvSummary || candidate.cvNotes}
-                        </div>
-                      ) : (
-                        <div className="rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
-                          No extracted CV notes available.
-                        </div>
-                      )}
                     </section>
                   </div>
                 )}

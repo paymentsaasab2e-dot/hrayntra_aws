@@ -26,7 +26,10 @@ import {
   Trash2,
   Inbox,
 } from 'lucide-react';
-import { downloadCsv, csvDate } from '../../utils/csv';
+import { downloadCsv } from '../../utils/csv';
+import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
+import { buildJobsCsvColumns, JOBS_EXPORT_COLUMNS } from '../../lib/export/jobsExportColumns';
+import { fetchAllPaginated, totalPagesFromPagination } from '../../lib/export/fetchAllPaginated';
 import { formatDateTimeDMY } from '../../utils/dateDisplay';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import PaginationAll from '../../components/PaginationAll';
@@ -949,37 +952,67 @@ export default function JobsPage() {
   const hasVisibleJobsRef = useRef(jobs.length > 0);
   const cloneDrawerTimerRef = useRef<number | null>(null);
   const hasActiveFilters = Boolean(searchFilter || statusFilter || clientFilterId || recruiterFilterId);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportJobs, setExportJobs] = useState<Job[]>([]);
+  const [exportJobsLoading, setExportJobsLoading] = useState(false);
 
-  /** Export current page of jobs to CSV. */
-  const handleExportJobsCsv = useCallback(() => {
-    if (jobs.length === 0) {
-      toast.message('No jobs to export.');
-      return;
+  const fetchAllJobsForExport = useCallback(async (): Promise<Job[]> => {
+    return fetchAllPaginated({
+      fetchPage: async (page, limit) => {
+        const jobsRes = await apiGetJobs({
+          page,
+          limit,
+          search: searchFilter || undefined,
+          status: statusFilter || undefined,
+          clientId: clientFilterId || undefined,
+          assignedToId: recruiterFilterId || undefined,
+        });
+        const parsed = parseJobsApiPayload(jobsRes);
+        const backendJobs = Array.isArray(parsed.jobs) ? parsed.jobs : [];
+        const pagination =
+          jobsRes?.data && typeof jobsRes.data === 'object' && !Array.isArray(jobsRes.data)
+            ? (jobsRes.data as { pagination?: { totalPages?: number; total?: number } }).pagination
+            : undefined;
+        return {
+          items: backendJobs.map((job) => mapBackendJob(job, job._count?.matches || 0)),
+          totalPages: totalPagesFromPagination(pagination, backendJobs.length, limit),
+        };
+      },
+    });
+  }, [clientFilterId, recruiterFilterId, searchFilter, statusFilter]);
+
+  const openExportModal = async () => {
+    setExportJobsLoading(true);
+    setExportModalOpen(true);
+    try {
+      const all = await fetchAllJobsForExport();
+      setExportJobs(all);
+      if (all.length === 0) {
+        toast.message('No jobs to export with current filters.');
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to load jobs for export';
+      toast.error(message);
+      setExportModalOpen(false);
+      setExportJobs([]);
+    } finally {
+      setExportJobsLoading(false);
     }
-    downloadCsv<Job>(
-      `jobs-${new Date().toISOString().slice(0, 10)}.csv`,
-      [
-        { id: 'title', accessor: (j) => j.title },
-        { id: 'client', accessor: (j) => j.client },
-        { id: 'location', accessor: (j) => j.location },
-        { id: 'jobLocationType', accessor: (j) => j.jobLocationType || '' },
-        { id: 'status', accessor: (j) => j.status },
-        { id: 'openings', accessor: (j) => j.openings ?? 0 },
-        { id: 'applied', accessor: (j) => j.applied ?? 0 },
-        { id: 'interviewed', accessor: (j) => j.interviewed ?? 0 },
-        { id: 'offered', accessor: (j) => j.offered ?? 0 },
-        { id: 'joined', accessor: (j) => j.joined ?? 0 },
-        { id: 'owner', accessor: (j) => j.owner },
-        { id: 'createdDate', accessor: (j) => csvDate(j.createdDate) },
-        { id: 'hot', accessor: (j) => (j.hot ? 'true' : 'false') },
-        { id: 'aiMatch', accessor: (j) => (j.aiMatch ? 'true' : 'false') },
-        { id: 'noCandidates', accessor: (j) => (j.noCandidates ? 'true' : 'false') },
-        { id: 'slaRisk', accessor: (j) => (j.slaRisk ? 'true' : 'false') },
-      ],
-      jobs,
-    );
-    toast.success(`Exported ${jobs.length} job${jobs.length === 1 ? '' : 's'} to CSV`);
-  }, [jobs]);
+  };
+
+  const handleExportJobsCsv = useCallback(
+    (selectedColumnIds: string[]) => {
+      const columns = buildJobsCsvColumns(selectedColumnIds);
+      if (columns.length === 0) {
+        toast.message('Select at least one column to export.');
+        return;
+      }
+      const rowsToExport = exportJobs.length > 0 ? exportJobs : jobs;
+      downloadCsv<Job>(`jobs-${new Date().toISOString().slice(0, 10)}.csv`, columns, rowsToExport);
+      toast.success(`Exported ${rowsToExport.length} job${rowsToExport.length === 1 ? '' : 's'} to CSV`);
+    },
+    [exportJobs, jobs],
+  );
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1889,7 +1922,7 @@ export default function JobsPage() {
             ) : null}
                 <button
                   type="button"
-                  onClick={handleExportJobsCsv}
+                  onClick={() => void openExportModal()}
               className="bg-white hover:bg-indigo-50/90 text-indigo-900 px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] border border-indigo-200/70 hover:border-indigo-300 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
                   title="Export visible jobs to CSV"
                 >
@@ -2692,6 +2725,22 @@ export default function JobsPage() {
           onRestored={() => void reloadMyJobsAndMetrics()}
         />
       )}
+      <ExportColumnsModal
+        isOpen={exportModalOpen}
+        onClose={() => {
+          setExportModalOpen(false);
+          setExportJobs([]);
+        }}
+        title="Export jobs"
+        rowCount={exportJobs.length}
+        rowLabelSingular="job"
+        rowLabelPlural="jobs"
+        columns={JOBS_EXPORT_COLUMNS}
+        rows={exportJobs}
+        isLoading={exportJobsLoading}
+        getRowKey={(job) => job.id}
+        onExport={handleExportJobsCsv}
+      />
       <style dangerouslySetInnerHTML={{ __html: `
         .custom-scrollbar::-webkit-scrollbar {
           width: 6px;

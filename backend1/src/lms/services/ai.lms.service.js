@@ -24,18 +24,14 @@ function getAnthropicClient() {
  * Returns an instance of Google Gemini Client
  */
 function getGeminiClient() {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
-  return new GoogleGenerativeAI(apiKey);
+  return null;
 }
 
 /**
- * Returns an instance of Mistral Client
+ * Returns an instance of Mistral Client (disabled — OpenAI gpt-4.1 only)
  */
 function getMistralClient() {
-  const apiKey = process.env.MISTRAL_API_KEY;
-  if (!apiKey) return null;
-  return new MistralClient.Mistral({ apiKey });
+  return null;
 }
 
 /**
@@ -202,7 +198,7 @@ Return ONLY valid JSON with no markdown in this format:
     const mistral = getMistralClient();
     if (mistral) {
       const response = await mistral.chat.complete({
-        model: 'mistral-large-latest',
+        model: 'gpt-4.1',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.3,
       });
@@ -229,7 +225,7 @@ Return ONLY valid JSON with no markdown in this format:
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.3,
       });
@@ -270,7 +266,7 @@ Return ONLY a JSON array of 3 objects in this format:
     const mistral = getMistralClient();
     if (mistral) {
       const response = await mistral.chat.complete({
-        model: 'mistral-large-latest',
+        model: 'gpt-4.1',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.4,
       });
@@ -298,7 +294,7 @@ Return ONLY a JSON array of 3 objects in this format:
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.4,
       });
@@ -360,7 +356,7 @@ Return ONLY valid JSON.`;
     const mistral = getMistralClient();
     if (mistral) {
       const response = await mistral.chat.complete({
-        model: 'mistral-large-latest',
+        model: 'gpt-4.1',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.4,
       });
@@ -375,7 +371,7 @@ Return ONLY valid JSON.`;
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.4
       });
@@ -411,7 +407,7 @@ async function generateDailyMomentum(userState, profileContext) {
       const mistral = getMistralClient();
       if (mistral) {
         const response = await mistral.chat.complete({
-          model: 'mistral-large-latest',
+          model: 'gpt-4.1',
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.5,
         });
@@ -438,7 +434,7 @@ async function generateDailyMomentum(userState, profileContext) {
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.5,
       });
@@ -479,7 +475,7 @@ async function generateSharedIntelligence(userState, profileContext) {
       const mistral = getMistralClient();
       if (mistral) {
         const response = await mistral.chat.complete({
-          model: 'mistral-large-latest',
+          model: 'gpt-4.1',
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.5,
         });
@@ -493,7 +489,7 @@ async function generateSharedIntelligence(userState, profileContext) {
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.5,
       });
@@ -523,7 +519,7 @@ Return ONLY a JSON array of objects with this shape:
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.4,
       });
@@ -569,7 +565,7 @@ Provide feedback and return ONLY a JSON object with this shape:
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.2,
       });
@@ -609,7 +605,7 @@ Return ONLY a JSON object with this shape:
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.2,
       });
@@ -658,7 +654,7 @@ Return ONLY the output string in plain text (or markdown).`;
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1',
         messages: [{ role: 'user', content: prompt }],
       });
       return completion.choices[0].message.content.trim();
@@ -682,7 +678,7 @@ Return ONLY the improved content in plain text.`;
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.5,
       });
@@ -712,7 +708,7 @@ Return ONLY the summary text directly.`;
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.7,
       });
@@ -760,7 +756,7 @@ Return ONLY a JSON object with this shape:
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.2,
       });
@@ -802,7 +798,7 @@ Return ONLY a JSON object with this shape:
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.2,
       });
@@ -848,7 +844,7 @@ async function generateGoalRecommendations(query) {
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1',
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 100,
         temperature: 0.3,
@@ -870,7 +866,7 @@ async function generateLocationRecommendations(query) {
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1',
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 100,
         temperature: 0.3,
@@ -908,7 +904,7 @@ async function generateOrchestrationPlan(targetRole) {
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.6,
       });

@@ -4,6 +4,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react';
 import { Download, Mail, MessageSquare, Sparkles, Trash2, UserPlus, RefreshCw, GitMerge, Users } from 'lucide-react';
 import { downloadCsv } from '../../utils/csv';
+import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
+import { buildMatchesCsvColumns, MATCHES_EXPORT_COLUMNS } from '../../lib/export/matchesExportColumns';
 import { Toaster } from 'sonner';
 import AIManualToggle from '../../components/matches/AIManualToggle';
 import JobSelector from '../../components/matches/JobSelector';
@@ -334,6 +336,8 @@ export default function MatchesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportMatches, setExportMatches] = useState<MatchCandidate[]>([]);
   const [bulkActionLoading, setBulkActionLoading] = useState<'reject' | 'pipeline' | null>(null);
   const [bulkEmailLoading, setBulkEmailLoading] = useState(false);
   const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
@@ -858,32 +862,48 @@ export default function MatchesPage() {
     }
   };
 
-  const handleExportMatchesCsv = useCallback(() => {
+  const exportColumnsForModal = useMemo(() => {
+    const savedSet = new Set(savedMatches);
+    return MATCHES_EXPORT_COLUMNS.map((col) =>
+      col.id === 'saved'
+        ? {
+            ...col,
+            accessor: (c: MatchCandidate) => (savedSet.has(c.id) ? 'true' : 'false'),
+          }
+        : col,
+    );
+  }, [savedMatches]);
+
+  const openExportModal = useCallback(() => {
     const list = filteredCandidates;
+    setExportMatches(list);
+    setExportModalOpen(true);
     if (list.length === 0) {
       setToast('No matches to export with current filters.');
-      return;
     }
-    downloadCsv<MatchCandidate>(
-      `matches-${selectedJob?.title ? selectedJob.title.toLowerCase().replace(/\s+/g, '-') : 'list'}-${new Date().toISOString().slice(0, 10)}.csv`,
-      [
-        { id: 'name', accessor: (c) => c.name },
-        { id: 'currentTitle', accessor: (c) => c.currentTitle || '' },
-        { id: 'currentCompany', accessor: (c) => c.currentCompany || '' },
-        { id: 'experience', accessor: (c) => c.experience ?? '' },
-        { id: 'location', accessor: (c) => c.location || '' },
-        { id: 'email', accessor: (c) => c.email || '' },
-        { id: 'phone', accessor: (c) => c.phone || '' },
-        { id: 'matchScore', accessor: (c) => c.score ?? '' },
-        { id: 'status', accessor: (c) => c.status || '' },
-        { id: 'saved', accessor: (c) => (savedMatches.includes(c.id) ? 'true' : 'false') },
-        { id: 'skills', accessor: (c) => (c.skills || []).join('; ') },
-        { id: 'savedAt', accessor: (c) => c.savedAt || '' },
-      ],
-      list,
-    );
-    setToast(`Exported ${list.length} match${list.length === 1 ? '' : 'es'} to CSV`);
-  }, [filteredCandidates, savedMatches, selectedJob?.title]);
+  }, [filteredCandidates]);
+
+  const handleExportMatchesCsv = useCallback(
+    (selectedColumnIds: string[]) => {
+      const columns = buildMatchesCsvColumns(selectedColumnIds, savedMatches);
+      if (columns.length === 0) {
+        setToast('Select at least one column to export.');
+        return;
+      }
+      const rowsToExport = exportMatches.length > 0 ? exportMatches : filteredCandidates;
+      if (rowsToExport.length === 0) {
+        setToast('No matches to export with current filters.');
+        return;
+      }
+      downloadCsv<MatchCandidate>(
+        `matches-${selectedJob?.title ? selectedJob.title.toLowerCase().replace(/\s+/g, '-') : 'list'}-${new Date().toISOString().slice(0, 10)}.csv`,
+        columns,
+        rowsToExport,
+      );
+      setToast(`Exported ${rowsToExport.length} match${rowsToExport.length === 1 ? '' : 'es'} to CSV`);
+    },
+    [exportMatches, filteredCandidates, savedMatches, selectedJob?.title],
+  );
 
   return (
     <div className="w-full min-h-screen overflow-hidden text-slate-900">
@@ -913,7 +933,7 @@ export default function MatchesPage() {
             </button>
             <button
               type="button"
-              onClick={handleExportMatchesCsv}
+              onClick={openExportModal}
               className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
               title="Export visible matches to CSV"
             >
@@ -1307,6 +1327,22 @@ export default function MatchesPage() {
           await loadCandidateProfile(candidateId, drawerMatchCandidate);
           await refreshMatches();
         }}
+      />
+
+      <ExportColumnsModal
+        isOpen={exportModalOpen}
+        onClose={() => {
+          setExportModalOpen(false);
+          setExportMatches([]);
+        }}
+        title="Export matches"
+        rowCount={exportMatches.length}
+        rowLabelSingular="match"
+        rowLabelPlural="matches"
+        columns={exportColumnsForModal}
+        rows={exportMatches}
+        getRowKey={(candidate) => candidate.id}
+        onExport={handleExportMatchesCsv}
       />
 
       <AnimatePresence>

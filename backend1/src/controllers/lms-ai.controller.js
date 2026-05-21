@@ -269,7 +269,7 @@ async function classifyDomainWithAI(prompt) {
   try {
     const domainNames = DOMAIN_MAP.map(d => d.domain).concat(['General Professional']);
     const result = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1',
       temperature: 0,
       max_tokens: 60,
       messages: [{
@@ -436,7 +436,7 @@ ${multiDomainLabel}
     const userPrompt = `Generate a high-quality interview set for the ${domain} domain:\n"${prompt}"${candidateContext}${companyContext}`;
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1',
       temperature: 0.7,
       messages: [
         { role: 'system', content: systemInstructions },
@@ -618,7 +618,7 @@ Return JSON conforming to:
 }`;
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini', 
+      model: 'gpt-4.1', 
       temperature: 0.2,
       messages: [
         { role: 'system', content: systemPrompt },

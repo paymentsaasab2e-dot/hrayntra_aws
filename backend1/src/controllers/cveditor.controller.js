@@ -333,7 +333,7 @@ Return only the formatted HTML without any markdown syntax or extra labels.`;
     if (openai) {
       try {
         const completion = await openai.chat.completions.create({
-          model: 'gpt-3.5-turbo',
+          model: 'gpt-4.1',
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.3,
           max_tokens: isProjectSection ? 2000 : 500, // More tokens for structured project output
@@ -356,7 +356,7 @@ Return only the formatted HTML without any markdown syntax or extra labels.`;
     if (!improvedText && mistral) {
       try {
         const chatResponse = await mistral.chat.complete({
-          model: 'mistral-large-latest',
+          model: 'gpt-4.1',
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.3,
           maxTokens: isProjectSection ? 2000 : 500, // More tokens for structured project output
@@ -921,7 +921,7 @@ ${projectSection}`;
     if (mistral) {
       try {
         const chatResponse = await mistral.chat.complete({
-          model: 'mistral-large-latest',
+          model: 'gpt-4.1',
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.2,
           maxTokens: 2000,

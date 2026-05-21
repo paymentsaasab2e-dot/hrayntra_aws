@@ -1,12 +1,18 @@
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import {
+  resolveOpenAiChatModel,
+  ALLOWED_OPENAI_CHAT_MODEL,
+} from './openaiModel.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '../..');
 
 dotenv.config({ path: path.join(projectRoot, '.env') });
+
+const OPENAI_CHAT_MODEL = resolveOpenAiChatModel();
 
 /**
  * Base URL for the employers SPA (emails, invite links). Reads several env aliases used in deployment.
@@ -179,16 +185,15 @@ export const env = {
   HRAYNTRA_PLATFORM_PROVISION_EMAILS:
     process.env.HRAYNTRA_PLATFORM_PROVISION_EMAILS || 'admin@gmail.com',
 
-  // AI summary + in-app assistant chat
+  // AI — OpenAI gpt-4.1 primary; Mistral fallback when OpenAI fails (llmChatFallback.service.js)
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
-  /** Optional; default gpt-4o-mini in assistantChat.service */
-  OPENAI_ASSISTANT_MODEL: process.env.OPENAI_ASSISTANT_MODEL,
-  /** Fallback when OpenAI fails or is unset (OpenAI-compatible Mistral Chat API). */
+  /** Resolved chat model (always gpt-4.1; set OPENAI_CHAT_MODEL=gpt-4.1 in .env) */
+  OPENAI_CHAT_MODEL,
+  OPENAI_ASSISTANT_MODEL: OPENAI_CHAT_MODEL,
+  ALLOWED_OPENAI_CHAT_MODEL,
   MISTRAL_API_KEY: process.env.MISTRAL_API_KEY,
-  /** e.g. mistral-small-latest, mistral-large-latest */
-  MISTRAL_CHAT_MODEL: process.env.MISTRAL_CHAT_MODEL,
-  /** Override only if Mistral moves the base path; default https://api.mistral.ai/v1 */
-  MISTRAL_API_BASE_URL: process.env.MISTRAL_API_BASE_URL,
+  MISTRAL_CHAT_MODEL: process.env.MISTRAL_CHAT_MODEL || 'mistral-small-latest',
+  MISTRAL_API_BASE_URL: process.env.MISTRAL_API_BASE_URL || 'https://api.mistral.ai/v1',
   /** If "true", assistant DB tools ignore role scoping (single-tenant / demo only). */
   ASSISTANT_FULL_DB_ACCESS: process.env.ASSISTANT_FULL_DB_ACCESS,
 
@@ -204,4 +209,26 @@ export const env = {
     }
     return 25 * 1024 * 1024;
   })(),
+
+  /** Max CV count per bulk session (ZIP expand or client queue). Default 2000. */
+  BULK_CV_MAX_FILES: (() => {
+    const raw = process.env.BULK_CV_MAX_FILES;
+    if (raw != null && String(raw).trim() !== '') {
+      const n = parseInt(String(raw).trim(), 10);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    return 2000;
+  })(),
+
+  /** Max ZIP upload size for bulk CV archive. Default 2GB. */
+  BULK_CV_MAX_ZIP_BYTES: (() => {
+    const raw = process.env.BULK_CV_MAX_ZIP_BYTES;
+    if (raw != null && String(raw).trim() !== '') {
+      const n = parseInt(String(raw).trim(), 10);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    return 2 * 1024 * 1024 * 1024;
+  })(),
 };
+
+export { OPENAI_CHAT_MODEL, ALLOWED_OPENAI_CHAT_MODEL };

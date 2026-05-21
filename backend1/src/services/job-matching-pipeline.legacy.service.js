@@ -546,7 +546,7 @@ async function extractSkillsWithOpenAI(input) {
 
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1',
       temperature: 0.1,
       response_format: { type: 'json_object' },
       messages: [
@@ -578,7 +578,7 @@ async function inferRolesWithOpenAI(candidateSummary, job) {
 
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1',
       temperature: 0.1,
       response_format: { type: 'json_object' },
       messages: [
@@ -624,7 +624,7 @@ async function getSemanticBoostWithOpenAI(candidateSummaryText, job, determinist
 
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1',
       temperature: 0.1,
       response_format: { type: 'json_object' },
       messages: [
@@ -672,7 +672,7 @@ async function getSemanticScoreWithOpenAI(candidate, job) {
 
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1',
       temperature: 0.1,
       response_format: { type: 'json_object' },
       messages: [
@@ -722,7 +722,7 @@ async function getAIMatchScore(candidate, job) {
   if (!openai) return null;
 
   const response = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: 'gpt-4.1',
     temperature: 0.2,
     response_format: { type: 'json_object' },
     messages: [
@@ -789,7 +789,7 @@ async function getFullAiMatchWithOpenAI(candidateSummaryText, job, deterministic
 
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1',
       temperature: 0.1,
       response_format: { type: 'json_object' },
       messages: [
@@ -902,7 +902,7 @@ async function generateExplanationWithOpenAI(candidateSummaryText, job, scoringR
 
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1',
       temperature: 0.2,
       messages: [
         {

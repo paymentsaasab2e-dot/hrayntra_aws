@@ -9,17 +9,26 @@ import {
   validateCvUploadFile,
   runCvPipelineThroughStage4,
   finalizeCvPipelineFromStage5,
+  stripCvParseMeta,
 } from '../services/cvParsing.service.js';
 import { chatCompletionWithFallback, hasLlmProvider } from '../services/llmChatFallback.service.js';
 import {
   findExistingCandidateDuplicate,
   nextCopyLastNameForBulk,
   nextUniqueEmailVariant,
+  normalizeCandidateEmailForDuplicate,
   notDeletedClause,
 } from '../services/bulkCvDuplicate.service.js';
 import { hardDeleteCandidateById } from '../services/bulkCvHardDelete.service.js';
 import { waitBulkCvDuplicateDecision } from '../socket/bulkCvDuplicateWait.registry.js';
 import { emitBulkCvDuplicateFound, getBulkCvIo } from '../socket/bulkCvSocket.js';
+import { expandBulkCvZipArchive } from '../services/bulkCvZip.service.js';
+import {
+  getBulkCvStoredFile,
+  registerBulkCvZipSession,
+  releaseBulkCvZipSession,
+  removeBulkCvStoredFile,
+} from '../services/bulkCvZipStore.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -42,15 +51,13 @@ const DEFAULT_TAGS = [
 ];
 const STAGE_ORDER = ['Applied', 'Screening', 'Shortlist', 'Interview', 'Offer', 'Hired'];
 function normalizeEmail(email = '') {
-  return String(email).trim().toLowerCase();
+  return normalizeCandidateEmailForDuplicate(email);
 }
 
-/** Non-empty trimmed lowercased email, or null (never store empty string on Candidate). */
+/** Non-empty normalized email, or null (never store empty string on Candidate). */
 function normalizeCandidateEmail(value) {
-  if (value === undefined || value === null) return null;
-  const trimmed = String(value).trim();
-  if (!trimmed) return null;
-  return trimmed.toLowerCase();
+  const normalized = normalizeCandidateEmailForDuplicate(value);
+  return normalized || null;
 }
 
 /**
@@ -547,7 +554,7 @@ ${cleanedText.slice(0, 18000)}
 
   const completion = await chatCompletionWithFallback(
     {
-      model: env.OPENAI_ASSISTANT_MODEL || 'gpt-4o-mini',
+      model: 'gpt-4.1',
       temperature: 0,
       response_format: { type: 'json_object' },
       messages: [
@@ -733,25 +740,11 @@ export const addCandidateController = {
       const email = normalizeCandidateEmail(req.body.email);
       // Only check email duplicates when a real email is present — `where: { email: null }`
       // would otherwise match unrelated profiles with no email.
-      const existing = email
-        ? await prisma.candidate.findFirst({
-            where: {
-              AND: [
-                notDeletedClause,
-                { email: { equals: email, mode: 'insensitive' } },
-              ],
-            },
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              email: true,
-              stage: true,
-              currentTitle: true,
-              currentCompany: true,
-            },
-          })
-        : null;
+      let existing = null;
+      if (email) {
+        const dup = await findExistingCandidateDuplicate({ email });
+        existing = dup?.candidate ?? null;
+      }
 
       const isBulkCvPool =
         !req.body.jobId &&
@@ -1029,13 +1022,15 @@ export const addCandidateController = {
       }
 
       try {
-        const normalizedData = await processCandidateCv(file, {
+        const rawNormalized = await processCandidateCv(file, {
           candidateId: req.body?.candidateId || req.user?.id || null,
         });
+        const { cleaned: normalizedData, cvParseMeta } = stripCvParseMeta(rawNormalized);
 
         return res.status(200).json({
           success: true,
           data: normalizedData,
+          tokenUsage: cvParseMeta,
         });
       } catch (parseError) {
         console.error('Resume parsing failed, using non-AI fallback:', parseError.message);
@@ -1104,14 +1099,111 @@ export const addCandidateController = {
    * Bulk CV only: run regex/stages 1–4, optional duplicate gate (Socket.IO), then AI + normalize.
    * Does not persist the candidate — client calls `/candidates/create` with returned `data`.
    */
+  async bulkCvExpandZip(req, res) {
+    const zipPath = req.file?.path;
+    const sessionId = String(req.body?.sessionId || '').trim();
+    const userId = req.user?.id;
+
+    const safeUnlinkZip = () => {
+      if (zipPath && fs.existsSync(zipPath)) {
+        try {
+          fs.unlinkSync(zipPath);
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+
+    try {
+      if (!req.file) {
+        return res.status(400).json({ success: false, message: 'ZIP archive is required' });
+      }
+      if (!sessionId) {
+        safeUnlinkZip();
+        return res.status(400).json({ success: false, message: 'sessionId is required' });
+      }
+      if (!userId) {
+        safeUnlinkZip();
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+      }
+
+      releaseBulkCvZipSession(userId, sessionId);
+
+      const { targetDir, fileEntries, skipped, total } = expandBulkCvZipArchive(zipPath, {
+        userId,
+        sessionId,
+        maxFiles: env.BULK_CV_MAX_FILES,
+        maxPerFileBytes: env.RESUME_MAX_FILE_BYTES,
+      });
+
+      safeUnlinkZip();
+      registerBulkCvZipSession(userId, sessionId, targetDir, fileEntries);
+
+      return res.json({
+        success: true,
+        data: {
+          total,
+          skipped,
+          maxAllowed: env.BULK_CV_MAX_FILES,
+          files: fileEntries.map((f) => ({
+            storedFileId: f.storedFileId,
+            name: f.originalname,
+            size: f.size,
+          })),
+        },
+      });
+    } catch (error) {
+      safeUnlinkZip();
+      if (userId && sessionId) {
+        releaseBulkCvZipSession(userId, sessionId);
+      }
+      console.error('[bulk-cv] bulkCvExpandZip failed:', error?.message || error);
+      return res.status(400).json({
+        success: false,
+        message: error.message || 'Failed to extract ZIP archive',
+      });
+    }
+  },
+
+  async bulkCvReleaseZip(req, res) {
+    const sessionId = String(req.body?.sessionId || req.query?.sessionId || '').trim();
+    const userId = req.user?.id;
+    if (!sessionId || !userId) {
+      return res.status(400).json({ success: false, message: 'sessionId required' });
+    }
+    releaseBulkCvZipSession(userId, sessionId);
+    return res.json({ success: true, message: 'Bulk ZIP session cleared' });
+  },
+
   async bulkCvProcessFile(req, res) {
-    const file = req.file;
-    const filePath = file?.path;
+    const storedFileId = String(req.body?.storedFileId || '').trim();
+    let file = req.file;
+    let filePath = file?.path;
     const sessionId = String(req.body?.sessionId || '').trim();
     const fileIndex = Number(req.body?.fileIndex);
     const userId = req.user?.id;
+    let fromZipStore = false;
+
+    if (!file && storedFileId && userId && sessionId) {
+      const stored = getBulkCvStoredFile(userId, sessionId, storedFileId);
+      if (stored) {
+        fromZipStore = true;
+        filePath = stored.path;
+        file = {
+          path: stored.path,
+          originalname: stored.originalname,
+          filename: stored.originalname,
+          mimetype: stored.mimetype,
+          size: stored.size,
+        };
+      }
+    }
 
     const safeUnlink = () => {
+      if (fromZipStore && userId && sessionId && storedFileId) {
+        removeBulkCvStoredFile(userId, sessionId, storedFileId);
+        return;
+      }
       if (filePath && fs.existsSync(filePath)) {
         try {
           fs.unlinkSync(filePath);
@@ -1123,7 +1215,7 @@ export const addCandidateController = {
 
     try {
       if (!file) {
-        return res.status(400).json({ success: false, message: 'Resume file is required' });
+        return res.status(400).json({ success: false, message: 'Resume file or storedFileId is required' });
       }
       if (!sessionId) {
         safeUnlink();
@@ -1158,8 +1250,6 @@ export const addCandidateController = {
       const fb = stage4.fallbackData || {};
       const dup = await findExistingCandidateDuplicate({
         email: fb.email,
-        firstName: fb.firstName,
-        lastName: fb.lastName,
       });
 
       let identityPatch = null;
@@ -1224,6 +1314,7 @@ export const addCandidateController = {
 
         if (decision === 'cancel') {
           safeUnlink();
+          const { cvParseMeta: skippedTokenUsage } = stripCvParseMeta(preNormalized);
           return res.status(200).json({
             success: true,
             message: 'duplicate_skipped',
@@ -1231,6 +1322,7 @@ export const addCandidateController = {
               skipped: true,
               reason: 'duplicate_cancelled',
               fileIndex,
+              tokenUsage: skippedTokenUsage,
             },
           });
         }
@@ -1253,6 +1345,7 @@ export const addCandidateController = {
         } else {
           console.warn('[bulk-cv] unknown decision, treating as cancel', decision);
           safeUnlink();
+          const { cvParseMeta: skippedTokenUsage } = stripCvParseMeta(preNormalized);
           return res.status(200).json({
             success: true,
             message: 'duplicate_skipped',
@@ -1260,6 +1353,7 @@ export const addCandidateController = {
               skipped: true,
               reason: 'duplicate_cancelled',
               fileIndex,
+              tokenUsage: skippedTokenUsage,
             },
           });
         }
@@ -1275,13 +1369,16 @@ export const addCandidateController = {
 
       safeUnlink();
 
+      const { cleaned: normalizedPayload, cvParseMeta: tokenUsage } = stripCvParseMeta(normalizedData);
+
       return res.status(200).json({
         success: true,
         message: 'ok',
         data: {
-          normalized: normalizedData,
+          normalized: normalizedPayload,
           duplicateResolution,
           fileIndex,
+          tokenUsage,
         },
       });
     } catch (error) {
@@ -1334,37 +1431,16 @@ export const addCandidateController = {
   async checkDuplicate(req, res) {
     try {
       const email = req.query?.email ? normalizeEmail(req.query.email) : '';
-      const phone = req.query?.phone ? normalizePhone(req.query.phone) : '';
 
-      if (!email && !phone) {
+      if (!email) {
         return res.status(400).json({
           success: false,
-          message: 'Provide email or phone',
+          message: 'Provide email to check for duplicates',
         });
       }
 
-      const existing = await prisma.candidate.findFirst({
-        where: email
-          ? {
-              AND: [
-                notDeletedClause,
-                { email: { equals: email, mode: 'insensitive' } },
-              ],
-            }
-          : {
-              AND: [notDeletedClause, { phone }],
-            },
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          email: true,
-          phone: true,
-          currentCompany: true,
-          designation: true,
-          stage: true,
-        },
-      });
+      const dup = await findExistingCandidateDuplicate({ email });
+      const existing = dup?.candidate ?? null;
 
       if (!existing) {
         return res.status(200).json({
@@ -1377,7 +1453,7 @@ export const addCandidateController = {
         success: true,
         data: {
           isDuplicate: true,
-          matchedOn: email ? 'email' : 'phone',
+          matchedOn: 'email',
           candidate: {
             _id: existing.id,
             name: createCandidateName(existing.firstName, existing.lastName),
@@ -1538,15 +1614,8 @@ export const addCandidateController = {
           continue;
         }
 
-        const duplicate = await prisma.candidate.findFirst({
-          where: {
-            AND: [
-              notDeletedClause,
-              { email: { equals: email, mode: 'insensitive' } },
-            ],
-          },
-          select: { id: true },
-        });
+        const dup = await findExistingCandidateDuplicate({ email });
+        const duplicate = dup?.candidate ?? null;
 
         if (duplicate) {
           skipped += 1;

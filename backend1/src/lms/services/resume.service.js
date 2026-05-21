@@ -267,7 +267,7 @@ Return ONLY a JSON object with this shape:
     
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.2,
       });

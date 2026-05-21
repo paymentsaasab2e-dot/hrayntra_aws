@@ -28,7 +28,7 @@ const SOURCE_HINT: Record<CompanyServiceSuggestion['source'], string> = {
 
 /**
  * Type-to-search services field backed by `/company-services/suggest`.
- * Uses server OPENAI_API_KEY (or Mistral) for open-ended queries — no huge static list in the browser.
+ * Uses server OPENAI_API_KEY (or Mistral fallback) for open-ended queries — no huge static list in the browser.
  */
 export function ServicesNeededSelect({
   value,

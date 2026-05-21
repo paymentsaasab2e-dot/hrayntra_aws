@@ -4,7 +4,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Calendar, Download, List, Plus, RefreshCcw, Search, XCircle } from 'lucide-react';
 import { toast as sonnerToast, Toaster } from 'sonner';
-import { downloadCsv, csvDate } from '../../utils/csv';
+import { downloadCsv } from '../../utils/csv';
+import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
+import { buildInterviewsCsvColumns, INTERVIEWS_EXPORT_COLUMNS } from '../../lib/export/interviewsExportColumns';
 import { CancelInterviewModal } from '../../components/interviews/CancelInterviewModal';
 import { FeedbackModal } from '../../components/interviews/FeedbackModal';
 import { InterviewCalendarView } from '../../components/interviews/InterviewCalendarView';
@@ -96,6 +98,9 @@ export default function InterviewsPage() {
   const canUpdateInterview = hasPermission('interviews_update');
   const canDeleteInterview = hasPermission('interviews_delete');
   const [view, setView] = useState<'list' | 'calendar'>('list');
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportInterviews, setExportInterviews] = useState<Interview[]>([]);
+  const [exportInterviewsLoading, setExportInterviewsLoading] = useState(false);
   const [panelModalOpen, setPanelModalOpen] = useState(false);
   const [submitToClientOpen, setSubmitToClientOpen] = useState(false);
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
@@ -136,6 +141,7 @@ export default function InterviewsPage() {
     addNote,
     updatePanel,
     markNoShow,
+    fetchAllInterviewsForExport,
   } = useInterviews();
 
   const selectedInterview = useMemo(
@@ -261,38 +267,39 @@ export default function InterviewsPage() {
     }
   };
 
-  const handleExportInterviewsCsv = () => {
-    if (filteredInterviews.length === 0) {
+  const openExportModal = async () => {
+    setExportInterviewsLoading(true);
+    setExportModalOpen(true);
+    try {
+      const all = await fetchAllInterviewsForExport();
+      setExportInterviews(all);
+      if (all.length === 0) {
+        sonnerToast.message('No interviews to export with current filters.');
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to load interviews for export';
+      sonnerToast.error(message);
+      setExportModalOpen(false);
+      setExportInterviews([]);
+    } finally {
+      setExportInterviewsLoading(false);
+    }
+  };
+
+  const handleExportInterviewsCsv = (selectedColumnIds: string[]) => {
+    const columns = buildInterviewsCsvColumns(selectedColumnIds);
+    if (columns.length === 0) {
+      sonnerToast.message('Select at least one column to export.');
+      return;
+    }
+    const rowsToExport = exportInterviews.length > 0 ? exportInterviews : filteredInterviews;
+    if (rowsToExport.length === 0) {
       sonnerToast.message('No interviews to export with current filters.');
       return;
     }
-    downloadCsv<Interview>(
-      `interviews-${new Date().toISOString().slice(0, 10)}.csv`,
-      [
-        { id: 'candidateName', accessor: (i) => i.candidate?.name || '' },
-        { id: 'candidateEmail', accessor: (i) => i.candidate?.email || '' },
-        { id: 'jobTitle', accessor: (i) => i.job?.title || '' },
-        { id: 'client', accessor: (i) => i.job?.client || '' },
-        { id: 'round', accessor: (i) => i.round },
-        { id: 'type', accessor: (i) => i.type },
-        { id: 'mode', accessor: (i) => i.mode },
-        { id: 'date', accessor: (i) => csvDate(i.scheduledAt || `${i.date} ${i.time}`) },
-        { id: 'time', accessor: (i) => i.time || '' },
-        { id: 'duration', accessor: (i) => i.duration ?? '' },
-        { id: 'timezone', accessor: (i) => i.timezone || '' },
-        { id: 'status', accessor: (i) => i.status },
-        { id: 'feedbackStatus', accessor: (i) => i.feedbackStatus },
-        { id: 'meetingPlatform', accessor: (i) => i.meetingPlatform || '' },
-        { id: 'meetingLink', accessor: (i) => i.meetingLink || '' },
-        { id: 'location', accessor: (i) => i.location || '' },
-        { id: 'panel', accessor: (i) => (i.panel || []).map((p) => p.name).join('; ') },
-        { id: 'createdBy', accessor: (i) => i.createdBy || '' },
-        { id: 'notes', accessor: (i) => i.notes || '' },
-      ],
-      filteredInterviews,
-    );
+    downloadCsv<Interview>(`interviews-${new Date().toISOString().slice(0, 10)}.csv`, columns, rowsToExport);
     sonnerToast.success(
-      `Exported ${filteredInterviews.length} interview${filteredInterviews.length === 1 ? '' : 's'} to CSV`,
+      `Exported ${rowsToExport.length} interview${rowsToExport.length === 1 ? '' : 's'} to CSV`,
     );
   };
 
@@ -430,7 +437,7 @@ export default function InterviewsPage() {
                   </button>
                   <button
                     type="button"
-                onClick={handleExportInterviewsCsv}
+                onClick={() => void openExportModal()}
                 className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
                 title="Export filtered interviews to CSV"
               >
@@ -786,6 +793,23 @@ export default function InterviewsPage() {
             setPanelModalOpen(false);
           } catch {}
         }}
+      />
+
+      <ExportColumnsModal
+        isOpen={exportModalOpen}
+        onClose={() => {
+          setExportModalOpen(false);
+          setExportInterviews([]);
+        }}
+        title="Export interviews"
+        rowCount={exportInterviews.length}
+        rowLabelSingular="interview"
+        rowLabelPlural="interviews"
+        columns={INTERVIEWS_EXPORT_COLUMNS}
+        rows={exportInterviews}
+        isLoading={exportInterviewsLoading}
+        getRowKey={(interview) => interview.id}
+        onExport={handleExportInterviewsCsv}
       />
 
       <AnimatePresence>

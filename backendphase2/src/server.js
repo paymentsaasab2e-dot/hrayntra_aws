@@ -52,6 +52,9 @@ function startServer() {
   const server = httpServer.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`Environment: ${env.NODE_ENV}`);
+    console.log(
+      `[ai] OpenAI: ${env.OPENAI_CHAT_MODEL} (${env.OPENAI_API_KEY ? 'key set' : 'no key'}) · Mistral fallback: ${env.MISTRAL_CHAT_MODEL} (${env.MISTRAL_API_KEY ? 'key set' : 'no key'})`
+    );
     console.log(`Health check: http://localhost:${PORT}/health`);
     console.log(`Invite/email login links use FRONTEND_URL: ${env.FRONTEND_URL}`);
     if (
