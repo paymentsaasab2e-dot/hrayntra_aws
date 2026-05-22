@@ -2,7 +2,7 @@
 
 import React, { Suspense, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { Download, Plus, RefreshCcw, Trophy } from 'lucide-react';
+import { Download, FileText, Plus, RefreshCcw, Trophy } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { FiltersBar } from '../../components/placements/FiltersBar';
 import { KPICards } from '../../components/placements/KPICards';
@@ -55,6 +55,7 @@ function PlacementsPageContent() {
   const canUpdatePlacement = hasPermission('placements_update');
   const canDeletePlacement = hasPermission('placements_delete');
   const canExportData = hasPermission('export_data');
+  const canCreateInvoice = hasPermission('create_invoice');
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -203,10 +204,7 @@ function PlacementsPageContent() {
               {canCreateInvoice ? (
                 <button
                   type="button"
-                  onClick={() => {
-                    setInvoicePlacementId(undefined);
-                    setInvoiceDrawerOpen(true);
-                  }}
+                  onClick={() => router.push('/billing?createInvoice=1')}
                   className="flex items-center gap-1.5 rounded-lg border border-amber-200/80 bg-white px-3.5 py-2 text-xs font-semibold text-amber-800 shadow-[0_4px_14px_-4px_rgba(245,158,11,0.25)] transition-all hover:border-amber-300 hover:bg-amber-50/90 active:scale-[0.98]"
                 >
                   <FileText size={16} className="text-amber-600" strokeWidth={2.25} />

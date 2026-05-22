@@ -650,9 +650,9 @@ function CandidateTagSystem({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {existingTags.map((tag) => (
+      {existingTags.map((tag, index) => (
         <CandidateTagChip
-          key={tag.id}
+          key={tag.id || tag.label || `existing-tag-${index}`}
           tag={tag}
           removable
           onRemove={() => onRemoveTag?.(candidateId, tag.id)}
@@ -690,11 +690,11 @@ function CandidateTagSystem({
             </div>
 
             <div className="mt-3 max-h-56 space-y-1 overflow-y-auto">
-              {filteredTags.map((tag) => {
+              {filteredTags.map((tag, index) => {
                 const selected = normalizedSelectedIds.has(tag.id);
                 return (
                   <button
-                    key={tag.id}
+                    key={tag.id || tag.label || `filter-tag-${index}`}
                     type="button"
                     onClick={async () => {
                       if (selected) {
@@ -3771,10 +3771,11 @@ export function CandidateProfileDrawer({
   return (
     <AnimatePresence>
       {isOpen && candidate ? (
-        <>
+        <React.Fragment key="candidate-profile-drawer">
           <AnimatePresence>
             {toastMessage ? (
               <motion.div
+                key="candidate-profile-toast"
                 initial={{ opacity: 0, y: -12 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -12 }}
@@ -3831,7 +3832,7 @@ export function CandidateProfileDrawer({
           />
           <AnimatePresence>
             {showEditModal && editForm ? (
-              <>
+              <React.Fragment key="candidate-edit-modal">
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -3924,7 +3925,7 @@ export function CandidateProfileDrawer({
                     </div>
                   </div>
                 </motion.div>
-              </>
+              </React.Fragment>
             ) : null}
           </AnimatePresence>
           {!openEditDirectly ? (
@@ -4373,19 +4374,22 @@ export function CandidateProfileDrawer({
                     <h3 className="text-sm font-semibold text-slate-900">Recent Activity</h3>
                     <div ref={activityContainerRef} className="mt-4 max-h-[32rem] space-y-6 overflow-y-auto pr-1">
                       {groupedActivity.length > 0 ? (
-                        groupedActivity.map((group) => (
-                          <div key={group.label}>
+                        groupedActivity.map((group, groupIndex) => (
+                          <div key={`${group.label || 'activity'}-${groupIndex}`}>
                             <div className="sticky top-0 z-[1] mb-4 inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
                               {group.label}
                             </div>
 
                             <div className="relative ml-3 space-y-5 border-l-2 border-slate-200 pl-8">
-                              {group.items.map((item) => {
+                              {group.items.map((item, itemIndex) => {
                                 const config = getTimelineConfig(item.type);
                                 const Icon = config.Icon;
 
                                 return (
-                                  <div key={item.id} className="relative rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                  <div
+                                    key={item.id || `${groupIndex}-${itemIndex}-${item.timestamp || item.type}`}
+                                    className="relative rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                                  >
                                     <span
                                       className={`absolute -left-[2.15rem] top-6 h-3.5 w-3.5 rounded-full border-2 border-white ${config.dotClass}`}
                                     />
@@ -4581,9 +4585,9 @@ export function CandidateProfileDrawer({
               </motion.aside>
             </>
           ) : null}
-        </>
+          {cvEditor.modals}
+        </React.Fragment>
       ) : null}
-      {candidate ? cvEditor.modals : null}
     </AnimatePresence>
   );
 }
