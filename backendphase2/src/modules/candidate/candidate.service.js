@@ -315,6 +315,12 @@ function mergePortalAndTenantCandidateRow(portalRow, tenantRow) {
     'education',
     'recruiterEducation',
     'stage',
+    'noticePeriod',
+    'availability',
+    'address',
+    'addressLine',
+    'gender',
+    'middleName',
   ];
   const arrayKeys = [
     'skills',
@@ -327,8 +333,8 @@ function mergePortalAndTenantCandidateRow(portalRow, tenantRow) {
   const richKeys = ['cvEducationEntries', 'cvWorkExperienceEntries', 'cvPortfolioLinks'];
 
   const merged = {
-    ...portalRow,
     ...tenantRow,
+    ...portalRow,
     assignedJobs: Array.from(jobSet),
     applications: mergeCandidateRelationRows(
       tenantRow.applications,
@@ -347,20 +353,42 @@ function mergePortalAndTenantCandidateRow(portalRow, tenantRow) {
     ),
   };
   for (const key of scalarKeys) {
-    merged[key] = pickFirstNonEmpty(tenantRow[key], portalRow[key]);
+    merged[key] = pickFirstNonEmpty(portalRow[key], tenantRow[key]);
   }
   for (const key of arrayKeys) {
-    merged[key] = pickFirstNonEmpty(tenantRow[key], portalRow[key]);
+    merged[key] = pickFirstNonEmpty(portalRow[key], tenantRow[key]);
   }
   for (const key of richKeys) {
-    merged[key] = pickFirstNonEmpty(tenantRow[key], portalRow[key]);
+    merged[key] = pickFirstNonEmpty(portalRow[key], tenantRow[key]);
   }
   const portalSource = String(portalRow?.source || '').trim().toLowerCase();
   const tenantSource = String(tenantRow?.source || '').trim().toLowerCase();
   merged.source =
     portalSource === 'phase1' || tenantSource === 'phase1'
       ? 'phase1'
-      : pickFirstNonEmpty(tenantRow.source, portalRow.source);
+      : pickFirstNonEmpty(portalRow.source, tenantRow.source);
+
+  const portalExtra =
+    portalRow?.extraData && typeof portalRow.extraData === 'object' && !Array.isArray(portalRow.extraData)
+      ? portalRow.extraData
+      : {};
+  const tenantExtra =
+    tenantRow?.extraData && typeof tenantRow.extraData === 'object' && !Array.isArray(tenantRow.extraData)
+      ? tenantRow.extraData
+      : {};
+  const phase1Snap =
+    portalExtra.phase1ProfileSnapshot && typeof portalExtra.phase1ProfileSnapshot === 'object'
+      ? portalExtra.phase1ProfileSnapshot
+      : tenantExtra.phase1ProfileSnapshot && typeof tenantExtra.phase1ProfileSnapshot === 'object'
+        ? tenantExtra.phase1ProfileSnapshot
+        : null;
+  merged.extraData = {
+    ...portalExtra,
+    ...tenantExtra,
+    ...(phase1Snap ? { phase1ProfileSnapshot: phase1Snap } : {}),
+  };
+  merged.avatar = pickFirstNonEmpty(portalRow.avatar, tenantRow.avatar);
+
   return merged;
 }
 
@@ -1376,6 +1404,73 @@ async function fetchPortalCareerPreferencesRaw(client, candidateId) {
   return null;
 }
 
+function resolveCandidateResumeUrl(candidate) {
+  if (!candidate) return null;
+  const extra =
+    candidate.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
+      ? candidate.extraData
+      : {};
+  const snap = extra.phase1ProfileSnapshot;
+  const fromSnapshot =
+    snap && typeof snap === 'object' && snap.resume && typeof snap.resume === 'object'
+      ? snap.resume.fileUrl
+      : null;
+  return pickFirstNonEmpty(candidate.resume, candidate.resumeUrl, fromSnapshot);
+}
+
+async function fetchPortalResumeFileUrl(client, candidateId) {
+  if (!client || !candidateId) return null;
+  const idStr = String(candidateId).trim();
+  if (!idStr) return null;
+  const isObjectIdHex = /^[a-fA-F0-9]{24}$/.test(idStr);
+
+  try {
+    if (client.resume?.findUnique) {
+      const row = await client.resume.findUnique({
+        where: { candidateId: idStr },
+        select: { fileUrl: true },
+      });
+      const url = String(row?.fileUrl || '').trim();
+      if (url) return url;
+    }
+  } catch {
+    /* job-portal client may not expose Resume model */
+  }
+
+  try {
+    const filters = isObjectIdHex
+      ? [{ candidateId: { $oid: idStr } }, { candidateId: idStr }]
+      : [{ candidateId: idStr }];
+    for (const filter of filters) {
+      const result = await client.$runCommandRaw({
+        find: 'resumes',
+        filter,
+        limit: 1,
+      });
+      const doc = result?.cursor?.firstBatch?.[0];
+      const url = String(doc?.fileUrl || doc?.file_url || '').trim();
+      if (url) return url;
+    }
+  } catch (err) {
+    console.warn('[candidate.service] portal resume fetch failed:', err?.message || err);
+  }
+
+  return null;
+}
+
+async function hydrateCandidateResumeFromPortal(candidate, portalClient) {
+  if (!candidate) return candidate;
+  let resumeUrl = resolveCandidateResumeUrl(candidate);
+  if (!resumeUrl && portalClient) {
+    resumeUrl = await fetchPortalResumeFileUrl(portalClient, candidate.id);
+  }
+  if (resumeUrl) {
+    candidate.resume = resumeUrl;
+    candidate.resumeUrl = resumeUrl;
+  }
+  return candidate;
+}
+
 function mergeCareerPreferencesIntoCandidate(candidate, careerPrefs) {
   if (!candidate || !careerPrefs) return candidate;
 
@@ -1432,7 +1527,7 @@ async function buildCandidateResponse(candidate, activityClient = prisma) {
   const activityFeed = activities.map(mapActivityToDrawerItem).filter(Boolean);
   const normalizedCandidate = {
     ...candidate,
-    resume: candidate.resume || candidate.resumeUrl || null,
+    resume: resolveCandidateResumeUrl(candidate),
     skills:
       Array.isArray(candidate.skills) && candidate.skills.length
         ? candidate.skills
@@ -2060,7 +2155,14 @@ export const candidateService = {
     });
 
     if (!candidate && isTenantScopedRequest()) {
-      const [tombstone, purgedRef] = await Promise.all([
+      let portalPrisma = null;
+      try {
+        portalPrisma = getJobPortalPrismaClient();
+      } catch {
+        portalPrisma = null;
+      }
+
+      const [tombstone, purgedRef, commonCandidate] = await Promise.all([
         prisma.candidate.findFirst({
           where: { id, isDeleted: true },
           select: { id: true },
@@ -2068,36 +2170,51 @@ export const candidateService = {
         prisma.purgedCandidateRef
           .findUnique({ where: { candidateId: id }, select: { candidateId: true } })
           .catch(() => null),
+        fetchCandidateCommonByCandidateId(id, { requireVerified: false }),
       ]);
+
+      // Phase 1 pool row still opens in the drawer even if tenant soft-deleted the same id.
+      if (commonCandidate && (tombstone || purgedRef)) {
+        const careerPrefs = await fetchPortalCareerPreferencesRaw(portalPrisma, id);
+        mergeCareerPreferencesIntoCandidate(commonCandidate, careerPrefs);
+        await hydrateCandidateResumeFromPortal(commonCandidate, portalPrisma);
+        return buildCandidateResponse(annotateCandidateListFlags(commonCandidate), portalPrisma);
+      }
       if (tombstone || purgedRef) {
         return null;
       }
-      const portalPrisma = getJobPortalPrismaClient();
-      candidate = await portalPrisma.candidate.findFirst({
-        where: accessScope ? { AND: [{ id }, accessScope] } : { id },
-        include: candidateDetailInclude,
-      });
-      if (candidate) {
-        const careerPrefs = await fetchPortalCareerPreferencesRaw(portalPrisma, candidate.id);
-        mergeCareerPreferencesIntoCandidate(candidate, careerPrefs);
-        return buildCandidateResponse(annotateCandidateListFlags(candidate), portalPrisma);
+
+      if (portalPrisma) {
+        candidate = await portalPrisma.candidate.findFirst({
+          where: { id },
+          include: candidateDetailInclude,
+        });
+        if (candidate) {
+          const commonRow = await fetchCandidateCommonByCandidateId(id, { requireVerified: false });
+          if (commonRow) {
+            candidate = mergePortalAndTenantCandidateRow(commonRow, candidate);
+          }
+          const careerPrefs = await fetchPortalCareerPreferencesRaw(portalPrisma, candidate.id);
+          mergeCareerPreferencesIntoCandidate(candidate, careerPrefs);
+          await hydrateCandidateResumeFromPortal(candidate, portalPrisma);
+          return buildCandidateResponse(annotateCandidateListFlags(candidate), portalPrisma);
+        }
       }
 
-      const commonCandidate = await fetchCandidateCommonByCandidateId(id);
       if (commonCandidate) {
-        let portalClientForPrefs = null;
-        try {
-          portalClientForPrefs = getJobPortalPrismaClient();
-        } catch {
-          portalClientForPrefs = null;
-        }
-        const careerPrefs = await fetchPortalCareerPreferencesRaw(portalClientForPrefs, id);
+        const careerPrefs = await fetchPortalCareerPreferencesRaw(portalPrisma, id);
         mergeCareerPreferencesIntoCandidate(commonCandidate, careerPrefs);
-        return buildCandidateResponse(annotateCandidateListFlags(commonCandidate), portalClientForPrefs);
+        await hydrateCandidateResumeFromPortal(commonCandidate, portalPrisma);
+        return buildCandidateResponse(annotateCandidateListFlags(commonCandidate), portalPrisma);
       }
     }
 
     if (!candidate) return null;
+
+    const commonCandidate = await fetchCandidateCommonByCandidateId(id, { requireVerified: false });
+    if (commonCandidate) {
+      candidate = mergePortalAndTenantCandidateRow(commonCandidate, candidate);
+    }
 
     // Career preferences live in the job-portal DB (where candidates self-update).
     // Always look there so recruiter drawer reflects candidate-side updates.
@@ -2105,6 +2222,7 @@ export const candidateService = {
     try { portalClientForPrefs = getJobPortalPrismaClient(); } catch { portalClientForPrefs = null; }
     const careerPrefs = await fetchPortalCareerPreferencesRaw(portalClientForPrefs, candidate.id);
     mergeCareerPreferencesIntoCandidate(candidate, careerPrefs);
+    await hydrateCandidateResumeFromPortal(candidate, portalClientForPrefs);
 
     return buildCandidateResponse(candidate);
   },

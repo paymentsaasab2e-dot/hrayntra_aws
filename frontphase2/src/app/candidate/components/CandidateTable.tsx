@@ -5,7 +5,7 @@ import {
   Phone,
   Pencil,
   UserPlus,
-  ArrowRight,
+  ArrowRightLeft,
   ChevronDown,
   ExternalLink,
   MapPin,
@@ -68,6 +68,8 @@ interface CandidateTableProps {
   onViewProfile?: (candidate: Candidate) => void;
   onWhatsAppCandidate?: (candidate: Candidate) => void;
   onEditCandidate?: (candidate: Candidate) => void;
+  /** Opens move-stage flow (e.g. job drawer pipeline modal). */
+  onMoveStage?: (candidate: Candidate) => void;
   /** Permanently delete candidate (parent should confirm + call API). */
   onDeleteCandidate?: (candidate: Candidate) => void | Promise<void>;
   /** When set, that row shows a loading state on the delete control */
@@ -95,6 +97,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
   onViewProfile,
   onWhatsAppCandidate,
   onEditCandidate,
+  onMoveStage,
   onDeleteCandidate,
   deletingCandidateId,
   // Inline-stage props are still accepted (kept on the interface for parent compatibility)
@@ -303,6 +306,19 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                           ) : (
                             <Send size={16} strokeWidth={2.25} />
                           )}
+                        </button>
+                      ) : null}
+                      {onMoveStage ? (
+                        <button
+                          type="button"
+                          className="flex h-8 w-8 items-center justify-center rounded-xl text-violet-600 transition-all hover:bg-white hover:text-violet-800 hover:shadow-sm"
+                          title="Move stage"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onMoveStage(candidate);
+                          }}
+                        >
+                          <ArrowRightLeft size={16} strokeWidth={2.25} />
                         </button>
                       ) : null}
                       {SHOW_TABLE_ROW_EDIT_ICON ? (

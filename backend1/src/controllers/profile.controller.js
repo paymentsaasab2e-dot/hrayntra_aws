@@ -11,6 +11,7 @@ const { randomUUID } = require('crypto');
 const {
   scheduleCandidateCommonSync,
   scheduleCandidateCommonSyncDebounced,
+  syncCandidateCommonFromDashboard,
 } = require('../services/candidateCommonSync.service');
 
 function isPlaceholderProfileEmail(email) {
@@ -427,9 +428,6 @@ async function getProfileData(req, res) {
       `📦 DB fetch result: profile-data | candidateId=${candidateId} | educations=${candidate.educations?.length || 0} | workExperiences=${candidate.workExperiences?.length || 0} | skills=${candidate.skills?.length || 0} | elapsedMs=${Date.now() - startedAt}`
     );
     console.log(`✅ Successfully fetched profile data for candidate: ${candidateId}`);
-    if (candidate.isVerified) {
-      scheduleCandidateCommonSyncDebounced(candidateId, { lastLogin: true, forceVerified: true });
-    }
     res.json({
       success: true,
       data: profileData,
@@ -519,19 +517,27 @@ async function updatePersonalInfo(req, res) {
       employment: normalizeNullableText(personalInfo.employment),
     };
 
-    if (!targetCandidateId) {
+    // JWT is authoritative (storage URL param can be stale after re-login / email-based ids).
+    const effectiveCandidateId = sessionCandidateId || targetCandidateId;
+
+    if (!effectiveCandidateId) {
       return res.status(400).json({
         success: false,
         message: 'Candidate ID is required',
       });
     }
 
-    if (sessionCandidateId && sessionCandidateId !== targetCandidateId) {
-      return res.status(403).json({
-        success: false,
-        message: 'You can only update your own profile',
-      });
+    if (
+      sessionCandidateId &&
+      targetCandidateId &&
+      sessionCandidateId !== targetCandidateId
+    ) {
+      console.warn(
+        `[profile] personal-info id mismatch — using JWT candidate ${sessionCandidateId} (param was ${targetCandidateId})`
+      );
     }
+
+    const saveCandidateId = effectiveCandidateId;
 
     // Combine firstName, middleName, lastName into fullName
     const nameParts = [
@@ -592,7 +598,7 @@ async function updatePersonalInfo(req, res) {
 
     // Upsert candidate profile (duplicate emails across candidates are allowed)
     await prisma.candidateProfile.upsert({
-      where: { candidateId: targetCandidateId },
+      where: { candidateId: saveCandidateId },
       update: {
         fullName,
         email: emailToPersist || '',
@@ -608,7 +614,7 @@ async function updatePersonalInfo(req, res) {
         employmentStatus: employmentStatus || undefined,
       },
       create: {
-        candidateId: targetCandidateId,
+        candidateId: saveCandidateId,
         fullName,
         email: emailToPersist || '',
         phoneNumber: normalizedInfo.phone,
@@ -638,7 +644,7 @@ async function updatePersonalInfo(req, res) {
         candidateUpdate.phone = normalizedInfo.phone;
       }
       await prisma.candidate.update({
-        where: { id: targetCandidateId },
+        where: { id: saveCandidateId },
         data: candidateUpdate,
       });
     } catch (e) {
@@ -646,7 +652,7 @@ async function updatePersonalInfo(req, res) {
     }
 
     try {
-      await syncResumeJsonEmail(targetCandidateId, emailToPersist);
+      await syncResumeJsonEmail(saveCandidateId, emailToPersist);
     } catch (e) {
       console.warn('Resume JSON email sync failed:', e.message);
     }
@@ -681,14 +687,15 @@ async function updatePersonalInfo(req, res) {
       },
     };
     
-    logProfileSave('Personal Information', 'upserted', targetCandidateId, logData);
+    logProfileSave('Personal Information', 'upserted', saveCandidateId, logData);
 
-    scheduleCandidateCommonSync(targetCandidateId, { forceVerified: true });
+    scheduleCandidateCommonSync(saveCandidateId, { forceVerified: true });
 
     res.json({
       success: true,
       message: 'Personal information updated successfully',
       data: {
+        candidateId: saveCandidateId,
         personalInfo: {
           firstName: normalizedInfo.firstName || '',
           middleName: normalizedInfo.middleName || '',
@@ -3367,6 +3374,49 @@ function logProfileSave(section, action, identifier, details) {
   console.log('Saved Data:', JSON.stringify(details, null, 2));
   console.log('Saved At:', new Date().toISOString());
   console.log('============================================================\n');
+
+  const candidateId = normalizeCandidateIdForDb(identifier);
+  if (candidateId && /^[a-f0-9]{24}$/i.test(candidateId)) {
+    scheduleCandidateCommonSyncDebounced(candidateId, { forceVerified: true });
+  }
+}
+
+/**
+ * POST /api/profile/sync-common-dashboard/:candidateId
+ * Full profile → candidatecommon sync when candidate opens /candidate-dashboard.
+ */
+async function syncCommonDashboard(req, res) {
+  try {
+    const candidateId = normalizeCandidateIdForDb(req.params.candidateId);
+    if (!candidateId) {
+      return res.status(400).json({ success: false, message: 'Candidate ID is required' });
+    }
+
+    const authCandidateId = normalizeCandidateIdForDb(req.user?.id);
+    if (authCandidateId && authCandidateId !== candidateId && req.user?.role !== 'ADMIN') {
+      return res.status(403).json({ success: false, message: 'Not allowed to sync this profile' });
+    }
+
+    const row = await syncCandidateCommonFromDashboard(candidateId);
+    if (!row) {
+      return res.status(503).json({
+        success: false,
+        message: 'Candidate common database sync is unavailable',
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Profile synced to common pool',
+      data: { candidateId, syncedAt: row.syncedAt },
+    });
+  } catch (error) {
+    console.error('[profile] sync-common-dashboard failed:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to sync profile to common database',
+    });
+  }
 }
 
 const DEFAULT_GAP_SUPPORT = {
@@ -4549,6 +4599,7 @@ async function deleteProfilePhoto(req, res) {
 
 module.exports = {
   getProfileData,
+  syncCommonDashboard,
   getProfileCompleteness,
   updatePersonalInfo,
   saveEducation,

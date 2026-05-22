@@ -22,6 +22,7 @@ import {
   formatWorkEntryMeta,
   type CvWorkEntryLike,
 } from '@/lib/candidateExperience';
+import { getPhase1ProfileSnapshot } from '@/lib/phase1ProfileSnapshot';
 
 type SectionKey = 'personal' | 'education' | 'professional' | 'social' | 'summary';
 
@@ -161,6 +162,8 @@ function EducationEntryCard({ entry, index }: { entry: Record<string, unknown>; 
 
 function buildOverviewModel(candidate: CandidateProfileDrawerData) {
   const extra = (candidate.extraData || {}) as Record<string, unknown>;
+  const phase1 = getPhase1ProfileSnapshot(extra);
+  const phase1Pi = phase1?.personalInfo || {};
   const pipeline = (extra.pipeline || {}) as Record<string, unknown>;
   const personal = (pipeline.personal || extra.personal || {}) as Record<string, unknown>;
   const professional = (pipeline.professional || extra.professional || {}) as Record<string, unknown>;
@@ -169,12 +172,37 @@ function buildOverviewModel(candidate: CandidateProfileDrawerData) {
   const educationPipe = (pipeline.education || {}) as Record<string, unknown>;
 
   const eduEntries = (
-    Array.isArray(educationPipe.entries)
+    Array.isArray(educationPipe.entries) && educationPipe.entries.length
       ? (educationPipe.entries as Array<Record<string, unknown>>)
-      : candidate.cvEducationEntries || []
+      : Array.isArray(phase1?.education) && phase1.education.length
+        ? phase1.education.map((e) => ({
+            degree: e.degreeProgram || e.degree,
+            institution: e.institutionName || e.institution,
+            field: e.fieldOfStudy,
+            startYear: e.startYear,
+            endYear: e.endYear,
+          }))
+        : candidate.cvEducationEntries || []
   ) as Array<Record<string, unknown>>;
 
-  const workEntries = (candidate.cvWorkExperienceEntries || []) as CvWorkEntryLike[];
+  const workEntries = (
+    Array.isArray(candidate.cvWorkExperienceEntries) && candidate.cvWorkExperienceEntries.length
+      ? candidate.cvWorkExperienceEntries
+      : Array.isArray(phase1?.workExperience)
+        ? phase1.workExperience.map((w) => ({
+            title: w.jobTitle || w.title,
+            company: w.company || w.companyName,
+            location: w.workLocation || w.location,
+            startDate: w.startDate,
+            endDate: w.endDate,
+            responsibilities: Array.isArray(w.responsibilities)
+              ? w.responsibilities
+              : w.description
+                ? [String(w.description)]
+                : [],
+          }))
+        : []
+  ) as CvWorkEntryLike[];
 
   const educationSummaryText =
     display(educationPipe.summaryText) ||
@@ -211,7 +239,12 @@ function buildOverviewModel(candidate: CandidateProfileDrawerData) {
         .map((row) => `${row.language || ''}${row.proficiency ? ` (${row.proficiency})` : ''}`)
         .filter(Boolean)
         .join(', ')
-    : candidate.cvLanguages?.join(', ') || '';
+    : Array.isArray(phase1?.languages) && phase1.languages.length
+      ? phase1.languages
+          .map((row) => `${row.name || ''}${row.proficiency ? ` (${row.proficiency})` : ''}`)
+          .filter(Boolean)
+          .join(', ')
+      : candidate.cvLanguages?.join(', ') || '';
 
   const honours = Array.isArray(summaryPipe.honoursAndAwards)
     ? (summaryPipe.honoursAndAwards as string[]).join('; ')
@@ -238,19 +271,20 @@ function buildOverviewModel(candidate: CandidateProfileDrawerData) {
   return {
     personal: {
       name: candidate.name,
-      email: candidate.email,
-      phone: candidate.phone,
+      email: candidate.email || display(phase1Pi.email),
+      phone: candidate.phone || display(phase1Pi.phone),
       age: display(personal.age),
       candidateScore,
-      cityState: cityState || candidate.location,
+      cityState: cityState || [phase1Pi.city, phase1Pi.country].filter(Boolean).join(', ') || candidate.location,
       address: candidate.cvAddress || display(personal.currentAddress),
       zip: display(personal.zip),
-      image: candidate.avatar,
+      image: candidate.avatar || phase1Pi.profilePhotoUrl || null,
       nationality: display(personal.nationality),
       companyWebsite: display(personal.currentCompanyWebsite),
       maritalStatus: display(personal.maritalStatus),
-      birthDate: display(personal.birthDate),
+      birthDate: display(personal.birthDate) || display(phase1Pi.dob),
       passport: display(personal.passportNumber),
+      gender: display(phase1Pi.gender),
     },
     education: {
       entries: eduEntries,
@@ -293,7 +327,7 @@ function buildOverviewModel(candidate: CandidateProfileDrawerData) {
       workEntries,
     },
     social: {
-      linkedIn: candidate.linkedIn || display(socialPipe.linkedIn),
+      linkedIn: candidate.linkedIn || display(socialPipe.linkedIn) || display(phase1Pi.linkedinUrl),
       twitter: display(socialPipe.twitter),
       xing: display(socialPipe.xing),
       skype: display(socialPipe.skypeId),
@@ -301,16 +335,26 @@ function buildOverviewModel(candidate: CandidateProfileDrawerData) {
       stackOverflow: display(socialPipe.stackOverflow),
       website: candidate.cvWebsite || display(socialPipe.website),
       portfolio: candidate.cvPortfolio,
-      links: candidate.cvPortfolioLinks || [],
+      links:
+        (candidate.cvPortfolioLinks?.length ? candidate.cvPortfolioLinks : null) ||
+        (Array.isArray(phase1?.portfolioLinks) ? phase1.portfolioLinks : []),
     },
     summary: {
-      summary: candidate.cvSummary || candidate.summary,
+      summary: candidate.cvSummary || candidate.summary || display(phase1?.summaryText),
       workHistory,
       educationText: educationSummaryText,
-      certificates: candidate.cvCertifications?.join('; ') || '',
+      certificates:
+        candidate.cvCertifications?.join('; ') ||
+        (Array.isArray(phase1?.certifications)
+          ? phase1.certifications.map((c) => c.certificationName).filter(Boolean).join('; ')
+          : ''),
       honours,
       languages: langProf,
-      skills: candidate.cvSkills || [],
+      skills:
+        (candidate.cvSkills?.length ? candidate.cvSkills : null) ||
+        (Array.isArray(phase1?.skills)
+          ? phase1.skills.map((s) => String(s.name || '').trim()).filter(Boolean)
+          : []),
       projects: Array.isArray(extra.projects) ? (extra.projects as string[]).join('; ') : '',
       hackathons: Array.isArray(extra.hackathons) ? (extra.hackathons as string[]).join('; ') : '',
     },
@@ -354,6 +398,7 @@ export function CandidateAtsExtractedOverview({ candidate }: Props) {
     p.companyWebsite,
     p.maritalStatus,
     p.birthDate,
+    (p as { gender?: string }).gender,
     p.passport,
   ]);
 
@@ -447,7 +492,7 @@ export function CandidateAtsExtractedOverview({ candidate }: Props) {
         open={open.personal}
         onToggle={toggle}
         filled={personalFilled}
-        total={14}
+        total={15}
       >
         <div className="grid gap-2 sm:grid-cols-2">
           <FieldRow label="Name" value={p.name} optional={false} />
@@ -463,6 +508,7 @@ export function CandidateAtsExtractedOverview({ candidate }: Props) {
           <FieldRow label="Current Company Website" value={p.companyWebsite} href={p.companyWebsite} />
           <FieldRow label="Marital Status" value={p.maritalStatus} />
           <FieldRow label="Birth Date" value={p.birthDate} />
+          <FieldRow label="Gender" value={(p as { gender?: string }).gender} />
           <FieldRow label="Passport Number" value={p.passport} />
         </div>
       </SectionBlock>

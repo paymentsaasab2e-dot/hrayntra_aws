@@ -1,5 +1,7 @@
 import type { Candidate } from '../app/candidate/components/CandidateTable';
 import type { CandidateProfileDrawerData } from '../components/drawers/CandidateProfileDrawer';
+import type { JobCandidateItem } from '../components/drawers/JobDetailsDrawer';
+import { resolveJobCandidateDisplayStage } from './jobAppliedMatches';
 import { getTagColor } from './mapCandidateProfile';
 
 /** Seed profile drawer from a candidates table row before API load completes. */
@@ -33,6 +35,46 @@ export function candidateTableRowToProfileStub(
       label: tag,
       color: getTagColor(tag),
     })),
+    notes: [],
+    files: [],
+    scheduledInterviews: [],
+    activity: [],
+  };
+}
+
+/** Profile stub for AddToPipelineModal when moving stage from the job drawer table. */
+export function jobCandidateItemToMoveStageProfile(
+  item: JobCandidateItem,
+  job: { id: string; title: string; department?: string | null; clientId?: string | null; clientName?: string | null },
+): CandidateProfileDrawerData {
+  const stage = resolveJobCandidateDisplayStage(item.currentStage);
+  const jobId = String(job.id);
+  return {
+    id: item.id,
+    name: item.candidateName,
+    email: item.email || null,
+    phone: item.phone || '—',
+    stage,
+    experience: item.experience ?? 0,
+    location: item.location || '—',
+    assignedJob: job.title,
+    assignedJobId: jobId,
+    assignedJobs: [
+      {
+        id: jobId,
+        title: job.title,
+        department: job.department || job.clientName || null,
+        stage,
+        status: null,
+        isPipelineEntry: true,
+      },
+    ],
+    recruiter: item.recruiter || 'Unassigned',
+    source: '—',
+    availability: 'limited',
+    summary: null,
+    resumeUrl: null,
+    tags: [],
     notes: [],
     files: [],
     scheduledInterviews: [],
