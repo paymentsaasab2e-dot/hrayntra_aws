@@ -47,7 +47,7 @@ async function getNotifications(req, res) {
       data: {
         notifications: transformedNotifications,
         unreadCount,
-        totalCount: notifications.length,
+        totalCount: visibleNotifications.length,
       },
     });
   } catch (error) {

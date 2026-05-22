@@ -1568,6 +1568,15 @@ export const billingService = {
       .map((e) => ({ ...e, at: new Date(e.at).toISOString() }))
       .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
 
+    const payloadForDoc =
+      invoice.invoicePayload && typeof invoice.invoicePayload === 'object' && !Array.isArray(invoice.invoicePayload)
+        ? invoice.invoicePayload
+        : {};
+    const hasInvoiceDocument = Boolean(
+      String(invoice.invoiceUrl || '').trim() ||
+        (Array.isArray(payloadForDoc.lineItems) && payloadForDoc.lineItems.length > 0)
+    );
+
     return {
       invoice: {
         id: invoice.id,
@@ -1578,6 +1587,8 @@ export const billingService = {
         date: displayDate(invoice.invoiceDate || invoice.createdAt),
         dueDate: displayDate(invoice.dueDate),
         paidAt: invoice.paidAt ? displayDate(invoice.paidAt) : null,
+        invoiceUrl: invoice.invoiceUrl || null,
+        hasInvoiceDocument,
       },
       // `lead` is no longer surfaced — the timeline is candidate-centric, so
       // top-of-funnel data is intentionally elided. Kept null for backwards

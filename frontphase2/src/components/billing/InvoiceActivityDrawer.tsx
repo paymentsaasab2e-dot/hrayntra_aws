@@ -27,7 +27,9 @@ import {
   Activity as ActivityIcon,
   AlertCircle,
   CheckCircle2,
+  ExternalLink,
 } from 'lucide-react';
+import { openBillingInvoiceInNewTab, openInvoicePreviewTab } from '../../lib/openBillingInvoice';
 import {
   apiGetInvoiceActivity,
   apiUpdateBillingRecord,
@@ -102,6 +104,7 @@ export default function InvoiceActivityDrawer({
   const [error, setError] = useState<string>('');
   const [savingCurrency, setSavingCurrency] = useState(false);
   const [savingStatus, setSavingStatus] = useState(false);
+  const [openingInvoice, setOpeningInvoice] = useState(false);
   const [currencyDraft, setCurrencyDraft] = useState<string>('');
   const [savedFlash, setSavedFlash] = useState<string>('');
 
@@ -138,6 +141,36 @@ export default function InvoiceActivityDrawer({
     data?.invoice &&
     data.invoice.status !== 'Paid' &&
     data.invoice.status !== 'Cancelled';
+
+  const canViewInvoice = Boolean(data?.invoice?.hasInvoiceDocument);
+
+  const handleViewInvoice = () => {
+    if (!invoiceId || !data?.invoice) return;
+    setOpeningInvoice(true);
+    setError('');
+
+    const storedUrl = String(data.invoice.invoiceUrl || '').trim();
+    let previewWindow: Window | null = null;
+    if (!storedUrl) {
+      try {
+        previewWindow = openInvoicePreviewTab();
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : 'Could not open invoice');
+        setOpeningInvoice(false);
+        return;
+      }
+    }
+
+    void (async () => {
+      try {
+        await openBillingInvoiceInNewTab(invoiceId, data.invoice.invoiceUrl, previewWindow);
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : 'Could not open invoice');
+      } finally {
+        setOpeningInvoice(false);
+      }
+    })();
+  };
 
   const handleMarkPaid = async () => {
     if (!invoiceId || !canMarkPaid) return;
@@ -249,6 +282,17 @@ export default function InvoiceActivityDrawer({
                     >
                       {data.invoice.status}
                     </span>
+                    {canViewInvoice ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleViewInvoice()}
+                        disabled={openingInvoice}
+                        className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-[11px] font-bold text-blue-800 hover:bg-blue-100 disabled:opacity-50"
+                      >
+                        <ExternalLink size={12} />
+                        {openingInvoice ? 'Opening…' : 'Open invoice PDF'}
+                      </button>
+                    ) : null}
                     {canMarkPaid ? (
                       <button
                         type="button"
