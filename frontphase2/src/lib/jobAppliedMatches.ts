@@ -109,7 +109,16 @@ export function backendMatchToJobCandidateItem(
     experience: typeof match.experience === 'number' ? match.experience : 0,
     location: match.location?.trim() || '—',
     phone: match.phone?.trim() || '',
-    currentStage: match.status || 'Applied',
+    currentStage: resolveJobCandidateStageFromMatchRow({
+      status: match.status,
+      candidateStage: match.candidateStage,
+    }),
+    isJobAppliedCandidate: isJobAppliedDisplayStage(
+      resolveJobCandidateStageFromMatchRow({
+        status: match.status,
+        candidateStage: match.candidateStage,
+      }),
+    ),
     score,
     recruiter: match.createdBy?.name || fallbackRecruiter,
     interviewStatus: 'Not scheduled',

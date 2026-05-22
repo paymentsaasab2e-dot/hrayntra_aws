@@ -35,6 +35,8 @@ interface CVEditorModalProps {
   primaryButtonLabel?: string;
   /** Read-only preview (View CV) */
   readOnly?: boolean;
+  /** Inline on a page (e.g. public client review) — no fullscreen overlay */
+  embedded?: boolean;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -484,6 +486,7 @@ export default function CVEditorModal({
   onSave,
   primaryButtonLabel = "Save CV",
   readOnly = false,
+  embedded = false,
 }: CVEditorModalProps) {
   const [name, setName] = useState(initialData?.name ?? "Alexandra Chen");
   const [jobTitle, setJobTitle] = useState(initialData?.jobTitle ?? "Senior Product Designer");
@@ -1073,8 +1076,16 @@ export default function CVEditorModal({
     );
   };
 
+  const shellStyle: React.CSSProperties = embedded
+    ? { width: '100%', display: 'flex', justifyContent: 'center' }
+    : S.overlay;
+
+  const panelStyle: React.CSSProperties = embedded
+    ? { ...S.modal, maxWidth: '100%', maxHeight: 'none', marginTop: 0 }
+    : S.modal;
+
   return (
-    <div style={S.overlay}>
+    <div style={shellStyle}>
       {/* Hidden file inputs */}
       <input
         ref={candidateInputRef} type="file" accept="image/*" style={{ display: "none" }}
@@ -1089,12 +1100,12 @@ export default function CVEditorModal({
         }
       />
 
-      <div style={S.modal}>
+      <div style={panelStyle}>
         {/* ── Header ── */}
         <div style={S.header}>
           <div style={S.headerTitle}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#185FA5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10,9 9,9 8,9"/></svg>
-            {readOnly ? "View CV" : "Submit to Client — CV Editor"}
+            {readOnly ? (embedded ? 'Candidate CV' : 'View CV') : 'Submit to Client — CV Editor'}
           </div>
           <div style={{ display: "flex", gap: 5 }}>
             {!readOnly ? (

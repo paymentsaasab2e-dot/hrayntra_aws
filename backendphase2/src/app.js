@@ -4,7 +4,10 @@ import compression from 'compression';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { errorMiddleware } from './middleware/error.middleware.js';
-import { tenantContextMiddleware } from './middleware/tenant-context.middleware.js';
+import {
+  tenantContextMiddleware,
+  publicApplyTenantMiddleware,
+} from './middleware/tenant-context.middleware.js';
 import { requestLoggerMiddleware, responseTimingMiddleware } from './middleware/request-logger.middleware.js';
 import { env } from './config/env.js';
 
@@ -19,6 +22,8 @@ import candidateRoutes from './modules/candidate/candidate.routes.js';
 import clientRoutes from './modules/client/client.routes.js';
 import contactRoutes from './modules/contact/contact.routes.js';
 import jobRoutes from './modules/job/job.routes.js';
+import { jobPublicApplyController } from './modules/job/jobPublicApply.controller.js';
+import { publicApplyUpload } from './utils/upload.middleware.js';
 import filesRoutes from './modules/files/files.routes.js';
 import leadRoutes from './modules/lead/lead.routes.js';
 import agreementRoutes from './modules/agreement/agreement.routes.js';
@@ -76,6 +81,7 @@ app.use(cors({
     return callback(new Error(`CORS blocked for origin: ${origin}`));
   },
   credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-db-name'],
 }));
 const jsonBodyLimit = process.env.JSON_BODY_LIMIT || '15mb';
 app.use(express.json({ limit: jsonBodyLimit }));
@@ -187,6 +193,14 @@ app.use('/api/v1/internal', portalSyncRoutes);
 app.use('/api/v1/pdf-proxy', pdfProxyRoutes);
 app.use('/api/v1/resume-preview', resumePreviewRoutes);
 app.use('/api/v1/auth', authRoutes);
+// Public job apply — register before any `/api/v1` router with router-level authMiddleware
+app.get('/api/v1/jobs/public/apply/:token', jobPublicApplyController.getPublicApplyPage);
+app.post(
+  '/api/v1/jobs/public/apply/:token/submit',
+  publicApplyUpload,
+  publicApplyTenantMiddleware,
+  jobPublicApplyController.submitPublicApply
+);
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/linkedin', linkedinRoutes);
 app.use('/api/v1/oauth', oauthRoutes);

@@ -54,6 +54,7 @@ import {
   apiGetMatches,
   apiGetJobs,
   apiGetJob,
+  apiGetJobApplyLink,
   apiGetJobMetrics,
   apiDeleteJob,
   apiDeleteCandidateNote,
@@ -73,6 +74,7 @@ import {
   type BackendCandidate,
   type BackendUser,
   type JobMetrics,
+  type CreateJobData,
 } from '../../lib/api';
 import type { Candidate } from '../candidate/components/CandidateTable';
 import {
@@ -768,11 +770,13 @@ function toJobCandidateItemFromApplied(match: any, fallbackRecruiter = '-'): Job
     experience: typeof cand?.experience === 'number' ? cand.experience : 0,
     location: cand?.location ? String(cand.location).trim() : '—',
     phone: cand?.phone ? String(cand.phone).trim() : '',
-    currentStage: resolveJobCandidateStageFromMatchRow({
-      status: match.status,
-      candidateStage: match.candidateStage ?? cand?.stage,
-      candidate: cand,
-    }),
+    currentStage: resolveJobCandidateStageFromMatchRow(
+      {
+        status: match.status,
+        candidateStage: match.candidateStage ?? cand?.stage,
+        candidate: cand,
+      },
+    ),
     isJobAppliedCandidate: isJobAppliedDisplayStage(
       resolveJobCandidateStageFromMatchRow({
         status: match.status,
@@ -1379,6 +1383,7 @@ export default function JobsPage() {
       applicationFormLogo: backendJob.applicationFormLogo || undefined,
       applicationFormQuestions: backendJob.applicationFormQuestions || [],
       applicationFormNote: backendJob.applicationFormNote || undefined,
+      applyUrl: backendJob.applyUrl || undefined,
         applications: Array.isArray(backendJob.applications)
           ? backendJob.applications.map((app: any) => ({
               id: String(app.id || ''),
@@ -1883,6 +1888,48 @@ export default function JobsPage() {
     }, 220);
   };
 
+  const handlePublishJob = async (job: JobForDrawer) => {
+    try {
+      await apiUpdateJob(job.id, { status: 'OPEN' } as CreateJobData);
+      let applyUrl: string | null = null;
+      if (job.applicationFormEnabled) {
+        try {
+          const linkRes = await apiGetJobApplyLink(job.id);
+          const linkData = (linkRes as { data?: { applyUrl?: string } })?.data ?? linkRes;
+          applyUrl = (linkData as { applyUrl?: string })?.applyUrl ?? null;
+        } catch {
+          /* link may appear after next refresh */
+        }
+      }
+      const refreshed = await apiGetJob(job.id);
+      const backendJob = (refreshed as { data?: Record<string, unknown> })?.data ?? refreshed;
+      const mappedApplyUrl =
+        applyUrl ||
+        (typeof (backendJob as { applyUrl?: string })?.applyUrl === 'string'
+          ? (backendJob as { applyUrl: string }).applyUrl
+          : null);
+
+      setJobDetails((prev) =>
+        prev && prev.id === job.id
+          ? { ...prev, status: 'Active', applyUrl: mappedApplyUrl || prev.applyUrl }
+          : prev
+      );
+      setSelectedJob((prev) => (prev && prev.id === job.id ? { ...prev, status: 'Active' } : prev));
+      setJobs((prev) =>
+        prev.map((item) => (item.id === job.id ? { ...item, status: 'Active' } : item))
+      );
+      await reloadMyJobsAndMetrics();
+      toast.success(
+        mappedApplyUrl
+          ? 'Job published. Apply link is ready in the job drawer.'
+          : 'Job published successfully.'
+      );
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to publish job';
+      void requestError(message);
+    }
+  };
+
   const handleCloseJob = async (job: JobForDrawer) => {
     if (!(await requestConfirm(`Close "${job.title}"? You can reopen it later by changing status.`))) {
       return;
@@ -2215,7 +2262,7 @@ export default function JobsPage() {
           setEditingJobId(job.id);
           setEditJobDrawerOpen(true);
         } : undefined}
-        onPublish={canUpdateJob ? (job) => { /* TODO: publish job */ } : undefined}
+        onPublish={canUpdateJob ? handlePublishJob : undefined}
         onClone={canCreateJob ? handleCloneJob : undefined}
         onCloseJob={canUpdateJob ? handleCloseJob : undefined}
         onMoveStage={canUpdateJob ? (candidateId, jobId) => openMoveStage(candidateId, jobId) : undefined}

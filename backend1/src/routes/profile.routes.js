@@ -111,7 +111,7 @@ router.get('/completeness/:candidateId', protect, getProfileCompleteness);
 router.get('/:candidateId', protect, getProfileData);
 
 // Personal Information
-router.put('/personal-info/:candidateId', updatePersonalInfo);
+router.put('/personal-info/:candidateId', protect, updatePersonalInfo);
 router.post('/photo/:candidateId', profilePhotoUpload.single('photo'), uploadProfilePhoto);
 router.delete('/photo/:candidateId', deleteProfilePhoto);
 router.put('/summary/:candidateId', saveSummary);

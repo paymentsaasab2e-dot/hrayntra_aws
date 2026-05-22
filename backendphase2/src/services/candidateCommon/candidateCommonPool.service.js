@@ -63,6 +63,9 @@ export function mapCandidateCommonRowToCandidate(row) {
     source: row.source ?? 'phase1',
     status: 'ACTIVE',
     isDeleted: false,
+    createdAt: row.syncedAt ?? row.updatedAt ?? new Date(),
+    updatedAt: row.updatedAt ?? row.syncedAt ?? new Date(),
+    syncedAt: row.syncedAt ?? row.updatedAt ?? null,
     lastActivity: row.syncedAt ?? row.updatedAt ?? new Date(),
   };
 }
@@ -88,9 +91,9 @@ export async function fetchCandidateCommonForMatchPipeline(req) {
 /**
  * Verified Phase 1 snapshots for CRM "All candidates" (tenant uploads + portal pool).
  */
-export async function fetchCandidateCommonForCandidatesList(req) {
+export async function fetchCandidateCommonForCandidatesList(_req) {
   const commonPrisma = getCandidateCommonPrismaClient();
-  if (!commonPrisma || !isTenantScopedRequest()) return [];
+  if (!commonPrisma) return [];
 
   const limit = Math.min(
     10000,

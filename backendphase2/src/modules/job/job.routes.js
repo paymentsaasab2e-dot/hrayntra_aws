@@ -1,14 +1,29 @@
 import express from 'express';
 import { jobController } from './job.controller.js';
+import { jobPublicApplyController } from './jobPublicApply.controller.js';
 import { authMiddleware } from '../../middleware/auth.middleware.js';
-import { uploadSingleJobFile } from '../../utils/upload.middleware.js';
+import { publicApplyTenantMiddleware } from '../../middleware/tenant-context.middleware.js';
+import { uploadSingleJobFile, publicApplyUpload } from '../../utils/upload.middleware.js';
 import { requireAnyPermission } from '../../middleware/permission.middleware.js';
 
 const router = express.Router();
 
 router.get('/public-feed', jobController.getPublicFeed);
+router.get('/public/apply/:token', jobPublicApplyController.getPublicApplyPage);
+router.post(
+  '/public/apply/:token/submit',
+  publicApplyUpload,
+  publicApplyTenantMiddleware,
+  jobPublicApplyController.submitPublicApply
+);
 
 router.use(authMiddleware);
+
+router.get('/application-form-templates', requireAnyPermission(['jobs_read', 'view_jobs', 'jobs_create', 'create_job']), jobPublicApplyController.listTemplates);
+router.post('/application-form-templates', requireAnyPermission(['jobs_create', 'create_job', 'jobs_update', 'edit_job']), jobPublicApplyController.createTemplate);
+router.patch('/application-form-templates/:id', requireAnyPermission(['jobs_update', 'edit_job', 'jobs_create', 'create_job']), jobPublicApplyController.updateTemplate);
+router.delete('/application-form-templates/:id', requireAnyPermission(['jobs_delete', 'delete_job', 'jobs_update', 'edit_job']), jobPublicApplyController.deleteTemplate);
+router.get('/:jobId/apply-link', requireAnyPermission(['jobs_read', 'view_jobs']), jobPublicApplyController.getApplyLink);
 
 router.get('/', requireAnyPermission(['jobs_read', 'view_jobs']), jobController.getAll);
 router.get('/metrics', requireAnyPermission(['jobs_read', 'view_jobs']), jobController.getMetrics);

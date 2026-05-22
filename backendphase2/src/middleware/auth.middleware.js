@@ -5,8 +5,16 @@ import jwt from 'jsonwebtoken';
 
 export const authMiddleware = async (req, res, next) => {
   try {
-    // Public client-review links must be accessible without auth token.
-    if (req.path.startsWith('/public/review/') || req.originalUrl.includes('/interviews/public/review/')) {
+    // Public client-review and job apply links must work without a JWT (also hit by
+    // routers mounted at /api/v1 before route-specific handlers, e.g. addCandidate).
+    const path = String(req.path || '');
+    const url = String(req.originalUrl || '');
+    if (
+      path.startsWith('/public/review/') ||
+      path.includes('/jobs/public/apply/') ||
+      url.includes('/interviews/public/review/') ||
+      url.includes('/jobs/public/apply/')
+    ) {
       return next();
     }
 

@@ -15,6 +15,46 @@ import {
   getDefaultPipelineTemplate,
   applyOrgPipelineTemplateToEmptyJobs,
 } from '../setting/recruitmentMode.service.js';
+import {
+  normalizeApplicationFormSchema,
+  schemaFromLegacyQuestions,
+  defaultApplicationFormSchema,
+} from '../../utils/applicationFormSchema.js';
+import {
+  jobPublicApplyService,
+  buildApplyUrlFromToken,
+} from './jobPublicApply.service.js';
+
+async function enrichJobWithApplyLink(job) {
+  if (!job?.id) return job;
+  let token = job.applyLinkToken || null;
+  if (job.applicationFormEnabled && !token && String(job.status || '').toUpperCase() === 'OPEN') {
+    token = await jobPublicApplyService.ensureApplyTokenForJob(job.id);
+  }
+  const applyUrl = token
+    ? buildApplyUrlFromToken(token, undefined, job.tenantDbName || getActiveTenantDbName())
+    : null;
+  return {
+    ...job,
+    applyLinkToken: token,
+    applyUrl,
+    applicationFormSchema:
+      job.applicationFormSchema ||
+      (job.applicationFormEnabled
+        ? jobPublicApplyService.resolveJobFormSchema(job)
+        : null),
+  };
+}
+
+function resolveApplicationFormSchemaFromPayload(data) {
+  if (data.applicationFormSchema) {
+    return normalizeApplicationFormSchema(data.applicationFormSchema);
+  }
+  if (data.applicationFormEnabled && Array.isArray(data.applicationFormQuestions)?.length) {
+    return schemaFromLegacyQuestions(data.applicationFormQuestions);
+  }
+  return data.applicationFormEnabled ? defaultApplicationFormSchema() : null;
+}
 
 /** First `getAll` per tenant awaits a one-time standalone pipeline repair (legacy → org template). */
 const standalonePipelineRepairPromiseByTenant = new Map();
@@ -788,7 +828,7 @@ export const jobService = {
     };
 
     if (!isTenantScopedRequest()) {
-      return baseWithApplied;
+      return enrichJobWithApplyLink(baseWithApplied);
     }
 
     const portalPrisma = getJobPortalPrismaClient();
@@ -817,14 +857,14 @@ export const jobService = {
     });
 
     if (!portalJob?.matches?.length && !portalJob?.applications?.length) {
-      return baseWithApplied;
+      return enrichJobWithApplyLink(baseWithApplied);
     }
 
     const mergedMatches = mergeJobMatches(job.matches || [], portalJob.matches || []);
     const mergedApplications = mergeJobApplications(job.applications || [], portalJob.applications || []);
     const mergedAppliedCount = mergedApplications.length || mergedMatches.length || appliedCount;
 
-    return {
+    return enrichJobWithApplyLink({
       ...baseWithApplied,
       matches: mergedMatches,
       applications: mergedApplications,
@@ -839,7 +879,7 @@ export const jobService = {
         interviews: Array.isArray(job.interviews) ? job.interviews.length : 0,
         placements: Array.isArray(job.placements) ? job.placements.length : 0,
       },
-    };
+    });
   },
 
   async create(data, createdByUserId) {
@@ -883,6 +923,7 @@ export const jobService = {
       applicationFormLogo: data.applicationFormLogo,
       applicationFormQuestions: data.applicationFormQuestions || [],
       applicationFormNote: data.applicationFormNote,
+      applicationFormSchema: resolveApplicationFormSchemaFromPayload(data),
       distributionPlatforms: data.distributionPlatforms,
       priority: data.priority,
       nationality: data.nationality,
@@ -994,7 +1035,7 @@ export const jobService = {
       console.error(`Failed to sync job ${job.id} to job portal DB:`, syncError?.message || syncError);
     }
 
-    return job;
+    return enrichJobWithApplyLink(job);
   },
 
   async update(id, data) {
@@ -1093,6 +1134,10 @@ export const jobService = {
       applicationFormLogo: data.applicationFormLogo,
       applicationFormQuestions: data.applicationFormQuestions,
       applicationFormNote: data.applicationFormNote,
+      applicationFormSchema:
+        data.applicationFormSchema !== undefined
+          ? resolveApplicationFormSchemaFromPayload(data)
+          : undefined,
       nationality: data.nationality,
       country: data.country,
       state: data.state,
@@ -1152,7 +1197,7 @@ export const jobService = {
         console.error(`Failed to sync job ${id} to job portal DB:`, syncError?.message || syncError);
       }
 
-      return updatedJob;
+      return enrichJobWithApplyLink(updatedJob);
     }
 
     const updated = await prisma.$transaction(async (tx) => {
@@ -1317,7 +1362,7 @@ export const jobService = {
       console.error(`Failed to sync job ${id} to job portal DB:`, syncError?.message || syncError);
     }
 
-    return updated;
+    return enrichJobWithApplyLink(updated);
   },
 
   async delete(id, performedById) {

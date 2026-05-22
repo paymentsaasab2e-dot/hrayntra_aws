@@ -433,7 +433,7 @@ export function validateEditFormStructured(editForm: CandidateEditFormState) {
   }
 }
 
-function buildExtraDataFromEditForm(
+export function buildExtraDataFromEditForm(
   editForm: CandidateEditFormState,
   existing?: Record<string, unknown> | null
 ): Record<string, unknown> {
@@ -503,6 +503,20 @@ function buildExtraDataFromEditForm(
     hackathons,
     remarks: editForm.remarks.trim() || undefined,
   };
+}
+
+/** Client-facing fields only — excludes CRM stage, status, recruiter, and job assignment. */
+export function buildClientPresentationFieldsPatch(
+  editForm: CandidateEditFormState
+): Omit<UpdateCandidatePayload, 'assignedToId' | 'assignedJobs' | 'stage' | 'status' | 'source'> {
+  const full = buildUpdatePayloadFromEditForm(editForm, null);
+  const { assignedToId, assignedJobs, stage, status, source, ...clientFields } = full;
+  void assignedToId;
+  void assignedJobs;
+  void stage;
+  void status;
+  void source;
+  return clientFields;
 }
 
 export function buildUpdatePayloadFromEditForm(

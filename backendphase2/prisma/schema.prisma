@@ -658,9 +658,13 @@ model Job {
   distributionPlatforms    Json? // Distribution platforms (careerPage, linkedIn, naukri, indeed, internalDatabase)
   supportingRecruiters     String[]  @default([]) // Array of supporting recruiter user IDs
   applicationFormEnabled   Boolean   @default(false) // Enable job application form
-  applicationFormLogo      String? // Logo option: account, company, none
-  applicationFormQuestions String[]  @default([]) // Array of custom application form questions
+  applicationFormLogo      String? // Logo option: account, company, none, custom URL
+  applicationFormQuestions String[]  @default([]) // Legacy screening questions (JSON strings)
   applicationFormNote      String? // Note for candidates
+  /// Full customizable form schema (fields, types, required flags) — Google Forms style
+  applicationFormSchema    Json?
+  /// Public apply link token — generated when job is published with form enabled (unique enforced in app; sparse index for lookups)
+  applyLinkToken           String?
   // Origin tenant identifier — written when the CRM mirrors a job to the portal DB.
   // The job-portal backend (backend1) reads this on every apply so it knows which
   // tenant DB (`rus01`, `agency2`, ...) to mirror the new Application/Match into.
@@ -701,7 +705,21 @@ model Job {
   @@index([assignedToId])
   @@index([createdById])
   @@index([isDeleted])
+  @@index([applyLinkToken])
   @@map("jobs")
+}
+
+/// Reusable job application form templates (saved from Create Job drawer)
+model JobApplicationFormTemplate {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  schema      Json
+  createdById String?  @db.ObjectId
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([createdById])
+  @@map("job_application_form_templates")
 }
 
 // ── JOB NOTES & FILES ──
