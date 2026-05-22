@@ -24,6 +24,7 @@ import {
   apiGetContacts,
   apiGetClient,
   apiGetJob,
+  apiGetJobs,
   apiSubmitInterviewToClient,
   apiSubmitMatch,
   apiUpdateContact,
@@ -34,9 +35,22 @@ import {
   type BackendClient,
   type BackendJob,
 } from '../../lib/api';
+import {
+  buildCandidateEditForm,
+  CandidateEditAtsSections,
+  validateEditFormStructured,
+  type CandidateEditFormState,
+} from '../candidates/CandidateEditAtsSections';
+import {
+  buildClientPresentationExtraData,
+  mergeBackendCandidateWithClientPresentation,
+  readClientPresentation,
+  resolveSubmitToClientEditForm,
+} from '../../lib/clientPresentationDraft';
+import type { CandidateProfileDrawerData } from '../drawers/CandidateProfileDrawer';
 import { resolveMatchIdForSubmit } from '../../lib/jobAppliedMatches';
 import { extractApiData } from '../../lib/mapCandidateProfile';
-import { parseClientsListFromResponse } from '../../lib/parseApiList';
+import { parseClientsListFromResponse, parseJobsListFromResponse } from '../../lib/parseApiList';
 
 export type SubmitToClientSource =
   | { kind: 'interview'; interview: Interview }
@@ -103,28 +117,6 @@ function inferSubmissionType(interview: Interview | null): SubmissionTypeValue |
   return '';
 }
 
-interface CandidateFormState {
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  linkedIn: string;
-  currentTitle: string;
-  currentCompany: string;
-  experience: string;
-  location: string;
-  address: string;
-  city: string;
-  country: string;
-  expectedSalary: string;
-  noticePeriod: string;
-  languages: string;
-  education: string;
-  certifications: string;
-  skills: string;
-  cvSummary: string;
-}
-
 interface ClientFormState {
   companyName: string;
   industry: string;
@@ -158,28 +150,6 @@ interface ClientSlotState {
   loading: boolean;
 }
 
-const emptyForm: CandidateFormState = {
-  firstName: '',
-  lastName: '',
-  email: '',
-  phone: '',
-  linkedIn: '',
-  currentTitle: '',
-  currentCompany: '',
-  experience: '',
-  location: '',
-  address: '',
-  city: '',
-  country: '',
-  expectedSalary: '',
-  noticePeriod: '',
-  languages: '',
-  education: '',
-  certifications: '',
-  skills: '',
-  cvSummary: '',
-};
-
 const emptyClientForm: ClientFormState = {
   companyName: '',
   industry: '',
@@ -206,62 +176,53 @@ function createClientSlot(clientId: string, isPrimary: boolean, companyName = ''
   };
 }
 
-function toForm(candidate: BackendCandidate): CandidateFormState {
-  const educationLines = (candidate.cvEducationEntries || [])
-    .map((entry) =>
-      [entry.degree, entry.institution, [entry.startYear, entry.endYear].filter(Boolean).join(' - ')]
-        .filter(Boolean)
-        .join(' | ')
-    )
-    .filter(Boolean);
+function seedProfile(partial: {
+  id?: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  name?: string;
+  location?: string;
+}): CandidateProfileDrawerData {
+  const name =
+    partial.name?.trim() ||
+    `${partial.firstName || ''} ${partial.lastName || ''}`.trim() ||
+    partial.email?.trim() ||
+    'Candidate';
   return {
-    firstName: candidate.firstName || '',
-    lastName: candidate.lastName || '',
-    email: candidate.email || '',
-    phone: candidate.phone || '',
-    linkedIn: candidate.linkedIn || '',
-    currentTitle: candidate.currentTitle || '',
-    currentCompany: candidate.currentCompany || '',
-    experience:
-      typeof candidate.experience === 'number' && Number.isFinite(candidate.experience)
-        ? String(candidate.experience)
-        : '',
-    location: candidate.location || '',
-    address: candidate.address || '',
-    city: candidate.city || '',
-    country: candidate.country || '',
-    expectedSalary:
-      typeof candidate.expectedSalary === 'number' && Number.isFinite(candidate.expectedSalary)
-        ? String(candidate.expectedSalary)
-        : '',
-    noticePeriod: candidate.noticePeriod || '',
-    languages: (candidate.languages || []).join(', '),
-    education: candidate.education || educationLines.join('\n'),
-    certifications: (candidate.certifications || []).join(', '),
-    skills: (candidate.skills || []).join(', '),
-    cvSummary: candidate.cvSummary || '',
-  };
+    id: partial.id || '',
+    name,
+    firstName: partial.firstName,
+    lastName: partial.lastName,
+    email: partial.email,
+    location: partial.location,
+  } as CandidateProfileDrawerData;
 }
 
-function toFormFromInterview(interview: Interview): CandidateFormState {
+function editFormFromInterview(interview: Interview): CandidateEditFormState {
   const parts = interview.candidate.name.trim().split(/\s+/).filter(Boolean);
-  return {
-    ...emptyForm,
-    firstName: parts[0] || '',
-    lastName: parts.slice(1).join(' '),
-    email: interview.candidate.email || '',
-    location: interview.job.client || '',
-  };
+  return buildCandidateEditForm(
+    seedProfile({
+      id: interview.candidate.id,
+      firstName: parts[0] || '',
+      lastName: parts.slice(1).join(' '),
+      email: interview.candidate.email,
+      name: interview.candidate.name,
+      location: interview.job.client || '',
+    }),
+  );
 }
 
-function toFormFromDisplayName(name: string, email?: string): CandidateFormState {
+function editFormFromDisplayName(name: string, email?: string): CandidateEditFormState {
   const parts = name.trim().split(/\s+/).filter(Boolean);
-  return {
-    ...emptyForm,
-    firstName: parts[0] || '',
-    lastName: parts.slice(1).join(' '),
-    email: email || '',
-  };
+  return buildCandidateEditForm(
+    seedProfile({
+      firstName: parts[0] || '',
+      lastName: parts.slice(1).join(' '),
+      email: email || '',
+      name,
+    }),
+  );
 }
 
 function toClientForm(client: BackendClient): ClientFormState {
@@ -357,7 +318,11 @@ export function SubmitToClientDrawer({
   const [selectedClients, setSelectedClients] = useState<ClientSlotState[]>([]);
   const [clientCatalog, setClientCatalog] = useState<Array<{ id: string; companyName: string }>>([]);
   const [clientPickerOpen, setClientPickerOpen] = useState(false);
-  const [form, setForm] = useState<CandidateFormState>(emptyForm);
+  const [editForm, setEditForm] = useState<CandidateEditFormState | null>(null);
+  const [editError, setEditError] = useState('');
+  const [pipelineJobs, setPipelineJobs] = useState<Array<{ id: string; title: string; department?: string | null }>>(
+    [],
+  );
   const [candidateStepSaved, setCandidateStepSaved] = useState(false);
   const [submissionType, setSubmissionType] = useState<SubmissionTypeValue | ''>('');
   const [submissionTypeError, setSubmissionTypeError] = useState<string | null>(null);
@@ -463,10 +428,21 @@ export function SubmitToClientDrawer({
         ? activeSource.candidateName || ''
         : '';
 
-  const fullName = useMemo(
-    () => `${form.firstName} ${form.lastName}`.trim() || fallbackCandidateName || 'Candidate',
-    [form.firstName, form.lastName, fallbackCandidateName],
-  );
+  const fullName = useMemo(() => {
+    if (editForm) {
+      const fromForm = `${editForm.firstName} ${editForm.lastName}`.trim();
+      if (fromForm) return fromForm;
+    }
+    return fallbackCandidateName || 'Candidate';
+  }, [editForm, fallbackCandidateName]);
+
+  const updateEditField = <K extends keyof CandidateEditFormState>(
+    field: K,
+    value: CandidateEditFormState[K],
+  ) => {
+    setEditForm((prev) => (prev ? { ...prev, [field]: value } : prev));
+    setCandidateStepSaved(false);
+  };
 
   useEffect(() => {
     if (!isOpen || activeSource?.kind !== 'match' || !matchJobId || !candidateId) {
@@ -528,11 +504,11 @@ export function SubmitToClientDrawer({
         setSubmissionType(inferSubmissionType(activeSource.interview));
         setResolvedJobTitle(activeSource.interview.job.title);
         setResolvedClientId(activeSource.interview.job.clientId);
-        setForm(toFormFromInterview(activeSource.interview));
+        setEditForm(editFormFromInterview(activeSource.interview));
       } else {
         setSubmissionType('INITIAL_REVIEW');
         if (activeSource?.kind === 'match') {
-          setForm(toFormFromDisplayName(matchCandidateName || '', undefined));
+          setEditForm(editFormFromDisplayName(matchCandidateName || '', undefined));
         }
       }
     }
@@ -550,16 +526,7 @@ export function SubmitToClientDrawer({
         if (cancelled) return;
         loadedCandidateIdRef.current = candidateId;
         setCandidate(data);
-        setForm((current) => {
-          const apiForm = toForm(data);
-          return {
-            ...current,
-            ...apiForm,
-            firstName: apiForm.firstName || current.firstName,
-            lastName: apiForm.lastName || current.lastName,
-            email: apiForm.email || current.email,
-          };
-        });
+        setEditForm((current) => resolveSubmitToClientEditForm(data, current));
       } catch (error: unknown) {
         if (cancelled) return;
         toast(error instanceof Error ? error.message : 'Unable to load candidate details');
@@ -573,6 +540,30 @@ export function SubmitToClientDrawer({
   }, [isOpen, candidateId, toast]);
 
   useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const jobsRaw = await apiGetJobs({ page: 1, limit: 500 });
+        const jobs = parseJobsListFromResponse(jobsRaw);
+        if (cancelled) return;
+        setPipelineJobs(
+          jobs.map((job) => ({
+            id: job.id,
+            title: job.title || 'Untitled job',
+            department: job.department ?? null,
+          })),
+        );
+      } catch {
+        if (!cancelled) setPipelineJobs([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
     if (!isOpen) {
       setSelectedClients([]);
       setActiveClientId(null);
@@ -581,6 +572,9 @@ export function SubmitToClientDrawer({
       setCvEditorOpen(false);
       setCvEditorData(null);
       setClientCatalog([]);
+      setEditForm(null);
+      setEditError('');
+      setPipelineJobs([]);
       primaryClientLoadedRef.current = null;
       return;
     }
@@ -634,20 +628,27 @@ export function SubmitToClientDrawer({
   const [cvShareSaving, setCvShareSaving] = useState(false);
   const resumeValue = String(candidate?.resume || '').trim();
   const resumeHref = resumeValue && isResumeHttpUrl(resumeValue) ? normalizeResumeHref(resumeValue) : '';
-  const hasEditedCv = hasEditedCvAvailable(candidate);
+  const presentationCandidate = useMemo(
+    () => (candidate ? mergeBackendCandidateWithClientPresentation(candidate) : null),
+    [candidate],
+  );
+  const hasEditedCv = hasEditedCvAvailable(presentationCandidate);
   const hasOriginalCv = Boolean(resumeHref);
 
-  const cvFormOverrides = () => ({
-    firstName: form.firstName,
-    lastName: form.lastName,
-    email: form.email,
-    phone: form.phone,
-    linkedIn: form.linkedIn,
-    currentTitle: form.currentTitle,
-    location: form.location,
-    cvSummary: form.cvSummary,
-    skills: form.skills,
-  });
+  const cvFormOverrides = () => {
+    if (!editForm) return {};
+    return {
+      firstName: editForm.firstName,
+      lastName: editForm.lastName,
+      email: editForm.email,
+      phone: editForm.phone,
+      linkedIn: editForm.linkedIn,
+      currentTitle: editForm.currentTitle,
+      location: editForm.location,
+      cvSummary: editForm.cvSummary,
+      skills: editForm.skills,
+    };
+  };
 
   const openCvEditor = async () => {
     if (!candidate?.id) {
@@ -659,7 +660,8 @@ export function SubmitToClientDrawer({
       const raw = await apiGetCandidate(candidate.id);
       const data = extractApiData<BackendCandidate>(raw);
       setCandidate(data);
-      setCvEditorData(candidateToCvEditorData(data, cvFormOverrides()));
+      const forClient = mergeBackendCandidateWithClientPresentation(data);
+      setCvEditorData(candidateToCvEditorData(forClient, cvFormOverrides()));
       setCvEditorOpen(true);
     } catch (error: unknown) {
       onToast(error instanceof Error ? error.message : 'Unable to load CV data');
@@ -673,7 +675,12 @@ export function SubmitToClientDrawer({
       onToast('Candidate not loaded yet');
       return;
     }
-    setCvViewData(candidateToCvEditorData(candidate, cvFormOverrides()));
+    setCvViewData(
+      candidateToCvEditorData(
+        presentationCandidate ?? candidate,
+        cvFormOverrides(),
+      ),
+    );
     setCvViewOpen(true);
   };
 
@@ -717,29 +724,71 @@ export function SubmitToClientDrawer({
   };
 
   const handleCvEditorSave = async (data: CVEditorData) => {
-    if (!candidate?.id) return;
+    if (!candidate?.id || !editForm) return;
     setSaving(true);
     try {
+      const presentationExtra = readClientPresentation(candidate.extraData)?.fields?.extraData ?? {};
       const persist = await buildCvEditorPersistPatch(
         data,
         candidate.id,
-        candidate.extraData ?? null
+        presentationExtra as Record<string, unknown>
       );
-      const patch = {
-        ...cvEditorDataToCandidatePatch(data),
-        ...persist,
+      const cvPatch = cvEditorDataToCandidatePatch(data);
+      const mergedForm: CandidateEditFormState = {
+        ...editForm,
+        cvSummary: cvPatch.cvSummary ?? editForm.cvSummary,
+        cvEducationEntries: Array.isArray(cvPatch.cvEducationEntries)
+          ? cvPatch.cvEducationEntries
+              .map((entry) =>
+                [
+                  entry.degree || entry.qualification,
+                  entry.institution || entry.instituteName,
+                  entry.startYear,
+                  entry.endYear,
+                ]
+                  .filter(Boolean)
+                  .join(' | ')
+              )
+              .join('\n')
+          : editForm.cvEducationEntries,
+        cvWorkExperienceEntries: Array.isArray(cvPatch.cvWorkExperienceEntries)
+          ? cvPatch.cvWorkExperienceEntries
+              .map((entry) => {
+                const header = [
+                  entry.title,
+                  entry.company,
+                  entry.location,
+                  entry.startDate,
+                  entry.endDate,
+                ]
+                  .filter(Boolean)
+                  .join(' | ');
+                const responsibilities = (entry.responsibilities || []).join('; ');
+                return [header, responsibilities].filter(Boolean).join('\n');
+              })
+              .join('\n\n')
+          : editForm.cvWorkExperienceEntries,
+        skills: Array.isArray(cvPatch.skills) ? cvPatch.skills.join(', ') : editForm.skills,
       };
-      const updatedRaw = await apiUpdateCandidate(candidate.id, patch);
+      const layout =
+        persist.extraData?.cvEditorLayout &&
+        typeof persist.extraData.cvEditorLayout === 'object'
+          ? (persist.extraData.cvEditorLayout as Record<string, unknown>)
+          : null;
+      const extraData = buildClientPresentationExtraData(mergedForm, candidate.extraData ?? null, {
+        cvEditorLayout: layout,
+      });
+      const updatedRaw = await apiUpdateCandidate(candidate.id, { extraData });
       const updated = extractApiData<BackendCandidate>(updatedRaw);
       setCandidate(updated);
-      setForm(toForm(updated));
-      setCvEditorData(candidateToCvEditorData(updated, cvFormOverrides()));
-      setCvViewData(candidateToCvEditorData(updated, cvFormOverrides()));
-      if (hasEditedCvAvailable(updated)) {
-        setCvShareMode('edited');
-      }
+      const savedForm = readClientPresentation(updated.extraData)?.editForm ?? mergedForm;
+      setEditForm(savedForm);
+      const forClient = mergeBackendCandidateWithClientPresentation(updated);
+      setCvEditorData(candidateToCvEditorData(forClient, cvFormOverrides()));
+      setCvViewData(candidateToCvEditorData(forClient, cvFormOverrides()));
+      setCvShareMode('edited');
       setCandidateStepSaved(true);
-      onToast('CV updated');
+      onToast('Client CV saved (overview unchanged)');
       setCvEditorOpen(false);
     } catch (error: unknown) {
       onToast(error instanceof Error ? error.message : 'Unable to save CV');
@@ -750,46 +799,34 @@ export function SubmitToClientDrawer({
   };
 
   const saveDetails = async () => {
-    if (!candidate) return;
+    if (!candidate || !editForm) return;
     setSaving(true);
+    setEditError('');
     try {
-      const updatedRaw = await apiUpdateCandidate(candidate.id, {
-        firstName: form.firstName.trim(),
-        lastName: form.lastName.trim(),
-        email: form.email.trim(),
-        phone: form.phone.trim() || undefined,
-        linkedIn: form.linkedIn.trim() || undefined,
-        currentTitle: form.currentTitle.trim() || undefined,
-        currentCompany: form.currentCompany.trim() || undefined,
-        experience: form.experience.trim() ? Number(form.experience) : null,
-        location: form.location.trim() || undefined,
-        address: form.address.trim() || undefined,
-        city: form.city.trim() || undefined,
-        country: form.country.trim() || undefined,
-        expectedSalary: form.expectedSalary.trim() ? Number(form.expectedSalary) : null,
-        noticePeriod: form.noticePeriod.trim() || undefined,
-        languages: form.languages
-          .split(',')
-          .map((part) => part.trim())
-          .filter(Boolean),
-        education: form.education.trim() || undefined,
-        certifications: form.certifications
-          .split(',')
-          .map((part) => part.trim())
-          .filter(Boolean),
-        skills: form.skills
-          .split(',')
-          .map((part) => part.trim())
-          .filter(Boolean),
-        cvSummary: form.cvSummary.trim() || undefined,
-      });
+      validateEditFormStructured(editForm);
+      const extraData = buildClientPresentationExtraData(editForm, candidate.extraData ?? null);
+      const updatedRaw = await apiUpdateCandidate(candidate.id, { extraData });
       const updated = extractApiData<BackendCandidate>(updatedRaw);
       setCandidate(updated);
-      setForm(toForm(updated));
+      setEditForm(readClientPresentation(updated.extraData)?.editForm ?? editForm);
       setCandidateStepSaved(true);
-      onToast('Candidate details updated');
-    } catch (error: any) {
-      onToast(error?.message || 'Unable to update candidate details');
+      onToast('Client presentation saved (overview unchanged)');
+      setActiveTab('client');
+      const clientTabId =
+        activeClientId ??
+        selectedClients.find((slot) => slot.isPrimary)?.clientId ??
+        selectedClients[0]?.clientId ??
+        resolvedClientId ??
+        null;
+      if (clientTabId) {
+        setActiveClientId(clientTabId);
+        const slot = selectedClients.find((item) => item.clientId === clientTabId);
+        if (slot && !slot.client) void loadClientSlot(clientTabId);
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unable to update candidate details';
+      setEditError(message);
+      onToast(message);
     } finally {
       setSaving(false);
     }
@@ -891,6 +928,32 @@ export function SubmitToClientDrawer({
 
     setSubmitting(true);
     try {
+      if (candidate?.id && cvShareMode && editForm) {
+        let presentationExtra = buildClientPresentationExtraData(editForm, candidate.extraData ?? null);
+        if (cvShareMode === 'edited' && cvEditorData) {
+          const presentationPipeline = readClientPresentation(candidate.extraData)?.fields?.extraData ?? {};
+          const persist = await buildCvEditorPersistPatch(
+            cvEditorData,
+            candidate.id,
+            presentationPipeline as Record<string, unknown>,
+          );
+          const layout =
+            persist.extraData?.cvEditorLayout &&
+            typeof persist.extraData.cvEditorLayout === 'object'
+              ? (persist.extraData.cvEditorLayout as Record<string, unknown>)
+              : null;
+          presentationExtra = buildClientPresentationExtraData(editForm, presentationExtra, {
+            cvEditorLayout: layout,
+          });
+        }
+        const extraData = buildCvSubmissionExtra(presentationExtra, {
+          shareMode: cvShareMode,
+          updatedAt: new Date().toISOString(),
+        });
+        const updatedRaw = await apiUpdateCandidate(candidate.id, { extraData });
+        setCandidate(extractApiData<BackendCandidate>(updatedRaw));
+      }
+
       const purpose = SUBMISSION_TYPES.find((entry) => entry.value === submissionType)?.label || 'review';
       const title =
         resolvedJobTitle ||
@@ -1129,180 +1192,29 @@ export function SubmitToClientDrawer({
                 </div>
               ) : null}
 
-              {activeTab === 'candidate' && !loading ? (
+              {activeTab === 'candidate' && !loading && !editForm ? (
+                <div className="rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] px-4 py-3 text-sm text-[#6B7280]">
+                  Candidate details could not be loaded. Close and try again.
+                </div>
+              ) : null}
+
+              {activeTab === 'candidate' && !loading && editForm ? (
                 <div className="space-y-6">
-                  <section className="rounded-xl border border-[#E5E7EB] bg-white p-4">
-                    <h3 className="text-sm font-semibold text-[#111827]">Personal Information</h3>
-                    <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <label className="text-xs font-semibold uppercase tracking-wide text-[#6B7280]">
-                      First Name
-                      <input
-                        value={form.firstName}
-                        onChange={(e) => setForm((cur) => ({ ...cur, firstName: e.target.value }))}
-                        className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm font-medium text-[#111827]"
-                      />
-                    </label>
-                    <label className="text-xs font-semibold uppercase tracking-wide text-[#6B7280]">
-                      Last Name
-                      <input
-                        value={form.lastName}
-                        onChange={(e) => setForm((cur) => ({ ...cur, lastName: e.target.value }))}
-                        className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm font-medium text-[#111827]"
-                      />
-                    </label>
-                    <label className="text-xs font-semibold uppercase tracking-wide text-[#6B7280]">
-                      Email
-                      <input
-                        type="email"
-                        value={form.email}
-                        onChange={(e) => setForm((cur) => ({ ...cur, email: e.target.value }))}
-                        className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm font-medium text-[#111827]"
-                      />
-                    </label>
-                    <label className="text-xs font-semibold uppercase tracking-wide text-[#6B7280]">
-                      Phone
-                      <input
-                        value={form.phone}
-                        onChange={(e) => setForm((cur) => ({ ...cur, phone: e.target.value }))}
-                        className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm font-medium text-[#111827]"
-                      />
-                    </label>
-                    <label className="text-xs font-semibold uppercase tracking-wide text-[#6B7280]">
-                      LinkedIn
-                      <input
-                        value={form.linkedIn}
-                        onChange={(e) => setForm((cur) => ({ ...cur, linkedIn: e.target.value }))}
-                        className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm font-medium text-[#111827]"
-                      />
-                    </label>
-                    <label className="text-xs font-semibold uppercase tracking-wide text-[#6B7280]">
-                      Current Title
-                      <input
-                        value={form.currentTitle}
-                        onChange={(e) => setForm((cur) => ({ ...cur, currentTitle: e.target.value }))}
-                        className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm font-medium text-[#111827]"
-                      />
-                    </label>
-                    <label className="text-xs font-semibold uppercase tracking-wide text-[#6B7280]">
-                      Current Company
-                      <input
-                        value={form.currentCompany}
-                        onChange={(e) => setForm((cur) => ({ ...cur, currentCompany: e.target.value }))}
-                        className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm font-medium text-[#111827]"
-                      />
-                    </label>
-                    <label className="text-xs font-semibold uppercase tracking-wide text-[#6B7280]">
-                      Experience (years)
-                      <input
-                        value={form.experience}
-                        onChange={(e) => setForm((cur) => ({ ...cur, experience: e.target.value }))}
-                        className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm font-medium text-[#111827]"
-                      />
-                    </label>
-                    <label className="text-xs font-semibold uppercase tracking-wide text-[#6B7280]">
-                      Expected Salary
-                      <input
-                        value={form.expectedSalary}
-                        onChange={(e) => setForm((cur) => ({ ...cur, expectedSalary: e.target.value }))}
-                        className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm font-medium text-[#111827]"
-                      />
-                    </label>
-                    <label className="text-xs font-semibold uppercase tracking-wide text-[#6B7280]">
-                      Location
-                      <input
-                        value={form.location}
-                        onChange={(e) => setForm((cur) => ({ ...cur, location: e.target.value }))}
-                        className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm font-medium text-[#111827]"
-                      />
-                    </label>
-                    <label className="text-xs font-semibold uppercase tracking-wide text-[#6B7280]">
-                      Notice Period
-                      <input
-                        value={form.noticePeriod}
-                        onChange={(e) => setForm((cur) => ({ ...cur, noticePeriod: e.target.value }))}
-                        className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm font-medium text-[#111827]"
-                      />
-                    </label>
-                    <label className="text-xs font-semibold uppercase tracking-wide text-[#6B7280]">
-                      Address
-                      <input
-                        value={form.address}
-                        onChange={(e) => setForm((cur) => ({ ...cur, address: e.target.value }))}
-                        className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm font-medium text-[#111827]"
-                      />
-                    </label>
-                    <label className="text-xs font-semibold uppercase tracking-wide text-[#6B7280]">
-                      City
-                      <input
-                        value={form.city}
-                        onChange={(e) => setForm((cur) => ({ ...cur, city: e.target.value }))}
-                        className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm font-medium text-[#111827]"
-                      />
-                    </label>
-                    <label className="text-xs font-semibold uppercase tracking-wide text-[#6B7280]">
-                      Country
-                      <input
-                        value={form.country}
-                        onChange={(e) => setForm((cur) => ({ ...cur, country: e.target.value }))}
-                        className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm font-medium text-[#111827]"
-                      />
-                    </label>
-                  </div>
-                  </section>
-
-                  <section className="rounded-xl border border-[#E5E7EB] bg-white p-4">
-                    <h3 className="text-sm font-semibold text-[#111827]">Summary</h3>
-                    <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-[#6B7280]">
-                      Candidate Summary
-                      <textarea
-                        value={form.cvSummary}
-                        onChange={(e) => setForm((cur) => ({ ...cur, cvSummary: e.target.value }))}
-                        rows={4}
-                        className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm text-[#111827]"
-                      />
-                    </label>
-                  </section>
-
-                  <section className="rounded-xl border border-[#E5E7EB] bg-white p-4">
-                    <h3 className="text-sm font-semibold text-[#111827]">Education</h3>
-                    <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-[#6B7280]">
-                      Education Details
-                      <textarea
-                        value={form.education}
-                        onChange={(e) => setForm((cur) => ({ ...cur, education: e.target.value }))}
-                        rows={4}
-                        className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm text-[#111827]"
-                      />
-                    </label>
-                    <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-[#6B7280]">
-                      Certifications (comma separated)
-                      <input
-                        value={form.certifications}
-                        onChange={(e) => setForm((cur) => ({ ...cur, certifications: e.target.value }))}
-                        className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm font-medium text-[#111827]"
-                      />
-                    </label>
-                  </section>
-
-                  <section className="rounded-xl border border-[#E5E7EB] bg-white p-4">
-                    <h3 className="text-sm font-semibold text-[#111827]">Skills & Languages</h3>
-                    <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-[#6B7280]">
-                      Skills (comma separated)
-                      <input
-                        value={form.skills}
-                        onChange={(e) => setForm((cur) => ({ ...cur, skills: e.target.value }))}
-                        className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm font-medium text-[#111827]"
-                      />
-                    </label>
-                    <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-[#6B7280]">
-                      Languages (comma separated)
-                      <input
-                        value={form.languages}
-                        onChange={(e) => setForm((cur) => ({ ...cur, languages: e.target.value }))}
-                        className="mt-1 w-full rounded-lg border border-[#D1D5DB] px-3 py-2 text-sm font-medium text-[#111827]"
-                      />
-                    </label>
-                  </section>
+                  <p className="text-sm text-[#6B7280]">
+                    Edit the client-facing copy only. Saving here does not change the candidate Overview tab —
+                    it is stored under the profile&apos;s Client tab.
+                  </p>
+                  {editError ? (
+                    <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                      {editError}
+                    </div>
+                  ) : null}
+                  <CandidateEditAtsSections
+                    form={editForm}
+                    onChange={updateEditField}
+                    recruiters={[]}
+                    jobs={pipelineJobs}
+                  />
 
                   <ClientCvSelectionPanel
                     candidate={candidate}
@@ -1386,7 +1298,7 @@ export function SubmitToClientDrawer({
                 disabled={
                   activeTab === 'client'
                     ? activeClientSlot?.loading || saving || !activeClientSlot?.client
-                    : loading || saving || submitting || !candidate
+                    : loading || saving || submitting || !candidate || !editForm
                 }
                 className="inline-flex items-center gap-2 rounded-lg border border-[#D1D5DB] px-4 py-2 text-sm font-semibold text-[#111827] disabled:cursor-not-allowed disabled:opacity-60"
               >

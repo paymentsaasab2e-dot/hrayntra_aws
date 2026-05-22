@@ -1,7 +1,11 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { useParams, useSearchParams } from 'next/navigation';
+import type { CVEditorData } from '../../../lib/cvEditorMapping';
+
+const CVEditorModal = dynamic(() => import('../../../components/CVEditorModal'), { ssr: false });
 
 const LOCAL_API_BASE = 'http://127.0.0.1:5001/api/v1';
 const PROD_PROXY_BASE = '/api/proxy';
@@ -88,6 +92,9 @@ interface ReviewData {
     recommendation: string;
     comments: string;
   }>;
+  /** Formatted CV (same layout as recruiter CV editor) when share mode is edited */
+  cvEditorPreview?: CVEditorData | null;
+  sharedResumeUrl?: string | null;
 }
 
 export default function ClientReviewPage() {
@@ -115,6 +122,9 @@ export default function ClientReviewPage() {
   const cvShareMode = String(reviewData?.cvShareMode || 'edited').toLowerCase();
   const showEditedCv = cvShareMode !== 'original';
   const showOriginalResume = cvShareMode === 'original';
+  const cvEditorPreview = reviewData?.cvEditorPreview ?? null;
+  const sharedResumeUrl = String(reviewData?.sharedResumeUrl || reviewData?.candidate?.resume || '').trim();
+  const hasCvPreview = Boolean(showEditedCv && cvEditorPreview);
   const isOfferFlow = submissionType === 'OFFER_CONFIRMATION';
   const tagOptions = TAG_OPTIONS_BY_TYPE[submissionType] || TAG_OPTIONS_BY_TYPE.GENERAL;
   const purpose = PURPOSE_COPY[submissionType] || PURPOSE_COPY.GENERAL;
@@ -225,8 +235,33 @@ export default function ClientReviewPage() {
             <div className="rounded-xl border border-[#DBEAFE] bg-[#EFF6FF] px-4 py-3 text-sm text-[#1E40AF]">
               {showOriginalResume
                 ? 'You are viewing the original resume file shared by the recruiter.'
-                : 'You are viewing the recruiter’s updated CV profile for this candidate.'}
+                : hasCvPreview
+                  ? 'You are viewing the CV the recruiter selected and submitted for your review (layout, summary, experience, and skills).'
+                  : 'You are viewing the recruiter’s updated CV profile for this candidate.'}
             </div>
+
+            {hasCvPreview ? (
+              <div className="overflow-hidden rounded-xl border border-[#E5E7EB] bg-[#F9FAFB]">
+                <CVEditorModal initialData={cvEditorPreview} readOnly embedded />
+              </div>
+            ) : null}
+
+            {showEditedCv && sharedResumeUrl.startsWith('http') ? (
+              <div className="rounded-xl border border-[#E5E7EB] bg-white p-4">
+                <h2 className="text-sm font-semibold text-[#111827]">Source resume (reference)</h2>
+                <p className="mt-1 text-xs text-[#6B7280]">
+                  Optional — original file uploaded for this candidate.
+                </p>
+                <a
+                  href={sharedResumeUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 inline-flex text-sm font-semibold text-[#2563EB] hover:underline"
+                >
+                  Open resume file
+                </a>
+              </div>
+            ) : null}
 
             <div className="rounded-xl border border-[#E5E7EB] p-4">
               <h2 className="text-sm font-semibold text-[#111827]">Personal Information</h2>
@@ -243,14 +278,14 @@ export default function ClientReviewPage() {
               </p>
             </div>
 
-            {showEditedCv ? (
+            {showEditedCv && !hasCvPreview ? (
               <div className="rounded-xl border border-[#E5E7EB] p-4">
                 <h2 className="text-sm font-semibold text-[#111827]">Professional Summary</h2>
                 <p className="mt-2 text-sm text-[#4B5563]">{reviewData?.candidate?.cvSummary || 'No summary available.'}</p>
               </div>
             ) : null}
 
-            {showEditedCv ? (
+            {showEditedCv && !hasCvPreview ? (
               <>
                 {(reviewData?.candidate?.cvWorkExperienceEntries || []).length > 0 ? (
                   <div className="rounded-xl border border-[#E5E7EB] p-4">

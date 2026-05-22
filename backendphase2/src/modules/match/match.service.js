@@ -14,6 +14,9 @@ import {
   createClientReviewToken,
   normalizeSubmissionType,
 } from '../../services/interview.service.js';
+import {
+  buildCvSubmissionSnapshot,
+} from '../../utils/cvSubmissionSnapshot.js';
 import { AI_MATCH_AUTHOR_WHERE, MANUAL_MATCH_AUTHOR_WHERE } from './matchQueryHelpers.js';
 
 // Mirror of the interview drawer's purpose codes. Keeping the resolution
@@ -321,6 +324,7 @@ function mapMatchRecord(match, activitiesByCandidateId) {
     status: displayStatus,
     candidateStage: resolveCandidateCrmStageForMatch(candidate, job.id),
     matchRecordStatus: match.status,
+    candidate: { stage: candidate.stage || null },
     matchSource: match.createdById ? 'manual' : 'ai',
     createdBy: match.createdBy ? { name: match.createdBy.name } : { name: '—' },
     createdAt: match.createdAt,
@@ -729,12 +733,16 @@ export const matchService = {
       cvShareModeRaw === 'edited' || cvShareModeRaw === 'original' ? cvShareModeRaw : null;
 
     if (cvShareMode) {
+      const freshCandidate = await prisma.candidate.findUnique({
+        where: { id: match.candidateId },
+      });
       const existingExtra =
-        match.candidate?.extraData &&
-        typeof match.candidate.extraData === 'object' &&
-        !Array.isArray(match.candidate.extraData)
-          ? match.candidate.extraData
+        freshCandidate?.extraData &&
+        typeof freshCandidate.extraData === 'object' &&
+        !Array.isArray(freshCandidate.extraData)
+          ? freshCandidate.extraData
           : {};
+      const snapshot = buildCvSubmissionSnapshot(freshCandidate, match.job?.title || '');
       await prisma.candidate.update({
         where: { id: match.candidateId },
         data: {
@@ -743,6 +751,7 @@ export const matchService = {
             cvSubmission: {
               shareMode: cvShareMode,
               updatedAt: new Date().toISOString(),
+              snapshot,
             },
           },
         },

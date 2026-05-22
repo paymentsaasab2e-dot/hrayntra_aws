@@ -25,6 +25,8 @@ import {
   DollarSign,
   Send,
   Copy,
+  ExternalLink,
+  Link2,
   Archive,
   ChevronDown,
   ChevronRight,
@@ -49,7 +51,7 @@ import {
   Sparkles,
   Loader2,
 } from 'lucide-react';
-import { apiCreateMatch, apiGetMatches, apiToggleSavedMatch } from '../../lib/api';
+import { apiCreateMatch, apiGetMatches, apiGetJobApplyLink, apiToggleSavedMatch } from '../../lib/api';
 import {
   extractApplicationsJobCandidateItems,
   loadJobAppliedCandidates,
@@ -128,10 +130,11 @@ export interface JobForDrawer {
   minSalary?: number;
   maxSalary?: number;
    department?: string;
-   applicationFormEnabled?: boolean;
-   applicationFormLogo?: string;
-   applicationFormQuestions?: string[];
-   applicationFormNote?: string;
+  applicationFormEnabled?: boolean;
+  applicationFormLogo?: string;
+  applicationFormQuestions?: string[];
+  applicationFormNote?: string;
+  applyUrl?: string | null;
   applications?: JobApplicationSubmission[];
   overview?: string;
   keyResponsibilities?: string[];
@@ -933,7 +936,46 @@ export function JobDetailsDrawer({
   const [loadingActivities, setLoadingActivities] = useState(false);
   const [activityFilter, setActivityFilter] = useState<'All' | 'Jobs' | 'Candidates' | 'Interviews' | 'Notes' | 'Files'>('All');
   const [showStatusChange, setShowStatusChange] = useState(false);
+  const [applyUrl, setApplyUrl] = useState<string | null>(null);
+  const [applyLinkLoading, setApplyLinkLoading] = useState(false);
+  const [applyLinkCopied, setApplyLinkCopied] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!job?.id) {
+      setApplyUrl(null);
+      return;
+    }
+    if (job.applyUrl) {
+      setApplyUrl(job.applyUrl);
+      return;
+    }
+    if (!job.applicationFormEnabled) {
+      setApplyUrl(null);
+      return;
+    }
+    let cancelled = false;
+    setApplyLinkLoading(true);
+    void apiGetJobApplyLink(job.id)
+      .then((res) => {
+        const payload = (res as { data?: { applyUrl?: string } })?.data ?? res;
+        const url = (payload as { applyUrl?: string })?.applyUrl;
+        if (!cancelled && url) setApplyUrl(url);
+      })
+      .catch(() => {
+        if (!cancelled) setApplyUrl(null);
+      })
+      .finally(() => {
+        if (!cancelled) setApplyLinkLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [job?.id, job?.applyUrl, job?.applicationFormEnabled]);
+
+  useEffect(() => {
+    if (job?.applyUrl) setApplyUrl(job.applyUrl);
+  }, [job?.applyUrl]);
 
   const {
     files: jobFiles,
@@ -1172,6 +1214,59 @@ export function JobDetailsDrawer({
               <X size={20} />
             </button>
           </div>
+
+          {job?.applicationFormEnabled ? (
+            <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Link2 size={16} className="text-emerald-700 shrink-0" />
+                <p className="text-xs font-bold uppercase tracking-wide text-emerald-800">
+                  Public apply link
+                </p>
+              </div>
+              {applyLinkLoading ? (
+                <p className="mt-2 text-sm text-slate-600">Loading apply link…</p>
+              ) : applyUrl ? (
+                <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <input
+                    type="text"
+                    readOnly
+                    value={applyUrl}
+                    className="flex-1 min-w-0 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs text-slate-800 font-mono"
+                    aria-label="Apply link URL"
+                  />
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void navigator.clipboard.writeText(applyUrl).then(() => {
+                          setApplyLinkCopied(true);
+                          void requestInfo('Apply link copied to clipboard.');
+                          window.setTimeout(() => setApplyLinkCopied(false), 2000);
+                        });
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-50"
+                    >
+                      <Copy size={14} />
+                      {applyLinkCopied ? 'Copied' : 'Copy'}
+                    </button>
+                    <a
+                      href={applyUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
+                    >
+                      <ExternalLink size={14} />
+                      Open
+                    </a>
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-slate-600">
+                  Publish this job (status Open) to generate the candidate apply link.
+                </p>
+              )}
+            </div>
+          ) : null}
 
           {/* Right-side info panel (inline in header area) */}
           {job && (

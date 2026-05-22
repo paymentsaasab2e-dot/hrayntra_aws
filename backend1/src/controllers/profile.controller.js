@@ -8,6 +8,66 @@ const {
 } = require('../utils/workExperienceEnums');
 const { uploadBufferToCloudinary, destroyByCloudinaryUrl } = require('../lib/s3');
 const { randomUUID } = require('crypto');
+const {
+  scheduleCandidateCommonSync,
+  scheduleCandidateCommonSyncDebounced,
+} = require('../services/candidateCommonSync.service');
+
+function isPlaceholderProfileEmail(email) {
+  const value = String(email || '').trim().toLowerCase();
+  return !value || value.includes('@temp.local');
+}
+
+function resolveProfileDisplayEmail(candidate) {
+  const profileEmail = String(candidate?.profile?.email || '').trim();
+  const candidateEmail = String(candidate?.email || '').trim();
+
+  if (profileEmail && !isPlaceholderProfileEmail(profileEmail)) return profileEmail;
+  if (candidateEmail && !isPlaceholderProfileEmail(candidateEmail)) return candidateEmail;
+
+  const resumeJson = candidate?.resume?.resumeJson;
+  if (resumeJson && typeof resumeJson === 'object') {
+    const resumeEmail = resumeJson?.personalInformation?.email;
+    if (resumeEmail && String(resumeEmail).trim()) {
+      return String(resumeEmail).trim();
+    }
+  }
+
+  return profileEmail || candidateEmail || '';
+}
+
+function normalizeCandidateIdForDb(candidateId) {
+  return String(candidateId || '').trim();
+}
+
+async function syncResumeJsonEmail(candidateId, email) {
+  const normalized = String(email || '').trim().toLowerCase();
+  if (!normalized || isPlaceholderProfileEmail(normalized)) return;
+
+  const resume = await prisma.resume.findUnique({
+    where: { candidateId },
+    select: { id: true, resumeJson: true },
+  });
+  if (!resume) return;
+
+  const resumeJson =
+    resume.resumeJson && typeof resume.resumeJson === 'object' && !Array.isArray(resume.resumeJson)
+      ? { ...resume.resumeJson }
+      : {};
+  const personalInformation =
+    resumeJson.personalInformation &&
+    typeof resumeJson.personalInformation === 'object' &&
+    !Array.isArray(resumeJson.personalInformation)
+      ? { ...resumeJson.personalInformation }
+      : {};
+  personalInformation.email = normalized;
+  resumeJson.personalInformation = personalInformation;
+
+  await prisma.resume.update({
+    where: { id: resume.id },
+    data: { resumeJson },
+  });
+}
 
 async function uploadDocumentsToCloudinary(files, { candidateId, folder }) {
   const uploadedFiles = [];
@@ -145,18 +205,7 @@ async function getProfileData(req, res) {
       });
     }
 
-    // Get email - use actual email from resume if profile email is temporary
-    let displayEmail = candidate.profile?.email || '';
-    if (displayEmail && displayEmail.includes('@temp.local')) {
-      // Try to get actual email from resumeJson
-      if (candidate.resume?.resumeJson && typeof candidate.resume.resumeJson === 'object') {
-        const resumeData = candidate.resume.resumeJson;
-        if (resumeData.personalInformation && resumeData.personalInformation.email) {
-          displayEmail = resumeData.personalInformation.email;
-          console.log(`📧 Using actual email from resume: ${displayEmail}`);
-        }
-      }
-    }
+    const displayEmail = resolveProfileDisplayEmail(candidate);
 
     const fullNameParts = String(candidate.profile?.fullName || '')
       .trim()
@@ -378,6 +427,9 @@ async function getProfileData(req, res) {
       `📦 DB fetch result: profile-data | candidateId=${candidateId} | educations=${candidate.educations?.length || 0} | workExperiences=${candidate.workExperiences?.length || 0} | skills=${candidate.skills?.length || 0} | elapsedMs=${Date.now() - startedAt}`
     );
     console.log(`✅ Successfully fetched profile data for candidate: ${candidateId}`);
+    if (candidate.isVerified) {
+      scheduleCandidateCommonSyncDebounced(candidateId, { lastLogin: true, forceVerified: true });
+    }
     res.json({
       success: true,
       data: profileData,
@@ -437,6 +489,8 @@ async function getProfileCompleteness(req, res) {
 async function updatePersonalInfo(req, res) {
   try {
     const { candidateId } = req.params;
+    const sessionCandidateId = normalizeCandidateIdForDb(req.user?.candidateId);
+    const targetCandidateId = normalizeCandidateIdForDb(candidateId);
     const personalInfo = req.body || {};
     const normalizeNullableText = (value) => {
       if (value === undefined || value === null) return null;
@@ -465,10 +519,17 @@ async function updatePersonalInfo(req, res) {
       employment: normalizeNullableText(personalInfo.employment),
     };
 
-    if (!candidateId) {
+    if (!targetCandidateId) {
       return res.status(400).json({
         success: false,
         message: 'Candidate ID is required',
+      });
+    }
+
+    if (sessionCandidateId && sessionCandidateId !== targetCandidateId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only update your own profile',
       });
     }
 
@@ -520,26 +581,18 @@ async function updatePersonalInfo(req, res) {
     }
 
     const normalizedEmail = normalizedInfo.email;
-    const existingProfile = await prisma.candidateProfile.findUnique({
-      where: { candidateId },
-      select: { email: true },
-    });
-    let emailToPersist = normalizedEmail;
-    if (normalizedEmail) {
-      const emailOwner = await prisma.candidateProfile.findFirst({
-        where: { email: normalizedEmail },
-        select: { candidateId: true },
+    if (!normalizedEmail) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email is required',
       });
-      const isOwnedByDifferentCandidate =
-        Boolean(emailOwner?.candidateId) && emailOwner.candidateId !== candidateId;
-      if (isOwnedByDifferentCandidate) {
-        emailToPersist = existingProfile?.email || `${candidateId}@temp.local`;
-      }
     }
 
-    // Upsert candidate profile
+    const emailToPersist = normalizedEmail;
+
+    // Upsert candidate profile (duplicate emails across candidates are allowed)
     await prisma.candidateProfile.upsert({
-      where: { candidateId },
+      where: { candidateId: targetCandidateId },
       update: {
         fullName,
         email: emailToPersist || '',
@@ -555,7 +608,7 @@ async function updatePersonalInfo(req, res) {
         employmentStatus: employmentStatus || undefined,
       },
       create: {
-        candidateId,
+        candidateId: targetCandidateId,
         fullName,
         email: emailToPersist || '',
         phoneNumber: normalizedInfo.phone,
@@ -571,32 +624,31 @@ async function updatePersonalInfo(req, res) {
       },
     });
 
-    // Mirror countryCode back to Candidate model for derived UI mapping
-    if (normalizedInfo.phoneCode) {
-      const dialCode = normalizedInfo.phoneCode.split(' ')[0];
-      try {
-        await prisma.candidate.update({
-          where: { id: candidateId },
-          data: { countryCode: dialCode },
-        });
-      } catch (e) {
-        console.warn('Silent fail: candidate countryCode mirror update failed', e.message);
+    // Mirror contact + name on Candidate (used by auth, OTP login, and common sync)
+    try {
+      const candidateUpdate = {
+        email: emailToPersist,
+        firstName: normalizedInfo.firstName,
+        lastName: normalizedInfo.lastName,
+      };
+      if (normalizedInfo.phoneCode) {
+        candidateUpdate.countryCode = normalizedInfo.phoneCode.split(' ')[0];
       }
+      if (normalizedInfo.phone) {
+        candidateUpdate.phone = normalizedInfo.phone;
+      }
+      await prisma.candidate.update({
+        where: { id: targetCandidateId },
+        data: candidateUpdate,
+      });
+    } catch (e) {
+      console.warn('Candidate mirror update failed:', e.message);
     }
 
-    // Fix lastName bug: Store firstName/lastName separately in Candidate model
     try {
-      await prisma.candidate.update({
-        where: { id: candidateId },
-        data: {
-          firstName: normalizedInfo.firstName,
-          lastName: normalizedInfo.lastName,
-          middleName: normalizedInfo.middleName, // if middleName exists in schema
-        },
-      });
-      console.log(`✅ Updated Candidate.firstName/lastName for ${candidateId}`);
+      await syncResumeJsonEmail(targetCandidateId, emailToPersist);
     } catch (e) {
-      console.warn('Silent fail: candidate name fields update failed (middleName may not exist)', e.message);
+      console.warn('Resume JSON email sync failed:', e.message);
     }
 
     // Prepare log data (only show actual saved values, not duplicates)
@@ -608,7 +660,7 @@ async function updatePersonalInfo(req, res) {
         full: fullName,
       },
       contact: {
-        email: normalizedInfo.email || '',
+        email: emailToPersist,
         phone: normalizedInfo.phone,
         phoneCode: normalizedInfo.phoneCode,
       },
@@ -629,11 +681,29 @@ async function updatePersonalInfo(req, res) {
       },
     };
     
-    logProfileSave('Personal Information', 'upserted', candidateId, logData);
+    logProfileSave('Personal Information', 'upserted', targetCandidateId, logData);
+
+    scheduleCandidateCommonSync(targetCandidateId, { forceVerified: true });
 
     res.json({
       success: true,
       message: 'Personal information updated successfully',
+      data: {
+        personalInfo: {
+          firstName: normalizedInfo.firstName || '',
+          middleName: normalizedInfo.middleName || '',
+          lastName: normalizedInfo.lastName || '',
+          email: emailToPersist,
+          phone: normalizedInfo.phone,
+          phoneCode: normalizedInfo.phoneCode,
+          gender: normalizedInfo.gender,
+          dob: normalizedInfo.dob,
+          country: normalizedInfo.country,
+          city: normalizedInfo.city,
+          employment: normalizedInfo.employment,
+          passportNumber: normalizedInfo.passportNumber,
+        },
+      },
     });
   } catch (error) {
     console.error('Error updating personal info:', error);

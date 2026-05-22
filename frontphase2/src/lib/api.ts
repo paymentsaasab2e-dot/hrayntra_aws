@@ -1255,6 +1255,9 @@ export interface BackendJob {
   applicationFormLogo?: string | null;
   applicationFormQuestions?: string[];
   applicationFormNote?: string | null;
+  applicationFormSchema?: { version: number; fields: unknown[] } | null;
+  applyLinkToken?: string | null;
+  applyUrl?: string | null;
   pipelineStages?: Array<{
     id: string;
     name: string;
@@ -1349,6 +1352,7 @@ export interface CreateJobData {
   applicationFormLogo?: string;
   applicationFormQuestions?: string[];
   applicationFormNote?: string;
+  applicationFormSchema?: { version: number; fields: unknown[] };
   statusRemark?: string;
   priority?: string;
   nationality?: string;
@@ -1372,6 +1376,62 @@ export const apiCreateJob = async (data: CreateJobData) => {
 
 export const apiGetJob = async (id: string) => {
   return apiFetch<BackendJob>(`/jobs/${id}`, { auth: true });
+};
+
+export const apiGetJobApplyLink = async (jobId: string) => {
+  return apiFetch<{ token: string; applyUrl: string }>(`/jobs/${jobId}/apply-link`, {
+    auth: true,
+  });
+};
+
+export const apiListApplicationFormTemplates = async () => {
+  return apiFetch<Array<{ id: string; name: string; schema: unknown }>>(
+    '/jobs/application-form-templates',
+    { auth: true }
+  );
+};
+
+export const apiCreateApplicationFormTemplate = async (payload: {
+  name: string;
+  schema: unknown;
+}) => {
+  return apiFetch<{ id: string; name: string; schema: unknown }>(
+    '/jobs/application-form-templates',
+    { method: 'POST', body: payload, auth: true }
+  );
+};
+
+export const apiGetPublicApplyPage = async (token: string, tenantDbName?: string) => {
+  const tenant = String(tenantDbName || '').trim();
+  const qs = tenant ? `?tenantDbName=${encodeURIComponent(tenant)}` : '';
+  return apiFetch<{ job: Record<string, unknown>; formSchema: unknown }>(
+    `/jobs/public/apply/${encodeURIComponent(token)}${qs}`,
+    { auth: false, includeTenantHeader: Boolean(tenant) }
+  );
+};
+
+export const apiSubmitPublicApply = async (
+  token: string,
+  formData: FormData,
+  tenantDbName?: string
+) => {
+  const tenant = String(tenantDbName || '').trim();
+  const qs = tenant ? `?tenantDbName=${encodeURIComponent(tenant)}` : '';
+  const headers: Record<string, string> = {};
+  if (tenant) headers['x-tenant-db-name'] = tenant;
+  const res = await fetch(
+    `${API_BASE}/jobs/public/apply/${encodeURIComponent(token)}/submit${qs}`,
+    {
+      method: 'POST',
+      body: formData,
+      headers,
+    }
+  );
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(json?.message || 'Failed to submit application');
+  }
+  return json;
 };
 
 export interface JobMetrics {
@@ -1651,7 +1711,7 @@ export async function apiGetCandidates(params: {
   });
   const qs = query.toString();
   const path = `/candidates${qs ? `?${qs}` : ''}`;
-  return apiFetch<BackendCandidate[]>(path, { auth: true });
+  return apiFetch<BackendCandidate[]>(path, { auth: true, includeTenantHeader: true });
 }
 
 export const apiGetCandidate = async (id: string) => {
@@ -2899,6 +2959,7 @@ export interface BackendMatch {
   candidateStage?: string | null;
   /** Raw Match.status enum (SUGGESTED, SHORTLISTED, …) */
   matchRecordStatus?: string | null;
+  candidate?: { stage?: string | null };
   matchSource: 'ai' | 'manual';
   /** True when match came from Phase 1 / candidatecommon pool. */
   isPhase1Candidate?: boolean;

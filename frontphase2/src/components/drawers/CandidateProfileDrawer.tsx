@@ -65,6 +65,7 @@ import {
 } from '../../utils/dateInputConstraints';
 import { profileCanSubmitToClient } from '../../lib/candidateSubmitToClient';
 import { CandidateAtsExtractedOverview } from '../candidates/CandidateAtsExtractedOverview';
+import { mergeProfileWithClientPresentation } from '../../lib/clientPresentationDraft';
 
 export interface CandidateTagItem {
   id: string;
@@ -316,9 +317,9 @@ interface CandidateProfileDrawerProps {
   stackAboveSiblingDrawers?: boolean;
 }
 
-type DrawerTab = 'Overview' | 'Resume' | 'Interviews' | 'Activity' | 'Notes' | 'Tags' | 'Files';
+type DrawerTab = 'Overview' | 'Client' | 'Resume' | 'Interviews' | 'Activity' | 'Notes' | 'Tags' | 'Files';
 
-const TABS: DrawerTab[] = ['Overview', 'Resume', 'Interviews', 'Activity', 'Notes', 'Tags', 'Files'];
+const TABS: DrawerTab[] = ['Overview', 'Client', 'Resume', 'Interviews', 'Activity', 'Notes', 'Tags', 'Files'];
 
 function getInitials(name: string) {
   return name
@@ -3703,6 +3704,11 @@ export function CandidateProfileDrawer({
     return groups;
   }, [candidate?.activity]);
 
+  const clientPresentationProfile = useMemo(
+    () => (candidate ? mergeProfileWithClientPresentation(candidate) : null),
+    [candidate]
+  );
+
   useEffect(() => {
     if (isOpen && activeTab === 'Activity' && activityContainerRef.current) {
       activityContainerRef.current.scrollTop = activityContainerRef.current.scrollHeight;
@@ -4100,6 +4106,28 @@ export function CandidateProfileDrawer({
                     </div>
 
                     <CandidateAtsExtractedOverview candidate={candidate} />
+                  </div>
+                )}
+
+                {activeTab === 'Client' && (
+                  <div className="space-y-5">
+                    {clientPresentationProfile ? (
+                      <>
+                        <p className="rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-sm text-slate-700">
+                          Copy prepared for client submission. Edits here do not change the Overview tab — update
+                          them from Submit to Client.
+                        </p>
+                        <CandidateAtsExtractedOverview candidate={clientPresentationProfile} />
+                      </>
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-6 py-10 text-center">
+                        <p className="text-sm font-medium text-slate-700">No client presentation saved yet</p>
+                        <p className="mt-2 text-sm text-slate-500">
+                          Open Submit to Client, review the candidate, and save. The client copy will appear here
+                          without changing the main profile.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
 

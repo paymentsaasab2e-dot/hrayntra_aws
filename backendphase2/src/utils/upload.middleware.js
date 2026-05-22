@@ -77,6 +77,13 @@ export const jobFileUpload = multer({
   },
 });
 
+/** Public job apply form — dynamic file fields (photo, resume, etc.) */
+export const publicApplyUpload = multer({
+  storage: multer.memoryStorage(),
+  fileFilter,
+  limits: { fileSize: 8 * 1024 * 1024, files: 10 },
+}).any();
+
 // Middleware for single job file upload
 export const uploadSingleJobFile = jobFileUpload.single('file');
 

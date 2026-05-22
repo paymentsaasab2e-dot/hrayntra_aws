@@ -521,8 +521,15 @@ function CandidatesPageContent() {
     };
   }, [loadCandidateProfile, searchParams]);
 
-  const loadCandidates = useCallback(async (opts?: { silent?: boolean }) => {
+  const loadCandidates = useCallback(async (opts?: {
+    silent?: boolean;
+    /** Use when switching tabs before React state has flushed */
+    tab?: CandidateListTab;
+    page?: number;
+  }) => {
     const silent = opts?.silent === true;
+    const activeListTab = opts?.tab ?? listTab;
+    const activePage = opts?.page ?? currentPage;
     const isFirstLoad = !hasLoadedCandidatesOnceRef.current;
     const requestId = ++loadCandidatesRequestIdRef.current;
     try {
@@ -536,7 +543,7 @@ function CandidatesPageContent() {
       }
 
       const queryParams: Record<string, string | number | boolean> = {
-        page: currentPage,
+        page: activePage,
         limit: pageSize,
       };
 
@@ -558,7 +565,7 @@ function CandidatesPageContent() {
       } else if (filters.status) {
         queryParams.status = filters.status;
       }
-      if (listTab === 'mine') {
+      if (activeListTab === 'mine') {
         queryParams.mine = true;
       } else {
         queryParams.includeCommonPool = true;
@@ -627,6 +634,15 @@ function CandidatesPageContent() {
     }
   }, [filters, debouncedColumnFilters, currentPage, pageSize, listTab]);
 
+  const switchListTab = useCallback(
+    (tab: CandidateListTab) => {
+      setListTab(tab);
+      setCurrentPage(1);
+      void loadCandidates({ tab, page: 1, silent: tab === 'all' && hasLoadedCandidatesOnceRef.current });
+    },
+    [loadCandidates],
+  );
+
   const refreshJobFilterOptions = useCallback(async () => {
     try {
       const res = await apiGetJobs({ page: 1, limit: 500 });
@@ -652,6 +668,7 @@ function CandidatesPageContent() {
   );
   usePageAutoRefresh(candidatesAutoLoad, {
     events: ['jobportal:candidates-changed', 'jobportal:jobs-changed'],
+    intervalMs: listTab === 'all' ? 20_000 : 45_000,
   });
 
   useEffect(() => {
@@ -792,10 +809,12 @@ function CandidatesPageContent() {
       } else if (filters.status) {
         queryParams.status = filters.status;
       }
-      queryParams.includeCommonPool = true;
+      if (listTab === 'all') {
+        queryParams.includeCommonPool = true;
+      }
       return queryParams;
     },
-    [debouncedColumnFilters, filters.search, filters.status],
+    [debouncedColumnFilters, filters.search, filters.status, listTab],
   );
 
   const fetchAllCandidatesForExport = useCallback(async (): Promise<Candidate[]> => {
@@ -1393,10 +1412,7 @@ function CandidatesPageContent() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      setListTab('mine');
-                      setCurrentPage(1);
-                    }}
+                    onClick={() => switchListTab('mine')}
                     className={`${CANDIDATE_TABLE_TAB_CLASS} ${
                       listTab === 'mine'
                         ? 'border-indigo-600 text-indigo-700'
@@ -1413,7 +1429,7 @@ function CandidatesPageContent() {
                       ? 'Loading candidates…'
                       : listTab === 'mine'
                         ? `Showing ${totalEntries.toLocaleString()} candidate${totalEntries === 1 ? '' : 's'} you added or who applied to your jobs`
-                        : `Showing ${totalEntries.toLocaleString()} candidate${totalEntries === 1 ? '' : 's'} — tenant uploads + Phase 1 pool`}
+                        : `Showing ${totalEntries.toLocaleString()} candidate${totalEntries === 1 ? '' : 's'} — CRM + job portal + Phase 1 (candidatecommon)`}
                   </p>
                 </div>
                 <div className={PH2_TOOLBAR_ROW_CLASS}>

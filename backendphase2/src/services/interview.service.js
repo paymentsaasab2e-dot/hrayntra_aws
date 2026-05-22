@@ -20,6 +20,12 @@ import {
   createUserNotification,
   pushPortalNotification,
 } from '../modules/notification/notification.service.js';
+import {
+  buildCvEditorPreviewFromCandidate,
+  buildCvEditorPreviewFromSnapshot,
+  buildCvSubmissionSnapshot,
+  mapSnapshotToClientCandidateFields,
+} from '../utils/cvSubmissionSnapshot.js';
 
 const interviewInclude = {
   candidate: {
@@ -330,6 +336,36 @@ const readCandidateCvShareMode = (candidate) => {
   if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return null;
   return normalizeCvShareMode(extra.cvSubmission?.shareMode);
 };
+
+const readCandidateCvSubmissionSnapshot = (candidate) => {
+  const extra = candidate?.extraData;
+  if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return null;
+  const snapshot = extra.cvSubmission?.snapshot;
+  return snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot) ? snapshot : null;
+};
+
+async function persistCvSubmissionForCandidate(candidateId, cvShareMode, jobTitle = '') {
+  const fresh = await prisma.candidate.findUnique({ where: { id: candidateId } });
+  if (!fresh) return;
+  const existingExtra =
+    fresh.extraData && typeof fresh.extraData === 'object' && !Array.isArray(fresh.extraData)
+      ? fresh.extraData
+      : {};
+  const snapshot = buildCvSubmissionSnapshot(fresh, jobTitle);
+  await prisma.candidate.update({
+    where: { id: candidateId },
+    data: {
+      extraData: {
+        ...existingExtra,
+        cvSubmission: {
+          shareMode: cvShareMode,
+          updatedAt: new Date().toISOString(),
+          snapshot,
+        },
+      },
+    },
+  });
+}
 
 export const createClientReviewToken = ({
   interviewId = null,
@@ -1193,24 +1229,11 @@ export const interviewService = {
       'edited';
 
     if (cvShareMode) {
-      const existingExtra =
-        interview.candidate?.extraData &&
-        typeof interview.candidate.extraData === 'object' &&
-        !Array.isArray(interview.candidate.extraData)
-          ? interview.candidate.extraData
-          : {};
-      await prisma.candidate.update({
-        where: { id: interview.candidateId },
-        data: {
-          extraData: {
-            ...existingExtra,
-            cvSubmission: {
-              shareMode: cvShareMode,
-              updatedAt: new Date().toISOString(),
-            },
-          },
-        },
-      });
+      await persistCvSubmissionForCandidate(
+        interview.candidateId,
+        cvShareMode,
+        interview.job?.title || '',
+      );
     }
 
     const token = createClientReviewToken({
@@ -1375,6 +1398,9 @@ export const interviewService = {
       }
     );
     const c = interview.candidate;
+    const submissionSnapshot = readCandidateCvSubmissionSnapshot(c);
+    const jobTitle = interview.job?.title || '';
+
     const baseCandidate = {
       name: `${c.firstName || ''} ${c.lastName || ''}`.trim(),
       email: c.email || '',
@@ -1393,8 +1419,10 @@ export const interviewService = {
       city: c.city || '',
       country: c.country || '',
       linkedIn: c.linkedIn || '',
-      resume: c.resume || '',
+      resume: c.resume || c.resumeUrl || '',
     };
+
+    const editedFromSnapshot = mapSnapshotToClientCandidateFields(submissionSnapshot);
     const candidateForClient =
       cvShareMode === 'original'
         ? {
@@ -1407,10 +1435,20 @@ export const interviewService = {
             education: '',
             certifications: [],
           }
-        : {
-            ...baseCandidate,
-            resume: '',
-          };
+        : editedFromSnapshot
+          ? { ...baseCandidate, ...editedFromSnapshot, resume: '' }
+          : { ...baseCandidate, resume: '' };
+
+    const cvEditorPreview =
+      cvShareMode === 'edited'
+        ? submissionSnapshot
+          ? buildCvEditorPreviewFromSnapshot(submissionSnapshot, jobTitle)
+          : buildCvEditorPreviewFromCandidate(c, jobTitle)
+        : null;
+
+    const sharedResumeUrl = String(
+      submissionSnapshot?.resume || c.resume || c.resumeUrl || '',
+    ).trim();
 
     return {
       interviewId: interview.id,
@@ -1418,6 +1456,8 @@ export const interviewService = {
       cvShareMode,
       offerLetterUrl: offerLetterFile?.fileUrl || null,
       candidate: candidateForClient,
+      cvEditorPreview,
+      sharedResumeUrl: sharedResumeUrl.startsWith('http') ? sharedResumeUrl : null,
       job: {
         title: interview.job.title || '',
       },

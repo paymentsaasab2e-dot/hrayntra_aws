@@ -28,6 +28,8 @@ export function UserPermissionsSync() {
     const MIN_INTERVAL_MS = 5_000; // throttle bursty triggers (focus + nav)
 
     const refresh = async () => {
+      if (pathname === '/apply' || pathname?.startsWith('/apply/')) return;
+      if (pathname === '/client-review' || pathname?.startsWith('/client-review/')) return;
       if (inFlightRef.current) return;
       const now = Date.now();
       if (now - lastRunRef.current < MIN_INTERVAL_MS) return;
@@ -59,11 +61,13 @@ export function UserPermissionsSync() {
       document.removeEventListener('visibilitychange', onVisibility);
       window.clearInterval(interval);
     };
-  }, []);
+  }, [pathname]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (!pathname) return;
+    if (pathname === '/apply' || pathname.startsWith('/apply/')) return;
+    if (pathname === '/client-review' || pathname.startsWith('/client-review/')) return;
     void refreshLocalUserPermissions();
   }, [pathname]);
 

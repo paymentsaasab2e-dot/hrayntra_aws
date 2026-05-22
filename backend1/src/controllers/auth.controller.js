@@ -1,4 +1,5 @@
 const { prisma, retryQuery } = require('../lib/prisma');
+const { scheduleCandidateCommonSync } = require('../services/candidateCommonSync.service');
 const { generateOTP, getOTPExpiration, isOTPExpired } = require('../utils/otp.util');
 const { generateCandidateIdFromEmail } = require('../utils/candidate.util');
 const { sendOTPEmail } = require('../services/email.service');
@@ -449,6 +450,9 @@ async function verifyOTP(req, res) {
     } catch (profileSyncError) {
       console.warn('⚠️ Non-critical: Failed to sync profile number:', profileSyncError.message);
     }
+
+    // Push full profile snapshot to candidatecommon so Phase 2 "All candidates" can list this user.
+    scheduleCandidateCommonSync(candidate.id, { lastLogin: true, forceVerified: true });
 
     res.json({
       success: true,

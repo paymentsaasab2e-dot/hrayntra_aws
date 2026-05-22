@@ -110,6 +110,18 @@ function shouldShowOnCrmCandidatesList(candidate, options = {}) {
   return true;
 }
 
+function candidateListSortTimestamp(candidate) {
+  const raw =
+    candidate?.syncedAt ||
+    candidate?.createdAt ||
+    candidate?.updatedAt ||
+    candidate?.lastActivity ||
+    null;
+  if (!raw) return 0;
+  const t = new Date(raw).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
 function candidateMatchesSearch(candidate, search) {
   if (!search) return true;
   const needle = String(search).trim().toLowerCase();
@@ -242,6 +254,34 @@ function pickFirstNonEmpty(...values) {
   return null;
 }
 
+function mergeCandidateRelationRows(tenantRows, portalRows, keyFn) {
+  const byKey = new Map();
+  for (const row of [...(tenantRows || []), ...(portalRows || [])]) {
+    if (!row) continue;
+    const key = keyFn(row);
+    if (!key) continue;
+    byKey.set(key, row);
+  }
+  return Array.from(byKey.values());
+}
+
+/** Jobs the signed-in recruiter owns: creator, assignee, manager, or supporting recruiter. */
+function buildMyJobsWhereClause(userId) {
+  const uid = String(userId || '').trim();
+  if (!uid) {
+    return { id: { in: [] } };
+  }
+  return {
+    isDeleted: { not: true },
+    OR: [
+      { createdById: uid },
+      { assignedToId: uid },
+      { managerId: uid },
+      { supportingRecruiters: { has: uid } },
+    ],
+  };
+}
+
 /** Prefer non-empty portal/common Phase 1 fields over sparse tenant CRM stubs (same Mongo id). */
 function mergePortalAndTenantCandidateRow(portalRow, tenantRow) {
   if (!tenantRow) return portalRow;
@@ -274,6 +314,7 @@ function mergePortalAndTenantCandidateRow(portalRow, tenantRow) {
     'recruiterNotes',
     'education',
     'recruiterEducation',
+    'stage',
   ];
   const arrayKeys = [
     'skills',
@@ -285,7 +326,26 @@ function mergePortalAndTenantCandidateRow(portalRow, tenantRow) {
   ];
   const richKeys = ['cvEducationEntries', 'cvWorkExperienceEntries', 'cvPortfolioLinks'];
 
-  const merged = { ...tenantRow, ...portalRow, assignedJobs: Array.from(jobSet) };
+  const merged = {
+    ...portalRow,
+    ...tenantRow,
+    assignedJobs: Array.from(jobSet),
+    applications: mergeCandidateRelationRows(
+      tenantRow.applications,
+      portalRow.applications,
+      (row) => String(row?.id || `${row?.jobId || ''}:${row?.candidateId || ''}`)
+    ),
+    matches: mergeCandidateRelationRows(
+      tenantRow.matches,
+      portalRow.matches,
+      (row) => String(row?.id || `${row?.jobId || ''}:${row?.candidateId || ''}`)
+    ),
+    pipelineEntries: mergeCandidateRelationRows(
+      tenantRow.pipelineEntries,
+      portalRow.pipelineEntries,
+      (row) => String(row?.id || `${row?.jobId || ''}:${row?.candidateId || ''}`)
+    ),
+  };
   for (const key of scalarKeys) {
     merged[key] = pickFirstNonEmpty(tenantRow[key], portalRow[key]);
   }
@@ -295,7 +355,12 @@ function mergePortalAndTenantCandidateRow(portalRow, tenantRow) {
   for (const key of richKeys) {
     merged[key] = pickFirstNonEmpty(tenantRow[key], portalRow[key]);
   }
-  merged.source = pickFirstNonEmpty(tenantRow.source, portalRow.source);
+  const portalSource = String(portalRow?.source || '').trim().toLowerCase();
+  const tenantSource = String(tenantRow?.source || '').trim().toLowerCase();
+  merged.source =
+    portalSource === 'phase1' || tenantSource === 'phase1'
+      ? 'phase1'
+      : pickFirstNonEmpty(tenantRow.source, portalRow.source);
   return merged;
 }
 
@@ -1403,13 +1468,13 @@ async function buildCandidateResponse(candidate, activityClient = prisma) {
   };
 }
 
-/** Candidates the user may see when mine=true: created by them, assigned to them, or linked to jobs they created. */
+/** Candidates the user may see when mine=true: created by them, assigned to them, or linked to jobs they own. */
 async function buildMineCandidatesScope(userId) {
   if (!userId) {
     return { id: { in: [] } };
   }
   const myJobs = await prisma.job.findMany({
-    where: { createdById: userId },
+    where: buildMyJobsWhereClause(userId),
     select: { id: true },
   });
   const myJobIds = myJobs.map((j) => j.id);
@@ -1424,18 +1489,31 @@ async function buildMineCandidatesScope(userId) {
   return { OR: orClause };
 }
 
+/** Recruiters without view-all see candidates they own or who applied to their jobs. */
+async function buildCandidateListVisibilityScope(req) {
+  const userId = req?.user?.id;
+  if (!userId) return { id: { in: [] } };
+  const visibleJobIds = await getVisibleTenantJobIds(req, false);
+  const visibilityOr = [{ createdById: userId }, { assignedToId: userId }];
+  if (visibleJobIds.length > 0) {
+    visibilityOr.push({ assignedJobs: { hasSome: visibleJobIds } });
+    visibilityOr.push({ applications: { some: { jobId: { in: visibleJobIds } } } });
+    visibilityOr.push({ matches: { some: { jobId: { in: visibleJobIds } } } });
+    visibilityOr.push({ pipelineEntries: { some: { jobId: { in: visibleJobIds } } } });
+  }
+  return { OR: visibilityOr };
+}
+
 function isTenantScopedRequest() {
   return Boolean(getActiveTenantDbName());
 }
 
 async function getVisibleTenantJobIds(req, mine) {
-  const jobWhere = {};
-  if (mine && req?.user?.id) {
-    jobWhere.createdById = req.user.id;
-  }
+  const userId = req?.user?.id;
+  const jobWhere = userId ? buildMyJobsWhereClause(userId) : { isDeleted: { not: true } };
 
   const jobs = await prisma.job.findMany({
-    where: { ...jobWhere, isDeleted: { not: true } },
+    where: jobWhere,
     select: { id: true },
   });
 
@@ -1583,7 +1661,12 @@ function appendCandidateListFilterAndParts(andParts, filters) {
   }
   if (jobId) {
     andParts.push({
-      OR: [{ assignedJobs: { has: jobId } }, { matches: { some: { jobId: jobId } } }],
+      OR: [
+        { assignedJobs: { has: jobId } },
+        { matches: { some: { jobId: jobId } } },
+        { applications: { some: { jobId: jobId } } },
+        { pipelineEntries: { some: { jobId: jobId } } },
+      ],
     });
   }
   const expBounds = [];
@@ -1616,7 +1699,7 @@ function appendCandidateListFilterAndParts(andParts, filters) {
 
 function candidateMatchesListFilters(candidate, filters) {
   const { company, location, jobId, stage, minExperience, maxExperience, minExperienceOpen } = filters;
-  if (stage && !stageMatchesFilter(candidate.stage, stage)) {
+  if (stage && !stageMatchesFilter(resolveCandidateStageForList(candidate), stage)) {
     return false;
   }
   if (company) {
@@ -1631,7 +1714,10 @@ function candidateMatchesListFilters(candidate, filters) {
     if (!matchesCompany) return false;
   }
   if (location) {
-    const hay = String(candidate.location || '').toLowerCase();
+    const hay = [candidate.location, candidate.city, candidate.country]
+      .map((part) => String(part || '').toLowerCase())
+      .filter(Boolean)
+      .join(' ');
     if (!hay.includes(location.toLowerCase())) return false;
   }
   if (jobId) {
@@ -1639,7 +1725,18 @@ function candidateMatchesListFilters(candidate, filters) {
     const matchJobIds = Array.isArray(candidate.matches)
       ? candidate.matches.map((m) => String(m?.jobId || m?.job?.id || '')).filter(Boolean)
       : [];
-    if (!assigned.includes(jobId) && !matchJobIds.includes(jobId)) return false;
+    const applicationJobIds = Array.isArray(candidate.applications)
+      ? candidate.applications.map((a) => String(a?.jobId || '')).filter(Boolean)
+      : [];
+    const pipelineJobIds = Array.isArray(candidate.pipelineEntries)
+      ? candidate.pipelineEntries.map((p) => String(p?.jobId || '')).filter(Boolean)
+      : [];
+    const linkedToJob =
+      assigned.includes(jobId) ||
+      matchJobIds.includes(jobId) ||
+      applicationJobIds.includes(jobId) ||
+      pipelineJobIds.includes(jobId);
+    if (!linkedToJob) return false;
   }
   const exp = Number(candidate.experience ?? candidate.experienceYears ?? 0) || 0;
   if (minExperience != null && exp < minExperience) return false;
@@ -1674,6 +1771,8 @@ async function fetchPortalCandidatesForTenant(req, { status, assignedToId, searc
       OR: [
         { matches: { some: { jobId: { in: tenantJobIds } } } },
         { assignedJobs: { hasSome: tenantJobIds } },
+        { applications: { some: { jobId: { in: tenantJobIds } } } },
+        { pipelineEntries: { some: { jobId: { in: tenantJobIds } } } },
       ],
     });
   }
@@ -1693,7 +1792,7 @@ async function fetchPortalCandidatesForTenant(req, { status, assignedToId, searc
   } else if (superAdminScope) {
     andParts.push(superAdminScope);
   } else if (!canViewAllCandidates && req?.user?.id) {
-    andParts.push({ OR: [{ createdById: req.user.id }, { assignedToId: req.user.id }] });
+    andParts.push(await buildCandidateListVisibilityScope(req));
   }
 
   if (search) {
@@ -1748,8 +1847,10 @@ export const candidateService = {
     // `not: true` matches false, null, and missing-field documents (legacy rows from before
     // the soft-delete column existed) without tripping Prisma's "Argument isDeleted is missing".
     andParts.push({ isDeleted: { not: true } });
-    // AI match Phase 1 snapshots are materialized for Match FK only — list them on AI Matches.
-    andParts.push(buildCrmCandidatesListScopeClause());
+    // Phase 1 discovery rows (no job link) appear on "All candidates" via includeCommonPool + candidatecommon merge.
+    if (!includeCommonPool) {
+      andParts.push(buildCrmCandidatesListScopeClause());
+    }
     const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
     const canViewAllCandidates =
       canViewAllAssignments(req) || hasAnyPermissionScope(req, ['view_all_candidates']);
@@ -1764,7 +1865,7 @@ export const candidateService = {
     } else if (superAdminScope) {
       andParts.push(superAdminScope);
     } else if (!canViewAllCandidates && req.user?.id) {
-      andParts.push({ OR: [{ createdById: req.user.id }, { assignedToId: req.user.id }] });
+      andParts.push(await buildCandidateListVisibilityScope(req));
     }
     if (search) {
       // MongoDB doesn't support mode: 'insensitive' - use contains for case-sensitive search
@@ -1785,6 +1886,11 @@ export const candidateService = {
     let total = 0;
 
     if (isTenantScopedRequest()) {
+      let commonCandidates = [];
+      if (includeCommonPool) {
+        commonCandidates = await fetchCandidateCommonForCandidatesList(req);
+      }
+
       const [tenantCandidates, portalCandidates] = await Promise.all([
         prisma.candidate.findMany({
           where,
@@ -1794,17 +1900,26 @@ export const candidateService = {
         fetchPortalCandidatesForTenant(req, { status, assignedToId, search, mine, listFilters }),
       ]);
 
-      // Recycle Bin: the portal-DB copy of a candidate stays around when the tenant flips
-      // isDeleted=true. Look up any tenant rows for the IDs the portal returned that are
-      // soft-deleted and drop them from the merged map so the Candidates page hides them.
-      const softDeletedTenantIds = await collectSoftDeletedTenantCandidateIds(
-        portalCandidates.map((c) => c.id)
-      );
+      const tombstoneIds = [
+        ...portalCandidates.map((c) => c.id),
+        ...commonCandidates.map((c) => c.id),
+      ];
+      const softDeletedTenantIds = tombstoneIds.length
+        ? await collectSoftDeletedTenantCandidateIds(tombstoneIds)
+        : new Set();
 
       const mergedById = new Map();
-      for (const candidate of portalCandidates) {
-        if (softDeletedTenantIds.has(candidate.id)) continue;
+      // Phase 1 discovery rows stay visible on "All candidates" even when a tenant recycle-bin stub exists.
+      for (const candidate of commonCandidates) {
         mergedById.set(candidate.id, candidate);
+      }
+      for (const candidate of portalCandidates) {
+        if (softDeletedTenantIds.has(candidate.id) && !mergedById.has(candidate.id)) continue;
+        const prior = mergedById.get(candidate.id);
+        mergedById.set(
+          candidate.id,
+          prior ? mergePortalAndTenantCandidateRow(candidate, prior) : candidate
+        );
       }
       for (const candidate of tenantCandidates) {
         const prior = mergedById.get(candidate.id);
@@ -1814,41 +1929,53 @@ export const candidateService = {
         );
       }
 
-      if (includeCommonPool) {
-        const commonCandidates = await fetchCandidateCommonForCandidatesList(req);
-        for (const commonRow of commonCandidates) {
-          if (softDeletedTenantIds.has(commonRow.id)) continue;
-          const prior = mergedById.get(commonRow.id);
-          mergedById.set(
-            commonRow.id,
-            prior ? mergePortalAndTenantCandidateRow(commonRow, prior) : commonRow
-          );
-        }
-      }
-
       const merged = Array.from(mergedById.values())
         .filter((candidate) => shouldShowOnCrmCandidatesList(candidate, { includeCommonPool }))
         .filter((candidate) => candidateMatchesSearch(candidate, search))
         .filter((candidate) => candidateMatchesListFilters(candidate, listFilters))
-        .sort((a, b) => {
-        const aTime = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const bTime = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return bTime - aTime;
-      });
+        .sort(
+          (a, b) => candidateListSortTimestamp(b) - candidateListSortTimestamp(a)
+        );
 
       total = merged.length;
       candidates = merged.slice(skip, skip + limit);
     } else {
-      [candidates, total] = await Promise.all([
-        prisma.candidate.findMany({
-          where,
-          skip,
-          take: limit,
-          include: candidateListInclude,
-          orderBy: { createdAt: 'desc' },
-        }),
-        prisma.candidate.count({ where }),
-      ]);
+      const tenantRows = await prisma.candidate.findMany({
+        where,
+        include: candidateListInclude,
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (includeCommonPool) {
+        const commonCandidates = await fetchCandidateCommonForCandidatesList(req);
+        const softDeletedTenantIds = commonCandidates.length
+          ? await collectSoftDeletedTenantCandidateIds(commonCandidates.map((c) => c.id))
+          : new Set();
+        const mergedById = new Map();
+        for (const commonRow of commonCandidates) {
+          mergedById.set(commonRow.id, commonRow);
+        }
+        for (const candidate of tenantRows) {
+          if (softDeletedTenantIds.has(candidate.id) && !mergedById.has(candidate.id)) continue;
+          const prior = mergedById.get(candidate.id);
+          mergedById.set(
+            candidate.id,
+            prior ? mergePortalAndTenantCandidateRow(prior, candidate) : candidate
+          );
+        }
+        const merged = Array.from(mergedById.values())
+          .filter((candidate) => shouldShowOnCrmCandidatesList(candidate, { includeCommonPool }))
+          .filter((candidate) => candidateMatchesSearch(candidate, search))
+          .filter((candidate) => candidateMatchesListFilters(candidate, listFilters))
+          .sort(
+            (a, b) => candidateListSortTimestamp(b) - candidateListSortTimestamp(a)
+          );
+        total = merged.length;
+        candidates = merged.slice(skip, skip + limit);
+      } else {
+        total = await prisma.candidate.count({ where });
+        candidates = tenantRows.slice(skip, skip + limit);
+      }
     }
 
     // Resolve assigned job ids into human-readable job titles for list UI.
@@ -3412,7 +3539,11 @@ export const candidateService = {
 
     // Recycle Bin: don't count soft-deleted candidates in the stage stats.
     const scopedStatsWhere = {
-      AND: [scopeWhere || {}, { isDeleted: { not: true } }, buildCrmCandidatesListScopeClause()],
+      AND: [
+        scopeWhere || {},
+        { isDeleted: { not: true } },
+        ...(includeCommonPool ? [] : [buildCrmCandidatesListScopeClause()]),
+      ],
     };
     let scopedCandidates = await prisma.candidate.findMany({
       where: scopedStatsWhere,
@@ -3443,14 +3574,20 @@ export const candidateService = {
 
     if (includeCommonPool && isTenantScopedRequest()) {
       const commonCandidates = await fetchCandidateCommonForCandidatesList(req);
-      const softDeletedTenantIds = await collectSoftDeletedTenantCandidateIds(
-        commonCandidates.map((c) => c.id)
-      );
+      const softDeletedTenantIds = commonCandidates.length
+        ? await collectSoftDeletedTenantCandidateIds(commonCandidates.map((c) => c.id))
+        : new Set();
       const byId = new Map(scopedCandidates.map((candidate) => [candidate.id, candidate]));
       for (const commonRow of commonCandidates) {
-        if (softDeletedTenantIds.has(commonRow.id)) continue;
         if (!byId.has(commonRow.id)) {
-          byId.set(commonRow.id, { id: commonRow.id, stage: commonRow.stage || null, source: commonRow.source });
+          byId.set(commonRow.id, {
+            id: commonRow.id,
+            stage: commonRow.stage || null,
+            source: commonRow.source,
+            firstName: commonRow.firstName,
+            lastName: commonRow.lastName,
+            email: commonRow.email,
+          });
         }
       }
       scopedCandidates = Array.from(byId.values());

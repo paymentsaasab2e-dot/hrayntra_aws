@@ -47,6 +47,12 @@ import { normalizeJobSalaryCurrency } from '../../constants/jobSalary';
 import { getCachedOrgDefaultCurrency } from '../../lib/api';
 import { CreateJobEntryOptions } from './CreateJobEntryOptions';
 import { DocumentUploadButton, useDocumentUploadFeedback } from '../import/documentUploadUi';
+import { ApplicationFormBuilderModal } from '../jobs/ApplicationFormBuilderModal';
+import {
+  defaultApplicationFormSchema,
+  normalizeApplicationFormSchema,
+  type ApplicationFormSchema,
+} from '../../lib/applicationFormTypes';
 
 type ApplicationLogoOption = 'account' | 'company' | 'none' | 'custom';
 
@@ -230,6 +236,7 @@ export function CreateJobDrawer({
   const [linkedInPostText, setLinkedInPostText] = useState('');
   const [showLinkedInSuccess, setShowLinkedInSuccess] = useState(false);
   const [linkedInPostUrl, setLinkedInPostUrl] = useState<string | null>(null);
+  const [showFormBuilder, setShowFormBuilder] = useState(false);
 
   // LinkedIn integration hook
   const linkedIn = useLinkedIn();
@@ -295,6 +302,7 @@ export function CreateJobDrawer({
     applicationLogoUrl: '',
     applicationQuestions: [] as ScreeningQuestion[],
     noteForCandidates: '',
+    applicationFormSchema: defaultApplicationFormSchema() as ApplicationFormSchema,
     
     // Publish & Share
     linkedInEnabled: false,
@@ -409,6 +417,7 @@ export function CreateJobDrawer({
         applicationLogoUrl: '',
         applicationQuestions: [],
         noteForCandidates: '',
+        applicationFormSchema: defaultApplicationFormSchema(),
         linkedInEnabled: false,
         linkedInConnected: false,
         linkedInAccount: null,
@@ -885,6 +894,9 @@ export function CreateJobDrawer({
         applicationLogoUrl: parsedApplicationLogoUrl,
         applicationQuestions: parseScreeningQuestionList(job.applicationFormQuestions),
         noteForCandidates: job.applicationFormNote || '',
+        applicationFormSchema:
+          normalizeApplicationFormSchema((job as { applicationFormSchema?: unknown }).applicationFormSchema) ||
+          defaultApplicationFormSchema(),
         assignedToId:
           (job as { assignedToId?: string }).assignedToId || (job as { assignedTo?: { id: string } }).assignedTo?.id || '',
       }));
@@ -1612,6 +1624,9 @@ export function CreateJobDrawer({
           .filter((q) => q.label.trim().length > 0)
           .map((q) => serializeScreeningQuestion(q)),
         applicationFormNote: formData.noteForCandidates.trim() ? formData.noteForCandidates.trim() : undefined,
+        applicationFormSchema: formData.enableApplicationForm
+          ? formData.applicationFormSchema ?? defaultApplicationFormSchema()
+          : undefined,
         // Store JD file name if file was uploaded
         jdFileName: uploadedFile?.name || undefined,
         assignedToId: isEditMode
@@ -1843,6 +1858,7 @@ export function CreateJobDrawer({
   };
 
   return (
+    <>
     <AnimatePresence mode="wait">
       {isOpen && (
         <>
@@ -1989,6 +2005,26 @@ export function CreateJobDrawer({
 
                     {formData.enableApplicationForm && (
                       <>
+                        <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4 space-y-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <p className="text-sm font-semibold text-slate-900">Custom application form</p>
+                              <p className="text-xs text-slate-600">
+                                Build fields (email, phone, resume, education, work history, etc.). Saved with this job and used on the public apply link after publish.
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setShowFormBuilder(true)}
+                              className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
+                            >
+                              Edit / Create form
+                            </button>
+                          </div>
+                          <p className="text-xs text-slate-600">
+                            {(formData.applicationFormSchema?.fields?.length ?? 0)} field(s) configured
+                          </p>
+                        </div>
                         <div>
                           <label className="block text-sm font-medium text-slate-700 mb-2">Logo selection</label>
                           <div className="space-y-2">
@@ -3074,5 +3110,19 @@ export function CreateJobDrawer({
         </>
       )}
     </AnimatePresence>
+
+      <ApplicationFormBuilderModal
+        isOpen={showFormBuilder}
+        onClose={() => setShowFormBuilder(false)}
+        schema={formData.applicationFormSchema ?? defaultApplicationFormSchema()}
+        onChange={(schema) =>
+          setFormData((prev) => ({
+            ...prev,
+            applicationFormSchema: schema,
+            enableApplicationForm: true,
+          }))
+        }
+      />
+    </>
   );
 }

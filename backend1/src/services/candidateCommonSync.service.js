@@ -1,6 +1,29 @@
 const { prisma } = require('../lib/prisma');
 const { getCandidateCommonPrisma } = require('../lib/candidateCommonPrisma');
 
+function isPlaceholderProfileEmail(email) {
+  const value = String(email || '').trim().toLowerCase();
+  return !value || value.includes('@temp.local');
+}
+
+function resolveProfileDisplayEmail(candidate) {
+  const profileEmail = String(candidate?.profile?.email || '').trim();
+  const candidateEmail = String(candidate?.email || '').trim();
+
+  if (profileEmail && !isPlaceholderProfileEmail(profileEmail)) return profileEmail;
+  if (candidateEmail && !isPlaceholderProfileEmail(candidateEmail)) return candidateEmail;
+
+  const resumeJson = candidate?.resume?.resumeJson;
+  if (resumeJson && typeof resumeJson === 'object') {
+    const resumeEmail = resumeJson?.personalInformation?.email;
+    if (resumeEmail && String(resumeEmail).trim()) {
+      return String(resumeEmail).trim();
+    }
+  }
+
+  return profileEmail || candidateEmail || null;
+}
+
 function splitFullName(fullName) {
   const parts = String(fullName || '')
     .trim()
@@ -114,7 +137,7 @@ function normalizePortfolioLinksForCommon(links) {
   return cleaned.length ? cleaned : null;
 }
 
-function buildCommonPayload(candidate, { lastLogin = false } = {}) {
+function buildCommonPayload(candidate, { lastLogin = false, forceVerified = false } = {}) {
   const profile = candidate.profile || null;
   const fromProfile = profile ? splitFullName(profile.fullName) : { firstName: null, lastName: null };
   const firstName = candidate.firstName || fromProfile.firstName;
@@ -138,7 +161,7 @@ function buildCommonPayload(candidate, { lastLogin = false } = {}) {
     isVerified: Boolean(candidate.isVerified),
     firstName: firstName || null,
     lastName: lastName || null,
-    email: candidate.email || profile?.email || null,
+    email: resolveProfileDisplayEmail(candidate),
     phone:
       candidate.phone ||
       candidate.whatsappNumber ||
@@ -158,6 +181,7 @@ function buildCommonPayload(candidate, { lastLogin = false } = {}) {
     currentCompany: candidate.currentCompany || null,
     location:
       candidate.location ||
+      [profile?.city, profile?.country].filter(Boolean).join(', ') ||
       profile?.city ||
       profile?.country ||
       candidate.preferredLocation ||
@@ -200,9 +224,12 @@ async function loadCandidateForCommonSync(candidateId) {
     include: {
       profile: true,
       summary: true,
+      resume: true,
+      portfolioLinks: true,
       workExperiences: { orderBy: { startDate: 'desc' }, take: 30 },
       educations: { orderBy: { startYear: 'desc' }, take: 20 },
       skills: { include: { skill: true }, take: 100 },
+      languages: true,
       recruiterMatches: { select: { jobId: true } },
     },
   });
@@ -259,9 +286,29 @@ function scheduleCandidateCommonSync(candidateId, options = {}) {
   void syncCandidateToCommon(candidateId, options).catch(() => {});
 }
 
+const lastScheduledSyncAt = new Map();
+const SCHEDULE_DEBOUNCE_MS = 90_000;
+
+/** Debounced sync for profile reads — avoids hammering common DB on every GET. */
+function scheduleCandidateCommonSyncDebounced(candidateId, options = {}) {
+  const id = String(candidateId || '').trim();
+  if (!id) return;
+  if (options.force) {
+    scheduleCandidateCommonSync(id, options);
+    lastScheduledSyncAt.set(id, Date.now());
+    return;
+  }
+  const now = Date.now();
+  const last = lastScheduledSyncAt.get(id) || 0;
+  if (now - last < SCHEDULE_DEBOUNCE_MS) return;
+  lastScheduledSyncAt.set(id, Date.now());
+  scheduleCandidateCommonSync(id, options);
+}
+
 module.exports = {
   syncCandidateToCommon,
   scheduleCandidateCommonSync,
+  scheduleCandidateCommonSyncDebounced,
   persistCandidateSnapshotAndSync,
   buildCommonPayload,
 };
