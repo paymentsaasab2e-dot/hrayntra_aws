@@ -739,11 +739,15 @@ function CandidateTagSystem({
   );
 }
 
-interface AddToPipelineModalProps {
+export interface AddToPipelineModalProps {
   isOpen: boolean;
   candidate: CandidateProfileDrawerData | null;
   jobs: CandidatePipelineJobOption[];
   recruiters: CandidatePipelineRecruiterOption[];
+  /** Pre-select job when opening from job drawer (move stage icon). */
+  initialJobId?: string | null;
+  /** Hide job picker and keep pipeline scoped to initialJobId. */
+  lockJobToInitial?: boolean;
   onClose: () => void;
   onSubmit?: (payload: {
     candidateId: string;
@@ -1988,11 +1992,13 @@ function mapJobsToPipelineOptions(
     .sort((a, b) => a.title.localeCompare(b.title));
 }
 
-function AddToPipelineModal({
+export function AddToPipelineModal({
   isOpen,
   candidate,
   jobs,
   recruiters,
+  initialJobId,
+  lockJobToInitial = false,
   onClose,
   onSubmit,
   onRemoveFromPipeline,
@@ -2075,6 +2081,31 @@ function AddToPipelineModal({
         return bTime - aTime;
       });
 
+    const scopedJobId = lockJobToInitial && initialJobId ? String(initialJobId) : '';
+
+    if (scopedJobId) {
+      const rowForJob = pipelineRows.find((row) => row.id && String(row.id) === scopedJobId);
+      if (rowForJob) {
+        setEditingJobId(scopedJobId);
+        setSelectedJobId(scopedJobId);
+        const entryStage = String(rowForJob.stage || '').trim();
+        setSelectedStage(entryStage);
+        setStagePath(entryStage ? [entryStage] : []);
+        setNotes(String(rowForJob.notes || '').trim());
+        setSelectedRecruiterId(candidate?.recruiterId || '');
+        setAddNewJobMode(false);
+        return;
+      }
+      setSelectedJobId(scopedJobId);
+      setEditingJobId(null);
+      setSelectedStage('');
+      setStagePath([]);
+      setNotes('');
+      setSelectedRecruiterId(candidate?.recruiterId || '');
+      setAddNewJobMode(true);
+      return;
+    }
+
     const preferred =
       pipelineRows.find((row) => row.id && candidate?.assignedJobId && row.id === candidate.assignedJobId) ||
       pipelineRows[0];
@@ -2098,7 +2129,15 @@ function AddToPipelineModal({
     setNotes('');
     setEditingJobId(null);
     setAddNewJobMode(true);
-  }, [isOpen, jobs, candidate?.assignedJobs, candidate?.assignedJobId, candidate?.recruiterId]);
+  }, [
+    isOpen,
+    jobs,
+    candidate?.assignedJobs,
+    candidate?.assignedJobId,
+    candidate?.recruiterId,
+    initialJobId,
+    lockJobToInitial,
+  ]);
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -2487,7 +2526,7 @@ function AddToPipelineModal({
                   </section>
                 ) : null}
 
-                {addNewJobMode ? (
+                {addNewJobMode && !(lockJobToInitial && initialJobId) ? (
                   <div>
                     <label className="mb-2 block text-sm font-medium text-slate-700">Select Job</label>
                     <div className="relative" ref={jobDropdownRef}>
@@ -2557,6 +2596,16 @@ function AddToPipelineModal({
                       ) : null}
                     </div>
                     {errors.job ? <p className="mt-1 text-xs text-red-600">{errors.job}</p> : null}
+                  </div>
+                ) : null}
+
+                {addNewJobMode && lockJobToInitial && initialJobId && selectedJob ? (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Job</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900">{selectedJob.title}</p>
+                    {selectedJob.department ? (
+                      <p className="text-xs text-slate-500">{selectedJob.department}</p>
+                    ) : null}
                   </div>
                 ) : null}
 

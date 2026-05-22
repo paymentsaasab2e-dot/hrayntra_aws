@@ -3,6 +3,7 @@ import {
   buildEducationSummaryFromCvEntries,
   isGarbageEducationSummary,
 } from './candidateEducation';
+import { enrichBackendCandidateFromPhase1Snapshot, getPhase1ProfileSnapshot } from './phase1ProfileSnapshot';
 import { computeTotalExperienceYears } from './candidateExperience';
 import { resolveCandidateListStage } from './candidateListMapping';
 import type { CandidateProfileDrawerData } from '../components/drawers/CandidateProfileDrawer';
@@ -194,7 +195,21 @@ function buildAssignedJobsList(c: BackendCandidate): NonNullable<CandidateProfil
   return Array.from(byKey.values());
 }
 
-export function mapCandidateProfile(c: BackendCandidate): CandidateProfileDrawerData {
+export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDrawerData {
+  const c = enrichBackendCandidateFromPhase1Snapshot(raw);
+  const phase1Snap = getPhase1ProfileSnapshot(
+    c.extraData && typeof c.extraData === 'object' && !Array.isArray(c.extraData)
+      ? (c.extraData as Record<string, unknown>)
+      : null
+  );
+  const resumeFileName = phase1Snap?.resume?.fileName?.trim() || 'Resume';
+  const resumeAtsScore =
+    typeof (c as BackendCandidate & { resumeAtsScore?: number }).resumeAtsScore === 'number'
+      ? (c as BackendCandidate & { resumeAtsScore?: number }).resumeAtsScore
+      : typeof phase1Snap?.resume?.atsScore === 'number'
+        ? phase1Snap.resume.atsScore
+        : null;
+
   const namePart = `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim();
   const emailPart = c.email?.trim() || '';
   const phonePart = c.phone?.trim() || '';
@@ -393,6 +408,7 @@ export function mapCandidateProfile(c: BackendCandidate): CandidateProfileDrawer
     name: fullName,
     firstName: c.firstName || null,
     lastName: c.lastName || null,
+    avatar: c.avatar || phase1Snap?.personalInfo?.profilePhotoUrl || null,
     currentTitle: c.currentTitle || null,
     currentCompany: c.currentCompany || null,
     stage,
@@ -470,12 +486,22 @@ export function mapCandidateProfile(c: BackendCandidate): CandidateProfileDrawer
         : Array.isArray((c as any).certificationsList)
           ? (c as any).certificationsList
           : []) || [],
-    cvLanguages:
-      (Array.isArray(c.languages) && c.languages.length
-        ? c.languages
-        : Array.isArray((c as any).recruiterLanguages)
-          ? (c as any).recruiterLanguages
-          : []) || [],
+    cvLanguages: (() => {
+      const snap = phase1Snap;
+      if (Array.isArray(snap?.languages) && snap.languages.length) {
+        return snap.languages
+          .map((l) => {
+            const name = String(l?.name || '').trim();
+            const prof = String(l?.proficiency || '').trim();
+            return prof ? `${name} (${prof})` : name;
+          })
+          .filter(Boolean);
+      }
+      if (Array.isArray(c.languages) && c.languages.length) return c.languages;
+      const recruiterLangs = (c as BackendCandidate & { recruiterLanguages?: string[] }).recruiterLanguages;
+      if (Array.isArray(recruiterLangs) && recruiterLangs.length) return recruiterLangs;
+      return [];
+    })(),
     cvPortfolio: c.portfolio || null,
     cvWebsite: c.website || null,
     cvNotes: c.cvSummary || c.notes || null,
@@ -499,7 +525,10 @@ export function mapCandidateProfile(c: BackendCandidate): CandidateProfileDrawer
         : null,
     tags: c.tagObjects?.length ? c.tagObjects : fallbackTags,
     notes: c.internalNotes?.length ? c.internalNotes : fallbackNotes,
-    files: (c.resume || c.resumeUrl) ? [{ name: 'Resume', url: c.resume || c.resumeUrl }] : [],
+    files:
+      c.resume || c.resumeUrl
+        ? [{ name: resumeFileName, url: c.resume || c.resumeUrl || '' }]
+        : [],
     activity: c.activityFeed?.length ? c.activityFeed : fallbackActivityItems,
     scheduledInterviews: (c.interviews || [])
       .filter((interview) => Boolean(interview.scheduledAt))
@@ -554,8 +583,10 @@ export function mapCandidateProfile(c: BackendCandidate): CandidateProfileDrawer
       overall:
         typeof backendAi?.overall === 'number' && Number.isFinite(backendAi.overall)
           ? Math.max(0, Math.min(100, Math.round(backendAi.overall)))
-          : overall,
-      source: backendAi?.source || 'estimated',
+          : resumeAtsScore != null
+            ? Math.max(0, Math.min(100, Math.round(resumeAtsScore)))
+            : overall,
+      source: backendAi?.source || (resumeAtsScore != null ? 'resume_ats' : 'estimated'),
       jobTitle: backendAi?.jobTitle || latestMatch?.job?.title || null,
       breakdown: {
         skillsMatch: aiSkillsMatch,

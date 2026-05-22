@@ -1,0 +1,197 @@
+import type { BackendCandidate } from './api';
+
+export type Phase1ProfileSnapshot = {
+  personalInfo?: {
+    firstName?: string;
+    middleName?: string;
+    lastName?: string;
+    email?: string;
+    profilePhotoUrl?: string;
+    phone?: string;
+    phoneCode?: string;
+    gender?: string;
+    dob?: string;
+    country?: string;
+    city?: string;
+    linkedinUrl?: string;
+  } | null;
+  summaryText?: string;
+  workExperience?: Array<Record<string, unknown>>;
+  education?: Array<Record<string, unknown>>;
+  skills?: Array<{ name?: string; proficiency?: string; category?: string }>;
+  languages?: Array<{ name?: string; proficiency?: string }>;
+  certifications?: Array<{ certificationName?: string }>;
+  portfolioLinks?: Array<{ type?: string; url?: string }>;
+  careerPreferences?: Record<string, unknown> | null;
+  resume?: {
+    fileName?: string;
+    fileUrl?: string;
+    atsScore?: number | null;
+  } | null;
+  gapExplanations?: unknown[];
+  internships?: unknown[];
+  accomplishments?: unknown[];
+};
+
+type ResumeSourceLike = {
+  resume?: string | null;
+  resumeUrl?: string | null;
+  extraData?: Record<string, unknown> | null;
+};
+
+/** Best resume URL from API row + Phase 1 snapshot (used by drawer resume tab). */
+export function resolveCandidateResumeUrlFromSources(
+  candidate?: ResumeSourceLike | null
+): string {
+  if (!candidate) return '';
+  const snap = getPhase1ProfileSnapshot(
+    candidate.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
+      ? candidate.extraData
+      : null
+  );
+  const candidates = [
+    candidate.resumeUrl,
+    candidate.resume,
+    snap?.resume?.fileUrl,
+  ];
+  for (const value of candidates) {
+    const trimmed = String(value || '').trim();
+    if (trimmed) return trimmed;
+  }
+  return '';
+}
+
+export function getPhase1ProfileSnapshot(
+  extraData?: Record<string, unknown> | null
+): Phase1ProfileSnapshot | null {
+  if (!extraData || typeof extraData !== 'object' || Array.isArray(extraData)) return null;
+  const snap = extraData.phase1ProfileSnapshot;
+  if (!snap || typeof snap !== 'object' || Array.isArray(snap)) return null;
+  return snap as Phase1ProfileSnapshot;
+}
+
+function mapWorkEntries(work: Phase1ProfileSnapshot['workExperience']) {
+  if (!Array.isArray(work) || !work.length) return null;
+  return work.map((w) => {
+    const responsibilities = w.responsibilities;
+    return {
+      title: (w.jobTitle as string) || (w.title as string) || null,
+      jobTitle: (w.jobTitle as string) || (w.title as string) || null,
+      company: (w.company as string) || (w.companyName as string) || null,
+      companyName: (w.company as string) || (w.companyName as string) || null,
+      location: (w.workLocation as string) || (w.location as string) || null,
+      startDate: (w.startDate as string) || null,
+      endDate: (w.endDate as string) || null,
+      responsibilities: Array.isArray(responsibilities)
+        ? responsibilities
+        : responsibilities
+          ? [String(responsibilities)]
+          : w.description
+            ? [String(w.description)]
+            : [],
+    };
+  });
+}
+
+function mapEducationEntries(edu: Phase1ProfileSnapshot['education']) {
+  if (!Array.isArray(edu) || !edu.length) return null;
+  return edu.map((e) => ({
+    degree: (e.degreeProgram as string) || (e.degree as string) || null,
+    institution: (e.institutionName as string) || (e.institution as string) || null,
+    field: (e.fieldOfStudy as string) || (e.field as string) || null,
+    startYear: (e.startYear as string) || null,
+    endYear: (e.endYear as string) || null,
+  }));
+}
+
+/** Fill sparse API rows with Phase 1 dashboard snapshot stored in candidatecommon. */
+export function enrichBackendCandidateFromPhase1Snapshot(c: BackendCandidate): BackendCandidate {
+  const snap = getPhase1ProfileSnapshot(
+    c.extraData && typeof c.extraData === 'object' && !Array.isArray(c.extraData)
+      ? (c.extraData as Record<string, unknown>)
+      : null
+  );
+  if (!snap) return c;
+
+  const pi = snap.personalInfo || {};
+  const work = mapWorkEntries(snap.workExperience);
+  const edu = mapEducationEntries(snap.education);
+  const skillRows = Array.isArray(snap.skills) ? snap.skills : [];
+  const langRows = Array.isArray(snap.languages) ? snap.languages : [];
+  const skillNames = skillRows.map((s) => String(s?.name || '').trim()).filter(Boolean);
+  const languageNames = langRows.map((l) => String(l?.name || '').trim()).filter(Boolean);
+  const certNames = Array.isArray(snap.certifications)
+    ? snap.certifications.map((cert) => String(cert.certificationName || '').trim()).filter(Boolean)
+    : [];
+
+  const resumeUrl = snap.resume?.fileUrl || c.resume || c.resumeUrl || null;
+  const latestWork = Array.isArray(snap.workExperience) ? snap.workExperience[0] : null;
+
+  const mergedExtra: Record<string, unknown> = {
+    ...(c.extraData && typeof c.extraData === 'object' && !Array.isArray(c.extraData)
+      ? (c.extraData as Record<string, unknown>)
+      : {}),
+    phase1ProfileSnapshot: snap,
+    phase1GapExplanations: snap.gapExplanations || [],
+    phase1Internships: snap.internships || [],
+    phase1Accomplishments: snap.accomplishments || [],
+  };
+
+  return {
+    ...c,
+    firstName: c.firstName || pi.firstName || c.firstName,
+    lastName: c.lastName || pi.lastName || c.lastName,
+    email: c.email || pi.email || c.email,
+    phone: c.phone || pi.phone || c.phone,
+    linkedIn: c.linkedIn || pi.linkedinUrl || c.linkedIn,
+    city: c.city || pi.city || c.city,
+    country: c.country || pi.country || c.country,
+    location:
+      c.location || [pi.city, pi.country].filter(Boolean).join(', ') || c.location || null,
+    avatar: c.avatar || pi.profilePhotoUrl || null,
+    currentTitle:
+      c.currentTitle ||
+      (latestWork?.jobTitle as string) ||
+      (latestWork?.title as string) ||
+      c.currentTitle,
+    currentCompany:
+      c.currentCompany ||
+      (latestWork?.company as string) ||
+      (latestWork?.companyName as string) ||
+      c.currentCompany,
+    cvSummary: c.cvSummary || snap.summaryText || c.cvSummary,
+    resume: resumeUrl,
+    resumeUrl,
+    skills: skillNames.length ? skillNames : c.skills,
+    languages: languageNames.length ? languageNames : c.languages,
+    recruiterLanguages: languageNames.length ? languageNames : (c as BackendCandidate & { recruiterLanguages?: string[] }).recruiterLanguages,
+    noticePeriod:
+      c.noticePeriod || (snap.careerPreferences?.noticePeriod as string) || null,
+    availability:
+      c.availability || (snap.careerPreferences?.availabilityToStart as string) || null,
+    address: c.address || snap.personalInfo?.city || c.address,
+    careerPreferences:
+      (c.careerPreferences ||
+        (snap.careerPreferences as BackendCandidate['careerPreferences'])) ??
+      c.careerPreferences,
+    certifications: certNames.length ? certNames : c.certifications,
+    cvWorkExperienceEntries:
+      (Array.isArray(c.cvWorkExperienceEntries) && c.cvWorkExperienceEntries.length
+        ? c.cvWorkExperienceEntries
+        : work) || c.cvWorkExperienceEntries,
+    cvEducationEntries:
+      (Array.isArray(c.cvEducationEntries) && c.cvEducationEntries.length
+        ? c.cvEducationEntries
+        : edu) || c.cvEducationEntries,
+    cvPortfolioLinks:
+      (Array.isArray(c.cvPortfolioLinks) && c.cvPortfolioLinks.length
+        ? c.cvPortfolioLinks
+        : Array.isArray(snap.portfolioLinks) && snap.portfolioLinks.length
+          ? snap.portfolioLinks
+          : null) || c.cvPortfolioLinks,
+    extraData: mergedExtra,
+    ...(typeof snap.resume?.atsScore === 'number'
+      ? { resumeAtsScore: snap.resume.atsScore }
+      : {}),
+  } as BackendCandidate & { resumeAtsScore?: number };
+}

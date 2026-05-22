@@ -5,6 +5,13 @@ import {
   CandidateTable,
   type Candidate as JobDrawerTableCandidate,
 } from '../../app/candidate/components/CandidateTable';
+import {
+  AddToPipelineModal,
+  type CandidatePipelineJobOption,
+  type CandidatePipelineRecruiterOption,
+  type CandidateProfileDrawerData,
+} from './CandidateProfileDrawer';
+import { jobCandidateItemToMoveStageProfile } from '../../lib/candidateTableToProfileStub';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { motion, AnimatePresence } from 'motion/react';
 import { requestError, requestInfo } from '../../lib/appDialog';
@@ -318,6 +325,17 @@ export interface JobDetailsDrawerProps {
   onClone?: (job: JobForDrawer) => void;
   onCloseJob?: (job: JobForDrawer) => void;
   onMoveStage?: (candidateId: string, jobId: string) => void;
+  /** Same flow as candidate profile drawer Move Stage (AddToPipelineModal). */
+  onAddToPipeline?: (payload: {
+    candidateId: string;
+    jobId: string;
+    stage: string;
+    recruiterId?: string;
+    priority: 'High' | 'Medium' | 'Low';
+    notes?: string;
+  }) => void | Promise<void>;
+  onRemoveFromPipeline?: (payload: { candidateId: string; jobId: string }) => void | Promise<void>;
+  pipelineRecruiters?: CandidatePipelineRecruiterOption[];
   onScheduleInterview?: (candidateId: string, jobId: string) => void;
   onRejectCandidate?: (candidateId: string, jobId: string) => void;
   onViewCandidateProfile?: (candidate: JobDrawerTableCandidate) => void;
@@ -592,6 +610,9 @@ export function JobDetailsDrawer({
   onPipelineStagesChange,
   onSavePipelineStages,
   onMoveStage,
+  onAddToPipeline,
+  onRemoveFromPipeline,
+  pipelineRecruiters = [],
   onScheduleInterview,
   onRejectCandidate,
   onViewCandidateProfile,
@@ -662,6 +683,8 @@ export function JobDetailsDrawer({
     onClosed: () => setSubmitClientRowId(null),
   });
 
+  const [moveStageModalOpen, setMoveStageModalOpen] = useState(false);
+  const [moveStageCandidate, setMoveStageCandidate] = useState<CandidateProfileDrawerData | null>(null);
   const [aiMatchCandidates, setAiMatchCandidates] = useState<MatchCandidate[]>([]);
   const [aiMatchesLoading, setAiMatchesLoading] = useState(false);
   const [aiPipelineRunning, setAiPipelineRunning] = useState(false);
@@ -685,6 +708,38 @@ export function JobDetailsDrawer({
   const jobTableCandidates = useMemo(
     () => displayJobCandidates.map((row) => mapJobCandidateToTableRow(row, job?.title, job?.id)),
     [displayJobCandidates, job?.id, job?.title],
+  );
+
+  const pipelineJobOptions = useMemo((): CandidatePipelineJobOption[] => {
+    if (!job?.id) return [];
+    return [
+      {
+        id: job.id,
+        title: job.title,
+        department: job.department || job.clientName || null,
+        clientId: job.clientId ?? null,
+        clientName: job.clientName ?? null,
+      },
+    ];
+  }, [job?.clientId, job?.clientName, job?.department, job?.id, job?.title]);
+
+  const openMoveStageFromTable = useCallback(
+    (row: JobDrawerTableCandidate) => {
+      if (!job?.id || !onAddToPipeline) return;
+      const source = displayJobCandidates.find((c) => c.id === row.id);
+      if (!source) return;
+      setMoveStageCandidate(
+        jobCandidateItemToMoveStageProfile(source, {
+          id: job.id,
+          title: job.title,
+          department: job.department,
+          clientId: job.clientId,
+          clientName: job.clientName,
+        }),
+      );
+      setMoveStageModalOpen(true);
+    },
+    [displayJobCandidates, job, onAddToPipeline],
   );
 
   const recruiterFallbackForJob = useMemo(
@@ -1421,6 +1476,9 @@ export function JobDetailsDrawer({
                         }
                         onViewProfile={onViewCandidateProfile}
                         onEditCandidate={onEditCandidate}
+                        onMoveStage={
+                          onAddToPipeline && job?.id ? openMoveStageFromTable : undefined
+                        }
                         onSubmitToClient={
                           job?.id
                             ? (row) => {
@@ -2204,6 +2262,39 @@ export function JobDetailsDrawer({
         )}
       </motion.div>
     </AnimatePresence>
+
+    <AddToPipelineModal
+      isOpen={moveStageModalOpen}
+      candidate={moveStageCandidate}
+      jobs={pipelineJobOptions}
+      recruiters={pipelineRecruiters}
+      initialJobId={job?.id ?? null}
+      lockJobToInitial
+      onClose={() => {
+        setMoveStageModalOpen(false);
+        setMoveStageCandidate(null);
+      }}
+      onSubmit={
+        onAddToPipeline
+          ? async (payload) => {
+              await onAddToPipeline(payload);
+              await refreshAppliedJobCandidates({ runPipeline: false, refresh: true });
+              setMoveStageModalOpen(false);
+              setMoveStageCandidate(null);
+            }
+          : undefined
+      }
+      onRemoveFromPipeline={
+        onRemoveFromPipeline
+          ? async (payload) => {
+              await onRemoveFromPipeline(payload);
+              await refreshAppliedJobCandidates({ runPipeline: false, refresh: true });
+              setMoveStageModalOpen(false);
+              setMoveStageCandidate(null);
+            }
+          : undefined
+      }
+    />
 
     {submitToClientModal}
     </>

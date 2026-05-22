@@ -2083,6 +2083,23 @@ model CandidateCommon {
   cvEducationEntries      Json?
   cvWorkExperienceEntries Json?
   cvPortfolioLinks        Json?
+  profileSnapshot         Json?
+  profilePhotoUrl         String?
+  gender                  String?
+  middleName              String?
+  whatsappNumber          String?
+  addressLine             String?
+  state                   String?
+  zipCode                 String?
+  dateOfBirth             String?
+  languagesDetail         Json?
+  recruiterLanguages      String[]  @default([])
+  careerPreferences       Json?
+  resumeFileName          String?
+  resumeMimeType          String?
+  resumeAtsScore          Int?
+  noticePeriod            String?
+  availability            String?
   assignedJobs            String[]  @default([])
   matchJobIds             String[]  @default([])
   stage                   String?

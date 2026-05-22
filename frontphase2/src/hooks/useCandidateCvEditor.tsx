@@ -9,6 +9,10 @@ import {
 } from '../lib/api';
 import { extractApiData } from '../lib/mapCandidateProfile';
 import {
+  enrichBackendCandidateFromPhase1Snapshot,
+  resolveCandidateResumeUrlFromSources,
+} from '../lib/phase1ProfileSnapshot';
+import {
   buildCvEditorPersistPatch,
   buildResumeCvViewExtra,
   candidateToCvEditorData,
@@ -57,12 +61,16 @@ export function useCandidateCvEditor({
     if (!candidateId) return null;
     try {
       const raw = await apiGetCandidate(candidateId);
-      const data = extractApiData<BackendCandidate>(raw);
+      const data = enrichBackendCandidateFromPhase1Snapshot(extractApiData<BackendCandidate>(raw));
       setBackendCandidate(data);
       onBackendCandidateChange?.(data);
       return data;
     } catch (error: unknown) {
-      onToast?.(error instanceof Error ? error.message : 'Unable to load CV data');
+      const message = error instanceof Error ? error.message : 'Unable to load CV data';
+      const hasListResume = Boolean(String(resumeUrl || '').trim());
+      if (!/candidate not found/i.test(message) || !hasListResume) {
+        onToast?.(message);
+      }
       return null;
     }
   }, [candidateId, onBackendCandidateChange, onToast]);

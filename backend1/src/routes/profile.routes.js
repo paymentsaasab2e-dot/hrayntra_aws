@@ -3,6 +3,7 @@ const multer = require('multer');
 const { protect } = require('../middleware/auth.middleware');
 const {
   getProfileData,
+  syncCommonDashboard,
   getProfileCompleteness,
   updatePersonalInfo,
   saveEducation,
@@ -108,6 +109,7 @@ const profilePhotoUpload = multer({
 
 // Get all profile data
 router.get('/completeness/:candidateId', protect, getProfileCompleteness);
+router.post('/sync-common-dashboard/:candidateId', protect, syncCommonDashboard);
 router.get('/:candidateId', protect, getProfileData);
 
 // Personal Information

@@ -15,6 +15,8 @@ import {
   resolveDefaultResumeCvViewMode,
   type ResumeCvViewMode,
 } from '../../lib/cvEditorMapping';
+import { resolveCandidateResumeUrlFromSources } from '../../lib/phase1ProfileSnapshot';
+import { isResumeHttpUrl, normalizeResumeHref } from '../../lib/resumePreview';
 
 export interface CandidateResumeCvEditorApi {
   backendCandidate: BackendCandidate | null;
@@ -61,7 +63,18 @@ export function CandidateResumeTabPanel({
   const [viewMode, setViewMode] = useState<ResumeCvViewMode | null>(null);
   const [viewModeSaving, setViewModeSaving] = useState(false);
 
-  const resumeRaw = candidate.resumeUrl || backendCandidate?.resume || backendCandidate?.resumeUrl || '';
+  const resumeRaw =
+    candidate.resumeUrl ||
+    resolveCandidateResumeUrlFromSources(backendCandidate) ||
+    resolveCandidateResumeUrlFromSources({
+      resumeUrl: candidate.resumeUrl,
+      resume: candidate.resumeUrl,
+      extraData: candidate.extraData ?? null,
+    }) ||
+    '';
+  const effectiveResumeHref =
+    resumeHref ||
+    (resumeRaw && isResumeHttpUrl(resumeRaw) ? normalizeResumeHref(resumeRaw) : '');
 
   useEffect(() => {
     if (!enabled || !candidate.id) return;
@@ -79,8 +92,8 @@ export function CandidateResumeTabPanel({
   }, [backendCandidate, resumeHref, resumeRaw, availableModes.join(',')]);
 
   const persistViewMode = async (mode: ResumeCvViewMode) => {
-    if (!backendCandidate?.id) return;
     setViewMode(mode);
+    if (!backendCandidate?.id) return;
     setViewModeSaving(true);
     try {
       const extraData = buildResumeCvViewExtra(backendCandidate.extraData ?? null, mode);
@@ -89,13 +102,16 @@ export function CandidateResumeTabPanel({
       await refreshBackend();
       await onCandidateUpdated?.();
     } catch (error: unknown) {
-      onToast?.(error instanceof Error ? error.message : 'Unable to save CV view preference');
+      const message = error instanceof Error ? error.message : 'Unable to save CV view preference';
+      if (!/candidate not found/i.test(message)) {
+        onToast?.(message);
+      }
     } finally {
       setViewModeSaving(false);
     }
   };
 
-  const showOriginalPreview = viewMode === 'original' && Boolean(resumeHref);
+  const showOriginalPreview = viewMode === 'original' && Boolean(effectiveResumeHref);
   const showStructuredPreview =
     (viewMode === 'updated' && hasUpdatedCvFromEditor(backendCandidate)) ||
     (viewMode === 'edited' && hasCustomCvEditorLayout(backendCandidate));
@@ -149,7 +165,7 @@ export function CandidateResumeTabPanel({
               {viewMode ? MODE_LABELS[viewMode] : 'Resume Viewer'}
             </h3>
             <div className="flex flex-wrap gap-2">
-              {viewMode === 'original' && resumeHref ? (
+              {viewMode === 'original' && effectiveResumeHref ? (
                 <>
                   <button
                     type="button"
@@ -160,7 +176,7 @@ export function CandidateResumeTabPanel({
                     Preview
                   </button>
                   <a
-                    href={resumeHref}
+                    href={effectiveResumeHref}
                     target="_blank"
                     rel="noreferrer"
                     download
@@ -191,7 +207,7 @@ export function CandidateResumeTabPanel({
               </div>
             ) : showOriginalPreview ? (
               <ResumeInlinePreview
-                resumeUrl={resumeHref}
+                resumeUrl={effectiveResumeHref}
                 candidateName={candidate.name}
                 enabled={enabled && viewMode === 'original'}
                 minHeightClass="h-full min-h-[520px]"
@@ -234,7 +250,7 @@ export function CandidateResumeTabPanel({
       <ResumePreviewModal
         isOpen={resumePreviewOpen}
         onClose={() => setResumePreviewOpen(false)}
-        resumeUrl={resumeHref || null}
+        resumeUrl={effectiveResumeHref || null}
         candidateName={candidate.name}
       />
     </>

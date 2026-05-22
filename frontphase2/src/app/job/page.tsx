@@ -1229,13 +1229,6 @@ export default function JobsPage() {
   const [loadingJobDetails, setLoadingJobDetails] = useState(false);
   const [jobDetails, setJobDetails] = useState<JobForDrawer | null>(null);
   const [jobPipelineStages, setJobPipelineStages] = useState<any[]>([]);
-  const [moveStageOpen, setMoveStageOpen] = useState(false);
-  const [moveStageCandidateId, setMoveStageCandidateId] = useState<string | null>(null);
-  const [moveStageJobId, setMoveStageJobId] = useState<string | null>(null);
-  const [moveStageOptions, setMoveStageOptions] = useState<Array<{ id?: string; name: string }>>([]);
-  const [moveStageValue, setMoveStageValue] = useState<string>('');
-  const [moveStageNote, setMoveStageNote] = useState<string>('');
-  const [moveStageSaving, setMoveStageSaving] = useState(false);
   const [editJobDrawerOpen, setEditJobDrawerOpen] = useState(false);
   const [editingJobId, setEditingJobId] = useState<string | null>(null);
   const [jobMetrics, setJobMetrics] = useState<JobMetrics | null>(() => {
@@ -1728,61 +1721,6 @@ export default function JobsPage() {
     [scheduleModalJobs, jobDetails?.id, selectedJob?.id, refreshJobCandidates]
   );
 
-  const openMoveStage = useCallback(
-    async (candidateId: string, jobId: string) => {
-      let stages = Array.isArray(jobPipelineStages) ? jobPipelineStages : [];
-      if (!stages.length) {
-        try {
-          const response = await apiGetJob(jobId);
-          const backendJob = (response as any).data?.data || (response as any).data || response;
-          stages = Array.isArray(backendJob?.pipelineStages)
-            ? backendJob.pipelineStages.map((stage: any) => ({
-                id: stage.id,
-                name: stage.name,
-                systemRole: stage.systemRole,
-              }))
-            : [];
-          if (stages.length) {
-            setJobPipelineStages(stages);
-          }
-        } catch (error) {
-          console.error('Failed to load pipeline stages for move stage modal:', error);
-        }
-      }
-      const effectiveStages = stages.length ? stages : [];
-      const firstStage = effectiveStages[0]?.name || '';
-      setMoveStageCandidateId(candidateId);
-      setMoveStageJobId(jobId);
-      setMoveStageOptions(effectiveStages);
-      setMoveStageValue(firstStage);
-      setMoveStageNote('');
-      setMoveStageOpen(true);
-    },
-    [jobPipelineStages]
-  );
-
-  const submitMoveStage = useCallback(async () => {
-    if (!moveStageCandidateId || !moveStageJobId) return;
-    if (!moveStageValue.trim()) return;
-
-    try {
-      setMoveStageSaving(true);
-      await apiAddCandidateToPipeline(moveStageCandidateId, {
-        jobId: moveStageJobId,
-        stage: moveStageValue.trim(),
-        priority: 'Medium',
-        notes: moveStageNote.trim() || undefined,
-      });
-      await refreshJobCandidates(moveStageJobId);
-      setMoveStageOpen(false);
-    } catch (error) {
-      console.error('Failed to move candidate stage:', error);
-      void requestError((error as any)?.message || 'Failed to move stage');
-    } finally {
-      setMoveStageSaving(false);
-    }
-  }, [moveStageCandidateId, moveStageJobId, moveStageNote, moveStageValue, refreshJobCandidates]);
-
   const handleInlineStatusChange = (id: string, newStatus: JobStatus) => {
     // Optimistically update UI
     setJobs(prev => prev.map(j => (j.id === id ? { ...j, status: newStatus } : j)));
@@ -2265,7 +2203,37 @@ export default function JobsPage() {
         onPublish={canUpdateJob ? handlePublishJob : undefined}
         onClone={canCreateJob ? handleCloneJob : undefined}
         onCloseJob={canUpdateJob ? handleCloseJob : undefined}
-        onMoveStage={canUpdateJob ? (candidateId, jobId) => openMoveStage(candidateId, jobId) : undefined}
+        onAddToPipeline={
+          canUpdateCandidate
+            ? async ({ candidateId, jobId, stage, recruiterId, priority, notes }) => {
+                await apiAddCandidateToPipeline(candidateId, {
+                  jobId,
+                  stage,
+                  recruiterId,
+                  priority,
+                  notes,
+                });
+                const activeJobId =
+                  jobDetails?.id || (selectedJob ? toJobForDrawer(selectedJob) : null)?.id;
+                if (activeJobId) {
+                  await refreshJobCandidates(activeJobId);
+                }
+              }
+            : undefined
+        }
+        onRemoveFromPipeline={
+          canUpdateCandidate
+            ? async ({ candidateId, jobId }) => {
+                await apiRemoveCandidateFromPipeline(candidateId, jobId);
+                const activeJobId =
+                  jobDetails?.id || (selectedJob ? toJobForDrawer(selectedJob) : null)?.id;
+                if (activeJobId) {
+                  await refreshJobCandidates(activeJobId);
+                }
+              }
+            : undefined
+        }
+        pipelineRecruiters={[]}
         onScheduleInterview={canCreateInterview ? openScheduleInterviewFromJob : undefined}
         onRejectCandidate={canUpdateJob ? (candidateId, jobId) => { /* TODO: reject candidate */ } : undefined}
         onViewCandidateProfile={openJobDrawerCandidateView}
@@ -2475,83 +2443,6 @@ export default function JobsPage() {
         }}
         onSchedule={handleJobDrawerScheduleInterview}
       />
-
-      {/* Move Stage Modal */}
-      {moveStageOpen ? (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center px-4">
-          <div className="absolute inset-0 bg-slate-900/40" onClick={() => (moveStageSaving ? null : setMoveStageOpen(false))} />
-          <div className="relative w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-slate-200">
-            <div className="p-5 border-b border-slate-100">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="text-lg font-bold text-slate-900">Move candidate stage</div>
-                  <div className="text-xs text-slate-500 mt-1">Select a stage from this job's pipeline.</div>
-                </div>
-                <button
-                  type="button"
-                  className="px-3 py-1.5 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50 border border-slate-200"
-                  onClick={() => (moveStageSaving ? null : setMoveStageOpen(false))}
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-
-            <div className="p-5 space-y-4">
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-500 uppercase">Stage</label>
-                <select
-                  value={moveStageValue}
-                  onChange={(e) => setMoveStageValue(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                  disabled={moveStageSaving || moveStageOptions.length === 0}
-                >
-                  {moveStageOptions.length === 0 ? (
-                    <option value="">No pipeline configured for this job</option>
-                  ) : (
-                    moveStageOptions.map((s: any) => (
-                      <option key={s.id || s.name} value={s.name}>
-                        {s.name}
-                      </option>
-                    ))
-                  )}
-                </select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-500 uppercase">Note (optional)</label>
-                <textarea
-                  value={moveStageNote}
-                  onChange={(e) => setMoveStageNote(e.target.value)}
-                  rows={3}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                  placeholder="Add a short note (optional)"
-                  disabled={moveStageSaving}
-                />
-              </div>
-            </div>
-
-            <div className="p-5 border-t border-slate-100 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                className="px-4 py-2 rounded-xl border border-slate-200 text-sm font-bold text-slate-700 hover:bg-slate-50"
-                onClick={() => (moveStageSaving ? null : setMoveStageOpen(false))}
-                disabled={moveStageSaving}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 disabled:opacity-60"
-                onClick={submitMoveStage}
-                disabled={moveStageSaving || moveStageOptions.length === 0 || !moveStageValue.trim()}
-              >
-                {moveStageSaving ? 'Moving...' : 'Move stage'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       <CreateJobDrawer
         isOpen={canUpdateJob && editJobDrawerOpen}
