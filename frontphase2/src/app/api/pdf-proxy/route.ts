@@ -4,20 +4,36 @@ import crypto from 'crypto';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+function isExtensionlessResumeStoragePath(pathname: string): boolean {
+  const lower = String(pathname || '').toLowerCase();
+  return (
+    lower.includes('apply-resumes') ||
+    lower.includes('/resumes/') ||
+    lower.includes('jobportal/apply-resumes')
+  );
+}
+
 function isAllowedS3PdfUrl(url: string): boolean {
   const bucket = process.env.NEXT_PUBLIC_AWS_BUCKET_NAME || '';
   if (!bucket) return false;
   try {
     const u = new URL(url);
     if (u.protocol !== 'https:') return false;
-    if (!/\.pdf($|[?#])/i.test(u.pathname)) return false;
+    const hasPdfExt = /\.pdf($|[?#])/i.test(u.pathname);
+    const extensionlessResume =
+      !/\.(docx|doc)($|[?#])/i.test(u.pathname) && isExtensionlessResumeStoragePath(u.pathname);
+    if (!hasPdfExt && !extensionlessResume) return false;
     if (u.hostname === `${bucket}.s3.amazonaws.com`) return true;
     if (u.hostname.startsWith(`${bucket}.s3.`)) return true;
     if (u.hostname.startsWith('s3.') && u.pathname.startsWith(`/${bucket}/`)) return true;
     const pub = process.env.NEXT_PUBLIC_AWS_S3_PUBLIC_BASE_URL;
     if (pub) {
-      const b = new URL(pub);
-      if (u.hostname === b.hostname) return true;
+      try {
+        const b = new URL(pub);
+        if (u.hostname === b.hostname) return true;
+      } catch {
+        /* ignore */
+      }
     }
     return false;
   } catch {

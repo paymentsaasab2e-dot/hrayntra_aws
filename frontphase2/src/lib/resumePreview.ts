@@ -4,6 +4,17 @@ export function isResumeHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(String(value || '').trim());
 }
 
+/** Paths from job apply link / CRM uploads often omit extensions in the object key. */
+function isExtensionlessResumeStoragePath(url: string): boolean {
+  const lower = String(url || '').toLowerCase();
+  return (
+    lower.includes('apply-resumes') ||
+    lower.includes('/resumes/') ||
+    lower.includes('jobportal/apply-resumes') ||
+    /\/candidates\/[^/]+\/resumes\//i.test(lower)
+  );
+}
+
 export function normalizeResumeHref(resumeUrl: string): string {
   const trimmed = String(resumeUrl || '').trim();
   if (!trimmed) return '';
@@ -11,11 +22,6 @@ export function normalizeResumeHref(resumeUrl: string): string {
     return normalizeCloudinaryDocumentUrl(trimmed);
   }
   return trimmed;
-}
-
-export function buildResumeViewerUrl(resumeUrl: string): string {
-  const base = normalizeCloudinaryDocumentUrl(resumeUrl.split('#')[0] || resumeUrl);
-  return cloudinaryPdfViewerHref(base);
 }
 
 export function getResumeExtension(resumeUrl?: string | null): string {
@@ -30,18 +36,27 @@ export function isWordResume(resumeUrl?: string | null): boolean {
 }
 
 export function canPreviewResumeInline(resumeUrl?: string | null): boolean {
-  return getResumeExtension(resumeUrl) === 'pdf';
+  const ext = getResumeExtension(resumeUrl);
+  if (ext === 'pdf') return true;
+  const href = String(resumeUrl || '').trim();
+  if (!href || isWordResume(href)) return false;
+  return isExtensionlessResumeStoragePath(href);
 }
 
 export function canPreviewResumeAsHtml(resumeUrl?: string | null): boolean {
   return isWordResume(resumeUrl);
 }
 
+export function buildResumeViewerUrl(resumeUrl: string): string {
+  const base = normalizeCloudinaryDocumentUrl(resumeUrl.split('#')[0] || resumeUrl);
+  return cloudinaryPdfViewerHref(base, { allowExtensionlessResume: true });
+}
+
 export function buildResumeHtmlPreviewUrl(resumeUrl: string): string {
   const base = normalizeResumeHref(resumeUrl.split('#')[0] || resumeUrl);
   const params = new URLSearchParams({ url: base });
   const ext = getResumeExtension(base);
-  if (ext) params.set('format', ext);
+  if (ext === 'docx' || ext === 'doc') params.set('format', ext);
   return `/api/resume-preview?${params.toString()}`;
 }
 

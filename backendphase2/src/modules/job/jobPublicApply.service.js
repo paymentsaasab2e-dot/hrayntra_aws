@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import path from 'path';
 import { prisma } from '../../config/prisma.js';
 import { uploadBufferToCloudinary, uploadContentTypeForFile } from '../../utils/s3.js';
 import {
@@ -367,10 +368,11 @@ export const jobPublicApplyService = {
         field.type === 'photo'
           ? 'jobportal/apply-photos'
           : 'jobportal/apply-resumes';
+      const ext = path.extname(String(file.originalname || '')).toLowerCase();
       const uploaded = await uploadBufferToCloudinary(file.buffer, {
         folder,
-        resourceType: field.type === 'photo' ? 'image' : 'auto',
-        publicId: `${job.id}_${field.id}_${Date.now()}`,
+        resourceType: field.type === 'photo' ? 'image' : 'raw',
+        publicId: `${job.id}_${field.id}_${Date.now()}${ext || (field.type === 'resume' ? '.pdf' : '')}`,
         contentType: mime,
         originalFilename: file.originalname,
       });

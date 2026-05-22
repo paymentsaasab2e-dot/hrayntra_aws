@@ -47,6 +47,14 @@ import {
   readClientPresentation,
   resolveSubmitToClientEditForm,
 } from '../../lib/clientPresentationDraft';
+import {
+  DEFAULT_CLIENT_SECTION_VISIBILITY,
+  normalizeClientSectionVisibility,
+  type ClientPresentationSectionId,
+  type ClientSectionVisibility,
+} from '../../lib/clientPresentationSections';
+import { ClientOfferLetterCard } from '../candidates/ClientOfferLetterCard';
+import { useFiles } from '../../hooks/useFiles';
 import type { CandidateProfileDrawerData } from '../drawers/CandidateProfileDrawer';
 import { resolveMatchIdForSubmit } from '../../lib/jobAppliedMatches';
 import { extractApiData } from '../../lib/mapCandidateProfile';
@@ -326,6 +334,19 @@ export function SubmitToClientDrawer({
   const [candidateStepSaved, setCandidateStepSaved] = useState(false);
   const [submissionType, setSubmissionType] = useState<SubmissionTypeValue | ''>('');
   const [submissionTypeError, setSubmissionTypeError] = useState<string | null>(null);
+  const [clientSectionVisibility, setClientSectionVisibility] = useState<ClientSectionVisibility>(
+    DEFAULT_CLIENT_SECTION_VISIBILITY,
+  );
+
+  const uploadsBase = useMemo(() => {
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1';
+    return apiBase.replace(/\/api\/v1\/?$/, '');
+  }, []);
+
+  const { files: candidateFiles, loading: candidateFilesLoading } = useFiles(
+    'candidate',
+    isOpen ? candidateId : null,
+  );
 
   const activeClientSlot = useMemo(
     () => selectedClients.find((slot) => slot.clientId === activeClientId) ?? null,
@@ -444,6 +465,14 @@ export function SubmitToClientDrawer({
     setCandidateStepSaved(false);
   };
 
+  const toggleClientSectionVisibility = (sectionId: ClientPresentationSectionId) => {
+    setClientSectionVisibility((prev) => ({
+      ...prev,
+      [sectionId]: !prev[sectionId],
+    }));
+    setCandidateStepSaved(false);
+  };
+
   useEffect(() => {
     if (!isOpen || activeSource?.kind !== 'match' || !matchJobId || !candidateId) {
       setMatchSubmitId(null);
@@ -527,6 +556,10 @@ export function SubmitToClientDrawer({
         loadedCandidateIdRef.current = candidateId;
         setCandidate(data);
         setEditForm((current) => resolveSubmitToClientEditForm(data, current));
+        const savedPresentation = readClientPresentation(data.extraData);
+        setClientSectionVisibility(
+          normalizeClientSectionVisibility(savedPresentation?.visibleSections),
+        );
       } catch (error: unknown) {
         if (cancelled) return;
         toast(error instanceof Error ? error.message : 'Unable to load candidate details');
@@ -777,6 +810,7 @@ export function SubmitToClientDrawer({
           : null;
       const extraData = buildClientPresentationExtraData(mergedForm, candidate.extraData ?? null, {
         cvEditorLayout: layout,
+        visibleSections: clientSectionVisibility,
       });
       const updatedRaw = await apiUpdateCandidate(candidate.id, { extraData });
       const updated = extractApiData<BackendCandidate>(updatedRaw);
@@ -804,11 +838,17 @@ export function SubmitToClientDrawer({
     setEditError('');
     try {
       validateEditFormStructured(editForm);
-      const extraData = buildClientPresentationExtraData(editForm, candidate.extraData ?? null);
+      const extraData = buildClientPresentationExtraData(editForm, candidate.extraData ?? null, {
+        visibleSections: clientSectionVisibility,
+      });
       const updatedRaw = await apiUpdateCandidate(candidate.id, { extraData });
       const updated = extractApiData<BackendCandidate>(updatedRaw);
       setCandidate(updated);
-      setEditForm(readClientPresentation(updated.extraData)?.editForm ?? editForm);
+      const saved = readClientPresentation(updated.extraData);
+      setEditForm(saved?.editForm ?? editForm);
+      if (saved?.visibleSections) {
+        setClientSectionVisibility(saved.visibleSections);
+      }
       setCandidateStepSaved(true);
       onToast('Client presentation saved (overview unchanged)');
       setActiveTab('client');
@@ -929,7 +969,9 @@ export function SubmitToClientDrawer({
     setSubmitting(true);
     try {
       if (candidate?.id && cvShareMode && editForm) {
-        let presentationExtra = buildClientPresentationExtraData(editForm, candidate.extraData ?? null);
+        let presentationExtra = buildClientPresentationExtraData(editForm, candidate.extraData ?? null, {
+          visibleSections: clientSectionVisibility,
+        });
         if (cvShareMode === 'edited' && cvEditorData) {
           const presentationPipeline = readClientPresentation(candidate.extraData)?.fields?.extraData ?? {};
           const persist = await buildCvEditorPersistPatch(
@@ -1202,7 +1244,8 @@ export function SubmitToClientDrawer({
                 <div className="space-y-6">
                   <p className="text-sm text-[#6B7280]">
                     Edit the client-facing copy only. Saving here does not change the candidate Overview tab —
-                    it is stored under the profile&apos;s Client tab.
+                    it is stored under the profile&apos;s Client tab. Use Visible / Hidden on each section to
+                    control what appears on the client review link.
                   </p>
                   {editError ? (
                     <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -1214,6 +1257,9 @@ export function SubmitToClientDrawer({
                     onChange={updateEditField}
                     recruiters={[]}
                     jobs={pipelineJobs}
+                    showClientSectionVisibility
+                    clientSectionVisibility={clientSectionVisibility}
+                    onToggleClientSectionVisibility={toggleClientSectionVisibility}
                   />
 
                   <ClientCvSelectionPanel
@@ -1246,6 +1292,11 @@ export function SubmitToClientDrawer({
                   </div>
                 ) : activeClientSlot.client ? (
                   <div className="space-y-6">
+                    <ClientOfferLetterCard
+                      files={candidateFiles}
+                      uploadsBase={uploadsBase}
+                      loading={candidateFilesLoading}
+                    />
                     <section className="rounded-xl border border-[#E5E7EB] bg-white p-4">
                       <h3 className="text-sm font-semibold text-[#111827]">Client Information</h3>
                       <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">

@@ -24,6 +24,8 @@ export function readClientPresentation(extraData) {
       raw.cvEditorLayout && typeof raw.cvEditorLayout === 'object' && !Array.isArray(raw.cvEditorLayout)
         ? raw.cvEditorLayout
         : null,
+    visibleSections: raw.visibleSections,
+    clientReviewSections: raw.clientReviewSections,
   };
 }
 

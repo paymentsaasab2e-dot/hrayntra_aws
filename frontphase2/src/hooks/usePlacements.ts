@@ -126,8 +126,8 @@ export function usePlacements(filters: PlacementFilters) {
         sortedJobs.map((job: any) => ({
           id: job.id,
           title: job.title,
-          clientId: job.client?.id,
-          clientName: job.client?.companyName || 'Unknown Client',
+          clientId: job.client?.id || job.clientId || undefined,
+          clientName: job.client?.companyName || 'No client linked',
           clientEmail: (() => {
             const c = job.client;
             if (!c) return '';

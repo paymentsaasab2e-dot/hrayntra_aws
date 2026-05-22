@@ -175,31 +175,13 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                       </div>
                     </div>
                     <div>
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => onViewProfile?.(candidate)}
-                          className="text-left text-sm font-semibold text-slate-900 hover:text-blue-600"
-                        >
-                          {candidate.name}
-                        </button>
-                        {candidate.isJobAppliedCandidate ? (
-                          <span className="inline-flex rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-blue-800">
-                            Applied
-                          </span>
-                        ) : candidate.isNewCandidate ? (
-                          <span className="inline-flex rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-800">
-                            New
-                          </span>
-                        ) : null}
-                        {candidate.isPhase1Candidate &&
-                        !candidate.isNewCandidate &&
-                        !candidate.isJobAppliedCandidate ? (
-                          <span className="inline-flex rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-violet-800">
-                            Phase 1
-                          </span>
-                        ) : null}
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onViewProfile?.(candidate)}
+                        className="text-left text-sm font-semibold text-slate-900 hover:text-blue-600"
+                      >
+                        {candidate.name}
+                      </button>
                     </div>
                   </div>
                 </td>

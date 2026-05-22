@@ -4,6 +4,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useParams, useSearchParams } from 'next/navigation';
 import type { CVEditorData } from '../../../lib/cvEditorMapping';
+import type { ClientReviewSection } from '../../../lib/clientPresentationSections';
+import { ClientReviewSectionsPanel } from '../../../components/candidates/ClientReviewSectionsPanel';
 
 const CVEditorModal = dynamic(() => import('../../../components/CVEditorModal'), { ssr: false });
 
@@ -66,6 +68,7 @@ interface ReviewData {
   submissionType?: keyof typeof TAG_OPTIONS_BY_TYPE | string;
   cvShareMode?: 'edited' | 'original' | string;
   offerLetterUrl?: string | null;
+  presentationSections?: ClientReviewSection[];
   candidate?: {
     name?: string;
     email?: string;
@@ -125,6 +128,8 @@ export default function ClientReviewPage() {
   const cvEditorPreview = reviewData?.cvEditorPreview ?? null;
   const sharedResumeUrl = String(reviewData?.sharedResumeUrl || reviewData?.candidate?.resume || '').trim();
   const hasCvPreview = Boolean(showEditedCv && cvEditorPreview);
+  const presentationSections = reviewData?.presentationSections ?? [];
+  const hasPresentationSections = presentationSections.length > 0;
   const isOfferFlow = submissionType === 'OFFER_CONFIRMATION';
   const tagOptions = TAG_OPTIONS_BY_TYPE[submissionType] || TAG_OPTIONS_BY_TYPE.GENERAL;
   const purpose = PURPOSE_COPY[submissionType] || PURPOSE_COPY.GENERAL;
@@ -263,29 +268,37 @@ export default function ClientReviewPage() {
               </div>
             ) : null}
 
-            <div className="rounded-xl border border-[#E5E7EB] p-4">
-              <h2 className="text-sm font-semibold text-[#111827]">Personal Information</h2>
-              <p className="mt-2 text-sm font-semibold text-[#111827]">{reviewData?.candidate?.name || '-'}</p>
-              <p className="mt-1 text-sm text-[#4B5563]">{reviewData?.candidate?.email || '-'}</p>
-              <p className="mt-1 text-sm text-[#4B5563]">Phone: {reviewData?.candidate?.phone || '-'}</p>
-              <p className="mt-1 text-sm text-[#4B5563]">Designation: {reviewData?.candidate?.designation || '-'}</p>
-              <p className="mt-1 text-sm text-[#4B5563]">Current Company: {reviewData?.candidate?.currentCompany || '-'}</p>
-              <p className="mt-1 text-sm text-[#4B5563]">Experience: {reviewData?.candidate?.experience ?? '-'} years</p>
-              <p className="mt-1 text-sm text-[#4B5563]">Role: {reviewData?.job?.title || '-'}</p>
-              <p className="mt-1 text-sm text-[#4B5563]">Client: {reviewData?.client?.companyName || '-'}</p>
-              <p className="mt-1 text-sm text-[#4B5563]">
-                Address: {[reviewData?.candidate?.address, reviewData?.candidate?.city, reviewData?.candidate?.country].filter(Boolean).join(', ') || '-'}
-              </p>
-            </div>
+            {hasPresentationSections ? (
+              <ClientReviewSectionsPanel
+                sections={presentationSections}
+                jobTitle={reviewData?.job?.title}
+                clientName={reviewData?.client?.companyName}
+              />
+            ) : (
+              <div className="rounded-xl border border-[#E5E7EB] p-4">
+                <h2 className="text-sm font-semibold text-[#111827]">Personal Information</h2>
+                <p className="mt-2 text-sm font-semibold text-[#111827]">{reviewData?.candidate?.name || '-'}</p>
+                <p className="mt-1 text-sm text-[#4B5563]">{reviewData?.candidate?.email || '-'}</p>
+                <p className="mt-1 text-sm text-[#4B5563]">Phone: {reviewData?.candidate?.phone || '-'}</p>
+                <p className="mt-1 text-sm text-[#4B5563]">Designation: {reviewData?.candidate?.designation || '-'}</p>
+                <p className="mt-1 text-sm text-[#4B5563]">Current Company: {reviewData?.candidate?.currentCompany || '-'}</p>
+                <p className="mt-1 text-sm text-[#4B5563]">Experience: {reviewData?.candidate?.experience ?? '-'} years</p>
+                <p className="mt-1 text-sm text-[#4B5563]">Role: {reviewData?.job?.title || '-'}</p>
+                <p className="mt-1 text-sm text-[#4B5563]">Client: {reviewData?.client?.companyName || '-'}</p>
+                <p className="mt-1 text-sm text-[#4B5563]">
+                  Address: {[reviewData?.candidate?.address, reviewData?.candidate?.city, reviewData?.candidate?.country].filter(Boolean).join(', ') || '-'}
+                </p>
+              </div>
+            )}
 
-            {showEditedCv && !hasCvPreview ? (
+            {showEditedCv && !hasCvPreview && !hasPresentationSections ? (
               <div className="rounded-xl border border-[#E5E7EB] p-4">
                 <h2 className="text-sm font-semibold text-[#111827]">Professional Summary</h2>
                 <p className="mt-2 text-sm text-[#4B5563]">{reviewData?.candidate?.cvSummary || 'No summary available.'}</p>
               </div>
             ) : null}
 
-            {showEditedCv && !hasCvPreview ? (
+            {showEditedCv && !hasCvPreview && !hasPresentationSections ? (
               <>
                 {(reviewData?.candidate?.cvWorkExperienceEntries || []).length > 0 ? (
                   <div className="rounded-xl border border-[#E5E7EB] p-4">

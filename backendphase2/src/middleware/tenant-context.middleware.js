@@ -25,6 +25,16 @@ export function publicApplyTenantMiddleware(req, res, next) {
   return runWithTenantContext(tenantDbName, () => next());
 }
 
+/** Re-apply tenant after multer on authenticated multipart routes. */
+export function authenticatedTenantAfterMulter(req, res, next) {
+  const token = extractBearerToken(req.headers.authorization);
+  const payload = token ? (verifyToken(token) || jwt.decode(token)) : null;
+  const tenantDbName = String(
+    payload?.tenantDbName || req.headers['x-tenant-db-name'] || ''
+  ).trim();
+  return runWithTenantContext(tenantDbName, () => next());
+}
+
 export function tenantContextMiddleware(req, res, next) {
   const token = extractBearerToken(req.headers.authorization);
   const payload = token ? (verifyToken(token) || jwt.decode(token)) : null;

@@ -21,6 +21,7 @@ import {
   type CVEditorData,
   type ResumeCvViewMode,
 } from '../lib/cvEditorMapping';
+import { buildFileHref } from '../utils/cloudinaryUrls';
 import { isResumeHttpUrl, normalizeResumeHref } from '../lib/resumePreview';
 
 interface UseCandidateCvEditorOptions {
@@ -53,9 +54,20 @@ export function useCandidateCvEditor({
   const [cvEditorLoading, setCvEditorLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  const uploadsBase =
+    typeof process !== 'undefined'
+      ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1').replace(
+          /\/api\/v1\/?$/,
+          ''
+        )
+      : '';
   const resumeRaw = resumeUrl || backendCandidate?.resume || backendCandidate?.resumeUrl || '';
-  const resumeHref =
-    resumeRaw && isResumeHttpUrl(resumeRaw) ? normalizeResumeHref(resumeRaw) : '';
+  const resumeHref = (() => {
+    const raw = String(resumeRaw || '').trim();
+    if (!raw) return '';
+    if (isResumeHttpUrl(raw)) return normalizeResumeHref(raw);
+    return uploadsBase ? buildFileHref(raw, uploadsBase) : raw;
+  })();
 
   const refreshBackend = useCallback(async () => {
     if (!candidateId) return null;

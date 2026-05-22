@@ -68,6 +68,7 @@ import {
 import { profileCanSubmitToClient } from '../../lib/candidateSubmitToClient';
 import { CandidateAtsExtractedOverview } from '../candidates/CandidateAtsExtractedOverview';
 import { mergeProfileWithClientPresentation } from '../../lib/clientPresentationDraft';
+import { ClientOfferLetterCard } from '../candidates/ClientOfferLetterCard';
 
 const MAX_EDIT_AVATAR_FILE_BYTES = 5 * 1024 * 1024;
 
@@ -4231,6 +4232,11 @@ export function CandidateProfileDrawer({
 
                 {activeTab === 'Client' && (
                   <div className="space-y-5">
+                    <ClientOfferLetterCard
+                      files={candidateFiles}
+                      uploadsBase={uploadsBase}
+                      loading={candidateFilesLoading}
+                    />
                     {clientPresentationProfile ? (
                       <>
                         <p className="rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-sm text-slate-700">

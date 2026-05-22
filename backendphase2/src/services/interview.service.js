@@ -23,6 +23,8 @@ import {
   buildCvSubmissionSnapshot,
   mapSnapshotToClientCandidateFields,
 } from '../utils/cvSubmissionSnapshot.js';
+import { readClientPresentation } from '../utils/clientPresentationDraft.js';
+import { buildClientReviewSectionsFromPresentation } from '../utils/clientReviewSections.js';
 
 const interviewInclude = {
   candidate: {
@@ -437,6 +439,47 @@ const findTenantForRecord = async ({ interviewId = null, matchId = null }) => {
 
   return '';
 };
+
+/** CandidateFile.uploadedById is required — resolve a valid user for public client uploads. */
+async function resolveCandidateFileUploaderId({ uploaderId, candidateId, jobId }) {
+  if (uploaderId) return uploaderId;
+  try {
+    const candidate = await prisma.candidate.findUnique({
+      where: { id: candidateId },
+      select: { assignedToId: true, createdById: true },
+    });
+    if (candidate?.assignedToId) return candidate.assignedToId;
+    if (candidate?.createdById) return candidate.createdById;
+  } catch (lookupError) {
+    console.warn(
+      '[interview] candidate uploader lookup failed:',
+      lookupError?.message || lookupError
+    );
+  }
+  if (jobId) {
+    try {
+      const job = await prisma.job.findUnique({
+        where: { id: jobId },
+        select: { assignedToId: true, createdById: true },
+      });
+      if (job?.assignedToId) return job.assignedToId;
+      if (job?.createdById) return job.createdById;
+    } catch (lookupError) {
+      console.warn('[interview] job uploader lookup failed:', lookupError?.message || lookupError);
+    }
+  }
+  try {
+    const fallbackUser = await prisma.user.findFirst({
+      where: { isActive: true },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    return fallbackUser?.id || null;
+  } catch (lookupError) {
+    console.warn('[interview] fallback uploader lookup failed:', lookupError?.message || lookupError);
+    return null;
+  }
+}
 
 const resolveReviewTenant = async (decoded) => {
   const tokenTenant = String(decoded?.tenantDbName || '').trim();
@@ -1394,21 +1437,35 @@ export const interviewService = {
     };
 
     const editedFromSnapshot = mapSnapshotToClientCandidateFields(submissionSnapshot);
+    const presentationSections =
+      (Array.isArray(submissionSnapshot?.clientReviewSections) &&
+        submissionSnapshot.clientReviewSections.length > 0 &&
+        submissionSnapshot.clientReviewSections) ||
+      buildClientReviewSectionsFromPresentation(readClientPresentation(c?.extraData)) ||
+      [];
+
+    const hasPresentationSections = presentationSections.length > 0;
     const candidateForClient =
-      cvShareMode === 'original'
+      hasPresentationSections
         ? {
             ...baseCandidate,
-            cvSummary: '',
-            cvEducationEntries: [],
-            cvWorkExperienceEntries: [],
-            skills: [],
-            languages: [],
-            education: '',
-            certifications: [],
+            ...(cvShareMode !== 'original' && editedFromSnapshot ? editedFromSnapshot : {}),
+            resume: cvShareMode === 'original' ? baseCandidate.resume : '',
           }
-        : editedFromSnapshot
-          ? { ...baseCandidate, ...editedFromSnapshot, resume: '' }
-          : { ...baseCandidate, resume: '' };
+        : cvShareMode === 'original'
+          ? {
+              ...baseCandidate,
+              cvSummary: '',
+              cvEducationEntries: [],
+              cvWorkExperienceEntries: [],
+              skills: [],
+              languages: [],
+              education: '',
+              certifications: [],
+            }
+          : editedFromSnapshot
+            ? { ...baseCandidate, ...editedFromSnapshot, resume: '' }
+            : { ...baseCandidate, resume: '' };
 
     const cvEditorPreview =
       cvShareMode === 'edited'
@@ -1427,6 +1484,7 @@ export const interviewService = {
       cvShareMode,
       offerLetterUrl: offerLetterFile?.fileUrl || null,
       candidate: candidateForClient,
+      presentationSections,
       cvEditorPreview,
       sharedResumeUrl: sharedResumeUrl.startsWith('http') ? sharedResumeUrl : null,
       job: {
@@ -1507,29 +1565,16 @@ export const interviewService = {
         const candidateFileType =
           submissionType === 'OFFER_CONFIRMATION' ? 'Offer' : 'Other';
 
-        // CandidateFile.uploadedById is required by the schema. The public
-        // endpoint has no auth context, so we fall back through a few
-        // reasonable owners before giving up. We never want a missing user
-        // FK to swallow the upload silently — the activity log + placement
-        // attach still need to run, but the file itself is the most useful
-        // artefact, so we try hard to persist it.
-        let candidateFileUploaderId = uploaderId;
+        const candidateFileUploaderId = await resolveCandidateFileUploaderId({
+          uploaderId,
+          candidateId,
+          jobId,
+        });
         if (!candidateFileUploaderId) {
-          try {
-            const candidate = await prisma.candidate.findUnique({
-              where: { id: candidateId },
-              select: { assignedToId: true, createdById: true },
-            });
-            candidateFileUploaderId =
-              candidate?.assignedToId || candidate?.createdById || null;
-          } catch (lookupError) {
-            console.warn(
-              '[interview.submitPublicClientTag] candidate uploader lookup failed:',
-              lookupError?.message || lookupError
-            );
-          }
-        }
-        if (candidateFileUploaderId) {
+          console.warn(
+            '[interview.submitPublicClientTag] no uploader id — offer file saved on disk but not linked to candidate_files'
+          );
+        } else {
           try {
             await prisma.candidateFile.create({
               data: {

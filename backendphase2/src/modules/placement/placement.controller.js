@@ -7,8 +7,10 @@ function getStatusCode(error) {
   if (
     message.includes('invalid') ||
     message.includes('required') ||
+    message.includes('linked to a client') ||
     message.includes('cannot delete') ||
-    message.includes('must be')
+    message.includes('must be') ||
+    message.includes('unable to allocate')
   ) {
     return 400;
   }

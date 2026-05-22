@@ -2,7 +2,8 @@
  * Snapshot + client-preview payload for Submit to Client / public review links.
  */
 
-import { mergeCandidateWithClientPresentation } from './clientPresentationDraft.js';
+import { mergeCandidateWithClientPresentation, readClientPresentation } from './clientPresentationDraft.js';
+import { buildClientReviewSectionsFromPresentation } from './clientReviewSections.js';
 
 const DEFAULT_SECTION_ORDER = ['summary', 'experience', 'education', 'skills'];
 const DEFAULT_CANDIDATE_PHOTO_POS = { x: 430, y: 36 };
@@ -72,6 +73,8 @@ export function buildCvSubmissionSnapshot(candidate, jobTitle = '') {
       ? source.extraData
       : {};
   const layout = readCvEditorLayout(extra);
+  const presentation = readClientPresentation(candidate?.extraData);
+  const clientReviewSections = buildClientReviewSectionsFromPresentation(presentation);
 
   return {
     submittedAt: new Date().toISOString(),
@@ -100,6 +103,8 @@ export function buildCvSubmissionSnapshot(candidate, jobTitle = '') {
     resume: source?.resume || source?.resumeUrl || null,
     avatar: source?.avatar ?? null,
     cvEditorLayout: layout,
+    visibleSections: presentation?.visibleSections ?? null,
+    clientReviewSections,
   };
 }
 

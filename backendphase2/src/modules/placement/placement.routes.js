@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { placementController } from './placement.controller.js';
 import { authMiddleware } from '../../middleware/auth.middleware.js';
+import { authenticatedTenantAfterMulter } from '../../middleware/tenant-context.middleware.js';
 import { requireAnyPermission } from '../../middleware/permission.middleware.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -33,11 +34,21 @@ const storage = multer.diskStorage({
   },
 });
 
+function isPdfUpload(file) {
+  if (!file) return true;
+  const mime = String(file.mimetype || '').toLowerCase();
+  const name = String(file.originalname || '').toLowerCase();
+  if (mime === 'application/pdf' || mime === 'application/x-pdf') return true;
+  if (name.endsWith('.pdf')) return true;
+  if (mime === 'application/octet-stream' && name.endsWith('.pdf')) return true;
+  return false;
+}
+
 const upload = multer({
   storage,
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype !== 'application/pdf') {
+    if (!isPdfUpload(file)) {
       cb(new Error('Only PDF files are allowed'));
       return;
     }
@@ -59,7 +70,13 @@ router.post(
 router.get('/:id', requireAnyPermission(['placements_read']), placementController.getById);
 router.patch('/:id/status', requireAnyPermission(['placements_update']), placementController.updateStatus);
 router.patch('/:id', requireAnyPermission(['placements_update']), placementController.update);
-router.patch('/:id/mark-joined', requireAnyPermission(['placements_update']), upload.single('joiningLetter'), placementController.markJoined);
+router.patch(
+  '/:id/mark-joined',
+  requireAnyPermission(['placements_update']),
+  upload.single('joiningLetter'),
+  authenticatedTenantAfterMulter,
+  placementController.markJoined
+);
 router.patch('/:id/mark-failed', requireAnyPermission(['placements_update']), placementController.markFailed);
 router.patch('/:id/request-replacement', requireAnyPermission(['placements_update']), placementController.requestReplacement);
 router.delete('/:id', requireAnyPermission(['placements_delete']), placementController.delete);

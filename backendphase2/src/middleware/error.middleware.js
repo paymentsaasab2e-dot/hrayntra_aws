@@ -22,6 +22,14 @@ export const errorMiddleware = (err, req, res, next) => {
     return sendError(res, 409, 'Duplicate entry', err);
   }
 
+  if (err.code === 'LIMIT_FILE_SIZE') {
+    return sendError(res, 400, 'File is too large. Maximum size is 5MB.', err);
+  }
+
+  if (err.name === 'MulterError' || /only pdf|file type/i.test(String(err.message || ''))) {
+    return sendError(res, 400, err.message || 'Invalid file upload', err);
+  }
+
   const statusCode = err.statusCode || 500;
   const message = err.message || 'Internal server error';
 
