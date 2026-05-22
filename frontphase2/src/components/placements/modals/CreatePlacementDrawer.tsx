@@ -186,16 +186,16 @@ export function CreatePlacementDrawer({
               </div>
 
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-[#111827]">Recruiter</label>
+                <label className="mb-1.5 block text-sm font-medium text-[#111827]">Recruiter / Team member</label>
                 <select
                   value={form.recruiterId}
                   onChange={(event) => setForm((current) => ({ ...current, recruiterId: event.target.value }))}
                   className="h-11 w-full rounded-xl border border-[#D1D5DB] bg-white px-3 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
                 >
-                  <option value="">Select recruiter</option>
+                  <option value="">Select team member</option>
                   {recruiters.map((recruiter) => (
                     <option key={recruiter.id} value={recruiter.id}>
-                      {recruiter.name}
+                      {recruiter.email ? `${recruiter.name} • ${recruiter.email}` : recruiter.name}
                     </option>
                   ))}
                 </select>

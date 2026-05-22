@@ -70,6 +70,7 @@ import {
   apiRejectCandidate,
   apiRemoveCandidateTag,
   apiScheduleCandidateInterview,
+  emitNotificationsUpdated,
   apiUpdateCandidate,
   apiUpdateCandidateInterview,
   apiUpdateCandidateNote,
@@ -1983,9 +1984,12 @@ function CandidatesPageContent() {
           // If ID looks like a real backend interview id, update; else schedule new.
           if (String(interviewData.id || '').length >= 12 && String(interviewData.id || '').includes('interview-') === false) {
             await apiUpdateCandidateInterview(interviewData.candidateId, interviewData.id, payload);
+            toast.success('Interview updated successfully');
           } else {
             await apiScheduleCandidateInterview(interviewData.candidateId, payload as any);
+            toast.success('Interview scheduled successfully');
           }
+          emitNotificationsUpdated();
           await loadCandidateProfile(interviewData.candidateId);
         } : undefined}
         onAddNote={canUpdateCandidate ? async (candidateId, note) => {

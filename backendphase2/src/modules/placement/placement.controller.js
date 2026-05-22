@@ -77,6 +77,15 @@ export const placementController = {
     }
   },
 
+  async updateStatus(req, res) {
+    try {
+      const placement = await placementService.updateStatus(req.params.id, req.body, req.user.id);
+      sendResponse(res, 200, 'Status updated successfully', placement);
+    } catch (error) {
+      sendError(res, getStatusCode(error), error.message, error);
+    }
+  },
+
   async markJoined(req, res) {
     try {
       const placement = await placementService.markJoined(req.params.id, req.body, req.user.id, req.file);

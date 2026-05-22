@@ -25,7 +25,7 @@ export const candidateFileService = {
   },
 
   async create(candidateId, data, uploadedById) {
-    return prisma.candidateFile.create({
+    const file = await prisma.candidateFile.create({
       data: {
         candidateId,
         fileName: data.fileName,
@@ -39,6 +39,16 @@ export const candidateFileService = {
         },
       },
     });
+
+    const fileType = String(data.fileType || '').trim().toLowerCase();
+    if (fileType === 'photo' || fileType === 'avatar' || fileType === 'profile photo') {
+      await prisma.candidate.update({
+        where: { id: candidateId },
+        data: { avatar: data.fileUrl },
+      });
+    }
+
+    return file;
   },
 
   async delete(fileId) {

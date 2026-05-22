@@ -21,6 +21,21 @@ function normalizeType(type) {
   return ALLOWED_TYPES.has(t) ? t : 'system';
 }
 
+/** CV upload / analysis toasts should not appear in the candidate bell. */
+function isSuppressedCandidateNotification(payload) {
+  const title = String(payload?.title || '').trim().toLowerCase();
+  const description = String(payload?.description || '').trim().toLowerCase();
+  if (title === 'resume uploaded') return true;
+  if (
+    description.includes('cv has been analyzed') ||
+    description.includes('profile has been analyzed') ||
+    (description.includes('profile is ready') && description.includes('analyzed'))
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * Creates a candidate-facing bell notification.
  *
@@ -42,6 +57,7 @@ function normalizeType(type) {
 async function createCandidateNotification(candidateId, payload) {
   try {
     if (!candidateId || !payload?.title) return null;
+    if (isSuppressedCandidateNotification(payload)) return null;
 
     if (!prisma?.notification?.create) {
       console.warn(
@@ -74,4 +90,5 @@ async function createCandidateNotification(candidateId, payload) {
 module.exports = {
   createCandidateNotification,
   normalizeNotificationType: normalizeType,
+  isSuppressedCandidateNotification,
 };

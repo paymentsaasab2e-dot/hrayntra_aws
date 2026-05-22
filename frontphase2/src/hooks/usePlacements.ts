@@ -3,6 +3,7 @@ import type { CreatePlacementInvoicePayload } from '../types/recruitmentInvoice'
 import {
   apiCreatePlacement,
   apiCreatePlacementInvoice,
+  apiUpdatePlacementStatus,
   apiDeletePlacement,
   apiExportPlacements,
   apiGetCandidates,
@@ -15,7 +16,7 @@ import {
   apiMarkPlacementJoined,
   apiRequestPlacementReplacement,
 } from '../lib/api';
-import { MY_JOBS_LIST_PARAMS } from '../lib/myJobsListParams';
+import { PLACEMENT_FORM_JOBS_PARAMS } from '../lib/myJobsListParams';
 import type {
   CreatePlacementPayload,
   MarkFailedPayload,
@@ -98,10 +99,10 @@ export function usePlacements(filters: PlacementFilters) {
   const fetchOptions = useCallback(async () => {
     try {
       const [candidatesRes, jobsRes, clientsRes, usersRes] = await Promise.all([
-        apiGetCandidates({ page: 1, limit: 100 }),
-        apiGetJobs({ page: 1, ...MY_JOBS_LIST_PARAMS }),
-        apiGetClients({ page: 1, limit: 100 }),
-        apiGetUsers({ page: 1, limit: 100, role: 'RECRUITER' }),
+        apiGetCandidates({ page: 1, limit: 500 }),
+        apiGetJobs(PLACEMENT_FORM_JOBS_PARAMS),
+        apiGetClients({ page: 1, limit: 500 }),
+        apiGetUsers({ page: 1, limit: 500, isActive: true }),
       ]);
 
       const candidates = unwrapCollection(candidatesRes.data as any);
@@ -116,8 +117,13 @@ export function usePlacements(filters: PlacementFilters) {
           email: candidate.email,
         }))
       );
+      const sortedJobs = [...jobs].sort((a: any, b: any) =>
+        String(a?.title || '').localeCompare(String(b?.title || ''), undefined, {
+          sensitivity: 'base',
+        }),
+      );
       setJobOptions(
-        jobs.map((job: any) => ({
+        sortedJobs.map((job: any) => ({
           id: job.id,
           title: job.title,
           clientId: job.client?.id,
@@ -141,12 +147,21 @@ export function usePlacements(filters: PlacementFilters) {
           companyName: client.companyName,
         }))
       );
+      const sortedUsers = [...users].sort((a: any, b: any) =>
+        String(a?.name || a?.email || '').localeCompare(String(b?.name || b?.email || ''), undefined, {
+          sensitivity: 'base',
+        }),
+      );
       setRecruiterOptions(
-        users.map((user: any) => ({
+        sortedUsers.map((user: any) => ({
           id: user.id,
-          name: user.name,
+          name:
+            String(user.name || '').trim() ||
+            `${user.firstName || ''} ${user.lastName || ''}`.trim() ||
+            user.email ||
+            'Team member',
           email: user.email,
-        }))
+        })),
       );
     } catch {
       // Keep page usable even if dropdown data partially fails.
@@ -169,6 +184,15 @@ export function usePlacements(filters: PlacementFilters) {
           const response = await apiCreatePlacement(payload, offerLetter);
           await fetchData();
           return response?.data;
+        } finally {
+          setSubmitting(false);
+        }
+      },
+      async updatePlacementStatus(id: string, status: string) {
+        setSubmitting(true);
+        try {
+          await apiUpdatePlacementStatus(id, status);
+          await fetchData();
         } finally {
           setSubmitting(false);
         }

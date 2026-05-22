@@ -24,6 +24,7 @@ import {
   createUserNotification,
   pushPortalNotification,
 } from '../notification/notification.service.js';
+import { notifyInterviewScheduleChange } from '../notification/interviewNotifications.js';
 import { AI_MATCH_AUTHOR_WHERE } from '../match/matchQueryHelpers.js';
 import { permanentDeleteCandidateById } from '../../services/candidatePermanentDelete.service.js';
 
@@ -966,8 +967,13 @@ async function materializeCandidateForMatch(poolRow, options = {}) {
  * found" 400 for candidates that exist on the portal side but not in the tenant yet.
  */
 async function getCandidateOrThrow(id) {
+  const candidateId = String(id || '').trim();
+  if (!candidateId) {
+    throw new Error('Candidate not found');
+  }
+
   const candidate = await prisma.candidate.findUnique({
-    where: { id },
+    where: { id: candidateId },
   });
 
   if (candidate) {
@@ -981,9 +987,15 @@ async function getCandidateOrThrow(id) {
     throw new Error('Candidate not found');
   }
 
+  // Phase 1 / shared pool (candidatecommon) — same ids shown in placement & interview pickers
+  const commonRow = await fetchCandidateCommonByCandidateId(candidateId, { requireVerified: false });
+  if (commonRow) {
+    return materializeCandidateForMatch(commonRow);
+  }
+
   const portalPrisma = getJobPortalPrismaClient();
   const portalRow = await portalPrisma.candidate.findUnique({
-    where: { id },
+    where: { id: candidateId },
   });
 
   if (!portalRow) {
@@ -3482,6 +3494,23 @@ export const candidateService = {
       skipStageActivity: true,
     });
 
+    void notifyInterviewScheduleChange({
+      event: 'scheduled',
+      portalCandidateId: candidateId,
+      candidateName:
+        `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() ||
+        candidate.email ||
+        'Candidate',
+      jobTitle: job.title,
+      jobId: job.id,
+      interviewId: interview.id,
+      scheduledAt: interview.scheduledAt,
+      mode: String(data?.mode || '').trim() || null,
+      meetingLink: generatedMeetingLink,
+      schedulerUserId: userId,
+      panelUserIds: interviewers.map((item) => item.id).filter(Boolean),
+    });
+
     return interview;
   },
 
@@ -3516,7 +3545,7 @@ export const candidateService = {
   },
 
   async updateInterview(candidateId, interviewId, data, userId) {
-    await getCandidateOrThrow(candidateId);
+    const candidate = await getCandidateOrThrow(candidateId);
 
     const existing = await prisma.interview.findUnique({
       where: { id: interviewId },
@@ -3611,6 +3640,25 @@ export const candidateService = {
 
       return updatedInterview;
     });
+
+    if (scheduledAt) {
+      void notifyInterviewScheduleChange({
+        event: 'rescheduled',
+        portalCandidateId: candidateId,
+        candidateName:
+          `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() ||
+          candidate.email ||
+          'Candidate',
+        jobTitle: updated.job?.title || 'a role',
+        jobId: updated.jobId,
+        interviewId: updated.id,
+        scheduledAt,
+        mode: data?.mode ? String(data.mode) : null,
+        meetingLink: data?.mode === 'video' ? String(data?.meetingLink || '').trim() || null : null,
+        schedulerUserId: userId,
+        panelUserIds: interviewers.map((item) => item.id).filter(Boolean),
+      });
+    }
 
     return updated;
   },

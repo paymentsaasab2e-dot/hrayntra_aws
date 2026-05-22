@@ -1,6 +1,7 @@
 const { prisma, retryQuery } = require('../lib/prisma');
 const matchingService = require('../services/matching.service');
 const { runJobMatchingPipeline: runJobMatchingPipelinePhase1 } = require('../services/job-matching-pipeline-phase1.service');
+const { formatPortalJob } = require('../utils/formatPortalJob.util');
 
 // simple in-memory cache
 const cache = {
@@ -8,7 +9,7 @@ const cache = {
   lastFetched: 0,
   TTL: 300000, // 5 minutes
   /** Bump when job list payload shape changes so old cache entries cannot hide new fields (e.g. screening questions). */
-  version: 3,
+  version: 4,
 };
 
 /** When recruiters upload a job / apply-form image, Phase 2 stores HTTPS URL here — use for portal job cards */
@@ -196,67 +197,13 @@ async function getAllJobs(req, res) {
       ]);
     });
 
-    // Format jobs for frontend
+    // Format jobs for frontend (includes Phase 2 CRM fields for job detail UI)
     const formattedJobs = jobs.map((job) => {
-      // The general listing intentionally returns no AI match score. Real scoring happens in
-      // /jobs/personalized where the candidate context is available; the candidate UI overlays
-      // those scores on top of this listing. Returning null here prevents random scores from
-      // leaking through for jobs the personalized pipeline hasn't scored yet.
-      const matchScore = null;
-
-      const salaryJson = job.salary || undefined;
-      const salaryMin = job.salaryMin ?? salaryJson?.min ?? null;
-      const salaryMax = job.salaryMax ?? salaryJson?.max ?? null;
-      const salaryCurrency = job.salaryCurrency ?? salaryJson?.currency ?? null;
-      const salaryType = job.salaryType ?? salaryJson?.type ?? null;
-
-      const responsibilitiesArray = Array.isArray(job.keyResponsibilities)
-        ? job.keyResponsibilities.filter(Boolean)
-        : [];
-      const responsibilitiesText =
-        job.responsibilities ||
-        (responsibilitiesArray.length ? responsibilitiesArray.join(' ') : undefined);
-      
       const thumb = jobListingThumbnail(job);
       return {
-        id: job.id,
-        title: job.title,
-        company: job.company?.name || job.client?.companyName || null,
-        companyId: job.company?.id || job.client?.id || null,
-        companyLogo: thumb,
-        applicationFormLogo: job.applicationFormLogo ?? undefined,
-        applicationFormEnabled: !!job.applicationFormEnabled,
-        applicationFormQuestions: Array.isArray(job.applicationFormQuestions) ? job.applicationFormQuestions : [],
-        applicationFormNote: job.applicationFormNote ?? null,
-        location: job.location,
-        city: job.city ?? null,
-        country: job.country ?? null,
-        openings: job.openings ?? 1,
-        salaryMin,
-        salaryMax,
-        salaryCurrency,
-        salaryType,
-        experienceLevel: job.experienceRequired ?? job.experienceLevel,
-        employmentType: job.type || job.employmentType,
-        type: job.type ?? undefined,
-        workMode: job.jobLocationType ?? job.workMode ?? null,
-        industry: job.industry ?? job.department ?? job.jobCategory ?? null,
-        aboutRole: job.aboutRole ?? job.overview ?? job.description ?? null,
-        overview: job.overview ?? null,
-        description: job.description ?? null,
-        responsibilities: responsibilitiesText,
-        keyResponsibilities: responsibilitiesArray,
-        education: job.education ?? null,
-        benefits: Array.isArray(job.benefits) ? job.benefits : [],
-        hiringManager: job.hiringManager ?? null,
+        ...formatPortalJob(job, { thumbnail: thumb }),
+        matchScore: null,
         assignedRecruiter: null,
-        priority: job.priority ?? null,
-        visaSponsorship: job.visaSponsorship ?? false,
-        postedAt: job.postedAt ?? job.updatedAt ?? null,
-        skills: Array.isArray(job.skills) ? job.skills : [],
-        preferredSkills: Array.isArray(job.preferredSkills) ? job.preferredSkills : [],
-        salary: job.salary ?? undefined,
-        matchScore: matchScore,
       };
     });
 
@@ -353,57 +300,10 @@ async function getJobById(req, res) {
       `📦 DB fetch result: job-by-id | jobId=${jobId} | found=true | elapsedMs=${Date.now() - startedAt}`
     );
 
-    // Format job for frontend
-    const salaryJson = job.salary || undefined;
-    const salaryMin = job.salaryMin ?? salaryJson?.min ?? null;
-    const salaryMax = job.salaryMax ?? salaryJson?.max ?? null;
-    const salaryCurrency = job.salaryCurrency ?? salaryJson?.currency ?? null;
-    const salaryType = job.salaryType ?? salaryJson?.type ?? null;
-
-    const responsibilitiesArray = Array.isArray(job.keyResponsibilities)
-      ? job.keyResponsibilities.filter(Boolean)
-      : [];
-    const responsibilitiesText =
-      job.responsibilities ||
-      (responsibilitiesArray.length ? responsibilitiesArray.join(' ') : undefined);
-
     const thumb = jobListingThumbnail(job);
     const formattedJob = {
-      id: job.id,
-      title: job.title,
-      company: job.company?.name || job.client?.companyName || null,
-      companyId: job.company?.id || job.client?.id || null,
-      companyLogo: thumb,
-      applicationFormLogo: job.applicationFormLogo ?? undefined,
-      applicationFormEnabled: !!job.applicationFormEnabled,
-      applicationFormQuestions: Array.isArray(job.applicationFormQuestions) ? job.applicationFormQuestions : [],
-      applicationFormNote: job.applicationFormNote ?? null,
-      location: job.location,
-      openings: job.openings ?? 1,
-      salaryMin,
-      salaryMax,
-      salaryCurrency,
-      salaryType,
-      experienceLevel: job.experienceRequired ?? job.experienceLevel,
-      employmentType: job.type || job.employmentType,
-      type: job.type ?? undefined,
-      workMode: job.jobLocationType ?? job.workMode ?? null,
-      industry: job.industry ?? job.department ?? job.jobCategory ?? null,
-      aboutRole: job.aboutRole ?? job.overview ?? job.description ?? null,
-      overview: job.overview ?? null,
-      description: job.description ?? null,
-      responsibilities: responsibilitiesText,
-      keyResponsibilities: responsibilitiesArray,
-      education: job.education ?? null,
-      benefits: Array.isArray(job.benefits) ? job.benefits : [],
-      hiringManager: job.hiringManager ?? null,
+      ...formatPortalJob(job, { thumbnail: thumb }),
       assignedRecruiter: null,
-      priority: job.priority ?? null,
-      visaSponsorship: job.visaSponsorship ?? false,
-      postedAt: job.postedAt ?? job.updatedAt ?? null,
-      skills: Array.isArray(job.skills) ? job.skills : [],
-      preferredSkills: Array.isArray(job.preferredSkills) ? job.preferredSkills : [],
-      salary: job.salary ?? undefined,
     };
 
     res.json({
@@ -988,42 +888,16 @@ async function getPersonalizedJobs(req, res) {
       else if (normalizedScore >= 60) confidenceTag = 'Good Match';
 
       const thumb = jobListingThumbnail(job);
+      const portalBase = formatPortalJob(job, { thumbnail: thumb });
       return {
+        ...portalBase,
         jobId: job.id,
-        id: job.id,
         jobTitle: job.title,
-        title: job.title,
-        company: job.company?.name || job.client?.companyName || 'Multiple Hiring partners',
         companyLogo: thumb || '',
-        location: job.location,
-        type: job.type || job.employmentType || 'Full-time',
-        workMode: job.jobLocationType ?? job.workMode ?? null,
         logo: thumb || '',
-        applicationFormLogo: job.applicationFormLogo ?? undefined,
-        applicationFormEnabled: !!job.applicationFormEnabled,
-        applicationFormQuestions: Array.isArray(job.applicationFormQuestions) ? job.applicationFormQuestions : [],
-        applicationFormNote: job.applicationFormNote ?? null,
-        openings: job.openings ?? 1,
-        salary: job.salary ?? undefined,
-        salaryMin,
-        salaryMax,
-        salaryCurrency,
-        salaryType,
-        overview: job.overview ?? job.aboutRole ?? job.description ?? null,
-        description: job.description ?? null,
-        responsibilities: job.responsibilities ?? null,
-        keyResponsibilities: responsibilitiesArray,
-        requiredSkills: Array.isArray(job.requirements) ? job.requirements : [],
-        skills: Array.isArray(job.skills) ? job.skills : [],
-        preferredSkills: Array.isArray(job.preferredSkills) ? job.preferredSkills : [],
-        education: job.education ?? null,
+        requiredSkills: Array.isArray(job.requirements) ? job.requirements : portalBase.skills,
         experienceRequired: job.experienceRequired ?? job.experienceLevel ?? null,
-        benefits: Array.isArray(job.benefits) ? job.benefits : [],
-        priority: job.priority ?? null,
-        postedDate: job.postedDate ?? job.postedAt ?? job.createdAt ?? null,
-        hiringManager: job.hiringManager ?? null,
         assignedRecruiter: null,
-        visaSponsorship: job.visaSponsorship ?? false,
         matchScore: Math.min(100, Math.round(job.rawScore)), // The actual blend
         normalizedScore: normalizedScore, // Relative rank
         confidenceTag,

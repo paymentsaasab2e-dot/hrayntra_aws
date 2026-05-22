@@ -1,4 +1,5 @@
 const { prisma, retryQuery } = require('../lib/prisma');
+const { isSuppressedCandidateNotification } = require('../services/notification.service');
 
 /**
  * Get all notifications for a candidate
@@ -25,21 +26,18 @@ async function getNotifications(req, res) {
       return await prisma.notification.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        take: 50,
+        take: 100,
       });
     });
 
-    const unreadCount = await retryQuery(async () => {
-      return await prisma.notification.count({
-        where: {
-          candidateId,
-          isRead: false,
-        },
-      });
-    });
+    const visibleNotifications = notifications.filter(
+      (n) => !isSuppressedCandidateNotification(n)
+    );
+
+    const unreadCount = visibleNotifications.filter((n) => !n.isRead).length;
 
     // Transform notifications to match frontend interface (timestamp instead of createdAt)
-    const transformedNotifications = notifications.map(n => ({
+    const transformedNotifications = visibleNotifications.slice(0, 50).map((n) => ({
       ...n,
       timestamp: n.createdAt,
     }));
@@ -161,14 +159,15 @@ async function getUnreadCount(req, res) {
       });
     }
 
-    const count = await retryQuery(async () => {
-      return await prisma.notification.count({
-        where: {
-          candidateId,
-          isRead: false,
-        },
+    const notifications = await retryQuery(async () => {
+      return await prisma.notification.findMany({
+        where: { candidateId, isRead: false },
+        select: { id: true, title: true, description: true, isRead: true },
+        take: 100,
       });
     });
+
+    const count = notifications.filter((n) => !isSuppressedCandidateNotification(n)).length;
 
     res.json({
       success: true,
@@ -205,6 +204,14 @@ async function createNotification(req, res) {
       return res.status(400).json({
         success: false,
         message: 'Candidate ID, type, and title are required',
+      });
+    }
+
+    if (isSuppressedCandidateNotification({ title, description })) {
+      return res.status(201).json({
+        success: true,
+        data: null,
+        message: 'Notification suppressed',
       });
     }
 

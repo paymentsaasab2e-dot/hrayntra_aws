@@ -847,7 +847,7 @@ async function createApplication(req, res) {
     // swallowed inside the helper so they cannot affect the HTTP response.
     void createCandidateNotification(candidateId, {
       type: 'application',
-      title: 'Application submitted',
+      title: 'Application submitted successfully',
       description: `Your application for ${
         application.job.title || 'a role'
       } at ${

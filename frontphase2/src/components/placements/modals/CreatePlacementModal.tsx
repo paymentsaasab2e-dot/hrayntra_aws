@@ -158,7 +158,7 @@ export function CreatePlacementDrawer({
               </div>
 
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-[#111827]">Recruiter</label>
+                <label className="mb-1.5 block text-sm font-medium text-[#111827]">Recruiter / Team member</label>
                 <select
                   value={form.recruiterId}
                   onChange={(event) => setForm((current) => ({ ...current, recruiterId: event.target.value }))}

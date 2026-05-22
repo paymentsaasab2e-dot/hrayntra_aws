@@ -9,6 +9,7 @@ import {
   isGarbageEducationSummary,
 } from '@/lib/candidateEducation';
 import type { CandidateProfileDrawerData } from '../drawers/CandidateProfileDrawer';
+import { CandidatePhotoUpload } from './AddCandidateFormSections';
 
 export type CandidateEditFormState = {
   firstName: string;
@@ -74,6 +75,7 @@ export type CandidateEditFormState = {
   languageProficiency: string;
   projects: string;
   hackathons: string;
+  avatar: string;
 };
 
 const CANDIDATE_STATUS_OPTIONS = ['NEW', 'ACTIVE', 'PLACED', 'INACTIVE', 'BLACKLISTED'];
@@ -295,6 +297,7 @@ export function buildCandidateEditForm(candidate: CandidateProfileDrawerData): C
     volunteers:
       joinSemicolonList(professional.volunteers) || joinSemicolonList(extra.volunteers),
     workHistoryText: str(summary.workHistory),
+    avatar: str(candidate.avatar),
     twitter: str(social.twitter),
     xing: str(social.xing),
     skypeId: str(social.skypeId),
@@ -578,6 +581,7 @@ export function buildUpdatePayloadFromEditForm(
     cvPortfolioLinks: parsePortfolioLinksEditorValue(
       editForm.cvPortfolioLinks
     ) as UpdateCandidatePayload['cvPortfolioLinks'],
+    avatar: editForm.avatar.trim() || null,
     extraData: buildExtraDataFromEditForm(editForm, existingExtra),
   };
 }
@@ -699,11 +703,29 @@ type Props = {
   onChange: <K extends keyof CandidateEditFormState>(field: K, value: CandidateEditFormState[K]) => void;
   recruiters: Array<{ id: string; name: string }>;
   jobs: Array<{ id: string; title: string; department?: string | null }>;
+  avatarPreview?: string;
+  onAvatarFile?: (file: File) => void;
+  onAvatarRemove?: () => void;
 };
 
-export function CandidateEditAtsSections({ form, onChange, recruiters, jobs }: Props) {
+export function CandidateEditAtsSections({
+  form,
+  onChange,
+  recruiters,
+  jobs,
+  avatarPreview = '',
+  onAvatarFile,
+  onAvatarRemove,
+}: Props) {
   return (
     <div className="space-y-5">
+      {onAvatarFile && onAvatarRemove ? (
+        <CandidatePhotoUpload
+          preview={avatarPreview || form.avatar}
+          onSelectFile={onAvatarFile}
+          onRemove={onAvatarRemove}
+        />
+      ) : null}
       <EditSection title="Personal Information" icon={User}>
         <EditField label="First Name" value={form.firstName} onChange={(v) => onChange('firstName', v)} />
         <EditField label="Last Name" value={form.lastName} onChange={(v) => onChange('lastName', v)} />

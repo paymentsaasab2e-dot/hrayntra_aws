@@ -13,6 +13,7 @@ import {
   apiMarkInterviewNoShow,
   apiRemoveInterviewPanelMember,
   apiRescheduleInterview,
+  emitNotificationsUpdated,
   apiUpdateInterview,
   apiSubmitInterviewFeedback,
   type BackendCandidate,
@@ -462,6 +463,7 @@ export function useInterviews() {
         });
 
         setToast('Interview scheduled successfully');
+        emitNotificationsUpdated();
         await fetchInterviews();
       } catch (mutationError: any) {
         setError(mutationError.message || 'Unable to schedule interview');
@@ -483,6 +485,7 @@ export function useInterviews() {
           notifyInterviewer: payload.notifyInterviewer,
         });
         setToast('Interview rescheduled');
+        emitNotificationsUpdated();
         await fetchInterviews();
       } catch (mutationError: any) {
         setError(mutationError.message || 'Unable to reschedule interview');
