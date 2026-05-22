@@ -1,7 +1,8 @@
 'use client';
 
 import React from 'react';
-import { Award, Briefcase, GraduationCap, Share2, User } from 'lucide-react';
+import { Award, Briefcase, Eye, EyeOff, GraduationCap, Share2, User } from 'lucide-react';
+import type { ClientPresentationSectionId } from '@/lib/clientPresentationSections';
 import type { LucideIcon } from 'lucide-react';
 import type { UpdateCandidatePayload } from '@/lib/api';
 import {
@@ -173,12 +174,13 @@ function formatPortfolioLinksForEditor(
 ) {
   if (!entries?.length) return '';
   return entries
-    .map((item) =>
-      [item.label || item.type, item.url]
-        .map((part) => str(part))
-        .filter(Boolean)
-        .join(' | ')
-    )
+    .map((item) => {
+      const url = str(item.url);
+      const label = str(item.label || item.type) || (url ? 'Link' : '');
+      if (!url && !label) return '';
+      if (!url) return label;
+      return `${label} | ${url}`;
+    })
     .filter(Boolean)
     .join('\n');
 }
@@ -379,17 +381,29 @@ function parseWorkExperienceEditorValue(value: string) {
     });
 }
 
+function isLikelyUrl(text: string): boolean {
+  const t = String(text || '').trim();
+  return /^https?:\/\//i.test(t) || /^www\./i.test(t) || /^[a-z0-9][-a-z0-9]*\.[a-z]{2,}/i.test(t);
+}
+
 function parsePortfolioLinksEditorValue(value: string) {
   return String(value || '')
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
+      if (!line.includes('|')) {
+        if (isLikelyUrl(line)) {
+          return { type: 'Link', label: 'Link', url: line };
+        }
+        return { type: line, label: line, url: '' };
+      }
       const parts = line.split('|').map((part) => part.trim());
-      const [typeOrLabel = '', url = ''] = parts.length > 2 ? [parts[0], parts.slice(1).join('|')] : parts;
-      return { type: typeOrLabel, label: typeOrLabel, url };
+      const [typeOrLabel = '', ...rest] = parts;
+      const url = rest.join('|').trim();
+      return { type: typeOrLabel || 'Link', label: typeOrLabel || 'Link', url };
     })
-    .filter((item) => item.type || item.url);
+    .filter((item) => item.url || item.type);
 }
 
 function parseLanguageProficiencyEditorValue(value: string) {
@@ -422,18 +436,7 @@ export function validateEditFormStructured(editForm: CandidateEditFormState) {
     );
   }
 
-  const invalidPortfolioLine = String(editForm.cvPortfolioLinks || '')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .find((line) => {
-      const parts = line.split('|');
-      return parts.length < 2;
-    });
-
-  if (invalidPortfolioLine) {
-    throw new Error('Portfolio links: Label or Type | URL (one per line)');
-  }
+  // Portfolio links accept "Label | URL" or a plain URL per line — parser normalizes on save.
 }
 
 export function buildExtraDataFromEditForm(
@@ -677,23 +680,64 @@ function EditTextarea({
 }
 
 function EditSection({
+  sectionId,
   title,
   icon: Icon,
   children,
+  showClientVisibilityToggle = false,
+  clientVisible = true,
+  onToggleClientVisibility,
 }: {
+  sectionId?: ClientPresentationSectionId;
   title: string;
   icon: LucideIcon;
   children: React.ReactNode;
+  showClientVisibilityToggle?: boolean;
+  clientVisible?: boolean;
+  onToggleClientVisibility?: (sectionId: ClientPresentationSectionId) => void;
 }) {
+  const hidden = showClientVisibilityToggle && !clientVisible;
   return (
-    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50/80">
-      <div className="flex items-center gap-2 border-b border-slate-200/80 px-4 py-3">
-        <span className="rounded-lg bg-white p-2 text-indigo-600 shadow-sm ring-1 ring-slate-200/80">
-          <Icon size={16} />
-        </span>
-        <h4 className="text-sm font-bold text-slate-900">{title}</h4>
+    <section
+      className={`overflow-hidden rounded-2xl border bg-slate-50/80 ${
+        hidden ? 'border-dashed border-slate-300 opacity-90' : 'border-slate-200'
+      }`}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 bg-white/60 px-4 py-3">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="rounded-lg bg-white p-2 text-indigo-600 shadow-sm ring-1 ring-slate-200/80">
+            <Icon size={16} />
+          </span>
+          <h4 className="text-sm font-bold text-slate-900">{title}</h4>
+          {hidden ? (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900">
+              Hidden from client
+            </span>
+          ) : null}
+        </div>
+        {showClientVisibilityToggle && sectionId && onToggleClientVisibility ? (
+          <button
+            type="button"
+            onClick={() => onToggleClientVisibility(sectionId)}
+            title={clientVisible ? 'Hide this section on the client review link' : 'Show this section on the client review link'}
+            className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-xs font-bold shadow-sm ${
+              clientVisible
+                ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                : 'bg-slate-600 text-white hover:bg-slate-700'
+            }`}
+          >
+            {clientVisible ? <Eye size={16} /> : <EyeOff size={16} />}
+            {clientVisible ? 'Visible to client' : 'Hidden from client'}
+          </button>
+        ) : null}
       </div>
-      <div className="grid grid-cols-1 gap-4 p-4 md:grid-cols-2">{children}</div>
+      {clientVisible ? (
+        <div className="grid grid-cols-1 gap-4 p-4 md:grid-cols-2">{children}</div>
+      ) : (
+        <p className="px-4 py-3 text-xs text-slate-500">
+          This section will not appear on the client review link. Click Visible to include it.
+        </p>
+      )}
     </section>
   );
 }
@@ -706,6 +750,9 @@ type Props = {
   avatarPreview?: string;
   onAvatarFile?: (file: File) => void;
   onAvatarRemove?: () => void;
+  showClientSectionVisibility?: boolean;
+  clientSectionVisibility?: Partial<Record<ClientPresentationSectionId, boolean>>;
+  onToggleClientSectionVisibility?: (sectionId: ClientPresentationSectionId) => void;
 };
 
 export function CandidateEditAtsSections({
@@ -716,9 +763,22 @@ export function CandidateEditAtsSections({
   avatarPreview = '',
   onAvatarFile,
   onAvatarRemove,
+  showClientSectionVisibility = false,
+  clientSectionVisibility,
+  onToggleClientSectionVisibility,
 }: Props) {
+  const sectionVisible = (id: ClientPresentationSectionId) => clientSectionVisibility?.[id] !== false;
   return (
     <div className="space-y-5">
+      {showClientSectionVisibility ? (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+          <p className="font-semibold">Client review visibility</p>
+          <p className="mt-1 text-xs text-blue-800">
+            Use the button on the right of each section header to show or hide that block on the client
+            review link. Hidden sections are not sent to the client.
+          </p>
+        </div>
+      ) : null}
       {onAvatarFile && onAvatarRemove ? (
         <CandidatePhotoUpload
           preview={avatarPreview || form.avatar}
@@ -726,7 +786,14 @@ export function CandidateEditAtsSections({
           onRemove={onAvatarRemove}
         />
       ) : null}
-      <EditSection title="Personal Information" icon={User}>
+      <EditSection
+        sectionId="personal"
+        title="Personal Information"
+        icon={User}
+        showClientVisibilityToggle={showClientSectionVisibility}
+        clientVisible={sectionVisible('personal')}
+        onToggleClientVisibility={onToggleClientSectionVisibility}
+      >
         <EditField label="First Name" value={form.firstName} onChange={(v) => onChange('firstName', v)} />
         <EditField label="Last Name" value={form.lastName} onChange={(v) => onChange('lastName', v)} />
         <EditField label="E-mail" value={form.email} onChange={(v) => onChange('email', v)} type="email" />
@@ -758,7 +825,14 @@ export function CandidateEditAtsSections({
         <EditField label="Preferred Location" value={form.preferredLocation} onChange={(v) => onChange('preferredLocation', v)} />
       </EditSection>
 
-      <EditSection title="Education" icon={GraduationCap}>
+      <EditSection
+        sectionId="education"
+        title="Education"
+        icon={GraduationCap}
+        showClientVisibilityToggle={showClientSectionVisibility}
+        clientVisible={sectionVisible('education')}
+        onToggleClientVisibility={onToggleClientSectionVisibility}
+      >
         <div className="md:col-span-2">
           <EditTextarea
             label="Education entries"
@@ -875,7 +949,14 @@ export function CandidateEditAtsSections({
         </div>
       </EditSection>
 
-      <EditSection title="Social Network Information" icon={Share2}>
+      <EditSection
+        sectionId="social"
+        title="Social Network Information"
+        icon={Share2}
+        showClientVisibilityToggle={showClientSectionVisibility}
+        clientVisible={sectionVisible('social')}
+        onToggleClientVisibility={onToggleClientSectionVisibility}
+      >
         <EditField label="LinkedIn" value={form.linkedIn} onChange={(v) => onChange('linkedIn', v)} />
         <EditField label="Twitter" value={form.twitter} onChange={(v) => onChange('twitter', v)} />
         <EditField label="Xing" value={form.xing} onChange={(v) => onChange('xing', v)} />
@@ -890,12 +971,19 @@ export function CandidateEditAtsSections({
             value={form.cvPortfolioLinks}
             onChange={(v) => onChange('cvPortfolioLinks', v)}
             rows={6}
-            helper="One line per link: Label or Type | URL"
+            helper="One link per line: Label | URL, or paste a URL only"
           />
         </div>
       </EditSection>
 
-      <EditSection title="Summary & Additional" icon={Award}>
+      <EditSection
+        sectionId="summary"
+        title="Summary & Additional"
+        icon={Award}
+        showClientVisibilityToggle={showClientSectionVisibility}
+        clientVisible={sectionVisible('summary')}
+        onToggleClientVisibility={onToggleClientSectionVisibility}
+      >
         <div className="md:col-span-2">
           <EditTextarea label="Summary" value={form.cvSummary} onChange={(v) => onChange('cvSummary', v)} rows={4} />
         </div>

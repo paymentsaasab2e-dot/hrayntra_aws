@@ -16,6 +16,7 @@ import {
   type ResumeCvViewMode,
 } from '../../lib/cvEditorMapping';
 import { resolveCandidateResumeUrlFromSources } from '../../lib/phase1ProfileSnapshot';
+import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { isResumeHttpUrl, normalizeResumeHref } from '../../lib/resumePreview';
 
 export interface CandidateResumeCvEditorApi {
@@ -63,6 +64,11 @@ export function CandidateResumeTabPanel({
   const [viewMode, setViewMode] = useState<ResumeCvViewMode | null>(null);
   const [viewModeSaving, setViewModeSaving] = useState(false);
 
+  const uploadsBase = useMemo(() => {
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1';
+    return apiBase.replace(/\/api\/v1\/?$/, '');
+  }, []);
+
   const resumeRaw =
     candidate.resumeUrl ||
     resolveCandidateResumeUrlFromSources(backendCandidate) ||
@@ -71,10 +77,14 @@ export function CandidateResumeTabPanel({
       resume: candidate.resumeUrl,
       extraData: candidate.extraData ?? null,
     }) ||
-    '';
-  const effectiveResumeHref =
     resumeHref ||
-    (resumeRaw && isResumeHttpUrl(resumeRaw) ? normalizeResumeHref(resumeRaw) : '');
+    '';
+  const effectiveResumeHref = useMemo(() => {
+    const raw = String(resumeRaw || resumeHref || '').trim();
+    if (!raw) return '';
+    if (isResumeHttpUrl(raw)) return normalizeResumeHref(raw);
+    return buildFileHref(raw, uploadsBase);
+  }, [resumeRaw, resumeHref, uploadsBase]);
 
   useEffect(() => {
     if (!enabled || !candidate.id) return;

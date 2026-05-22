@@ -62,12 +62,22 @@ function isAllowedCloudinaryDocUrl(urlString, formatHint = '') {
   }
 }
 
+function isExtensionlessResumeStorageKey(key) {
+  const lower = String(key || '').toLowerCase();
+  return (
+    lower.includes('apply-resumes') ||
+    lower.includes('/resumes/') ||
+    lower.includes('jobportal/apply-resumes')
+  );
+}
+
 function isOurS3DocUrl(urlString, formatHint = '') {
   const parsed = parseOurS3Url(urlString);
   if (!parsed) return false;
   if (WORD_EXT.test(parsed.key)) return true;
   const hint = String(formatHint || '').toLowerCase();
-  return hint === 'docx' || hint === 'doc';
+  if (hint === 'docx' || hint === 'doc') return true;
+  return isExtensionlessResumeStorageKey(parsed.key) && (hint === 'docx' || hint === 'doc');
 }
 
 function isAllowedDocUrl(urlString, formatHint = '') {

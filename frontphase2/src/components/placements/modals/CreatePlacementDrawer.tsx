@@ -90,10 +90,26 @@ export function CreatePlacementDrawer({
     const nextErrors: Record<string, string> = {};
     if (!form.candidateId) nextErrors.candidateId = 'Candidate is required';
     if (!form.jobId) nextErrors.jobId = 'Job is required';
+    if (form.jobId && !selectedJob?.clientId) {
+      nextErrors.jobId =
+        'This job has no client company linked. Edit the job and assign a client before creating a placement.';
+    }
     if (!form.offerSalary || Number(form.offerSalary) <= 0) nextErrors.offerSalary = 'Offer salary is required';
     if (!form.placementFee || Number(form.placementFee) <= 0) nextErrors.placementFee = 'Placement fee is required';
     if (!form.offerDate) nextErrors.offerDate = 'Offer date is required';
     if (!form.employmentType) nextErrors.employmentType = 'Employment type is required';
+    if (offerLetter) {
+      const name = offerLetter.name.toLowerCase();
+      const type = (offerLetter.type || '').toLowerCase();
+      const isPdf =
+        type === 'application/pdf' ||
+        type === 'application/x-pdf' ||
+        name.endsWith('.pdf') ||
+        (type === 'application/octet-stream' && name.endsWith('.pdf'));
+      if (!isPdf) {
+        nextErrors.offerLetter = 'Offer letter must be a PDF file';
+      }
+    }
     setErrors(nextErrors);
     return !Object.keys(nextErrors).length;
   };
@@ -169,8 +185,9 @@ export function CreatePlacementDrawer({
                   >
                     <option value="">Select job</option>
                     {jobs.map((job) => (
-                      <option key={job.id} value={job.id}>
+                      <option key={job.id} value={job.id} disabled={!job.clientId}>
                         {job.title} • {job.clientName}
+                        {!job.clientId ? ' (assign client first)' : ''}
                       </option>
                     ))}
                   </select>
@@ -180,8 +197,18 @@ export function CreatePlacementDrawer({
 
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-[#111827]">Company</label>
-                <div className="flex h-11 items-center rounded-xl border border-[#E5E7EB] bg-[#F1F5F9] px-3 text-sm font-medium text-[#0F172A]">
-                  {selectedJob?.clientName || 'Pick a job to see the company'}
+                <div
+                  className={`flex h-11 items-center rounded-xl border px-3 text-sm font-medium ${
+                    selectedJob && !selectedJob.clientId
+                      ? 'border-amber-300 bg-amber-50 text-amber-900'
+                      : 'border-[#E5E7EB] bg-[#F1F5F9] text-[#0F172A]'
+                  }`}
+                >
+                  {selectedJob
+                    ? selectedJob.clientId
+                      ? selectedJob.clientName
+                      : 'No client linked — assign a client on the job first'
+                    : 'Pick a job to see the company'}
                 </div>
               </div>
 
@@ -354,7 +381,7 @@ export function CreatePlacementDrawer({
                     {
                       candidateId: form.candidateId,
                       jobId: form.jobId,
-                      companyId: selectedJob?.clientId,
+                      companyId: selectedJob?.clientId || undefined,
                       recruiterId: form.recruiterId || currentUserId,
                       offerSalary: form.offerSalary,
                       placementFee: form.placementFee,

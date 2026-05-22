@@ -168,6 +168,43 @@ async function createPlacementActivity(tx, placementId, action, performedBy, det
   });
 }
 
+/** Unique across placement_billing (unique index) and billing_records. */
+async function allocatePlacementInvoiceNumber(tx) {
+  const year = new Date().getFullYear();
+  const prefix = 'INV';
+  const pattern = new RegExp(`^${prefix}-${year}-(\\d+)$`);
+
+  const [placementBillings, billingRecords] = await Promise.all([
+    tx.placementBilling.findMany({
+      where: { invoiceNumber: { startsWith: `${prefix}-${year}-` } },
+      select: { invoiceNumber: true },
+    }),
+    tx.billingRecord.findMany({
+      where: { invoiceNumber: { startsWith: `${prefix}-${year}-` } },
+      select: { invoiceNumber: true },
+    }),
+  ]);
+
+  let max = 0;
+  for (const row of [...placementBillings, ...billingRecords]) {
+    const match = String(row.invoiceNumber || '').match(pattern);
+    if (match) {
+      max = Math.max(max, Number(match[1]) || 0);
+    }
+  }
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const candidate = `${prefix}-${year}-${String(max + 1 + attempt).padStart(4, '0')}`;
+    const exists = await tx.placementBilling.findFirst({
+      where: { invoiceNumber: candidate },
+      select: { id: true },
+    });
+    if (!exists) return candidate;
+  }
+
+  throw new Error('Unable to allocate invoice number. Please try again.');
+}
+
 async function buildSearchFilter(search) {
   if (!search) return null;
 
@@ -474,8 +511,12 @@ export const placementService = {
     if (!job) throw new Error('Job not found');
     if (!recruiter) throw new Error('Recruiter not found');
 
-    const clientId = data.companyId || data.clientId || job.clientId;
-    assertObjectId(clientId, 'companyId');
+    const clientId = String(data.companyId || data.clientId || job.clientId || '').trim();
+    if (!isValidObjectId(clientId)) {
+      throw new Error(
+        'This job is not linked to a client. Open the job, assign a client company, then create the placement.'
+      );
+    }
 
     const client = await prisma.client.findUnique({
       where: { id: clientId },
@@ -507,8 +548,7 @@ export const placementService = {
         },
       });
 
-      const billingCount = await tx.placementBilling.count();
-      const invoiceNumber = `INV-${new Date().getFullYear()}-${String(billingCount + 1).padStart(4, '0')}`;
+      const invoiceNumber = await allocatePlacementInvoiceNumber(tx);
 
       await tx.placementBilling.create({
         data: {
@@ -615,8 +655,8 @@ export const placementService = {
             clientId: client.id,
             status: joiningDate ? 'JOINING_SCHEDULED' : 'OFFER_ACCEPTED',
           },
-      },
-    });
+        },
+      });
 
       return { createdPlacement, offerLetterSync };
     });

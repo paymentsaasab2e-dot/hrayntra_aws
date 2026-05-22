@@ -230,7 +230,11 @@ export function InterviewDrawer({
                 <DrawerFeedbackTab feedbackEntries={interview.feedbackEntries} onOpenFeedback={onOpenFeedback} />
               ) : null}
               {activeTab === 'client' ? (
-                <DrawerClientTab notes={interview.notes} feedbackEntries={interview.feedbackEntries} />
+                <DrawerClientTab
+                  candidateId={interview.candidate.id}
+                  notes={interview.notes}
+                  feedbackEntries={interview.feedbackEntries}
+                />
               ) : null}
               {activeTab === 'notes' && onAddNote ? <DrawerNotesTab notes={interview.internalNotes} onAddNote={onAddNote} /> : null}
               {activeTab === 'activity' ? <DrawerActivityLog items={interview.activityLog} /> : null}

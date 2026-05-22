@@ -7,6 +7,13 @@ import {
 } from '../components/candidates/CandidateEditAtsSections';
 import type { CandidateProfileDrawerData } from '../components/drawers/CandidateProfileDrawer';
 import { mapCandidateProfile } from './mapCandidateProfile';
+import {
+  buildClientReviewSections,
+  DEFAULT_CLIENT_SECTION_VISIBILITY,
+  normalizeClientSectionVisibility,
+  type ClientReviewSection,
+  type ClientSectionVisibility,
+} from './clientPresentationSections';
 
 export const CLIENT_PRESENTATION_KEY = 'clientPresentation';
 
@@ -18,6 +25,8 @@ export type ClientPresentationStored = {
     'assignedToId' | 'assignedJobs' | 'stage' | 'status' | 'source'
   >;
   cvEditorLayout?: Record<string, unknown> | null;
+  visibleSections?: ClientSectionVisibility;
+  clientReviewSections?: ClientReviewSection[];
 };
 
 function parseExtra(extraData: unknown): Record<string, unknown> {
@@ -35,6 +44,12 @@ export function readClientPresentation(
   const editForm = row.editForm as CandidateEditFormState | undefined;
   const fields = row.fields as ClientPresentationStored['fields'] | undefined;
   if (!editForm || !fields) return null;
+  const visibleSections = normalizeClientSectionVisibility(
+    row.visibleSections as Partial<ClientSectionVisibility> | undefined
+  );
+  const clientReviewSections = Array.isArray(row.clientReviewSections)
+    ? (row.clientReviewSections as ClientReviewSection[])
+    : buildClientReviewSections(editForm, visibleSections);
   return {
     updatedAt: String(row.updatedAt || ''),
     editForm,
@@ -43,20 +58,32 @@ export function readClientPresentation(
       row.cvEditorLayout && typeof row.cvEditorLayout === 'object' && !Array.isArray(row.cvEditorLayout)
         ? (row.cvEditorLayout as Record<string, unknown>)
         : null,
+    visibleSections,
+    clientReviewSections,
   };
 }
 
 export function buildClientPresentationExtraData(
   editForm: CandidateEditFormState,
   existingExtraData?: Record<string, unknown> | null,
-  options?: { cvEditorLayout?: Record<string, unknown> | null }
+  options?: {
+    cvEditorLayout?: Record<string, unknown> | null;
+    visibleSections?: Partial<ClientSectionVisibility> | null;
+  }
 ): Record<string, unknown> {
   const prev = parseExtra(existingExtraData);
+  const prior = readClientPresentation(existingExtraData);
+  const visibleSections = normalizeClientSectionVisibility(
+    options?.visibleSections ?? prior?.visibleSections ?? DEFAULT_CLIENT_SECTION_VISIBILITY
+  );
+  const clientReviewSections = buildClientReviewSections(editForm, visibleSections);
   const stored: ClientPresentationStored = {
     updatedAt: new Date().toISOString(),
     editForm,
     fields: buildClientPresentationFieldsPatch(editForm),
-    cvEditorLayout: options?.cvEditorLayout ?? readClientPresentation(existingExtraData)?.cvEditorLayout ?? null,
+    cvEditorLayout: options?.cvEditorLayout ?? prior?.cvEditorLayout ?? null,
+    visibleSections,
+    clientReviewSections,
   };
   return {
     ...prev,
@@ -198,6 +225,8 @@ export function mergeBackendCandidateWithClientPresentation(
       editForm: saved.editForm,
       fields: saved.fields,
       cvEditorLayout: saved.cvEditorLayout,
+      visibleSections: saved.visibleSections,
+      clientReviewSections: saved.clientReviewSections,
     },
   };
   if (saved.cvEditorLayout) {
