@@ -661,6 +661,8 @@ export interface InvoiceActivityResponse {
     date: string;
     dueDate: string;
     paidAt: string | null;
+    invoiceUrl?: string | null;
+    hasInvoiceDocument?: boolean;
   };
   lead: { id: string; companyName: string | null; contactName: string | null; status: string | null; source: string | null } | null;
   client: { id: string; companyName: string | null; status: string | null; industry: string | null } | null;

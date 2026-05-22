@@ -21,11 +21,18 @@ function normalizeType(type) {
   return ALLOWED_TYPES.has(t) ? t : 'system';
 }
 
-/** CV upload / analysis toasts should not appear in the candidate bell. */
+/** CV upload / analysis / profile-photo toasts should not appear in the candidate bell. */
 function isSuppressedCandidateNotification(payload) {
   const title = String(payload?.title || '').trim().toLowerCase();
   const description = String(payload?.description || '').trim().toLowerCase();
   if (title === 'resume uploaded') return true;
+  if (title === 'profile photo updated' || title === 'profile photo removed') return true;
+  if (
+    description.includes('new profile photo is now live') ||
+    description.includes('profile photo has been removed')
+  ) {
+    return true;
+  }
   if (
     description.includes('cv has been analyzed') ||
     description.includes('profile has been analyzed') ||
