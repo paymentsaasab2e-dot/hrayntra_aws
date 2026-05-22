@@ -61,3 +61,15 @@ export function getPlacementStatusLabel(status: PlacementStatus) {
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
 }
+
+/** All statuses available in the placements table dropdown */
+export const PLACEMENT_STATUS_OPTIONS: PlacementStatus[] = [
+  'OFFER_ACCEPTED',
+  'JOINING_SCHEDULED',
+  'JOINED',
+  'NO_SHOW',
+  'FAILED',
+  'WITHDRAWN',
+  'REPLACEMENT_REQUIRED',
+  'REPLACED',
+];

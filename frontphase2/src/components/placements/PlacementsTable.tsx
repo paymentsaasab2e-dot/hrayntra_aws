@@ -11,12 +11,13 @@ import {
   Receipt,
 } from 'lucide-react';
 import { ImageWithFallback } from '../ImageWithFallback';
-import type { Placement } from '../../types/placement';
+import type { Placement, PlacementStatus } from '../../types/placement';
 import {
   formatPlacementDate,
   getEmploymentTypeBadgeStyle,
   getPlacementStatusLabel,
   getStatusBadgeStyle,
+  PLACEMENT_STATUS_OPTIONS,
 } from '../../utils/placements';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import PaginationAll from '../PaginationAll';
@@ -66,6 +67,35 @@ function SortableHeader({
       {label}
       <ArrowUpDown className="h-3.5 w-3.5" />
     </button>
+  );
+}
+
+function PlacementStatusDropdown({
+  placement,
+  disabled,
+  updating,
+  onStatusChange,
+}: {
+  placement: Placement;
+  disabled?: boolean;
+  updating?: boolean;
+  onStatusChange: (placement: Placement, status: PlacementStatus) => void;
+}) {
+  const statusStyle = getStatusBadgeStyle(placement.status);
+  return (
+    <select
+      value={placement.status}
+      disabled={disabled || updating}
+      onChange={(event) => onStatusChange(placement, event.target.value as PlacementStatus)}
+      title="Change placement status"
+      className={`min-w-[10.5rem] max-w-[12.5rem] cursor-pointer rounded-full border border-transparent px-2.5 py-1 text-xs font-semibold outline-none transition-opacity focus:border-slate-300 focus:ring-2 focus:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-60 ${statusStyle.bg} ${statusStyle.text}`}
+    >
+      {PLACEMENT_STATUS_OPTIONS.map((status) => (
+        <option key={status} value={status}>
+          {getPlacementStatusLabel(status)}
+        </option>
+      ))}
+    </select>
   );
 }
 
@@ -238,9 +268,21 @@ export function PlacementsTable({
   onRequestReplacement,
   onDelete,
   onCreateInvoice,
+  onStatusChange,
   onPageChange,
   embedded = false,
 }: PlacementsTableProps) {
+  const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
+
+  const handleStatusChange = async (placement: Placement, status: PlacementStatus) => {
+    if (!onStatusChange || placement.status === status) return;
+    setStatusUpdatingId(placement.id);
+    try {
+      await onStatusChange(placement, status);
+    } finally {
+      setStatusUpdatingId(null);
+    }
+  };
   // Offer-letter URLs returned by the backend look like `/uploads/...` —
   // they're served from the API host, not the Next.js dev origin. Resolve
   // the API base once so the "View offer letter" button opens via the
@@ -375,10 +417,21 @@ export function PlacementsTable({
                     </span>
                   </td>
 
-                  <td className={tdPad}>
-                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusStyle.bg} ${statusStyle.text}`}>
-                      {getPlacementStatusLabel(placement.status)}
-                    </span>
+                  <td className={tdPad} onClick={(event) => event.stopPropagation()}>
+                    {onStatusChange ? (
+                      <PlacementStatusDropdown
+                        placement={placement}
+                        disabled={statusUpdatingId === placement.id}
+                        updating={statusUpdatingId === placement.id}
+                        onStatusChange={handleStatusChange}
+                      />
+                    ) : (
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusStyle.bg} ${statusStyle.text}`}
+                      >
+                        {getPlacementStatusLabel(placement.status)}
+                      </span>
+                    )}
                   </td>
 
                   <td className={tdPad}>

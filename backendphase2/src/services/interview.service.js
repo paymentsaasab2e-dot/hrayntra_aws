@@ -16,10 +16,7 @@ import {
 } from './notificationService.js';
 import { INTERVIEW_ACTIVITY_ACTIONS, logActivity } from '../utils/activityLogger.js';
 import { canViewAllAssignments } from '../utils/permissionScope.js';
-import {
-  createUserNotification,
-  pushPortalNotification,
-} from '../modules/notification/notification.service.js';
+import { notifyInterviewScheduleChange } from '../modules/notification/interviewNotifications.js';
 import {
   buildCvEditorPreviewFromCandidate,
   buildCvEditorPreviewFromSnapshot,
@@ -754,69 +751,24 @@ export const interviewService = {
       await sendInterviewScheduled(result.candidate, result, result.panel);
     }
 
-    // Bell notifications for the recruiter who scheduled it + each panel member,
-    // and a candidate-facing push into the job portal so the candidate's bell
-    // also lights up. All best-effort.
-    try {
-      const candidateName =
-        `${result.candidate?.firstName || ''} ${result.candidate?.lastName || ''}`
-          .trim() ||
+    void notifyInterviewScheduleChange({
+      event: 'scheduled',
+      portalCandidateId: candidate.id,
+      candidateName:
+        `${result.candidate?.firstName || ''} ${result.candidate?.lastName || ''}`.trim() ||
         result.candidate?.email ||
-        'Candidate';
-      const jobTitle = result.job?.title || 'a role';
-      const whenLabel = scheduledAt.toLocaleString('en-US', {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-      });
-
-      const recipientUserIds = new Set();
-      if (user?.id) recipientUserIds.add(user.id);
-      (result.panel || []).forEach((member) => {
-        const uid = member?.userId || member?.user?.id;
-        if (uid) recipientUserIds.add(uid);
-      });
-
-      await Promise.allSettled(
-        Array.from(recipientUserIds).map((uid) =>
-          createUserNotification(uid, {
-            category: 'INTERVIEW',
-            title: 'Interview scheduled',
-            description: `${candidateName} for ${jobTitle} on ${whenLabel}.`,
-            actionLabel: 'Open interview',
-            actionPath: `/interviews?interviewId=${result.id}`,
-            entityType: 'INTERVIEW',
-            entityId: result.id,
-            metadata: {
-              candidateId: result.candidate?.id || candidate.id,
-              jobId: result.job?.id || job.id,
-              scheduledAt: scheduledAt.toISOString(),
-              mode: payload.mode,
-              round: payload.round,
-            },
-          })
-        )
-      );
-
-      void pushPortalNotification(candidate.id, {
-        type: 'interview',
-        title: 'Interview scheduled',
-        description: `Your interview for ${jobTitle} is on ${whenLabel}.`,
-        actionButton: 'View application',
-        actionPath: '/applications',
-        metadata: {
-          interviewId: result.id,
-          jobId: result.job?.id || job.id,
-          scheduledAt: scheduledAt.toISOString(),
-          mode: payload.mode,
-          meetingLink: result.meetingLink || null,
-        },
-      });
-    } catch (notifyErr) {
-      console.warn(
-        '[interview.create] notification failed (non-fatal):',
-        notifyErr?.message || notifyErr
-      );
-    }
+        'Candidate',
+      jobTitle: result.job?.title || 'a role',
+      jobId: result.job?.id || job.id,
+      interviewId: result.id,
+      scheduledAt,
+      mode: payload.mode,
+      meetingLink: result.meetingLink || null,
+      schedulerUserId: user?.id || null,
+      panelUserIds: (result.panel || [])
+        .map((member) => member?.userId || member?.user?.id)
+        .filter(Boolean),
+    });
 
     return {
       ...result,
@@ -990,6 +942,25 @@ export const interviewService = {
     } catch (stageErr) {
       console.warn('[interview.reschedule] stage sync failed:', stageErr?.message || stageErr);
     }
+
+    void notifyInterviewScheduleChange({
+      event: 'rescheduled',
+      portalCandidateId: updated.candidateId,
+      candidateName:
+        `${updated.candidate?.firstName || ''} ${updated.candidate?.lastName || ''}`.trim() ||
+        updated.candidate?.email ||
+        'Candidate',
+      jobTitle: updated.job?.title || 'a role',
+      jobId: updated.jobId,
+      interviewId: updated.id,
+      scheduledAt: nextDate,
+      mode: updated.mode,
+      meetingLink: updated.meetingLink || null,
+      schedulerUserId: user?.id || null,
+      panelUserIds: (updated.panel || [])
+        .map((member) => member?.userId || member?.user?.id)
+        .filter(Boolean),
+    });
 
     return {
       ...updated,

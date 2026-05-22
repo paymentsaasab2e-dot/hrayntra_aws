@@ -68,6 +68,7 @@ import {
   apiUpdateCandidateNote,
   apiUpdateJob,
   apiCreateInterview,
+  emitNotificationsUpdated,
   apiGetUsers,
   type BackendClient,
   type BackendJob,
@@ -1715,6 +1716,7 @@ export default function JobsPage() {
         throw error;
       }
       toast.success('Interview scheduled successfully');
+      emitNotificationsUpdated();
       const jid = jobDetails?.id || selectedJob?.id;
       if (jid) await refreshJobCandidates(jid);
     },
@@ -2316,9 +2318,12 @@ export default function JobsPage() {
                   String(interviewData.id || '').includes('interview-') === false
                 ) {
                   await apiUpdateCandidateInterview(interviewData.candidateId, interviewData.id, payload);
+                  toast.success('Interview updated successfully');
                 } else {
                   await apiScheduleCandidateInterview(interviewData.candidateId, payload as any);
+                  toast.success('Interview scheduled successfully');
                 }
+                emitNotificationsUpdated();
                 await loadCandidateProfileInJobContext(interviewData.candidateId);
                 if (activeJobForCandidateDrawer?.id) {
                   await refreshJobCandidates(activeJobForCandidateDrawer.id);

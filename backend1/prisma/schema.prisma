@@ -744,8 +744,16 @@ model Job {
   location         String?
   city             String?
   country          String?
+  state            String?
 
-  // Compatible with backendphase2 job documents
+  // Phase 2 CRM fields (shared Mongo `jobs` collection)
+  nationality              String?
+  forecastRevenue          String?
+  videoMediaLink           String?
+  languages                Json? // [{ language, proficiency }]
+  expectedClosureDate      DateTime?
+  jdFileName               String?
+
   clientId              String?        @db.ObjectId
   description           String?
   overview              String?

@@ -292,13 +292,13 @@ export async function applyPortalApplicationSync({
         );
       }
 
-      // Bell notification for the recruiter who owns the job: candidate applied.
+      // Bell notification for recruiters who own the job: candidate applied.
       try {
         const fullNameForBell =
           `${existing.firstName || ''} ${existing.lastName || ''}`.trim() ||
           existing.email ||
           'A candidate';
-        await createUserNotification(activityActor, {
+        const bellPayload = {
           category: 'CANDIDATE',
           title: previouslyRejected ? 'Candidate re-applied' : 'Candidate applied for job',
           description: `${fullNameForBell} applied to ${job.title || 'a job'}${
@@ -313,7 +313,17 @@ export async function applyPortalApplicationSync({
             jobId: jId,
             jobTitle: job.title || null,
           },
-        });
+        };
+        const recruiterIds = new Set([activityActor]);
+        if (job.assignedToId && job.assignedToId !== activityActor) {
+          recruiterIds.add(job.assignedToId);
+        }
+        if (job.createdById && job.createdById !== activityActor) {
+          recruiterIds.add(job.createdById);
+        }
+        await Promise.allSettled(
+          Array.from(recruiterIds).map((uid) => createUserNotification(uid, bellPayload))
+        );
       } catch (bellErr) {
         console.warn(
           '[applyPortalApplicationSync] notification failed (non-fatal):',

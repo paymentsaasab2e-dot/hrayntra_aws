@@ -1183,6 +1183,18 @@ export async function apiUploadUserAvatar(userId: string, file: File) {
   });
 }
 
+export async function apiUploadCandidateAvatar(candidateId: string, file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('entityType', 'candidate');
+  formData.append('entityId', candidateId);
+  formData.append('fileType', 'Photo');
+  return apiFetchFormData<{ id?: string; fileUrl?: string }>('/files', formData, {
+    method: 'POST',
+    auth: true,
+  });
+}
+
 // ────────────────────────────────────────────────────────────
 // Jobs
 // ────────────────────────────────────────────────────────────
@@ -2829,6 +2841,14 @@ export const apiUpdatePlacement = async (
   return apiFetch<Placement>(`/placements/${id}`, {
     method: 'PATCH',
     body: payload,
+    auth: true,
+  });
+};
+
+export const apiUpdatePlacementStatus = async (id: string, status: string) => {
+  return apiFetch<Placement>(`/placements/${id}/status`, {
+    method: 'PATCH',
+    body: { status },
     auth: true,
   });
 };

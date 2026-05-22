@@ -57,6 +57,7 @@ router.post(
   placementController.createInvoice
 );
 router.get('/:id', requireAnyPermission(['placements_read']), placementController.getById);
+router.patch('/:id/status', requireAnyPermission(['placements_update']), placementController.updateStatus);
 router.patch('/:id', requireAnyPermission(['placements_update']), placementController.update);
 router.patch('/:id/mark-joined', requireAnyPermission(['placements_update']), upload.single('joiningLetter'), placementController.markJoined);
 router.patch('/:id/mark-failed', requireAnyPermission(['placements_update']), placementController.markFailed);

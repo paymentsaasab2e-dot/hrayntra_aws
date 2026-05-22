@@ -261,39 +261,51 @@ function StepPanel({ step, currentStep, title, children }) {
   );
 }
 
-function CandidatePhotoUpload({ preview, onSelectFile, onRemove }) {
+export function CandidatePhotoUpload({ preview, onSelectFile, onRemove, className = '' }) {
   return (
-    <div className="space-y-2 sm:col-span-2">
-      <label className={labelClass}>Candidate Image (optional)</label>
-      <div className="flex flex-wrap items-center gap-4 rounded-xl border border-dashed border-slate-300 bg-slate-50/80 p-4">
+    <div className={`space-y-2 ${className}`}>
+      <label className={labelClass}>Candidate photo (optional)</label>
+      <div className="flex flex-col gap-4 rounded-2xl border border-dashed border-slate-300 bg-gradient-to-br from-slate-50 to-white p-4 sm:flex-row sm:items-center">
         {preview ? (
-          <img src={preview} alt="Candidate preview" className="h-20 w-20 rounded-full border border-slate-200 object-cover" />
+          <img
+            src={preview}
+            alt="Candidate preview"
+            className="h-24 w-24 shrink-0 rounded-full border-2 border-white object-cover shadow-md ring-2 ring-slate-200"
+          />
         ) : (
-          <div className="flex h-20 w-20 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400">
-            <UserRound size={32} />
+          <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-slate-200 bg-white text-slate-400">
+            <UserRound size={36} />
           </div>
         )}
-        <div className="flex flex-col gap-2">
-          <label className="inline-flex cursor-pointer items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
-            Upload photo
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) onSelectFile(file);
-                e.target.value = '';
-              }}
-            />
-          </label>
-          {preview ? (
-            <button type="button" onClick={onRemove} className="text-xs font-semibold text-red-600 hover:text-red-700">
-              Remove photo
-            </button>
-          ) : (
-            <p className="text-xs text-slate-500">JPG, PNG, or WebP · max 5MB</p>
-          )}
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <p className="text-sm text-slate-600">
+            Upload a profile image for this candidate. It appears in the candidates list and profile drawer.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="inline-flex cursor-pointer items-center justify-center rounded-xl bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#1D4ED8]">
+              {preview ? 'Change photo' : 'Upload image'}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) onSelectFile(file);
+                  e.target.value = '';
+                }}
+              />
+            </label>
+            {preview ? (
+              <button
+                type="button"
+                onClick={onRemove}
+                className="rounded-xl border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
+              >
+                Remove
+              </button>
+            ) : null}
+          </div>
+          <p className="text-xs text-slate-500">JPG, PNG, WebP, or GIF · max 5MB</p>
         </div>
       </div>
     </div>
@@ -316,9 +328,6 @@ export function AddCandidateFormSections({
   resumeFileRef,
   parsedResumeFile,
   activeTab,
-  avatarPreview,
-  onAvatarFile,
-  onAvatarRemove,
   renderCandidateConflict,
   handleDuplicateCheck,
   validateEmail,
@@ -485,7 +494,6 @@ export function AddCandidateFormSections({
             onChange={(e) => updateFormData('zip', e.target.value)}
             autoFilled={autoFilledFields.zip}
           />
-          <CandidatePhotoUpload preview={avatarPreview} onSelectFile={onAvatarFile} onRemove={onAvatarRemove} />
           <DrawerInput
             label="Nationality"
             value={formData.nationality}

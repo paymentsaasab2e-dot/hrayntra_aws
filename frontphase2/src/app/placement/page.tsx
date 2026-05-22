@@ -97,6 +97,7 @@ function PlacementsPageContent() {
     clientOptions,
     recruiterOptions,
     createPlacement,
+    updatePlacementStatus,
     markJoined,
     markFailed,
     requestReplacement,
@@ -304,6 +305,19 @@ function PlacementsPageContent() {
                                     toast.success('Placement deleted successfully');
                                   } catch (deleteError: any) {
                                     toast.error(deleteError.message || 'Failed to delete placement');
+                                  }
+                                }
+                              : undefined
+                          }
+                          onStatusChange={
+                            canUpdatePlacement
+                              ? async (placement, status) => {
+                                  try {
+                                    await updatePlacementStatus(placement.id, status);
+                                    toast.success('Placement status updated');
+                                  } catch (statusError: any) {
+                                    toast.error(statusError.message || 'Failed to update status');
+                                    throw statusError;
                                   }
                                 }
                               : undefined

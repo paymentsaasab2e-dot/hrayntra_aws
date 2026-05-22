@@ -22,12 +22,12 @@ import {
   apiBulkImportCandidates,
   apiCheckCandidateDuplicate,
   apiCreateCandidateFromDrawer,
-  apiFetchFormData,
   apiGetCandidateTagSuggestions,
   apiGetJobs,
   apiGetUsers,
   apiParseCandidateResume,
   apiUpdateCandidate,
+  apiUploadCandidateAvatar,
   apiUploadCandidateResumeFile,
   buildSocketBaseUrl,
 } from '@/lib/api';
@@ -44,7 +44,7 @@ import {
 } from '@/lib/candidateEducation';
 import { MY_JOBS_LIST_PARAMS } from '@/lib/myJobsListParams';
 import { addFailedBulkResumeRecords, removeFailedBulkResumesByFileName } from '@/lib/failedBulkResumesStore';
-import { AddCandidateFormSections, CANDIDATE_FORM_STEPS } from './AddCandidateFormSections';
+import { AddCandidateFormSections, CANDIDATE_FORM_STEPS, CandidatePhotoUpload } from './AddCandidateFormSections';
 import {
   appendBulkCvTokenRecord,
   beginBulkCvTokenSession,
@@ -1168,13 +1168,13 @@ export default function AddCandidateDrawer({
   };
 
   const uploadCandidateAvatar = async (candidateId, file) => {
-    const body = new FormData();
-    body.append('file', file);
-    body.append('entityType', 'candidate');
-    body.append('entityId', candidateId);
-    body.append('fileType', 'Photo');
-    const response = await apiFetchFormData('/files', body, { method: 'POST', auth: true });
-    return response?.data?.fileUrl || response?.fileUrl || null;
+    const response = await apiUploadCandidateAvatar(candidateId, file);
+    const data = response?.data;
+    return (
+      (typeof data === 'object' && data?.fileUrl) ||
+      (typeof data === 'string' ? data : null) ||
+      null
+    );
   };
 
   const handleDuplicateCheck = async (field) => {
@@ -1279,6 +1279,15 @@ export default function AddCandidateDrawer({
       source: prev.source || nextData.source,
       initialNote: prev.initialNote || nextData.initialNote,
     }));
+    const importedAvatar = nextData.avatar;
+    if (importedAvatar && /^https?:\/\//i.test(importedAvatar)) {
+      if (avatarPreviewRef.current && avatarPreviewRef.current.startsWith('blob:')) {
+        URL.revokeObjectURL(avatarPreviewRef.current);
+      }
+      avatarPreviewRef.current = '';
+      setAvatarPreview(importedAvatar);
+      setAvatarFile(null);
+    }
     setParsedData(data);
     setResumeAnalysis(data.score || null);
     setAutoFilledFields(normalizeAutoFilledFields(nextData));
@@ -2204,10 +2213,7 @@ export default function AddCandidateDrawer({
         try {
           const photoUrl = await uploadCandidateAvatar(candidateId, avatarFile);
           if (photoUrl) {
-            const updated = await apiUpdateCandidate(candidateId, { avatar: photoUrl });
-            if (updated?.data) {
-              candidate = { ...candidate, ...updated.data };
-            }
+            candidate = { ...candidate, avatar: photoUrl };
           }
         } catch (photoError) {
           console.error('Candidate photo upload failed:', photoError);
@@ -2624,7 +2630,12 @@ export default function AddCandidateDrawer({
           ) : null}
 
           {activeTab === 'resume' ? (
-            <div className="mb-5">
+            <div className="mb-5 space-y-4">
+              <CandidatePhotoUpload
+                preview={avatarPreview || formData.avatar}
+                onSelectFile={handleAvatarFile}
+                onRemove={clearAvatarFile}
+              />
               {!parsedResumeFile ? (
                 <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-6 py-8 text-center">
                   <Upload size={24} className="mb-3 text-slate-400" />
@@ -3351,6 +3362,14 @@ export default function AddCandidateDrawer({
             </div>
           ) : activeTab === 'bulkResume' ? null : (
             <>
+              {activeTab === 'manual' ? (
+                <CandidatePhotoUpload
+                  preview={avatarPreview || formData.avatar}
+                  onSelectFile={handleAvatarFile}
+                  onRemove={clearAvatarFile}
+                  className="mb-4"
+                />
+              ) : null}
               <StepProgress currentStep={currentStep} />
               <AddCandidateFormSections
               currentStep={currentStep}
@@ -3368,9 +3387,6 @@ export default function AddCandidateDrawer({
               resumeFileRef={resumeFileRef}
               parsedResumeFile={parsedResumeFile}
               activeTab={activeTab}
-              avatarPreview={avatarPreview || formData.avatar}
-              onAvatarFile={handleAvatarFile}
-              onAvatarRemove={clearAvatarFile}
               renderCandidateConflict={renderCandidateConflict}
               handleDuplicateCheck={handleDuplicateCheck}
               validateEmail={validateEmail}

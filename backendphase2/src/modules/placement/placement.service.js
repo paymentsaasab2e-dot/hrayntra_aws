@@ -1,4 +1,5 @@
 import { prisma } from '../../config/prisma.js';
+import { getCandidateOrThrow } from '../candidate/candidate.service.js';
 import { sendPlacementEmail } from '../../emails/email.service.js';
 import {
   PIPELINE_STAGES,
@@ -77,7 +78,18 @@ function normalizeEmploymentType(value) {
 function normalizePlacementStatus(value) {
   if (!value) return null;
   const normalized = String(value).trim().toUpperCase();
-  if (!['FAILED', 'NO_SHOW', 'WITHDRAWN', 'REPLACEMENT_REQUIRED', 'JOINED', 'JOINING_SCHEDULED', 'OFFER_ACCEPTED'].includes(normalized)) {
+  if (
+    ![
+      'FAILED',
+      'NO_SHOW',
+      'WITHDRAWN',
+      'REPLACEMENT_REQUIRED',
+      'REPLACED',
+      'JOINED',
+      'JOINING_SCHEDULED',
+      'OFFER_ACCEPTED',
+    ].includes(normalized)
+  ) {
     throw new Error('Invalid placement status');
   }
   return normalized;
@@ -449,10 +461,7 @@ export const placementService = {
     }
 
     const [candidate, job, recruiter] = await Promise.all([
-      prisma.candidate.findUnique({
-        where: { id: data.candidateId },
-        select: { id: true, firstName: true, lastName: true, email: true },
-      }),
+      getCandidateOrThrow(data.candidateId),
       prisma.job.findUnique({
         where: { id: data.jobId },
         select: { id: true, title: true, clientId: true },
@@ -462,8 +471,6 @@ export const placementService = {
         select: { id: true, name: true },
       }),
     ]);
-
-    if (!candidate) throw new Error('Candidate not found');
     if (!job) throw new Error('Job not found');
     if (!recruiter) throw new Error('Recruiter not found');
 
@@ -807,6 +814,70 @@ export const placementService = {
     });
 
     return fetchPlacementOrThrow(updatedPlacement.id);
+  },
+
+  /**
+   * Change placement status from the placements table dropdown.
+   * Reuses mark-joined / mark-failed flows when those side effects apply.
+   */
+  async updateStatus(id, data, userId) {
+    const nextStatus = normalizePlacementStatus(data.status);
+    if (!nextStatus) {
+      throw new Error('Status is required');
+    }
+
+    const existing = await fetchPlacementOrThrow(id);
+    if (existing.status === nextStatus) {
+      return fetchPlacementOrThrow(id);
+    }
+
+    if (nextStatus === 'JOINED') {
+      const joiningDate =
+        data.actualJoiningDate ||
+        existing.actualJoiningDate ||
+        existing.joiningDate ||
+        new Date().toISOString();
+      return this.markJoined(
+        id,
+        {
+          actualJoiningDate: joiningDate,
+          confirmationNote:
+            data.confirmationNote?.trim() || 'Status updated to Joined from placements table',
+        },
+        userId,
+        null,
+      );
+    }
+
+    if (['FAILED', 'NO_SHOW', 'WITHDRAWN'].includes(nextStatus)) {
+      return this.markFailed(id, {
+        status: nextStatus,
+        reason:
+          data.reason?.trim() ||
+          `Status changed to ${nextStatus.replace(/_/g, ' ').toLowerCase()} from placements table`,
+        notes: data.notes,
+      }, userId);
+    }
+
+    if (nextStatus === 'REPLACEMENT_REQUIRED') {
+      return this.requestReplacement(id, {
+        reason: data.reason?.trim() || 'Replacement requested from placements table',
+        expectedReplacementDate: data.expectedReplacementDate,
+      }, userId);
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.placement.update({
+        where: { id },
+        data: { status: nextStatus },
+      });
+      await createPlacementActivity(tx, id, `Status changed to ${nextStatus}`, userId, {
+        previousStatus: existing.status,
+        nextStatus,
+      });
+    });
+
+    return fetchPlacementOrThrow(id);
   },
 
   async markJoined(id, data, userId, file) {

@@ -54,8 +54,10 @@ import {
   apiGetClients,
   apiGetJob,
   apiGetJobs,
+  apiUploadCandidateAvatar,
   type UpdateCandidatePayload,
 } from '../../lib/api';
+import { toast } from 'sonner';
 import { parseClientsListFromResponse, parseJobsListFromResponse } from '../../lib/parseApiList';
 import {
   clampDateToMinLocal,
@@ -66,6 +68,15 @@ import {
 import { profileCanSubmitToClient } from '../../lib/candidateSubmitToClient';
 import { CandidateAtsExtractedOverview } from '../candidates/CandidateAtsExtractedOverview';
 import { mergeProfileWithClientPresentation } from '../../lib/clientPresentationDraft';
+
+const MAX_EDIT_AVATAR_FILE_BYTES = 5 * 1024 * 1024;
+
+function resolveCandidateAvatarPreviewUrl(raw: string, uploadsBase: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('blob:') || /^https?:\/\//i.test(trimmed)) return trimmed;
+  return buildFileHref(trimmed, uploadsBase);
+}
 
 export interface CandidateTagItem {
   id: string;
@@ -3625,6 +3636,9 @@ export function CandidateProfileDrawer({
   const [rejectModalJobId, setRejectModalJobId] = useState<string | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editForm, setEditForm] = useState<CandidateEditFormState | null>(null);
+  const [editAvatarFile, setEditAvatarFile] = useState<File | null>(null);
+  const [editAvatarPreview, setEditAvatarPreview] = useState('');
+  const editAvatarPreviewRef = useRef('');
   const [editError, setEditError] = useState('');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
@@ -3793,6 +3807,35 @@ export function CandidateProfileDrawer({
     setEditForm((prev) => (prev ? { ...prev, [field]: value } : prev));
   };
 
+  const handleEditAvatarFile = (file: File) => {
+    if (!file) return;
+    if (file.size > MAX_EDIT_AVATAR_FILE_BYTES) {
+      toast.error('Photo must be 5MB or smaller.');
+      return;
+    }
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please upload an image file.');
+      return;
+    }
+    if (editAvatarPreviewRef.current) {
+      URL.revokeObjectURL(editAvatarPreviewRef.current);
+    }
+    const preview = URL.createObjectURL(file);
+    editAvatarPreviewRef.current = preview;
+    setEditAvatarPreview(preview);
+    setEditAvatarFile(file);
+  };
+
+  const clearEditAvatarFile = () => {
+    if (editAvatarPreviewRef.current) {
+      URL.revokeObjectURL(editAvatarPreviewRef.current);
+      editAvatarPreviewRef.current = '';
+    }
+    setEditAvatarPreview('');
+    setEditAvatarFile(null);
+    updateEditField('avatar', '');
+  };
+
   const handleEditSave = async () => {
     if (!candidate || !editForm || !onUpdateCandidate) return;
 
@@ -3803,7 +3846,31 @@ export function CandidateProfileDrawer({
 
       const payload = buildUpdatePayloadFromEditForm(editForm, candidate.extraData);
 
+      if (editAvatarFile) {
+        try {
+          const uploadResponse = await apiUploadCandidateAvatar(candidate.id, editAvatarFile);
+          const data = uploadResponse?.data;
+          const photoUrl =
+            (typeof data === 'object' && data?.fileUrl) ||
+            (typeof data === 'string' ? data : null);
+          if (photoUrl) {
+            payload.avatar = photoUrl;
+          }
+        } catch (photoError: unknown) {
+          const message =
+            photoError instanceof Error ? photoError.message : 'Photo upload failed';
+          setEditError(message);
+          return;
+        }
+      }
+
       await Promise.resolve(onUpdateCandidate(candidate.id, payload));
+
+      if (editAvatarPreviewRef.current) {
+        URL.revokeObjectURL(editAvatarPreviewRef.current);
+        editAvatarPreviewRef.current = '';
+      }
+      setEditAvatarFile(null);
       if (openEditDirectly) {
         onClose();
       } else {
@@ -3936,6 +4003,9 @@ export function CandidateProfileDrawer({
                         onChange={updateEditField}
                         recruiters={recruiters}
                         jobs={jobs}
+                        avatarPreview={editAvatarPreview}
+                        onAvatarFile={handleEditAvatarFile}
+                        onAvatarRemove={clearEditAvatarFile}
                       />
                     </div>
 
