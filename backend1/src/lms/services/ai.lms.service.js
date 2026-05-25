@@ -5,7 +5,6 @@ const MistralClient = require('@mistralai/mistralai');
 const { OPENAI_CHAT_MODEL } = require('../../config/openaiModel');
 
 const MISTRAL_CHAT_MODEL = process.env.MISTRAL_CHAT_MODEL || 'mistral-small-latest';
-const { OPENAI_CHAT_MODEL } = require('../../config/openaiModel');
 
 function applyEnvOpenAiModel(client) {
   if (!client?.chat?.completions?.create) return client;

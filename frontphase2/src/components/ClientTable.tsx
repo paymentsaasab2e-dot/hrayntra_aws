@@ -14,6 +14,14 @@ const stageColors: Record<ClientStage, string> = {
   'Hot Clients 🔥': 'bg-rose-500/15 text-rose-800',
 };
 
+const leadStatusColors: Record<string, string> = {
+  New: 'bg-blue-500/10 text-blue-800 ring-1 ring-blue-500/20',
+  Contacted: 'bg-amber-500/10 text-amber-900 ring-1 ring-amber-500/20',
+  Qualified: 'bg-violet-500/10 text-violet-800 ring-1 ring-violet-500/20',
+  Converted: 'bg-emerald-500/10 text-emerald-800 ring-1 ring-emerald-500/20',
+  Lost: 'bg-slate-500/10 text-slate-700 ring-1 ring-slate-400/25',
+};
+
 interface ClientTableProps {
   clients: Client[];
   selectedIds: string[];
@@ -125,7 +133,7 @@ export function ClientTable({
         className="hidden"
       />
       <div className="no-scrollbar overflow-x-auto">
-        <table className="w-full min-w-[760px] border-collapse text-left">
+        <table className="w-full min-w-[860px] border-collapse text-left">
           <thead>
             <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em]">
               <th className="w-10 px-3 sm:px-4 py-2 first:pl-4">
@@ -152,6 +160,7 @@ export function ClientTable({
               <th className="px-3 sm:px-4 py-2">Industry</th>
               <th className="px-3 sm:px-4 py-2">Location</th>
               <th className="px-3 sm:px-4 py-2">Stage</th>
+              <th className="px-3 sm:px-4 py-2">Lead Status</th>
               <th className="px-3 sm:px-4 py-2">Recruiter</th>
               <th className="px-3 sm:px-4 py-2">Last Activity</th>
               <th className="px-3 sm:px-4 py-2 text-right">Actions</th>
@@ -223,6 +232,19 @@ export function ClientTable({
                   >
                     {client.stage}
                   </span>
+                </td>
+                <td className="px-3 sm:px-4 py-2">
+                  {client.leadStatus ? (
+                    <span
+                      className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                        leadStatusColors[client.leadStatus] ?? 'bg-indigo-500/10 text-indigo-800 ring-1 ring-indigo-500/20'
+                      }`}
+                    >
+                      {client.leadStatus}
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-slate-400">-</span>
+                  )}
                 </td>
                 <td className="px-3 sm:px-4 py-2">
                   <div className="flex items-center gap-2">

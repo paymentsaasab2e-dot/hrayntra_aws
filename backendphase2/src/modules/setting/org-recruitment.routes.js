@@ -17,6 +17,14 @@ import {
   getOrgCustomCompanyServices,
   setCompanyServices,
   appendCompanyService,
+  getOrgCustomLeadStatusOptions,
+  getLeadStatusOptions,
+  appendLeadStatusOption,
+  DEFAULT_LEAD_STATUS_OPTIONS,
+  getOrgCustomClientLeadStatusOptions,
+  getClientLeadStatusOptions,
+  appendClientLeadStatusOption,
+  DEFAULT_CLIENT_LEAD_STATUS_OPTIONS,
   DEFAULT_COMPANY_SERVICES,
   RECOMMENDED_COMPANY_SERVICES,
   SUBSCRIPTION_PLAN_OPTIONS,
@@ -218,6 +226,60 @@ router.post('/company-services/append', async (req, res) => {
     sendResponse(res, 200, 'Service added', { services });
   } catch (error) {
     sendError(res, 400, error.message || 'Failed to add company service', error);
+  }
+});
+
+router.get('/lead-statuses', async (req, res) => {
+  try {
+    const custom = await getOrgCustomLeadStatusOptions();
+    const statuses = await getLeadStatusOptions();
+    sendResponse(res, 200, 'OK', {
+      statuses,
+      custom,
+      defaults: DEFAULT_LEAD_STATUS_OPTIONS,
+    });
+  } catch (error) {
+    sendError(res, 500, error.message || 'Failed to load lead statuses', error);
+  }
+});
+
+router.post('/lead-statuses/append', async (req, res) => {
+  try {
+    const status = req.body?.status ?? req.body?.name ?? req.body;
+    const statuses = await appendLeadStatusOption(status);
+    sendResponse(res, 200, 'Lead status added', {
+      statuses,
+      defaults: DEFAULT_LEAD_STATUS_OPTIONS,
+    });
+  } catch (error) {
+    sendError(res, 400, error.message || 'Failed to add lead status', error);
+  }
+});
+
+router.get('/client-lead-statuses', async (req, res) => {
+  try {
+    const custom = await getOrgCustomClientLeadStatusOptions();
+    const statuses = await getClientLeadStatusOptions();
+    sendResponse(res, 200, 'OK', {
+      statuses,
+      custom,
+      defaults: DEFAULT_CLIENT_LEAD_STATUS_OPTIONS,
+    });
+  } catch (error) {
+    sendError(res, 500, error.message || 'Failed to load client statuses', error);
+  }
+});
+
+router.post('/client-lead-statuses/append', async (req, res) => {
+  try {
+    const status = req.body?.status ?? req.body?.name ?? req.body;
+    const statuses = await appendClientLeadStatusOption(status);
+    sendResponse(res, 200, 'Client status added', {
+      statuses,
+      defaults: DEFAULT_CLIENT_LEAD_STATUS_OPTIONS,
+    });
+  } catch (error) {
+    sendError(res, 400, error.message || 'Failed to add client status', error);
   }
 });
 

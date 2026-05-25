@@ -432,6 +432,28 @@ function getFilterOptions(datasetId, filters, rows) {
   });
 }
 
+function sanitizeWidgetsToSinglePerModule(widgets = []) {
+  if (!Array.isArray(widgets)) return [];
+  const next = [];
+  const seen = new Map();
+  for (const widget of widgets) {
+    if (!widget || typeof widget !== 'object') continue;
+    const key = String(widget.module || widget.datasetId || '').trim().toLowerCase();
+    if (!key) {
+      next.push(widget);
+      continue;
+    }
+    const existingIndex = seen.get(key);
+    if (existingIndex === undefined) {
+      seen.set(key, next.length);
+      next.push(widget);
+    } else {
+      next[existingIndex] = widget;
+    }
+  }
+  return next;
+}
+
 async function fetchDatasetRows(datasetId, req, filters) {
   let rows;
   switch (datasetId) {
@@ -543,15 +565,16 @@ export const dashboardService = {
 
   async getLayout(userId) {
     const layout = await prisma.userDashboardLayout.findUnique({ where: { userId } });
+    const widgets = sanitizeWidgetsToSinglePerModule(layout?.widgets);
     return {
-      widgets: Array.isArray(layout?.widgets) ? layout.widgets : [],
+      widgets,
       version: layout?.version ?? 1,
       updatedAt: layout?.updatedAt ?? null,
     };
   },
 
   async saveLayout(userId, widgets = []) {
-    const safeWidgets = Array.isArray(widgets) ? widgets : [];
+    const safeWidgets = sanitizeWidgetsToSinglePerModule(widgets);
     const layout = await prisma.userDashboardLayout.upsert({
       where: { userId },
       create: { userId, widgets: safeWidgets, version: 1 },

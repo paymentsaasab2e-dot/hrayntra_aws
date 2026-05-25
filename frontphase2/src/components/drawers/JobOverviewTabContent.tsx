@@ -210,8 +210,6 @@ export function JobOverviewTabContent({
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <OverviewField label="Video or Image Link" value={displayValue(job.videoMediaLink)} />
-          <OverviewField label="Forecast Revenue" value={displayValue(job.forecastRevenue)} />
           <OverviewField label="Assign Manager" value={displayValue(job.managerName)} />
           <OverviewField label="Assign Recruiter" value={recruiterDisplay} />
         </div>

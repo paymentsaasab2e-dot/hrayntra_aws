@@ -191,6 +191,8 @@ export async function setDefaultCurrency(code) {
 }
 
 const KEY_COMPANY_SERVICES = 'companyServices';
+const KEY_LEAD_STATUS_OPTIONS = 'leadStatusOptions';
+const KEY_CLIENT_LEAD_STATUS_OPTIONS = 'clientLeadStatusOptions';
 
 /** Default recruitment services offered by the agency (org can extend via settings). */
 export const DEFAULT_COMPANY_SERVICES = [
@@ -215,7 +217,21 @@ export const RECOMMENDED_COMPANY_SERVICES = [
   'Executive Search',
 ];
 
+export const DEFAULT_LEAD_STATUS_OPTIONS = [
+  'New',
+  'Contacted',
+  'Qualified',
+  'Converted',
+  'Lost',
+];
+
+export const DEFAULT_CLIENT_LEAD_STATUS_OPTIONS = [...DEFAULT_LEAD_STATUS_OPTIONS];
+
 export function normalizeServiceLabel(raw) {
+  return String(raw || '').trim().replace(/\s+/g, ' ');
+}
+
+function normalizeStatusLabel(raw) {
   return String(raw || '').trim().replace(/\s+/g, ' ');
 }
 
@@ -224,6 +240,20 @@ export function uniqueServicesCaseInsensitive(list) {
   const out = [];
   for (const item of list) {
     const label = normalizeServiceLabel(item);
+    if (!label) continue;
+    const key = label.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(label);
+  }
+  return out;
+}
+
+function uniqueStatusesCaseInsensitive(list) {
+  const seen = new Set();
+  const out = [];
+  for (const item of list) {
+    const label = normalizeStatusLabel(item);
     if (!label) continue;
     const key = label.toLowerCase();
     if (seen.has(key)) continue;
@@ -243,6 +273,20 @@ function parseServicesFromSettingValue(value) {
   }
   if (typeof value === 'string') {
     return uniqueServicesCaseInsensitive(value.split(/[;,]/));
+  }
+  return [];
+}
+
+function parseStatusesFromSettingValue(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return uniqueStatusesCaseInsensitive(value.map((v) => (typeof v === 'string' ? v : v?.name ?? v?.label ?? '')));
+  }
+  if (typeof value === 'object' && Array.isArray(value.statuses)) {
+    return uniqueStatusesCaseInsensitive(value.statuses.map((v) => (typeof v === 'string' ? v : v?.name ?? v?.label ?? '')));
+  }
+  if (typeof value === 'string') {
+    return uniqueStatusesCaseInsensitive(value.split(/[;,]/));
   }
   return [];
 }
@@ -278,6 +322,73 @@ export async function appendCompanyService(service) {
   const nextCustom = uniqueServicesCaseInsensitive([...existingCustom, label]);
   await upsertOrgSettingJson(KEY_COMPANY_SERVICES, { services: nextCustom });
   return getCompanyServices();
+}
+
+async function getOrgCustomStatusOptions(key) {
+  const row = await findOrgSettingRow(key);
+  return parseStatusesFromSettingValue(row?.value);
+}
+
+async function setOrgCustomStatusOptions(key, statuses) {
+  if (!Array.isArray(statuses)) throw new Error('statuses must be an array');
+  const normalized = uniqueStatusesCaseInsensitive(statuses);
+  await upsertOrgSettingJson(key, { statuses: normalized });
+  return normalized;
+}
+
+async function getMergedStatusOptions(key, defaults) {
+  const custom = await getOrgCustomStatusOptions(key);
+  return uniqueStatusesCaseInsensitive([...defaults, ...custom]);
+}
+
+async function appendOrgStatusOption(key, defaults, status, label = 'Status') {
+  const normalized = normalizeStatusLabel(status);
+  if (!normalized) throw new Error(`${label} name is required`);
+  const current = await getMergedStatusOptions(key, defaults);
+  if (current.some((item) => item.toLowerCase() === normalized.toLowerCase())) {
+    return current;
+  }
+  const existingCustom = await getOrgCustomStatusOptions(key);
+  const nextCustom = uniqueStatusesCaseInsensitive([...existingCustom, normalized]);
+  await upsertOrgSettingJson(key, { statuses: nextCustom });
+  return getMergedStatusOptions(key, defaults);
+}
+
+export async function getOrgCustomLeadStatusOptions() {
+  return getOrgCustomStatusOptions(KEY_LEAD_STATUS_OPTIONS);
+}
+
+export async function getLeadStatusOptions() {
+  return getMergedStatusOptions(KEY_LEAD_STATUS_OPTIONS, DEFAULT_LEAD_STATUS_OPTIONS);
+}
+
+export async function setLeadStatusOptions(statuses) {
+  return setOrgCustomStatusOptions(KEY_LEAD_STATUS_OPTIONS, statuses);
+}
+
+export async function appendLeadStatusOption(status) {
+  return appendOrgStatusOption(KEY_LEAD_STATUS_OPTIONS, DEFAULT_LEAD_STATUS_OPTIONS, status, 'Lead status');
+}
+
+export async function getOrgCustomClientLeadStatusOptions() {
+  return getOrgCustomStatusOptions(KEY_CLIENT_LEAD_STATUS_OPTIONS);
+}
+
+export async function getClientLeadStatusOptions() {
+  return getMergedStatusOptions(KEY_CLIENT_LEAD_STATUS_OPTIONS, DEFAULT_CLIENT_LEAD_STATUS_OPTIONS);
+}
+
+export async function setClientLeadStatusOptions(statuses) {
+  return setOrgCustomStatusOptions(KEY_CLIENT_LEAD_STATUS_OPTIONS, statuses);
+}
+
+export async function appendClientLeadStatusOption(status) {
+  return appendOrgStatusOption(
+    KEY_CLIENT_LEAD_STATUS_OPTIONS,
+    DEFAULT_CLIENT_LEAD_STATUS_OPTIONS,
+    status,
+    'Client status',
+  );
 }
 
 const LEGACY_FOUR_STAGE_NAMES = new Set(['apply', 'interview', 'reject', 'placed']);

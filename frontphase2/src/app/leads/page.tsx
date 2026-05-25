@@ -37,6 +37,7 @@ import type { Lead, LeadSource, LeadStatus, Priority } from './types';
 import {
   apiGetLeads,
   apiGetLead,
+  apiGetLeadStatusCatalog,
   apiUpdateLead,
   apiDeleteLead,
   apiConvertLeadToClient,
@@ -222,20 +223,47 @@ const INITIAL_LEADS: Lead[] = [
 // --- Components ---
 
 const StatusTag = ({ status }: { status: LeadStatus }) => {
-  const styles = {
+  const styles: Record<string, string> = {
     New: 'bg-blue-500/10 text-blue-800 ring-1 ring-blue-500/20 shadow-sm shadow-blue-500/5',
     Contacted: 'bg-amber-500/10 text-amber-900 ring-1 ring-amber-500/20 shadow-sm',
     Qualified: 'bg-violet-500/10 text-violet-800 ring-1 ring-violet-500/20 shadow-sm',
     Converted: 'bg-emerald-500/10 text-emerald-800 ring-1 ring-emerald-500/20 shadow-sm',
     Lost: 'bg-slate-500/10 text-slate-700 ring-1 ring-slate-400/25',
   };
+  const badgeClass =
+    styles[String(status || '').trim()] ||
+    'bg-indigo-500/10 text-indigo-800 ring-1 ring-indigo-500/20 shadow-sm';
 
   return (
-    <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-semibold tracking-wide ${styles[status]}`}>
+    <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-semibold tracking-wide ${badgeClass}`}>
       {status}
     </span>
   );
 };
+
+const DEFAULT_LEAD_STATUS_OPTIONS: LeadStatus[] = ['New', 'Contacted', 'Qualified', 'Converted', 'Lost'];
+
+function mergeLeadStatusOptions(
+  savedStatuses: string[] | null | undefined,
+  currentStatuses: Array<string | null | undefined> = [],
+) {
+  const seen = new Set<string>();
+  const merged: LeadStatus[] = [];
+  const push = (value: string | null | undefined) => {
+    const normalized = String(value || '').trim();
+    if (!normalized) return;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(normalized as LeadStatus);
+  };
+
+  DEFAULT_LEAD_STATUS_OPTIONS.forEach(push);
+  (savedStatuses || []).forEach(push);
+  currentStatuses.forEach(push);
+
+  return merged;
+}
 
 const PriorityTag = ({ priority }: { priority: Priority }) => {
   const styles = {
@@ -433,6 +461,7 @@ export default function RecruitmentAgencyDashboard() {
   const [recycleBinDrawerOpen, setRecycleBinDrawerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<LeadStatus | 'All'>('All');
+  const [leadStatusOptions, setLeadStatusOptions] = useState<LeadStatus[]>(DEFAULT_LEAD_STATUS_OPTIONS);
   const [sourceFilter, setSourceFilter] = useState('');
   const [recruiterFilter, setRecruiterFilter] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null); // null = not checked yet
@@ -524,6 +553,40 @@ export default function RecruitmentAgencyDashboard() {
 
     fetchUsers();
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchLeadStatusCatalog = async () => {
+      try {
+        const response = await apiGetLeadStatusCatalog();
+        if (cancelled) return;
+        setLeadStatusOptions(
+          mergeLeadStatusOptions(
+            response?.data?.statuses,
+            leads.map((lead) => lead.status),
+          ),
+        );
+      } catch (err) {
+        if (cancelled) return;
+        console.error('Failed to load lead status catalog:', err);
+        setLeadStatusOptions(
+          mergeLeadStatusOptions(undefined, leads.map((lead) => lead.status)),
+        );
+      }
+    };
+
+    void fetchLeadStatusCatalog();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    setLeadStatusOptions((current) =>
+      mergeLeadStatusOptions(current as string[], leads.map((lead) => lead.status)),
+    );
+  }, [leads]);
 
   const loadLeadMetrics = async () => {
     try {
@@ -1490,11 +1553,11 @@ export default function RecruitmentAgencyDashboard() {
                     }}
                   >
                     <option value="All">All Status</option>
-                    <option value="New">New</option>
-                    <option value="Contacted">Contacted</option>
-                    <option value="Qualified">Qualified</option>
-                    <option value="Converted">Converted</option>
-                    <option value="Lost">Lost</option>
+                    {leadStatusOptions.map((status) => (
+                      <option key={status} value={status}>
+                        {status}
+                      </option>
+                    ))}
                   </select>
 
                   <select
@@ -1653,11 +1716,11 @@ export default function RecruitmentAgencyDashboard() {
                                       handleInlineStatusChange(lead.id, e.target.value as LeadStatus)
                                     }
                                   >
-                                    <option value="New">New</option>
-                                    <option value="Contacted">Contacted</option>
-                                    <option value="Qualified">Qualified</option>
-                                    <option value="Converted">Converted</option>
-                                    <option value="Lost">Lost</option>
+                                    {mergeLeadStatusOptions(leadStatusOptions, [lead.status]).map((status) => (
+                                      <option key={status} value={status}>
+                                        {status}
+                                      </option>
+                                    ))}
                                   </select>
                                 ) : (
                                   <StatusTag status={lead.status} />
@@ -1968,11 +2031,11 @@ export default function RecruitmentAgencyDashboard() {
                       style={{ WebkitTextFillColor: '#f1f5f9' }}
                     >
                       <option value="" className="text-slate-900 bg-white">Change Status</option>
-                      <option value="New" className="text-slate-900 bg-white">New</option>
-                      <option value="Contacted" className="text-slate-900 bg-white">Contacted</option>
-                      <option value="Qualified" className="text-slate-900 bg-white">Qualified</option>
-                      <option value="Converted" className="text-slate-900 bg-white">Converted</option>
-                      <option value="Lost" className="text-slate-900 bg-white">Lost</option>
+                      {leadStatusOptions.map((status) => (
+                        <option key={status} value={status} className="text-slate-900 bg-white">
+                          {status}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 )}

@@ -97,7 +97,34 @@ import { ImageWithFallback } from '../ImageWithFallback';
 import { useFiles } from '../../hooks/useFiles';
 import { ScheduleMeetingForm } from '../ScheduleMeetingForm';
 import { NotesService } from '../NotesService';
-import { apiUpdateClient, apiCreateClient, apiGetJobs, apiGetContacts, apiCreateContact, apiUpdateContact, apiDeleteContact, apiFetch, apiGetClientActivities, apiGetClientScheduledMeetings, apiCreateScheduledMeeting, apiUpdateScheduledMeeting, apiDeleteScheduledMeeting, filesApiUpload, apiGetJob, apiUpdateJob, type BackendUser, type BackendJob, type BackendContact, type CreateContactData, type BackendClient, type ScheduledMeeting, isOrgBillingNavEnabled, ORG_RECRUITMENT_CACHE_EVENT } from '../../lib/api';
+import {
+  apiAppendClientLeadStatus,
+  apiCreateClient,
+  apiCreateContact,
+  apiCreateScheduledMeeting,
+  apiDeleteContact,
+  apiDeleteScheduledMeeting,
+  apiFetch,
+  apiGetClientActivities,
+  apiGetClientLeadStatusCatalog,
+  apiGetClientScheduledMeetings,
+  apiGetContacts,
+  apiGetJob,
+  apiGetJobs,
+  apiUpdateClient,
+  apiUpdateContact,
+  apiUpdateJob,
+  apiUpdateScheduledMeeting,
+  filesApiUpload,
+  type BackendUser,
+  type BackendJob,
+  type BackendContact,
+  type CreateContactData,
+  type BackendClient,
+  type ScheduledMeeting,
+  isOrgBillingNavEnabled,
+  ORG_RECRUITMENT_CACHE_EVENT,
+} from '../../lib/api';
 import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { requestConfirm, requestError, requestSuccess, requestWarning } from '../../lib/appDialog';
 import { CreateJobDrawer } from './CreateJobDrawer';
@@ -165,7 +192,7 @@ type ClientOverviewForm = {
   expectedBusinessValue: string;
   nextFollowUpDue: string;
   sla: string;
-  status: 'ACTIVE' | 'ON_HOLD' | 'INACTIVE';
+  status: 'ACTIVE' | 'PROSPECT' | 'ON_HOLD' | 'INACTIVE';
   assignedToId: string;
   companyLinks: string[];
   directorSalutation: string;
@@ -173,7 +200,7 @@ type ClientOverviewForm = {
   state: string;
   latitude: number | null;
   longitude: number | null;
-  leadStatusValue: 'New' | 'Contacted' | 'Qualified' | 'Converted' | 'Lost';
+  leadStatusValue: string;
   assignedToIds: string[];
   agreementsFileName: string;
   agreementsFileUrl: string;
@@ -188,6 +215,38 @@ type ClientOverviewForm = {
   teamMemberEmail: string;
   teamMemberPhone: string;
 };
+
+const DEFAULT_CLIENT_LEAD_STATUSES = ['New', 'Contacted', 'Qualified', 'Converted', 'Lost'] as const;
+
+function isDefaultClientLeadStatus(status: string | null | undefined) {
+  return DEFAULT_CLIENT_LEAD_STATUSES.includes(String(status || '').trim() as (typeof DEFAULT_CLIENT_LEAD_STATUSES)[number]);
+}
+
+function mergeClientLeadStatusOptions(
+  savedStatuses: string[] | null | undefined,
+  currentStatus: string | null | undefined,
+) {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  const push = (value: string | null | undefined) => {
+    const normalized = String(value || '').trim();
+    if (!normalized) return;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(normalized);
+  };
+
+  DEFAULT_CLIENT_LEAD_STATUSES.forEach(push);
+  (savedStatuses || []).forEach(push);
+  push(currentStatus);
+
+  return merged;
+}
+
+function deriveClientLifecycleStatus(leadStatusValue: string) {
+  return String(leadStatusValue || '').trim() === 'Converted' ? 'ACTIVE' : 'PROSPECT';
+}
 
 function mergeClientLocationSelection<T extends ClientOverviewForm>(
   prev: T,
@@ -482,7 +541,7 @@ export function ClientDetailsDrawer({
     latitude: null as number | null,
     longitude: null as number | null,
     /** Lead-style funnel status (New/Contacted/Qualified/Converted/Lost). Stored on Client.leadStatus. */
-    leadStatusValue: 'New' as 'New' | 'Contacted' | 'Qualified' | 'Converted' | 'Lost',
+    leadStatusValue: 'New',
     /** Multi-assignee mirror, matches LeadAssigneesMultiSelect contract. */
     assignedToIds: [] as string[],
     // Agreements & Terms — primary contract/NDA shown on the client overview.
@@ -494,6 +553,15 @@ export function ClientDetailsDrawer({
     teamMemberEmail: '',
     teamMemberPhone: '',
   });
+  const [clientLeadStatusIsCustom, setClientLeadStatusIsCustom] = useState(false);
+  const [clientLeadStatusCatalog, setClientLeadStatusCatalog] = useState<string[]>([...DEFAULT_CLIENT_LEAD_STATUSES]);
+  const [showAddClientLeadStatusInput, setShowAddClientLeadStatusInput] = useState(false);
+  const [newClientLeadStatusValue, setNewClientLeadStatusValue] = useState('');
+  const [savingClientLeadStatus, setSavingClientLeadStatus] = useState(false);
+  const clientLeadStatusOptions = useMemo(
+    () => mergeClientLeadStatusOptions(clientLeadStatusCatalog, overviewEditForm.leadStatusValue),
+    [clientLeadStatusCatalog, overviewEditForm.leadStatusValue],
+  );
   const clientLogoInputRef = useRef<HTMLInputElement>(null);
   const agreementsInputRef = useRef<HTMLInputElement>(null);
 
@@ -1205,8 +1273,7 @@ export function ClientDetailsDrawer({
         ? fetchedClient.longitude
         : (typeof client.longitude === 'number' ? client.longitude : null),
       leadStatusValue: (
-        (fetchedClient?.leadStatus || client.leadStatusValue || 'New') as
-        'New' | 'Contacted' | 'Qualified' | 'Converted' | 'Lost'
+        fetchedClient?.leadStatus || client.leadStatusValue || 'New'
       ),
       assignedToIds: assignedToId ? [assignedToId] : [],
       agreementsFileName: fetchedClient?.agreementsFileName || client.agreementsFileName || '',
@@ -1219,6 +1286,12 @@ export function ClientDetailsDrawer({
     setPendingAgreementsFile(null);
     setPendingKycFiles([]);
     setPendingTeamMemberKycFiles([]);
+    setClientLeadStatusCatalog((current) =>
+      mergeClientLeadStatusOptions(current, fetchedClient?.leadStatus || client.leadStatusValue || 'New'),
+    );
+    setClientLeadStatusIsCustom(
+      !isDefaultClientLeadStatus(fetchedClient?.leadStatus || client.leadStatusValue || 'New'),
+    );
     setOverviewEditMode(true);
     // Open all sections for editing
     setOverviewOpen({
@@ -1239,6 +1312,10 @@ export function ClientDetailsDrawer({
   };
 
   const saveOverviewEdit = async () => {
+    if (clientLeadStatusIsCustom && !String(overviewEditForm.leadStatusValue || '').trim()) {
+      toast.error('Enter a custom status before saving.');
+      return;
+    }
     if (isAddMode) {
       // Create new client
       if (!overviewEditForm.companyName.trim()) {
@@ -1255,8 +1332,8 @@ export function ClientDetailsDrawer({
           .map((link) => String(link || '').trim())
           .filter(Boolean);
         const primaryWebsite = cleanedCompanyLinks[0] || overviewEditForm.website?.trim() || undefined;
-        const leadStatusValue = overviewEditForm.leadStatusValue || 'New';
-        const derivedClientStatus = leadStatusValue === 'Converted' ? 'ACTIVE' : 'PROSPECT';
+        const leadStatusValue = String(overviewEditForm.leadStatusValue || 'New').trim() || 'New';
+        const derivedClientStatus = deriveClientLifecycleStatus(leadStatusValue);
         const primaryAssignedToId = overviewEditForm.assignedToIds?.[0] || overviewEditForm.assignedToId || undefined;
         const contactChannels = buildContactChannelsFromForm(
           overviewEditForm.contactEmails,
@@ -1467,6 +1544,9 @@ export function ClientDetailsDrawer({
         if (overviewEditForm.nextFollowUpDue !== undefined) updateData.nextFollowUpDue = overviewEditForm.nextFollowUpDue || null;
         if (overviewEditForm.sla !== undefined) updateData.sla = overviewEditForm.sla || null;
         if (overviewEditForm.status !== undefined) updateData.status = overviewEditForm.status;
+        if (overviewEditForm.leadStatusValue !== undefined) {
+          updateData.leadStatus = String(overviewEditForm.leadStatusValue || 'New').trim() || 'New';
+        }
         if (overviewEditForm.assignedToId !== undefined) {
           updateData.assignedToId = overviewEditForm.assignedToId || null;
         }
@@ -1676,6 +1756,56 @@ export function ClientDetailsDrawer({
     fetchUsers();
   }, []);
 
+  useEffect(() => {
+    if (!propIsAddMode && !client) return;
+
+    let cancelled = false;
+    const fetchClientLeadStatusCatalog = async () => {
+      try {
+        const response = await apiGetClientLeadStatusCatalog();
+        if (cancelled) return;
+        setClientLeadStatusCatalog(
+          mergeClientLeadStatusOptions(response?.data?.statuses, client?.leadStatusValue ?? overviewEditForm.leadStatusValue),
+        );
+      } catch (error) {
+        if (cancelled) return;
+        console.error('Failed to load client statuses:', error);
+        setClientLeadStatusCatalog(
+          mergeClientLeadStatusOptions([...DEFAULT_CLIENT_LEAD_STATUSES], client?.leadStatusValue ?? overviewEditForm.leadStatusValue),
+        );
+      }
+    };
+
+    fetchClientLeadStatusCatalog();
+    return () => {
+      cancelled = true;
+    };
+  }, [propIsAddMode, client?.id]);
+
+  const addClientLeadStatusOption = async (onSelect: (status: string) => void) => {
+    const status = String(newClientLeadStatusValue || '').trim();
+    if (!status) {
+      toast.error('Enter a status name first.');
+      return;
+    }
+
+    setSavingClientLeadStatus(true);
+    try {
+      const response = await apiAppendClientLeadStatus(status);
+      const nextOptions = mergeClientLeadStatusOptions(response?.data?.statuses, status);
+      setClientLeadStatusCatalog(nextOptions);
+      onSelect(status);
+      setNewClientLeadStatusValue('');
+      setShowAddClientLeadStatusInput(false);
+      setClientLeadStatusIsCustom(false);
+      toast.success(`Status "${status}" added.`);
+    } catch (error) {
+      requestError(error, 'Failed to add status');
+    } finally {
+      setSavingClientLeadStatus(false);
+    }
+  };
+
   // Fetch client activities whenever client changes
   useEffect(() => {
     const fetchActivities = async () => {
@@ -1830,6 +1960,7 @@ export function ClientDetailsDrawer({
   // Reset form when entering add mode
   useEffect(() => {
     if (isAddMode) {
+      setClientLeadStatusIsCustom(false);
       timezoneManuallyEditedRef.current = false;
       // Reset form to empty values when opening in add mode
       setOverviewEditForm((prev) => ({
@@ -2453,24 +2584,71 @@ export function ClientDetailsDrawer({
                             />
                           </div>
                           <div>
-                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Status</label>
+                            <div className="mb-1 flex items-center justify-between gap-3">
+                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">Status</label>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowAddClientLeadStatusInput((prev) => !prev);
+                                  setNewClientLeadStatusValue('');
+                                }}
+                                className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                                Add status
+                              </button>
+                            </div>
                             <select
-                              value={overviewEditForm.leadStatusValue}
+                              value={overviewEditForm.leadStatusValue || 'New'}
                               onChange={(e) =>
                                 setOverviewEditForm((p) => ({
                                   ...p,
-                                  leadStatusValue: e.target.value as 'New' | 'Contacted' | 'Qualified' | 'Converted' | 'Lost',
-                                  status: (e.target.value === 'Converted' ? 'ACTIVE' : 'PROSPECT') as any,
+                                  leadStatusValue: e.target.value,
+                                  status: deriveClientLifecycleStatus(e.target.value),
                                 }))
                               }
                               className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
                             >
-                              <option value="New">New</option>
-                              <option value="Contacted">Contacted</option>
-                              <option value="Qualified">Qualified</option>
-                              <option value="Converted">Converted</option>
-                              <option value="Lost">Lost</option>
+                              {clientLeadStatusOptions.map((status) => (
+                                <option key={status} value={status}>{status}</option>
+                              ))}
                             </select>
+                            {showAddClientLeadStatusInput ? (
+                              <div className="mt-2 flex items-center gap-2">
+                                <input
+                                  value={newClientLeadStatusValue}
+                                  onChange={(e) => setNewClientLeadStatusValue(e.target.value)}
+                                  className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                  placeholder="Enter new status"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    addClientLeadStatusOption((status) =>
+                                      setOverviewEditForm((p) => ({
+                                        ...p,
+                                        leadStatusValue: status,
+                                        status: deriveClientLifecycleStatus(status),
+                                      }))
+                                    )
+                                  }
+                                  disabled={savingClientLeadStatus}
+                                  className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {savingClientLeadStatus ? 'Adding...' : 'Add'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowAddClientLeadStatusInput(false);
+                                    setNewClientLeadStatusValue('');
+                                  }}
+                                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : null}
                           </div>
                           <div>
                             <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Interest Level</label>
@@ -3505,25 +3683,71 @@ export function ClientDetailsDrawer({
                                 />
                               </div>
                               <div>
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Status</label>
+                                <div className="mb-1 flex items-center justify-between gap-3">
+                                  <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">Status</label>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setShowAddClientLeadStatusInput((prev) => !prev);
+                                      setNewClientLeadStatusValue('');
+                                    }}
+                                    className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
+                                  >
+                                    <Plus className="h-3.5 w-3.5" />
+                                    Add status
+                                  </button>
+                                </div>
                                 <select
-                                  value={overviewEditForm.leadStatusValue}
+                                  value={overviewEditForm.leadStatusValue || 'New'}
                                   onChange={(e) =>
                                     setOverviewEditForm((p) => ({
                                       ...p,
-                                      leadStatusValue: e.target.value as 'New' | 'Contacted' | 'Qualified' | 'Converted' | 'Lost',
-                                      // Mirror Add Lead's funnel semantics — only "Converted" promotes to ACTIVE.
-                                      status: (e.target.value === 'Converted' ? 'ACTIVE' : 'PROSPECT') as any,
+                                      leadStatusValue: e.target.value,
+                                      status: deriveClientLifecycleStatus(e.target.value),
                                     }))
                                   }
                                   className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
                                 >
-                                  <option value="New">New</option>
-                                  <option value="Contacted">Contacted</option>
-                                  <option value="Qualified">Qualified</option>
-                                  <option value="Converted">Converted</option>
-                                  <option value="Lost">Lost</option>
+                                  {clientLeadStatusOptions.map((status) => (
+                                    <option key={status} value={status}>{status}</option>
+                                  ))}
                                 </select>
+                                {showAddClientLeadStatusInput ? (
+                                  <div className="mt-2 flex items-center gap-2">
+                                    <input
+                                      value={newClientLeadStatusValue}
+                                      onChange={(e) => setNewClientLeadStatusValue(e.target.value)}
+                                      className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                      placeholder="Enter new status"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        addClientLeadStatusOption((status) =>
+                                          setOverviewEditForm((p) => ({
+                                            ...p,
+                                            leadStatusValue: status,
+                                            status: deriveClientLifecycleStatus(status),
+                                          }))
+                                        )
+                                      }
+                                      disabled={savingClientLeadStatus}
+                                      className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                      {savingClientLeadStatus ? 'Adding...' : 'Add'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setShowAddClientLeadStatusInput(false);
+                                        setNewClientLeadStatusValue('');
+                                      }}
+                                      className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                ) : null}
                               </div>
                               <div>
                                 <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Interest Level</label>

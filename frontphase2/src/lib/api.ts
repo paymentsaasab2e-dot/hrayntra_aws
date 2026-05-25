@@ -566,6 +566,36 @@ export async function apiAppendCompanyService(service: string) {
   });
 }
 
+export interface StatusCatalogResponse {
+  statuses: string[];
+  defaults?: string[];
+  custom?: string[];
+}
+
+export async function apiGetLeadStatusCatalog() {
+  return apiFetch<StatusCatalogResponse>('/settings/org/lead-statuses', { auth: true });
+}
+
+export async function apiAppendLeadStatus(status: string) {
+  return apiFetch<StatusCatalogResponse>('/settings/org/lead-statuses/append', {
+    method: 'POST',
+    auth: true,
+    body: { status },
+  });
+}
+
+export async function apiGetClientLeadStatusCatalog() {
+  return apiFetch<StatusCatalogResponse>('/settings/org/client-lead-statuses', { auth: true });
+}
+
+export async function apiAppendClientLeadStatus(status: string) {
+  return apiFetch<StatusCatalogResponse>('/settings/org/client-lead-statuses/append', {
+    method: 'POST',
+    auth: true,
+    body: { status },
+  });
+}
+
 export async function apiApplyPipelineTemplateToEmptyJobs() {
   return apiFetch<{
     updatedJobs: number;
@@ -3247,7 +3277,7 @@ export interface CreateLeadData {
   phones?: string[];
   type?: 'Company' | 'Individual' | 'Referral';
   source?: 'Website' | 'LinkedIn' | 'Email' | 'Referral' | 'Campaign';
-  status?: 'New' | 'Contacted' | 'Qualified' | 'Converted' | 'Lost';
+  status?: string;
   priority?: 'High' | 'Medium' | 'Low';
   interestedNeeds?: string;
   servicesNeeded?: string;

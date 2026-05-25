@@ -60,11 +60,23 @@ import {
   FileText,
   X,
 } from 'lucide-react';
-import type { Lead, LeadStatus, LeadSource, LeadType, LeadNote, LeadNoteTag, Activity as LeadActivity } from '@/app/leads/types';
+import type { DefaultLeadStatus, Lead, LeadStatus, LeadSource, LeadType, LeadNote, LeadNoteTag, Activity as LeadActivity } from '@/app/leads/types';
 import { ImageWithFallback } from '../ImageWithFallback';
 import { ScheduleMeetingForm } from '../ScheduleMeetingForm';
 import { NotesService } from '../NotesService';
-import { apiCreateLead, apiUpdateLead, apiGetLead, apiGetLeadActivities, apiGenerateLeadDetails, filesApiUpload, type CreateLeadData, type BackendActivity, type BackendLead } from '../../lib/api';
+import {
+  apiAppendLeadStatus,
+  apiCreateLead,
+  apiGenerateLeadDetails,
+  apiGetLead,
+  apiGetLeadActivities,
+  apiGetLeadStatusCatalog,
+  apiUpdateLead,
+  filesApiUpload,
+  type CreateLeadData,
+  type BackendActivity,
+  type BackendLead,
+} from '../../lib/api';
 import { KycDocumentsField, KycDocumentsView } from '../documents/KycDocumentsField';
 import { AgreementDocumentUpload } from '../documents/AgreementDocumentUpload';
 import { AgreementTermsSection } from '../agreements/AgreementTermsSection';
@@ -118,13 +130,41 @@ function mergeLocationFields<
   };
 }
 
-const STATUS_STYLES: Record<LeadStatus, string> = {
+const DEFAULT_LEAD_STATUSES: DefaultLeadStatus[] = ['New', 'Contacted', 'Qualified', 'Converted', 'Lost'];
+
+const STATUS_STYLES: Record<DefaultLeadStatus, string> = {
   New: 'bg-blue-50 text-blue-700 border-blue-100',
   Contacted: 'bg-yellow-50 text-yellow-700 border-yellow-100',
   Qualified: 'bg-purple-50 text-purple-700 border-purple-100',
   Converted: 'bg-green-50 text-green-700 border-green-100',
   Lost: 'bg-gray-50 text-gray-700 border-gray-100',
 };
+
+function isDefaultLeadStatus(status: string | null | undefined): status is DefaultLeadStatus {
+  return DEFAULT_LEAD_STATUSES.includes(String(status || '').trim() as DefaultLeadStatus);
+}
+
+function mergeLeadStatusOptions(
+  savedStatuses: string[] | null | undefined,
+  currentStatus: string | null | undefined,
+) {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  const push = (value: string | null | undefined) => {
+    const normalized = String(value || '').trim();
+    if (!normalized) return;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(normalized);
+  };
+
+  DEFAULT_LEAD_STATUSES.forEach(push);
+  (savedStatuses || []).forEach(push);
+  push(currentStatus);
+
+  return merged;
+}
 
 const NOTE_TAG_OPTIONS: (LeadNoteTag | 'All')[] = ['All', 'HR', 'Finance', 'Contract', 'Feedback'];
 
@@ -497,6 +537,11 @@ export function LeadDetailsDrawer({
     lastFollowUp: '',
     nextFollowUp: '',
   });
+  const [addLeadStatusIsCustom, setAddLeadStatusIsCustom] = useState(false);
+  const [leadStatusCatalog, setLeadStatusCatalog] = useState<string[]>(DEFAULT_LEAD_STATUSES);
+  const [showAddLeadStatusInput, setShowAddLeadStatusInput] = useState(false);
+  const [newLeadStatusValue, setNewLeadStatusValue] = useState('');
+  const [savingLeadStatus, setSavingLeadStatus] = useState(false);
   const [addLeadErrors, setAddLeadErrors] = useState<LeadRequiredFieldErrors>({});
 
   /** Pending Agreements & Terms file selected in the Add Lead form (uploaded after the lead is created). */
@@ -557,6 +602,28 @@ export function LeadDetailsDrawer({
     
     fetchRecruiters();
   }, [addLeadMode, lead]);
+
+  useEffect(() => {
+    if (!addLeadMode && !lead) return;
+
+    let cancelled = false;
+    const fetchLeadStatusCatalog = async () => {
+      try {
+        const response = await apiGetLeadStatusCatalog();
+        if (cancelled) return;
+        setLeadStatusCatalog(mergeLeadStatusOptions(response?.data?.statuses, lead?.status ?? addLeadForm.status));
+      } catch (error) {
+        if (cancelled) return;
+        console.error('Failed to load lead statuses:', error);
+        setLeadStatusCatalog(mergeLeadStatusOptions(DEFAULT_LEAD_STATUSES, lead?.status ?? addLeadForm.status));
+      }
+    };
+
+    fetchLeadStatusCatalog();
+    return () => {
+      cancelled = true;
+    };
+  }, [addLeadMode, lead?.id]);
 
   const pushLeadAiMessage = (role: LeadAiMessage['role'], content: string) => {
     setLeadAiMessages((prev) => [
@@ -644,7 +711,7 @@ export function LeadDetailsDrawer({
         teamMemberEmail: form.teamMemberEmail,
         teamMemberPhone: form.teamMemberPhone,
       }),
-      status: form.status || 'New',
+      status: String(form.status || 'New').trim() || 'New',
       priority: form.priority || 'Medium',
       servicesNeeded: form.interestedNeeds?.trim() || undefined,
       interestedNeeds: form.interestedNeeds?.trim() || undefined,
@@ -659,6 +726,7 @@ export function LeadDetailsDrawer({
   };
 
   const resetAddLeadForm = () => {
+    setAddLeadStatusIsCustom(false);
     setAddLeadForm({
       ...emptyAgreementTerms(),
       companyName: '',
@@ -970,6 +1038,7 @@ export function LeadDetailsDrawer({
     teamMemberEmail: '',
     teamMemberPhone: '',
   });
+  const [overviewStatusIsCustom, setOverviewStatusIsCustom] = useState(false);
   const [activityFilter, setActivityFilter] = useState<'all' | 'calls' | 'messages' | 'emails'>('all');
   const [activities, setActivities] = useState<LeadActivity[]>([]);
   const [loadingActivities, setLoadingActivities] = useState(false);
@@ -1334,6 +1403,7 @@ export function LeadDetailsDrawer({
   const startOverviewEdit = () => {
     if (!lead) return;
     setOverviewEditErrors({});
+    setOverviewStatusIsCustom(!isDefaultLeadStatus(lead.status));
     setOverviewEditForm({
       companyName: lead.companyName,
       industry: lead.industry ?? '',
@@ -1399,6 +1469,7 @@ export function LeadDetailsDrawer({
     setPendingOverviewKycFiles([]);
     setPendingOverviewTeamMemberKycFiles([]);
     if (overviewAgreementsInputRef.current) overviewAgreementsInputRef.current.value = '';
+    setLeadStatusCatalog((current) => mergeLeadStatusOptions(current, lead.status));
     setOverviewEditMode(true);
     setOverviewOpen({ company: true, contact: true, leadDetails: true });
   };
@@ -1411,8 +1482,46 @@ export function LeadDetailsDrawer({
     if (overviewAgreementsInputRef.current) overviewAgreementsInputRef.current.value = '';
   };
 
+  const addLeadStatusOptions = React.useMemo(
+    () => mergeLeadStatusOptions(leadStatusCatalog, addLeadForm.status),
+    [leadStatusCatalog, addLeadForm.status],
+  );
+  const overviewLeadStatusOptions = React.useMemo(
+    () => mergeLeadStatusOptions(leadStatusCatalog, overviewEditForm.status),
+    [leadStatusCatalog, overviewEditForm.status],
+  );
+
+  const addLeadStatusOption = async (onSelect: (status: string) => void) => {
+    const status = String(newLeadStatusValue || '').trim();
+    if (!status) {
+      toast.error('Enter a status name first.');
+      return;
+    }
+
+    setSavingLeadStatus(true);
+    try {
+      const response = await apiAppendLeadStatus(status);
+      const nextOptions = mergeLeadStatusOptions(response?.data?.statuses, status);
+      setLeadStatusCatalog(nextOptions);
+      onSelect(status);
+      setNewLeadStatusValue('');
+      setShowAddLeadStatusInput(false);
+      setAddLeadStatusIsCustom(false);
+      setOverviewStatusIsCustom(false);
+      toast.success(`Status "${status}" added.`);
+    } catch (error) {
+      requestError(error, 'Failed to add status');
+    } finally {
+      setSavingLeadStatus(false);
+    }
+  };
+
   const saveOverviewEdit = async () => {
     if (!lead) return;
+    if (overviewStatusIsCustom && !String(overviewEditForm.status || '').trim()) {
+      toast.error('Enter a custom status before saving.');
+      return;
+    }
 
     const nextErrors = validateLeadRequiredFields(overviewEditForm);
     setOverviewEditErrors(nextErrors);
@@ -1480,7 +1589,7 @@ export function LeadDetailsDrawer({
             teamMemberPhone: overviewEditForm.teamMemberPhone,
           },
         ),
-        status: overviewEditForm.status,
+        status: String(overviewEditForm.status || 'New').trim() || 'New',
         priority: overviewEditForm.priority,
         assignedToId: overviewEditForm.assignedToIds?.[0] || overviewEditForm.assignedToId || undefined,
         assignedToIds: overviewEditForm.assignedToIds && overviewEditForm.assignedToIds.length > 0
@@ -1606,7 +1715,9 @@ export function LeadDetailsDrawer({
                   <>
                     <h2 className="text-lg font-bold text-slate-900 truncate">{lead!.companyName}</h2>
                     <span
-                      className={`inline-block mt-2 px-2.5 py-0.5 rounded-full text-xs font-medium border ${STATUS_STYLES[lead!.status]}`}
+                      className={`inline-block mt-2 px-2.5 py-0.5 rounded-full text-xs font-medium border ${
+                        STATUS_STYLES[lead!.status as DefaultLeadStatus] || 'bg-slate-50 text-slate-700 border-slate-200'
+                      }`}
                     >
                       {lead!.status}
                     </span>
@@ -2706,14 +2817,59 @@ export function LeadDetailsDrawer({
                           />
                         </div>
                         <div>
-                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Status</label>
-                          <select value={addLeadForm.status ?? 'New'} onChange={(e) => setAddLeadForm((p) => ({ ...p, status: e.target.value as LeadStatus }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white">
-                            <option value="New">New</option>
-                            <option value="Contacted">Contacted</option>
-                            <option value="Qualified">Qualified</option>
-                            <option value="Converted">Converted</option>
-                            <option value="Lost">Lost</option>
+                          <div className="mb-1 flex items-center justify-between gap-3">
+                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">Status</label>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowAddLeadStatusInput((prev) => !prev);
+                                setNewLeadStatusValue('');
+                              }}
+                              className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                              Add status
+                            </button>
+                          </div>
+                          <select
+                            value={addLeadForm.status ?? 'New'}
+                            onChange={(e) => setAddLeadForm((p) => ({ ...p, status: e.target.value as LeadStatus }))}
+                            className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
+                          >
+                            {addLeadStatusOptions.map((status) => (
+                              <option key={status} value={status}>
+                                {status}
+                              </option>
+                            ))}
                           </select>
+                          {showAddLeadStatusInput ? (
+                            <div className="mt-2 flex items-center gap-2">
+                              <input
+                                value={newLeadStatusValue}
+                                onChange={(e) => setNewLeadStatusValue(e.target.value)}
+                                className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                placeholder="Enter new status"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => addLeadStatusOption((status) => setAddLeadForm((p) => ({ ...p, status: status as LeadStatus })))}
+                                disabled={savingLeadStatus}
+                                className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {savingLeadStatus ? 'Adding...' : 'Add'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowAddLeadStatusInput(false);
+                                  setNewLeadStatusValue('');
+                                }}
+                                className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : null}
                         </div>
                         <div>
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Interest Level</label>
@@ -2759,32 +2915,6 @@ export function LeadDetailsDrawer({
                         <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Expected Business Value</label>
                         <textarea value={addLeadForm.notes ?? ''} onChange={(e) => setAddLeadForm((p) => ({ ...p, notes: e.target.value }))} rows={3} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-none" placeholder="e.g. Potential annual business of $50,000" />
                       </div>
-                      <KycDocumentsField
-                        pendingFiles={pendingAddLeadKycFiles}
-                        onPendingFilesChange={setPendingAddLeadKycFiles}
-                        uploading={uploadingKyc}
-                        uploadSuccess={kycUploadFeedback.uploadSuccess}
-                        uploadPercent={kycUploadFeedback.uploadPercent}
-                        disabled={uploadingAgreements}
-                      />
-                      <AgreementTermsSection
-                        values={addLeadForm}
-                        onChange={(patch) => setAddLeadForm((p) => ({ ...p, ...patch }))}
-                        disabled={uploadingKyc || uploadingAgreements}
-                        uploadSlot={
-                          <AgreementDocumentUpload
-                            description="Upload the signed agreement, MoU, or terms document for this lead. PDF, DOC, DOCX up to 10MB."
-                            pendingFile={pendingAddLeadAgreementsFile}
-                            onPendingFileChange={setPendingAddLeadAgreementsFile}
-                            currentTerms={addLeadForm}
-                            onTermsExtracted={(terms) => setAddLeadForm((p) => ({ ...p, ...terms }))}
-                            isUploading={uploadingAgreements}
-                            uploadSuccess={agreementsUploadFeedback.uploadSuccess}
-                            uploadPercent={agreementsUploadFeedback.uploadPercent}
-                            disabled={uploadingKyc}
-                          />
-                        }
-                      />
                       {Array.isArray(addLeadForm.otherDetails) && addLeadForm.otherDetails.length ? (
                         <div>
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Other Details</label>
@@ -2978,18 +3108,59 @@ export function LeadDetailsDrawer({
                       <div className="px-5 pb-5 pt-0 border-t border-slate-100 space-y-4">
                         <div className="grid grid-cols-2 gap-4">
                           <div>
-                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Status</label>
+                            <div className="mb-1 flex items-center justify-between gap-3">
+                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">Status</label>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowAddLeadStatusInput((prev) => !prev);
+                                  setNewLeadStatusValue('');
+                                }}
+                                className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                                Add status
+                              </button>
+                            </div>
                             <select
                               value={addLeadForm.status ?? 'New'}
                               onChange={(e) => setAddLeadForm((p) => ({ ...p, status: e.target.value as LeadStatus }))}
                               className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
                             >
-                              <option value="New">New</option>
-                              <option value="Contacted">Contacted</option>
-                              <option value="Qualified">Qualified</option>
-                              <option value="Converted">Converted</option>
-                              <option value="Lost">Lost</option>
+                              {addLeadStatusOptions.map((status) => (
+                                <option key={status} value={status}>
+                                  {status}
+                                </option>
+                              ))}
                             </select>
+                            {showAddLeadStatusInput ? (
+                              <div className="mt-2 flex items-center gap-2">
+                                <input
+                                  value={newLeadStatusValue}
+                                  onChange={(e) => setNewLeadStatusValue(e.target.value)}
+                                  className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                  placeholder="Enter new status"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => addLeadStatusOption((status) => setAddLeadForm((p) => ({ ...p, status: status as LeadStatus })))}
+                                  disabled={savingLeadStatus}
+                                  className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {savingLeadStatus ? 'Adding...' : 'Add'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowAddLeadStatusInput(false);
+                                    setNewLeadStatusValue('');
+                                  }}
+                                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : null}
                           </div>
                           <div>
                             <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Interest Level</label>
@@ -3045,34 +3216,6 @@ export function LeadDetailsDrawer({
                             }}
                           />
                         </div>
-                        <AgreementTermsSection
-                          values={addLeadForm}
-                          onChange={(patch) => setAddLeadForm((p) => ({ ...p, ...patch }))}
-                          disabled={uploadingKyc || uploadingAgreements}
-                          uploadSlot={
-                            <AgreementDocumentUpload
-                              description="Upload the signed agreement, MoU, or terms document for this lead. PDF, DOC, DOCX up to 10MB."
-                              pendingFile={pendingAddLeadAgreementsFile}
-                              onPendingFileChange={setPendingAddLeadAgreementsFile}
-                              currentTerms={addLeadForm}
-                              onTermsExtracted={(terms) => setAddLeadForm((p) => ({ ...p, ...terms }))}
-                              isUploading={uploadingAgreements}
-                              uploadSuccess={agreementsUploadFeedback.uploadSuccess}
-                              uploadPercent={agreementsUploadFeedback.uploadPercent}
-                              disabled={uploadingKyc}
-                            />
-                          }
-                        />
-                        <div className="mt-4">
-                          <KycDocumentsField
-                            pendingFiles={pendingAddLeadKycFiles}
-                            onPendingFilesChange={setPendingAddLeadKycFiles}
-                            uploading={uploadingKyc}
-                            uploadSuccess={kycUploadFeedback.uploadSuccess}
-                            uploadPercent={kycUploadFeedback.uploadPercent}
-                            disabled={uploadingAgreements}
-                          />
-                        </div>
                       </div>
                     )}
                   </section>
@@ -3093,6 +3236,10 @@ export function LeadDetailsDrawer({
                         const nextErrors = validateLeadRequiredFields(addLeadForm);
                         setAddLeadErrors(nextErrors);
                         if (Object.keys(nextErrors).length > 0) {
+                          return;
+                        }
+                        if (addLeadStatusIsCustom && !String(addLeadForm.status || '').trim()) {
+                          toast.error('Enter a custom status before creating the lead.');
                           return;
                         }
                         
@@ -3544,14 +3691,59 @@ export function LeadDetailsDrawer({
                               <input value={overviewEditForm.industry} onChange={(e) => setOverviewEditForm((p) => ({ ...p, industry: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
                             </div>
                             <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Status</label>
-                              <select value={overviewEditForm.status} onChange={(e) => setOverviewEditForm((p) => ({ ...p, status: e.target.value as LeadStatus }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white">
-                                <option value="New">New</option>
-                                <option value="Contacted">Contacted</option>
-                                <option value="Qualified">Qualified</option>
-                                <option value="Converted">Converted</option>
-                                <option value="Lost">Lost</option>
+                              <div className="mb-1 flex items-center justify-between gap-3">
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">Status</label>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowAddLeadStatusInput((prev) => !prev);
+                                    setNewLeadStatusValue('');
+                                  }}
+                                  className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
+                                >
+                                  <Plus className="h-3.5 w-3.5" />
+                                  Add status
+                                </button>
+                              </div>
+                              <select
+                                value={overviewEditForm.status || 'New'}
+                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, status: e.target.value as LeadStatus }))}
+                                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
+                              >
+                                {overviewLeadStatusOptions.map((status) => (
+                                  <option key={status} value={status}>
+                                    {status}
+                                  </option>
+                                ))}
                               </select>
+                              {showAddLeadStatusInput ? (
+                                <div className="mt-2 flex items-center gap-2">
+                                  <input
+                                    value={newLeadStatusValue}
+                                    onChange={(e) => setNewLeadStatusValue(e.target.value)}
+                                    className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                    placeholder="Enter new status"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => addLeadStatusOption((status) => setOverviewEditForm((p) => ({ ...p, status: status as LeadStatus })))}
+                                    disabled={savingLeadStatus}
+                                    className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                  >
+                                    {savingLeadStatus ? 'Adding...' : 'Add'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setShowAddLeadStatusInput(false);
+                                      setNewLeadStatusValue('');
+                                    }}
+                                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              ) : null}
                             </div>
                             <div>
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Interest Level</label>
@@ -4025,16 +4217,57 @@ export function LeadDetailsDrawer({
                               />
                             </div>
                             <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Lead Status</label>
+                              <div className="mb-1 flex items-center justify-between gap-3">
+                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">Lead Status</label>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowAddLeadStatusInput((prev) => !prev);
+                                    setNewLeadStatusValue('');
+                                  }}
+                                  className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
+                                >
+                                  <Plus className="h-3.5 w-3.5" />
+                                  Add status
+                                </button>
+                              </div>
                               <select
-                                value={overviewEditForm.status}
+                                value={overviewEditForm.status || 'New'}
                                 onChange={(e) => setOverviewEditForm((p) => ({ ...p, status: e.target.value as LeadStatus }))}
                                 className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
                               >
-                                {(['New', 'Contacted', 'Qualified', 'Converted', 'Lost'] as const).map((s) => (
-                                  <option key={s} value={s}>{s}</option>
+                                {overviewLeadStatusOptions.map((status) => (
+                                  <option key={status} value={status}>{status}</option>
                                 ))}
                               </select>
+                              {showAddLeadStatusInput ? (
+                                <div className="mt-2 flex items-center gap-2">
+                                  <input
+                                    value={newLeadStatusValue}
+                                    onChange={(e) => setNewLeadStatusValue(e.target.value)}
+                                    className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                    placeholder="Enter new status"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => addLeadStatusOption((status) => setOverviewEditForm((p) => ({ ...p, status: status as LeadStatus })))}
+                                    disabled={savingLeadStatus}
+                                    className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                  >
+                                    {savingLeadStatus ? 'Adding...' : 'Add'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setShowAddLeadStatusInput(false);
+                                      setNewLeadStatusValue('');
+                                    }}
+                                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              ) : null}
                             </div>
                             <div>
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Created Date</label>

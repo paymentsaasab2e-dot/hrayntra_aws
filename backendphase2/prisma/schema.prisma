@@ -810,7 +810,7 @@ model Lead {
   type                   LeadType   @default(Company)
   /// When null/omitted, UI shows no source badge (imports with no Source column).
   source                 LeadSource?
-  status                 LeadStatus @default(New)
+  status                 String     @default("New")
   priority               Priority   @default(Medium)
   interestedNeeds        String?
   servicesNeeded         String?

@@ -12,6 +12,30 @@ import { AddWidgetWizard } from './AddWidgetWizard';
 
 const LAYOUT_STORAGE_KEY = 'customDashboardLayout:v1';
 
+function moduleKey(widget: DashboardWidget) {
+  return String(widget.module || widget.datasetId || '').trim().toLowerCase();
+}
+
+function enforceSingleWidgetPerModule(widgets: DashboardWidget[]) {
+  const next: DashboardWidget[] = [];
+  const seen = new Map<string, number>();
+  for (const widget of widgets) {
+    const key = moduleKey(widget);
+    if (!key) {
+      next.push(widget);
+      continue;
+    }
+    const existingIndex = seen.get(key);
+    if (existingIndex === undefined) {
+      seen.set(key, next.length);
+      next.push(widget);
+    } else {
+      next[existingIndex] = widget;
+    }
+  }
+  return next;
+}
+
 function loadLocalLayout(): DashboardWidget[] {
   if (typeof window === 'undefined') return [];
   try {
@@ -49,14 +73,18 @@ export function CustomDashboard() {
     try {
       const remote = await apiDashboardGetLayout();
       if (remote.length) {
-        setWidgets(remote);
-        persistLocal(remote);
+        const sanitized = enforceSingleWidgetPerModule(remote);
+        setWidgets(sanitized);
+        persistLocal(sanitized);
       } else {
-        const local = loadLocalLayout();
+        const local = enforceSingleWidgetPerModule(loadLocalLayout());
         setWidgets(local);
+        persistLocal(local);
       }
     } catch {
-      setWidgets(loadLocalLayout());
+      const local = enforceSingleWidgetPerModule(loadLocalLayout());
+      setWidgets(local);
+      persistLocal(local);
     } finally {
       setLoading(false);
     }
@@ -78,7 +106,7 @@ export function CustomDashboard() {
 
   const saveLayout = async () => {
     setSaving(true);
-    const toSave = hydrateWidgets(widgets, catalog);
+    const toSave = enforceSingleWidgetPerModule(hydrateWidgets(widgets, catalog));
     persistLocal(toSave);
     try {
       await apiDashboardSaveLayout(toSave);
@@ -102,13 +130,7 @@ export function CustomDashboard() {
   };
 
   const duplicateWidget = (widget: DashboardWidget) => {
-    const copy: DashboardWidget = {
-      ...widget,
-      id: `w_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      title: `${widget.title} (copy)`,
-      y: widget.y + widget.h,
-    };
-    setWidgets((prev) => [...prev, copy]);
+    toast.error(`Only one widget is allowed in ${widget.module || 'this module'}.`);
   };
 
   const nextPosition = useMemo(() => {
@@ -129,11 +151,13 @@ export function CustomDashboard() {
 
   const handleAddWidgets = (batch: DashboardWidget[]) => {
     const withModules = hydrateWidgets(batch, catalog);
-    setWidgets((prev) => [...prev, ...withModules]);
+    setWidgets((prev) => enforceSingleWidgetPerModule([...prev, ...withModules]));
+    const moduleName = withModules[0]?.module || 'dashboard';
+    const replaced = widgets.some((widget) => moduleKey(widget) === moduleKey(withModules[0]));
     toast.success(
-      batch.length === 1
-        ? `Added 1 widget to ${withModules[0]?.module || 'dashboard'}.`
-        : `Added ${batch.length} widgets across your module sections.`
+      replaced
+        ? `Replaced the existing widget in ${moduleName}.`
+        : `Added 1 widget to ${moduleName}.`
     );
   };
 

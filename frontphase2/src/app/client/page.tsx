@@ -716,7 +716,7 @@ export default function App() {
               <div className="border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 p-3 sm:p-4">
                 <div className="h-9 max-w-md rounded-xl bg-white/80 ring-1 ring-indigo-100/80 animate-pulse" />
               </div>
-              <TableSkeleton rows={8} columns={7} />
+              <TableSkeleton rows={8} columns={8} />
             </div>
           ) : error && !loading ? (
             <div className="mb-4 overflow-hidden rounded-xl border border-rose-200/70 bg-white p-8 text-center text-xs font-medium text-rose-600 shadow-sm">

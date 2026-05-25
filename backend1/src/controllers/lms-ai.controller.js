@@ -1,7 +1,6 @@
 const OpenAI = require('openai');
 const { prisma } = require('../lib/prisma');
 const { OPENAI_CHAT_MODEL } = require('../config/openaiModel');
-const { OPENAI_CHAT_MODEL } = require('../config/openaiModel');
 
 function applyEnvOpenAiModel(client) {
   if (!client?.chat?.completions?.create) return client;
