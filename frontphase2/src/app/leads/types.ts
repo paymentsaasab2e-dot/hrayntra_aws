@@ -1,4 +1,5 @@
-export type LeadStatus = 'New' | 'Contacted' | 'Qualified' | 'Converted' | 'Lost';
+export type DefaultLeadStatus = 'New' | 'Contacted' | 'Qualified' | 'Converted' | 'Lost';
+export type LeadStatus = DefaultLeadStatus | (string & {});
 export type LeadType = 'Company' | 'Individual' | 'Referral';
 export type LeadSource = 'Website' | 'LinkedIn' | 'Email' | 'Referral' | 'Campaign';
 export type Priority = 'High' | 'Medium' | 'Low';

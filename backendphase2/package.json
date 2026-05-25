@@ -7,9 +7,7 @@
   "scripts": {
     "preinstall": "node -e \"process.exit(0)\"",
     "clean": "rimraf node_modules && npm install",
-    "predev": "prisma generate",
     "dev": "nodemon --exec tsx --ext ts,js src/server.js",
-    "prestart": "prisma generate",
     "start": "tsx src/server.js",
     "postinstall": "prisma generate || true",
     "prisma:generate": "prisma generate",

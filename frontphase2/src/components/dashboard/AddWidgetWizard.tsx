@@ -131,7 +131,7 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition, initialMod
 
   const widgetCount = useMemo(() => {
     if (!selectedDatasetIds.length || !selectedChartTypes.length) return 0;
-    return selectedDatasetIds.length * selectedChartTypes.length;
+    return 1;
   }, [selectedDatasetIds, selectedChartTypes]);
 
   useEffect(() => {
@@ -205,10 +205,7 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition, initialMod
   if (!open) return null;
 
   const toggleDataset = (datasetId: string, checked: boolean) => {
-    setSelectedDatasetIds((prev) => {
-      if (checked) return prev.includes(datasetId) ? prev : [...prev, datasetId];
-      return prev.filter((id) => id !== datasetId);
-    });
+    setSelectedDatasetIds(checked ? [datasetId] : []);
     if (checked) {
       setPreviewDatasetId(datasetId);
       const meta = allDatasets.find((d) => d.id === datasetId);
@@ -219,21 +216,8 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition, initialMod
     }
   };
 
-  const selectAllInModule = () => {
-    const ids = selectableModuleDatasets.map((d) => d.id);
-    setSelectedDatasetIds(ids);
-    if (ids[0]) setPreviewDatasetId(ids[0]);
-  };
-
-  const clearModuleSelection = () => {
-    const moduleIds = new Set(moduleDatasets.map((d) => d.id));
-    setSelectedDatasetIds((prev) => prev.filter((id) => !moduleIds.has(id)));
-  };
-
   const toggleChartType = (chartId: string) => {
-    setSelectedChartTypes((prev) =>
-      prev.includes(chartId) ? prev.filter((id) => id !== chartId) : [...prev, chartId]
-    );
+    setSelectedChartTypes((prev) => (prev[0] === chartId ? [] : [chartId]));
   };
 
   const handleModuleChange = (moduleName: string) => {
@@ -258,63 +242,54 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition, initialMod
     setAdding(true);
     try {
       const newWidgets: DashboardWidget[] = [];
-      let y = nextPosition.y;
-      const useSharedTitle = selectedDatasetIds.length === 1 && selectedChartTypes.length > 1;
+      const datasetId = selectedDatasetIds[0];
+      const chartType = selectedChartTypes[0];
+      let payloadAnalysis = analysisByDataset[datasetId];
+      let payload: DatasetPayload | null = null;
 
-      for (const datasetId of selectedDatasetIds) {
-        let payloadAnalysis = analysisByDataset[datasetId];
-        let payload: DatasetPayload | null = null;
+      if (!payloadAnalysis) {
+        payload = await apiDashboardDataset(
+          datasetId,
+          datasetId === previewDatasetId ? filterValues : {}
+        );
+        payloadAnalysis = analysisFromPayload(payload);
+      }
 
-        if (!payloadAnalysis) {
-          payload = await apiDashboardDataset(
-            datasetId,
-            datasetId === previewDatasetId ? filterValues : {}
-          );
-          payloadAnalysis = analysisFromPayload(payload);
-        }
+      const datasetMeta = allDatasets.find((d) => d.id === datasetId);
+      const widgetModule = datasetMeta?.moduleName || datasetMeta?.module || selectedModule;
+      const metaFilters = datasetMeta?.filters || payload?.filters || [];
 
-        const datasetMeta = allDatasets.find((d) => d.id === datasetId);
-        const widgetModule = datasetMeta?.moduleName || datasetMeta?.module || selectedModule;
-        const metaFilters = datasetMeta?.filters || payload?.filters || [];
-
-        if (isMetricsDatasetId(datasetId) && selectedChartTypes.some((t) => isPartitionChartType(t))) {
-          continue;
-        }
-
+      if (!(isMetricsDatasetId(datasetId) && isPartitionChartType(chartType))) {
         const filtersForWidget =
           datasetId === previewDatasetId ? { ...filterValues } : defaultFilters(metaFilters);
+        const { w, h } = widgetSize(chartType);
+        const chartLabel =
+          payloadAnalysis.recommendations.find((r) => r.id === chartType)?.label || chartType;
+        const widgetTitle = buildWidgetTitle(payloadAnalysis.label, chartType, chartLabel);
+        const partitionField = PARTITION_FIELD_BY_DATASET[datasetId];
 
-        for (const chartType of selectedChartTypes) {
-          const { w, h } = widgetSize(chartType);
-          const chartLabel =
-            payloadAnalysis.recommendations.find((r) => r.id === chartType)?.label || chartType;
-          const widgetTitle = buildWidgetTitle(payloadAnalysis.label, chartType, chartLabel);
-          const partitionField = PARTITION_FIELD_BY_DATASET[datasetId];
-
-          newWidgets.push({
-            id: `w_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-            datasetId,
-            module: widgetModule,
-            chartType,
-            title: widgetTitle,
-            x: nextPosition.x,
-            y,
-            w,
-            h,
-            config: {
-              categoryField:
-                isPartitionChartType(chartType) && partitionField
-                  ? partitionField
-                  : payloadAnalysis.suggested.categoryField || undefined,
-              valueField: payloadAnalysis.suggested.valueField || undefined,
-              timeField: payloadAnalysis.suggested.timeField || undefined,
-              showLegend: true,
-              sort: 'desc',
-              filters: filtersForWidget,
-            },
-          });
-          y += h;
-        }
+        newWidgets.push({
+          id: `w_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          datasetId,
+          module: widgetModule,
+          chartType,
+          title: widgetTitle,
+          x: nextPosition.x,
+          y: nextPosition.y,
+          w,
+          h,
+          config: {
+            categoryField:
+              isPartitionChartType(chartType) && partitionField
+                ? partitionField
+                : payloadAnalysis.suggested.categoryField || undefined,
+            valueField: payloadAnalysis.suggested.valueField || undefined,
+            timeField: payloadAnalysis.suggested.timeField || undefined,
+            showLegend: true,
+            sort: 'desc',
+            filters: filtersForWidget,
+          },
+        });
       }
 
       onAdd(newWidgets);
@@ -344,7 +319,7 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition, initialMod
               Add dashboard widgets
             </h2>
             <p className="text-xs text-slate-500">
-              Pick a module, datasets, and chart types. Each module appears as its own section on the dashboard.
+              Pick one module, one dataset, and one chart type. Each module can have only one widget on the dashboard.
             </p>
           </div>
           <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100">
@@ -371,16 +346,8 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition, initialMod
           <div>
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                Datasets (multi-select)
+                Dataset
               </span>
-              <div className="flex gap-2 text-[11px] font-semibold">
-                <button type="button" onClick={selectAllInModule} className="text-indigo-600 hover:underline">
-                  All in module
-                </button>
-                <button type="button" onClick={clearModuleSelection} className="text-slate-500 hover:underline">
-                  Clear module
-                </button>
-              </div>
             </div>
             {usesPartitionCharts && selectableModuleDatasets.length < moduleDatasets.length ? (
               <p className="mb-2 rounded-lg border border-indigo-100 bg-indigo-50/80 px-3 py-2 text-xs text-indigo-900">
@@ -399,9 +366,10 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition, initialMod
                     }`}
                   >
                     <input
-                      type="checkbox"
+                      type="radio"
                       checked={checked}
                       onChange={(e) => toggleDataset(d.id, e.target.checked)}
+                      name="dashboard-widget-dataset"
                       className="mt-0.5 rounded border-slate-300 text-indigo-600"
                     />
                     <span className="min-w-0 flex-1">
@@ -432,8 +400,7 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition, initialMod
             </div>
             {selectedDatasetIds.length > 0 ? (
               <p className="mt-1.5 text-[11px] text-slate-500">
-                {selectedDatasetIds.length} dataset{selectedDatasetIds.length === 1 ? '' : 's'} selected
-                {selectedDatasetIds.length > 1 ? ' (across modules if you switch module)' : ''}
+                1 dataset selected
               </p>
             ) : null}
           </div>
@@ -442,7 +409,7 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition, initialMod
             <p className="text-xs text-slate-500">{previewMeta.description}</p>
           ) : null}
 
-          {filterDefs.length > 0 && selectedDatasetIds.length <= 1 ? (
+          {filterDefs.length > 0 ? (
             <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3">
               <p className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">Filters</p>
               <DashboardFilterFields
@@ -451,10 +418,6 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition, initialMod
                 onChange={setFilterValues}
               />
             </div>
-          ) : selectedDatasetIds.length > 1 ? (
-            <p className="rounded-lg border border-amber-100 bg-amber-50/80 px-3 py-2 text-xs text-amber-900">
-              Filters apply to the preview dataset only. Other selected datasets use default filters when added.
-            </p>
           ) : null}
 
           {loading ? (
@@ -482,21 +445,15 @@ export function AddWidgetWizard({ open, onClose, onAdd, nextPosition, initialMod
               <div>
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                    Chart types (multi-select)
+                    Chart type
                   </span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setSelectedChartTypes(analysis.recommendations.slice(0, 4).map((r) => r.id))
-                    }
-                    className="text-[11px] font-semibold text-indigo-600 hover:underline"
-                  >
-                    Top 4 recommendations
-                  </button>
+                  <span className="text-[11px] font-semibold text-indigo-600">
+                    Top recommendation first
+                  </span>
                 </div>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {analysis.recommendations.map((rec) => {
-                    const selected = selectedChartTypes.includes(rec.id);
+                    const selected = selectedChartTypes[0] === rec.id;
                     return (
                       <button
                         key={rec.id}

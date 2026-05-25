@@ -605,28 +605,6 @@ export function CreateJobDetailsForm({
         ) : null}
       </div>
 
-      <div>
-        <label className={labelClass}>Video or Image Link</label>
-        <input
-          type="url"
-          value={formData.videoMediaLink}
-          onChange={(e) => patchForm({ videoMediaLink: e.target.value })}
-          placeholder="https://..."
-          className={inputClass}
-        />
-      </div>
-
-      <div>
-        <label className={labelClass}>Forecast Revenue</label>
-        <input
-          type="text"
-          value={formData.forecastRevenue}
-          onChange={(e) => patchForm({ forecastRevenue: e.target.value })}
-          placeholder="e.g. 500000"
-          className={inputClass}
-        />
-      </div>
-
       <DropdownField
         label="Assign Manager"
         placeholder="Select manager"
