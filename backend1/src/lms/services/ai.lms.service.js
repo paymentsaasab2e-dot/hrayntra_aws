@@ -2,6 +2,18 @@ const OpenAI = require('openai');
 const Anthropic = require('@anthropic-ai/sdk');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const MistralClient = require('@mistralai/mistralai');
+const { OPENAI_CHAT_MODEL } = require('../../config/openaiModel');
+
+const MISTRAL_CHAT_MODEL = process.env.MISTRAL_CHAT_MODEL || 'mistral-small-latest';
+const { OPENAI_CHAT_MODEL } = require('../../config/openaiModel');
+
+function applyEnvOpenAiModel(client) {
+  if (!client?.chat?.completions?.create) return client;
+  const originalCreate = client.chat.completions.create.bind(client.chat.completions);
+  client.chat.completions.create = (body = {}, ...args) =>
+    originalCreate({ ...body, model: OPENAI_CHAT_MODEL }, ...args);
+  return client;
+}
 
 /**
  * Returns an instance of OpenAI Client
@@ -9,7 +21,7 @@ const MistralClient = require('@mistralai/mistralai');
 function getOpenAIClient() {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
-  return new OpenAI({ apiKey });
+  return applyEnvOpenAiModel(new OpenAI({ apiKey }));
 }
 
 /**
@@ -28,7 +40,7 @@ function getGeminiClient() {
 }
 
 /**
- * Returns an instance of Mistral Client (disabled — OpenAI gpt-4.1 only)
+ * Returns an instance of Mistral Client (disabled in current setup)
  */
 function getMistralClient() {
   return null;
@@ -198,7 +210,7 @@ Return ONLY valid JSON with no markdown in this format:
     const mistral = getMistralClient();
     if (mistral) {
       const response = await mistral.chat.complete({
-        model: 'gpt-4.1',
+        model: MISTRAL_CHAT_MODEL,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.3,
       });
@@ -225,7 +237,7 @@ Return ONLY valid JSON with no markdown in this format:
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4.1',
+        model: OPENAI_CHAT_MODEL,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.3,
       });
@@ -266,7 +278,7 @@ Return ONLY a JSON array of 3 objects in this format:
     const mistral = getMistralClient();
     if (mistral) {
       const response = await mistral.chat.complete({
-        model: 'gpt-4.1',
+        model: MISTRAL_CHAT_MODEL,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.4,
       });
@@ -294,7 +306,7 @@ Return ONLY a JSON array of 3 objects in this format:
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4.1',
+        model: OPENAI_CHAT_MODEL,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.4,
       });
@@ -356,7 +368,7 @@ Return ONLY valid JSON.`;
     const mistral = getMistralClient();
     if (mistral) {
       const response = await mistral.chat.complete({
-        model: 'gpt-4.1',
+        model: MISTRAL_CHAT_MODEL,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.4,
       });
@@ -371,7 +383,7 @@ Return ONLY valid JSON.`;
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4.1',
+        model: OPENAI_CHAT_MODEL,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.4
       });
@@ -407,7 +419,7 @@ async function generateDailyMomentum(userState, profileContext) {
       const mistral = getMistralClient();
       if (mistral) {
         const response = await mistral.chat.complete({
-          model: 'gpt-4.1',
+          model: MISTRAL_CHAT_MODEL,
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.5,
         });
@@ -434,7 +446,7 @@ async function generateDailyMomentum(userState, profileContext) {
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4.1',
+        model: OPENAI_CHAT_MODEL,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.5,
       });
@@ -475,7 +487,7 @@ async function generateSharedIntelligence(userState, profileContext) {
       const mistral = getMistralClient();
       if (mistral) {
         const response = await mistral.chat.complete({
-          model: 'gpt-4.1',
+          model: MISTRAL_CHAT_MODEL,
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.5,
         });
@@ -489,7 +501,7 @@ async function generateSharedIntelligence(userState, profileContext) {
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4.1',
+        model: OPENAI_CHAT_MODEL,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.5,
       });
@@ -519,7 +531,7 @@ Return ONLY a JSON array of objects with this shape:
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4.1',
+        model: OPENAI_CHAT_MODEL,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.4,
       });
@@ -565,7 +577,7 @@ Provide feedback and return ONLY a JSON object with this shape:
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4.1',
+        model: OPENAI_CHAT_MODEL,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.2,
       });
@@ -605,7 +617,7 @@ Return ONLY a JSON object with this shape:
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4.1',
+        model: OPENAI_CHAT_MODEL,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.2,
       });
@@ -654,7 +666,7 @@ Return ONLY the output string in plain text (or markdown).`;
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4.1',
+        model: OPENAI_CHAT_MODEL,
         messages: [{ role: 'user', content: prompt }],
       });
       return completion.choices[0].message.content.trim();
@@ -678,7 +690,7 @@ Return ONLY the improved content in plain text.`;
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4.1',
+        model: OPENAI_CHAT_MODEL,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.5,
       });
@@ -708,7 +720,7 @@ Return ONLY the summary text directly.`;
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4.1',
+        model: OPENAI_CHAT_MODEL,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.7,
       });
@@ -756,7 +768,7 @@ Return ONLY a JSON object with this shape:
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4.1',
+        model: OPENAI_CHAT_MODEL,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.2,
       });
@@ -798,7 +810,7 @@ Return ONLY a JSON object with this shape:
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4.1',
+        model: OPENAI_CHAT_MODEL,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.2,
       });
@@ -844,7 +856,7 @@ async function generateGoalRecommendations(query) {
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4.1',
+        model: OPENAI_CHAT_MODEL,
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 100,
         temperature: 0.3,
@@ -866,7 +878,7 @@ async function generateLocationRecommendations(query) {
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4.1',
+        model: OPENAI_CHAT_MODEL,
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 100,
         temperature: 0.3,
@@ -904,7 +916,7 @@ async function generateOrchestrationPlan(targetRole) {
     const openai = getOpenAIClient();
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4.1',
+        model: OPENAI_CHAT_MODEL,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.6,
       });

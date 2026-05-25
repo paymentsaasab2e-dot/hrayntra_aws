@@ -1,5 +1,6 @@
 const OpenAI = require('openai');
 const { prisma } = require('../lib/prisma');
+const { OPENAI_CHAT_MODEL } = require('../config/openaiModel');
 const {
   normalizeSkill,
   tokenizeText,
@@ -611,7 +612,7 @@ async function getGptAnalysis(candidate, job) {
     const candidateSummary = job.candidateSummary || summarizeCandidate(candidate);
     const jobSummary = job.jobSummary || summarizeJob(job);
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4.1',
+      model: OPENAI_CHAT_MODEL,
       messages: [
         { role: 'system', content: 'You are a strict career matching AI. Only recommend jobs that truly fit the candidate background, domain, and transferable skills. If the candidate is from IT, prefer IT jobs. If the candidate is from pharmacy, prefer pharmacy jobs. Respond ONLY in JSON.' },
         { role: 'user', content: `Candidate summary: ${JSON.stringify({

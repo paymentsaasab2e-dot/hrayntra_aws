@@ -24,6 +24,7 @@ import {
 import { parseLeadCSV } from '../utils/csvParser.js';
 import { parseLeadFromText } from '../utils/ariaAdvancedParser.js';
 import { chatCompletionWithFallback, hasLlmProvider } from '../services/llmChatFallback.service.js';
+import { env } from '../config/env.js';
 
 const prisma = new PrismaClient();
 
@@ -44,13 +45,13 @@ function safeJsonParse(text) {
 
 async function callOpenAI(systemPrompt, userMessage, retries = 2) {
   if (!hasLlmProvider()) {
-    throw new Error('No LLM configured: set OPENAI_API_KEY (gpt-4.1 only)');
+    throw new Error('No LLM configured: set OPENAI_API_KEY');
   }
   for (let i = 0; i <= retries; i += 1) {
     try {
       const res = await chatCompletionWithFallback(
         {
-          model: 'gpt-4.1',
+          model: env.OPENAI_CHAT_MODEL,
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userMessage },

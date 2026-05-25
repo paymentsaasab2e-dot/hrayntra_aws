@@ -1,10 +1,10 @@
 /**
- * Single allowed OpenAI chat model for Phase 2.
- * Set OPENAI_CHAT_MODEL=gpt-4.1 in .env (OPENAI_ASSISTANT_MODEL is accepted as an alias).
- * OpenAI chat always uses gpt-4.1; Mistral fallback uses MISTRAL_CHAT_MODEL separately.
+ * Shared OpenAI chat model for Phase 2.
+ * Set OPENAI_CHAT_MODEL in .env (OPENAI_ASSISTANT_MODEL is accepted as an alias).
+ * Defaults to gpt-4.1 when unset; Mistral fallback uses MISTRAL_CHAT_MODEL separately.
  */
 
-/** Only this chat model is permitted for LLM completions. */
+/** Default OpenAI chat model when .env does not set one. */
 export const ALLOWED_OPENAI_CHAT_MODEL = 'gpt-4.1';
 
 const DEPRECATED_MODEL_ENV_KEYS = [
@@ -14,7 +14,7 @@ const DEPRECATED_MODEL_ENV_KEYS = [
 
 /**
  * Call after dotenv is loaded (see config/env.js).
- * @returns {string} Always `gpt-4.1` (logs a warning if .env requests another model).
+ * @returns {string} Resolved OpenAI chat model from env, falling back to gpt-4.1.
  */
 export function resolveOpenAiChatModel() {
   const raw = String(
@@ -23,20 +23,14 @@ export function resolveOpenAiChatModel() {
       ALLOWED_OPENAI_CHAT_MODEL
   ).trim();
 
-  if (raw && raw !== ALLOWED_OPENAI_CHAT_MODEL) {
-    console.warn(
-      `[openai-model] OPENAI_CHAT_MODEL="${raw}" is not allowed — using ${ALLOWED_OPENAI_CHAT_MODEL} only.`
-    );
-  }
-
   for (const key of DEPRECATED_MODEL_ENV_KEYS) {
     const legacy = String(process.env[key] || '').trim();
-    if (legacy && legacy !== ALLOWED_OPENAI_CHAT_MODEL) {
+    if (legacy) {
       console.warn(
-        `[openai-model] ${key}="${legacy}" is ignored — chat uses ${ALLOWED_OPENAI_CHAT_MODEL} only.`
+        `[openai-model] ${key}="${legacy}" is ignored — use OPENAI_CHAT_MODEL instead.`
       );
     }
   }
 
-  return ALLOWED_OPENAI_CHAT_MODEL;
+  return raw || ALLOWED_OPENAI_CHAT_MODEL;
 }

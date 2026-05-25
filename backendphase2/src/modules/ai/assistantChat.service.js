@@ -1168,7 +1168,7 @@ export async function runAssistantChat(messages, user, context = {}) {
     throw err;
   }
 
-  const model = 'gpt-4.1';
+  const model = env.OPENAI_CHAT_MODEL;
   const latestUserMessage = [...cleaned].reverse().find((message) => message.role === 'user')?.content || '';
   const directReportRequest = enrichReportRequestFromHistory(
     getDirectReportRequest(latestUserMessage, context),
@@ -1376,7 +1376,7 @@ export async function runAssistantChat(messages, user, context = {}) {
   }
 
   if (!hasLlmProvider()) {
-    const err = new Error('AI assistant is not configured. Set OPENAI_API_KEY on the server (gpt-4.1 only).');
+    const err = new Error('AI assistant is not configured. Set OPENAI_API_KEY on the server.');
     err.code = 'AI_NOT_CONFIGURED';
     throw err;
   }

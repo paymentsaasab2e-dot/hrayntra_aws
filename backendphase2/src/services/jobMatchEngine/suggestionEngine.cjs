@@ -3,10 +3,12 @@
 // Part of: HRJob+Candidate Matching Pipeline v1.0
 
 const SUGGESTION_BATCH_SIZE = Number(process.env.MATCH_SUGGESTION_BATCH_SIZE || 20) || 20;
+const OPENAI_CHAT_MODEL =
+  process.env.OPENAI_CHAT_MODEL || process.env.OPENAI_ASSISTANT_MODEL || 'gpt-4.1';
 
 async function jobMatchChatCompletion(body, logLabel) {
   const { chatCompletionWithFallback } = await import('../llmChatFallback.service.js');
-  return chatCompletionWithFallback(body, logLabel, { quiet: false });
+  return chatCompletionWithFallback({ ...(body || {}), model: OPENAI_CHAT_MODEL }, logLabel, { quiet: false });
 }
 
 function highestPassLabel(p) {
@@ -72,7 +74,7 @@ async function generateSuggestions(pairs) {
     try {
       const completion = await jobMatchChatCompletion(
         {
-          model: 'gpt-4.1',
+          model: OPENAI_CHAT_MODEL,
           temperature: 0.35,
           response_format: { type: 'json_object' },
           messages: [

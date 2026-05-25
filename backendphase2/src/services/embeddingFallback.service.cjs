@@ -187,7 +187,7 @@ async function getEmbeddingWithFallback(text, clients = null, logLabel = 'embed'
   const input = String(text || '').trim() || ' ';
 
   if (!openaiClient) {
-    throw new Error('OPENAI_API_KEY is required for embeddings (OpenAI only; chat uses gpt-4.1).');
+    throw new Error('OPENAI_API_KEY is required for embeddings.');
   }
 
   if (shouldSkipOpenAi()) {

@@ -2,9 +2,12 @@
 // Purpose: LLM-based cultural / soft-skills fit (5 x 20 points).
 // Part of: HRJob+Candidate Matching Pipeline v1.0
 
+const OPENAI_CHAT_MODEL =
+  process.env.OPENAI_CHAT_MODEL || process.env.OPENAI_ASSISTANT_MODEL || 'gpt-4.1';
+
 async function jobMatchChatCompletion(body, logLabel = 'job-match-pass4') {
   const { chatCompletionWithFallback } = await import('../llmChatFallback.service.js');
-  return chatCompletionWithFallback(body, logLabel, { quiet: false });
+  return chatCompletionWithFallback({ ...(body || {}), model: OPENAI_CHAT_MODEL }, logLabel, { quiet: false });
 }
 
 function truncate(s, n) {
@@ -59,7 +62,7 @@ Respond with ONLY this JSON:
   try {
     const completion = await jobMatchChatCompletion(
       {
-        model: 'gpt-4.1',
+        model: OPENAI_CHAT_MODEL,
         temperature: 0.2,
         response_format: { type: 'json_object' },
         messages: [

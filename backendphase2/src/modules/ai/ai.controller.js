@@ -276,7 +276,7 @@ export const aiController = {
 
       const completion = await chatCompletionWithFallback(
         {
-          model: 'gpt-4.1',
+          model: env.OPENAI_CHAT_MODEL,
           temperature: 0.4,
           max_tokens: 1800,
           response_format: {
@@ -339,7 +339,7 @@ export const aiController = {
 
       const completion = await chatCompletionWithFallback(
         {
-          model: 'gpt-4.1',
+          model: env.OPENAI_CHAT_MODEL,
           temperature: 0.2,
           max_tokens: 1600,
           response_format: {

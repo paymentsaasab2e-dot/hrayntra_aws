@@ -34,7 +34,7 @@ class FieldMatchingService {
     this.anthropic = null;
     this.openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 
-    console.log('✅ Field Matching Service initialized (OpenAI gpt-4.1 only)');
+    console.log('✅ Field Matching Service initialized (OpenAI chat model from env)');
   }
 
   /**

@@ -142,7 +142,7 @@ async function resolveWithLlm(query) {
 
   const completion = await chatCompletionWithFallback(
     {
-      model: 'gpt-4.1',
+      model: env.OPENAI_CHAT_MODEL,
       temperature: 0,
       max_tokens: 350,
       response_format: { type: 'json_object' },
