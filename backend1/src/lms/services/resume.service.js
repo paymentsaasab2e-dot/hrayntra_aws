@@ -1,5 +1,6 @@
 const { prisma } = require('../../lib/prisma');
 const { improveResumeSection, checkResumeATS, generateResumeSummary } = require('./ai.lms.service');
+const { OPENAI_CHAT_MODEL } = require('../../config/openaiModel');
 
 function calculateStrengthScore(draft) {
   let score = 0;
@@ -267,7 +268,7 @@ Return ONLY a JSON object with this shape:
     
     if (openai) {
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4.1',
+        model: OPENAI_CHAT_MODEL,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.2,
       });

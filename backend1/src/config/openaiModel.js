@@ -1,6 +1,7 @@
 /**
- * Single allowed OpenAI chat model for Phase 1.
- * Set OPENAI_CHAT_MODEL=gpt-4.1 in .env (OPENAI_ASSISTANT_MODEL is accepted as an alias).
+ * Shared OpenAI chat model for Phase 1.
+ * Set OPENAI_CHAT_MODEL in .env (OPENAI_ASSISTANT_MODEL is accepted as an alias).
+ * Defaults to gpt-4.1 when unset.
  */
 
 require('dotenv').config();
@@ -16,22 +17,16 @@ function resolveOpenAiChatModel() {
       ALLOWED_OPENAI_CHAT_MODEL
   ).trim();
 
-  if (raw && raw !== ALLOWED_OPENAI_CHAT_MODEL) {
-    console.warn(
-      `[openai-model] OPENAI_CHAT_MODEL="${raw}" is not allowed — using ${ALLOWED_OPENAI_CHAT_MODEL} only.`
-    );
-  }
-
   for (const key of DEPRECATED_MODEL_ENV_KEYS) {
     const legacy = String(process.env[key] || '').trim();
-    if (legacy && legacy !== ALLOWED_OPENAI_CHAT_MODEL) {
+    if (legacy) {
       console.warn(
-        `[openai-model] ${key}="${legacy}" is ignored — chat uses ${ALLOWED_OPENAI_CHAT_MODEL} only.`
+        `[openai-model] ${key}="${legacy}" is ignored — use OPENAI_CHAT_MODEL instead.`
       );
     }
   }
 
-  return ALLOWED_OPENAI_CHAT_MODEL;
+  return raw || ALLOWED_OPENAI_CHAT_MODEL;
 }
 
 const OPENAI_CHAT_MODEL = resolveOpenAiChatModel();

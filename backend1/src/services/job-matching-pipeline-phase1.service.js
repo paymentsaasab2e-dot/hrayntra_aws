@@ -1,5 +1,6 @@
 const OpenAI = require('openai');
 const { prisma } = require('../lib/prisma');
+const { OPENAI_CHAT_MODEL } = require('../config/openaiModel');
 const {
   normalizeSkill,
   tokenizeText,
@@ -11,8 +12,16 @@ const {
   buildJobFeatures,
 } = require('./feature-extraction.service');
 
+function applyEnvOpenAiModel(client) {
+  if (!client?.chat?.completions?.create) return client;
+  const originalCreate = client.chat.completions.create.bind(client.chat.completions);
+  client.chat.completions.create = (body = {}, ...args) =>
+    originalCreate({ ...body, model: OPENAI_CHAT_MODEL }, ...args);
+  return client;
+}
+
 const openai = process.env.OPENAI_API_KEY
-  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  ? applyEnvOpenAiModel(new OpenAI({ apiKey: process.env.OPENAI_API_KEY }))
   : null;
 
 const AI_CACHE = {
@@ -546,7 +555,7 @@ async function extractSkillsWithOpenAI(input) {
 
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4.1',
+      model: OPENAI_CHAT_MODEL,
       temperature: 0.1,
       response_format: { type: 'json_object' },
       messages: [
@@ -578,7 +587,7 @@ async function inferRolesWithOpenAI(candidateSummary, job) {
 
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4.1',
+      model: OPENAI_CHAT_MODEL,
       temperature: 0.1,
       response_format: { type: 'json_object' },
       messages: [
@@ -624,7 +633,7 @@ async function getSemanticBoostWithOpenAI(candidateSummaryText, job, determinist
 
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4.1',
+      model: OPENAI_CHAT_MODEL,
       temperature: 0.1,
       response_format: { type: 'json_object' },
       messages: [
@@ -672,7 +681,7 @@ async function getSemanticScoreWithOpenAI(candidate, job) {
 
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4.1',
+      model: OPENAI_CHAT_MODEL,
       temperature: 0.1,
       response_format: { type: 'json_object' },
       messages: [
@@ -722,7 +731,7 @@ async function getAIMatchScore(candidate, job) {
   if (!openai) return null;
 
   const response = await openai.chat.completions.create({
-    model: 'gpt-4.1',
+    model: OPENAI_CHAT_MODEL,
     temperature: 0.2,
     response_format: { type: 'json_object' },
     messages: [
@@ -789,7 +798,7 @@ async function getFullAiMatchWithOpenAI(candidateSummaryText, job, deterministic
 
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4.1',
+      model: OPENAI_CHAT_MODEL,
       temperature: 0.1,
       response_format: { type: 'json_object' },
       messages: [
@@ -902,7 +911,7 @@ async function generateExplanationWithOpenAI(candidateSummaryText, job, scoringR
 
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4.1',
+      model: OPENAI_CHAT_MODEL,
       temperature: 0.2,
       messages: [
         {

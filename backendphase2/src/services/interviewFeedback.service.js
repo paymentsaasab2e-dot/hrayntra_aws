@@ -142,7 +142,7 @@ export const interviewFeedbackService = {
       try {
         const response = await chatCompletionWithFallback(
           {
-            model: 'gpt-4.1',
+            model: env.OPENAI_CHAT_MODEL,
             messages: [
               {
                 role: 'user',

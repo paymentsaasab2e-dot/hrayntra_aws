@@ -1,5 +1,6 @@
 const { OpenAI } = require('openai');
 const { prisma, retryQuery } = require('../lib/prisma');
+const { OPENAI_CHAT_MODEL } = require('../config/openaiModel');
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -8,7 +9,7 @@ const openai = new OpenAI({
 async function requestOpenAI(sysPrompt, userPrompt) {
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4.1', // or 'gpt-4.1' depending on system setup
+      model: OPENAI_CHAT_MODEL,
       messages: [
         { role: 'system', content: sysPrompt },
         { role: 'user', content: userPrompt },

@@ -554,7 +554,7 @@ ${cleanedText.slice(0, 18000)}
 
   const completion = await chatCompletionWithFallback(
     {
-      model: 'gpt-4.1',
+      model: env.OPENAI_CHAT_MODEL,
       temperature: 0,
       response_format: { type: 'json_object' },
       messages: [

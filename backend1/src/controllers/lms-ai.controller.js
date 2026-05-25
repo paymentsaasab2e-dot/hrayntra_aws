@@ -1,9 +1,19 @@
 const OpenAI = require('openai');
 const { prisma } = require('../lib/prisma');
+const { OPENAI_CHAT_MODEL } = require('../config/openaiModel');
+const { OPENAI_CHAT_MODEL } = require('../config/openaiModel');
 
-const openai = new OpenAI({
+function applyEnvOpenAiModel(client) {
+  if (!client?.chat?.completions?.create) return client;
+  const originalCreate = client.chat.completions.create.bind(client.chat.completions);
+  client.chat.completions.create = (body = {}, ...args) =>
+    originalCreate({ ...body, model: OPENAI_CHAT_MODEL }, ...args);
+  return client;
+}
+
+const openai = applyEnvOpenAiModel(new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
-});
+}));
 
 // ============================================================
 // DOMAIN DETECTION ENGINE
@@ -269,7 +279,7 @@ async function classifyDomainWithAI(prompt) {
   try {
     const domainNames = DOMAIN_MAP.map(d => d.domain).concat(['General Professional']);
     const result = await openai.chat.completions.create({
-      model: 'gpt-4.1',
+      model: OPENAI_CHAT_MODEL,
       temperature: 0,
       max_tokens: 60,
       messages: [{
@@ -436,7 +446,7 @@ ${multiDomainLabel}
     const userPrompt = `Generate a high-quality interview set for the ${domain} domain:\n"${prompt}"${candidateContext}${companyContext}`;
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4.1',
+      model: OPENAI_CHAT_MODEL,
       temperature: 0.7,
       messages: [
         { role: 'system', content: systemInstructions },
@@ -618,7 +628,7 @@ Return JSON conforming to:
 }`;
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4.1', 
+      model: OPENAI_CHAT_MODEL, 
       temperature: 0.2,
       messages: [
         { role: 'system', content: systemPrompt },

@@ -1,6 +1,7 @@
 const { Mistral } = require('@mistralai/mistralai');
 const { z } = require('zod');
 const OpenAI = require('openai');
+const { OPENAI_CHAT_MODEL } = require('../config/openaiModel');
 
 const sectionConfig = {
   basicInformation: {
@@ -322,13 +323,21 @@ function getMistralClient() {
 async function runMistralChat(messages, options = {}) {
   const client = getMistralClient();
   const response = await client.chat.complete({
-    model: options.model || 'gpt-4.1',
+    model: options.model || process.env.MISTRAL_CHAT_MODEL || 'mistral-small-latest',
     messages,
     temperature: options.temperature ?? 0.3,
     maxTokens: options.maxTokens ?? 500,
   });
 
   return response?.choices?.[0]?.message?.content?.trim() || '';
+}
+
+function applyEnvOpenAiModel(client) {
+  if (!client?.chat?.completions?.create) return client;
+  const originalCreate = client.chat.completions.create.bind(client.chat.completions);
+  client.chat.completions.create = (body = {}, ...args) =>
+    originalCreate({ ...body, model: OPENAI_CHAT_MODEL }, ...args);
+  return client;
 }
 
 function getOpenAIClient() {
@@ -339,13 +348,13 @@ function getOpenAIClient() {
     throw error;
   }
 
-  return new OpenAI({ apiKey });
+  return applyEnvOpenAiModel(new OpenAI({ apiKey }));
 }
 
 async function runOpenAIChat(messages, options = {}) {
   const client = getOpenAIClient();
   const completion = await client.chat.completions.create({
-    model: options.model || 'gpt-4.1',
+    model: OPENAI_CHAT_MODEL,
     messages,
     temperature: options.temperature ?? 0.3,
     max_tokens: options.maxTokens ?? 500,
@@ -503,7 +512,7 @@ async function askProfileQuestions(req, res) {
       if (process.env.OPENAI_API_KEY) {
         try {
           message = await runOpenAIChat(messages, {
-            model: 'gpt-4.1',
+            model: OPENAI_CHAT_MODEL,
             temperature: 0.5,
             maxTokens: 220,
           });
@@ -518,7 +527,7 @@ async function askProfileQuestions(req, res) {
       // Fallback to Mistral (if OpenAI missing/failed)
       if (!message) {
         message = await runMistralChat(messages, {
-          model: 'gpt-4.1',
+          model: process.env.MISTRAL_CHAT_MODEL || 'mistral-small-latest',
           temperature: 0.5,
           maxTokens: 220,
         });
@@ -585,7 +594,7 @@ async function suggestJobTitles(req, res) {
         { role: 'user', content: userPrompt },
       ],
       {
-        model: 'gpt-4.1',
+        model: OPENAI_CHAT_MODEL,
         temperature: 0.4,
         maxTokens: 220,
       }
@@ -675,7 +684,7 @@ async function extractProfileData(req, res) {
             { role: 'user', content: userMessage },
           ],
           {
-            model: 'gpt-4.1',
+            model: OPENAI_CHAT_MODEL,
             temperature: 0.1,
             maxTokens: 700,
           },
@@ -698,7 +707,7 @@ async function extractProfileData(req, res) {
             { role: 'user', content: userMessage },
           ],
           {
-            model: 'gpt-4.1',
+            model: process.env.MISTRAL_CHAT_MODEL || 'mistral-small-latest',
             temperature: 0.1,
             maxTokens: 700,
           }
@@ -767,13 +776,13 @@ async function generalChat(req, res) {
     let response = '';
     if (process.env.OPENAI_API_KEY) {
       response = await runOpenAIChat(messages, {
-        model: 'gpt-4.1',
+        model: OPENAI_CHAT_MODEL,
         temperature: 0.7,
         maxTokens: 500,
       });
     } else if (process.env.MISTRAL_API_KEY) {
       response = await runMistralChat(messages, {
-        model: 'gpt-4.1',
+        model: process.env.MISTRAL_CHAT_MODEL || 'mistral-small-latest',
         temperature: 0.7,
         maxTokens: 500,
       });

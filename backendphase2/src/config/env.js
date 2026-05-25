@@ -185,9 +185,9 @@ export const env = {
   HRAYNTRA_PLATFORM_PROVISION_EMAILS:
     process.env.HRAYNTRA_PLATFORM_PROVISION_EMAILS || 'admin@gmail.com',
 
-  // AI — OpenAI gpt-4.1 primary; Mistral fallback when OpenAI fails (llmChatFallback.service.js)
+  // AI — OpenAI primary model comes from OPENAI_CHAT_MODEL; Mistral fallback when OpenAI fails.
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
-  /** Resolved chat model (always gpt-4.1; set OPENAI_CHAT_MODEL=gpt-4.1 in .env) */
+  /** Resolved chat model from OPENAI_CHAT_MODEL / OPENAI_ASSISTANT_MODEL (defaults to gpt-4.1). */
   OPENAI_CHAT_MODEL,
   OPENAI_ASSISTANT_MODEL: OPENAI_CHAT_MODEL,
   ALLOWED_OPENAI_CHAT_MODEL,

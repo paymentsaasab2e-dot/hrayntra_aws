@@ -1789,7 +1789,7 @@ async function generateSummaryWithAI(req, res) {
     if (!OPENAI_API_KEY) {
       return res.status(500).json({
         success: false,
-        message: 'OPENAI_API_KEY is required (gpt-4.1 only)',
+        message: 'OPENAI_API_KEY is required for AI summary generation',
       });
     }
 

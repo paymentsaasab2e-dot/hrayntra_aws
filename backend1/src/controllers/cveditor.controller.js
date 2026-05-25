@@ -3,6 +3,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { Mistral } = require('@mistralai/mistralai');
 const Anthropic = require('@anthropic-ai/sdk');
 const OpenAI = require('openai');
+const { OPENAI_CHAT_MODEL } = require('../config/openaiModel');
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
@@ -14,11 +15,20 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const MISTRAL_CHAT_MODEL = process.env.MISTRAL_CHAT_MODEL || 'mistral-small-latest';
 
 const genAI = GEMINI_API_KEY ? new GoogleGenerativeAI(GEMINI_API_KEY) : null;
 const mistral = MISTRAL_API_KEY ? new Mistral({ apiKey: MISTRAL_API_KEY }) : null;
 const anthropic = ANTHROPIC_API_KEY ? new Anthropic({ apiKey: ANTHROPIC_API_KEY }) : null;
-const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
+function applyEnvOpenAiModel(client) {
+  if (!client?.chat?.completions?.create) return client;
+  const originalCreate = client.chat.completions.create.bind(client.chat.completions);
+  client.chat.completions.create = (body = {}, ...args) =>
+    originalCreate({ ...body, model: OPENAI_CHAT_MODEL }, ...args);
+  return client;
+}
+
+const openai = OPENAI_API_KEY ? applyEnvOpenAiModel(new OpenAI({ apiKey: OPENAI_API_KEY })) : null;
 
 /**
  * Get resume HTML for CV editor
@@ -333,7 +343,7 @@ Return only the formatted HTML without any markdown syntax or extra labels.`;
     if (openai) {
       try {
         const completion = await openai.chat.completions.create({
-          model: 'gpt-4.1',
+          model: OPENAI_CHAT_MODEL,
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.3,
           max_tokens: isProjectSection ? 2000 : 500, // More tokens for structured project output
@@ -356,7 +366,7 @@ Return only the formatted HTML without any markdown syntax or extra labels.`;
     if (!improvedText && mistral) {
       try {
         const chatResponse = await mistral.chat.complete({
-          model: 'gpt-4.1',
+          model: MISTRAL_CHAT_MODEL,
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.3,
           maxTokens: isProjectSection ? 2000 : 500, // More tokens for structured project output
@@ -921,7 +931,7 @@ ${projectSection}`;
     if (mistral) {
       try {
         const chatResponse = await mistral.chat.complete({
-          model: 'gpt-4.1',
+          model: MISTRAL_CHAT_MODEL,
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.2,
           maxTokens: 2000,
