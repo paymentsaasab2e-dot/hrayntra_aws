@@ -41,6 +41,48 @@ function normalizeCandidateIdForDb(candidateId) {
   return String(candidateId || '').trim();
 }
 
+function normalizeHumanName(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function candidateNamesLikelyMatch(leftName, rightName) {
+  const left = normalizeHumanName(leftName);
+  const right = normalizeHumanName(rightName);
+  if (!left || !right) return true;
+
+  const ignored = new Set(['mr', 'mrs', 'ms', 'miss', 'dr', 'cv', 'resume', 'profile']);
+  const toTokens = (value) =>
+    value
+      .split(/\s+/)
+      .filter((token) => token.length > 1 && !ignored.has(token));
+
+  const leftTokens = toTokens(left);
+  const rightTokens = toTokens(right);
+  if (!leftTokens.length || !rightTokens.length) return true;
+
+  const leftCompact = leftTokens.join('');
+  const rightCompact = rightTokens.join('');
+  if (leftCompact === rightCompact) return true;
+
+  const leftSet = new Set(leftTokens);
+  const rightSet = new Set(rightTokens);
+  const commonCount = leftTokens.filter((token) => rightSet.has(token)).length;
+  if (commonCount >= Math.min(2, leftTokens.length, rightTokens.length)) return true;
+
+  const leftFirst = leftTokens[0];
+  const leftLast = leftTokens[leftTokens.length - 1];
+  const rightFirst = rightTokens[0];
+  const rightLast = rightTokens[rightTokens.length - 1];
+
+  return (
+    (leftSet.has(rightFirst) && leftSet.has(rightLast)) ||
+    (rightSet.has(leftFirst) && rightSet.has(leftLast))
+  );
+}
+
 async function syncResumeJsonEmail(candidateId, email) {
   const normalized = String(email || '').trim().toLowerCase();
   if (!normalized || isPlaceholderProfileEmail(normalized)) return;
@@ -238,6 +280,13 @@ async function getProfileData(req, res) {
     const latestCompetitiveExam = competitiveExams.length > 0
       ? competitiveExams[competitiveExams.length - 1]
       : null;
+    const derivedCurrentRole = String(
+      candidate.currentTitle
+      || candidate.designation
+      || candidate.workExperiences.find((exp) => exp.isCurrentJob)?.jobTitle
+      || candidate.workExperiences[0]?.jobTitle
+      || '',
+    ).trim();
 
     // Format data for frontend
     const profileData = {
@@ -310,6 +359,7 @@ async function getProfileData(req, res) {
         documents: Array.isArray(lang.documents) ? lang.documents : [],
       })),
       careerPreferences: candidate.careerPreferences ? {
+        currentRole: derivedCurrentRole || '',
         // Preferred Job Titles / Roles
         preferredJobTitles: candidate.careerPreferences.preferredRoles || [],
         preferredRoles: candidate.careerPreferences.preferredRoles || [],
@@ -321,7 +371,9 @@ async function getProfileData(req, res) {
           [candidate.careerPreferences.preferredWorkMode === 'REMOTE' ? 'Remote' :
            candidate.careerPreferences.preferredWorkMode === 'ON_SITE' ? 'On-site' :
            candidate.careerPreferences.preferredWorkMode === 'HYBRID' ? 'Hybrid' : ''] : [],
-        preferredWorkMode: candidate.careerPreferences.preferredWorkMode || '',
+        preferredWorkMode: candidate.careerPreferences.preferredWorkMode === 'REMOTE' ? 'Remote' :
+                          candidate.careerPreferences.preferredWorkMode === 'ON_SITE' ? 'On-site' :
+                          candidate.careerPreferences.preferredWorkMode === 'HYBRID' ? 'Hybrid' : '',
         // Location
         preferredLocations: candidate.careerPreferences.preferredLocations || [],
         relocationPreference: candidate.careerPreferences.relocationPreference || 
@@ -1504,28 +1556,86 @@ async function updateCareerPreferences(req, res) {
       });
     }
 
-    // Map work mode - take first selected work mode
-    let preferredWorkMode = null;
-    if (preferences.workModes && preferences.workModes.length > 0) {
-      const workModeMap = {
-        'Remote': 'REMOTE',
-        'On-site': 'ON_SITE',
-        'Hybrid': 'HYBRID',
-      };
-      preferredWorkMode = workModeMap[preferences.workModes[0]] || null;
-    }
+    const normalizeStringArray = (value) => (
+      Array.isArray(value)
+        ? value.map((item) => String(item || '').trim()).filter(Boolean)
+        : []
+    );
 
-    // Map salary type
-    let preferredSalaryType = null;
-    if (preferences.salaryFrequency) {
-      const salaryTypeMap = {
-        'Annually': 'ANNUAL',
-        'Monthly': 'MONTHLY',
-        'Hourly': 'HOURLY',
-        'Daily': 'DAILY',
-      };
-      preferredSalaryType = salaryTypeMap[preferences.salaryFrequency] || null;
-    }
+    const salaryTypeMap = {
+      ANNUAL: 'ANNUAL',
+      ANNUALLY: 'ANNUAL',
+      Annual: 'ANNUAL',
+      Annually: 'ANNUAL',
+      MONTHLY: 'MONTHLY',
+      Monthly: 'MONTHLY',
+      HOURLY: 'HOURLY',
+      Hourly: 'HOURLY',
+      DAILY: 'DAILY',
+      Daily: 'DAILY',
+    };
+
+    const workModeMap = {
+      REMOTE: 'REMOTE',
+      Remote: 'REMOTE',
+      HYBRID: 'HYBRID',
+      Hybrid: 'HYBRID',
+      ON_SITE: 'ON_SITE',
+      ONSITE: 'ON_SITE',
+      'On-site': 'ON_SITE',
+      'On Site': 'ON_SITE',
+    };
+
+    const parseNullableFloat = (value) => {
+      if (value === undefined || value === null || value === '') return null;
+      const parsed = parseFloat(String(value));
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+
+    const preferredRoles = normalizeStringArray(
+      Array.isArray(preferences.preferredJobTitles) && preferences.preferredJobTitles.length > 0
+        ? preferences.preferredJobTitles
+        : preferences.preferredRoles,
+    );
+    const jobTypes = normalizeStringArray(preferences.jobTypes);
+    const preferredLocations = normalizeStringArray(preferences.preferredLocations);
+    const currentBenefits = normalizeStringArray(preferences.currentBenefits);
+    const preferredBenefits = normalizeStringArray(preferences.preferredBenefits);
+
+    const preferredIndustry = preferences.preferredIndustry
+      || (Array.isArray(preferences.preferredIndustries) && preferences.preferredIndustries.length > 0
+        ? preferences.preferredIndustries.join('; ')
+        : null);
+    const functionalArea = preferences.functionalArea
+      || (Array.isArray(preferences.functionalAreas) && preferences.functionalAreas.length > 0
+        ? preferences.functionalAreas.join('; ')
+        : null);
+
+    const preferredWorkModeInput = preferences.preferredWorkMode
+      || (Array.isArray(preferences.workModes) && preferences.workModes.length > 0
+        ? preferences.workModes[0]
+        : null);
+    const preferredWorkMode = preferredWorkModeInput
+      ? workModeMap[String(preferredWorkModeInput).trim()] || null
+      : null;
+
+    const currentSalaryTypeInput = preferences.currentSalaryType;
+    const currentSalaryType = currentSalaryTypeInput
+      ? salaryTypeMap[String(currentSalaryTypeInput).trim()] || null
+      : null;
+
+    const preferredSalaryTypeInput = preferences.preferredSalaryType || preferences.salaryFrequency;
+    const preferredSalaryType = preferredSalaryTypeInput
+      ? salaryTypeMap[String(preferredSalaryTypeInput).trim()] || null
+      : null;
+
+    const currentSalary = parseNullableFloat(preferences.currentSalary);
+    const preferredSalary = parseNullableFloat(
+      preferences.preferredSalary !== undefined ? preferences.preferredSalary : preferences.salaryAmount,
+    );
+    const currentRole = typeof preferences.currentRole === 'string'
+      ? preferences.currentRole.trim()
+      : '';
 
     // Parse notice period days from string (e.g., "60 days" -> 60)
     let noticePeriodDays = null;
@@ -1543,22 +1653,30 @@ async function updateCareerPreferences(req, res) {
       where: { candidateId },
       update: {
         // Role & Domain
-        preferredRoles: preferences.preferredJobTitles || [],
-        preferredIndustry: preferences.preferredIndustry || null,
-        functionalArea: preferences.functionalArea || null,
+        preferredRoles,
+        preferredIndustry,
+        functionalArea,
+
+        // Current package
+        currentCurrency: preferences.currentCurrency || 'USD',
+        currentSalaryType: currentSalaryType || undefined,
+        currentSalary,
+        currentLocation: preferences.currentLocation || null,
+        currentBenefits,
         
         // Job Type & Work Mode
-        jobTypes: preferences.jobTypes || [],
+        jobTypes,
         preferredWorkMode: preferredWorkMode || undefined,
         
         // Location
-        preferredLocations: preferences.preferredLocations || [],
+        preferredLocations,
         relocationPreference: preferences.relocationPreference || null,
         
         // Salary
-        preferredSalary: preferences.salaryAmount ? parseFloat(preferences.salaryAmount) : null,
+        preferredSalary,
         preferredSalaryType: preferredSalaryType || undefined,
-        preferredCurrency: preferences.salaryCurrency || 'USD',
+        preferredCurrency: preferences.preferredCurrency || preferences.salaryCurrency || 'USD',
+        preferredBenefits,
         
         // Availability
         availabilityToStart: preferences.availabilityToStart || null,
@@ -1572,22 +1690,30 @@ async function updateCareerPreferences(req, res) {
       create: {
         candidateId,
         // Role & Domain
-        preferredRoles: preferences.preferredJobTitles || [],
-        preferredIndustry: preferences.preferredIndustry || null,
-        functionalArea: preferences.functionalArea || null,
+        preferredRoles,
+        preferredIndustry,
+        functionalArea,
+
+        // Current package
+        currentCurrency: preferences.currentCurrency || 'USD',
+        currentSalaryType: currentSalaryType || undefined,
+        currentSalary,
+        currentLocation: preferences.currentLocation || null,
+        currentBenefits,
         
         // Job Type & Work Mode
-        jobTypes: preferences.jobTypes || [],
+        jobTypes,
         preferredWorkMode: preferredWorkMode || undefined,
         
         // Location
-        preferredLocations: preferences.preferredLocations || [],
+        preferredLocations,
         relocationPreference: preferences.relocationPreference || null,
         
         // Salary
-        preferredSalary: preferences.salaryAmount ? parseFloat(preferences.salaryAmount) : null,
+        preferredSalary,
         preferredSalaryType: preferredSalaryType || undefined,
-        preferredCurrency: preferences.salaryCurrency || 'USD',
+        preferredCurrency: preferences.preferredCurrency || preferences.salaryCurrency || 'USD',
+        preferredBenefits,
         
         // Availability
         availabilityToStart: preferences.availabilityToStart || null,
@@ -1603,25 +1729,33 @@ async function updateCareerPreferences(req, res) {
     // Prepare detailed log data
     const logData = {
       // Role & Domain
-      preferredRoles: preferences.preferredJobTitles || [],
-      preferredRolesCount: Array.isArray(preferences.preferredJobTitles) ? preferences.preferredJobTitles.length : 0,
-      preferredIndustry: preferences.preferredIndustry || null,
-      functionalArea: preferences.functionalArea || null,
+      preferredRoles,
+      preferredRolesCount: preferredRoles.length,
+      preferredIndustry,
+      functionalArea,
+
+      currentCurrency: preferences.currentCurrency || 'USD',
+      currentRole: currentRole || null,
+      currentSalaryType: currentSalaryType || null,
+      currentSalary,
+      currentLocation: preferences.currentLocation || null,
+      currentBenefits,
       
       // Job Type & Work Mode
-      jobTypes: preferences.jobTypes || [],
-      jobTypesCount: Array.isArray(preferences.jobTypes) ? preferences.jobTypes.length : 0,
+      jobTypes,
+      jobTypesCount: jobTypes.length,
       preferredWorkMode: preferredWorkMode || null,
       
       // Location
-      preferredLocations: preferences.preferredLocations || [],
-      preferredLocationsCount: Array.isArray(preferences.preferredLocations) ? preferences.preferredLocations.length : 0,
+      preferredLocations,
+      preferredLocationsCount: preferredLocations.length,
       relocationPreference: preferences.relocationPreference || null,
       
       // Salary
-      preferredSalary: preferences.salaryAmount ? parseFloat(preferences.salaryAmount) : null,
+      preferredSalary,
       preferredSalaryType: preferredSalaryType || null,
-      preferredCurrency: preferences.salaryCurrency || 'USD',
+      preferredCurrency: preferences.preferredCurrency || preferences.salaryCurrency || 'USD',
+      preferredBenefits,
       
       // Availability
       availabilityToStart: preferences.availabilityToStart || null,
@@ -1637,11 +1771,8 @@ async function updateCareerPreferences(req, res) {
     // without joining career_preferences. We only update fields that exist on
     // the Candidate model; salary fields are stored as Float.
     try {
-      const expectedSalaryNum = preferences.salaryAmount && !Number.isNaN(parseFloat(preferences.salaryAmount))
-        ? parseFloat(preferences.salaryAmount)
-        : null;
-      const firstPreferredLocation = Array.isArray(preferences.preferredLocations) && preferences.preferredLocations.length
-        ? String(preferences.preferredLocations[0]).trim() || null
+      const firstPreferredLocation = preferredLocations.length
+        ? String(preferredLocations[0]).trim() || null
         : null;
 
       await prisma.candidate.update({
@@ -1649,8 +1780,12 @@ async function updateCareerPreferences(req, res) {
         data: {
           noticePeriod: preferences.noticePeriod || null,
           availability: preferences.availabilityToStart || null,
-          expectedSalary: expectedSalaryNum,
+          expectedSalary: preferredSalary,
+          currentSalary,
           preferredLocation: firstPreferredLocation,
+          location: preferences.currentLocation || null,
+          currentTitle: currentRole || null,
+          designation: currentRole || null,
         },
       });
     } catch (mirrorErr) {
@@ -2334,6 +2469,63 @@ async function savePortfolioLinks(req, res) {
     res.status(500).json({
       success: false,
       message: 'Failed to save portfolio links',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+}
+
+/**
+ * Inspect resume file and compare extracted candidate name with profile name
+ * POST /api/profile/resume/inspect/:candidateId
+ */
+async function inspectResumeFile(req, res) {
+  try {
+    const { candidateId } = req.params;
+    const file = req.file;
+
+    if (!candidateId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Candidate ID is required',
+      });
+    }
+
+    if (!file) {
+      return res.status(400).json({
+        success: false,
+        message: 'Resume file is required',
+      });
+    }
+
+    const { parseResumeFromBuffer } = require('../services/resume-parser.service');
+
+    const [profile, parsedData] = await Promise.all([
+      prisma.candidateProfile.findUnique({
+        where: { candidateId },
+        select: { fullName: true },
+      }),
+      parseResumeFromBuffer(file.buffer, file.mimetype, file.originalname),
+    ]);
+
+    const profileCandidateName = String(profile?.fullName || '').trim();
+    const resumeCandidateName = String(parsedData?.personalInformation?.fullName || '').trim();
+    const namesMatch = candidateNamesLikelyMatch(resumeCandidateName, profileCandidateName);
+
+    return res.json({
+      success: true,
+      message: 'Resume inspected successfully',
+      data: {
+        profileCandidateName,
+        resumeCandidateName,
+        namesMatch,
+        personalInformation: parsedData?.personalInformation || null,
+      },
+    });
+  } catch (error) {
+    console.error('Error inspecting resume:', error);
+    return res.status(500).json({
+      success: false,
+      message: error?.message || 'Failed to inspect resume',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
@@ -4629,6 +4821,7 @@ module.exports = {
   deleteInternship,
   savePortfolioLinks,
   saveResume,
+  inspectResumeFile,
   uploadResumeFile,
   saveProject,
   saveAcademicAchievement,

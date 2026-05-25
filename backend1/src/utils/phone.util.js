@@ -39,19 +39,20 @@ function resolveCandidateLocalPhone(candidate) {
 }
 
 function resolvePhoneNumberForCvSave({ candidate, cvPhone, existingPhone }) {
+  if (cvPhone) {
+    return stripDialCodeFromPhone(cvPhone, candidate?.countryCode || '+91');
+  }
+
+  if (existingPhone) {
+    return stripDialCodeFromPhone(existingPhone, candidate?.countryCode || '+91');
+  }
+
   if (candidate?.whatsappNumber) {
     const fromWhatsApp = stripDialCodeFromPhone(
       candidate.whatsappNumber,
       candidate.countryCode || '+91',
     );
     if (fromWhatsApp) return fromWhatsApp;
-    if (existingPhone) {
-      return stripDialCodeFromPhone(existingPhone, candidate.countryCode || '+91');
-    }
-  }
-
-  if (cvPhone) {
-    return stripDialCodeFromPhone(cvPhone, candidate?.countryCode || '+91');
   }
 
   return existingPhone || null;

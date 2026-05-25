@@ -4,7 +4,6 @@ const { Mistral } = require('@mistralai/mistralai');
 const Anthropic = require('@anthropic-ai/sdk');
 const OpenAI = require('openai');
 const { OPENAI_CHAT_MODEL } = require('../config/openaiModel');
-const { OPENAI_CHAT_MODEL } = require('../config/openaiModel');
 
 // Initialize AI services
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;

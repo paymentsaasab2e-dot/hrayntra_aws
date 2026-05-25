@@ -31,6 +31,26 @@ function normalizeMaritalStatus(value) {
   return map[key] || null;
 }
 
+function splitFullName(fullName) {
+  const parts = String(fullName || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (parts.length === 0) {
+    return { firstName: null, lastName: null };
+  }
+
+  if (parts.length === 1) {
+    return { firstName: parts[0], lastName: null };
+  }
+
+  return {
+    firstName: parts[0],
+    lastName: parts.slice(1).join(' '),
+  };
+}
+
 /**
  * Upload and process CV
  * POST /api/cv/upload
@@ -417,6 +437,29 @@ async function uploadCV(req, res) {
             },
           });
 
+        }
+
+        const mirroredFullName = personalInfo.fullName || existingProfile?.fullName || '';
+        const mirroredEmail =
+          personalInfo.email ||
+          existingProfile?.email ||
+          candidate?.email ||
+          `${candidateId}@noemail.local`;
+        const mirroredPhone = resolvedPhoneNumber || candidate?.phone || null;
+        const nameParts = splitFullName(mirroredFullName);
+
+        try {
+          await prisma.candidate.update({
+            where: { id: candidateId },
+            data: {
+              email: mirroredEmail,
+              firstName: nameParts.firstName,
+              lastName: nameParts.lastName,
+              phone: mirroredPhone,
+            },
+          });
+        } catch (candidateMirrorError) {
+          console.warn('Candidate mirror update from CV failed:', candidateMirrorError?.message || candidateMirrorError);
         }
       } catch (error) {
         console.error('Error saving candidate profile from CV:', error);

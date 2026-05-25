@@ -32,6 +32,7 @@ const {
   deleteInternship,
   savePortfolioLinks,
   saveResume,
+  inspectResumeFile,
   uploadResumeFile,
   saveProject,
   saveAcademicAchievement,
@@ -125,6 +126,7 @@ router.delete('/internship/:candidateId', deleteInternship);
 router.post('/internship/documents/:candidateId', upload.array('documents', 10), uploadInternshipDocuments);
 router.post('/portfolio-links/:candidateId', savePortfolioLinks);
 router.post('/resume/:candidateId', saveResume);
+router.post('/resume/inspect/:candidateId', upload.single('resume'), inspectResumeFile);
 router.post('/resume/upload/:candidateId', upload.single('resume'), uploadResumeFile);
 
 // Education
