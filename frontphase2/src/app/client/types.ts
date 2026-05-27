@@ -1,3 +1,5 @@
+import type { PostServiceKycFormValues } from '../../lib/clientKycForm';
+
 export type ClientStage = 'Active' | 'On Hold' | 'Inactive' | 'Hot Clients 🔥';
 export type ClientPriority = 'Low' | 'Medium' | 'High';
 export type ClientHealthStatus = 'Good' | 'Needs attention' | 'At risk';
@@ -184,6 +186,11 @@ export interface Client {
   agreementsFileName?: string | null;
   agreementsFileUrl?: string | null;
   agreementsUploadedAt?: string | null;
+  agreementContractValidity?: string | null;
+  agreementContractStartDate?: string | null;
+  agreementContractEndDate?: string | null;
+  postServiceKycForm?: PostServiceKycFormValues | null;
+  otherDetails?: Array<{ label: string; value: string }>;
 }
 
 export const INITIAL_CLIENTS: Client[] = [

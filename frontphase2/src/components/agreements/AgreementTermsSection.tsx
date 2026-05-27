@@ -14,6 +14,7 @@ type Props = {
   uploadSlot: React.ReactNode;
   disabled?: boolean;
   readOnly?: boolean;
+  showContractValidity?: boolean;
 };
 
 const labelClass = 'block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1';
@@ -26,6 +27,7 @@ export function AgreementTermsSection({
   uploadSlot,
   disabled = false,
   readOnly = false,
+  showContractValidity = false,
 }: Props) {
   const locked = disabled || readOnly;
 
@@ -81,6 +83,31 @@ export function AgreementTermsSection({
             </span>
           </div>
         </div>
+
+        {showContractValidity ? (
+          <>
+            <div>
+              <label className={labelClass}>Start date of the agreement</label>
+              <input
+                type="date"
+                value={values.agreementContractStartDate}
+                onChange={(e) => onChange({ agreementContractStartDate: e.target.value })}
+                disabled={locked}
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>End date of the agreement</label>
+              <input
+                type="date"
+                value={values.agreementContractEndDate}
+                onChange={(e) => onChange({ agreementContractEndDate: e.target.value })}
+                disabled={locked}
+                className={inputClass}
+              />
+            </div>
+          </>
+        ) : null}
 
         <div className="sm:col-span-2">
           <label className={labelClass}>Payment terms</label>

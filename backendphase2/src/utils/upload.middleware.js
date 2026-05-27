@@ -100,3 +100,39 @@ export const genericFileUpload = multer({
 });
 
 export const uploadSingleGenericFile = genericFileUpload.single('file');
+
+// Temp JD upload for job creation pipeline (Add Job smart prompt)
+const jobJdTempStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadsDir = path.join(__dirname, '..', '..', 'uploads', 'temp', 'job-jd');
+    ensureUploadsDir(uploadsDir);
+    cb(null, uploadsDir);
+  },
+  filename: (req, file, cb) => {
+    const timestamp = Date.now();
+    const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+    cb(null, `${timestamp}_${sanitizedName}`);
+  },
+});
+
+const jobJdFileFilter = (req, file, cb) => {
+  const allowed = [
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'text/plain',
+  ];
+  if (allowed.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error('Only PDF, DOC, DOCX, and TXT files are allowed for job descriptions'), false);
+  }
+};
+
+export const jobJdTempUpload = multer({
+  storage: jobJdTempStorage,
+  fileFilter: jobJdFileFilter,
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
+
+export const uploadJobJdFile = jobJdTempUpload.single('jdFile');

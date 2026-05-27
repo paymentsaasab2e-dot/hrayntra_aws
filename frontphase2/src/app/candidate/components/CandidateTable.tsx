@@ -1,7 +1,6 @@
 import React from 'react';
 import { SHOW_TABLE_ROW_EDIT_ICON } from '../../../constants/tableUi';
 import {
-  Eye,
   Phone,
   Pencil,
   UserPlus,
@@ -252,14 +251,6 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                       delete = rose. */}
                   <div className="flex items-center justify-end" onClick={(e) => e.stopPropagation()}>
                     <div className="inline-flex items-center justify-end gap-0.5 rounded-2xl bg-slate-100/70 p-1 ring-1 ring-slate-200/60">
-                      <button
-                        type="button"
-                        className="flex h-8 w-8 items-center justify-center rounded-xl text-blue-600 hover:bg-white hover:text-blue-700 hover:shadow-sm transition-all"
-                        title="View Profile"
-                        onClick={() => onViewProfile?.(candidate)}
-                      >
-                        <Eye size={16} strokeWidth={2.25} />
-                      </button>
                       <button
                         type="button"
                         className="flex h-8 w-8 items-center justify-center rounded-xl text-emerald-600 hover:bg-white hover:text-emerald-800 hover:shadow-sm transition-all"

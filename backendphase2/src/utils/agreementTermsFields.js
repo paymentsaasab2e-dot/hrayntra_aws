@@ -35,6 +35,15 @@ export function buildAgreementTermsCreateFields(data = {}) {
     agreementTotalPayment: null,
     agreementLevel: normalizeNullableString(data.agreementLevel),
     agreementServiceChargePercent: normalizePercentString(data.agreementServiceChargePercent),
+    ...(data.agreementContractValidity !== undefined
+      ? { agreementContractValidity: normalizeNullableString(data.agreementContractValidity) }
+      : {}),
+    ...(data.agreementContractStartDate !== undefined
+      ? { agreementContractStartDate: normalizeNullableString(data.agreementContractStartDate) }
+      : {}),
+    ...(data.agreementContractEndDate !== undefined
+      ? { agreementContractEndDate: normalizeNullableString(data.agreementContractEndDate) }
+      : {}),
     agreementTimePeriod: pickPaymentTermsFromPayload(data),
     agreementAdvancePaymentPercent: normalizePercentString(data.agreementAdvancePaymentPercent),
     agreementFreeReplacementValue: freeReplacementValue,
@@ -52,6 +61,15 @@ export function applyAgreementTermsUpdateFields(data, updateData) {
   }
   if (data.agreementServiceChargePercent !== undefined) {
     updateData.agreementServiceChargePercent = normalizePercentString(data.agreementServiceChargePercent);
+  }
+  if (data.agreementContractValidity !== undefined) {
+    updateData.agreementContractValidity = normalizeNullableString(data.agreementContractValidity);
+  }
+  if (data.agreementContractStartDate !== undefined) {
+    updateData.agreementContractStartDate = normalizeNullableString(data.agreementContractStartDate);
+  }
+  if (data.agreementContractEndDate !== undefined) {
+    updateData.agreementContractEndDate = normalizeNullableString(data.agreementContractEndDate);
   }
   if (data.agreementTimePeriod !== undefined || data.agreementPaymentTerms !== undefined) {
     updateData.agreementTimePeriod = pickPaymentTermsFromPayload(data);

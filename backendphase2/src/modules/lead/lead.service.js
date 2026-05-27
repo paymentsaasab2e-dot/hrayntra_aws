@@ -60,6 +60,305 @@ function normalizeImportColumnHeader(value = '') {
     .replace(/\s+/g, ' ');
 }
 
+const EBV_IMPORT_HEADERS = new Set(['expected business value', 'expected value', 'business value']);
+const CAMPAIGN_IMPORT_HEADERS = new Set(['campaign', 'campaign name']);
+
+const LEAD_IMPORT_DUPLICATE_COMPARE_FIELDS = [
+  { key: 'companyName', label: 'Company Name' },
+  { key: 'contactPerson', label: 'Contact Person' },
+  { key: 'email', label: 'Email' },
+  { key: 'phone', label: 'Phone' },
+  { key: 'designation', label: 'Designation' },
+  { key: 'source', label: 'Source' },
+  { key: 'status', label: 'Status' },
+  { key: 'priority', label: 'Priority' },
+  { key: 'industry', label: 'Industry' },
+  { key: 'location', label: 'Location' },
+  { key: 'city', label: 'City' },
+  { key: 'country', label: 'Country' },
+  { key: 'notes', label: 'Notes' },
+];
+
+function normalizeImportPriority(value) {
+  const n = stripNbsp(value).trim().toLowerCase();
+  if (!n) return 'Low';
+  if (n === 'cold' || n === 'low') return 'Low';
+  if (n === 'warm' || n === 'medium' || n === 'med' || n === 'moderate') return 'Medium';
+  if (n === 'hot' || n === 'high') return 'High';
+  return 'Low';
+}
+
+function normalizeImportStatus(value) {
+  const normalized = stripNbsp(value).trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (normalized === 'new' || normalized.includes('proposed')) return 'New';
+  if (normalized === 'contacted' || normalized === 'in touch') return 'Contacted';
+  if (normalized === 'qualified') return 'Qualified';
+  if (normalized === 'converted') return 'Converted';
+  if (normalized === 'lost') return 'Lost';
+  return undefined;
+}
+
+function normalizeImportType(value) {
+  const normalized = stripNbsp(value).trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (normalized === 'company') return 'Company';
+  if (normalized === 'individual') return 'Individual';
+  if (normalized === 'referral') return 'Referral';
+  return undefined;
+}
+
+function normalizeImportSource(value) {
+  const normalized = stripNbsp(value).trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (normalized === 'website') return 'Website';
+  if (normalized === 'linkedin') return 'LinkedIn';
+  if (normalized === 'email') return 'Email';
+  if (normalized === 'referral') return 'Referral';
+  if (normalized === 'campaign') return 'Campaign';
+  return undefined;
+}
+
+function parseImportDateValue(value) {
+  if (value === undefined || value === null) return undefined;
+  const s = stripNbsp(String(value)).trim();
+  if (!s) return undefined;
+  const parsed = new Date(s);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
+}
+
+function equalsNormalizedText(left, right) {
+  return stripNbsp(left).trim().toLowerCase() === stripNbsp(right).trim().toLowerCase();
+}
+
+function buildLeadImportDuplicateChecks({ email, companyName, contactPerson }) {
+  const duplicateChecks = [];
+
+  if (email) {
+    duplicateChecks.push({ email: { equals: email, mode: 'insensitive' } });
+  }
+
+  if (companyName && contactPerson) {
+    duplicateChecks.push({
+      companyName: { equals: companyName, mode: 'insensitive' },
+      contactPerson: { equals: contactPerson, mode: 'insensitive' },
+    });
+  }
+
+  return duplicateChecks;
+}
+
+function buildLeadImportComparisonSnapshot(source = {}) {
+  const snapshot = {};
+  for (const field of LEAD_IMPORT_DUPLICATE_COMPARE_FIELDS) {
+    const raw = source?.[field.key];
+    snapshot[field.key] = raw == null ? null : String(raw);
+  }
+  return snapshot;
+}
+
+function buildImportedDynamicOtherDetails(row = {}, mapping = {}) {
+  const mappedColumns = new Set(
+    Object.values(mapping || {})
+      .map((column) => (typeof column === 'string' ? column.trim() : ''))
+      .filter(Boolean)
+  );
+
+  return Object.entries(row || {})
+    .map(([label, rawValue]) => ({
+      label: stripNbsp(label).trim(),
+      value: rawValue == null ? '' : stripNbsp(String(rawValue)).trim(),
+    }))
+    .filter((item) => item.label && item.value && !mappedColumns.has(item.label));
+}
+
+function mergeLeadImportOtherDetails(existingDetails, importedDetails) {
+  const merged = new Map();
+
+  for (const item of existingDetails || []) {
+    const label = stripNbsp(item?.label || '').trim();
+    const value = stripNbsp(item?.value || '').trim();
+    if (!label || !value) continue;
+    merged.set(label.toLowerCase(), { label, value });
+  }
+
+  for (const item of importedDetails || []) {
+    const label = stripNbsp(item?.label || '').trim();
+    const value = stripNbsp(item?.value || '').trim();
+    if (!label || !value) continue;
+    merged.set(label.toLowerCase(), { label, value });
+  }
+
+  return Array.from(merged.values());
+}
+
+function buildLeadImportUpdatePayload(payload) {
+  const updatePayload = { performedById: payload?.performedById };
+  for (const [key, value] of Object.entries(payload || {})) {
+    if (key === 'performedByRole') continue;
+    if (value == null) continue;
+    if (typeof value === 'string' && !value.trim()) continue;
+    if (Array.isArray(value) && value.length === 0) continue;
+    updatePayload[key] = value;
+  }
+  return updatePayload;
+}
+
+function prefixDuplicateCopyCompanyName(companyName, fallback = '') {
+  const base = stripNbsp(companyName || fallback).trim();
+  if (!base) return 'Copy';
+  if (/^copy\b/i.test(base)) return base;
+  return `Copy ${base}`;
+}
+
+function buildLeadImportPayload(row = {}, mapping = {}, { performedById } = {}) {
+  const cleanMapped = (crmFieldKey) => {
+    const column = mapping[crmFieldKey];
+    if (!column || typeof column !== 'string') return null;
+    const raw = row[column];
+    if (raw === undefined || raw === null) return null;
+    const s = stripNbsp(String(raw)).trim();
+    return s === '' ? null : s;
+  };
+
+  const mappedHeaderNorm = (crmFieldKey) => {
+    const column = mapping[crmFieldKey];
+    if (!column || typeof column !== 'string') return null;
+    return normalizeImportColumnHeader(column);
+  };
+
+  const valueIfHeaderIn = (crmFieldKey, allowedHeaders) => {
+    const h = mappedHeaderNorm(crmFieldKey);
+    if (!h || !allowedHeaders.has(h)) return null;
+    return cleanMapped(crmFieldKey);
+  };
+
+  const companyName = cleanMapped('companyName');
+  const directorName = cleanMapped('directorName');
+  const contactPerson = cleanMapped('contactPerson') || directorName || null;
+  const emailRaw = cleanMapped('email');
+  const email = emailRaw ? emailRaw.toLowerCase() : null;
+  const phone = cleanMapped('phone');
+
+  const websiteRaw = cleanMapped('website');
+  const website = websiteRaw && isLikelyWebAddress(websiteRaw) ? websiteRaw : null;
+
+  const linkedInRaw = cleanMapped('linkedIn');
+  const linkedIn =
+    linkedInRaw && (isLikelyWebAddress(linkedInRaw) || linkedInRaw.toLowerCase().includes('linkedin.com'))
+      ? linkedInRaw
+      : null;
+
+  const companyLinks = [website, linkedIn].filter(Boolean);
+  const sectorVal = cleanMapped('industry');
+  const servicesVal = cleanMapped('interestedNeeds');
+  const expectedBusinessValue = valueIfHeaderIn('expectedBusinessValue', EBV_IMPORT_HEADERS);
+  const campaignName = valueIfHeaderIn('campaignName', CAMPAIGN_IMPORT_HEADERS);
+  const countryRaw = cleanMapped('country');
+  const country = countryRaw || 'Cameroon';
+  const importedDynamicOtherDetails = buildImportedDynamicOtherDetails(row, mapping);
+
+  return {
+    companyName,
+    contactPerson,
+    directorName: directorName || null,
+    directorSalutation: cleanMapped('directorSalutation'),
+    email,
+    phone,
+    type: normalizeImportType(cleanMapped('type')) || 'Company',
+    source: normalizeImportSource(cleanMapped('source')) ?? null,
+    status: normalizeImportStatus(cleanMapped('status')) || 'New',
+    priority: normalizeImportPriority(cleanMapped('priority') || ''),
+    interestedNeeds: servicesVal,
+    servicesNeeded: servicesVal,
+    notes: cleanMapped('notes'),
+    expectedBusinessValue,
+    industry: sectorVal,
+    sector: sectorVal,
+    companySize: cleanMapped('companySize'),
+    teamName: cleanMapped('companySize'),
+    website,
+    linkedIn,
+    companyLinks,
+    location: cleanMapped('location'),
+    designation: cleanMapped('designation'),
+    city: cleanMapped('city'),
+    country,
+    state: cleanMapped('state'),
+    latitude: (() => {
+      const n = Number(cleanMapped('latitude'));
+      return Number.isFinite(n) ? n : null;
+    })(),
+    longitude: (() => {
+      const n = Number(cleanMapped('longitude'));
+      return Number.isFinite(n) ? n : null;
+    })(),
+    campaignName,
+    nextFollowUp: parseImportDateValue(cleanMapped('nextFollowUpDue')) || null,
+    sourceWebsiteUrl: null,
+    sourceLinkedInUrl: null,
+    sourceEmail: null,
+    referralName: null,
+    otherDetails: importedDynamicOtherDetails,
+    performedById,
+  };
+}
+
+function summarizeLeadDuplicateMatch(existing, payload) {
+  const matchedBy = [];
+  if (payload?.email && existing?.email && equalsNormalizedText(payload.email, existing.email)) {
+    matchedBy.push('Email');
+  }
+  if (
+    payload?.companyName &&
+    payload?.contactPerson &&
+    existing?.companyName &&
+    existing?.contactPerson &&
+    equalsNormalizedText(payload.companyName, existing.companyName) &&
+    equalsNormalizedText(payload.contactPerson, existing.contactPerson)
+  ) {
+    matchedBy.push('Company + Contact');
+  }
+  return matchedBy.length > 0 ? matchedBy : ['Duplicate lead'];
+}
+
+async function findExistingLeadImportDuplicate(payload) {
+  const duplicateChecks = buildLeadImportDuplicateChecks(payload || {});
+  if (!duplicateChecks.length) return null;
+
+  const existing = await prisma.lead.findFirst({
+    where: {
+      isDeleted: { not: true },
+      OR: duplicateChecks,
+    },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true,
+      companyName: true,
+      contactPerson: true,
+      email: true,
+      phone: true,
+      designation: true,
+      source: true,
+      status: true,
+      priority: true,
+      industry: true,
+      location: true,
+      city: true,
+      country: true,
+      notes: true,
+      otherDetails: true,
+    },
+  });
+
+  if (!existing) return null;
+
+  return {
+    existing,
+    matchedBy: summarizeLeadDuplicateMatch(existing, payload),
+  };
+}
+
 function buildLeadAccessWhere(id, req) {
   if (canViewAllLeads(req) || !req?.user?.id) {
     return { id };
@@ -163,7 +462,10 @@ export const leadService = {
 
     const baseFilters = {};
     if (status) baseFilters.status = status;
-    if (source) baseFilters.source = source;
+    if (source) {
+      const normalizedSource = normalizeImportSource(source);
+      if (normalizedSource) baseFilters.source = normalizedSource;
+    }
     if (type) baseFilters.type = type;
     if (priority) baseFilters.priority = priority;
     if (assignedToId) {
@@ -1130,6 +1432,43 @@ export const leadService = {
     return { message: 'Lead permanently deleted' };
   },
 
+  async checkImportDuplicates({ rows = [], mapping = {} }) {
+    const rawColumns = rows.length > 0 ? Object.keys(rows[0]) : [];
+    const mappedColumns = Object.values(mapping).filter((c) => typeof c === 'string' && c.trim());
+    const meaningfulColumns = [
+      ...new Set([
+        ...filterMeaningfulImportColumns(rawColumns, rows),
+        ...mappedColumns,
+      ]),
+    ];
+    const importRows = slimImportRows(rows, meaningfulColumns);
+    const duplicates = [];
+
+    for (let index = 0; index < importRows.length; index += 1) {
+      const row = importRows[index] || {};
+      const payload = buildLeadImportPayload(row, mapping, {});
+      const duplicate = await findExistingLeadImportDuplicate(payload);
+      if (!duplicate?.existing) continue;
+
+      duplicates.push({
+        rowIndex: index + 1,
+        matchedBy: duplicate.matchedBy,
+        imported: buildLeadImportComparisonSnapshot(payload),
+        existing: {
+          id: duplicate.existing.id,
+          ...buildLeadImportComparisonSnapshot(duplicate.existing),
+        },
+      });
+    }
+
+    return {
+      totalRows: importRows.length,
+      duplicateCount: duplicates.length,
+      duplicates,
+      compareFields: LEAD_IMPORT_DUPLICATE_COMPARE_FIELDS,
+    };
+  },
+
   async importLeads({ rows = [], mapping = {}, duplicateRule = 'skip', performedById, performedByRole }) {
     const rawColumns = rows.length > 0 ? Object.keys(rows[0]) : [];
     const mappedColumns = Object.values(mapping).filter((c) => typeof c === 'string' && c.trim());
@@ -1150,174 +1489,13 @@ export const leadService = {
       errors: [],
     };
 
-    const EBV_IMPORT_HEADERS = new Set(['expected business value', 'expected value', 'business value']);
-    const CAMPAIGN_IMPORT_HEADERS = new Set(['campaign', 'campaign name']);
-
     for (let index = 0; index < importRows.length; index += 1) {
       const row = importRows[index] || {};
-
-      const cleanMapped = (crmFieldKey) => {
-        const column = mapping[crmFieldKey];
-        if (!column || typeof column !== 'string') return null;
-        const raw = row[column];
-        if (raw === undefined || raw === null) return null;
-        const s = stripNbsp(String(raw)).trim();
-        return s === '' ? null : s;
-      };
-
-      const mappedHeaderNorm = (crmFieldKey) => {
-        const column = mapping[crmFieldKey];
-        if (!column || typeof column !== 'string') return null;
-        return normalizeImportColumnHeader(column);
-      };
-
-      const valueIfHeaderIn = (crmFieldKey, allowedHeaders) => {
-        const h = mappedHeaderNorm(crmFieldKey);
-        if (!h || !allowedHeaders.has(h)) return null;
-        return cleanMapped(crmFieldKey);
-      };
-
-      const normalizeImportPriority = (value) => {
-        const n = stripNbsp(value).trim().toLowerCase();
-        if (!n) return 'Low';
-        if (n === 'cold' || n === 'low') return 'Low';
-        if (n === 'warm' || n === 'medium' || n === 'med' || n === 'moderate') return 'Medium';
-        if (n === 'hot' || n === 'high') return 'High';
-        return 'Low';
-      };
-
-      const normalizeStatus = (value) => {
-        const normalized = stripNbsp(value).trim().toLowerCase();
-        if (!normalized) return undefined;
-        if (normalized === 'new' || normalized.includes('proposed')) return 'New';
-        if (normalized === 'contacted' || normalized === 'in touch') return 'Contacted';
-        if (normalized === 'qualified') return 'Qualified';
-        if (normalized === 'converted') return 'Converted';
-        if (normalized === 'lost') return 'Lost';
-        return undefined;
-      };
-
-      const normalizeType = (value) => {
-        const normalized = stripNbsp(value).trim().toLowerCase();
-        if (!normalized) return undefined;
-        if (normalized === 'company') return 'Company';
-        if (normalized === 'individual') return 'Individual';
-        if (normalized === 'referral') return 'Referral';
-        return undefined;
-      };
-
-      const normalizeSource = (value) => {
-        const normalized = stripNbsp(value).trim().toLowerCase();
-        if (!normalized) return undefined;
-        if (normalized === 'website') return 'Website';
-        if (normalized === 'linkedin') return 'LinkedIn';
-        if (normalized === 'email') return 'Email';
-        if (normalized === 'referral') return 'Referral';
-        if (normalized === 'campaign') return 'Campaign';
-        return undefined;
-      };
-
-      const parseDateValue = (value) => {
-        if (value === undefined || value === null) return undefined;
-        const s = stripNbsp(String(value)).trim();
-        if (!s) return undefined;
-        const parsed = new Date(s);
-        return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
-      };
-
-      const companyName = cleanMapped('companyName');
-      const directorName = cleanMapped('directorName');
-      const contactPerson =
-        cleanMapped('contactPerson') || directorName || null;
-      const emailRaw = cleanMapped('email');
-      const email = emailRaw ? emailRaw.toLowerCase() : null;
-      const phone = cleanMapped('phone');
-
-      const websiteRaw = cleanMapped('website');
-      const website = websiteRaw && isLikelyWebAddress(websiteRaw) ? websiteRaw : null;
-
-      const linkedInRaw = cleanMapped('linkedIn');
-      const linkedIn =
-        linkedInRaw && (isLikelyWebAddress(linkedInRaw) || linkedInRaw.toLowerCase().includes('linkedin.com'))
-          ? linkedInRaw
-          : null;
-
-      const companyLinks = [website, linkedIn].filter(Boolean);
-
-      const sectorVal = cleanMapped('industry');
-      const servicesVal = cleanMapped('interestedNeeds');
-      const expectedBusinessValue = valueIfHeaderIn('expectedBusinessValue', EBV_IMPORT_HEADERS);
-      const campaignName = valueIfHeaderIn('campaignName', CAMPAIGN_IMPORT_HEADERS);
-
-      const countryRaw = cleanMapped('country');
-      const country = countryRaw || 'Cameroon';
-
-      const payload = {
-        companyName,
-        contactPerson,
-        directorName: directorName || null,
-        directorSalutation: cleanMapped('directorSalutation'),
-        email,
-        phone,
-        type: normalizeType(cleanMapped('type')) || 'Company',
-        source: normalizeSource(cleanMapped('source')) ?? null,
-        status: normalizeStatus(cleanMapped('status')) || 'New',
-        priority: normalizeImportPriority(cleanMapped('priority') || ''),
-        interestedNeeds: servicesVal,
-        servicesNeeded: servicesVal,
-        notes: cleanMapped('notes'),
-        expectedBusinessValue,
-        industry: sectorVal,
-        sector: sectorVal,
-        companySize: cleanMapped('companySize'),
-        teamName: cleanMapped('companySize'),
-        website,
-        linkedIn,
-        companyLinks,
-        location: cleanMapped('location'),
-        designation: cleanMapped('designation'),
-        city: cleanMapped('city'),
-        country,
-        state: cleanMapped('state'),
-        latitude: (() => {
-          const n = Number(cleanMapped('latitude'));
-          return Number.isFinite(n) ? n : null;
-        })(),
-        longitude: (() => {
-          const n = Number(cleanMapped('longitude'));
-          return Number.isFinite(n) ? n : null;
-        })(),
-        campaignName,
-        nextFollowUp: parseDateValue(cleanMapped('nextFollowUpDue')) || null,
-        sourceWebsiteUrl: null,
-        sourceLinkedInUrl: null,
-        sourceEmail: null,
-        referralName: null,
-        performedById,
-      };
+      const payload = buildLeadImportPayload(row, mapping, { performedById });
 
       try {
-        const duplicateChecks = [];
-
-        if (email) {
-          duplicateChecks.push({ email: { equals: email, mode: 'insensitive' } });
-        }
-
-        if (companyName && contactPerson) {
-          duplicateChecks.push({
-            companyName: { equals: companyName, mode: 'insensitive' },
-            contactPerson: { equals: contactPerson, mode: 'insensitive' },
-          });
-        }
-
-        const existing = duplicateChecks.length > 0
-          ? await prisma.lead.findFirst({
-              where: {
-                isDeleted: { not: true },
-                OR: duplicateChecks,
-              },
-            })
-          : null;
+        const duplicate = await findExistingLeadImportDuplicate(payload);
+        const existing = duplicate?.existing || null;
 
         if (existing && duplicateRule === 'skip') {
           results.skipped += 1;
@@ -1325,12 +1503,29 @@ export const leadService = {
         }
 
         if (existing && duplicateRule === 'update') {
-          await this.update(existing.id, payload);
+          await this.update(
+            existing.id,
+            buildLeadImportUpdatePayload({
+              ...payload,
+              otherDetails: mergeLeadImportOtherDetails(existing.otherDetails, payload.otherDetails),
+            })
+          );
           results.updated += 1;
           continue;
         }
 
-        await this.create({ ...payload, performedByRole });
+        const createPayload =
+          existing && duplicateRule === 'create'
+            ? {
+                ...payload,
+                companyName: prefixDuplicateCopyCompanyName(
+                  payload.companyName,
+                  existing.companyName || existing.contactPerson || 'Lead'
+                ),
+              }
+            : payload;
+
+        await this.create({ ...createPayload, performedByRole });
         results.created += 1;
       } catch (error) {
         results.failed += 1;

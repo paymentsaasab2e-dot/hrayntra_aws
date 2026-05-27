@@ -329,6 +329,7 @@ export default function MatchesPage() {
   const [openModal, setOpenModal] = useState<OpenModal>(null);
   const [activeCandidateId, setActiveCandidateId] = useState<string | null>(null);
   const [profileDrawerCandidateId, setProfileDrawerCandidateId] = useState<string | null>(null);
+  const [profileDrawerEditOpenToken, setProfileDrawerEditOpenToken] = useState<number | null>(null);
   const [selectedCandidateProfile, setSelectedCandidateProfile] = useState<CandidateProfileDrawerData | null>(null);
   const [loadingCandidateProfile, setLoadingCandidateProfile] = useState(false);
   const [availableDrawerTags, setAvailableDrawerTags] = useState<CandidateTagItem[]>([]);
@@ -744,9 +745,11 @@ export default function MatchesPage() {
 
   const openProfileDrawer = (
     candidateId: string,
-    _tab: 'overview' | 'resume' | 'ai' | 'notes' = 'overview'
+    _tab: 'overview' | 'resume' | 'ai' | 'notes' = 'overview',
+    openEditDirectly = false
   ) => {
     setProfileDrawerCandidateId(candidateId);
+    setProfileDrawerEditOpenToken(openEditDirectly ? Date.now() : null);
   };
 
   const handleExport = (candidateId: string) => {
@@ -1034,7 +1037,7 @@ export default function MatchesPage() {
         onToggleAnalysis={(candidateId) =>
           setExpandedAnalysis((previous) => (previous === candidateId ? null : candidateId))
         }
-        onViewProfile={openProfileDrawer}
+        onViewProfile={(candidateId) => openProfileDrawer(candidateId, 'overview', true)}
         onOpenPipeline={(candidateId) => openCandidateModal(candidateId, 'pipeline')}
         onOpenSubmit={(candidateId) => {
           const candidate = candidates.find((item) => item.id === candidateId);
@@ -1265,8 +1268,11 @@ export default function MatchesPage() {
         }
         onClose={() => {
           setProfileDrawerCandidateId(null);
+          setProfileDrawerEditOpenToken(null);
           setSelectedCandidateProfile(null);
         }}
+        openEditDirectly={Boolean(profileDrawerEditOpenToken)}
+        editModalOpenToken={profileDrawerEditOpenToken}
         onAddNote={async (candidateId, note) => {
           await apiAddCandidateNote(candidateId, note);
           await loadCandidateProfile(candidateId, drawerMatchCandidate);

@@ -6,7 +6,6 @@ import {
   CheckSquare, 
   Search, 
   Plus, 
-  Eye,
   Trash2,
   Phone,
   Mail,
@@ -1209,16 +1208,6 @@ export default function App() {
                             title="Mark completed"
                           >
                             <CheckSquare size={16} strokeWidth={2.25} />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleRowClick(task);
-                            }}
-                            className="flex h-8 w-8 items-center justify-center rounded-xl text-blue-600 hover:bg-white hover:text-blue-700 hover:shadow-sm transition-all"
-                            title="View task"
-                          >
-                            <Eye size={16} strokeWidth={2.25} />
                           </button>
                           {SHOW_TABLE_ROW_EDIT_ICON ? (
                             <button

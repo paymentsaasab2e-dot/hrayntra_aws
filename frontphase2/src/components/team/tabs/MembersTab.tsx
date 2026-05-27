@@ -6,7 +6,6 @@ import { SHOW_TABLE_ROW_EDIT_ICON } from '../../../constants/tableUi';
 import {
   Search,
   MoreVertical,
-  Eye,
   Edit,
   Key,
   Lock,
@@ -703,14 +702,6 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
                         </td>
                         <td className="px-3 py-3 text-right sm:px-4 sm:py-3.5">
                           <div className="inline-flex items-center justify-end gap-0.5 rounded-2xl bg-slate-100/70 p-1 ring-1 ring-slate-200/60">
-                            <button
-                              type="button"
-                              onClick={() => handleView(member)}
-                              className="flex h-8 w-8 items-center justify-center rounded-xl text-blue-600 transition-all hover:bg-white hover:text-blue-700 hover:shadow-sm"
-                              title="View"
-                            >
-                              <Eye size={16} strokeWidth={2.25} />
-                            </button>
                             {SHOW_TABLE_ROW_EDIT_ICON && hasPermission('edit_team_member') ? (
                               <button
                                 type="button"

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import {
   splitDateTimeForDisplay,
@@ -47,7 +47,8 @@ import {
   LayoutGrid,
   Plus,
   Sparkles,
-  SendHorizontal,
+  ArrowUp,
+  GripVertical,
   AlertTriangle,
   Copy,
   Check,
@@ -96,10 +97,14 @@ import { LeadAssigneesMultiSelect } from './LeadAssigneesMultiSelect';
 import { ServicesNeededSelect } from '../forms/ServicesNeededSelect';
 import { TeamMemberOptionalFields } from '../forms/TeamMemberOptionalFields';
 import {
+  isTeamMemberDetailLabel,
   mergeTeamMemberIntoOtherDetails,
-  resolveTeamMemberFields,
+  resolveTeamMemberList,
+  normalizeTeamMemberList,
+  primaryTeamMemberFromList,
+  teamMemberHasAnyValue,
   teamMemberPayloadFromForm,
-  TEAM_MEMBER_DETAIL_LABELS,
+  type TeamMemberListItem,
 } from '../../lib/teamMemberFormDetails';
 import { formatServicesNeededDisplay } from '../../lib/companyServices';
 import { DrawerCloseButton } from './DrawerCloseButton';
@@ -326,6 +331,7 @@ export type AddLeadFormData = AgreementTermsFormValues & {
   teamMemberDesignation?: string;
   teamMemberEmail?: string;
   teamMemberPhone?: string;
+  teamMembers: TeamMemberListItem[];
   assignedToName?: string;
   assignedToId?: string;
   /** Multi-assignee ids — primary owner is the first entry. */
@@ -338,32 +344,22 @@ export type AddLeadFormData = AgreementTermsFormValues & {
   nextFollowUp?: string;
 };
 
-type LeadAiStep =
-  | 'initial'
-  | 'coreDetails'
-  | 'followUpNotes'
-  | 'interestValue'
-  | 'done';
+function syncLeadTeamMembers(
+  members?: Array<TeamMemberListItem | null | undefined> | null,
+) {
+  const teamMembers = normalizeTeamMemberList(members);
+  return {
+    teamMembers,
+    ...primaryTeamMemberFromList(teamMembers),
+  };
+}
 
-type LeadAiMessage = {
-  id: string;
-  role: 'ai' | 'user';
-  content: string;
-};
-
-type LeadAiRequiredField =
-  | 'companyName'
-  | 'email'
-  | 'phone'
-  | 'location'
-  | 'interestedNeeds';
+type LeadAiRequiredField = 'companyName' | 'contactPerson' | 'email';
 
 const LEAD_AI_REQUIRED_FIELD_LABELS: Record<LeadAiRequiredField, string> = {
   companyName: 'Company',
+  contactPerson: 'Director / contact name',
   email: 'Email',
-  phone: 'Phone',
-  location: 'Location',
-  interestedNeeds: 'Services Needed',
 };
 
 const getSourceFieldLabel = (source?: LeadSource) => {
@@ -527,6 +523,7 @@ export function LeadDetailsDrawer({
     teamMemberDesignation: '',
     teamMemberEmail: '',
     teamMemberPhone: '',
+    teamMembers: normalizeTeamMemberList(),
     assignedToName: '',
     assignedToId: '',
     assignedToIds: [],
@@ -625,104 +622,11 @@ export function LeadDetailsDrawer({
     };
   }, [addLeadMode, lead?.id]);
 
-  const pushLeadAiMessage = (role: LeadAiMessage['role'], content: string) => {
-    setLeadAiMessages((prev) => [
-      ...prev,
-      {
-        id: `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        role,
-        content,
-      },
-    ]);
-  };
-
-  const resetLeadAiConversation = () => {
+  const resetSmartLeadPrompt = () => {
     setLeadAiPrompt('');
     setLeadAiError('');
-    setLeadAiStep('initial');
-    setLeadAiSummaryReady(false);
-    setLeadAiContext('');
+    setLeadAiStatus('');
     setLeadAiPendingFields([]);
-    setLeadAiMessages([
-      {
-        id: 'lead-ai-welcome',
-        role: 'ai',
-        content:
-          'Paste all lead details you have. If Company, Email, Phone, Location, or Services Needed are missing, I will ask only for those details. Once I have them, AI will optimize the data and create the lead directly.',
-      },
-    ]);
-  };
-
-  const openLeadAiDrawer = () => {
-    setShowAiLeadDrawer(true);
-    resetLeadAiConversation();
-  };
-
-  const finalizeLeadAiDrawer = () => {
-    setShowAiLeadDrawer(false);
-    setAddLeadSectionsOpen({
-      company: true,
-      contact: true,
-      leadDetails: true,
-    });
-  };
-
-  const buildLeadCreatePayload = (form: AddLeadFormData) => {
-    const companyLinks = ((form.website ?? '').split('\n').map((item) => item.trim()).filter(Boolean));
-
-    return {
-      companyName: form.companyName.trim(),
-      sector: form.industry?.trim() || undefined,
-      industry: form.industry?.trim() || undefined,
-      teamName: form.companySize?.trim() || undefined,
-      companySize: form.companySize?.trim() || undefined,
-      website: form.website?.trim() || undefined,
-      companyLinks: companyLinks.length ? companyLinks : undefined,
-      linkedIn: form.linkedIn?.trim() || undefined,
-      location: form.location?.trim() || undefined,
-      directorName: form.contactPerson.trim(),
-      contactPerson: form.contactPerson.trim(),
-      directorSalutation: form.directorSalutation?.trim() || undefined,
-      designation: form.designation?.trim() || undefined,
-      ...buildContactChannelsFromForm(form.emails, form.phones, form.email, form.phone),
-      country: form.country?.trim() || undefined,
-      city: form.city?.trim() || undefined,
-      state: form.state?.trim() || undefined,
-      latitude: typeof form.latitude === 'number' ? form.latitude : undefined,
-      longitude: typeof form.longitude === 'number' ? form.longitude : undefined,
-      type: form.type || 'Company',
-      source: form.source || 'Website',
-      campaignName: form.campaignName?.trim() || undefined,
-      campaignLink: form.campaignLink?.trim() || undefined,
-      referralName: form.referralName?.trim() || undefined,
-      sourceWebsiteUrl: form.sourceWebsiteUrl?.trim() || undefined,
-      sourceLinkedInUrl: form.sourceLinkedInUrl?.trim() || undefined,
-      sourceEmail: form.sourceEmail?.trim() || undefined,
-      ...teamMemberPayloadFromForm(
-        {
-          teamMemberDesignation: form.teamMemberDesignation,
-          teamMemberEmail: form.teamMemberEmail,
-          teamMemberPhone: form.teamMemberPhone,
-        },
-        form.companySize,
-      ),
-      otherDetails: mergeTeamMemberIntoOtherDetails(form.otherDetails, form.companySize, {
-        teamMemberDesignation: form.teamMemberDesignation,
-        teamMemberEmail: form.teamMemberEmail,
-        teamMemberPhone: form.teamMemberPhone,
-      }),
-      status: String(form.status || 'New').trim() || 'New',
-      priority: form.priority || 'Medium',
-      servicesNeeded: form.interestedNeeds?.trim() || undefined,
-      interestedNeeds: form.interestedNeeds?.trim() || undefined,
-      expectedBusinessValue: form.notes?.trim() || undefined,
-      notes: form.notes?.trim() || undefined,
-      lastFollowUp: form.lastFollowUp || undefined,
-      nextFollowUp: form.nextFollowUp || undefined,
-      assignedToId: form.assignedToIds?.[0] || form.assignedToId || undefined,
-      assignedToIds: form.assignedToIds && form.assignedToIds.length > 0 ? form.assignedToIds : undefined,
-      ...agreementTermsApiPayload(form),
-    };
   };
 
   const resetAddLeadForm = () => {
@@ -759,6 +663,7 @@ export function LeadDetailsDrawer({
     teamMemberDesignation: '',
     teamMemberEmail: '',
     teamMemberPhone: '',
+    teamMembers: normalizeTeamMemberList(),
       assignedToName: '',
       assignedToId: '',
       assignedToIds: [],
@@ -774,85 +679,64 @@ export function LeadDetailsDrawer({
     setPendingAddLeadKycFiles([]);
     setPendingAddLeadTeamMemberKycFiles([]);
     if (addLeadAgreementsInputRef.current) addLeadAgreementsInputRef.current.value = '';
+    resetSmartLeadPrompt();
   };
 
-  const createLeadFromAiForm = async (form: AddLeadFormData) => {
-    const createData = buildLeadCreatePayload(form);
-    const createdLeadResponse = await apiCreateLead(createData);
-    let createdLead = createdLeadResponse.data;
-
-    // Agreements & Terms — handle the same way the inline Add Lead path does so AI-assisted
-    // creation also persists the file the user attached.
-    if (createdLead?.id && pendingAddLeadAgreementsFile) {
-      try {
-        setUploadingAgreements(true);
-        const uploadResponse = await filesApiUpload(
-          'lead',
-          createdLead.id,
-          pendingAddLeadAgreementsFile,
-          'AGREEMENT'
-        );
-        const agreementUrl = uploadResponse.data?.fileUrl;
-        const agreementName = uploadResponse.data?.fileName || pendingAddLeadAgreementsFile.name;
-        if (agreementUrl) {
-          const patched = await apiUpdateLead(createdLead.id, {
-            agreementsFileName: agreementName,
-            agreementsFileUrl: agreementUrl,
-            agreementsUploadedAt: new Date().toISOString(),
-          });
-          createdLead = patched?.data || {
-            ...createdLead,
-            agreementsFileName: agreementName,
-            agreementsFileUrl: agreementUrl,
-            agreementsUploadedAt: new Date().toISOString(),
-          };
-          agreementsUploadFeedback.markSuccess(pendingAddLeadAgreementsFile.name);
-        }
-      } catch (uploadError: any) {
-        console.error('Failed to upload lead agreement:', uploadError);
-        agreementsUploadFeedback.markError(uploadError.message || 'Failed to upload agreements file');
-        void requestError(uploadError.message || 'Failed to upload agreements file');
-      } finally {
-        setUploadingAgreements(false);
-      }
-    }
-
-    const pendingLeadKyc = [...pendingAddLeadKycFiles, ...pendingAddLeadTeamMemberKycFiles];
-    if (createdLead?.id && pendingLeadKyc.length > 0) {
-      try {
-        setUploadingKyc(true);
-        await uploadKycDocuments('lead', createdLead.id, pendingLeadKyc);
-        kycUploadFeedback.markSuccess(
-          pendingLeadKyc.length === 1
-            ? pendingLeadKyc[0].name
-            : `${pendingLeadKyc.length} documents`
-        );
-      } catch (uploadError: any) {
-        console.error('Failed to upload lead KYC documents:', uploadError);
-        kycUploadFeedback.markError(uploadError.message || 'Failed to upload KYC documents');
-        void requestError(uploadError.message || 'Failed to upload KYC documents');
-      } finally {
-        setUploadingKyc(false);
-      }
-    }
-
-    onAddLead?.(form, createdLead);
-    setPendingAddLeadAgreementsFile(null);
-    setPendingAddLeadKycFiles([]);
-    setPendingAddLeadTeamMemberKycFiles([]);
-    if (addLeadAgreementsInputRef.current) addLeadAgreementsInputRef.current.value = '';
-    resetAddLeadForm();
-    setShowAiLeadDrawer(false);
-    onClose();
-  };
+  const applyGeneratedLeadToForm = (
+    form: AddLeadFormData,
+    generated: Awaited<ReturnType<typeof apiGenerateLeadDetails>>['data'],
+  ): AddLeadFormData => ({
+    ...form,
+    companyName: generated.companyName || form.companyName,
+    directorSalutation:
+      (generated as { directorSalutation?: string }).directorSalutation || form.directorSalutation,
+    contactPerson: generated.contactPerson || form.contactPerson,
+    designation: generated.designation || form.designation,
+    email: generated.email || form.email,
+    phone: generated.phone || form.phone,
+    emails: contactListForForm(
+      (generated as { emails?: string[] }).emails,
+      generated.email || form.email,
+    ),
+    phones: contactListForForm(
+      (generated as { phones?: string[] }).phones,
+      generated.phone || form.phone,
+    ),
+    type: generated.type || form.type,
+    source: generated.source || form.source,
+    status: generated.status || form.status,
+    priority: generated.priority || form.priority,
+    interestedNeeds: generated.interestedNeeds || form.interestedNeeds,
+    notes: generated.notes || form.notes,
+    industry: generated.industry || form.industry,
+    companySize: generated.companySize || form.companySize,
+    website: generated.website || form.website,
+    linkedIn: generated.linkedIn || form.linkedIn,
+    location: generated.location || form.location,
+    country: generated.country || form.country,
+    city: generated.city || form.city,
+    state: form.state,
+    latitude: form.latitude,
+    longitude: form.longitude,
+    campaignName: generated.campaignName || form.campaignName,
+    campaignLink: generated.campaignLink || form.campaignLink,
+    referralName: generated.referralName || form.referralName,
+    sourceWebsiteUrl: generated.sourceWebsiteUrl || form.sourceWebsiteUrl,
+    sourceLinkedInUrl: generated.sourceLinkedInUrl || form.sourceLinkedInUrl,
+    sourceEmail: generated.sourceEmail || form.sourceEmail,
+    otherDetails: Array.isArray(generated.otherDetails) ? generated.otherDetails : form.otherDetails,
+    lastFollowUp: normalizeLeadDateInput(generated.lastFollowUp || form.lastFollowUp),
+    nextFollowUp: normalizeLeadDateInput(generated.nextFollowUp || form.nextFollowUp),
+    assignedToId: generated.assignedToId || form.assignedToId,
+    teamMembers: form.teamMembers,
+  });
 
   const getMissingLeadAiFields = (form: AddLeadFormData): LeadAiRequiredField[] => {
     const missing: LeadAiRequiredField[] = [];
-    if (!form.companyName?.trim()) missing.push('companyName');
-    if (!form.email?.trim()) missing.push('email');
-    if (!form.phone?.trim()) missing.push('phone');
-    if (!form.location?.trim()) missing.push('location');
-    if (!form.interestedNeeds?.trim()) missing.push('interestedNeeds');
+    const validation = validateLeadRequiredFields(form);
+    if (validation.companyName) missing.push('companyName');
+    if (validation.contactPerson) missing.push('contactPerson');
+    if (validation.email) missing.push('email');
     return missing;
   };
 
@@ -884,108 +768,154 @@ export function LeadDetailsDrawer({
 
   const handleLeadAiGenerate = async () => {
     const input = leadAiPrompt.trim();
-    if (!input) return;
+    if (!input) {
+      toast.error('Paste or type lead details first');
+      return;
+    }
 
-    setLeadAiPrompt('');
     setLeadAiError('');
-    pushLeadAiMessage('user', input);
+    setLeadAiStatus('');
 
     try {
       setLeadAiGenerating(true);
-      setLeadAiStep('coreDetails');
-      const combinedContext = [leadAiContext, input].filter(Boolean).join('\n');
       const response = await apiGenerateLeadDetails({
-        prompt: combinedContext,
+        prompt: input,
         currentForm: addLeadForm as unknown as Record<string, unknown>,
       });
       const generated = response.data;
+      if (!generated) {
+        throw new Error('AI did not return lead details');
+      }
 
-      const nextFormState: AddLeadFormData = {
-        ...addLeadForm,
-        companyName: generated.companyName || addLeadForm.companyName,
-        directorSalutation:
-          (generated as { directorSalutation?: string }).directorSalutation || addLeadForm.directorSalutation,
-        contactPerson: generated.contactPerson || addLeadForm.contactPerson,
-        designation: generated.designation || addLeadForm.designation,
-        email: generated.email || addLeadForm.email,
-        phone: generated.phone || addLeadForm.phone,
-        emails: contactListForForm(
-          (generated as { emails?: string[] }).emails,
-          generated.email || addLeadForm.email,
-        ),
-        phones: contactListForForm(
-          (generated as { phones?: string[] }).phones,
-          generated.phone || addLeadForm.phone,
-        ),
-        type: generated.type || addLeadForm.type,
-        source: generated.source || addLeadForm.source,
-        status: generated.status || addLeadForm.status,
-        priority: generated.priority || addLeadForm.priority,
-        interestedNeeds: generated.interestedNeeds || addLeadForm.interestedNeeds,
-        notes: generated.notes || addLeadForm.notes,
-        industry: generated.industry || addLeadForm.industry,
-        companySize: generated.companySize || addLeadForm.companySize,
-        website: generated.website || addLeadForm.website,
-        linkedIn: generated.linkedIn || addLeadForm.linkedIn,
-        location: generated.location || addLeadForm.location,
-        country: generated.country || addLeadForm.country,
-        city: generated.city || addLeadForm.city,
-        state: addLeadForm.state,
-        latitude: addLeadForm.latitude,
-        longitude: addLeadForm.longitude,
-        campaignName: generated.campaignName || addLeadForm.campaignName,
-        campaignLink: generated.campaignLink || addLeadForm.campaignLink,
-        referralName: generated.referralName || addLeadForm.referralName,
-        sourceWebsiteUrl: generated.sourceWebsiteUrl || addLeadForm.sourceWebsiteUrl,
-        sourceLinkedInUrl: generated.sourceLinkedInUrl || addLeadForm.sourceLinkedInUrl,
-        sourceEmail: generated.sourceEmail || addLeadForm.sourceEmail,
-        otherDetails: Array.isArray(generated.otherDetails) ? generated.otherDetails : addLeadForm.otherDetails,
-        lastFollowUp: normalizeLeadDateInput(generated.lastFollowUp || addLeadForm.lastFollowUp),
-        nextFollowUp: normalizeLeadDateInput(generated.nextFollowUp || addLeadForm.nextFollowUp),
-        assignedToId: generated.assignedToId || addLeadForm.assignedToId,
-      };
-
+      const nextFormState = applyGeneratedLeadToForm(addLeadForm, generated);
       setAddLeadForm(nextFormState);
-      setLeadAiContext(combinedContext);
+      setAddLeadSectionsOpen({ company: true, contact: true, leadDetails: true });
+      setAddLeadErrors({});
 
       const missingFields = getMissingLeadAiFields(nextFormState);
+      setLeadAiPendingFields(missingFields);
+
       if (missingFields.length > 0) {
-        setLeadAiPendingFields(missingFields);
-        setLeadAiStep('followUpNotes');
-        setLeadAiSummaryReady(false);
-        pushLeadAiMessage(
-          'ai',
-          `I still need these details before I can create the lead: ${missingFields
-            .map((field) => LEAD_AI_REQUIRED_FIELD_LABELS[field])
-            .join(', ')}. Please send them in one message.`
+        setLeadAiStatus(
+          `Form filled. Still need: ${missingFields.map((field) => LEAD_AI_REQUIRED_FIELD_LABELS[field]).join(', ')}. Add them in the form or prompt, then click Create Lead.`,
         );
+        toast.message('Form partially filled — complete required fields, then click Create Lead');
         return;
       }
 
-      await createLeadFromAiForm(nextFormState);
-      return;
+      setLeadAiPrompt('');
+      toast.success('Form filled — review and click Create Lead');
     } catch (error: any) {
       console.error('Lead AI generation failed:', error);
-      setLeadAiError(error?.message || 'Failed to generate lead details');
-      setLeadAiStep('initial');
+      setLeadAiError(error?.message || 'Failed to process lead details');
     } finally {
       setLeadAiGenerating(false);
     }
   };
+
   const [addLeadSectionsOpen, setAddLeadSectionsOpen] = useState({
     company: true,
     contact: true,
     leadDetails: true,
   });
-  const [showAiLeadDrawer, setShowAiLeadDrawer] = useState(false);
   const [leadAiPrompt, setLeadAiPrompt] = useState('');
-  const [, setLeadAiStep] = useState<LeadAiStep>('initial');
-  const [leadAiMessages, setLeadAiMessages] = useState<LeadAiMessage[]>([]);
   const [leadAiError, setLeadAiError] = useState('');
-  const [leadAiSummaryReady, setLeadAiSummaryReady] = useState(false);
-  const [leadAiContext, setLeadAiContext] = useState('');
+  const [leadAiStatus, setLeadAiStatus] = useState('');
   const [leadAiPendingFields, setLeadAiPendingFields] = useState<LeadAiRequiredField[]>([]);
   const [leadAiGenerating, setLeadAiGenerating] = useState(false);
+  const [leadAiPromptVisible, setLeadAiPromptVisible] = useState(true);
+  const [leadAiPromptPos, setLeadAiPromptPos] = useState<{ x: number; y: number } | null>(null);
+  const leadAiPromptBoundsRef = useRef<HTMLDivElement>(null);
+  const leadAiPromptBoxRef = useRef<HTMLDivElement>(null);
+  const leadAiDragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (addLeadMode) {
+      setLeadAiPromptVisible(true);
+      setLeadAiPromptPos(null);
+    }
+  }, [addLeadMode]);
+
+  const clampLeadAiPromptPosition = useCallback((x: number, y: number) => {
+    const bounds = leadAiPromptBoundsRef.current;
+    const box = leadAiPromptBoxRef.current;
+    if (!bounds || !box) return { x, y };
+
+    const boundsRect = bounds.getBoundingClientRect();
+    const boxRect = box.getBoundingClientRect();
+    const pad = 8;
+    const maxX = Math.max(pad, boundsRect.width - boxRect.width - pad);
+    const maxY = Math.max(pad, boundsRect.height - boxRect.height - pad);
+
+    return {
+      x: Math.min(Math.max(pad, x), maxX),
+      y: Math.min(Math.max(pad, y), maxY),
+    };
+  }, []);
+
+  const resolveLeadAiPromptPosition = useCallback(() => {
+    if (leadAiPromptPos) return leadAiPromptPos;
+
+    const bounds = leadAiPromptBoundsRef.current;
+    const box = leadAiPromptBoxRef.current;
+    if (!bounds || !box) return { x: 24, y: 24 };
+
+    const boundsRect = bounds.getBoundingClientRect();
+    const boxRect = box.getBoundingClientRect();
+    return clampLeadAiPromptPosition(
+      boxRect.left - boundsRect.left,
+      boxRect.top - boundsRect.top,
+    );
+  }, [leadAiPromptPos, clampLeadAiPromptPosition]);
+
+  const handleLeadAiPromptDragStart = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+
+      const origin = resolveLeadAiPromptPosition();
+      setLeadAiPromptPos(origin);
+
+      leadAiDragRef.current = {
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        originX: origin.x,
+        originY: origin.y,
+      };
+
+      const onMove = (ev: PointerEvent) => {
+        const drag = leadAiDragRef.current;
+        if (!drag || ev.pointerId !== drag.pointerId) return;
+
+        const dx = ev.clientX - drag.startX;
+        const dy = ev.clientY - drag.startY;
+        const next = clampLeadAiPromptPosition(drag.originX + dx, drag.originY + dy);
+        setLeadAiPromptPos(next);
+      };
+
+      const onUp = (ev: PointerEvent) => {
+        const drag = leadAiDragRef.current;
+        if (!drag || ev.pointerId !== drag.pointerId) return;
+        leadAiDragRef.current = null;
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onUp);
+      };
+
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onUp);
+    },
+    [resolveLeadAiPromptPosition, clampLeadAiPromptPosition],
+  );
+
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [overviewOpen, setOverviewOpen] = useState<Record<string, boolean>>({
     company: false,
@@ -1020,7 +950,7 @@ export function LeadDetailsDrawer({
     sourceWebsiteUrl: '',
     sourceLinkedInUrl: '',
     sourceEmail: '',
-    otherDetailsText: '',
+    dynamicOtherDetails: [] as Array<{ label: string; value: string }>,
     leadOwner: '',
     assignedToId: '',
     assignedToIds: [] as string[],
@@ -1037,6 +967,7 @@ export function LeadDetailsDrawer({
     teamMemberDesignation: '',
     teamMemberEmail: '',
     teamMemberPhone: '',
+    teamMembers: normalizeTeamMemberList(),
   });
   const [overviewStatusIsCustom, setOverviewStatusIsCustom] = useState(false);
   const [activityFilter, setActivityFilter] = useState<'all' | 'calls' | 'messages' | 'emails'>('all');
@@ -1431,21 +1362,18 @@ export function LeadDetailsDrawer({
       sourceLinkedInUrl: lead.sourceLinkedInUrl ?? '',
       sourceEmail: lead.sourceEmail ?? '',
       ...(() => {
-        const teamMember = resolveTeamMemberFields(lead);
-        const otherLines = Array.isArray(lead.otherDetails)
+        const teamMembers = resolveTeamMemberList(lead);
+        const dynamicOtherDetails = Array.isArray(lead.otherDetails)
           ? lead.otherDetails
-              .filter(
-                (item) =>
-                  !Object.values(TEAM_MEMBER_DETAIL_LABELS).includes(
-                    String(item.label || '').trim() as (typeof TEAM_MEMBER_DETAIL_LABELS)[keyof typeof TEAM_MEMBER_DETAIL_LABELS],
-                  ),
-              )
-              .map((item) => `${item.label}: ${item.value}`)
-              .join('\n')
-          : '';
+              .filter((item) => !isTeamMemberDetailLabel(item.label))
+              .map((item) => ({
+                label: String(item.label || '').trim(),
+                value: String(item.value || ''),
+              }))
+          : [];
         return {
-          otherDetailsText: otherLines,
-          ...teamMember,
+          dynamicOtherDetails,
+          ...syncLeadTeamMembers(teamMembers),
         };
       })(),
       leadOwner: lead.assignedTo?.name ?? '',
@@ -1560,34 +1488,18 @@ export function LeadDetailsDrawer({
         sourceLinkedInUrl: overviewEditForm.sourceLinkedInUrl || undefined,
         sourceEmail: overviewEditForm.sourceEmail || undefined,
         ...teamMemberPayloadFromForm(
-          {
-            teamMemberDesignation: overviewEditForm.teamMemberDesignation,
-            teamMemberEmail: overviewEditForm.teamMemberEmail,
-            teamMemberPhone: overviewEditForm.teamMemberPhone,
-          },
+          primaryTeamMemberFromList(overviewEditForm.teamMembers),
           overviewEditForm.companySize,
         ),
         otherDetails: mergeTeamMemberIntoOtherDetails(
-          overviewEditForm.otherDetailsText
-            ? overviewEditForm.otherDetailsText
-                .split('\n')
-                .map((line) => line.trim())
-                .filter(Boolean)
-                .map((line) => {
-                  const parts = line.split(':');
-                  return {
-                    label: (parts.shift() || '').trim(),
-                    value: parts.join(':').trim(),
-                  };
-                })
-                .filter((item) => item.label && item.value)
-            : undefined,
+          overviewEditForm.dynamicOtherDetails
+            .map((item) => ({
+              label: String(item.label || '').trim(),
+              value: String(item.value || '').trim(),
+            }))
+            .filter((item) => item.label && item.value),
           overviewEditForm.companySize,
-          {
-            teamMemberDesignation: overviewEditForm.teamMemberDesignation,
-            teamMemberEmail: overviewEditForm.teamMemberEmail,
-            teamMemberPhone: overviewEditForm.teamMemberPhone,
-          },
+          overviewEditForm.teamMembers,
         ),
         status: String(overviewEditForm.status || 'New').trim() || 'New',
         priority: overviewEditForm.priority,
@@ -1601,45 +1513,7 @@ export function LeadDetailsDrawer({
         nextFollowUp: overviewEditForm.nextFollowUp || undefined,
       };
 
-      // Agreements & Terms — upload the pending file (if any) before patching the lead so the
-      // URL/filename ride along with the same update call as the other overview fields.
-      if (pendingOverviewAgreementsFile) {
-        try {
-          setUploadingAgreements(true);
-          const uploadResponse = await filesApiUpload(
-            'lead',
-            lead.id,
-            pendingOverviewAgreementsFile,
-            'AGREEMENT'
-          );
-          const agreementUrl = uploadResponse.data?.fileUrl;
-          const agreementName = uploadResponse.data?.fileName || pendingOverviewAgreementsFile.name;
-          if (agreementUrl) {
-            (updateData as any).agreementsFileName = agreementName;
-            (updateData as any).agreementsFileUrl = agreementUrl;
-            (updateData as any).agreementsUploadedAt = new Date().toISOString();
-            agreementsUploadFeedback.markSuccess(pendingOverviewAgreementsFile.name);
-          }
-        } catch (uploadError: any) {
-          console.error('Failed to upload lead agreement:', uploadError);
-          agreementsUploadFeedback.markError(uploadError.message || 'Failed to upload agreements file');
-          void requestError(uploadError.message || 'Failed to upload agreements file');
-        } finally {
-          setUploadingAgreements(false);
-        }
-      } else if (
-        lead.agreementsFileUrl &&
-        !(overviewEditForm as any).agreementsFileUrl
-      ) {
-        // User explicitly cleared the existing agreement.
-        (updateData as any).agreementsFileName = null;
-        (updateData as any).agreementsFileUrl = null;
-        (updateData as any).agreementsUploadedAt = null;
-      }
-
-      Object.assign(updateData, agreementTermsApiPayload(overviewEditForm));
-
-      const pendingOverviewLeadKyc = [...pendingOverviewKycFiles, ...pendingOverviewTeamMemberKycFiles];
+      const pendingOverviewLeadKyc = [...pendingOverviewTeamMemberKycFiles];
       if (pendingOverviewLeadKyc.length > 0) {
         try {
           setUploadingKyc(true);
@@ -1660,10 +1534,7 @@ export function LeadDetailsDrawer({
       }
 
       const updatedLeadResponse = await apiUpdateLead(lead.id, updateData);
-      setPendingOverviewAgreementsFile(null);
-      setPendingOverviewKycFiles([]);
       setPendingOverviewTeamMemberKycFiles([]);
-      if (overviewAgreementsInputRef.current) overviewAgreementsInputRef.current.value = '';
       setOverviewEditMode(false);
       setOverviewEditErrors({});
       onUpdateLead?.(updatedLeadResponse.data);
@@ -1673,12 +1544,160 @@ export function LeadDetailsDrawer({
     }
   };
 
+  const isCreateLeadDisabled = useMemo(() => {
+    const primaryEmail = primaryContactValue(
+      normalizeContactList(addLeadForm.emails, addLeadForm.email),
+    );
+    return (
+      !addLeadForm.companyName.trim() ||
+      !addLeadForm.contactPerson.trim() ||
+      !primaryEmail ||
+      !validateEmail(primaryEmail).valid
+    );
+  }, [addLeadForm]);
+
+  const handleSubmitAddLead = useCallback(async () => {
+    const nextErrors = validateLeadRequiredFields(addLeadForm);
+    setAddLeadErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) {
+      return;
+    }
+    if (addLeadStatusIsCustom && !String(addLeadForm.status || '').trim()) {
+      toast.error('Enter a custom status before creating the lead.');
+      return;
+    }
+
+    try {
+      const companyLinks = (addLeadForm.website ?? '')
+        .split('\n')
+        .map((item) => item.trim())
+        .filter(Boolean);
+
+      const createData: CreateLeadData = {
+        companyName: addLeadForm.companyName.trim(),
+        sector: addLeadForm.industry?.trim() || undefined,
+        industry: addLeadForm.industry?.trim() || undefined,
+        teamName: addLeadForm.companySize?.trim() || undefined,
+        companySize: addLeadForm.companySize?.trim() || undefined,
+        website: addLeadForm.website?.trim() || undefined,
+        companyLinks: companyLinks.length ? companyLinks : undefined,
+        linkedIn: addLeadForm.linkedIn?.trim() || undefined,
+        location: addLeadForm.location?.trim() || undefined,
+        directorName: addLeadForm.contactPerson.trim(),
+        contactPerson: addLeadForm.contactPerson.trim(),
+        directorSalutation: addLeadForm.directorSalutation?.trim() || undefined,
+        designation: addLeadForm.designation?.trim() || undefined,
+        ...buildContactChannelsFromForm(
+          addLeadForm.emails,
+          addLeadForm.phones,
+          addLeadForm.email,
+          addLeadForm.phone,
+        ),
+        country: addLeadForm.country?.trim() || undefined,
+        city: addLeadForm.city?.trim() || undefined,
+        type: addLeadForm.type || 'Company',
+        source: addLeadForm.source || 'Website',
+        campaignName: addLeadForm.campaignName?.trim() || undefined,
+        campaignLink: addLeadForm.campaignLink?.trim() || undefined,
+        referralName: addLeadForm.referralName?.trim() || undefined,
+        sourceWebsiteUrl: addLeadForm.sourceWebsiteUrl?.trim() || undefined,
+        sourceLinkedInUrl: addLeadForm.sourceLinkedInUrl?.trim() || undefined,
+        sourceEmail: addLeadForm.sourceEmail?.trim() || undefined,
+        ...teamMemberPayloadFromForm(
+          primaryTeamMemberFromList(addLeadForm.teamMembers),
+          addLeadForm.companySize,
+        ),
+        otherDetails: mergeTeamMemberIntoOtherDetails(
+          addLeadForm.otherDetails,
+          addLeadForm.companySize,
+          addLeadForm.teamMembers,
+        ),
+        status: addLeadForm.status || 'New',
+        priority: addLeadForm.priority || 'Medium',
+        servicesNeeded: addLeadForm.interestedNeeds?.trim() || undefined,
+        interestedNeeds: addLeadForm.interestedNeeds?.trim() || undefined,
+        expectedBusinessValue: addLeadForm.notes?.trim() || undefined,
+        notes: addLeadForm.notes?.trim() || undefined,
+        lastFollowUp: addLeadForm.lastFollowUp || undefined,
+        nextFollowUp: addLeadForm.nextFollowUp || undefined,
+        assignedToId: addLeadForm.assignedToId || undefined,
+        ...agreementTermsApiPayload(addLeadForm),
+      };
+
+      const createdLeadResponse = await apiCreateLead(createData);
+      let createdLead = createdLeadResponse?.data;
+
+      if (createdLead?.id && pendingAddLeadAgreementsFile) {
+        try {
+          setUploadingAgreements(true);
+          const uploadResponse = await filesApiUpload(
+            'lead',
+            createdLead.id,
+            pendingAddLeadAgreementsFile,
+            'AGREEMENT',
+          );
+          const agreementUrl = uploadResponse.data?.fileUrl;
+          const agreementName = uploadResponse.data?.fileName || pendingAddLeadAgreementsFile.name;
+          if (agreementUrl) {
+            const patched = await apiUpdateLead(createdLead.id, {
+              agreementsFileName: agreementName,
+              agreementsFileUrl: agreementUrl,
+              agreementsUploadedAt: new Date().toISOString(),
+            });
+            createdLead = patched?.data || {
+              ...createdLead,
+              agreementsFileName: agreementName,
+              agreementsFileUrl: agreementUrl,
+              agreementsUploadedAt: new Date().toISOString(),
+            };
+          }
+        } catch (uploadError: any) {
+          console.error('Failed to upload lead agreement:', uploadError);
+          void requestError(uploadError.message || 'Failed to upload agreements file');
+        } finally {
+          setUploadingAgreements(false);
+        }
+      }
+
+      const pendingLeadKyc = [...pendingAddLeadKycFiles, ...pendingAddLeadTeamMemberKycFiles];
+      if (createdLead?.id && pendingLeadKyc.length > 0) {
+        try {
+          setUploadingKyc(true);
+          await uploadKycDocuments('lead', createdLead.id, pendingLeadKyc);
+        } catch (uploadError: any) {
+          console.error('Failed to upload lead KYC documents:', uploadError);
+          void requestError(uploadError.message || 'Failed to upload KYC documents');
+        } finally {
+          setUploadingKyc(false);
+        }
+      }
+
+      setPendingAddLeadAgreementsFile(null);
+      setPendingAddLeadKycFiles([]);
+      setPendingAddLeadTeamMemberKycFiles([]);
+      if (addLeadAgreementsInputRef.current) addLeadAgreementsInputRef.current.value = '';
+
+      onAddLead?.(addLeadForm, createdLead);
+      resetAddLeadForm();
+    } catch (error: any) {
+      console.error('Failed to create lead:', error);
+      void requestError(error.message || 'Failed to create lead');
+    }
+  }, [
+    addLeadForm,
+    addLeadStatusIsCustom,
+    onAddLead,
+    pendingAddLeadAgreementsFile,
+    pendingAddLeadKycFiles,
+    pendingAddLeadTeamMemberKycFiles,
+  ]);
+
   const tabs = addLeadMode
     ? [{ id: 'add' as const, label: 'Add Lead', icon: UserPlus }]
     : [
         { id: 'overview' as const, label: 'Overview', icon: LayoutGrid },
         { id: 'activities' as const, label: 'Activities', icon: Activity },
-        { id: 'notes' as const, label: 'Notes', icon: StickyNote },
+        { id: 'notes' as const, label: 'Remarks', icon: StickyNote },
         { id: 'files' as const, label: 'Files', icon: Paperclip },
       ];
 
@@ -1726,20 +1745,6 @@ export function LeadDetailsDrawer({
               </div>
             </div>
             <div className="flex items-center gap-1 shrink-0">
-              {addLeadMode && (
-                <button
-                  type="button"
-                  onClick={openLeadAiDrawer}
-                  className="group relative inline-flex items-center gap-2 overflow-hidden rounded-xl border border-blue-400/40 bg-gradient-to-r from-blue-600 via-sky-500 to-cyan-400 px-4 py-2 text-sm font-semibold text-white shadow-[0_0_0_1px_rgba(96,165,250,0.18),0_10px_30px_rgba(37,99,235,0.32),0_0_24px_rgba(56,189,248,0.28)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_0_0_1px_rgba(125,211,252,0.34),0_16px_38px_rgba(37,99,235,0.38),0_0_32px_rgba(34,211,238,0.38)]"
-                >
-                  <span className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.42),transparent_42%),linear-gradient(120deg,transparent_20%,rgba(255,255,255,0.2)_48%,transparent_78%)] opacity-80 transition-opacity duration-300 group-hover:opacity-100" />
-                  <span className="absolute -left-10 top-0 h-full w-10 -skew-x-12 bg-white/20 blur-md transition-transform duration-700 group-hover:translate-x-[240px]" />
-                  <span className="relative flex items-center gap-2">
-                    <Sparkles size={16} className="drop-shadow-[0_0_10px_rgba(255,255,255,0.55)]" />
-                    Generate With AI
-                  </span>
-                </button>
-              )}
               {!addLeadMode && activeTab === 'overview' && !overviewEditMode && (
                 <button
                   type="button"
@@ -1768,7 +1773,28 @@ export function LeadDetailsDrawer({
                   </button>
                 </>
               )}
-              <DrawerCloseButton onClick={onClose} />
+              {addLeadMode ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="px-4 py-2.5 text-sm font-medium text-slate-700 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleSubmitAddLead()}
+                    disabled={isCreateLeadDisabled || uploadingAgreements || uploadingKyc}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <Plus size={14} />
+                    Create Lead
+                  </button>
+                </>
+              ) : (
+                <DrawerCloseButton onClick={onClose} />
+              )}
               {!addLeadMode ? (
               <div className="relative">
                 <button
@@ -1852,7 +1878,12 @@ export function LeadDetailsDrawer({
           </div>
 
           {/* Tab content */}
-          <div className="flex-1 overflow-y-auto bg-slate-50/30">
+          <div ref={leadAiPromptBoundsRef} className="relative flex min-h-0 flex-1 flex-col">
+            <div
+              className={`flex-1 overflow-y-auto bg-slate-50/30 ${
+                addLeadMode && activeTab === 'add' && leadAiPromptVisible && !leadAiPromptPos ? 'pb-44' : ''
+              }`}
+            >
             <div className="p-5">
               {showDeleteLeadForm ? (
                 <div className="space-y-5">
@@ -2741,12 +2772,10 @@ export function LeadDetailsDrawer({
                         </div>
                         <TeamMemberOptionalFields
                           teamName={addLeadForm.companySize ?? ''}
-                          values={{
-                            teamMemberDesignation: addLeadForm.teamMemberDesignation,
-                            teamMemberEmail: addLeadForm.teamMemberEmail,
-                            teamMemberPhone: addLeadForm.teamMemberPhone,
-                          }}
-                          onChange={(patch) => setAddLeadForm((p) => ({ ...p, ...patch }))}
+                          members={addLeadForm.teamMembers}
+                          onChange={(teamMembers) =>
+                            setAddLeadForm((p) => ({ ...p, ...syncLeadTeamMembers(teamMembers) }))
+                          }
                           pendingKycFiles={pendingAddLeadTeamMemberKycFiles}
                           onPendingKycFilesChange={setPendingAddLeadTeamMemberKycFiles}
                           uploadingKyc={uploadingKyc}
@@ -3220,213 +3249,6 @@ export function LeadDetailsDrawer({
                     )}
                   </section>
                   </div>
-
-                  {/* Submit Button */}
-                  <div className="flex justify-end gap-3 pt-2">
-                    <button
-                      type="button"
-                      onClick={onClose}
-                      className="px-4 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const nextErrors = validateLeadRequiredFields(addLeadForm);
-                        setAddLeadErrors(nextErrors);
-                        if (Object.keys(nextErrors).length > 0) {
-                          return;
-                        }
-                        if (addLeadStatusIsCustom && !String(addLeadForm.status || '').trim()) {
-                          toast.error('Enter a custom status before creating the lead.');
-                          return;
-                        }
-                        
-                        try {
-                          const companyLinks = (addLeadForm.website ?? '')
-                            .split('\n')
-                            .map((item) => item.trim())
-                            .filter(Boolean);
-
-                          const createData: CreateLeadData = {
-                            // Company Information
-                            companyName: addLeadForm.companyName.trim(),
-                            sector: addLeadForm.industry?.trim() || undefined,
-                            industry: addLeadForm.industry?.trim() || undefined,
-                            teamName: addLeadForm.companySize?.trim() || undefined,
-                            companySize: addLeadForm.companySize?.trim() || undefined,
-                            website: addLeadForm.website?.trim() || undefined,
-                            companyLinks: companyLinks.length ? companyLinks : undefined,
-                            linkedIn: addLeadForm.linkedIn?.trim() || undefined,
-                            location: addLeadForm.location?.trim() || undefined,
-                            // Contact Person
-                            directorName: addLeadForm.contactPerson.trim(),
-                            contactPerson: addLeadForm.contactPerson.trim(),
-                            directorSalutation: addLeadForm.directorSalutation?.trim() || undefined,
-                            designation: addLeadForm.designation?.trim() || undefined,
-                            ...buildContactChannelsFromForm(
-                              addLeadForm.emails,
-                              addLeadForm.phones,
-                              addLeadForm.email,
-                              addLeadForm.phone,
-                            ),
-                            country: addLeadForm.country?.trim() || undefined,
-                            city: addLeadForm.city?.trim() || undefined,
-                            // Lead Details
-                            type: addLeadForm.type || 'Company',
-                            source: addLeadForm.source || 'Website',
-                            campaignName: addLeadForm.campaignName?.trim() || undefined,
-                            campaignLink: addLeadForm.campaignLink?.trim() || undefined,
-                            referralName: addLeadForm.referralName?.trim() || undefined,
-                            sourceWebsiteUrl: addLeadForm.sourceWebsiteUrl?.trim() || undefined,
-                            sourceLinkedInUrl: addLeadForm.sourceLinkedInUrl?.trim() || undefined,
-                            sourceEmail: addLeadForm.sourceEmail?.trim() || undefined,
-                            ...teamMemberPayloadFromForm(
-                              {
-                                teamMemberDesignation: addLeadForm.teamMemberDesignation,
-                                teamMemberEmail: addLeadForm.teamMemberEmail,
-                                teamMemberPhone: addLeadForm.teamMemberPhone,
-                              },
-                              addLeadForm.companySize,
-                            ),
-                            otherDetails: mergeTeamMemberIntoOtherDetails(
-                              addLeadForm.otherDetails,
-                              addLeadForm.companySize,
-                              {
-                                teamMemberDesignation: addLeadForm.teamMemberDesignation,
-                                teamMemberEmail: addLeadForm.teamMemberEmail,
-                                teamMemberPhone: addLeadForm.teamMemberPhone,
-                              },
-                            ),
-                            status: addLeadForm.status || 'New',
-                            priority: addLeadForm.priority || 'Medium',
-                            servicesNeeded: addLeadForm.interestedNeeds?.trim() || undefined,
-                            interestedNeeds: addLeadForm.interestedNeeds?.trim() || undefined,
-                            expectedBusinessValue: addLeadForm.notes?.trim() || undefined,
-                            notes: addLeadForm.notes?.trim() || undefined,
-                            lastFollowUp: addLeadForm.lastFollowUp || undefined,
-                            nextFollowUp: addLeadForm.nextFollowUp || undefined,
-                            assignedToId: addLeadForm.assignedToId || undefined,
-                            ...agreementTermsApiPayload(addLeadForm),
-                          };
-
-                          const createdLeadResponse = await apiCreateLead(createData);
-                          let createdLead = createdLeadResponse?.data;
-
-                          // Agreements & Terms — upload after creation so the file is scoped to the new lead id.
-                          if (createdLead?.id && pendingAddLeadAgreementsFile) {
-                            try {
-                              setUploadingAgreements(true);
-                              const uploadResponse = await filesApiUpload(
-                                'lead',
-                                createdLead.id,
-                                pendingAddLeadAgreementsFile,
-                                'AGREEMENT'
-                              );
-                              const agreementUrl = uploadResponse.data?.fileUrl;
-                              const agreementName = uploadResponse.data?.fileName || pendingAddLeadAgreementsFile.name;
-                              if (agreementUrl) {
-                                const patched = await apiUpdateLead(createdLead.id, {
-                                  agreementsFileName: agreementName,
-                                  agreementsFileUrl: agreementUrl,
-                                  agreementsUploadedAt: new Date().toISOString(),
-                                });
-                                createdLead = patched?.data || {
-                                  ...createdLead,
-                                  agreementsFileName: agreementName,
-                                  agreementsFileUrl: agreementUrl,
-                                  agreementsUploadedAt: new Date().toISOString(),
-                                };
-                              }
-                            } catch (uploadError: any) {
-                              console.error('Failed to upload lead agreement:', uploadError);
-                              void requestError(uploadError.message || 'Failed to upload agreements file');
-                            } finally {
-                              setUploadingAgreements(false);
-                            }
-                          }
-                          const pendingLeadKyc = [...pendingAddLeadKycFiles, ...pendingAddLeadTeamMemberKycFiles];
-                          if (createdLead?.id && pendingLeadKyc.length > 0) {
-                            try {
-                              setUploadingKyc(true);
-                              await uploadKycDocuments('lead', createdLead.id, pendingLeadKyc);
-                            } catch (uploadError: any) {
-                              console.error('Failed to upload lead KYC documents:', uploadError);
-                              void requestError(uploadError.message || 'Failed to upload KYC documents');
-                            } finally {
-                              setUploadingKyc(false);
-                            }
-                          }
-
-                          setPendingAddLeadAgreementsFile(null);
-                          setPendingAddLeadKycFiles([]);
-                          setPendingAddLeadTeamMemberKycFiles([]);
-                          if (addLeadAgreementsInputRef.current) addLeadAgreementsInputRef.current.value = '';
-
-                          // Call the parent handler so table can update immediately
-                          onAddLead?.(addLeadForm, createdLead);
-                          
-                          // Reset form
-                          setAddLeadForm({
-                            companyName: '',
-                            industry: '',
-                            companySize: '',
-                            website: '',
-                            linkedIn: '',
-                            location: '',
-                            directorSalutation: '',
-                            contactPerson: '',
-                            designation: '',
-                            email: '',
-                            phone: '',
-                            emails: [''],
-                            phones: [''],
-                            country: '',
-                            city: '',
-                            type: 'Company',
-                            source: 'Website',
-                            campaignName: '',
-                            campaignLink: '',
-                            referralName: '',
-                            sourceWebsiteUrl: '',
-                            sourceLinkedInUrl: '',
-                            sourceEmail: '',
-                            otherDetails: [],
-                            teamMemberDesignation: '',
-                            teamMemberEmail: '',
-                            teamMemberPhone: '',
-                            assignedToName: '',
-                            assignedToId: '',
-                            status: 'New',
-                            priority: 'Medium',
-                            interestedNeeds: '',
-                            notes: '',
-                            lastFollowUp: '',
-                            nextFollowUp: '',
-                          });
-                        } catch (error: any) {
-                          console.error('Failed to create lead:', error);
-                          void requestError(error.message || 'Failed to create lead');
-                        }
-                      }}
-                      disabled={(() => {
-                        const primaryEmail = primaryContactValue(
-                          normalizeContactList(addLeadForm.emails, addLeadForm.email),
-                        );
-                        return (
-                          !addLeadForm.companyName.trim() ||
-                          !addLeadForm.contactPerson.trim() ||
-                          !primaryEmail ||
-                          !validateEmail(primaryEmail).valid
-                        );
-                      })()}
-                      className="px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-                    >
-                      <Plus size={16} />
-                      Create Lead
-                    </button>
-                  </div>
                 </div>
               ) : activeTab === 'overview' ? (
                 <div className="space-y-4">
@@ -3443,14 +3265,23 @@ export function LeadDetailsDrawer({
                             <div><FieldRow label="Director Name *" value={formatDirectorDisplay(lead?.directorSalutation, lead?.directorName || lead?.contactPerson)} /></div>
                             <div><FieldRow label="Team Name" value={lead?.companySize ?? ''} /></div>
                             {(() => {
-                              const tm = resolveTeamMemberFields(lead);
-                              if (!lead?.companySize?.trim()) return null;
+                              const teamMembers = resolveTeamMemberList(lead).filter(teamMemberHasAnyValue);
+                              if (!lead?.companySize?.trim() || teamMembers.length === 0) return null;
                               return (
-                                <>
-                                  <div><FieldRow label="Team Member Designation" value={tm.teamMemberDesignation ?? ''} /></div>
-                                  <div><FieldRow label="Team Member Email" value={tm.teamMemberEmail ?? ''} href={!!tm.teamMemberEmail} /></div>
-                                  <div><FieldRow label="Team Member Phone" value={tm.teamMemberPhone ?? ''} /></div>
-                                </>
+                                <div className="sm:col-span-2 space-y-3">
+                                  {teamMembers.map((tm, index) => (
+                                    <div key={`lead-team-member-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                                      <div className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">
+                                        Team Member {index + 1}
+                                      </div>
+                                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                                        <FieldRow label="Designation" value={tm.teamMemberDesignation ?? ''} />
+                                        <FieldRow label="Email" value={tm.teamMemberEmail ?? ''} href={!!tm.teamMemberEmail} />
+                                        <FieldRow label="Phone" value={tm.teamMemberPhone ?? ''} />
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
                               );
                             })()}
                             <div>
@@ -3503,40 +3334,11 @@ export function LeadDetailsDrawer({
                           <div>
                             <FieldRow label="Expected Business Value" value={lead?.notes ?? ''} />
                           </div>
-                          {(lead?.agreementsFileUrl ||
-                            formatAgreementTermsSummary(agreementTermsFromRecord(lead)).length > 0) && (
-                            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 space-y-2">
-                              <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                                Agreements &amp; Terms
-                              </div>
-                              {lead?.agreementsFileUrl ? (
-                                <a
-                                  href={lead.agreementsFileUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-2 text-sm text-slate-900 hover:underline"
-                                >
-                                  <Paperclip size={14} className="text-slate-500" />
-                                  <span className="truncate max-w-[280px]">
-                                    {lead.agreementsFileName || 'Agreement document'}
-                                  </span>
-                                </a>
-                              ) : null}
-                              {formatAgreementTermsSummary(agreementTermsFromRecord(lead)).map((line) => (
-                                <p key={line} className="text-sm text-slate-700">
-                                  {line}
-                                </p>
-                              ))}
-                            </div>
-                          )}
-                          
-                          <KycDocumentsView files={leadKycFiles} />
-
-{Array.isArray(lead?.otherDetails) && lead.otherDetails.length ? (
-                            <div>
+                          {Array.isArray(lead?.otherDetails) && lead.otherDetails.length ? (
+                            <div className="sm:col-span-2">
                               <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
-                                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">Other Details</p>
-                                <div className="space-y-2">
+                                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">Dynamic Fields</p>
+                                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                                   {lead.otherDetails.map((item, index) => (
                                     <div key={`${item.label}-${index}`} className="text-sm">
                                       <span className="font-semibold text-slate-900">{item.label}:</span>{' '}
@@ -3615,12 +3417,10 @@ export function LeadDetailsDrawer({
                             </div>
                             <TeamMemberOptionalFields
                               teamName={overviewEditForm.companySize}
-                              values={{
-                                teamMemberDesignation: overviewEditForm.teamMemberDesignation,
-                                teamMemberEmail: overviewEditForm.teamMemberEmail,
-                                teamMemberPhone: overviewEditForm.teamMemberPhone,
-                              }}
-                              onChange={(patch) => setOverviewEditForm((p) => ({ ...p, ...patch }))}
+                              members={overviewEditForm.teamMembers}
+                              onChange={(teamMembers) =>
+                                setOverviewEditForm((p) => ({ ...p, ...syncLeadTeamMembers(teamMembers) }))
+                              }
                               pendingKycFiles={pendingOverviewTeamMemberKycFiles}
                               onPendingKycFilesChange={setPendingOverviewTeamMemberKycFiles}
                               uploadingKyc={uploadingKyc}
@@ -3800,87 +3600,78 @@ export function LeadDetailsDrawer({
                           </div>
                           <div>
                             <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Other Details</label>
-                            <textarea
-                              value={overviewEditForm.otherDetailsText}
-                              onChange={(e) => setOverviewEditForm((p) => ({ ...p, otherDetailsText: e.target.value }))}
-                              rows={4}
-                              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-none"
-                              placeholder="One per line, for example: Budget: 50000"
-                            />
+                            <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-4 space-y-3">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Dynamic Fields</p>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setOverviewEditForm((p) => ({
+                                      ...p,
+                                      dynamicOtherDetails: [...p.dynamicOtherDetails, { label: '', value: '' }],
+                                    }))
+                                  }
+                                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-50"
+                                >
+                                  <Plus size={14} />
+                                  Add field
+                                </button>
+                              </div>
+                              {overviewEditForm.dynamicOtherDetails.length === 0 ? (
+                                <p className="text-xs text-slate-500">
+                                  No custom fields yet. Add a row or import from Excel; label and value are both required to save a field.
+                                </p>
+                              ) : (
+                                <div className="space-y-2">
+                                  {overviewEditForm.dynamicOtherDetails.map((row, idx) => (
+                                    <div key={`lead-dyn-${idx}`} className="flex flex-wrap items-center gap-2">
+                                      <input
+                                        value={row.label}
+                                        onChange={(e) => {
+                                          const label = e.target.value;
+                                          setOverviewEditForm((p) => ({
+                                            ...p,
+                                            dynamicOtherDetails: p.dynamicOtherDetails.map((r, i) =>
+                                              i === idx ? { ...r, label } : r,
+                                            ),
+                                          }));
+                                        }}
+                                        placeholder="Field name"
+                                        className="min-w-[8rem] flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                      />
+                                      <input
+                                        value={row.value}
+                                        onChange={(e) => {
+                                          const value = e.target.value;
+                                          setOverviewEditForm((p) => ({
+                                            ...p,
+                                            dynamicOtherDetails: p.dynamicOtherDetails.map((r, i) =>
+                                              i === idx ? { ...r, value } : r,
+                                            ),
+                                          }));
+                                        }}
+                                        placeholder="Value"
+                                        className="min-w-[8rem] flex-[2] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setOverviewEditForm((p) => ({
+                                            ...p,
+                                            dynamicOtherDetails: p.dynamicOtherDetails.filter((_, i) => i !== idx),
+                                          }))
+                                        }
+                                        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-red-50 hover:text-red-600"
+                                        aria-label="Remove dynamic field"
+                                      >
+                                        <Trash2 size={16} />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
                           </div>
-
-                          <KycDocumentsField
-                            pendingFiles={pendingOverviewKycFiles}
-                            onPendingFilesChange={setPendingOverviewKycFiles}
-                            storedFiles={leadKycFiles}
-                            uploadsBase={uploadsBase}
-                            onRemoveStored={async (fileId) => {
-                              await deleteLeadFile(fileId);
-                              await refetchLeadFiles();
-                            }}
-                            uploading={uploadingKyc}
-                            uploadSuccess={kycUploadFeedback.uploadSuccess}
-                            uploadPercent={kycUploadFeedback.uploadPercent}
-                            disabled={uploadingAgreements}
-                          />
-                          <AgreementTermsSection
-                            values={overviewEditForm}
-                            onChange={(patch) => setOverviewEditForm((p) => ({ ...p, ...patch }))}
-                            disabled={uploadingKyc || uploadingAgreements}
-                            uploadSlot={
-                              <>
-                                {overviewEditForm.agreementsFileUrl && !pendingOverviewAgreementsFile ? (
-                                  <div className="mb-2 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900">
-                                    <Paperclip size={14} className="shrink-0 text-slate-500" />
-                                    <a
-                                      href={overviewEditForm.agreementsFileUrl}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="min-w-0 flex-1 truncate hover:underline"
-                                    >
-                                      {overviewEditForm.agreementsFileName || 'Agreement document'}
-                                    </a>
-                                    {overviewEditForm.agreementsUploadedAt ? (
-                                      <span className="shrink-0 text-xs text-slate-500">
-                                        Uploaded {formatDateDMY(overviewEditForm.agreementsUploadedAt)}
-                                      </span>
-                                    ) : null}
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setOverviewEditForm((p) => ({
-                                          ...p,
-                                          agreementsFileName: '',
-                                          agreementsFileUrl: '',
-                                          agreementsUploadedAt: '',
-                                        }));
-                                      }}
-                                      className="shrink-0 rounded-lg p-1 text-red-500 hover:bg-red-50 hover:text-red-600"
-                                      aria-label="Remove agreement"
-                                    >
-                                      <X size={16} strokeWidth={2.25} />
-                                    </button>
-                                  </div>
-                                ) : null}
-                                <AgreementDocumentUpload
-                                  description="Upload the signed agreement, MoU, or terms document for this lead. PDF, DOC, DOCX up to 10MB."
-                                  pendingFile={pendingOverviewAgreementsFile}
-                                  onPendingFileChange={(file) => {
-                                    setPendingOverviewAgreementsFile(file);
-                                    if (file) {
-                                      setOverviewEditForm((p) => ({ ...p, agreementsFileName: file.name }));
-                                    }
-                                  }}
-                                  currentTerms={overviewEditForm}
-                                  onTermsExtracted={(terms) => setOverviewEditForm((p) => ({ ...p, ...terms }))}
-                                  isUploading={uploadingAgreements}
-                                  uploadSuccess={agreementsUploadFeedback.uploadSuccess}
-                                  uploadPercent={agreementsUploadFeedback.uploadPercent}
-                                  disabled={uploadingKyc}
-                                />
-                              </>
-                            }
-                          />
                         </>
                       )}
                     </div>
@@ -4557,7 +4348,7 @@ export function LeadDetailsDrawer({
                   <NotesService
                     entityType="lead"
                     entityId={lead.id}
-                    availableTags={['HR', 'Finance', 'Contract', 'Feedback']}
+                    availableTags={['Calls', 'WhatsApp', 'Emails']}
                     onNoteCreated={() => {
                       // Optionally refresh lead data or show notification
                     }}
@@ -4692,157 +4483,71 @@ export function LeadDetailsDrawer({
                 })()
               ) : null}
             </div>
-          </div>
-        </motion.div>
+            </div>
 
-        {/* Duplicate lead notification — fixed bottom-right of screen, auto-dismiss 5s. Triggers (for later): Duplicate email, Duplicate phone, Duplicate company. */}
-        <AnimatePresence>
-          <AnimatePresence>
-            {showAiLeadDrawer && addLeadMode && (
-              <motion.div
-                initial={{ x: '100%' }}
-                animate={{ x: 0 }}
-                exit={{ x: '100%' }}
-                transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-                className="fixed right-0 top-0 z-[70] h-full w-3/4 max-w-6xl bg-white shadow-2xl border-l border-slate-200 flex flex-col"
+            {addLeadMode && activeTab === 'add' && !leadAiPromptVisible ? (
+              <button
+                type="button"
+                onClick={() => setLeadAiPromptVisible(true)}
+                className="absolute bottom-5 right-5 z-20 flex h-12 w-12 items-center justify-center rounded-full border border-blue-200/80 bg-white text-blue-600 shadow-[0_8px_24px_rgba(37,99,235,0.22)] transition-colors hover:bg-blue-50"
+                aria-label="Show AI prompt"
+                title="Show AI prompt"
               >
-                <div className="border-b border-slate-200 bg-white p-5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] font-bold uppercase tracking-wider text-blue-600">AI Drawer</p>
-                      <h3 className="mt-1 text-lg font-bold text-slate-900">Generate Company Lead With AI</h3>
-                      <p className="mt-1 text-sm text-slate-500">
-                        Share the lead details once. If key lead information is missing, the drawer will ask only for that. Then AI will optimize the data, fill the fields, and create the lead directly.
+                <Sparkles size={20} />
+              </button>
+            ) : null}
+
+            {addLeadMode && activeTab === 'add' && leadAiPromptVisible ? (
+              <div
+                ref={leadAiPromptBoxRef}
+                className={`pointer-events-none absolute z-20 w-[min(100%,42rem)] max-w-3xl px-5 ${
+                  leadAiPromptPos ? '' : 'bottom-5 left-1/2 -translate-x-1/2'
+                }`}
+                style={
+                  leadAiPromptPos
+                    ? { left: leadAiPromptPos.x, top: leadAiPromptPos.y, transform: 'none' }
+                    : undefined
+                }
+              >
+                {(leadAiStatus || leadAiError) && (
+                  <div className="pointer-events-auto mb-2 space-y-1.5">
+                    {leadAiStatus ? (
+                      <p className="rounded-2xl border border-amber-200/80 bg-amber-50/95 px-3 py-2 text-xs text-amber-900 shadow-sm backdrop-blur-sm">
+                        {leadAiStatus}
                       </p>
-                    </div>
+                    ) : null}
+                    {leadAiError ? (
+                      <p className="rounded-2xl border border-red-200/80 bg-red-50/95 px-3 py-2 text-xs text-red-700 shadow-sm backdrop-blur-sm">
+                        {leadAiError}
+                      </p>
+                    ) : null}
+                  </div>
+                )}
+                <div className="pointer-events-auto relative rounded-[28px] border border-slate-200/80 bg-white/95 p-1.5 shadow-[0_8px_32px_rgba(15,23,42,0.14),0_2px_8px_rgba(15,23,42,0.06)] backdrop-blur-md">
+                  <button
+                    type="button"
+                    onClick={() => setLeadAiPromptVisible(false)}
+                    className="absolute -right-2 -top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-md transition-colors hover:bg-slate-50 hover:text-slate-800"
+                    aria-label="Close AI prompt"
+                    title="Close"
+                  >
+                    <X size={14} strokeWidth={2.5} />
+                  </button>
+                  <div className="flex items-end gap-1.5 pl-1 pr-1">
                     <button
                       type="button"
-                      onClick={() => setShowAiLeadDrawer(false)}
-                      className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
-                      aria-label="Close AI drawer"
+                      onPointerDown={handleLeadAiPromptDragStart}
+                      className="mb-1 flex h-9 w-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 active:cursor-grabbing"
+                      aria-label="Drag prompt"
+                      title="Drag to move"
                     >
-                      <XCircle size={20} />
+                      <GripVertical size={16} />
                     </button>
-                  </div>
-                </div>
-
-                <div className="flex-1 overflow-y-auto bg-slate-50/40 p-5">
-                  <div className="space-y-4">
-                    {leadAiMessages.map((message) => (
-                      <div
-                        key={message.id}
-                        className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                      >
-                        <div className="flex max-w-[92%] items-start gap-3">
-                          {message.role === 'ai' ? (
-                            <>
-                              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white shadow-sm">
-                                AI
-                              </div>
-                              <div className="max-w-[88%] rounded-[22px] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
-                                {message.content}
-                              </div>
-                            </>
-                          ) : (
-                            <>
-                              <div className="max-w-[88%] rounded-[22px] bg-blue-600 px-4 py-3 text-sm text-white shadow-sm">
-                                {message.content}
-                              </div>
-                              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700 shadow-sm">
-                                You
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-
-                    {leadAiError ? (
-                      <div className="flex justify-start">
-                        <div className="flex max-w-[92%] items-start gap-3">
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white shadow-sm">
-                            AI
-                          </div>
-                          <div className="max-w-[88%] rounded-[22px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm">
-                            {leadAiError}
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {leadAiSummaryReady ? (
-                      <div className="flex justify-start">
-                        <div className="flex max-w-[92%] items-start gap-3">
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white shadow-sm">
-                            AI
-                          </div>
-                          <div className="w-full max-w-[88%] rounded-[22px] border border-slate-200 bg-white px-4 py-4 shadow-sm">
-                            <div className="grid grid-cols-2 gap-3">
-                              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Company</p>
-                                <p className="mt-2 text-sm font-medium text-slate-900">{addLeadForm.companyName || '—'}</p>
-                              </div>
-                              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Director Name</p>
-                                <p className="mt-2 text-sm font-medium text-slate-900">
-                                  {formatDirectorDisplay(addLeadForm.directorSalutation, addLeadForm.contactPerson) || '—'}
-                                </p>
-                              </div>
-                              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Email</p>
-                                <p className="mt-2 text-sm font-medium text-slate-900">{addLeadForm.email || '—'}</p>
-                              </div>
-                              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Phone</p>
-                                <p className="mt-2 text-sm font-medium text-slate-900">{addLeadForm.phone || '—'}</p>
-                              </div>
-                              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Location</p>
-                                <p className="mt-2 text-sm font-medium text-slate-900">{addLeadForm.location || '—'}</p>
-                              </div>
-                              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Services Needed</p>
-                                <p className="mt-2 text-sm font-medium text-slate-900">{formatServicesNeededDisplay(addLeadForm.interestedNeeds) || '—'}</p>
-                              </div>
-                              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">City</p>
-                                <p className="mt-2 text-sm font-medium text-slate-900">{addLeadForm.city || '—'}</p>
-                              </div>
-                              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Country</p>
-                                <p className="mt-2 text-sm font-medium text-slate-900">{addLeadForm.country || '—'}</p>
-                              </div>
-                              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Industry</p>
-                                <p className="mt-2 text-sm font-medium text-slate-900">{addLeadForm.industry || '—'}</p>
-                              </div>
-                              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Interest Level</p>
-                                <p className="mt-2 text-sm font-medium text-slate-900">{addLeadForm.priority || '—'}</p>
-                              </div>
-                              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Next Follow-up</p>
-                                <p className="mt-2 text-sm font-medium text-slate-900">
-                                  {formatFollowUpDisplay(addLeadForm.nextFollowUp)}
-                                </p>
-                              </div>
-                              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Expected Business Value</p>
-                                <p className="mt-2 text-sm font-medium text-slate-900">{addLeadForm.notes || '—'}</p>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
-
-                  </div>
-                </div>
-
-                <div className="border-t border-slate-200 bg-white px-5 py-4">
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="text"
+                    <div className="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
+                      <Sparkles size={15} />
+                    </div>
+                    <textarea
+                      id="lead-smart-prompt"
                       value={leadAiPrompt}
                       onChange={(e) => setLeadAiPrompt(e.target.value)}
                       onKeyDown={(e) => {
@@ -4851,53 +4556,34 @@ export function LeadDetailsDrawer({
                           void handleLeadAiGenerate();
                         }
                       }}
-                      placeholder="Paste all lead details here and AI will fill the form..."
-                      className="flex-1 rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      rows={1}
+                      placeholder="Paste lead details — company, contact, email, phone, location…"
+                      className="max-h-32 min-h-[40px] flex-1 resize-none border-0 bg-transparent py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-0 disabled:opacity-60"
                       disabled={leadAiGenerating}
                     />
                     <button
                       type="button"
                       onClick={() => void handleLeadAiGenerate()}
-                      className="inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-blue-500 text-white transition-colors hover:bg-blue-600"
-                      aria-label="Send lead prompt"
-                      disabled={leadAiGenerating}
+                      disabled={leadAiGenerating || !leadAiPrompt.trim()}
+                      className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-900 text-white transition-all hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                      aria-label={leadAiGenerating ? 'Processing' : 'Fill form from text'}
+                      title={leadAiGenerating ? 'Processing…' : 'Fill form (Enter)'}
                     >
-                      <SendHorizontal size={18} />
+                      {leadAiGenerating ? (
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                      ) : (
+                        <ArrowUp size={18} strokeWidth={2.25} />
+                      )}
                     </button>
                   </div>
-
-                  <div className="mt-3 flex items-center justify-between gap-3">
-                    <span className="text-sm text-slate-500">
-                      {leadAiGenerating
-                        ? 'AI is analyzing the lead and preparing creation...'
-                        : leadAiPendingFields.length > 0
-                          ? `Waiting for: ${leadAiPendingFields.map((field) => LEAD_AI_REQUIRED_FIELD_LABELS[field]).join(', ')}`
-                          : 'Send one message and AI will create the lead after filling the required fields'}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setShowAiLeadDrawer(false)}
-                        className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-                      >
-                        Close
-                      </button>
-                      {leadAiSummaryReady ? (
-                        <button
-                          type="button"
-                          onClick={finalizeLeadAiDrawer}
-                          className="rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-green-700"
-                        >
-                          Review Filled Lead
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
                 </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+              </div>
+            ) : null}
+          </div>
+        </motion.div>
 
+        {/* Duplicate lead notification — fixed bottom-right of screen, auto-dismiss 5s. Triggers (for later): Duplicate email, Duplicate phone, Duplicate company. */}
+        <AnimatePresence>
           {showDuplicateNotification && (
             <motion.div
               initial={{ x: '100%', opacity: 0 }}

@@ -12,6 +12,59 @@ export type TeamMemberFormValues = {
   teamMemberPhone?: string;
 };
 
+export type TeamMemberListItem = TeamMemberFormValues & {
+  id?: string;
+};
+
+const TEAM_MEMBER_FIELD_SUFFIX = {
+  designation: 'Designation',
+  email: 'Email',
+  phone: 'Phone',
+} as const;
+
+const TEAM_MEMBER_NUMBERED_LABEL_REGEX =
+  /^Team Member\s+(\d+)\s+(Designation|Email|Phone)$/i;
+
+export function isTeamMemberDetailLabel(label?: string | null): boolean {
+  const normalized = String(label ?? '').trim();
+  return TEAM_MEMBER_LABEL_SET.has(normalized) || TEAM_MEMBER_NUMBERED_LABEL_REGEX.test(normalized);
+}
+
+export function createEmptyTeamMember(id?: string): TeamMemberListItem {
+  return {
+    id,
+    teamMemberDesignation: '',
+    teamMemberEmail: '',
+    teamMemberPhone: '',
+  };
+}
+
+export function normalizeTeamMemberList(
+  members?: Array<TeamMemberListItem | null | undefined> | null,
+): TeamMemberListItem[] {
+  const normalized = (members ?? [])
+    .filter(Boolean)
+    .map((member) => ({
+      id: member?.id,
+      teamMemberDesignation: String(member?.teamMemberDesignation ?? ''),
+      teamMemberEmail: String(member?.teamMemberEmail ?? ''),
+      teamMemberPhone: String(member?.teamMemberPhone ?? ''),
+    }));
+
+  return normalized.length > 0 ? normalized : [createEmptyTeamMember()];
+}
+
+export function primaryTeamMemberFromList(
+  members?: Array<TeamMemberListItem | null | undefined> | null,
+): TeamMemberFormValues {
+  const [first] = normalizeTeamMemberList(members);
+  return {
+    teamMemberDesignation: first?.teamMemberDesignation ?? '',
+    teamMemberEmail: first?.teamMemberEmail ?? '',
+    teamMemberPhone: first?.teamMemberPhone ?? '',
+  };
+}
+
 export function hasTeamName(teamName?: string | null): boolean {
   return Boolean(String(teamName ?? '').trim());
 }
@@ -29,6 +82,71 @@ export function parseTeamMemberFromOtherDetails(
   };
 }
 
+function parseTeamMemberListFromOtherDetails(
+  otherDetails?: Array<{ label: string; value: string }> | null,
+): TeamMemberListItem[] {
+  const grouped = new Map<number, TeamMemberListItem>();
+
+  for (const item of otherDetails ?? []) {
+    const label = String(item?.label || '').trim();
+    const value = String(item?.value || '').trim();
+    const match = label.match(TEAM_MEMBER_NUMBERED_LABEL_REGEX);
+    if (!match) continue;
+
+    const index = Number(match[1]);
+    if (!Number.isFinite(index) || index <= 0) continue;
+
+    const existing = grouped.get(index) || createEmptyTeamMember();
+    const field = match[2].toLowerCase();
+
+    if (field === 'designation') existing.teamMemberDesignation = value;
+    if (field === 'email') existing.teamMemberEmail = value;
+    if (field === 'phone') existing.teamMemberPhone = value;
+
+    grouped.set(index, existing);
+  }
+
+  const ordered = Array.from(grouped.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([, member]) => member);
+
+  return ordered;
+}
+
+export function resolveTeamMemberList(source?: {
+  teamMemberDesignation?: string | null;
+  teamMemberEmail?: string | null;
+  teamMemberPhone?: string | null;
+  otherDetails?: Array<{ label: string; value: string }> | null;
+} | null): TeamMemberListItem[] {
+  const numbered = parseTeamMemberListFromOtherDetails(source?.otherDetails);
+  if (numbered.length > 0) {
+    return normalizeTeamMemberList(numbered);
+  }
+
+  const explicit = {
+    teamMemberDesignation: String(source?.teamMemberDesignation ?? '').trim(),
+    teamMemberEmail: String(source?.teamMemberEmail ?? '').trim(),
+    teamMemberPhone: String(source?.teamMemberPhone ?? '').trim(),
+  };
+  if (teamMemberHasAnyValue(explicit)) {
+    return normalizeTeamMemberList([explicit]);
+  }
+
+  const legacy = parseTeamMemberFromOtherDetails(source?.otherDetails);
+  if (legacy.designation || legacy.email || legacy.phone) {
+    return normalizeTeamMemberList([
+      {
+        teamMemberDesignation: legacy.designation,
+        teamMemberEmail: legacy.email,
+        teamMemberPhone: legacy.phone,
+      },
+    ]);
+  }
+
+  return normalizeTeamMemberList();
+}
+
 /** Prefer dedicated DB columns; fall back to legacy otherDetails rows. */
 export function resolveTeamMemberFields(source?: {
   teamMemberDesignation?: string | null;
@@ -36,30 +154,19 @@ export function resolveTeamMemberFields(source?: {
   teamMemberPhone?: string | null;
   otherDetails?: Array<{ label: string; value: string }> | null;
 } | null): TeamMemberFormValues {
-  const designation = String(source?.teamMemberDesignation ?? '').trim();
-  const email = String(source?.teamMemberEmail ?? '').trim();
-  const phone = String(source?.teamMemberPhone ?? '').trim();
-  if (designation || email || phone) {
-    return { teamMemberDesignation: designation, teamMemberEmail: email, teamMemberPhone: phone };
-  }
-  const legacy = parseTeamMemberFromOtherDetails(source?.otherDetails);
-  return {
-    teamMemberDesignation: legacy.designation,
-    teamMemberEmail: legacy.email,
-    teamMemberPhone: legacy.phone,
-  };
+  return primaryTeamMemberFromList(resolveTeamMemberList(source));
 }
 
 function stripTeamMemberLabels(
   details: Array<{ label: string; value: string }>,
 ): Array<{ label: string; value: string }> {
-  return details.filter((item) => !TEAM_MEMBER_LABEL_SET.has(String(item.label || '').trim()));
+  return details.filter((item) => !isTeamMemberDetailLabel(item.label));
 }
 
 export function mergeTeamMemberIntoOtherDetails(
   existing: Array<{ label: string; value: string }> | undefined,
   teamName: string | undefined,
-  member: TeamMemberFormValues,
+  members: TeamMemberFormValues | TeamMemberListItem[],
 ): Array<{ label: string; value: string }> | undefined {
   const base = stripTeamMemberLabels(Array.isArray(existing) ? existing : []);
   if (!hasTeamName(teamName)) {
@@ -72,9 +179,16 @@ export function mergeTeamMemberIntoOtherDetails(
     if (trimmed) entries.push({ label, value: trimmed });
   };
 
-  push(TEAM_MEMBER_DETAIL_LABELS.designation, member.teamMemberDesignation);
-  push(TEAM_MEMBER_DETAIL_LABELS.email, member.teamMemberEmail);
-  push(TEAM_MEMBER_DETAIL_LABELS.phone, member.teamMemberPhone);
+  const normalizedMembers = normalizeTeamMemberList(
+    Array.isArray(members) ? members : [members],
+  ).filter(teamMemberHasAnyValue);
+
+  normalizedMembers.forEach((member, index) => {
+    const position = index + 1;
+    push(`Team Member ${position} ${TEAM_MEMBER_FIELD_SUFFIX.designation}`, member.teamMemberDesignation);
+    push(`Team Member ${position} ${TEAM_MEMBER_FIELD_SUFFIX.email}`, member.teamMemberEmail);
+    push(`Team Member ${position} ${TEAM_MEMBER_FIELD_SUFFIX.phone}`, member.teamMemberPhone);
+  });
 
   return entries.length ? entries : undefined;
 }

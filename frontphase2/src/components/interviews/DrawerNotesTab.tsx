@@ -30,7 +30,7 @@ export function DrawerNotesTab({ notes, onAddNote }: DrawerNotesTabProps) {
       </div>
 
       <div className="rounded-xl border border-[#E5E7EB] p-4">
-        <label className="text-sm font-semibold text-[#111827]">Add Internal Note</label>
+        <label className="text-sm font-semibold text-[#111827]">Add Internal Remark</label>
         <textarea
           value={text}
           onChange={(event) => setText(event.target.value)}
@@ -53,7 +53,7 @@ export function DrawerNotesTab({ notes, onAddNote }: DrawerNotesTabProps) {
             disabled={isSubmitting}
             className="rounded-xl bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isSubmitting ? 'Adding...' : 'Add Note'}
+            {isSubmitting ? 'Adding...' : 'Add Remark'}
           </button>
         </div>
       </div>

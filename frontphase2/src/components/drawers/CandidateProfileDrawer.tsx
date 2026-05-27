@@ -21,7 +21,6 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
-  Clock3,
   FileSearch,
   FileText,
   Loader2,
@@ -45,7 +44,6 @@ import {
 } from 'lucide-react';
 import { ImageWithFallback, initialsFromDisplayName } from '../ImageWithFallback';
 import { getCandidateStageBadgeClasses, getCandidateStageLabel } from '../../utils/candidateStage';
-import type { LucideIcon } from 'lucide-react';
 import { useFiles } from '../../hooks/useFiles';
 import { DocumentUploadButton } from '../import/documentUploadUi';
 import {
@@ -68,7 +66,6 @@ import {
 import { profileCanSubmitToClient } from '../../lib/candidateSubmitToClient';
 import { CandidateAtsExtractedOverview } from '../candidates/CandidateAtsExtractedOverview';
 import { mergeProfileWithClientPresentation } from '../../lib/clientPresentationDraft';
-import { ClientOfferLetterCard } from '../candidates/ClientOfferLetterCard';
 
 const MAX_EDIT_AVATAR_FILE_BYTES = 5 * 1024 * 1024;
 
@@ -219,6 +216,35 @@ export interface CandidateProfileDrawerData {
   cvWebsite?: string | null;
   cvSummary?: string | null;
   cvNotes?: string | null;
+  careerPreferences?: {
+    currentRole?: string | null;
+    preferredJobTitles?: string[];
+    preferredRoles?: string[];
+    preferredIndustries?: string[];
+    preferredIndustry?: string | null;
+    functionalAreas?: string[];
+    functionalArea?: string | null;
+    jobTypes?: string[];
+    workModes?: string[];
+    preferredWorkMode?: string | null;
+    preferredLocations?: string[];
+    relocationPreference?: string | null;
+    salaryCurrency?: string | number | null;
+    salaryAmount?: string | number | null;
+    salaryFrequency?: string | null;
+    preferredCurrency?: string | null;
+    preferredSalary?: string | number | null;
+    preferredSalaryType?: string | null;
+    preferredBenefits?: string[];
+    currentCurrency?: string | null;
+    currentSalaryType?: string | null;
+    currentSalary?: string | number | null;
+    currentLocation?: string | null;
+    currentBenefits?: string[];
+    availabilityToStart?: string | null;
+    noticePeriod?: string | null;
+    passportNumbersByLocation?: Record<string, string> | null;
+  } | null;
   /** Parsed bulk CV / ATS pipeline payload (sections under `pipeline`). */
   extraData?: Record<string, unknown> | null;
   cvPreferredLocation?: string | null;
@@ -279,6 +305,7 @@ interface CandidateProfileDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   openEditDirectly?: boolean;
+  loadingCandidateProfile?: boolean;
   currentUser?: {
     id: string;
     name: string;
@@ -329,9 +356,9 @@ interface CandidateProfileDrawerProps {
   stackAboveSiblingDrawers?: boolean;
 }
 
-type DrawerTab = 'Overview' | 'Client' | 'Resume' | 'Interviews' | 'Activity' | 'Notes' | 'Tags' | 'Files';
+type DrawerTab = 'Overview' | 'Client' | 'Resume' | 'Interviews' | 'Activity' | 'Remarks' | 'Tags' | 'Files';
 
-const TABS: DrawerTab[] = ['Overview', 'Client', 'Resume', 'Interviews', 'Activity', 'Notes', 'Tags', 'Files'];
+const TABS: DrawerTab[] = ['Overview', 'Client', 'Resume', 'Interviews', 'Activity', 'Remarks', 'Tags', 'Files'];
 
 function getInitials(name: string) {
   return name
@@ -357,28 +384,6 @@ function getAvailabilityDot(status?: string | null) {
     default:
       return 'bg-slate-400';
   }
-}
-
-function InfoRow({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: LucideIcon;
-  label: string;
-  value?: string | null;
-}) {
-  return (
-    <div className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3">
-      <div className="mt-0.5 rounded-lg bg-slate-100 p-2 text-slate-500">
-        <Icon size={16} />
-      </div>
-      <div className="min-w-0">
-        <p className="text-xs font-medium uppercase tracking-wide text-slate-400">{label}</p>
-        <p className="mt-1 break-words text-sm font-medium text-slate-700">{value || '—'}</p>
-      </div>
-    </div>
-  );
 }
 
 /** CV JSON may store list fields as strings; coerce before .map(). */
@@ -3270,28 +3275,32 @@ function InternalNotesSection({
   onDeleteNote,
   onPinNote,
 }: InternalNotesProps) {
+  const remarkFilters = ['All', 'Calls', 'WhatsApp', 'Emails'] as const;
   const [newNoteText, setNewNoteText] = useState('');
   const [newNoteTags, setNewNoteTags] = useState<string[]>([]);
-  const [tagMenuOpen, setTagMenuOpen] = useState(false);
+  const [remarkFilter, setRemarkFilter] = useState<(typeof remarkFilters)[number]>('All');
   const [actionMenuOpenId, setActionMenuOpenId] = useState<string | null>(null);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
   const [editTags, setEditTags] = useState<string[]>([]);
 
   const availableTags = useMemo(() => {
-    const baseTags = ['Screening', 'Interview', 'Skill', 'Culture', 'Urgent', 'Follow-up', 'Feedback'];
+    const baseTags = ['Calls', 'WhatsApp', 'Emails'];
     const existing = notes.flatMap((note) => note.tags || []);
     return Array.from(new Set([...baseTags, ...existing]));
   }, [notes]);
 
   const sortedNotes = useMemo(() => {
-    return [...notes].sort((a, b) => {
+    const filtered = notes.filter((note) =>
+      remarkFilter === 'All' ? true : (note.tags || []).includes(remarkFilter)
+    );
+    return [...filtered].sort((a, b) => {
       if (Boolean(a.isPinned) !== Boolean(b.isPinned)) {
         return a.isPinned ? -1 : 1;
       }
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
-  }, [notes]);
+  }, [notes, remarkFilter]);
 
   const toggleTag = (tag: string, selectedTags: string[], setter: (tags: string[]) => void) => {
     setter(
@@ -3323,12 +3332,29 @@ function InternalNotesSection({
     await Promise.resolve(onAddNote?.(candidateId, { text, tags: newNoteTags }));
     setNewNoteText('');
     setNewNoteTags([]);
-    setTagMenuOpen(false);
   };
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5">
-      <h3 className="text-sm font-semibold text-slate-900">Internal Notes</h3>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-slate-900">Remarks</h3>
+        <div className="flex flex-wrap items-center gap-2">
+          {remarkFilters.map((filter) => (
+            <button
+              key={filter}
+              type="button"
+              onClick={() => setRemarkFilter(filter)}
+              className={`rounded-xl px-3 py-2 text-xs font-medium transition-colors ${
+                remarkFilter === filter
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              {filter}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="mt-4 space-y-4">
         {sortedNotes.length > 0 ? (
@@ -3353,10 +3379,10 @@ function InternalNotesSection({
 
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-sm font-semibold text-slate-900">{note.recruiter.name}</p>
+                        <p className="text-sm font-semibold text-slate-900">{`By ${note.recruiter.name}`}</p>
                         <span className="text-xs text-slate-400">{formatRelativeTime(note.createdAt)}</span>
                         <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                          Internal only
+                          Tenant team
                         </span>
                         {note.isPinned ? (
                           <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
@@ -3372,26 +3398,33 @@ function InternalNotesSection({
                             value={editText}
                             onChange={(e) => setEditText(e.target.value)}
                             rows={4}
+                            placeholder="Update remark..."
                             className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                           />
-                          <div className="flex flex-wrap gap-2">
-                            {availableTags.map((tag) => {
-                              const selected = editTags.includes(tag);
-                              return (
-                                <button
-                                  key={`${note.id}-${tag}`}
-                                  type="button"
-                                  onClick={() => toggleTag(tag, editTags, setEditTags)}
-                                  className={`rounded-full px-3 py-1 text-xs font-medium ${
-                                    selected
-                                      ? 'bg-blue-100 text-blue-700'
-                                      : 'bg-white text-slate-600 ring-1 ring-slate-200'
-                                  }`}
-                                >
-                                  #{tag}
-                                </button>
-                              );
-                            })}
+                          <div>
+                            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                              Remark Type
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {availableTags.map((tag) => {
+                                const selected = editTags.includes(tag);
+                                return (
+                                  <button
+                                    key={`${note.id}-${tag}`}
+                                    type="button"
+                                    onClick={() => toggleTag(tag, editTags, setEditTags)}
+                                    className={`rounded-full px-3 py-1 text-xs font-medium ${
+                                      selected
+                                        ? 'bg-blue-100 text-blue-700'
+                                        : 'bg-white text-slate-600 ring-1 ring-slate-200'
+                                    }`}
+                                  >
+                                    {selected ? <Check size={12} className="mr-1 inline" /> : null}
+                                    {tag}
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
                           <div className="flex gap-2">
                             <button
@@ -3424,7 +3457,7 @@ function InternalNotesSection({
                                   key={`${note.id}-${tag}`}
                                   className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200"
                                 >
-                                  #{tag}
+                                {tag}
                                 </span>
                               ))}
                             </div>
@@ -3487,9 +3520,11 @@ function InternalNotesSection({
         ) : (
           <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-6 py-10 text-center">
             <MessageSquareText size={28} className="mx-auto text-slate-300" />
-            <h4 className="mt-3 text-sm font-semibold text-slate-800">No internal notes yet</h4>
+            <h4 className="mt-3 text-sm font-semibold text-slate-800">
+              {remarkFilter === 'All' ? 'No remarks yet' : `No ${remarkFilter.toLowerCase()} remarks yet`}
+            </h4>
             <p className="mt-1 text-sm text-slate-500">
-              Add private recruiter notes, interview feedback, and internal context here.
+              Add calls, WhatsApp, email, and other shared team remarks here.
             </p>
           </div>
         )}
@@ -3510,7 +3545,7 @@ function InternalNotesSection({
           )}
           <div>
             <p className="text-sm font-medium text-slate-800">{currentUser.name}</p>
-            <p className="text-xs text-slate-500">Internal only</p>
+            <p className="text-xs text-slate-500">Visible to every teammate in this tenant</p>
           </div>
         </div>
 
@@ -3518,44 +3553,33 @@ function InternalNotesSection({
           value={newNoteText}
           onChange={(e) => setNewNoteText(e.target.value)}
           rows={4}
-          placeholder="Add a private note for your team..."
+          placeholder="Add a remark for your team..."
           className="mt-4 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
         />
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setTagMenuOpen((prev) => !prev)}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Select Tags
-            </button>
-
-            {tagMenuOpen ? (
-              <div className="absolute left-0 top-11 z-10 w-64 rounded-2xl border border-slate-200 bg-white p-3 shadow-lg">
-                <div className="flex flex-wrap gap-2">
-                  {availableTags.map((tag) => {
-                    const selected = newNoteTags.includes(tag);
-                    return (
-                      <button
-                        key={tag}
-                        type="button"
-                        onClick={() => toggleTag(tag, newNoteTags, setNewNoteTags)}
-                        className={`rounded-full px-3 py-1 text-xs font-medium ${
-                          selected
-                            ? 'bg-blue-100 text-blue-700'
-                            : 'bg-slate-100 text-slate-700'
-                        }`}
-                      >
-                        {selected ? <Check size={12} className="mr-1 inline" /> : null}
-                        #{tag}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : null}
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Remark Type</p>
+            <div className="flex flex-wrap gap-2">
+              {availableTags.map((tag) => {
+                const selected = newNoteTags.includes(tag);
+                return (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => toggleTag(tag, newNoteTags, setNewNoteTags)}
+                    className={`rounded-full px-3 py-1 text-xs font-medium ${
+                      selected
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'bg-white text-slate-700 ring-1 ring-slate-200'
+                    }`}
+                  >
+                    {selected ? <Check size={12} className="mr-1 inline" /> : null}
+                    {tag}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <button
@@ -3564,7 +3588,7 @@ function InternalNotesSection({
             disabled={!newNoteText.trim()}
             className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Add Note
+            Add Remark
           </button>
         </div>
 
@@ -3575,7 +3599,7 @@ function InternalNotesSection({
                 key={`selected-${tag}`}
                 className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200"
               >
-                #{tag}
+                {tag}
               </span>
             ))}
           </div>
@@ -3590,6 +3614,7 @@ export function CandidateProfileDrawer({
   isOpen,
   onClose,
   openEditDirectly = false,
+  loadingCandidateProfile = false,
   currentUser,
   availableTags = [],
   jobs = [],
@@ -3795,11 +3820,11 @@ export function CandidateProfileDrawer({
   }, [candidate]);
 
   useEffect(() => {
-    if (!candidate || !editModalOpenToken) return;
+    if (!candidate || !editModalOpenToken || loadingCandidateProfile) return;
     if (lastEditModalOpenTokenRef.current === editModalOpenToken) return;
     lastEditModalOpenTokenRef.current = editModalOpenToken;
     setShowEditModal(true);
-  }, [candidate, editModalOpenToken]);
+  }, [candidate, editModalOpenToken, loadingCandidateProfile]);
 
   const updateEditField = <K extends keyof CandidateEditFormState>(
     field: K,
@@ -4080,34 +4105,43 @@ export function CandidateProfileDrawer({
                       <h2 className="truncate text-2xl font-bold text-slate-900">{candidate.name}</h2>
                       <p className="mt-1 truncate text-sm text-slate-500">{titleLine}</p>
 
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <span
-                          className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${getStageClasses(
-                            candidate.stage
-                          )}`}
-                        >
-                          {getCandidateStageLabel(candidate.stage)}
-                        </span>
-                        <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
-                          <Clock3 size={12} />
-                          {candidate.experience ?? 0} years
-                        </span>
-                        <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
-                          <MapPin size={12} />
-                          {candidate.location || '—'}
-                        </span>
-                      </div>
+                      <div className="mt-4 space-y-2 text-sm">
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-slate-700">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-1 text-xs">
+                            <span className="font-medium text-indigo-600">Assigned Job</span>
+                            <span className="font-semibold text-indigo-900">{linkedJobLabel || candidate.assignedJob || '—'}</span>
+                          </span>
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${getStageClasses(
+                              candidate.stage
+                            )}`}
+                          >
+                            <span className="opacity-80">Stage</span>
+                            <span>{candidate.stage || '—'}</span>
+                          </span>
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs">
+                            <span className="font-medium text-emerald-600">Recruiter</span>
+                            <span className="font-semibold text-emerald-900">{candidate.recruiter || '—'}</span>
+                          </span>
+                        </div>
 
-                      <div className="mt-3">
-                        <CandidateTagSystem
-                          candidateId={candidate.id}
-                          existingTags={candidate.tags || []}
-                          availableTags={availableTags}
-                          onAddTag={onAddTag}
-                          onRemoveTag={onRemoveTag}
-                          onCreateTag={onCreateTag}
-                          compact
-                        />
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-slate-700">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                            Quick Contact
+                          </span>
+                          <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-xs">
+                            <span className="font-medium text-blue-600">Email</span>
+                            <span className="font-semibold text-blue-900">{candidate.email || '—'}</span>
+                          </span>
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-xs">
+                            <span className="font-medium text-amber-600">Phone</span>
+                            <span className="font-semibold text-amber-900">{candidate.phone || '—'}</span>
+                          </span>
+                          <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2.5 py-1 text-xs">
+                            <span className="font-medium text-violet-600">Location</span>
+                            <span className="font-semibold text-violet-900">{candidate.location || '—'}</span>
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -4202,41 +4236,12 @@ export function CandidateProfileDrawer({
               <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-6">
                 {activeTab === 'Overview' && (
                   <div className="space-y-5">
-                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-                      <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4 lg:col-span-2">
-                        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-                          Recruitment snapshot
-                        </h3>
-                        <div className="grid gap-2 sm:grid-cols-2">
-                          <InfoRow icon={Briefcase} label="Assigned Job" value={linkedJobLabel || candidate.assignedJob} />
-                          <InfoRow icon={Tag} label="Stage" value={candidate.stage} />
-                          <InfoRow icon={UserCircle2} label="Recruiter" value={candidate.recruiter} />
-                          <InfoRow icon={Send} label="Source" value={candidate.source} />
-                        </div>
-                      </section>
-                      <section className="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-4">
-                        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-indigo-700/80">
-                          Quick contact
-                        </h3>
-                        <div className="space-y-2">
-                          <InfoRow icon={Mail} label="Email" value={candidate.email} />
-                          <InfoRow icon={Phone} label="Phone" value={candidate.phone} />
-                          <InfoRow icon={MapPin} label="Location" value={candidate.location} />
-                        </div>
-                      </section>
-                    </div>
-
                     <CandidateAtsExtractedOverview candidate={candidate} />
                   </div>
                 )}
 
                 {activeTab === 'Client' && (
                   <div className="space-y-5">
-                    <ClientOfferLetterCard
-                      files={candidateFiles}
-                      uploadsBase={uploadsBase}
-                      loading={candidateFilesLoading}
-                    />
                     {clientPresentationProfile ? (
                       <>
                         <p className="rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-sm text-slate-700">
@@ -4590,7 +4595,7 @@ export function CandidateProfileDrawer({
                   </section>
                 )}
 
-                {activeTab === 'Notes' && (
+                {activeTab === 'Remarks' && (
                   <InternalNotesSection
                     notes={candidate.notes || []}
                     candidateId={candidate.id}

@@ -3,6 +3,7 @@ import type { CreatePlacementInvoicePayload } from '../types/recruitmentInvoice'
 import {
   apiCreatePlacement,
   apiCreatePlacementInvoice,
+  apiUpdatePlacement,
   apiUpdatePlacementStatus,
   apiDeletePlacement,
   apiExportPlacements,
@@ -182,6 +183,16 @@ export function usePlacements(filters: PlacementFilters) {
         setSubmitting(true);
         try {
           const response = await apiCreatePlacement(payload, offerLetter);
+          await fetchData();
+          return response?.data;
+        } finally {
+          setSubmitting(false);
+        }
+      },
+      async updatePlacement(id: string, payload: CreatePlacementPayload) {
+        setSubmitting(true);
+        try {
+          const response = await apiUpdatePlacement(id, payload);
           await fetchData();
           return response?.data;
         } finally {

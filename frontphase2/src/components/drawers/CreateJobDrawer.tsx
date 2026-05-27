@@ -18,6 +18,10 @@ import {
   User,
   SendHorizontal,
   Send,
+  Sparkles,
+  ArrowUp,
+  FileText,
+  Loader2,
 } from 'lucide-react';
 import { RichTextEditor } from '../RichTextEditor';
 import {
@@ -27,6 +31,8 @@ import {
   apiGetClients,
   apiGetContacts,
   apiGenerateJobDescription,
+  apiProcessJobCreationPipeline,
+  type JobCreationPipelineResult,
   apiUploadJobFile,
   filesApiUpload,
   apiPublishSocialJob,
@@ -45,7 +51,6 @@ import { clampDateTimeLocalToMin, getLocalDateTimeInputMinNow } from '../../util
 import { CreateJobDetailsForm, type CreateJobDetailsFormData } from './CreateJobDetailsForm';
 import { normalizeJobSalaryCurrency } from '../../constants/jobSalary';
 import { getCachedOrgDefaultCurrency } from '../../lib/api';
-import { CreateJobEntryOptions } from './CreateJobEntryOptions';
 import { DocumentUploadButton, useDocumentUploadFeedback } from '../import/documentUploadUi';
 import { ApplicationFormBuilderModal } from '../jobs/ApplicationFormBuilderModal';
 import {
@@ -151,6 +156,310 @@ function makeShortTextScreeningQuestion(label: string): ScreeningQuestion {
   };
 }
 
+function extractLabeledPromptValue(text: string, labels: string[]): string {
+  const sortedLabels = [...labels].sort((a, b) => b.length - a.length);
+  const lines = text.split(/\r?\n/);
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+    if (!trimmedLine) continue;
+    for (const label of sortedLabels) {
+      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const pattern = new RegExp(`^\\s*${escaped}\\s*[:\\-–—]\\s*(.+)$`, 'i');
+      const match = trimmedLine.match(pattern);
+      if (match?.[1]) return match[1].trim();
+    }
+  }
+  return '';
+}
+
+function inferJobTitleFromPrompt(prompt: string): string {
+  const labeled = extractLabeledPromptValue(prompt, ['role', 'job title', 'position']);
+  if (labeled) return labeled;
+
+  const cleanPrompt = prompt.trim().replace(/\s+/g, ' ');
+  if (!cleanPrompt) return '';
+
+  const patterns = [
+    /(?:create|generate|write|make)\s+(?:a\s+)?job(?:\s+description|\s+jd)?\s+(?:for|of)\s+(?:an?\s+|the\s+)?(.+)/i,
+    /(?:for|of)\s+(?:an?\s+|the\s+)?([a-z][a-z\s/&-]{2,})$/i,
+    /^(?:an?\s+|the\s+)?([a-z][a-z\s/&-]{2,})$/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = cleanPrompt.match(pattern);
+    if (match?.[1]) {
+      return match[1].trim().replace(/[.!,]$/, '');
+    }
+  }
+
+  return '';
+}
+
+function inferWorkModeFromText(text: string): string {
+  const normalized = text.toLowerCase();
+  if (normalized.includes('hybrid')) return 'Hybrid';
+  if (normalized.includes('remote')) return 'Remote';
+  if (normalized.includes('on-site') || normalized.includes('onsite')) return 'On-site';
+  return '';
+}
+
+function parseJobLocationFromText(location: string) {
+  const workMode = inferWorkModeFromText(location);
+  const withoutParens = location.replace(/\([^)]*\)/g, '').trim();
+  const parts = withoutParens.split(',').map((part) => part.trim()).filter(Boolean);
+  let city = '';
+  let state = '';
+  let country = '';
+  if (parts.length >= 3) {
+    city = parts[0];
+    state = parts[1];
+    country = parts[parts.length - 1];
+  } else if (parts.length === 2) {
+    city = parts[0];
+    country = parts[1];
+  } else if (parts.length === 1) {
+    country = parts[0];
+  }
+  return { city, state, country, workMode, jobLocation: withoutParens || location.trim() };
+}
+
+function parseExperienceRangeYears(text: string): { min?: number; max?: number } {
+  if (!text.trim()) return {};
+  const range = text.match(/(\d+)\s*(?:to|-|–)\s*(\d+)/i);
+  if (range) return { min: Number(range[1]), max: Number(range[2]) };
+  const plus = text.match(/(\d+)\s*\+\s*years?/i);
+  if (plus) return { min: Number(plus[1]) };
+  const years = text.match(/(\d+)\s*years?/i);
+  if (years) return { min: Number(years[1]) };
+  return {};
+}
+
+function normalizeCompanyMatchKey(name: string): string {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/\b(private|limited|ltd|inc|llc|corp|corporation|solutions|technologies|technology|services|group|company|co)\b/gi, '')
+    .replace(/[^a-z0-9]/g, '')
+    .trim();
+}
+
+function resolveClientIdByCompanyName(name: string, clients: BackendClient[]): string {
+  const raw = name.trim();
+  if (!raw) return '';
+  const normalized = raw.toLowerCase();
+  const compact = normalizeCompanyMatchKey(raw);
+
+  const exact = clients.find((client) => (client.companyName || '').trim().toLowerCase() === normalized);
+  if (exact?.id) return exact.id;
+
+  const compactMatch = clients.find(
+    (client) => compact && normalizeCompanyMatchKey(client.companyName || '') === compact,
+  );
+  if (compactMatch?.id) return compactMatch.id;
+
+  const partial = clients.find((client) => {
+    const companyName = (client.companyName || '').trim().toLowerCase();
+    if (!companyName) return false;
+    return companyName.includes(normalized) || normalized.includes(companyName);
+  });
+  if (partial?.id) return partial.id;
+
+  const token = compact.slice(0, Math.max(4, Math.floor(compact.length * 0.6)));
+  if (token.length >= 4) {
+    const tokenMatch = clients.find((client) =>
+      normalizeCompanyMatchKey(client.companyName || '').includes(token),
+    );
+    if (tokenMatch?.id) return tokenMatch.id;
+  }
+
+  return '';
+}
+
+function defaultTargetHireDateIso(): string {
+  const date = new Date();
+  date.setDate(date.getDate() + 30);
+  return date.toISOString().slice(0, 10);
+}
+
+function parseTargetHireDateValue(raw: string): string {
+  const isoMatch = raw.match(/\d{4}-\d{2}-\d{2}/);
+  if (isoMatch) return isoMatch[0];
+  const parsed = Date.parse(raw);
+  if (!Number.isNaN(parsed)) return new Date(parsed).toISOString().slice(0, 10);
+  return '';
+}
+
+export interface JobPromptHints {
+  jobTitle: string;
+  openings: string;
+  companyName: string;
+  companyId: string;
+  location: string;
+  country: string;
+  city: string;
+  state: string;
+  workMode: string;
+  salary: string;
+  qualification: string;
+  minExperienceYears?: number;
+  maxExperienceYears?: number;
+  skills: string[];
+  targetHireDate: string;
+}
+
+function emptyJobPromptHints(): JobPromptHints {
+  return {
+    jobTitle: '',
+    openings: '',
+    companyName: '',
+    companyId: '',
+    location: '',
+    country: '',
+    city: '',
+    state: '',
+    workMode: '',
+    salary: '',
+    qualification: '',
+    skills: [],
+    targetHireDate: '',
+  };
+}
+
+function parseJobPromptHints(prompt: string, clients: BackendClient[]): JobPromptHints {
+  const hints = emptyJobPromptHints();
+  hints.jobTitle = inferJobTitleFromPrompt(prompt);
+
+  const openingsRaw = extractLabeledPromptValue(prompt, [
+    'openings',
+    'number of openings',
+    'vacancies',
+    'no of openings',
+  ]);
+  if (openingsRaw) {
+    const num = openingsRaw.match(/\d+/)?.[0];
+    hints.openings = num || openingsRaw;
+  }
+
+  hints.companyName = extractLabeledPromptValue(prompt, ['company', 'client', 'employer']);
+  hints.companyId = resolveClientIdByCompanyName(hints.companyName, clients);
+
+  hints.location = extractLabeledPromptValue(prompt, ['location', 'job location', 'work location']);
+  if (hints.location) {
+    const parsed = parseJobLocationFromText(hints.location);
+    hints.city = parsed.city;
+    hints.state = parsed.state;
+    hints.country = parsed.country;
+    hints.workMode = parsed.workMode;
+    hints.location = parsed.jobLocation;
+  }
+
+  if (!hints.country && /\bIndia\b/i.test(prompt)) hints.country = 'India';
+  if (!hints.country && /\bUnited States\b|\bUSA\b|\bUS\b/i.test(prompt)) hints.country = 'United States';
+
+  hints.salary = extractLabeledPromptValue(prompt, ['salary', 'compensation', 'ctc', 'pay']);
+  hints.qualification = extractLabeledPromptValue(prompt, ['requirements', 'qualification', 'education']);
+
+  const experienceLine = extractLabeledPromptValue(prompt, ['experience', 'exp']);
+  const experience = parseExperienceRangeYears(experienceLine);
+  hints.minExperienceYears = experience.min;
+  hints.maxExperienceYears = experience.max;
+
+  const skillsLine = extractLabeledPromptValue(prompt, ['skills', 'skill set', 'tech stack']);
+  if (skillsLine) {
+    hints.skills = skillsLine
+      .split(/[,;|]/)
+      .map((skill) => skill.trim())
+      .filter(Boolean);
+  }
+
+  const labeledHireDate = extractLabeledPromptValue(prompt, [
+    'target hire date',
+    'hire date',
+    'expected closure',
+    'closing date',
+  ]);
+  hints.targetHireDate = labeledHireDate ? parseTargetHireDateValue(labeledHireDate) : '';
+
+  if (!hints.workMode) hints.workMode = inferWorkModeFromText(prompt);
+
+  return hints;
+}
+
+function getMissingJobCreateFields(data: {
+  jobTitle?: string;
+  companyId?: string;
+  companyName?: string;
+  numberOfOpenings?: string;
+  country?: string;
+  targetHireDate?: string;
+}): string[] {
+  const missing: string[] = [];
+  if (!String(data.jobTitle || '').trim()) missing.push('Job Title');
+  if (!String(data.companyId || '').trim() && !String(data.companyName || '').trim()) {
+    missing.push('Company');
+  }
+  if (!String(data.numberOfOpenings || '').trim()) missing.push('Number of Openings');
+  if (!String(data.country || '').trim()) missing.push('Country');
+  if (!String(data.targetHireDate || '').trim()) missing.push('Target Hire Date');
+  return missing;
+}
+
+function buildSmartJobFillStatus(
+  missing: string[],
+  options?: { companyName?: string; companyId?: string },
+): string {
+  const companyName = String(options?.companyName || '').trim();
+  const companyId = String(options?.companyId || '').trim();
+
+  if (!missing.length) {
+    if (companyName && !companyId) {
+      return `Form filled from document. Company "${companyName}" is in your JD — pick it in the Client dropdown (add it under Clients first if it is not listed), then click Create Job.`;
+    }
+    return 'Form filled from document. Review and click Create Job.';
+  }
+
+  let message = `Extracted from document. Still need: ${missing.join(', ')}.`;
+  if (companyName && !companyId) {
+    message += ` Company "${companyName}" is in your JD — select it in the Client dropdown.`;
+  }
+  message += ' Review and click Create Job.';
+  return message;
+}
+
+function buildPlainJobDescriptionHtml(hints: JobPromptHints, prompt: string): string {
+  const responsibilities = extractLabeledPromptValue(prompt, ['responsibilities', 'responsibility']);
+  const requirements = extractLabeledPromptValue(prompt, ['requirements', 'requirement', 'qualifications']);
+  const benefits = extractLabeledPromptValue(prompt, ['benefits', 'benefit']);
+  const sections: string[] = [];
+
+  if (hints.jobTitle) {
+    sections.push(`<h2>${hints.jobTitle}</h2>`);
+  }
+  if (hints.companyName) {
+    sections.push(`<p><strong>Company:</strong> ${hints.companyName}</p>`);
+  }
+  if (hints.location || hints.country) {
+    const locationText = [hints.city, hints.state, hints.country].filter(Boolean).join(', ') || hints.location;
+    sections.push(`<p><strong>Location:</strong> ${locationText}${hints.workMode ? ` (${hints.workMode})` : ''}</p>`);
+  }
+  if (hints.salary) {
+    sections.push(`<p><strong>Compensation:</strong> ${hints.salary}</p>`);
+  }
+  if (responsibilities) {
+    sections.push(`<h3>Key Responsibilities</h3><p>${responsibilities}</p>`);
+  }
+  if (requirements) {
+    sections.push(`<h3>Requirements</h3><p>${requirements}</p>`);
+  }
+  if (benefits) {
+    sections.push(`<h3>Benefits</h3><p>${benefits}</p>`);
+  }
+  if (hints.skills.length) {
+    sections.push(`<h3>Skills</h3><ul>${hints.skills.map((skill) => `<li>${skill}</li>`).join('')}</ul>`);
+  }
+
+  return sections.join('\n');
+}
+
 export interface CreateJobDrawerProps {
   isOpen: boolean;
   onClose: () => void;
@@ -211,7 +520,6 @@ export function CreateJobDrawer({
   const [contacts, setContacts] = useState<{ id: string; name: string }[]>([]);
   const [loadingContacts, setLoadingContacts] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
-  const [isExtractingJd, setIsExtractingJd] = useState(false);
   const [showAiPromptBox, setShowAiPromptBox] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiDrawerError, setAiDrawerError] = useState('');
@@ -223,6 +531,22 @@ export function CreateJobDrawer({
   const [aiQuestionStep, setAiQuestionStep] = useState<'initial' | 'openings' | 'company' | 'location' | 'salary' | 'qualification' | 'done'>('initial');
   const [aiMessages, setAiMessages] = useState<AiChatMessage[]>([]);
   const aiConversationEndRef = useRef<HTMLDivElement | null>(null);
+
+  const [smartJobPrompt, setSmartJobPrompt] = useState('');
+  const [smartJobPromptVisible, setSmartJobPromptVisible] = useState(true);
+  const smartJobPromptBoundsRef = useRef<HTMLDivElement>(null);
+  const smartJobPromptBoxRef = useRef<HTMLDivElement>(null);
+  const [smartJobStatus, setSmartJobStatus] = useState('');
+  const [smartJobError, setSmartJobError] = useState('');
+  const [smartJobFileText, setSmartJobFileText] = useState('');
+  const [smartJobAttachment, setSmartJobAttachment] = useState<{
+    file: File;
+    status: 'processing' | 'ready' | 'error';
+    error?: string;
+  } | null>(null);
+  const [pipelineDetectedCompanyName, setPipelineDetectedCompanyName] = useState('');
+  const smartJobFileInputRef = useRef<HTMLInputElement | null>(null);
+  const smartJobPipelineAbortRef = useRef<AbortController | null>(null);
   const [aiDraftData, setAiDraftData] = useState<AiDraftData>({
     originalPrompt: '',
     jobTitle: '',
@@ -949,25 +1273,7 @@ export function CreateJobDrawer({
     }
   };
 
-  const inferRoleFromPrompt = (prompt: string) => {
-    const cleanPrompt = prompt.trim().replace(/\s+/g, ' ');
-    if (!cleanPrompt) return '';
-
-    const patterns = [
-      /(?:create|generate|write|make)\s+(?:a\s+)?job(?:\s+description|\s+jd)?\s+(?:for|of)\s+(?:an?\s+|the\s+)?(.+)/i,
-      /(?:for|of)\s+(?:an?\s+|the\s+)?([a-z][a-z\s/&-]{2,})$/i,
-      /^(?:an?\s+|the\s+)?([a-z][a-z\s/&-]{2,})$/i,
-    ];
-
-    for (const pattern of patterns) {
-      const match = cleanPrompt.match(pattern);
-      if (match?.[1]) {
-        return match[1].trim().replace(/[.!,]$/, '');
-      }
-    }
-
-    return '';
-  };
+  const inferRoleFromPrompt = (prompt: string) => inferJobTitleFromPrompt(prompt);
 
   const normalizeJobType = (value?: string) => {
     const normalized = String(value || '').toLowerCase();
@@ -1006,13 +1312,7 @@ export function CreateJobDrawer({
     return '';
   };
 
-  const inferWorkModeFromPrompt = (prompt: string) => {
-    const normalized = prompt.toLowerCase();
-    if (normalized.includes('remote')) return 'Remote';
-    if (normalized.includes('hybrid')) return 'Hybrid';
-    if (normalized.includes('on-site') || normalized.includes('onsite')) return 'On-site';
-    return '';
-  };
+  const inferWorkModeFromPrompt = (prompt: string) => inferWorkModeFromText(prompt);
 
   const pushAiMessage = (content: string) => {
     setAiMessages((prev) => [
@@ -1172,11 +1472,95 @@ export function CreateJobDrawer({
     return [...overviewSection.paragraphs, ...overviewSection.items].join('\n\n').trim();
   };
 
-  const handleAiAssist = async (customPrompt?: string, draftOverrides?: Partial<AiDraftData>) => {
-    const inferredRole = inferRoleFromPrompt(customPrompt || '');
-    const effectiveRole = draftOverrides?.jobTitle || formData.jobTitle.trim() || inferredRole;
+  const applyJobPromptHintsToFormData = useCallback(
+    (
+      prev: typeof formData,
+      hints: JobPromptHints,
+      draftOverrides: Partial<AiDraftData> | undefined,
+      options: {
+        jobTitle: string;
+        workMode?: string;
+        prompt?: string;
+        generatedHtml?: string;
+        generatedSkills?: string[];
+        minExperienceYears?: number;
+        maxExperienceYears?: number;
+        qualification?: string;
+      },
+    ): typeof formData => {
+      const prompt = options.prompt || '';
+      const responsibilities = prompt
+        ? extractLabeledPromptValue(prompt, ['responsibilities', 'responsibility'])
+        : '';
+      const requirements = prompt
+        ? extractLabeledPromptValue(prompt, ['requirements', 'requirement', 'qualifications'])
+        : '';
+      const benefits = prompt ? extractLabeledPromptValue(prompt, ['benefits', 'benefit']) : '';
+      const minExpYears = options.minExperienceYears ?? hints.minExperienceYears;
+      const maxExpYears = options.maxExperienceYears ?? hints.maxExperienceYears;
+      const generatedHtml =
+        options.generatedHtml ||
+        (prompt ? buildPlainJobDescriptionHtml(hints, prompt) : '') ||
+        prev.jobDescriptionHtml;
+
+      return {
+        ...prev,
+        jobTitle: options.jobTitle || hints.jobTitle || prev.jobTitle,
+        numberOfOpenings: draftOverrides?.openings || hints.openings || prev.numberOfOpenings,
+        companyId: draftOverrides?.companyId || hints.companyId || prev.companyId,
+        country: hints.country || prev.country,
+        city: hints.city || prev.city,
+        state: hints.state || prev.state,
+        jobLocation: hints.location || draftOverrides?.location || prev.jobLocation,
+        jobLocationType: options.workMode || hints.workMode || prev.jobLocationType,
+        salaryInput: draftOverrides?.salary || hints.salary || prev.salaryInput,
+        targetHireDate: hints.targetHireDate || prev.targetHireDate,
+        minExperience:
+          minExpYears != null && Number.isFinite(minExpYears)
+            ? normalizeMinExperience(minExpYears)
+            : prev.minExperience,
+        maxExperience:
+          maxExpYears != null && Number.isFinite(maxExpYears)
+            ? normalizeMaxExperience(maxExpYears)
+            : prev.maxExperience,
+        educationalQualification:
+          options.qualification ||
+          normalizeQualification(draftOverrides?.qualification || hints.qualification) ||
+          prev.educationalQualification,
+        skills: options.generatedSkills?.length
+          ? options.generatedSkills
+          : hints.skills.length
+            ? hints.skills
+            : prev.skills,
+        jobDescriptionHtml: generatedHtml,
+        jobSummary: prev.jobSummary || (hints.jobTitle ? `${hints.jobTitle} at ${hints.companyName || 'the company'}.` : ''),
+        keyResponsibilitiesText: responsibilities || prev.keyResponsibilitiesText,
+        qualificationsExperienceText: requirements || prev.qualificationsExperienceText,
+        compensationBenefitsText: benefits || prev.compensationBenefitsText,
+      };
+    },
+    [],
+  );
+
+  const handleAiAssist = async (
+    customPrompt?: string,
+    draftOverrides?: Partial<AiDraftData>,
+    externalHints?: JobPromptHints,
+  ): Promise<{ form: typeof formData; usedAi: boolean; aiError?: string } | null> => {
+    const promptText = customPrompt?.trim() || '';
+    const hints = externalHints || (promptText ? parseJobPromptHints(promptText, clients) : emptyJobPromptHints());
+    const inferredRole = inferRoleFromPrompt(promptText);
+    const effectiveRole =
+      draftOverrides?.jobTitle?.trim() ||
+      hints.jobTitle ||
+      formData.jobTitle.trim() ||
+      inferredRole;
     const effectiveWorkMode =
-      draftOverrides?.workMode || inferWorkModeFromPrompt(customPrompt || '') || formData.jobLocationType;
+      draftOverrides?.workMode ||
+      hints.workMode ||
+      inferWorkModeFromPrompt(promptText) ||
+      formData.jobLocationType;
+    const resolvedCompanyId = draftOverrides?.companyId || hints.companyId || formData.companyId;
 
     setAiDrawerError('');
     setAiDetectedRole(effectiveRole);
@@ -1187,29 +1571,36 @@ export function CreateJobDrawer({
 
     if (!effectiveRole) {
       setAiDrawerError('Enter a job title or describe the role in the prompt, like "create job for Finance Analyst".');
-      return;
+      return null;
     }
 
     setAiGenerating(true);
     try {
-      const company = clients.find(c => c.id === formData.companyId);
-      const companyName = company?.companyName || '';
+      const company = clients.find((c) => c.id === resolvedCompanyId);
+      const companyName = company?.companyName || hints.companyName || '';
 
+      const experienceFromHints =
+        hints.minExperienceYears != null
+          ? hints.maxExperienceYears != null
+            ? `${hints.minExperienceYears} to ${hints.maxExperienceYears}`
+            : `${hints.minExperienceYears}`
+          : '';
       const experience =
-        formData.maxExperience && formData.maxExperience.trim()
+        experienceFromHints ||
+        (formData.maxExperience && formData.maxExperience.trim()
           ? `${formData.minExperience} to ${formData.maxExperience}`
-          : formData.minExperience;
+          : formData.minExperience);
 
       const response = await apiGenerateJobDescription({
         jobTitle: effectiveRole,
         company:
-          (draftOverrides?.companyId
-            ? clients.find((client) => client.id === draftOverrides.companyId)?.companyName
+          (resolvedCompanyId
+            ? clients.find((client) => client.id === resolvedCompanyId)?.companyName
             : companyName) || undefined,
         jobType: formData.jobType || undefined,
         locationType: effectiveWorkMode || undefined,
         experience: experience || undefined,
-        skills: formData.skills,
+        skills: hints.skills.length ? hints.skills : formData.skills,
         customPrompt: customPrompt?.trim() || undefined,
       });
       const generated = response.data;
@@ -1244,43 +1635,147 @@ export function CreateJobDrawer({
       setAiGeneratedQualification(qualification);
       setAiGeneratedSpecialization(specialization);
       setAiGeneratedQuestions(generatedQuestions);
-      setFormData((prev) => ({
-        ...prev,
-        jobTitle: resolvedTitle || prev.jobTitle,
-        jobDescriptionHtml: generatedHtml || prev.jobDescriptionHtml,
-        numberOfOpenings: draftOverrides?.openings || prev.numberOfOpenings,
-        companyId: draftOverrides?.companyId || prev.companyId,
-        jobLocation: draftOverrides?.location || prev.jobLocation,
-        salaryInput: draftOverrides?.salary || prev.salaryInput,
-        jobSummary: summaryText || prev.jobSummary,
-        keyResponsibilitiesText: responsibilitiesText || prev.keyResponsibilitiesText,
-        qualificationsExperienceText: qualificationsText || prev.qualificationsExperienceText,
-        compensationBenefitsText: benefitsText || prev.compensationBenefitsText,
-        jobType: normalizeJobType(generated?.jobType || prev.jobType),
-        jobLocationType: effectiveWorkMode || prev.jobLocationType,
-        minExperience: normalizeMinExperience(generated?.minExperience),
-        maxExperience: normalizeMaxExperience(generated?.maxExperience),
-        educationalQualification:
-          qualification || normalizeQualification(draftOverrides?.qualification) || prev.educationalQualification,
-        educationalSpecialization: specialization || prev.educationalSpecialization,
-        skills: generatedSkills.length ? generatedSkills : prev.skills,
-        enableApplicationForm: generatedQuestions.length ? true : prev.enableApplicationForm,
-        applicationQuestions: generatedQuestions.length
-          ? generatedQuestions.map((label: string) => makeShortTextScreeningQuestion(label))
-          : prev.applicationQuestions,
-      }));
+      let nextFormState: typeof formData | null = null;
+      const minExpYears =
+        generated?.minExperience != null && Number.isFinite(Number(generated.minExperience))
+          ? Number(generated.minExperience)
+          : hints.minExperienceYears;
+      const maxExpYears =
+        generated?.maxExperience != null && Number.isFinite(Number(generated.maxExperience))
+          ? Number(generated.maxExperience)
+          : hints.maxExperienceYears;
+
+      setFormData((prev) => {
+        const next = applyJobPromptHintsToFormData(prev, hints, draftOverrides, {
+          jobTitle: resolvedTitle || effectiveRole,
+          workMode: effectiveWorkMode,
+          prompt: promptText,
+          generatedHtml: generatedHtml || undefined,
+          generatedSkills,
+          minExperienceYears: minExpYears,
+          maxExperienceYears: maxExpYears,
+          qualification,
+        });
+        const merged = {
+          ...next,
+          jobSummary: summaryText || next.jobSummary,
+          keyResponsibilitiesText: responsibilitiesText || next.keyResponsibilitiesText,
+          qualificationsExperienceText: qualificationsText || next.qualificationsExperienceText,
+          compensationBenefitsText: benefitsText || next.compensationBenefitsText,
+          jobType: normalizeJobType(generated?.jobType || prev.jobType),
+          educationalSpecialization: specialization || prev.educationalSpecialization,
+          enableApplicationForm: generatedQuestions.length ? true : prev.enableApplicationForm,
+          applicationQuestions: generatedQuestions.length
+            ? generatedQuestions.map((label: string) => makeShortTextScreeningQuestion(label))
+            : prev.applicationQuestions,
+        };
+        nextFormState = merged;
+        return merged;
+      });
+      return nextFormState ? { form: nextFormState, usedAi: true } : null;
     } catch (error: any) {
       console.error('AI Assist failed:', error);
-      setAiDrawerError(error.message || 'Failed to generate job description');
+      const message = error?.message || 'Failed to generate job description';
+      setAiDrawerError(message);
+
+      if (!effectiveRole) return null;
+
+      let fallbackForm: typeof formData | null = null;
+      setFormData((prev) => {
+        const next = applyJobPromptHintsToFormData(prev, hints, draftOverrides, {
+          jobTitle: effectiveRole,
+          workMode: effectiveWorkMode,
+          prompt: promptText,
+        });
+        fallbackForm = next;
+        return next;
+      });
+      return fallbackForm ? { form: fallbackForm, usedAi: false, aiError: message } : null;
     } finally {
       setAiGenerating(false);
     }
   };
 
-  const openAiPromptBox = () => {
-    setShowAiPromptBox(true);
-    resetAiConversation();
-  };
+  const handleSmartJobProcess = useCallback(async () => {
+    const input = smartJobPrompt.trim();
+    const fileText = smartJobFileText.trim();
+
+    if (!input && !fileText) {
+      setSmartJobError('Paste job details or attach a JD file first.');
+      return;
+    }
+
+    setSmartJobError('');
+    setSmartJobStatus('');
+
+    const combinedPrompt = [
+      input,
+      fileText ? `Job description (from file):\n${fileText}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n\n')
+      .trim();
+
+    try {
+      const hints = parseJobPromptHints(combinedPrompt, clients);
+      if (!hints.targetHireDate) hints.targetHireDate = defaultTargetHireDateIso();
+
+      if (!hints.jobTitle) {
+        setSmartJobError('Add a Role or Job Title line (e.g. Role: Senior React Developer) and try again.');
+        return;
+      }
+
+      const assistResult = await handleAiAssist(
+        combinedPrompt,
+        {
+          jobTitle: hints.jobTitle,
+          openings: hints.openings,
+          companyId: hints.companyId,
+          location: hints.location,
+          salary: hints.salary,
+          qualification: hints.qualification,
+          workMode: hints.workMode,
+        },
+        hints,
+      );
+
+      if (!assistResult?.form) {
+        setSmartJobError('Could not fill job details. Check your prompt and try again.');
+        return;
+      }
+
+      const nextForm = assistResult.form;
+
+      setAccordions((prev) =>
+        prev.map((section) => ({
+          ...section,
+          isOpen: section.id === 'details',
+        })),
+      );
+
+      const missing = getMissingJobCreateFields({
+        jobTitle: nextForm.jobTitle,
+        companyId: nextForm.companyId,
+        companyName: hints.companyName,
+        numberOfOpenings: nextForm.numberOfOpenings,
+        country: nextForm.country,
+        targetHireDate: nextForm.targetHireDate,
+      });
+      const aiFailedNote = !assistResult.usedAi
+        ? ` Basic fields were filled from your prompt${assistResult.aiError ? ` (${assistResult.aiError})` : ''}. You can edit and create the job.`
+        : '';
+      setSmartJobStatus(
+        buildSmartJobFillStatus(missing, {
+          companyName: hints.companyName,
+          companyId: nextForm.companyId,
+        }).replace('Extracted from document', 'Form filled') + aiFailedNote,
+      );
+
+      setSmartJobPrompt('');
+    } catch (error: any) {
+      setSmartJobError(error?.message || 'Failed to process job details.');
+    }
+  }, [smartJobPrompt, smartJobFileText, handleAiAssist, clients]);
 
   const readFileAsText = (file: File) =>
     new Promise<string>((resolve, reject) => {
@@ -1290,62 +1785,200 @@ export function CreateJobDrawer({
       reader.readAsText(file);
     });
 
-  const handleJdFromFile = async (file: File) => {
-    if (!file) return;
+  const resetSmartJobPrompt = useCallback(() => {
+    smartJobPipelineAbortRef.current?.abort();
+    smartJobPipelineAbortRef.current = null;
+    setSmartJobPrompt('');
+    setSmartJobStatus('');
+    setSmartJobError('');
+    setSmartJobFileText('');
+    setSmartJobAttachment(null);
+    setPipelineDetectedCompanyName('');
+  }, []);
 
-    const maxBytes = 5 * 1024 * 1024;
-    if (file.size > maxBytes) {
-      void requestWarning('Job description file must be smaller than 5MB.');
-      return;
-    }
+  const clearSmartJobAttachment = useCallback(() => {
+    smartJobPipelineAbortRef.current?.abort();
+    smartJobPipelineAbortRef.current = null;
+    setSmartJobAttachment(null);
+    setSmartJobFileText('');
+    setPipelineDetectedCompanyName('');
+  }, []);
 
-    setUploadedFile(file);
-    setExistingOtherDocName(file.name);
+  useEffect(() => {
+    if (!pipelineDetectedCompanyName || formData.companyId) return;
+    const matchedId = resolveClientIdByCompanyName(pipelineDetectedCompanyName, clients);
+    if (!matchedId) return;
+    setFormData((prev) => (prev.companyId === matchedId ? prev : { ...prev, companyId: matchedId }));
+    setSmartJobStatus((prev) =>
+      prev.startsWith('Form filled from document') && !prev.includes('Client matched')
+        ? 'Form filled from document. Client matched automatically. Review and click Create Job.'
+        : prev,
+    );
+  }, [clients, pipelineDetectedCompanyName, formData.companyId]);
 
-    let jdText = '';
-    const isPlainText =
-      file.type.startsWith('text/') || /\.(txt|md)$/i.test(file.name);
+  const applyJobPipelineResult = useCallback(
+    (prev: typeof formData, data: JobCreationPipelineResult): typeof formData => {
+      const currency = normalizeJobSalaryCurrency(data.salaryCurrency || prev.currency);
+      return {
+        ...prev,
+        nationality: data.nationality || prev.nationality,
+        jobTitle: data.jobTitle || prev.jobTitle,
+        priority: data.priority || prev.priority,
+        companyId: data.companyId || prev.companyId,
+        numberOfOpenings: data.numberOfOpenings || prev.numberOfOpenings,
+        country: data.country || prev.country,
+        state: data.state || prev.state,
+        city: data.city || prev.city,
+        industryType: data.industryType || prev.industryType,
+        employmentType: data.employmentType || prev.employmentType,
+        targetHireDate: data.targetHireDate || prev.targetHireDate,
+        minExperience:
+          data.minExperience != null && Number.isFinite(data.minExperience)
+            ? normalizeMinExperience(data.minExperience)
+            : prev.minExperience,
+        maxExperience:
+          data.maxExperience != null && Number.isFinite(data.maxExperience)
+            ? normalizeMaxExperience(data.maxExperience)
+            : prev.maxExperience,
+        payRangeMin: data.payRangeMin || prev.payRangeMin,
+        payRangeMax: data.payRangeMax || prev.payRangeMax,
+        minSalary: data.payRangeMin || prev.minSalary,
+        maxSalary: data.payRangeMax || prev.maxSalary,
+        currency,
+        salaryInput: data.salaryInput || prev.salaryInput,
+        jobLocation: data.jobLocation || prev.jobLocation,
+        jobLocationType: data.jobLocationType || prev.jobLocationType,
+        jobType: data.jobType || prev.jobType,
+        languages: data.languages?.length ? data.languages : prev.languages,
+        skills: data.skills?.length ? data.skills : prev.skills,
+        jobDescriptionHtml: data.jobDescriptionHtml || prev.jobDescriptionHtml,
+        jobSummary: data.jobSummary || prev.jobSummary,
+        keyResponsibilitiesText: data.keyResponsibilitiesText || prev.keyResponsibilitiesText,
+        qualificationsExperienceText:
+          data.qualificationsExperienceText || prev.qualificationsExperienceText,
+        compensationBenefitsText: data.compensationBenefitsText || prev.compensationBenefitsText,
+        educationalQualification: data.educationalQualification || prev.educationalQualification,
+        educationalSpecialization:
+          data.educationalSpecialization || prev.educationalSpecialization,
+      };
+    },
+    [],
+  );
 
-    try {
-      if (isPlainText) {
-        jdText = (await readFileAsText(file)).trim();
-      } else {
-        jdText = (await readFileAsText(file).catch(() => '')).trim();
+  useEffect(() => {
+    if (!isOpen) return;
+    if (isEditMode) return;
+    setSmartJobPromptVisible(true);
+  }, [isOpen, isEditMode]);
+
+  const runJobCreationPipelineForFile = useCallback(
+    async (file: File) => {
+      smartJobPipelineAbortRef.current?.abort();
+      const controller = new AbortController();
+      smartJobPipelineAbortRef.current = controller;
+
+      setAiGenerating(true);
+      setSmartJobError('');
+      setSmartJobStatus('Running jobcreation pipeline on your document…');
+
+      try {
+        const response = await apiProcessJobCreationPipeline(
+          file,
+          {
+            nationality: formData.nationality,
+            jobTitle: formData.jobTitle,
+            priority: formData.priority,
+            companyId: formData.companyId,
+            numberOfOpenings: formData.numberOfOpenings,
+            country: formData.country,
+            state: formData.state,
+            city: formData.city,
+            industryType: formData.industryType,
+            employmentType: formData.employmentType,
+            targetHireDate: formData.targetHireDate,
+            skills: formData.skills,
+          },
+          { signal: controller.signal },
+        );
+        const data = response.data;
+        if (!data?.jobTitle) {
+          throw new Error('Could not extract a job title from this document.');
+        }
+
+        const matchedCompanyId =
+          data.companyId || resolveClientIdByCompanyName(data.companyName || '', clients);
+        const merged = { ...data, companyId: matchedCompanyId || data.companyId };
+        setPipelineDetectedCompanyName(merged.companyName || '');
+        setFormData((prev) => applyJobPipelineResult(prev, merged));
+        setAccordions((prev) =>
+          prev.map((section) => ({
+            ...section,
+            isOpen: section.id === 'details',
+          })),
+        );
+
+        const missing = getMissingJobCreateFields({
+          jobTitle: merged.jobTitle,
+          companyId: merged.companyId,
+          companyName: merged.companyName,
+          numberOfOpenings: merged.numberOfOpenings,
+          country: merged.country,
+          targetHireDate: merged.targetHireDate,
+        });
+        setSmartJobStatus(
+          buildSmartJobFillStatus(missing, {
+            companyName: merged.companyName,
+            companyId: merged.companyId,
+          }),
+        );
+        setSmartJobAttachment({ file, status: 'ready' });
+      } catch (error: any) {
+        if (controller.signal.aborted) return;
+        const message = error?.message || 'Failed to process job description file';
+        setSmartJobAttachment({ file, status: 'error', error: message });
+        setSmartJobError(message);
+        setSmartJobStatus('');
+      } finally {
+        if (smartJobPipelineAbortRef.current === controller) {
+          smartJobPipelineAbortRef.current = null;
+        }
+        setAiGenerating(false);
       }
-    } catch {
-      void requestError('Could not read the uploaded file.');
-      return;
-    }
+    },
+    [applyJobPipelineResult, formData],
+  );
 
-    if (!jdText) {
-      void requestWarning(
-        'Could not extract text from this file. Upload a .txt job description or use Generate JD with AI.'
-      );
-      return;
-    }
+  const handleSmartJobFilePick = useCallback(
+    async (file: File | null | undefined) => {
+      if (!file) return;
 
-    setIsExtractingJd(true);
-    try {
-      await handleAiAssist(
-        [
-          'Extract structured job posting data from the job description below.',
-          'Infer job title, skills, experience range, qualifications, responsibilities, benefits, and workplace details.',
-          'Return a polished HTML job description and normalized fields.',
-          '',
-          jdText.slice(0, 14000),
-        ].join('\n')
-      );
-      setAccordions((prev) =>
-        prev.map((section) => ({
-          ...section,
-          isOpen: section.id === 'details',
-        }))
-      );
-      void requestInfo('AI extracted job details from your JD. Review the fields below.');
-    } finally {
-      setIsExtractingJd(false);
-    }
-  };
+      const maxBytes = 5 * 1024 * 1024;
+      if (file.size > maxBytes) {
+        void requestWarning('Job description file must be smaller than 5MB.');
+        return;
+      }
+
+      setUploadedFile(file);
+      setExistingOtherDocName(file.name);
+      setSmartJobError('');
+      setSmartJobAttachment({ file, status: 'processing' });
+
+      const isPlainText = file.type.startsWith('text/') || /\.(txt|md)$/i.test(file.name);
+      if (isPlainText) {
+        try {
+          const text = (await readFileAsText(file)).trim();
+          setSmartJobFileText(text.slice(0, 14000));
+        } catch {
+          setSmartJobFileText('');
+        }
+      } else {
+        setSmartJobFileText('');
+      }
+
+      await runJobCreationPipelineForFile(file);
+    },
+    [readFileAsText, runJobCreationPipelineForFile, clients],
+  );
 
   const handleFinalizeAiJob = () => {
     setAccordions((prev) =>
@@ -1881,28 +2514,43 @@ export function CreateJobDrawer({
           >
             {/* Sticky Header */}
             <div className="shrink-0 border-b border-slate-200 bg-white px-6 py-4 flex items-center justify-between gap-4">
-              <div>
+              <div className="min-w-0">
                 <h2 className="text-lg font-bold text-slate-900">{isEditMode ? 'Edit Job' : 'Add Job'}</h2>
                 <p className="text-sm text-slate-500">
                   {isEditMode
                     ? 'Update job details, description, and publishing options.'
-                    : 'Upload a JD or generate one with AI, then complete the job details.'}
+                    : 'Upload a JD or paste job details below, then complete the form.'}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2">
                 <button
                   type="button"
                   onClick={onClose}
-                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                  aria-label="Close"
+                  className="px-4 py-2.5 text-sm font-medium text-slate-700 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors"
                 >
-                  <X size={20} />
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveJob}
+                  disabled={loading}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Send size={14} />
+                  {loading
+                    ? isEditMode
+                      ? 'Saving...'
+                      : 'Publishing...'
+                    : isEditMode
+                      ? 'Save Job'
+                      : 'Publish Job'}
                 </button>
               </div>
             </div>
 
             {/* Scrollable Content */}
-            <div className="flex-1 overflow-y-auto bg-slate-50/30 p-6">
+            <div ref={smartJobPromptBoundsRef} className="flex min-h-0 flex-1 flex-col">
+              <div className="flex-1 overflow-y-auto bg-slate-50/30 p-6">
               {/* Section 1: Job Details */}
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
                 <button
@@ -1919,25 +2567,13 @@ export function CreateJobDrawer({
                 </button>
                 {accordions.find(a => a.id === 'details')?.isOpen && (
                   <div className="p-5 space-y-6">
-                    {!isEditMode ? (
-                      <CreateJobEntryOptions
-                        onJdFile={handleJdFromFile}
-                        onGenerateWithAi={openAiPromptBox}
-                        disabled={loading || loadingJob}
-                        extracting={isExtractingJd || aiGenerating}
-                        generating={aiGenerating}
-                      />
-                    ) : null}
-
                     <div>
                       <h3 className="text-sm font-bold text-slate-900">
                         Job Description{' '}
                         <span className="font-normal text-slate-500">(optional)</span>
                       </h3>
                       <p className="mt-1 mb-3 text-xs text-slate-500">
-                        {isEditMode
-                          ? 'Rich-text editor for the full posting.'
-                          : 'Rich-text editor for the full posting. Upload a JD above or use Generate JD with AI to pre-fill this field.'}
+                        Rich-text editor for the full posting. Use the smart prompt below to pre-fill fields from pasted text.
                       </p>
                       {isOpen ? (
                         <RichTextEditor
@@ -2005,26 +2641,28 @@ export function CreateJobDrawer({
 
                     {formData.enableApplicationForm && (
                       <>
-                        <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4 space-y-3">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div>
-                              <p className="text-sm font-semibold text-slate-900">Custom application form</p>
-                              <p className="text-xs text-slate-600">
-                                Build fields (email, phone, resume, education, work history, etc.). Saved with this job and used on the public apply link after publish.
-                              </p>
+                        {isEditMode ? (
+                          <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4 space-y-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <p className="text-sm font-semibold text-slate-900">Custom application form</p>
+                                <p className="text-xs text-slate-600">
+                                  Build fields (email, phone, resume, education, work history, etc.). Saved with this job and used on the public apply link after publish.
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setShowFormBuilder(true)}
+                                className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
+                              >
+                                Edit / Create form
+                              </button>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => setShowFormBuilder(true)}
-                              className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
-                            >
-                              Edit / Create form
-                            </button>
+                            <p className="text-xs text-slate-600">
+                              {(formData.applicationFormSchema?.fields?.length ?? 0)} field(s) configured
+                            </p>
                           </div>
-                          <p className="text-xs text-slate-600">
-                            {(formData.applicationFormSchema?.fields?.length ?? 0)} field(s) configured
-                          </p>
-                        </div>
+                        ) : null}
                         <div>
                           <label className="block text-sm font-medium text-slate-700 mb-2">Logo selection</label>
                           <div className="space-y-2">
@@ -2399,7 +3037,9 @@ export function CreateJobDrawer({
                   onClick={() => toggleAccordion('publish')}
                   className="w-full px-5 py-4 flex items-center justify-between border-b border-slate-100 hover:bg-slate-50/50 transition-colors"
                 >
-                  <span className="text-sm font-bold text-slate-900">3. Publish & Share</span>
+                  <span className="text-sm font-bold text-slate-900">
+                    3. Publish & Share
+                  </span>
                   {accordions.find(a => a.id === 'publish')?.isOpen ? (
                     <ChevronUp size={18} className="text-slate-400" />
                   ) : (
@@ -2762,28 +3402,188 @@ export function CreateJobDrawer({
                   </div>
                 )}
               </div>
-            </div>
-
-            {/* Sticky Footer */}
-            <div className="shrink-0 border-t border-slate-200 bg-white px-6 py-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="px-4 py-2.5 text-sm font-medium text-slate-700 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors"
-                >
-                  Close
-                </button>
               </div>
-              <button
-                type="button"
-                onClick={handleSaveJob}
-                disabled={loading}
-                className="inline-flex items-center gap-2 px-6 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Send size={14} />
-                {loading ? 'Publishing...' : 'Publish Job'}
-              </button>
+
+              {!isEditMode ? (
+                <div className="shrink-0 border-t border-slate-200 bg-white px-6 py-2.5">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Sparkles size={16} className="text-blue-600" />
+                      <span className="text-sm font-semibold text-slate-900">Smart fill</span>
+                      <span className="text-xs text-slate-500">Upload a file or paste details</span>
+                    </div>
+                    {smartJobPromptVisible ? (
+                      <button
+                        type="button"
+                        onClick={() => setSmartJobPromptVisible(false)}
+                        className="text-xs font-medium text-slate-500 hover:text-slate-800"
+                      >
+                        Hide
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setSmartJobPromptVisible(true)}
+                        className="text-xs font-medium text-blue-600 hover:text-blue-700"
+                      >
+                        Show
+                      </button>
+                    )}
+                  </div>
+
+                  {smartJobPromptVisible ? (
+                <div ref={smartJobPromptBoxRef} className="space-y-2">
+                  {smartJobStatus ? (
+                    <p className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900">
+                      {smartJobStatus}
+                    </p>
+                  ) : null}
+                  {smartJobError ? (
+                    <p className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-700">
+                      {smartJobError}
+                    </p>
+                  ) : null}
+
+                  <input
+                    ref={smartJobFileInputRef}
+                    type="file"
+                    accept=".pdf,.doc,.docx,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = '';
+                      void handleSmartJobFilePick(file);
+                    }}
+                  />
+
+                  <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2">
+                    {/* Upload JD */}
+                    <div className="flex flex-col rounded-xl border border-slate-200 bg-slate-50/80 p-2.5">
+                      <div className="mb-1.5 flex items-center gap-2">
+                        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-blue-100 text-blue-600">
+                          <Upload size={13} />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold text-slate-900">Upload job description</p>
+                          <p className="text-[11px] leading-tight text-slate-500">PDF, DOC, DOCX, TXT</p>
+                        </div>
+                      </div>
+
+                      {smartJobAttachment ? (
+                        <div>
+                          <div className="flex items-center gap-2 rounded-lg border border-slate-700/30 bg-slate-900 px-2 py-1.5 text-white">
+                            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-600">
+                              {smartJobAttachment.status === 'processing' ? (
+                                <Loader2 className="h-4 w-4 animate-spin text-white" strokeWidth={2.25} />
+                              ) : (
+                                <FileText className="h-4 w-4 text-white" strokeWidth={2} />
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-xs font-medium leading-tight">
+                                {smartJobAttachment.file.name}
+                              </p>
+                              <p className="text-[11px] leading-tight text-slate-400">
+                                {smartJobAttachment.status === 'processing'
+                                  ? 'Extracting job details…'
+                                  : smartJobAttachment.status === 'error'
+                                    ? smartJobAttachment.error || 'Processing failed'
+                                    : 'Ready — review the form and publish'}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                clearSmartJobAttachment();
+                                setUploadedFile(null);
+                                setExistingOtherDocName('');
+                              }}
+                              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
+                              aria-label="Remove attached file"
+                              title="Remove file"
+                              disabled={smartJobAttachment.status === 'processing'}
+                            >
+                              <X size={12} strokeWidth={2.5} />
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => smartJobFileInputRef.current?.click()}
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const file = e.dataTransfer.files?.[0];
+                            if (file) void handleSmartJobFilePick(file);
+                          }}
+                          disabled={aiGenerating}
+                          className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 text-center transition-colors hover:border-blue-400 hover:bg-blue-50/40 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600">
+                            <Upload size={14} />
+                          </div>
+                          <span className="text-xs font-medium text-slate-800">
+                            Drop or click to upload
+                          </span>
+                          <span className="text-[11px] text-slate-400">· 5 MB</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Paste prompt */}
+                    <div className="flex flex-col rounded-xl border border-slate-200 bg-slate-50/80 p-2.5">
+                      <div className="mb-1.5 flex items-center gap-2">
+                        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-violet-100 text-violet-600">
+                          <Sparkles size={13} />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold text-slate-900">Paste job details</p>
+                          <p className="text-[11px] leading-tight text-slate-500">Role, company, location, skills…</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-end gap-1.5">
+                        <textarea
+                          id="job-smart-prompt"
+                          value={smartJobPrompt}
+                          onChange={(e) => setSmartJobPrompt(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey && !aiGenerating) {
+                              e.preventDefault();
+                              void handleSmartJobProcess();
+                            }
+                          }}
+                          rows={2}
+                          placeholder={'Role: Senior React Developer\nCompany: BluePeak Solutions…'}
+                          className="min-h-[40px] max-h-20 flex-1 resize-none rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:opacity-60"
+                          disabled={aiGenerating}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void handleSmartJobProcess()}
+                          disabled={aiGenerating || !smartJobPrompt.trim()}
+                          className="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-900 text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                          aria-label={aiGenerating ? 'Processing' : 'Fill form from text'}
+                          title={aiGenerating ? 'Processing…' : 'Fill form (Enter)'}
+                        >
+                          {aiGenerating ? (
+                            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                          ) : (
+                            <ArrowUp size={15} strokeWidth={2.25} />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </motion.div>
 

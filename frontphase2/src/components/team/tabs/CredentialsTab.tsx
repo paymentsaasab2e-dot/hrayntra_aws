@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Search, Key, Lock, Unlock, Mail, History, Eye, EyeOff } from 'lucide-react';
+import { Search, Key, Lock, Unlock, Mail, History, Pencil, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   getTeamMembers,
@@ -13,7 +13,7 @@ import {
 } from '../../../lib/api/teamApi';
 import { requestConfirm } from '../../../lib/appDialog';
 import type { TeamMember } from '../../../types/team';
-import { MemberProfileDrawer } from '../MemberProfileDrawer';
+import { EditMemberDrawer } from '../EditMemberDrawer';
 import { LoginHistoryDrawer } from '../LoginHistoryDrawer';
 import { GenerateCredentialsDrawer } from '../GenerateCredentialsDrawer';
 import PaginationAll from '../../../components/PaginationAll';
@@ -119,9 +119,8 @@ export const CredentialsTab: React.FC = () => {
   const [selectedMembers, setSelectedMembers] = useState<Set<string>>(new Set());
   const [showLoginHistory, setShowLoginHistory] = useState(false);
   const [showGenerateDrawer, setShowGenerateDrawer] = useState(false);
+  const [showEditDrawer, setShowEditDrawer] = useState(false);
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
-  const [showMemberDrawer, setShowMemberDrawer] = useState(false);
-  const [selectedMemberDrawerId, setSelectedMemberDrawerId] = useState<string | null>(null);
   const [bulkGenerating, setBulkGenerating] = useState(false);
   const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
   const [currentPage, setCurrentPage] = useState(1);
@@ -462,13 +461,13 @@ export const CredentialsTab: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => {
-                            setSelectedMemberDrawerId(member.id);
-                            setShowMemberDrawer(true);
+                            setSelectedMember(member);
+                            setShowEditDrawer(true);
                           }}
                           className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900"
-                          title="View Member Details"
+                          title="Edit Member Details"
                         >
-                          <Eye size={15} />
+                          <Pencil size={15} />
                         </button>
                         <button
                           type="button"
@@ -554,6 +553,20 @@ export const CredentialsTab: React.FC = () => {
       {/* Drawers */}
       {selectedMember && (
         <>
+          <EditMemberDrawer
+            isOpen={showEditDrawer}
+            member={selectedMember}
+            onClose={() => {
+              setShowEditDrawer(false);
+              setSelectedMember(null);
+            }}
+            onSuccess={() => {
+              setShowEditDrawer(false);
+              setSelectedMember(null);
+              fetchData();
+            }}
+          />
+
           <LoginHistoryDrawer
             isOpen={showLoginHistory}
             memberId={selectedMember.id}
@@ -577,17 +590,6 @@ export const CredentialsTab: React.FC = () => {
             }}
           />
         </>
-      )}
-
-      {selectedMemberDrawerId && (
-        <MemberProfileDrawer
-          isOpen={showMemberDrawer}
-          memberId={selectedMemberDrawerId}
-          onClose={() => {
-            setShowMemberDrawer(false);
-            setSelectedMemberDrawerId(null);
-          }}
-        />
       )}
     </div>
   );

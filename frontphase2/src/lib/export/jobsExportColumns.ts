@@ -17,7 +17,9 @@ export type JobExportRow = {
   createdDate: string;
   hot?: boolean;
   aiMatch?: boolean;
+  aiMatchCount?: number;
   noCandidates?: boolean;
+  candidates?: string;
   slaRisk?: boolean;
 };
 
@@ -35,8 +37,8 @@ export const JOBS_EXPORT_COLUMNS: ExportColumnDef<JobExportRow>[] = [
   { id: 'owner', label: 'Owner', accessor: (j) => j.owner },
   { id: 'createdDate', label: 'Created Date', accessor: (j) => csvDate(j.createdDate) },
   { id: 'hot', label: 'Hot', accessor: (j) => (j.hot ? 'true' : 'false') },
-  { id: 'aiMatch', label: 'AI Match', accessor: (j) => (j.aiMatch ? 'true' : 'false') },
-  { id: 'noCandidates', label: 'No Candidates', accessor: (j) => (j.noCandidates ? 'true' : 'false') },
+  { id: 'aiMatch', label: 'AI Match', accessor: (j) => j.aiMatchCount ?? 0 },
+  { id: 'noCandidates', label: 'Candidates', accessor: (j) => j.candidates || '' },
   { id: 'slaRisk', label: 'SLA Risk', accessor: (j) => (j.slaRisk ? 'true' : 'false') },
 ];
 

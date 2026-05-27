@@ -7,7 +7,6 @@ import {
   Upload,
   Download,
   Search,
-  Eye,
   Pencil,
   UserPlus,
   CheckCircle,
@@ -20,7 +19,17 @@ import {
   X,
   Inbox,
   Loader2,
+  Sparkles,
+  ArrowUp,
 } from 'lucide-react';
+import {
+  applyLeadsSmartSearchParseResult,
+  buildSmartSearchPreviewFromPrompt,
+  LEADS_SMART_SEARCH_EXAMPLES,
+  leadMatchesSmartKeywordChips,
+  parseLeadsSmartSearchPrompt,
+  type SmartSearchKeywordChip,
+} from './leadsSmartSearch';
 import { downloadCsv } from '../../utils/csv';
 import { buildLeadsCsvColumns, LEADS_EXPORT_COLUMNS } from '../../lib/leadsExportColumns';
 import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
@@ -55,12 +64,14 @@ import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../c
 import { TableBrandAvatar } from '../../components/ui/TableBrandAvatar';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 import { requestError } from '../../lib/appDialog';
+import type { CsvColumn } from '../../utils/csv';
 
 // Force CSR — every interactive bit on this tab is client-driven.
 export const dynamic = 'force-dynamic';
 
 const LEADS_FILTER_SELECT =
   'rounded-lg border border-indigo-100/90 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 cursor-pointer hover:border-indigo-200/90 hover:bg-indigo-50/40';
+const LEADS_DYNAMIC_COLUMNS_STORAGE_KEY = 'leads.dynamicColumns';
 
 /** Last / next follow-up column: date + time on separate lines (not raw ISO). */
 function LeadFollowUpTableCell({
@@ -375,6 +386,19 @@ function mapBackendLeadToFrontend(backendLead: BackendLead): Lead {
     agreementsFileName: backendLead.agreementsFileName || undefined,
     agreementsFileUrl: backendLead.agreementsFileUrl || undefined,
     agreementsUploadedAt: backendLead.agreementsUploadedAt || undefined,
+    agreementTotalPayment: backendLead.agreementTotalPayment || undefined,
+    agreementLevel: backendLead.agreementLevel || undefined,
+    agreementServiceChargePercent: backendLead.agreementServiceChargePercent || undefined,
+    agreementContractValidity: backendLead.agreementContractValidity || undefined,
+    agreementContractStartDate: backendLead.agreementContractStartDate || undefined,
+    agreementContractEndDate: backendLead.agreementContractEndDate || undefined,
+    agreementTimePeriod: backendLead.agreementTimePeriod || undefined,
+    agreementAdvancePaymentPercent: backendLead.agreementAdvancePaymentPercent || undefined,
+    agreementFreeReplacementValue:
+      typeof backendLead.agreementFreeReplacementValue === 'number'
+        ? backendLead.agreementFreeReplacementValue
+        : undefined,
+    agreementFreeReplacementUnit: backendLead.agreementFreeReplacementUnit || undefined,
   };
 }
 
@@ -386,6 +410,14 @@ function applyLeadClientFilters(
 ): Lead[] {
   const query = searchQuery.trim().toLowerCase();
   return list.filter((lead) => {
+    const matchesDynamicFields =
+      !!query &&
+      Array.isArray(lead.otherDetails) &&
+      lead.otherDetails.some((item) => {
+        const label = String(item?.label || '').toLowerCase();
+        const value = String(item?.value || '').toLowerCase();
+        return label.includes(query) || value.includes(query);
+      });
     const matchesSearch =
       !query ||
       lead.companyName.toLowerCase().includes(query) ||
@@ -396,7 +428,8 @@ function applyLeadClientFilters(
       (lead.directorSalutation && String(lead.directorSalutation).toLowerCase().includes(query)) ||
       formatDirectorDisplay(lead.directorSalutation, lead.directorName || lead.contactPerson)
         .toLowerCase()
-        .includes(query);
+        .includes(query) ||
+      matchesDynamicFields;
     const matchesRecruiter =
       !recruiterFilter ||
       lead.assignedToId === recruiterFilter ||
@@ -404,6 +437,18 @@ function applyLeadClientFilters(
       (Array.isArray(lead.assignedToIds) && lead.assignedToIds.includes(recruiterFilter));
     return matchesSearch && matchesRecruiter;
   });
+}
+
+function getLeadDynamicFieldValue(
+  lead: Lead,
+  label: string,
+): string {
+  if (!Array.isArray(lead.otherDetails)) return '';
+  const target = String(label || '').trim().toLowerCase();
+  const match = lead.otherDetails.find(
+    (item) => String(item?.label || '').trim().toLowerCase() === target
+  );
+  return String(match?.value || '').trim();
 }
 
 function extractBackendLeads(
@@ -460,10 +505,14 @@ export default function RecruitmentAgencyDashboard() {
   const [exportLeadsLoading, setExportLeadsLoading] = useState(false);
   const [recycleBinDrawerOpen, setRecycleBinDrawerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [smartSearchOpen, setSmartSearchOpen] = useState(false);
+  const [smartSearchQuery, setSmartSearchQuery] = useState('');
+  const [activeSmartKeywords, setActiveSmartKeywords] = useState<SmartSearchKeywordChip[]>([]);
   const [statusFilter, setStatusFilter] = useState<LeadStatus | 'All'>('All');
   const [leadStatusOptions, setLeadStatusOptions] = useState<LeadStatus[]>(DEFAULT_LEAD_STATUS_OPTIONS);
   const [sourceFilter, setSourceFilter] = useState('');
   const [recruiterFilter, setRecruiterFilter] = useState('');
+  const [selectedDynamicColumnLabels, setSelectedDynamicColumnLabels] = useState<string[]>([]);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null); // null = not checked yet
   const [teamMembers, setTeamMembers] = useState<BackendUser[]>([]);
   const [bulkStatus, setBulkStatus] = useState('');
@@ -490,12 +539,56 @@ export default function RecruitmentAgencyDashboard() {
   
   const selectedLead = leads.find(l => l.id === selectedLeadId);
   const pendingDeepLinkLeadIdRef = useRef<string | null>(null);
+  const availableDynamicColumnLabels = useMemo(() => {
+    const seen = new Set<string>();
+    const labels: string[] = [];
+    for (const lead of leads) {
+      for (const item of lead.otherDetails || []) {
+        const label = String(item?.label || '').trim();
+        const key = label.toLowerCase();
+        if (!label || seen.has(key)) continue;
+        seen.add(key);
+        labels.push(label);
+      }
+    }
+    return labels.sort((a, b) => a.localeCompare(b));
+  }, [leads]);
 
   // Check authentication status on client side only
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
     setIsAuthenticated(!!token);
   }, []);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LEADS_DYNAMIC_COLUMNS_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        setSelectedDynamicColumnLabels(
+          parsed.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+        );
+      }
+    } catch {
+      /* ignore invalid persisted dynamic columns */
+    }
+  }, []);
+
+  useEffect(() => {
+    setSelectedDynamicColumnLabels((previous) =>
+      previous.filter((label) =>
+        availableDynamicColumnLabels.some((option) => option.toLowerCase() === label.toLowerCase())
+      )
+    );
+  }, [availableDynamicColumnLabels]);
+
+  useEffect(() => {
+    localStorage.setItem(
+      LEADS_DYNAMIC_COLUMNS_STORAGE_KEY,
+      JSON.stringify(selectedDynamicColumnLabels)
+    );
+  }, [selectedDynamicColumnLabels]);
 
   useEffect(() => {
     const leadId = searchParams.get('leadId');
@@ -733,10 +826,212 @@ export default function RecruitmentAgencyDashboard() {
     events: ['jobportal:leads-changed', 'jobportal:jobs-changed'],
   });
 
-  const filteredLeads = useMemo(
-    () => applyLeadClientFilters(leads, searchQuery, recruiterFilter),
-    [leads, searchQuery, recruiterFilter],
+  const recruiterNameById = useMemo(
+    () => new Map(teamMembers.map((member) => [member.id, member.name])),
+    [teamMembers],
   );
+
+  const filteredLeads = useMemo(() => {
+    let list = applyLeadClientFilters(leads, searchQuery, recruiterFilter);
+    if (activeSmartKeywords.length > 0) {
+      list = list.filter((lead) =>
+        leadMatchesSmartKeywordChips(lead, activeSmartKeywords, recruiterNameById),
+      );
+    }
+    return list;
+  }, [leads, searchQuery, recruiterFilter, activeSmartKeywords, recruiterNameById]);
+
+  const smartSearchRecruiters = useMemo(
+    () => teamMembers.map((member) => ({ id: member.id, name: member.name })),
+    [teamMembers],
+  );
+
+  const promptKeywordPreview = useMemo(
+    () =>
+      buildSmartSearchPreviewFromPrompt(smartSearchQuery, {
+        statuses: leadStatusOptions,
+        recruiters: smartSearchRecruiters,
+      }),
+    [smartSearchQuery, leadStatusOptions, smartSearchRecruiters],
+  );
+
+  const hasActiveTableFilters =
+    statusFilter !== 'All' ||
+    !!sourceFilter ||
+    !!recruiterFilter ||
+    !!searchQuery.trim() ||
+    activeSmartKeywords.length > 0;
+
+  const removeSmartKeyword = useCallback((chipId: string) => {
+    setActiveSmartKeywords((previous) => {
+      const removed = previous.find((item) => item.id === chipId);
+      const next = previous.filter((item) => item.id !== chipId);
+
+      if (removed?.kind === 'status') setStatusFilter('All');
+      if (removed?.kind === 'source') setSourceFilter('');
+      if (removed?.kind === 'recruiter') setRecruiterFilter('');
+      if (removed?.kind === 'text') {
+        setSearchQuery(
+          next
+            .filter((item) => item.kind === 'text')
+            .map((item) => item.value)
+            .join(' '),
+        );
+      }
+
+      return next;
+    });
+    setCurrentPage(1);
+  }, []);
+
+  const activeFilterChips = useMemo(() => {
+    const chips = activeSmartKeywords.map((keyword) => ({
+      id: keyword.id,
+      label: keyword.label,
+      kind: keyword.kind,
+      onRemove: () => removeSmartKeyword(keyword.id),
+    }));
+
+    if (
+      statusFilter !== 'All' &&
+      !chips.some((chip) => chip.kind === 'status' && chip.label === statusFilter)
+    ) {
+      chips.unshift({
+        id: 'manual-status',
+        label: statusFilter,
+        kind: 'status' as const,
+        onRemove: () => {
+          setCurrentPage(1);
+          setStatusFilter('All');
+        },
+      });
+    }
+
+    if (
+      sourceFilter &&
+      !chips.some((chip) => chip.kind === 'source' && chip.label === sourceFilter)
+    ) {
+      chips.push({
+        id: 'manual-source',
+        label: sourceFilter,
+        kind: 'source' as const,
+        onRemove: () => {
+          setCurrentPage(1);
+          setSourceFilter('');
+        },
+      });
+    }
+
+    if (
+      recruiterFilter &&
+      !chips.some((chip) => chip.kind === 'recruiter' && chip.id.includes(recruiterFilter))
+    ) {
+      const recruiterName = recruiterNameById.get(recruiterFilter) || 'Recruiter';
+      chips.push({
+        id: 'manual-recruiter',
+        label: recruiterName,
+        kind: 'recruiter' as const,
+        onRemove: () => {
+          setCurrentPage(1);
+          setRecruiterFilter('');
+        },
+      });
+    }
+
+    if (
+      searchQuery.trim() &&
+      !activeSmartKeywords.some((item) => item.kind === 'text' && item.value === searchQuery.trim())
+    ) {
+      chips.push({
+        id: 'manual-search',
+        label: searchQuery.trim(),
+        kind: 'text' as const,
+        onRemove: () => {
+          setCurrentPage(1);
+          setSearchQuery('');
+        },
+      });
+    }
+
+    return chips;
+  }, [
+    activeSmartKeywords,
+    statusFilter,
+    sourceFilter,
+    recruiterFilter,
+    searchQuery,
+    recruiterNameById,
+    removeSmartKeyword,
+  ]);
+
+  const applyParsedSmartSearch = useCallback(
+    (text: string, options?: { toastOnSuccess?: boolean }) => {
+      const parsed = parseLeadsSmartSearchPrompt(text, {
+        statuses: leadStatusOptions,
+        recruiters: smartSearchRecruiters,
+      });
+
+      if (!text.trim()) {
+        toast.message(parsed.summary);
+        return;
+      }
+
+      const textSearch = parsed.keywords
+        .filter((item) => item.kind === 'text')
+        .map((item) => item.value)
+        .join(' ');
+
+      applyLeadsSmartSearchParseResult(parsed, {
+        setStatusFilter,
+        setSourceFilter,
+        setRecruiterFilter,
+        setActiveSmartKeywords,
+        setCurrentPage,
+      });
+      setSearchQuery(textSearch);
+
+      if (options?.toastOnSuccess !== false) {
+        toast.success(parsed.summary);
+      }
+    },
+    [leadStatusOptions, smartSearchRecruiters],
+  );
+
+  const handleApplySmartSearch = useCallback(() => {
+    applyParsedSmartSearch(smartSearchQuery);
+  }, [applyParsedSmartSearch, smartSearchQuery]);
+
+  const handleSmartSearchExample = useCallback(
+    (query: string) => {
+      setSmartSearchQuery(query);
+      applyParsedSmartSearch(query, { toastOnSuccess: true });
+    },
+    [applyParsedSmartSearch],
+  );
+
+  const clearAllTableFilters = useCallback(() => {
+    setCurrentPage(1);
+    setSearchQuery('');
+    setSmartSearchQuery('');
+    setActiveSmartKeywords([]);
+    setStatusFilter('All');
+    setSourceFilter('');
+    setRecruiterFilter('');
+    setSelectedDynamicColumnLabels([]);
+  }, []);
+
+  const keywordChipClass = (kind: SmartSearchKeywordChip['kind']) => {
+    switch (kind) {
+      case 'status':
+        return 'bg-blue-100 text-blue-900 border-blue-200/80';
+      case 'source':
+        return 'bg-emerald-100 text-emerald-900 border-emerald-200/80';
+      case 'recruiter':
+        return 'bg-amber-100 text-amber-900 border-amber-200/80';
+      default:
+        return 'bg-violet-100 text-violet-900 border-violet-200/80';
+    }
+  };
 
   const fetchAllLeadsForExport = useCallback(async (): Promise<Lead[]> => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
@@ -818,6 +1113,28 @@ export default function RecruitmentAgencyDashboard() {
       adjustLeadMetricCounts(previousLead.status, lead.status);
     }
   }, [adjustLeadMetricCounts, leads]);
+
+  const openLeadDrawerWithFreshData = useCallback(
+    async (lead: Lead, mode: 'view' | 'edit') => {
+      try {
+        const response = await apiGetLead(lead.id);
+        const backendLead = (response as any).data?.data || (response as any).data || response;
+        const mappedLead = backendLead ? mapBackendLeadToFrontend(backendLead) : lead;
+        if (leads.some((item) => item.id === mappedLead.id)) {
+          replaceLeadOptimistically(mappedLead);
+        } else {
+          mergeLeadOptimistically(mappedLead);
+        }
+        setSelectedLeadId(mappedLead.id);
+        setSelectedLeadDrawerMode(mode);
+      } catch (error) {
+        console.error(`Failed to fetch lead ${lead.id} before opening drawer:`, error);
+        setSelectedLeadId(lead.id);
+        setSelectedLeadDrawerMode(mode);
+      }
+    },
+    [leads, mergeLeadOptimistically, replaceLeadOptimistically]
+  );
 
   const removeLeadOptimistically = useCallback((leadId: string) => {
     const previousLead = leads.find((item) => item.id === leadId);
@@ -918,7 +1235,13 @@ export default function RecruitmentAgencyDashboard() {
   };
 
   const handleExportLeadsCsv = (selectedColumnIds: string[]) => {
-    const columns = buildLeadsCsvColumns(selectedColumnIds);
+    const baseColumns = buildLeadsCsvColumns(
+      selectedColumnIds.filter((id) => !id.startsWith('dynamic:'))
+    );
+    const selectedDynamic = exportColumns
+      .filter((col) => col.id.startsWith('dynamic:') && selectedColumnIds.includes(col.id))
+      .map(({ id, accessor }) => ({ id, accessor })) as CsvColumn<Lead>[];
+    const columns = [...baseColumns, ...selectedDynamic];
     if (columns.length === 0) {
       toast.message('Select at least one column to export.');
       return;
@@ -931,6 +1254,40 @@ export default function RecruitmentAgencyDashboard() {
     );
     toast.success(`Exported ${rowsToExport.length} lead${rowsToExport.length === 1 ? '' : 's'} to CSV`);
   };
+
+  const exportDynamicColumns = useMemo(() => {
+    const source = exportLeads.length > 0 ? exportLeads : filteredLeads;
+    const seen = new Set<string>();
+    const labels: string[] = [];
+    for (const lead of source) {
+      for (const item of lead.otherDetails || []) {
+        const label = String(item?.label || '').trim();
+        if (!label) continue;
+        const key = label.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        labels.push(label);
+      }
+    }
+    labels.sort((a, b) => a.localeCompare(b));
+    return labels.map((label) => ({
+      id: `dynamic:${label}`,
+      label,
+      accessor: (l: Lead) => {
+        if (!Array.isArray(l.otherDetails)) return '';
+        const target = label.trim().toLowerCase();
+        const match = l.otherDetails.find(
+          (item) => String(item?.label || '').trim().toLowerCase() === target
+        );
+        return String(match?.value || '').trim();
+      },
+    }));
+  }, [exportLeads, filteredLeads]);
+
+  const exportColumns = useMemo(
+    () => [...LEADS_EXPORT_COLUMNS, ...exportDynamicColumns],
+    [exportDynamicColumns]
+  );
 
   const toggleSelectAll = () => {
     if (allVisibleSelected) {
@@ -1543,6 +1900,19 @@ export default function RecruitmentAgencyDashboard() {
               </div>
               
               <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSmartSearchOpen((open) => !open)}
+                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-all active:scale-[0.98] ${
+                    smartSearchOpen
+                      ? 'border-violet-300 bg-violet-50 text-violet-800 shadow-sm'
+                      : 'border-indigo-100/90 bg-white/95 text-indigo-900 shadow-sm hover:border-violet-200 hover:bg-violet-50/60'
+                  }`}
+                  title="Search leads with natural language"
+                >
+                  <Sparkles size={14} className={smartSearchOpen ? 'text-violet-600' : 'text-indigo-600'} strokeWidth={2.25} />
+                  Smart Search
+                </button>
                 <div className="flex flex-wrap items-center gap-1.5">
                   <select 
                     className={LEADS_FILTER_SELECT}
@@ -1592,15 +1962,50 @@ export default function RecruitmentAgencyDashboard() {
                     ))}
                   </select>
 
+                  {availableDynamicColumnLabels.length > 0 ? (
+                    <details className="relative">
+                      <summary className={`${LEADS_FILTER_SELECT} list-none`}>
+                        Dynamic Columns
+                        {selectedDynamicColumnLabels.length > 0 ? ` (${selectedDynamicColumnLabels.length})` : ''}
+                      </summary>
+                      <div className="absolute right-0 z-20 mt-2 w-72 rounded-xl border border-indigo-100/90 bg-white p-3 shadow-xl">
+                        <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                          Show in table
+                        </p>
+                        <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+                          {availableDynamicColumnLabels.map((label) => {
+                            const checked = selectedDynamicColumnLabels.some(
+                              (item) => item.toLowerCase() === label.toLowerCase()
+                            );
+                            return (
+                              <label key={label} className="flex items-center gap-2 text-xs text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() =>
+                                    setSelectedDynamicColumnLabels((previous) =>
+                                      checked
+                                        ? previous.filter((item) => item.toLowerCase() !== label.toLowerCase())
+                                        : [...previous, label]
+                                    )
+                                  }
+                                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/25"
+                                />
+                                <span className="truncate">{label}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </details>
+                  ) : null}
+
                   <button 
                     type="button"
                     className="text-xs text-rose-600 hover:text-rose-700 font-semibold px-2 py-1.5 rounded-lg hover:bg-rose-50 flex items-center gap-1 transition-colors"
                     onClick={() => {
-                    setCurrentPage(1);
-                    setSearchQuery('');
-                    setStatusFilter('All');
-                    setSourceFilter('');
-                    setRecruiterFilter('');
+                    clearAllTableFilters();
+                    setSmartSearchOpen(false);
                   }}
                   >
                     <XCircle size={15} className="text-rose-500 shrink-0" strokeWidth={2.35} />
@@ -1609,6 +2014,114 @@ export default function RecruitmentAgencyDashboard() {
                 </div>
               </div>
             </div>
+
+            {smartSearchOpen ? (
+              <div className="space-y-2 border-b border-indigo-100/50 bg-gradient-to-r from-violet-50/50 via-white to-indigo-50/30 px-3 py-2.5 sm:px-4">
+                <div className="flex items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <label htmlFor="leads-smart-search" className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-violet-700/80">
+                      Search prompt
+                    </label>
+                    <textarea
+                      id="leads-smart-search"
+                      value={smartSearchQuery}
+                      onChange={(e) => setSmartSearchQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          handleApplySmartSearch();
+                        }
+                      }}
+                      rows={2}
+                      placeholder={'Type your prompt, e.g.\nqualified leads from LinkedIn in Bangalore company Acme'}
+                      className="min-h-[52px] w-full resize-none rounded-xl border border-violet-200/90 bg-white px-3 py-2 text-xs text-slate-800 placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-500/25"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleApplySmartSearch()}
+                    className="mt-5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-900 text-white hover:bg-slate-800"
+                    aria-label="Apply prompt and filter leads"
+                    title="Apply prompt (Enter)"
+                  >
+                    <ArrowUp size={16} strokeWidth={2.25} />
+                  </button>
+                </div>
+
+                <div className="rounded-lg border border-violet-100/80 bg-white/80 px-2.5 py-2">
+                  <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Keywords found
+                  </p>
+                  {smartSearchQuery.trim() ? (
+                    promptKeywordPreview.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {promptKeywordPreview.map((keyword) => (
+                          <span
+                            key={keyword.id}
+                            className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${keywordChipClass(keyword.kind)}`}
+                          >
+                            {keyword.label}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-600">
+                        No keywords detected — we will match your full prompt text in the table.
+                      </p>
+                    )
+                  ) : (
+                    <p className="text-xs text-slate-500">
+                      Add a prompt — keywords appear here, then press Enter to filter leads.
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap gap-1.5">
+                  {LEADS_SMART_SEARCH_EXAMPLES.map((example) => (
+                    <button
+                      key={example.label}
+                      type="button"
+                      onClick={() => handleSmartSearchExample(example.query)}
+                      className="rounded-full border border-violet-200/90 bg-white px-2.5 py-1 text-[11px] font-medium text-violet-800 transition-colors hover:border-violet-300 hover:bg-violet-50"
+                    >
+                      {example.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {hasActiveTableFilters ? (
+              <div className="flex flex-wrap items-center gap-2 border-b border-indigo-100/40 bg-slate-50/60 px-3 py-2 sm:px-4">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Active keywords
+                </span>
+                {activeFilterChips.map((chip) => (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    onClick={chip.onRemove}
+                    className={`inline-flex items-center gap-1 rounded-full border pl-2.5 pr-1.5 py-0.5 text-[11px] font-medium shadow-sm transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-800 ${keywordChipClass(chip.kind)}`}
+                    title={`Remove keyword ${chip.label}`}
+                  >
+                    <span className="max-w-[200px] truncate">{chip.label}</span>
+                    <X size={12} strokeWidth={2.5} className="shrink-0 opacity-60" />
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={clearAllTableFilters}
+                  className="text-[11px] font-semibold text-rose-600 hover:text-rose-700"
+                >
+                  Clear all
+                </button>
+                {!loading && !error ? (
+                  <span className="ml-auto text-[11px] font-medium text-slate-500">
+                    {filteredLeads.length} lead{filteredLeads.length === 1 ? '' : 's'} on this page
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
 
             {/* Leads Table — horizontal scroll bar is shown in a sticky dock at the bottom of the view */}
             <div className="overflow-hidden flex flex-col">
@@ -1634,6 +2147,11 @@ export default function RecruitmentAgencyDashboard() {
                         <th className="px-3 sm:px-4 py-2">Lead</th>
                         <th className="px-3 sm:px-4 py-2">Source</th>
                         <th className="px-3 sm:px-4 py-2">Contact</th>
+                        {selectedDynamicColumnLabels.map((label) => (
+                          <th key={label} className="px-3 sm:px-4 py-2">
+                            {label}
+                          </th>
+                        ))}
                         <th className="px-3 sm:px-4 py-2">Status</th>
                         <th className="px-3 sm:px-4 py-2">Assigned To</th>
                         <th className="px-3 sm:px-4 py-2">Last Follow-up</th>
@@ -1643,7 +2161,7 @@ export default function RecruitmentAgencyDashboard() {
                     <tbody className="divide-y divide-slate-100/80">
                       {filteredLeads.length === 0 ? (
                         <tr>
-                          <td colSpan={8} className="px-4 py-12 text-center">
+                          <td colSpan={8 + selectedDynamicColumnLabels.length} className="px-4 py-12 text-center">
                             <p className="text-xs font-medium text-slate-500">No leads match your filters</p>
                             <p className="mt-1 text-[11px] text-slate-400">Try adjusting search or clear filters</p>
                           </td>
@@ -1683,8 +2201,7 @@ export default function RecruitmentAgencyDashboard() {
                                   type="button"
                                   className="text-left text-xs font-semibold text-slate-900 hover:text-indigo-700 transition-colors line-clamp-1"
                                   onClick={() => {
-                                    setSelectedLeadDrawerMode('view');
-                                    setSelectedLeadId(lead.id);
+                                    void openLeadDrawerWithFreshData(lead, 'view');
                                   }}
                                 >
                                   {lead.companyName}
@@ -1706,6 +2223,16 @@ export default function RecruitmentAgencyDashboard() {
                                 </span>
                               </div>
                             </td>
+                            {selectedDynamicColumnLabels.map((label) => {
+                              const value = getLeadDynamicFieldValue(lead, label);
+                              return (
+                                <td key={`${lead.id}-${label}`} className="px-3 sm:px-4 py-2">
+                                  <span className="line-clamp-2 text-xs text-slate-700">
+                                    {value || '—'}
+                                  </span>
+                                </td>
+                              );
+                            })}
                             <td className="px-3 sm:px-4 py-2" onClick={(e) => e.stopPropagation()}>
                               <div className="flex flex-col gap-1.5">
                                 {canUpdateLead ? (
@@ -1771,25 +2298,13 @@ export default function RecruitmentAgencyDashboard() {
                             </td>
                             <td className="px-3 sm:px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                               <div className="inline-flex items-center justify-end gap-0.5 rounded-xl bg-slate-100/70 p-0.5 ring-1 ring-slate-200/60">
-                                <button
-                                  type="button"
-                                  className="flex h-7 w-7 items-center justify-center rounded-lg text-blue-600 hover:bg-white hover:text-blue-700 hover:shadow-sm transition-all"
-                                  title="View Details"
-                                  onClick={() => {
-                                    setSelectedLeadDrawerMode('view');
-                                    setSelectedLeadId(lead.id);
-                                  }}
-                                >
-                                  <Eye size={15} strokeWidth={2.35} />
-                                </button>
                                 {SHOW_TABLE_ROW_EDIT_ICON ? (
                                   <button
                                     type="button"
                                     className="flex h-7 w-7 items-center justify-center rounded-lg text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
                                     title="Edit Lead"
                                     onClick={() => {
-                                      setSelectedLeadDrawerMode('edit');
-                                      setSelectedLeadId(lead.id);
+                                      void openLeadDrawerWithFreshData(lead, 'edit');
                                     }}
                                   >
                                     <Pencil size={15} strokeWidth={2.35} />
@@ -1978,7 +2493,7 @@ export default function RecruitmentAgencyDashboard() {
           rowCount={exportLeads.length}
           rowLabelSingular="lead"
           rowLabelPlural="leads"
-          columns={LEADS_EXPORT_COLUMNS}
+        columns={exportColumns}
           rows={exportLeads}
           isLoading={exportLeadsLoading}
           getRowKey={(lead) => lead.id}

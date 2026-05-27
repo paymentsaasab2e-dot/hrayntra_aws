@@ -1492,6 +1492,24 @@ function mergeCareerPreferencesIntoCandidate(candidate, careerPrefs) {
     : null;
 
   const preferredLocations = Array.isArray(cp.preferredLocations) ? cp.preferredLocations : [];
+  const preferredRoles = Array.isArray(cp.preferredRoles)
+    ? cp.preferredRoles
+    : Array.isArray(cp.preferredJobTitles)
+      ? cp.preferredJobTitles
+      : [];
+  const preferredIndustries =
+    Array.isArray(cp.preferredIndustries) && cp.preferredIndustries.length
+      ? cp.preferredIndustries
+      : cp.preferredIndustry
+        ? [String(cp.preferredIndustry).trim()].filter(Boolean)
+        : [];
+  const functionalAreas =
+    Array.isArray(cp.functionalAreas) && cp.functionalAreas.length
+      ? cp.functionalAreas
+      : cp.functionalArea
+        ? [String(cp.functionalArea).trim()].filter(Boolean)
+        : [];
+  const workModes = Array.isArray(cp.workModes) ? cp.workModes : [];
   const expectedSalaryNum = cp.preferredSalary != null && Number.isFinite(Number(cp.preferredSalary))
     ? Number(cp.preferredSalary)
     : null;
@@ -1506,16 +1524,24 @@ function mergeCareerPreferencesIntoCandidate(candidate, careerPrefs) {
   candidate.preferredLocation = pickFirstNonEmpty(candidate.preferredLocation, preferredLocations[0]);
 
   candidate.careerPreferences = {
-    preferredRoles: Array.isArray(cp.preferredRoles) ? cp.preferredRoles : [],
+    currentRole: cp.currentRole || null,
+    preferredJobTitles: Array.isArray(cp.preferredJobTitles) ? cp.preferredJobTitles : preferredRoles,
+    preferredRoles,
+    preferredIndustries,
     preferredIndustry: cp.preferredIndustry || null,
+    functionalAreas,
     functionalArea: cp.functionalArea || null,
     jobTypes: Array.isArray(cp.jobTypes) ? cp.jobTypes : [],
+    workModes,
     preferredWorkMode: normalizePortalWorkMode(cp.preferredWorkMode),
     preferredLocations,
     relocationPreference: cp.relocationPreference || null,
     preferredCurrency: cp.preferredCurrency || null,
     preferredSalary: expectedSalaryNum,
     preferredSalaryType: cp.preferredSalaryType || null,
+    salaryCurrency: cp.salaryCurrency || cp.preferredCurrency || null,
+    salaryAmount: cp.salaryAmount ?? cp.preferredSalary ?? null,
+    salaryFrequency: cp.salaryFrequency || cp.preferredSalaryType || null,
     preferredBenefits: Array.isArray(cp.preferredBenefits) ? cp.preferredBenefits : [],
     availabilityToStart: cp.availabilityToStart || null,
     noticePeriod: cp.noticePeriod || noticeFromDays,

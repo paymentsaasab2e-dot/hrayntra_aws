@@ -28,7 +28,7 @@ import {
 async function enrichJobWithApplyLink(job) {
   if (!job?.id) return job;
   let token = job.applyLinkToken || null;
-  if (job.applicationFormEnabled && !token && String(job.status || '').toUpperCase() === 'OPEN') {
+  if (!token) {
     token = await jobPublicApplyService.ensureApplyTokenForJob(job.id);
   }
   const applyUrl = token

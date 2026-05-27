@@ -171,9 +171,12 @@ export function enrichBackendCandidateFromPhase1Snapshot(c: BackendCandidate): B
       c.availability || (snap.careerPreferences?.availabilityToStart as string) || null,
     address: c.address || snap.personalInfo?.city || c.address,
     careerPreferences:
-      (c.careerPreferences ||
-        (snap.careerPreferences as BackendCandidate['careerPreferences'])) ??
-      c.careerPreferences,
+      c.careerPreferences || snap.careerPreferences
+        ? ({
+            ...((snap.careerPreferences as BackendCandidate['careerPreferences']) || {}),
+            ...(c.careerPreferences || {}),
+          } as BackendCandidate['careerPreferences'])
+        : c.careerPreferences,
     certifications: certNames.length ? certNames : c.certifications,
     cvWorkExperienceEntries:
       (Array.isArray(c.cvWorkExperienceEntries) && c.cvWorkExperienceEntries.length

@@ -200,7 +200,7 @@ export function PlacementDetailsDrawer({
                         </div>
                         {placement.notes ? (
                           <div className="mt-4 rounded-xl bg-[#F9FAFB] p-4">
-                            <p className="text-sm font-medium text-[#111827]">Notes</p>
+                            <p className="text-sm font-medium text-[#111827]">Remarks</p>
                             <p className="mt-1 text-sm text-[#4B5563]">{placement.notes}</p>
                           </div>
                         ) : null}

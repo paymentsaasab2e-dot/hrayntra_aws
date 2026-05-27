@@ -17,6 +17,7 @@ router.post('/trash/bulk-purge', requireAnyPermission(['clients_delete']), clien
 router.post('/:id/restore', requireAnyPermission(['clients_update', 'clients_create']), clientController.restore);
 router.delete('/:id/purge', requireAnyPermission(['clients_delete']), clientController.purge);
 router.post('/import/preview', requireAnyPermission(['clients_create']), importUpload.single('file'), clientController.previewImport);
+router.post('/import/check-duplicates', requireAnyPermission(['clients_create']), clientController.checkImportDuplicates);
 router.post('/import', requireAnyPermission(['clients_create']), clientController.importClients);
 router.get('/:id', requireAnyPermission(['clients_read']), clientController.getById);
 router.get('/:clientId/activities', requireAnyPermission(['clients_read']), clientController.getActivities);

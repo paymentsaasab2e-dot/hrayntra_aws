@@ -188,6 +188,18 @@ export const leadController = {
     }
   },
 
+  async checkImportDuplicates(req, res) {
+    try {
+      const result = await leadService.checkImportDuplicates({
+        rows: req.body?.rows || [],
+        mapping: req.body?.mapping || {},
+      });
+      sendResponse(res, 200, 'Lead import duplicates checked successfully', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async update(req, res) {
     try {
       // Log the received request body in JSON format

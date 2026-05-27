@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { StickyNote, Pin, Pencil, Trash2, User, Plus, X } from 'lucide-react';
+import { StickyNote, Pin, Pencil, Trash2, User, X } from 'lucide-react';
 import { ImageWithFallback } from './ImageWithFallback';
 import {
   apiGetClientNotes,
@@ -29,7 +29,7 @@ import {
 import { requestConfirm, requestError, requestWarning } from '../lib/appDialog';
 import { formatDateDMY } from '../utils/dateDisplay';
 
-export type NoteTag = 'HR' | 'Finance' | 'Contract' | 'Feedback';
+export type NoteTag = string;
 
 export interface Note {
   id: string;
@@ -50,13 +50,16 @@ export interface NotesServiceProps {
   onNoteDeleted?: () => void;
 }
 
-const DEFAULT_TAGS: NoteTag[] = ['HR', 'Finance', 'Contract', 'Feedback'];
+const DEFAULT_TAGS: NoteTag[] = ['Calls', 'WhatsApp', 'Emails'];
 
 const NOTE_TAG_STYLES: Record<string, string> = {
   HR: 'bg-blue-100 text-blue-700 border-blue-200',
   Finance: 'bg-emerald-100 text-emerald-700 border-emerald-200',
   Contract: 'bg-amber-100 text-amber-700 border-amber-200',
   Feedback: 'bg-violet-100 text-violet-700 border-violet-200',
+  Calls: 'bg-blue-100 text-blue-700 border-blue-200',
+  WhatsApp: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  Emails: 'bg-violet-100 text-violet-700 border-violet-200',
   JD: 'bg-indigo-100 text-indigo-700 border-indigo-200',
   Requirements: 'bg-purple-100 text-purple-700 border-purple-200',
   Hiring: 'bg-green-100 text-green-700 border-green-200',
@@ -92,7 +95,7 @@ export function NotesService({
 }: NotesServiceProps) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(false);
-  const [tagFilter, setTagFilter] = useState<string | 'All'>('All');
+  const [remarkFilter, setRemarkFilter] = useState<string | 'All'>('All');
   const [pinnedNoteIds, setPinnedNoteIds] = useState<Set<string>>(new Set());
   const [showAddNoteForm, setShowAddNoteForm] = useState(false);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
@@ -343,7 +346,7 @@ export function NotesService({
   };
 
   const filteredNotes = notes.filter((note) =>
-    tagFilter === 'All' ? true : note.tags.includes(tagFilter)
+    remarkFilter === 'All' ? true : note.tags.includes(remarkFilter)
   );
 
   const isPinned = (note: Note) => note.isPinned || pinnedNoteIds.has(note.id);
@@ -352,11 +355,11 @@ export function NotesService({
     isPinned(b) && !isPinned(a) ? 1 : isPinned(a) && !isPinned(b) ? -1 : 0
   );
 
-  const NOTE_TAG_OPTIONS: (string | 'All')[] = ['All', ...availableTags];
+  const REMARK_FILTER_OPTIONS: (string | 'All')[] = ['All', ...availableTags];
 
   return (
     <div className="space-y-4">
-      {/* Top bar: Add Note + tag filters */}
+      {/* Top bar: Add Remark + type filters */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <button
@@ -369,16 +372,16 @@ export function NotesService({
             className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
           >
             <StickyNote size={16} />
-            Add Note
+            Add Remark
           </button>
           <div className="flex flex-wrap items-center gap-2">
-            {NOTE_TAG_OPTIONS.map((tag) => (
+            {REMARK_FILTER_OPTIONS.map((tag) => (
               <button
                 key={tag}
                 type="button"
-                onClick={() => setTagFilter(tag)}
+                onClick={() => setRemarkFilter(tag)}
                 className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  tagFilter === tag
+                  remarkFilter === tag
                     ? 'bg-blue-600 text-white'
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
@@ -395,7 +398,7 @@ export function NotesService({
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-bold text-slate-900">
-              {editingNoteId ? 'Edit Note' : 'Add Note'}
+              {editingNoteId ? 'Edit Remark' : 'Add Remark'}
             </h3>
             <button
               type="button"
@@ -407,32 +410,32 @@ export function NotesService({
           </div>
           <div>
             <label htmlFor="note-title" className="block text-sm font-medium text-slate-700 mb-2">
-              Title *
+              Remark Title *
             </label>
             <input
               id="note-title"
               type="text"
               value={noteForm.title}
               onChange={(e) => setNoteForm((p) => ({ ...p, title: e.target.value }))}
-              placeholder="Enter note title..."
+              placeholder="Enter remark title..."
               className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
             />
           </div>
           <div>
             <label htmlFor="note-content" className="block text-sm font-medium text-slate-700 mb-2">
-              Content
+              Remark
             </label>
             <textarea
               id="note-content"
               rows={4}
               value={noteForm.content}
               onChange={(e) => setNoteForm((p) => ({ ...p, content: e.target.value }))}
-              placeholder="Enter note content..."
+              placeholder="Enter remark details..."
               className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-none"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">Tags</label>
+            <label className="block text-sm font-medium text-slate-700 mb-2">Remark Type</label>
             <div className="flex flex-wrap gap-2">
               {availableTags.map((tag) => (
                 <button
@@ -466,26 +469,26 @@ export function NotesService({
               }
               className="px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors"
             >
-              {editingNoteId ? 'Update Note' : 'Create Note'}
+              {editingNoteId ? 'Update Remark' : 'Create Remark'}
             </button>
           </div>
         </div>
       )}
 
-      {/* Notes list */}
+      {/* Remarks list */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Notes</h4>
-          <p className="text-xs text-slate-500">{sortedNotes.length} {sortedNotes.length === 1 ? 'note' : 'notes'}</p>
+          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Remarks</h4>
+          <p className="text-xs text-slate-500">{sortedNotes.length} {sortedNotes.length === 1 ? 'remark' : 'remarks'}</p>
         </div>
         <div className="p-4 max-h-[500px] overflow-y-auto space-y-3">
           {loading ? (
-            <div className="py-8 text-center text-sm text-slate-500">Loading notes...</div>
+            <div className="py-8 text-center text-sm text-slate-500">Loading remarks...</div>
           ) : sortedNotes.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-500">
-              {tagFilter === 'All'
-                ? 'No notes yet. Click "Add Note" to create one.'
-                : `No notes for ${tagFilter} filter.`}
+              {remarkFilter === 'All'
+                ? 'No remarks yet. Click "Add Remark" to create one.'
+                : `No remarks for ${remarkFilter} filter.`}
             </p>
           ) : (
             sortedNotes.map((note) => (
@@ -510,7 +513,7 @@ export function NotesService({
                           ? 'text-amber-600 bg-amber-100 hover:bg-amber-200'
                           : 'text-slate-400 hover:text-amber-600 hover:bg-amber-50'
                       }`}
-                      title={isPinned(note) ? 'Unpin' : 'Pin note'}
+                      title={isPinned(note) ? 'Unpin remark' : 'Pin remark'}
                     >
                       <Pin size={14} className={isPinned(note) ? 'fill-current' : ''} />
                     </button>
@@ -560,7 +563,7 @@ export function NotesService({
                     </div>
                   )}
                   <span className="text-[11px] font-medium text-slate-600">
-                    {note.createdBy.name}
+                    {`By ${note.createdBy.name}`}
                   </span>
                   <span className="text-[11px] text-slate-400">·</span>
                   <span className="text-[11px] text-slate-500">{note.createdAt}</span>

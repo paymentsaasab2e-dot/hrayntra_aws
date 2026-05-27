@@ -223,10 +223,14 @@ model Client {
   agreementTotalPayment           String? // Professional fees
   agreementLevel                  String?
   agreementServiceChargePercent   String?
+  agreementContractValidity       String?
+  agreementContractStartDate      String?
+  agreementContractEndDate        String?
   agreementTimePeriod             String? // Payment terms
   agreementAdvancePaymentPercent  String?
   agreementFreeReplacementValue   Int?    // legacy
   agreementFreeReplacementUnit    String? // legacy MONTHS | DAYS
+  postServiceKycForm              Json?
 
   // Performance metrics (calculated/display fields from drawer)
   avgTimeToFill       String? // Average time to fill positions
@@ -259,6 +263,8 @@ model Client {
 
   // Embedded address (flexible JSON structure for address details)
   address Json?
+  /// Extra imported / custom label-value fields (mirrors Lead.otherDetails).
+  otherDetails Json?
 
   // Relations
   assignedTo        User?              @relation("ClientAssignee", fields: [assignedToId], references: [id])
@@ -856,6 +862,9 @@ model Lead {
   agreementTotalPayment           String? // Professional fees
   agreementLevel                  String?
   agreementServiceChargePercent   String?
+  agreementContractValidity       String?
+  agreementContractStartDate      String?
+  agreementContractEndDate        String?
   agreementTimePeriod             String? // Payment terms
   agreementAdvancePaymentPercent  String?
   agreementFreeReplacementValue   Int?    // legacy

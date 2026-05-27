@@ -1,0 +1,29 @@
+JOB POSTING - TEST FILE
+
+Role: Senior React Developer
+Openings: 3
+Company: BluePeak Solutions
+Location: Bangalore, India (Hybrid)
+Experience: 4 to 7 years
+Salary: 18-28 LPA
+
+Skills: React, TypeScript, Next.js, Redux, REST APIs, Jest
+
+Responsibilities:
+- Build frontend features for web applications
+- Optimize performance and page load times
+- Collaborate with backend engineers on APIs
+- Participate in code reviews and mentor junior developers
+
+Requirements:
+- B.E/B.Tech preferred
+- Strong JavaScript and TypeScript fundamentals
+- 4+ years experience with React ecosystem
+
+Benefits:
+- Health insurance
+- Flexible working hours
+- Remote work days
+
+About the role:
+BluePeak Solutions is hiring a Senior React Developer to join our product engineering team in Bangalore.

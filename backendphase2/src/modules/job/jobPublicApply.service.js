@@ -172,10 +172,9 @@ function formatPublicJob(job) {
 async function ensureApplyToken(jobId) {
   const job = await prisma.job.findUnique({
     where: { id: jobId },
-    select: { id: true, applyLinkToken: true, applicationFormEnabled: true, isDeleted: true },
+    select: { id: true, applyLinkToken: true, isDeleted: true },
   });
   if (!job || job.isDeleted) return null;
-  if (!job.applicationFormEnabled) return null;
   if (job.applyLinkToken) return job.applyLinkToken;
   const token = generateApplyLinkToken();
   await prisma.job.update({
@@ -263,9 +262,6 @@ export const jobPublicApplyService = {
       throw Object.assign(new Error('Apply link not found or job is no longer accepting applications'), {
         statusCode: 404,
       });
-    }
-    if (!job.applicationFormEnabled) {
-      throw Object.assign(new Error('Application form is not enabled for this job'), { statusCode: 400 });
     }
     const schema = resolveJobFormSchema(job);
     return {

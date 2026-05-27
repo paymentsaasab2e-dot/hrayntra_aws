@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { CalendarDays } from 'lucide-react';
 import {
   combineDMYAndTimeToISO,
   isoToDMYDate,
@@ -48,6 +49,9 @@ export function FollowUpDateTimeField({
     setDateError('');
   }, [parsed.date, parsed.time]);
 
+  const pickerDateValue = useMemo(() => parseDMYToYMD(dateText) || '', [dateText]);
+  const pickerMinDate = enforceFuture ? getLocalDateTimeInputMinNow().slice(0, 10) : undefined;
+
   const commit = (nextDate: string, nextTime: string) => {
     const d = nextDate.trim();
     const t = (nextTime || '09:00').trim().slice(0, 5);
@@ -78,6 +82,20 @@ export function FollowUpDateTimeField({
     onChange(iso);
   };
 
+  const handleCalendarDateChange = (nextYmd: string) => {
+    if (!nextYmd) {
+      setDateText('');
+      setDateError('');
+      onChange('');
+      return;
+    }
+    const [year, month, day] = nextYmd.split('-');
+    if (!year || !month || !day) return;
+    const nextDate = `${day}/${month}/${year}`;
+    setDateText(nextDate);
+    commit(nextDate, timeText);
+  };
+
   return (
     <div className={className}>
       {label ? (
@@ -88,16 +106,32 @@ export function FollowUpDateTimeField({
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
           <label className="mb-1 block text-[10px] font-semibold text-slate-500">{dateLabel}</label>
-          <input
-            type="text"
-            inputMode="numeric"
-            autoComplete="off"
-            placeholder="DD/MM/YYYY"
-            value={dateText}
-            onChange={(e) => setDateText(maskDateDMYInput(e.target.value))}
-            onBlur={() => commit(dateText, timeText)}
-            className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-          />
+          <div className="relative">
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder="DD/MM/YYYY"
+              value={dateText}
+              onChange={(e) => setDateText(maskDateDMYInput(e.target.value))}
+              onBlur={() => commit(dateText, timeText)}
+              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 pr-12 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            />
+            <input
+              type="date"
+              value={pickerDateValue}
+              min={pickerMinDate}
+              onChange={(e) => handleCalendarDateChange(e.target.value)}
+              aria-label={`${dateLabel} calendar picker`}
+              className="absolute right-2 top-1/2 z-10 h-8 w-8 -translate-y-1/2 cursor-pointer opacity-0"
+            />
+            <span
+              className="pointer-events-none absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400"
+              aria-hidden="true"
+            >
+              <CalendarDays size={16} />
+            </span>
+          </div>
         </div>
         <div>
           <label className="mb-1 block text-[10px] font-semibold text-slate-500">{timeLabel}</label>

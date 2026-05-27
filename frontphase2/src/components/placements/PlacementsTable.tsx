@@ -5,9 +5,9 @@ import { createPortal } from 'react-dom';
 import {
   ArrowUpDown,
   Check,
-  Eye,
   FileText,
   MoreHorizontal,
+  Pencil,
   Receipt,
 } from 'lucide-react';
 import { ImageWithFallback } from '../ImageWithFallback';
@@ -36,6 +36,7 @@ interface PlacementsTableProps {
   sortOrder?: 'asc' | 'desc';
   onSort: (sortBy: string) => void;
   onView: (placement: Placement) => void;
+  onEdit?: (placement: Placement) => void;
   onMarkJoined?: (placement: Placement) => void;
   onMarkFailed?: (placement: Placement, mode: 'FAILED' | 'NO_SHOW') => void;
   onRequestReplacement?: (placement: Placement) => void;
@@ -263,6 +264,7 @@ export function PlacementsTable({
   sortBy,
   onSort,
   onView,
+  onEdit,
   onMarkJoined,
   onMarkFailed,
   onRequestReplacement,
@@ -438,12 +440,13 @@ export function PlacementsTable({
                     <div className="flex items-center justify-end gap-1" onClick={(event) => event.stopPropagation()}>
                       <button
                         type="button"
-                        onClick={() => onView(placement)}
-                        className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-[#2563EB]"
-                        title="View placement"
-                        aria-label="View placement"
+                        disabled={!onEdit}
+                        onClick={() => onEdit?.(placement)}
+                        className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-40"
+                        title="Edit placement"
+                        aria-label="Edit placement"
                       >
-                        <Eye className="h-4 w-4" />
+                        <Pencil className="h-4 w-4" />
                       </button>
 
                       <button

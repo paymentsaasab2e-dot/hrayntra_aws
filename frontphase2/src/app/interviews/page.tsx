@@ -40,6 +40,16 @@ import {
   PH2_TOOLBAR_SELECT_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
 import { ALL_STATUS_LABEL } from '../../constants/filterLabels';
+import {
+  SmartSearchActiveKeywordsBar,
+  SmartSearchPromptPanel,
+  SmartSearchToggleButton,
+} from '../../components/smart-search/SmartSearchToolbar';
+import { useSmartSearch } from '../../hooks/useSmartSearch';
+import {
+  INTERVIEWS_SMART_SEARCH_EXAMPLES,
+  parseInterviewsSmartSearchPrompt,
+} from '../../lib/smart-search/parsers';
 
 // Force CSR — every interactive bit on this tab is client-driven.
 export const dynamic = 'force-dynamic';
@@ -167,8 +177,64 @@ export default function InterviewsPage() {
     [jobOptions]
   );
 
+  const interviewSmartSearchOptions = useMemo(
+    () => ({
+      interviewers: interviewerOptions
+        .map((member) => ({
+          id: String(member.userId || member.id),
+          name: member.name?.trim() || '',
+        }))
+        .filter((member) => member.name),
+      clientJobs: clientJobOptions,
+    }),
+    [clientJobOptions, interviewerOptions],
+  );
+
+  const interviewSmartSearch = useSmartSearch({
+    parsePrompt: (text) => parseInterviewsSmartSearchPrompt(text, interviewSmartSearchOptions),
+    applyParsed: (parsed) => {
+      setPagination((p) => ({ ...p, page: 1 }));
+      setFilters((prev) => ({
+        ...prev,
+        status: parsed.status || ALL_STATUS_LABEL,
+        round: parsed.round || 'All Rounds',
+        mode: parsed.mode || 'All Modes',
+        interviewer: parsed.interviewer || 'All Interviewers',
+        clientJob: parsed.clientJob || 'All Clients',
+      }));
+      setSearchQuery(parsed.searchText);
+    },
+    onRemoveKeyword: (removed, remaining) => {
+      setPagination((p) => ({ ...p, page: 1 }));
+      if (removed.kind === 'status') {
+        setFilters((prev) => ({ ...prev, status: ALL_STATUS_LABEL }));
+      }
+      if (removed.kind === 'round') {
+        setFilters((prev) => ({ ...prev, round: 'All Rounds' }));
+      }
+      if (removed.kind === 'mode') {
+        setFilters((prev) => ({ ...prev, mode: 'All Modes' }));
+      }
+      if (removed.kind === 'recruiter') {
+        setFilters((prev) => ({ ...prev, interviewer: 'All Interviewers' }));
+      }
+      if (removed.kind === 'client') {
+        setFilters((prev) => ({ ...prev, clientJob: 'All Clients' }));
+      }
+      if (removed.kind === 'text') {
+        const text = remaining
+          .filter((keyword) => keyword.kind === 'text')
+          .map((keyword) => keyword.value)
+          .join(' ');
+        setSearchQuery(text);
+      }
+    },
+    examples: INTERVIEWS_SMART_SEARCH_EXAMPLES,
+  });
+
   const hasToolbarFilters = useMemo(() => {
     if (searchQuery.trim()) return true;
+    if (interviewSmartSearch.activeKeywords.length > 0) return true;
     return (
       filters.date !== 'This Week' ||
       filters.status !== ALL_STATUS_LABEL ||
@@ -177,7 +243,7 @@ export default function InterviewsPage() {
       filters.interviewer !== 'All Interviewers' ||
       filters.clientJob !== 'All Clients'
     );
-  }, [filters, searchQuery]);
+  }, [filters, interviewSmartSearch.activeKeywords.length, searchQuery]);
 
   const patchFilter = (field: keyof InterviewFiltersState, value: string) => {
     setPagination((p) => ({ ...p, page: 1 }));
@@ -187,6 +253,7 @@ export default function InterviewsPage() {
   const handleClearToolbar = () => {
     clearFilters();
     setSearchQuery('');
+    interviewSmartSearch.clearSmartSearch();
     setPagination((p) => ({ ...p, page: 1 }));
   };
 
@@ -496,6 +563,10 @@ export default function InterviewsPage() {
                           />
                         </div>
                         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
+                          <SmartSearchToggleButton
+                            open={interviewSmartSearch.open}
+                            onToggle={() => interviewSmartSearch.setOpen((value) => !value)}
+                          />
                           {viewSegmented}
                           <select
                             className={PH2_TOOLBAR_SELECT_CLASS}
@@ -585,6 +656,26 @@ export default function InterviewsPage() {
                         </div>
               </div>
             </div>
+
+                    {interviewSmartSearch.open ? (
+                      <SmartSearchPromptPanel
+                        prompt={interviewSmartSearch.prompt}
+                        onPromptChange={interviewSmartSearch.setPrompt}
+                        onApply={interviewSmartSearch.handleApply}
+                        previewKeywords={interviewSmartSearch.previewKeywords}
+                        examples={interviewSmartSearch.examples}
+                        onExampleClick={interviewSmartSearch.handleExample}
+                        entityLabel="interviews"
+                        placeholder="e.g. scheduled technical round online this week"
+                      />
+                    ) : null}
+
+                    <SmartSearchActiveKeywordsBar
+                      chips={interviewSmartSearch.activeChips}
+                      onClearAll={handleClearToolbar}
+                      resultCount={totalEntries}
+                      showResultCount={!loading && !error}
+                    />
 
                     <div className="overflow-hidden">
                       <div className="no-scrollbar overflow-x-auto">{renderListTableBody()}</div>

@@ -1,18 +1,10 @@
 import React, { useRef, useState } from 'react';
-import { Eye, Pencil, Briefcase, Check, Trash2, Upload, ArrowUp, ArrowDown } from 'lucide-react';
+import { Pencil, Briefcase, Check, Trash2, Upload, ArrowUp, ArrowDown } from 'lucide-react';
 import { SHOW_TABLE_ROW_EDIT_ICON } from '../constants/tableUi';
 import { TableBrandAvatar } from './ui/TableBrandAvatar';
-import type { Client, ClientStage } from '@/app/client/types';
+import type { Client } from '@/app/client/types';
 import { apiUpdateClient, filesApiUpload } from '../lib/api';
 import { requestError, requestWarning } from '../lib/appDialog';
-
-/** Interviews-style pills: light fill + stronger text */
-const stageColors: Record<ClientStage, string> = {
-  Active: 'bg-emerald-500/15 text-emerald-800',
-  'On Hold': 'bg-amber-500/15 text-amber-800',
-  Inactive: 'bg-slate-500/15 text-slate-700',
-  'Hot Clients 🔥': 'bg-rose-500/15 text-rose-800',
-};
 
 const leadStatusColors: Record<string, string> = {
   New: 'bg-blue-500/10 text-blue-800 ring-1 ring-blue-500/20',
@@ -24,6 +16,8 @@ const leadStatusColors: Record<string, string> = {
 
 interface ClientTableProps {
   clients: Client[];
+  dynamicColumnLabels?: string[];
+  getDynamicFieldValue?: (client: Client, label: string) => string;
   selectedIds: string[];
   onSelectionChange: (selectedIds: string[]) => void;
   onSelectClient?: (client: Client) => void;
@@ -53,6 +47,8 @@ const CustomCheckbox = ({ checked, onChange }: { checked: boolean; onChange: () 
 
 export function ClientTable({
   clients,
+  dynamicColumnLabels = [],
+  getDynamicFieldValue,
   selectedIds,
   onSelectionChange,
   onSelectClient,
@@ -159,7 +155,11 @@ export function ClientTable({
               </th>
               <th className="px-3 sm:px-4 py-2">Industry</th>
               <th className="px-3 sm:px-4 py-2">Location</th>
-              <th className="px-3 sm:px-4 py-2">Stage</th>
+              {dynamicColumnLabels.map((label) => (
+                <th key={label} className="px-3 sm:px-4 py-2">
+                  {label}
+                </th>
+              ))}
               <th className="px-3 sm:px-4 py-2">Lead Status</th>
               <th className="px-3 sm:px-4 py-2">Recruiter</th>
               <th className="px-3 sm:px-4 py-2">Last Activity</th>
@@ -226,13 +226,14 @@ export function ClientTable({
                 </td>
                 <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">{client.industry}</td>
                 <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">{client.location}</td>
-                <td className="px-3 sm:px-4 py-2">
-                  <span
-                    className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${stageColors[client.stage] ?? 'bg-slate-500/15 text-slate-700'}`}
-                  >
-                    {client.stage}
-                  </span>
-                </td>
+                {dynamicColumnLabels.map((label) => {
+                  const value = getDynamicFieldValue?.(client, label) ?? '';
+                  return (
+                    <td key={`${client.id}-${label}`} className="px-3 sm:px-4 py-2">
+                      <span className="line-clamp-2 text-xs text-slate-700">{value || '—'}</span>
+                    </td>
+                  );
+                })}
                 <td className="px-3 sm:px-4 py-2">
                   {client.leadStatus ? (
                     <span
@@ -261,14 +262,6 @@ export function ClientTable({
                 <td className="px-3 sm:px-4 py-2 text-[11px] text-slate-500">{client.lastActivity}</td>
                 <td className="px-3 sm:px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="inline-flex items-center justify-end gap-0.5 rounded-xl bg-slate-100/70 p-0.5 ring-1 ring-slate-200/60">
-                    <button
-                      type="button"
-                      onClick={() => onSelectClient?.(client)}
-                      className="flex h-7 w-7 items-center justify-center rounded-lg text-blue-600 hover:bg-white hover:text-blue-700 hover:shadow-sm transition-all"
-                      title="View Details"
-                    >
-                      <Eye size={15} strokeWidth={2.35} />
-                    </button>
                     {SHOW_TABLE_ROW_EDIT_ICON ? (
                       <button
                         type="button"

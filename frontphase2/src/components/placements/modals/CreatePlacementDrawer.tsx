@@ -10,11 +10,13 @@ import { SUPPORTED_CURRENCIES, formatCurrencyAmount } from '../../../utils/curre
 interface CreatePlacementDrawerProps {
   isOpen: boolean;
   isSubmitting: boolean;
+  mode?: 'create' | 'edit';
   currentUserId?: string;
   candidates: Array<{ id: string; name: string; email: string }>;
   jobs: Array<{ id: string; title: string; clientId?: string; clientName: string }>;
   recruiters: Array<{ id: string; name: string; email: string }>;
   prefill?: Partial<Pick<CreatePlacementPayload, 'candidateId' | 'jobId' | 'companyId' | 'recruiterId'>>;
+  initialValues?: Partial<CreatePlacementPayload>;
   onClose: () => void;
   onSubmit: (payload: CreatePlacementPayload, offerLetter?: File | null) => Promise<void>;
 }
@@ -38,14 +40,17 @@ const initialState = {
 export function CreatePlacementDrawer({
   isOpen,
   isSubmitting,
+  mode = 'create',
   currentUserId,
   candidates,
   jobs,
   recruiters,
   prefill,
+  initialValues,
   onClose,
   onSubmit,
 }: CreatePlacementDrawerProps) {
+  const isEditMode = mode === 'edit';
   const [form, setForm] = useState(initialState);
   const [offerLetter, setOfferLetter] = useState<File | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -57,15 +62,30 @@ export function CreatePlacementDrawer({
         ...initialState,
         recruiterId: currentUserId || '',
         offerDate: new Date().toISOString().slice(0, 10),
+        ...(initialValues?.candidateId ? { candidateId: String(initialValues.candidateId) } : null),
+        ...(initialValues?.jobId ? { jobId: String(initialValues.jobId) } : null),
+        ...(initialValues?.recruiterId ? { recruiterId: String(initialValues.recruiterId) } : null),
+        ...(initialValues?.offerSalary !== undefined ? { offerSalary: String(initialValues.offerSalary) } : null),
+        ...(initialValues?.placementFee !== undefined ? { placementFee: String(initialValues.placementFee) } : null),
+        ...(initialValues?.commissionPercentage !== undefined
+          ? { commissionPercentage: String(initialValues.commissionPercentage) }
+          : null),
+        ...(initialValues?.currency ? { currency: String(initialValues.currency) } : null),
+        ...(initialValues?.offerDate ? { offerDate: String(initialValues.offerDate).slice(0, 10) } : null),
+        ...(initialValues?.expectedJoiningDate
+          ? { expectedJoiningDate: String(initialValues.expectedJoiningDate).slice(0, 10) }
+          : null),
+        ...(initialValues?.employmentType ? { employmentType: initialValues.employmentType } : null),
+        ...(initialValues?.notes !== undefined ? { notes: String(initialValues.notes || '') } : null),
         ...(prefill?.candidateId ? { candidateId: prefill.candidateId } : null),
         ...(prefill?.jobId ? { jobId: prefill.jobId } : null),
         ...(prefill?.recruiterId ? { recruiterId: prefill.recruiterId } : null),
       });
       setOfferLetter(null);
       setErrors({});
-      setFeeEditedManually(false);
+      setFeeEditedManually(initialValues?.placementFee !== undefined && initialValues?.placementFee !== null);
     }
-  }, [isOpen, currentUserId, prefill?.candidateId, prefill?.jobId, prefill?.recruiterId]);
+  }, [isOpen, currentUserId, initialValues, prefill?.candidateId, prefill?.jobId, prefill?.recruiterId]);
 
   const selectedJob = useMemo(() => jobs.find((job) => job.id === form.jobId) || null, [jobs, form.jobId]);
   const selectedCandidate = useMemo(
@@ -98,7 +118,7 @@ export function CreatePlacementDrawer({
     if (!form.placementFee || Number(form.placementFee) <= 0) nextErrors.placementFee = 'Placement fee is required';
     if (!form.offerDate) nextErrors.offerDate = 'Offer date is required';
     if (!form.employmentType) nextErrors.employmentType = 'Employment type is required';
-    if (offerLetter) {
+    if (!isEditMode && offerLetter) {
       const name = offerLetter.name.toLowerCase();
       const type = (offerLetter.type || '').toLowerCase();
       const isPdf =
@@ -134,8 +154,14 @@ export function CreatePlacementDrawer({
           >
             <div className="flex items-center justify-between border-b border-[#E5E7EB] px-6 py-4">
               <div>
-                <h2 className="text-lg font-semibold text-[#111827]">Add Manual Placement</h2>
-                <p className="text-sm text-[#6B7280]">Create a placement and optionally upload the offer letter.</p>
+                <h2 className="text-lg font-semibold text-[#111827]">
+                  {isEditMode ? 'Edit Placement' : 'Add Manual Placement'}
+                </h2>
+                <p className="text-sm text-[#6B7280]">
+                  {isEditMode
+                    ? 'Update placement details from the table action.'
+                    : 'Create a placement and optionally upload the offer letter.'}
+                </p>
               </div>
               <button type="button" onClick={onClose} className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
                 <X size={18} />
@@ -333,24 +359,26 @@ export function CreatePlacementDrawer({
                 </select>
               </div>
 
-              <div className="md:col-span-2">
-                <label className="mb-1.5 block text-sm font-medium text-[#111827]">Upload Offer Letter (PDF)</label>
-                <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-[#D1D5DB] px-4 py-4 hover:bg-slate-50">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-[#2563EB]">
-                    <Upload className="h-4 w-4" />
-                  </div>
-                  <div className="text-sm">
-                    <p className="font-medium text-[#111827]">{offerLetter?.name || 'Choose PDF file'}</p>
-                    <p className="text-[#6B7280]">Upload offer letter as PDF</p>
-                  </div>
-                  <input
-                    type="file"
-                    accept="application/pdf"
-                    onChange={(event) => setOfferLetter(event.target.files?.[0] || null)}
-                    className="hidden"
-                  />
-                </label>
-              </div>
+              {!isEditMode ? (
+                <div className="md:col-span-2">
+                  <label className="mb-1.5 block text-sm font-medium text-[#111827]">Upload Offer Letter (PDF)</label>
+                  <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-[#D1D5DB] px-4 py-4 hover:bg-slate-50">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-[#2563EB]">
+                      <Upload className="h-4 w-4" />
+                    </div>
+                    <div className="text-sm">
+                      <p className="font-medium text-[#111827]">{offerLetter?.name || 'Choose PDF file'}</p>
+                      <p className="text-[#6B7280]">Upload offer letter as PDF</p>
+                    </div>
+                    <input
+                      type="file"
+                      accept="application/pdf"
+                      onChange={(event) => setOfferLetter(event.target.files?.[0] || null)}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+              ) : null}
 
               <div className="md:col-span-2">
                 <label className="mb-1.5 block text-sm font-medium text-[#111827]">Notes</label>
@@ -392,12 +420,12 @@ export function CreatePlacementDrawer({
                       employmentType: form.employmentType,
                       notes: form.notes || undefined,
                     },
-                    offerLetter
+                    isEditMode ? null : offerLetter
                   );
                 }}
                 className="rounded-xl bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isSubmitting ? 'Creating...' : 'Create Placement'}
+                {isSubmitting ? (isEditMode ? 'Saving...' : 'Creating...') : isEditMode ? 'Save Changes' : 'Create Placement'}
               </button>
             </div>
           </motion.aside>

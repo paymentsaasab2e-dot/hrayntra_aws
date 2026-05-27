@@ -19,6 +19,7 @@ export interface ExportColumnsModalProps<T> {
   rowCount: number;
   rowLabelSingular?: string;
   rowLabelPlural?: string;
+  loadingText?: string;
   columns: ExportPreviewColumn<T>[];
   rows: T[];
   getRowKey?: (row: T, index: number) => string;
@@ -45,6 +46,7 @@ export function ExportColumnsModal<T>({
   rowCount,
   rowLabelSingular = 'row',
   rowLabelPlural = 'rows',
+  loadingText,
   columns,
   rows,
   getRowKey,
@@ -81,6 +83,7 @@ export function ExportColumnsModal<T>({
   const previewTruncated =
     maxPreviewRows != null && maxPreviewRows > 0 && rows.length > maxPreviewRows;
   const rowWord = rowCount === 1 ? rowLabelSingular : rowLabelPlural;
+  const resolvedLoadingText = loadingText || `Loading all ${rowLabelPlural} for export…`;
 
   const removeColumn = (id: string) => {
     setSelectedIds((prev) => prev.filter((colId) => colId !== id));
@@ -191,7 +194,7 @@ export function ExportColumnsModal<T>({
               {isLoading ? (
                 <div className="flex min-h-[12rem] flex-1 flex-col items-center justify-center gap-3 rounded-xl border border-slate-200 bg-slate-50/80">
                   <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
-                  <p className="text-sm font-medium text-slate-600">Loading all leads for export…</p>
+                  <p className="text-sm font-medium text-slate-600">{resolvedLoadingText}</p>
                 </div>
               ) : activeColumns.length === 0 ? (
                 <p className="shrink-0 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">

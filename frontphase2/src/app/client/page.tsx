@@ -36,6 +36,17 @@ import {
 import { ClientDetailsDrawer } from '../../components/drawers/ClientDetailsDrawer';
 import { ClientImportDrawer } from '../../components/drawers/ClientImportDrawer';
 import ModuleRecycleBinDrawer from '../../components/ModuleRecycleBinDrawer';
+import {
+  SmartSearchActiveKeywordsBar,
+  SmartSearchPromptPanel,
+  SmartSearchToggleButton,
+} from '../../components/smart-search/SmartSearchToolbar';
+import { useSmartSearch } from '../../hooks/useSmartSearch';
+import {
+  CLIENTS_SMART_SEARCH_EXAMPLES,
+  clientMatchesSmartKeywordChips,
+  parseClientsSmartSearchPrompt,
+} from '../../lib/smart-search/parsers';
 import { CreateJobDrawer } from '../../components/drawers/CreateJobDrawer';
 import PaginationAll from '../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
@@ -48,6 +59,7 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
 import { TableSkeleton } from '../../components/ui/Skeleton';
+import type { CsvColumn } from '../../utils/csv';
 
 // Force client-side render so the page hydrates skeletons before the data fetch
 // resolves — every interactive bit on this tab is client-driven anyway.
@@ -56,6 +68,16 @@ export const dynamic = 'force-dynamic';
 /** Toolbar selects / filter chip — matches Leads page for one visual system. */
 const CLIENT_TOOLBAR_SELECT =
   'rounded-lg border border-indigo-100/90 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 cursor-pointer hover:border-indigo-200/90 hover:bg-indigo-50/40';
+const CLIENTS_DYNAMIC_COLUMNS_STORAGE_KEY = 'clients.dynamicColumns';
+
+function getClientDynamicFieldValue(client: Client, label: string): string {
+  if (!Array.isArray(client.otherDetails)) return '';
+  const target = String(label || '').trim().toLowerCase();
+  const match = client.otherDetails.find(
+    (item) => String(item?.label || '').trim().toLowerCase() === target
+  );
+  return String(match?.value || '').trim();
+}
 
 function filterClientsByTab(clients: Client[], activeTab: string): Client[] {
   switch (activeTab) {
@@ -205,6 +227,19 @@ function mapBackendClientToFrontend(backendClient: BackendClient): Client {
     agreementsFileName: backendClient.agreementsFileName || undefined,
     agreementsFileUrl: backendClient.agreementsFileUrl || undefined,
     agreementsUploadedAt: backendClient.agreementsUploadedAt || undefined,
+    agreementContractValidity: backendClient.agreementContractValidity || undefined,
+    agreementContractStartDate: backendClient.agreementContractStartDate || undefined,
+    agreementContractEndDate: backendClient.agreementContractEndDate || undefined,
+    postServiceKycForm: backendClient.postServiceKycForm || undefined,
+    agreementLevel: backendClient.agreementLevel || undefined,
+    agreementServiceChargePercent: backendClient.agreementServiceChargePercent || undefined,
+    agreementTimePeriod: backendClient.agreementTimePeriod || undefined,
+    agreementAdvancePaymentPercent: backendClient.agreementAdvancePaymentPercent || undefined,
+    agreementFreeReplacementValue:
+      backendClient.agreementFreeReplacementValue != null
+        ? backendClient.agreementFreeReplacementValue
+        : undefined,
+    agreementFreeReplacementUnit: backendClient.agreementFreeReplacementUnit || undefined,
     city: backendClient.city || undefined,
     state: backendClient.state || undefined,
     country: backendClient.country || undefined,
@@ -214,6 +249,7 @@ function mapBackendClientToFrontend(backendClient: BackendClient): Client {
     emails: Array.isArray(backendClient.emails) && backendClient.emails.length > 0 ? backendClient.emails : undefined,
     phones: Array.isArray(backendClient.phones) && backendClient.phones.length > 0 ? backendClient.phones : undefined,
     leadStatusValue: backendClient.leadStatus || undefined,
+    otherDetails: Array.isArray(backendClient.otherDetails) ? backendClient.otherDetails : undefined,
     avgTimeToFill: backendClient.avgTimeToFill || undefined,
     healthStatus: backendClient.healthStatus as Client['healthStatus'] || undefined,
     billingTotalRevenue: backendClient.billingTotalRevenue || undefined,
@@ -300,6 +336,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  const [selectedDynamicColumnLabels, setSelectedDynamicColumnLabels] = useState<string[]>([]);
   const [teamMembers, setTeamMembers] = useState<BackendUser[]>([]);
   const [bulkStatus, setBulkStatus] = useState('');
   const [bulkAssignedTo, setBulkAssignedTo] = useState('');
@@ -307,6 +344,50 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<TablePageSize>(10);
   const pendingDeepLinkClientIdRef = useRef<string | null>(null);
+  const availableDynamicColumnLabels = useMemo(() => {
+    const seen = new Set<string>();
+    const labels: string[] = [];
+    for (const client of clients) {
+      for (const item of client.otherDetails || []) {
+        const label = String(item?.label || '').trim();
+        const key = label.toLowerCase();
+        if (!label || seen.has(key)) continue;
+        seen.add(key);
+        labels.push(label);
+      }
+    }
+    return labels.sort((a, b) => a.localeCompare(b));
+  }, [clients]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(CLIENTS_DYNAMIC_COLUMNS_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        setSelectedDynamicColumnLabels(
+          parsed.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+        );
+      }
+    } catch {
+      /* ignore invalid persisted dynamic columns */
+    }
+  }, []);
+
+  useEffect(() => {
+    setSelectedDynamicColumnLabels((previous) =>
+      previous.filter((label) =>
+        availableDynamicColumnLabels.some((option) => option.toLowerCase() === label.toLowerCase())
+      )
+    );
+  }, [availableDynamicColumnLabels]);
+
+  useEffect(() => {
+    localStorage.setItem(
+      CLIENTS_DYNAMIC_COLUMNS_STORAGE_KEY,
+      JSON.stringify(selectedDynamicColumnLabels)
+    );
+  }, [selectedDynamicColumnLabels]);
 
   const advancedFilteredClients = useMemo(
     () => applyClientFilters(clients, advancedFilters, currentUserName),
@@ -316,14 +397,51 @@ export default function App() {
     () => filterClientsByTab(advancedFilteredClients, activeTab),
     [advancedFilteredClients, activeTab]
   );
+  const clientSmartSearch = useSmartSearch({
+    parsePrompt: parseClientsSmartSearchPrompt,
+    applyParsed: (parsed) => {
+      setCurrentPage(1);
+      if (parsed.activeTab) setActiveTab(parsed.activeTab);
+      if (parsed.priority) {
+        setAdvancedFilters((previous) => ({ ...previous, priority: parsed.priority as ClientFilters['priority'] }));
+      }
+      if (parsed.ownerScope === 'me') {
+        setAdvancedFilters((previous) => ({ ...previous, ownerScope: 'me' }));
+      }
+      setSearchQuery(parsed.searchText);
+      setDebouncedSearchQuery(parsed.searchText);
+    },
+    onRemoveKeyword: (removed, remaining) => {
+      setCurrentPage(1);
+      if (removed.kind === 'stage') setActiveTab('all');
+      if (removed.kind === 'priority') {
+        setAdvancedFilters((previous) => ({ ...previous, priority: 'All' }));
+      }
+      if (removed.kind === 'recruiter' && removed.value === 'me') {
+        setAdvancedFilters((previous) => ({ ...previous, ownerScope: 'all' }));
+      }
+      if (removed.kind === 'text') {
+        const text = remaining.filter((k) => k.kind === 'text').map((k) => k.value).join(' ');
+        setSearchQuery(text);
+        setDebouncedSearchQuery(text);
+      }
+    },
+    examples: CLIENTS_SMART_SEARCH_EXAMPLES,
+  });
+
   const sortedClients = useMemo(() => {
-    const list = [...filteredClients];
+    let list = [...filteredClients];
+    if (clientSmartSearch.activeKeywords.length > 0) {
+      list = list.filter((client) =>
+        clientMatchesSmartKeywordChips(client, clientSmartSearch.activeKeywords, currentUserName),
+      );
+    }
     list.sort((a, b) => {
       const comparison = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
       return clientNameSortOrder === 'asc' ? comparison : -comparison;
     });
     return list;
-  }, [filteredClients, clientNameSortOrder]);
+  }, [filteredClients, clientNameSortOrder, clientSmartSearch.activeKeywords, currentUserName]);
   const pagedClients = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
     return sortedClients.slice(start, start + pageSize);
@@ -622,8 +740,127 @@ export default function App() {
     }
   };
 
+  const exportDynamicColumns = useMemo(() => {
+    const source = exportClients.length > 0 ? exportClients : sortedClients;
+    const seen = new Set<string>();
+    const labels: string[] = [];
+    for (const client of source) {
+      for (const item of client.otherDetails || []) {
+        const label = String(item?.label || '').trim();
+        if (!label) continue;
+        const key = label.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        labels.push(label);
+      }
+    }
+    labels.sort((a, b) => a.localeCompare(b));
+    return labels.map((label) => ({
+      id: `dynamic:${label}`,
+      label,
+      accessor: (c: Client) => {
+        if (!Array.isArray(c.otherDetails)) return '';
+        const target = label.trim().toLowerCase();
+        const match = c.otherDetails.find(
+          (item) => String(item?.label || '').trim().toLowerCase() === target
+        );
+        return String(match?.value || '').trim();
+      },
+    }));
+  }, [exportClients, sortedClients]);
+
+  const exportKycColumns = useMemo(() => {
+    const source = exportClients.length > 0 ? exportClients : sortedClients;
+    const fieldSet = new Set<string>();
+
+    const walk = (value: unknown, prefix: string) => {
+      if (value == null) return;
+      if (Array.isArray(value)) {
+        if (value.length === 0) return;
+        const allPrimitive = value.every(
+          (item) =>
+            item == null ||
+            typeof item === 'string' ||
+            typeof item === 'number' ||
+            typeof item === 'boolean'
+        );
+        if (allPrimitive) {
+          fieldSet.add(prefix);
+          return;
+        }
+        value.forEach((item, index) => walk(item, `${prefix}.${index + 1}`));
+        return;
+      }
+      if (typeof value === 'object') {
+        const entries = Object.entries(value as Record<string, unknown>);
+        if (entries.length === 0) return;
+        entries.forEach(([key, nested]) => {
+          const nextPrefix = prefix ? `${prefix}.${key}` : key;
+          walk(nested, nextPrefix);
+        });
+        return;
+      }
+      fieldSet.add(prefix);
+    };
+
+    source.forEach((client) => walk(client.postServiceKycForm, 'kyc'));
+
+    const fields = Array.from(fieldSet).sort((a, b) => a.localeCompare(b));
+    return fields.map((fieldPath) => ({
+      id: `kyc:${fieldPath}`,
+      label: fieldPath
+        .replace(/^kyc\./, '')
+        .split('.')
+        .map((part) => part.replace(/([a-z0-9])([A-Z])/g, '$1 $2'))
+        .join(' / '),
+      accessor: (c: Client) => {
+        const root = c.postServiceKycForm as unknown;
+        if (root == null) return '';
+        const pathParts = fieldPath.replace(/^kyc\./, '').split('.');
+        let cursor: unknown = root;
+        for (const part of pathParts) {
+          if (cursor == null) return '';
+          if (Array.isArray(cursor)) {
+            const idx = Number(part) - 1;
+            if (!Number.isFinite(idx) || idx < 0 || idx >= cursor.length) return '';
+            cursor = cursor[idx];
+            continue;
+          }
+          if (typeof cursor !== 'object') return '';
+          cursor = (cursor as Record<string, unknown>)[part];
+        }
+        if (cursor == null) return '';
+        if (Array.isArray(cursor)) {
+          return cursor
+            .map((item) => String(item ?? '').trim())
+            .filter(Boolean)
+            .join('; ');
+        }
+        if (typeof cursor === 'object') {
+          return JSON.stringify(cursor);
+        }
+        return String(cursor).trim();
+      },
+    }));
+  }, [exportClients, sortedClients]);
+
+  const exportColumns = useMemo(
+    () => [...CLIENTS_EXPORT_COLUMNS, ...exportKycColumns, ...exportDynamicColumns],
+    [exportDynamicColumns, exportKycColumns]
+  );
+
   const handleExportClientsCsv = (selectedColumnIds: string[]) => {
-    const columns = buildClientsCsvColumns(selectedColumnIds);
+    const baseColumns = buildClientsCsvColumns(
+      selectedColumnIds.filter((id) => !id.startsWith('dynamic:'))
+    );
+    const selectedDynamic = exportColumns
+      .filter(
+        (col) =>
+          (col.id.startsWith('dynamic:') || col.id.startsWith('kyc:')) &&
+          selectedColumnIds.includes(col.id)
+      )
+      .map(({ id, accessor }) => ({ id, accessor })) as CsvColumn<Client>[];
+    const columns = [...baseColumns, ...selectedDynamic];
     if (columns.length === 0) {
       toast.message('Select at least one column to export.');
       return;
@@ -643,7 +880,9 @@ export default function App() {
     setDebouncedSearchQuery('');
     setAdvancedFilters(DEFAULT_CLIENT_FILTERS);
     setActiveTab('all');
-  }, []);
+    setSelectedDynamicColumnLabels([]);
+    clientSmartSearch.clearSmartSearch();
+  }, [clientSmartSearch]);
 
   return (
     <div className="w-full min-h-screen overflow-hidden text-slate-900">
@@ -681,7 +920,7 @@ export default function App() {
               type="button"
               onClick={() => void openExportModal()}
               className="bg-white hover:bg-indigo-50/90 text-indigo-900 px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] border border-indigo-200/70 hover:border-indigo-300 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
-              title="Export visible clients to CSV"
+              title="Choose columns and export visible clients to CSV"
             >
               <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
               <span>Export</span>
@@ -747,6 +986,10 @@ export default function App() {
                   />
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                  <SmartSearchToggleButton
+                    open={clientSmartSearch.open}
+                    onToggle={() => clientSmartSearch.setOpen((value) => !value)}
+                  />
                   <select
                     className={CLIENT_TOOLBAR_SELECT}
                     value={activeTab}
@@ -778,6 +1021,43 @@ export default function App() {
                       </span>
                     )}
                   </button>
+                  {availableDynamicColumnLabels.length > 0 ? (
+                    <details className="relative">
+                      <summary className={`${CLIENT_TOOLBAR_SELECT} list-none`}>
+                        Dynamic Columns
+                        {selectedDynamicColumnLabels.length > 0 ? ` (${selectedDynamicColumnLabels.length})` : ''}
+                      </summary>
+                      <div className="absolute right-0 z-20 mt-2 w-72 rounded-xl border border-indigo-100/90 bg-white p-3 shadow-xl">
+                        <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                          Show in table
+                        </p>
+                        <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+                          {availableDynamicColumnLabels.map((label) => {
+                            const checked = selectedDynamicColumnLabels.some(
+                              (item) => item.toLowerCase() === label.toLowerCase()
+                            );
+                            return (
+                              <label key={label} className="flex items-center gap-2 text-xs text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() =>
+                                    setSelectedDynamicColumnLabels((previous) =>
+                                      checked
+                                        ? previous.filter((item) => item.toLowerCase() !== label.toLowerCase())
+                                        : [...previous, label]
+                                    )
+                                  }
+                                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500/25"
+                                />
+                                <span className="truncate">{label}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </details>
+                  ) : null}
                   <button
                     type="button"
                     className="text-xs text-rose-600 hover:text-rose-700 font-semibold px-2 py-1.5 rounded-lg hover:bg-rose-50 flex items-center gap-1 transition-colors"
@@ -789,10 +1069,31 @@ export default function App() {
                 </div>
               </div>
 
+              {clientSmartSearch.open ? (
+                <SmartSearchPromptPanel
+                  prompt={clientSmartSearch.prompt}
+                  onPromptChange={clientSmartSearch.setPrompt}
+                  onApply={clientSmartSearch.handleApply}
+                  previewKeywords={clientSmartSearch.previewKeywords}
+                  examples={clientSmartSearch.examples}
+                  onExampleClick={clientSmartSearch.handleExample}
+                  entityLabel="clients"
+                />
+              ) : null}
+
+              <SmartSearchActiveKeywordsBar
+                chips={clientSmartSearch.activeChips}
+                onClearAll={handleClearToolbar}
+                resultCount={pagedClients.length}
+                showResultCount={!loading && !error}
+              />
+
               <div className="overflow-hidden">
                 <div className="no-scrollbar overflow-x-auto">
                   <ClientTable
                     clients={pagedClients}
+                    dynamicColumnLabels={selectedDynamicColumnLabels}
+                    getDynamicFieldValue={getClientDynamicFieldValue}
                     selectedIds={selectedClients}
                     onSelectionChange={setSelectedClients}
                     onSelectClient={(client) => {
@@ -965,10 +1266,12 @@ export default function App() {
           setExportClients([]);
         }}
         title="Export clients"
+        description="Preview export data below. Click X on a column header to remove it from the file."
         rowCount={exportClients.length}
         rowLabelSingular="client"
         rowLabelPlural="clients"
-        columns={CLIENTS_EXPORT_COLUMNS}
+        loadingText="Loading all clients for export…"
+        columns={exportColumns}
         rows={exportClients}
         isLoading={exportClientsLoading}
         getRowKey={(client) => client.id}
