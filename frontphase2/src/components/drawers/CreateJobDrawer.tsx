@@ -293,13 +293,19 @@ export interface JobPromptHints {
   openings: string;
   companyName: string;
   companyId: string;
+  nationality: string;
+  industryType: string;
   location: string;
   country: string;
   city: string;
   state: string;
   workMode: string;
   salary: string;
+  salaryCurrency: string;
+  payRangeMin: string;
+  payRangeMax: string;
   qualification: string;
+  employmentType: string;
   minExperienceYears?: number;
   maxExperienceYears?: number;
   skills: string[];
@@ -312,16 +318,49 @@ function emptyJobPromptHints(): JobPromptHints {
     openings: '',
     companyName: '',
     companyId: '',
+    nationality: '',
+    industryType: '',
     location: '',
     country: '',
     city: '',
     state: '',
     workMode: '',
     salary: '',
+    salaryCurrency: '',
+    payRangeMin: '',
+    payRangeMax: '',
     qualification: '',
+    employmentType: '',
     skills: [],
     targetHireDate: '',
   };
+}
+
+function normalizeEmploymentTypeValue(value: string): string {
+  const normalized = String(value || '').toLowerCase();
+  if (!normalized) return '';
+  if (normalized.includes('part')) return 'Part Time';
+  if (normalized.includes('contract')) return 'Contract';
+  if (normalized.includes('intern')) return 'Internship';
+  if (normalized.includes('freelance')) return 'Freelance';
+  if (normalized.includes('full')) return 'Full Time';
+  return '';
+}
+
+function parseSalaryHint(raw: string): { currency: string; min: string; max: string } {
+  const text = String(raw || '').trim();
+  if (!text) return { currency: '', min: '', max: '' };
+  const currencyMatch = text.match(/\b(INR|USD|EUR|GBP|AED|SAR|CAD|AUD)\b/i);
+  const currency = normalizeJobSalaryCurrency(currencyMatch?.[1] || '');
+  const range = text.match(/(\d+(?:\.\d+)?)\s*(?:to|-|–)\s*(\d+(?:\.\d+)?)/i);
+  if (range) {
+    return { currency, min: range[1], max: range[2] };
+  }
+  const single = text.match(/(\d+(?:\.\d+)?)/);
+  if (single) {
+    return { currency, min: single[1], max: '' };
+  }
+  return { currency, min: '', max: '' };
 }
 
 function parseJobPromptHints(prompt: string, clients: BackendClient[]): JobPromptHints {
@@ -341,6 +380,8 @@ function parseJobPromptHints(prompt: string, clients: BackendClient[]): JobPromp
 
   hints.companyName = extractLabeledPromptValue(prompt, ['company', 'client', 'employer']);
   hints.companyId = resolveClientIdByCompanyName(hints.companyName, clients);
+  hints.nationality = extractLabeledPromptValue(prompt, ['nationality']);
+  hints.industryType = extractLabeledPromptValue(prompt, ['industry', 'industry type', 'domain']);
 
   hints.location = extractLabeledPromptValue(prompt, ['location', 'job location', 'work location']);
   if (hints.location) {
@@ -356,7 +397,14 @@ function parseJobPromptHints(prompt: string, clients: BackendClient[]): JobPromp
   if (!hints.country && /\bUnited States\b|\bUSA\b|\bUS\b/i.test(prompt)) hints.country = 'United States';
 
   hints.salary = extractLabeledPromptValue(prompt, ['salary', 'compensation', 'ctc', 'pay']);
+  const salaryParts = parseSalaryHint(hints.salary);
+  hints.salaryCurrency = salaryParts.currency;
+  hints.payRangeMin = salaryParts.min;
+  hints.payRangeMax = salaryParts.max;
   hints.qualification = extractLabeledPromptValue(prompt, ['requirements', 'qualification', 'education']);
+  hints.employmentType = normalizeEmploymentTypeValue(
+    extractLabeledPromptValue(prompt, ['employment type', 'job type', 'engagement type']),
+  );
 
   const experienceLine = extractLabeledPromptValue(prompt, ['experience', 'exp']);
   const experience = parseExperienceRangeYears(experienceLine);
@@ -539,6 +587,7 @@ export function CreateJobDrawer({
   const [smartJobStatus, setSmartJobStatus] = useState('');
   const [smartJobError, setSmartJobError] = useState('');
   const [smartJobFileText, setSmartJobFileText] = useState('');
+  const [pastedJobDescriptionText, setPastedJobDescriptionText] = useState('');
   const [smartJobAttachment, setSmartJobAttachment] = useState<{
     file: File;
     status: 'processing' | 'ready' | 'error';
@@ -1285,20 +1334,14 @@ export function CreateJobDrawer({
 
   const normalizeMinExperience = (value?: number) => {
     const num = Number(value);
-    if (!Number.isFinite(num) || num <= 0) return '0 Year';
-    if (num === 1) return '1 Year';
-    if (num >= 2 && num <= 4) return `${num} Years`;
-    return '5+ Years';
+    if (!Number.isFinite(num) || num < 0) return '';
+    return String(Math.trunc(num));
   };
 
   const normalizeMaxExperience = (value?: number) => {
     const num = Number(value);
-    if (!Number.isFinite(num) || num <= 0) return '';
-    if (num === 1) return '1 Year';
-    if (num >= 2 && num <= 4) return `${num} Years`;
-    if (num <= 5) return '5 Years';
-    if (num <= 8) return '8 Years';
-    return '10+ Years';
+    if (!Number.isFinite(num) || num < 0) return '';
+    return String(Math.trunc(num));
   };
 
   const normalizeQualification = (value?: string) => {
@@ -1505,15 +1548,23 @@ export function CreateJobDrawer({
 
       return {
         ...prev,
+        nationality: hints.nationality || prev.nationality,
         jobTitle: options.jobTitle || hints.jobTitle || prev.jobTitle,
         numberOfOpenings: draftOverrides?.openings || hints.openings || prev.numberOfOpenings,
         companyId: draftOverrides?.companyId || hints.companyId || prev.companyId,
         country: hints.country || prev.country,
         city: hints.city || prev.city,
         state: hints.state || prev.state,
+        industryType: hints.industryType || prev.industryType,
         jobLocation: hints.location || draftOverrides?.location || prev.jobLocation,
         jobLocationType: options.workMode || hints.workMode || prev.jobLocationType,
         salaryInput: draftOverrides?.salary || hints.salary || prev.salaryInput,
+        payRangeMin: hints.payRangeMin || prev.payRangeMin,
+        payRangeMax: hints.payRangeMax || prev.payRangeMax,
+        minSalary: hints.payRangeMin || prev.minSalary,
+        maxSalary: hints.payRangeMax || prev.maxSalary,
+        currency: hints.salaryCurrency || prev.currency,
+        employmentType: hints.employmentType || prev.employmentType,
         targetHireDate: hints.targetHireDate || prev.targetHireDate,
         minExperience:
           minExpYears != null && Number.isFinite(minExpYears)
@@ -1637,13 +1688,17 @@ export function CreateJobDrawer({
       setAiGeneratedQuestions(generatedQuestions);
       let nextFormState: typeof formData | null = null;
       const minExpYears =
-        generated?.minExperience != null && Number.isFinite(Number(generated.minExperience))
-          ? Number(generated.minExperience)
-          : hints.minExperienceYears;
+        hints.minExperienceYears != null
+          ? hints.minExperienceYears
+          : generated?.minExperience != null && Number.isFinite(Number(generated.minExperience))
+            ? Number(generated.minExperience)
+            : undefined;
       const maxExpYears =
-        generated?.maxExperience != null && Number.isFinite(Number(generated.maxExperience))
-          ? Number(generated.maxExperience)
-          : hints.maxExperienceYears;
+        hints.maxExperienceYears != null
+          ? hints.maxExperienceYears
+          : generated?.maxExperience != null && Number.isFinite(Number(generated.maxExperience))
+            ? Number(generated.maxExperience)
+            : undefined;
 
       setFormData((prev) => {
         const next = applyJobPromptHintsToFormData(prev, hints, draftOverrides, {
@@ -1776,6 +1831,79 @@ export function CreateJobDrawer({
       setSmartJobError(error?.message || 'Failed to process job details.');
     }
   }, [smartJobPrompt, smartJobFileText, handleAiAssist, clients]);
+
+  const handleJobDescriptionPaste = useCallback(
+    (event: React.ClipboardEvent<HTMLDivElement>) => {
+      const pastedText = event.clipboardData?.getData('text/plain')?.trim() || '';
+      // Ignore tiny snippets; auto-extract starts from 50+ chars.
+      if (pastedText.length < 50) return;
+      setPastedJobDescriptionText(pastedText);
+      setSmartJobError('');
+      setSmartJobStatus('JD pasted. Click "Auto-fill from pasted JD" to extract details.');
+    },
+    [],
+  );
+
+  const handleAutoFillFromPastedJd = useCallback(async () => {
+    if (aiGenerating) return;
+    const editorText = stripHtml(formData.jobDescriptionHtml || '');
+    const sourceText = (pastedJobDescriptionText || editorText || '').trim();
+    if (sourceText.length < 50) {
+      setSmartJobError('Paste a longer JD (at least 50 characters), then click Auto-fill.');
+      return;
+    }
+
+    setSmartJobError('');
+    setSmartJobStatus('Extracting details from pasted job description…');
+
+    try {
+      const hints = parseJobPromptHints(sourceText, clients);
+      if (!hints.targetHireDate) hints.targetHireDate = defaultTargetHireDateIso();
+
+      const assistResult = await handleAiAssist(
+        sourceText,
+        {
+          jobTitle: hints.jobTitle || formData.jobTitle,
+          openings: hints.openings || formData.numberOfOpenings,
+          companyId: hints.companyId || formData.companyId,
+          location: hints.location,
+          salary: hints.salary,
+          qualification: hints.qualification,
+          workMode: hints.workMode || formData.jobLocationType,
+        },
+        hints,
+      );
+
+      if (!assistResult?.form) {
+        setSmartJobStatus('Could not extract enough fields. Please fill manually.');
+        return;
+      }
+
+      const nextForm = assistResult.form;
+      if (hints.companyName) {
+        setPipelineDetectedCompanyName(hints.companyName);
+      }
+
+      const missing = getMissingJobCreateFields({
+        jobTitle: nextForm.jobTitle,
+        companyId: nextForm.companyId,
+        companyName: hints.companyName,
+        numberOfOpenings: nextForm.numberOfOpenings,
+        country: nextForm.country,
+        targetHireDate: nextForm.targetHireDate,
+      });
+
+      setSmartJobStatus(
+        buildSmartJobFillStatus(missing, {
+          companyName: hints.companyName,
+          companyId: nextForm.companyId,
+        }).replace('Extracted from document', 'Auto-filled from pasted JD'),
+      );
+    } catch (error: any) {
+      setSmartJobError(error?.message || 'Failed to extract details from pasted description.');
+      setSmartJobStatus('');
+    }
+  }, [aiGenerating, clients, formData, handleAiAssist, pastedJobDescriptionText]);
 
   const readFileAsText = (file: File) =>
     new Promise<string>((resolve, reject) => {
@@ -2145,8 +2273,22 @@ export function CreateJobDrawer({
       // Map UI form values to API payload
       const parsedMinExp = parseInt(String(formData.minExperience).replace(/\D/g, ''), 10);
       const parsedMaxExp = parseInt(String(formData.maxExperience).replace(/\D/g, ''), 10);
-      const payMin = formData.payRangeMin !== '' ? Number(formData.payRangeMin) : formData.minSalary !== '' ? Number(formData.minSalary) : NaN;
-      const payMax = formData.payRangeMax !== '' ? Number(formData.payRangeMax) : formData.maxSalary !== '' ? Number(formData.maxSalary) : NaN;
+      const parseMoneyNumber = (value: string): number => {
+        const text = String(value || '').trim();
+        if (!text) return NaN;
+        const match = text.match(/(\d+(?:\.\d+)?)/);
+        return match ? Number(match[1]) : NaN;
+      };
+      const payMin = formData.payRangeMin !== ''
+        ? parseMoneyNumber(formData.payRangeMin)
+        : formData.minSalary !== ''
+          ? parseMoneyNumber(formData.minSalary)
+          : NaN;
+      const payMax = formData.payRangeMax !== ''
+        ? parseMoneyNumber(formData.payRangeMax)
+        : formData.maxSalary !== ''
+          ? parseMoneyNumber(formData.maxSalary)
+          : NaN;
 
       const locationParts = [formData.city, formData.state, formData.country].map((v) => v?.trim()).filter(Boolean);
       const composedLocation = locationParts.join(', ') || formData.jobLocation || undefined;
@@ -2568,20 +2710,33 @@ export function CreateJobDrawer({
                 {accordions.find(a => a.id === 'details')?.isOpen && (
                   <div className="p-5 space-y-6">
                     <div>
-                      <h3 className="text-sm font-bold text-slate-900">
-                        Job Description{' '}
-                        <span className="font-normal text-slate-500">(optional)</span>
-                      </h3>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <h3 className="text-sm font-bold text-slate-900">
+                          Job Description{' '}
+                          <span className="font-normal text-slate-500">(optional)</span>
+                        </h3>
+                        <button
+                          type="button"
+                          onClick={() => void handleAutoFillFromPastedJd()}
+                          disabled={aiGenerating}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          <Sparkles className="h-3.5 w-3.5" />
+                          Auto-fill from pasted JD
+                        </button>
+                      </div>
                       <p className="mt-1 mb-3 text-xs text-slate-500">
                         Rich-text editor for the full posting. Use the smart prompt below to pre-fill fields from pasted text.
                       </p>
                       {isOpen ? (
-                        <RichTextEditor
-                          value={formData.jobDescriptionHtml}
-                          onChange={(html) => setFormData((prev) => ({ ...prev, jobDescriptionHtml: html }))}
-                          placeholder="Enter the full job description…"
-                          minHeight={360}
-                        />
+                        <div onPasteCapture={handleJobDescriptionPaste}>
+                          <RichTextEditor
+                            value={formData.jobDescriptionHtml}
+                            onChange={(html) => setFormData((prev) => ({ ...prev, jobDescriptionHtml: html }))}
+                            placeholder="Paste or enter the full job description…"
+                            minHeight={360}
+                          />
+                        </div>
                       ) : null}
                     </div>
 

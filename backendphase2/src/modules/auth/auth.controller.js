@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { authService } from './auth.service.js';
+import { sessionService } from '../session/session.service.js';
 import { sendResponse, sendError } from '../../utils/response.js';
 import { buildDeviceMeta } from '../../utils/deviceFingerprint.js';
 import { runWithTenantContext } from '../../config/prisma.js';
@@ -64,7 +65,7 @@ export const authController = {
       if (!payload?.userId) return res.status(204).end();
 
       await runWithTenantContext(tenantDbName || payload?.tenantDbName || '', async () => {
-        await authService.logout(String(payload.userId), sessionId);
+        await sessionService.markSessionCloseIntent(String(payload.userId), sessionId);
       });
 
       return res.status(204).end();

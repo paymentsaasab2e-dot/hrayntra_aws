@@ -33,6 +33,14 @@ function redisSessionKey(userId) {
   return `active_session:${userId}`;
 }
 
+function closeIntentKey(userId, sessionId) {
+  return `session_close_intent:${userId}:${sessionId}`;
+}
+
+function closeIntentGraceMs() {
+  return Number(env.SESSION_CLOSE_GRACE_MS || 12_000);
+}
+
 async function audit(userId, action, deviceMeta = {}, metadata = null) {
   try {
     await prisma.sessionAuditLog.create({
@@ -75,7 +83,8 @@ function isSessionFresh(row) {
 async function evaluateSessionBlockingState(row) {
   if (!row || row.sessionStatus !== SESSION_STATUS_ACTIVE) return 'inactive';
 
-  if (!isSessionFresh(row)) return 'inactivity_expired';
+  const inactiveForMs = Date.now() - new Date(row.lastActivity).getTime();
+  if (!Number.isFinite(inactiveForMs) || inactiveForMs > inactivityMs()) return 'inactivity_expired';
 
   const user = await prisma.user.findUnique({
     where: { id: row.userId },
@@ -89,6 +98,11 @@ async function evaluateSessionBlockingState(row) {
     if (row.refreshTokenHash !== currentHash) return 'token_rotated';
   }
 
+  const hasCloseIntent = await getCache(closeIntentKey(row.userId, row.sessionId));
+  if (hasCloseIntent && inactiveForMs > closeIntentGraceMs()) {
+    return 'tab_closed';
+  }
+
   return 'blocking';
 }
 
@@ -96,7 +110,7 @@ async function expireSessionIfNotBlocking(row) {
   const state = await evaluateSessionBlockingState(row);
   if (state === 'blocking') return false;
   const reason =
-    state === 'logged_out' || state === 'token_rotated'
+    state === 'logged_out' || state === 'token_rotated' || state === 'tab_closed'
       ? 'LOGOUT'
       : 'INACTIVITY_TIMEOUT';
   await expireSession(row, reason);
@@ -332,6 +346,7 @@ export async function heartbeat(userId, sessionId) {
     data: { lastActivity: now },
   });
   await cacheActiveSession(userId, sessionId);
+  await deleteCache(closeIntentKey(userId, sessionId));
 
   const inactiveMs = Date.now() - new Date(row.lastActivity).getTime();
   const warn = inactiveMs >= inactivityMs() - warningBeforeMs();
@@ -342,6 +357,12 @@ export async function heartbeat(userId, sessionId) {
     inactivityWarning: warn,
     expiresInMs: Math.max(0, inactivityMs() - inactiveMs),
   };
+}
+
+export async function markSessionCloseIntent(userId, sessionId) {
+  if (!userId || !sessionId) return;
+  const ttlSeconds = Math.max(5, Math.ceil(closeIntentGraceMs() / 1000));
+  await setCache(closeIntentKey(userId, sessionId), '1', ttlSeconds);
 }
 
 export async function logoutSession(userId, sessionId) {
@@ -612,6 +633,7 @@ export const sessionService = {
   findActiveSessionForUser,
   validateSessionFromToken,
   heartbeat,
+  markSessionCloseIntent,
   logoutSession,
   refreshWithSession,
   requestSessionTransfer,

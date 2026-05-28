@@ -421,7 +421,7 @@ const NavItem = ({ icon: Icon, label, href, active, collapsed, badge, onNavigate
     <div
       data-sidenav-nav-item="true"
       data-active={isActive ? 'true' : 'false'}
-      className={`relative flex items-center h-12 rounded-xl mx-3 my-0.5 ${collapsed ? 'px-2 justify-center' : 'pl-3 pr-3'} cursor-pointer transition-all duration-150 group
+      className={`relative flex items-center h-11 rounded-xl mx-2.5 my-0.5 ${collapsed ? 'px-2 justify-center' : 'pl-2.5 pr-2.5'} cursor-pointer transition-all duration-150 group
         ${isActive
           ? 'bg-white/[0.08] text-white border border-white/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
           : 'text-[#8899AA] border border-transparent hover:bg-white/[0.04] hover:text-white'
@@ -432,19 +432,19 @@ const NavItem = ({ icon: Icon, label, href, active, collapsed, badge, onNavigate
       )}
 
       <div
-        className={`flex items-center justify-center shrink-0 rounded-lg transition-all duration-150 ${collapsed ? 'h-9 w-9' : 'mr-3 h-9 w-9'} ${
+        className={`flex items-center justify-center shrink-0 rounded-lg transition-all duration-150 ${collapsed ? 'h-8 w-8' : 'mr-2.5 h-8 w-8'} ${
           isActive ? tone.activeWrap : 'border border-white/[0.05] bg-white/[0.02]'
         }`}
       >
         <Icon
-          size={18}
+          size={17}
           strokeWidth={isActive ? 2 : 1.6}
           className={isActive ? tone.activeIcon : `${tone.idle} group-hover:text-white`}
         />
       </div>
 
       {!collapsed && (
-        <span className={`text-[14px] whitespace-nowrap overflow-hidden ${isActive ? 'font-semibold text-white' : 'font-medium'}`}>
+        <span className={`text-[13px] whitespace-nowrap overflow-hidden ${isActive ? 'font-semibold text-white' : 'font-medium'}`}>
           {label}
         </span>
       )}
@@ -774,7 +774,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
     avatarUrl: resolveSidenavAvatar(user?.avatar || userProfile?.avatarUrl || avatarUrl),
   };
 
-  const SIDEBAR_W = isCollapsed ? 64 : 240;
+  const SIDEBAR_W = isCollapsed ? 60 : 220;
 
   useEffect(() => {
     const query = navSearch.trim();
@@ -1279,8 +1279,8 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
             />
             {!isCollapsed && (
               <div className="min-w-0 flex-1">
-                <p className="text-[12px] font-semibold text-white truncate">{profile.name}</p>
-                <p className="text-[10px] text-[#4A6070] truncate">{profile.role}</p>
+                <p className="text-[11px] font-semibold text-white truncate">{profile.name}</p>
+                <p className="text-[9px] text-[#4A6070] truncate">{profile.role}</p>
               </div>
             )}
           </div>
