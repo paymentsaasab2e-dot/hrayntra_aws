@@ -4,6 +4,8 @@ import app from './app.js';
 import { env } from './config/env.js';
 import { prisma } from './config/prisma.js';
 import { attachBulkCvSocket } from './socket/bulkCvSocket.js';
+import { attachSessionSocket } from './socket/sessionSocket.js';
+import { sessionService } from './modules/session/session.service.js';
 
 const PORT = env.PORT || 5001;
 
@@ -47,7 +49,14 @@ function startServer() {
     },
   });
   attachBulkCvSocket(io);
+  attachSessionSocket(io);
   console.log('[bulk-cv] Socket.IO attached for duplicate resolution');
+  console.log('[session] Socket.IO attached for single active session');
+
+  setInterval(() => {
+    void sessionService.runInactivityCleanup();
+    void sessionService.expireStaleTransfers();
+  }, 60 * 1000);
 
   let isShuttingDown = false;
 

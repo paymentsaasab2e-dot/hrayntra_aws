@@ -71,6 +71,17 @@ export const env = {
   // Set to 10 years (3650 days) - token will only be invalidated if user is removed from database
   JWT_ACCESS_EXPIRES: process.env.JWT_ACCESS_EXPIRES || '3650d',
   JWT_REFRESH_EXPIRES: process.env.JWT_REFRESH_EXPIRES || '3650d',
+
+  /** Enterprise single active session (one login per user). */
+  SINGLE_ACTIVE_SESSION_ENABLED:
+    process.env.SINGLE_ACTIVE_SESSION_ENABLED !== 'false' &&
+    process.env.SINGLE_ACTIVE_SESSION_ENABLED !== '0',
+  SESSION_INACTIVITY_MS: parseInt(process.env.SESSION_INACTIVITY_MS || String(5 * 60 * 1000), 10),
+  SESSION_INACTIVITY_WARNING_MS: parseInt(
+    process.env.SESSION_INACTIVITY_WARNING_MS || String(60 * 1000),
+    10,
+  ),
+  SESSION_TRANSFER_TTL_MS: parseInt(process.env.SESSION_TRANSFER_TTL_MS || String(5 * 60 * 1000), 10),
   
   // Legacy JWT support (for backward compatibility)
   JWT_SECRET: process.env.JWT_ACCESS_SECRET || process.env.JWT_SECRET,

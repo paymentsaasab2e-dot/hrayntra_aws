@@ -1,5 +1,9 @@
+import jwt from 'jsonwebtoken';
 import { authService } from './auth.service.js';
 import { sendResponse, sendError } from '../../utils/response.js';
+import { buildDeviceMeta } from '../../utils/deviceFingerprint.js';
+import { runWithTenantContext } from '../../config/prisma.js';
+import { verifyToken } from '../../utils/jwt.js';
 
 export const authController = {
   async register(req, res) {
@@ -18,7 +22,11 @@ export const authController = {
       const ipAddress = req.ip || req.connection.remoteAddress;
       const userAgent = req.get('user-agent') || 'Unknown';
       
-      const result = await authService.login(loginIdentifier, password, ipAddress, userAgent);
+      const deviceMeta = buildDeviceMeta(req, req.body);
+      const result = await authService.login(loginIdentifier, password, ipAddress, userAgent, deviceMeta);
+      if (result?.duplicateSession) {
+        return sendResponse(res, 200, 'Duplicate session detected', result);
+      }
       sendResponse(res, 200, 'Login successful', result);
     } catch (error) {
       if (error.statusCode === 423) {
@@ -34,10 +42,34 @@ export const authController = {
 
   async logout(req, res) {
     try {
-      await authService.logout(req.user.id);
+      const sessionId = req.body?.sessionId || req.user?.sessionId || null;
+      await authService.logout(req.user.id, sessionId);
       sendResponse(res, 200, 'Logout successful');
     } catch (error) {
       sendError(res, 500, error.message, error);
+    }
+  },
+
+  async logoutBeacon(req, res) {
+    try {
+      const token = String(req.query?.token || '').replace(/^Bearer\s+/i, '').trim();
+      const sessionId = String(req.query?.sessionId || '').trim();
+      const tenantDbName = String(req.query?.tenantDbName || '').trim();
+      if (!token || !sessionId) return res.status(204).end();
+
+      let payload = verifyToken(token);
+      if (!payload || typeof payload !== 'object') {
+        payload = jwt.decode(token);
+      }
+      if (!payload?.userId) return res.status(204).end();
+
+      await runWithTenantContext(tenantDbName || payload?.tenantDbName || '', async () => {
+        await authService.logout(String(payload.userId), sessionId);
+      });
+
+      return res.status(204).end();
+    } catch {
+      return res.status(204).end();
     }
   },
 

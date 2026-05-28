@@ -102,7 +102,7 @@ export interface ApiResponse<T> {
   };
 }
 
-function getAccessToken() {
+export function getAccessToken() {
   if (typeof window === 'undefined') return null;
   try {
     return localStorage.getItem('accessToken');
@@ -112,7 +112,7 @@ function getAccessToken() {
   }
 }
 
-function getTenantDbName() {
+export function getTenantDbName() {
   if (typeof window === 'undefined') return null;
   try {
     return localStorage.getItem('tenantDbName');
@@ -137,7 +137,7 @@ export function syncTenantDbName(value: string | null | undefined) {
   document.cookie = `tenantDbName=${encodeURIComponent(normalized)}; Path=/; SameSite=Lax`;
 }
 
-function syncAuthCookie(name: string, value: string | null) {
+export function syncAuthCookie(name: string, value: string | null) {
   if (typeof document === 'undefined') return;
 
   if (!value) {
@@ -330,6 +330,13 @@ export async function apiFetch<T>(
         }
       }
 
+      const sessionCode = json?.data?.code as string | undefined;
+      const sessionEnded =
+        sessionCode === 'SESSION_SUPERSEDED' ||
+        sessionCode === 'SESSION_EXPIRED' ||
+        sessionCode === 'SESSION_INVALID' ||
+        /session.*(expired|no longer active)/i.test(String(json?.message || ''));
+
       // If refresh failed or no refresh token, clear tokens and redirect
       if (typeof window !== 'undefined') {
         localStorage.removeItem('accessToken');
@@ -346,10 +353,17 @@ export async function apiFetch<T>(
         // Redirect to login page if not already there
         if (window.location.pathname !== '/login') {
           const currentPath = window.location.pathname + window.location.search;
-          window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`;
+          const sessionHint = sessionEnded
+            ? `&session=${encodeURIComponent(json?.message || 'Session ended')}`
+            : '';
+          window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}${sessionHint}`;
         }
       }
-      throw new Error('Authentication required. Please log in.');
+      throw new Error(
+        sessionEnded
+          ? json?.message || 'Your session is no longer active. Please log in again.'
+          : 'Authentication required. Please log in.',
+      );
     }
     // When the backend returns Zod validation errors as `data.errors[]`, surface
     // the per-field details in the thrown message so existing toasts/UI strings
@@ -943,9 +957,19 @@ interface AuthPayload {
   tenantDatabaseUrl?: string;
   tenantProvisioningStatus?: 'CREATED' | 'READY';
   message?: string;
+  duplicateSession?: boolean;
+  activeSession?: {
+    sessionId?: string;
+    browserInfo?: string;
+    operatingSystem?: string;
+    deviceType?: string;
+    ipAddress?: string;
+    location?: string;
+    deviceLabel?: string;
+  };
 }
 
-export async function apiLogin(email: string, password: string) {
+export async function apiLogin(email: string, password: string, devicePayload?: { deviceId?: string; userAgent?: string }) {
   // Invite links include ?tenantDbName= — apply right before login so first attempt works.
   if (typeof window !== 'undefined') {
     const fromUrl = new URLSearchParams(window.location.search).get('tenantDbName');
@@ -958,11 +982,22 @@ export async function apiLogin(email: string, password: string) {
   try {
     res = await apiFetch<AuthPayload>('/auth/login', {
       method: 'POST',
-      body: { email, password },
+      body: {
+        email: email.includes('@') ? email : undefined,
+        loginId: email.includes('@') ? undefined : email,
+        password,
+        deviceId: devicePayload?.deviceId,
+        userAgent: devicePayload?.userAgent,
+        tenantDbName: tenantDbNameHint || undefined,
+      },
       includeTenantHeader: !!tenantDbNameHint,
     });
   } catch (err: any) {
     throw new Error(formatAuthErrorMessage(err));
+  }
+
+  if (res.data?.duplicateSession) {
+    return res;
   }
 
   if (typeof window !== 'undefined') {
@@ -1079,9 +1114,20 @@ export async function apiLogout() {
   try {
     const token = localStorage.getItem('accessToken');
     if (token) {
+      let sessionId: string | undefined;
+      try {
+        const part = token.split('.')[1];
+        if (part) {
+          const json = JSON.parse(atob(part.replace(/-/g, '+').replace(/_/g, '/')));
+          if (json.sessionId) sessionId = String(json.sessionId);
+        }
+      } catch {
+        /* ignore */
+      }
       await apiFetch<{ success?: boolean; message?: string }>('/auth/logout', {
         method: 'POST',
         auth: true,
+        body: sessionId ? { sessionId } : undefined,
       });
     }
   } catch (error) {
