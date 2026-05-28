@@ -2,6 +2,7 @@ import { Resend } from 'resend';
 import { prisma } from '../config/prisma.js';
 import { env } from '../config/env.js';
 import { oauthTokenService } from '../modules/oauth/oauth-token.service.js';
+import { isNotificationTriggerEnabled } from '../modules/setting/notification-trigger-settings.js';
 import { interviewScheduledTemplate } from '../utils/emailTemplates.js';
 import { buildPlacementInvoiceEmailHtml } from '../utils/invoiceEmailHtml.js';
 
@@ -208,6 +209,12 @@ async function sendEmail({ senderUserId, toEmail, subject, html, attachments = [
  */
 export async function sendInviteEmail(payload) {
   try {
+    const triggerEnabled = await isNotificationTriggerEnabled('team.invite_email', {
+      userId: payload?.senderUserId || null,
+      aliases: ['team invite', 'invite email'],
+    });
+    if (!triggerEnabled) return { success: true, skipped: true };
+
     warnIfInviteLinksPointToLocalhostInProduction();
     const { toEmail, toName, loginId, tempPassword, roleName, inviteToken, senderUserId, tenantDbName } = payload;
     const tenantQ =
@@ -296,6 +303,12 @@ export async function sendInviteEmail(payload) {
  */
 export async function sendPasswordResetEmail(payload) {
   try {
+    const triggerEnabled = await isNotificationTriggerEnabled('auth.otp_verification', {
+      userId: payload?.senderUserId || null,
+      aliases: ['password reset', 'otp verification'],
+    });
+    if (!triggerEnabled) return { success: true, skipped: true };
+
     const { toEmail, toName, loginId, newTempPassword, senderUserId } = payload;
 
     const html = `
@@ -362,6 +375,12 @@ export async function sendPasswordResetEmail(payload) {
  */
 export async function sendLeadAssignmentEmail(payload) {
   try {
+    const triggerEnabled = await isNotificationTriggerEnabled('lead.assignment_email', {
+      userId: payload?.senderUserId || null,
+      aliases: ['lead assignment'],
+    });
+    if (!triggerEnabled) return { success: true, skipped: true };
+
     const {
       toEmail,
       assigneeName,
@@ -434,6 +453,12 @@ export async function sendLeadAssignmentEmail(payload) {
  */
 export async function sendClientAssignmentEmail(payload) {
   try {
+    const triggerEnabled = await isNotificationTriggerEnabled('client.assignment_email', {
+      userId: payload?.senderUserId || null,
+      aliases: ['client assignment'],
+    });
+    if (!triggerEnabled) return { success: true, skipped: true };
+
     const {
       toEmail,
       assigneeName,
@@ -503,6 +528,12 @@ export async function sendClientAssignmentEmail(payload) {
 
 export async function sendJobAssignmentEmail(payload) {
   try {
+    const triggerEnabled = await isNotificationTriggerEnabled('job.assignment_email', {
+      userId: payload?.senderUserId || null,
+      aliases: ['job assignment'],
+    });
+    if (!triggerEnabled) return { success: true, skipped: true };
+
     const {
       toEmail,
       assigneeName,
@@ -572,6 +603,12 @@ export async function sendJobAssignmentEmail(payload) {
 
 export async function sendCandidateAssignmentEmail(payload) {
   try {
+    const triggerEnabled = await isNotificationTriggerEnabled('candidate.assignment_email', {
+      userId: payload?.senderUserId || null,
+      aliases: ['candidate assignment'],
+    });
+    if (!triggerEnabled) return { success: true, skipped: true };
+
     const {
       toEmail,
       assigneeName,
@@ -653,6 +690,12 @@ export async function sendCandidateAssignmentEmail(payload) {
 
 export async function sendCandidateInterviewScheduledEmail(payload) {
   try {
+    const triggerEnabled = await isNotificationTriggerEnabled('interview.candidate_scheduled', {
+      userId: payload?.senderUserId || null,
+      aliases: ['candidate interview scheduled', 'interview scheduled'],
+    });
+    if (!triggerEnabled) return { success: true, skipped: true };
+
     const {
       toEmail,
       candidateName,
@@ -715,6 +758,12 @@ export async function sendCandidateInterviewScheduledEmail(payload) {
 
 export async function sendInterviewPanelScheduledEmail(payload) {
   try {
+    const triggerEnabled = await isNotificationTriggerEnabled('interview.panel_scheduled', {
+      userId: payload?.senderUserId || null,
+      aliases: ['panel interview scheduled', 'interview panel scheduled'],
+    });
+    if (!triggerEnabled) return { success: true, skipped: true };
+
     const {
       toEmail,
       recipientName,
@@ -782,6 +831,12 @@ export async function sendInterviewPanelScheduledEmail(payload) {
  */
 export async function sendPlacementInvoiceEmail(payload) {
   try {
+    const triggerEnabled = await isNotificationTriggerEnabled('billing.invoice_email', {
+      userId: payload?.senderUserId || null,
+      aliases: ['placement invoice', 'invoice email'],
+    });
+    if (!triggerEnabled) return { success: true, skipped: true };
+
     const toEmail = String(payload?.toEmail || '').trim();
     if (!toEmail) {
       return { success: false, error: 'Client email is required' };

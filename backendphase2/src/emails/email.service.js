@@ -6,6 +6,7 @@ import { interviewTemplate } from './templates/interview.template.js';
 import { placementTemplate } from './templates/placement.template.js';
 import { leadFollowUpTemplate } from './templates/lead-followup.template.js';
 import { matchSubmissionTemplate } from './templates/match-submission.template.js';
+import { isNotificationTriggerEnabled } from '../modules/setting/notification-trigger-settings.js';
 import logger from '../utils/logger.js';
 
 export const sendEmail = async (to, subject, html) => {
@@ -31,14 +32,26 @@ export const sendEmail = async (to, subject, html) => {
 };
 
 export const sendOtpEmail = async (to, otp, name) => {
+  const triggerEnabled = await isNotificationTriggerEnabled('auth.otp_verification', {
+    aliases: ['otp verification'],
+  });
+  if (!triggerEnabled) return { success: true, skipped: true };
   return sendEmail(to, 'OTP Verification', otpTemplate(otp, name));
 };
 
 export const sendWelcomeEmail = async (to, name) => {
+  const triggerEnabled = await isNotificationTriggerEnabled('auth.welcome_email', {
+    aliases: ['welcome email'],
+  });
+  if (!triggerEnabled) return { success: true, skipped: true };
   return sendEmail(to, 'Welcome to SAASA Recruitment', welcomeTemplate(name, to));
 };
 
 export const sendInterviewEmail = async (to, candidateName, jobTitle, scheduledAt, location, meetingLink) => {
+  const triggerEnabled = await isNotificationTriggerEnabled('interview.candidate_scheduled', {
+    aliases: ['interview scheduled'],
+  });
+  if (!triggerEnabled) return { success: true, skipped: true };
   return sendEmail(
     to,
     'Interview Scheduled',
@@ -47,6 +60,10 @@ export const sendInterviewEmail = async (to, candidateName, jobTitle, scheduledA
 };
 
 export const sendPlacementEmail = async (to, candidateName, jobTitle, startDate, companyName) => {
+  const triggerEnabled = await isNotificationTriggerEnabled('placement.confirmed_email', {
+    aliases: ['placement confirmed', 'placement confirmation'],
+  });
+  if (!triggerEnabled) return { success: true, skipped: true };
   return sendEmail(
     to,
     'Placement Confirmed',
@@ -55,6 +72,10 @@ export const sendPlacementEmail = async (to, candidateName, jobTitle, startDate,
 };
 
 export const sendLeadFollowUpEmail = async (to, leadCompanyName, followUpDate, followUpType, notes) => {
+  const triggerEnabled = await isNotificationTriggerEnabled('lead.followup_email', {
+    aliases: ['lead follow up', 'lead followup'],
+  });
+  if (!triggerEnabled) return { success: true, skipped: true };
   return sendEmail(
     to,
     'Follow-up Scheduled',
@@ -72,6 +93,10 @@ export const sendMatchSubmissionEmail = async ({
   portalUrl,
   subject,
 }) => {
+  const triggerEnabled = await isNotificationTriggerEnabled('match.submission_email', {
+    aliases: ['match submission', 'submission email'],
+  });
+  if (!triggerEnabled) return { success: true, skipped: true };
   return sendEmail(
     to,
     subject || `Candidate Submission: ${jobTitle}`,

@@ -23,24 +23,17 @@ export default function Pagination({
 
   const pageItems = useMemo(() => {
     const pages: Array<number | '...'> = [];
-    const maxVisiblePages = 5;
+    const windowSize = 5;
+    const start = Math.min(Math.max(safeCurrentPage, 1), Math.max(1, safeTotalPages - windowSize + 1));
+    const end = Math.min(safeTotalPages, start + windowSize - 1);
 
-    if (safeTotalPages <= maxVisiblePages) {
-      for (let i = 1; i <= safeTotalPages; i += 1) pages.push(i);
-      return pages;
+    for (let page = start; page <= end; page += 1) {
+      pages.push(page);
     }
 
-    let start = Math.max(1, safeCurrentPage - 2);
-    let end = Math.min(safeTotalPages, start + maxVisiblePages - 1);
-
-    if (end === safeTotalPages) {
-      start = Math.max(1, end - maxVisiblePages + 1);
+    if (end < safeTotalPages) {
+      pages.push('...', safeTotalPages);
     }
-
-    for (let i = start; i <= end; i += 1) pages.push(i);
-
-    if (pages[0] !== 1) pages.unshift(1, '...');
-    if (pages[pages.length - 1] !== safeTotalPages) pages.push('...', safeTotalPages);
 
     return pages;
   }, [safeCurrentPage, safeTotalPages]);

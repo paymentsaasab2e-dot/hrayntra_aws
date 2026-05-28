@@ -5289,6 +5289,40 @@ export const apiGetCommunicationConnections = async () => {
   return apiFetch<CommunicationConnections>('/settings/communication/connections', { auth: true });
 };
 
+export type NotificationTriggerSettingsPayload = {
+  active: Record<string, boolean>;
+  additional: Array<{ id: string; label: string; enabled: boolean }>;
+};
+
+const NOTIFICATION_TRIGGER_SETTINGS_KEY = 'notification_email_trigger_points_v1';
+
+export const apiGetNotificationTriggerSettings = async () => {
+  return apiFetch<{
+    key: string;
+    value: NotificationTriggerSettingsPayload;
+    scope: string;
+    userId?: string | null;
+  }>(`/settings/${encodeURIComponent(NOTIFICATION_TRIGGER_SETTINGS_KEY)}`, { auth: true });
+};
+
+export const apiUpdateNotificationTriggerSettings = async (
+  value: NotificationTriggerSettingsPayload,
+) => {
+  return apiFetch<{
+    key: string;
+    value: NotificationTriggerSettingsPayload;
+    scope: string;
+    userId?: string | null;
+  }>(`/settings/${encodeURIComponent(NOTIFICATION_TRIGGER_SETTINGS_KEY)}`, {
+    method: 'PATCH',
+    auth: true,
+    body: {
+      scope: 'USER',
+      value,
+    },
+  });
+};
+
 export type AriaUndoPayload = {
   available: boolean;
   actionId: string;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 interface PaginationProps {
   totalPages?: number;
@@ -44,6 +44,23 @@ export default function PaginationAll({
     Array.isArray(pageSizeOptions) &&
     pageSizeOptions.length > 0 &&
     typeof onPageSizeChange === 'function';
+  const pageItems = useMemo((): Array<number | '...'> => {
+    const safeTotalPages = Math.max(totalPages, 1);
+    const windowSize = 5;
+    const start = Math.min(Math.max(currentPage, 1), Math.max(1, safeTotalPages - windowSize + 1));
+    const end = Math.min(safeTotalPages, start + windowSize - 1);
+    const pages: Array<number | '...'> = [];
+
+    for (let page = start; page <= end; page += 1) {
+      pages.push(page);
+    }
+
+    if (end < safeTotalPages) {
+      pages.push('...', safeTotalPages);
+    }
+
+    return pages;
+  }, [currentPage, totalPages]);
 
   return (
     <nav
@@ -96,22 +113,28 @@ export default function PaginationAll({
           <span className="text-black">prev</span>
         </button>
 
-        {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-          <button
-            key={page}
-            type="button"
-            onClick={() => handlePageChange(page)}
-            aria-label={`Page ${page}`}
-            aria-current={currentPage === page ? 'page' : undefined}
-            className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-150 ${
-              currentPage === page
-                ? 'bg-rose-400 font-semibold text-white shadow-sm'
-                : 'text-black hover:bg-gray-100 hover:text-black'
-            }`}
-          >
-            {page}
-          </button>
-        ))}
+        {pageItems.map((item, index) =>
+          item === '...' ? (
+            <span key={`ellipsis-${index}`} className="px-1 text-gray-400">
+              ...
+            </span>
+          ) : (
+            <button
+              key={item}
+              type="button"
+              onClick={() => handlePageChange(item)}
+              aria-label={`Page ${item}`}
+              aria-current={currentPage === item ? 'page' : undefined}
+              className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-150 ${
+                currentPage === item
+                  ? 'bg-rose-400 font-semibold text-white shadow-sm'
+                  : 'text-black hover:bg-gray-100 hover:text-black'
+              }`}
+            >
+              {item}
+            </button>
+          ),
+        )}
 
         <button
           type="button"
