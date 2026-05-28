@@ -176,6 +176,7 @@ export function CreateJobDetailsForm({
   const selectedManager = users.find((u) => u.id === formData.managerId);
   const selectedContact = contacts.find((c) => c.id === formData.contactPersonId);
   const [clientSearch, setClientSearch] = useState('');
+  const [currencySearch, setCurrencySearch] = useState('');
 
   const filteredClients = useMemo(() => {
     const query = clientSearch.trim().toLowerCase();
@@ -194,11 +195,23 @@ export function CreateJobDetailsForm({
     });
   }, [clients, clientSearch]);
 
+  const filteredCurrencies = useMemo(() => {
+    const query = currencySearch.trim().toLowerCase();
+    if (!query) return JOB_SALARY_CURRENCY_OPTIONS;
+    return JOB_SALARY_CURRENCY_OPTIONS.filter((code) => code.toLowerCase().includes(query));
+  }, [currencySearch]);
+
   useEffect(() => {
     if (!dropdownsOpen.company) {
       setClientSearch('');
     }
   }, [dropdownsOpen.company]);
+
+  useEffect(() => {
+    if (!dropdownsOpen.currency) {
+      setCurrencySearch('');
+    }
+  }, [dropdownsOpen.currency]);
 
   const patchForm = (patch: Partial<CreateJobDetailsFormData>) => setFormData(patch);
 
@@ -478,38 +491,88 @@ export function CreateJobDetailsForm({
 
       <div>
         <label className={labelClass}>Salary range (optional)</label>
-        <div className="flex max-w-md flex-wrap items-center gap-2">
-          <select
-            value={formData.salaryCurrency}
-            onChange={(e) => patchForm({ salaryCurrency: e.target.value })}
-            className={`${compactInputClass} w-[4.75rem] shrink-0 font-medium text-slate-800`}
-            aria-label="Salary currency"
-          >
-            {JOB_SALARY_CURRENCY_OPTIONS.map((code) => (
-              <option key={code} value={code}>
-                {code}
-              </option>
-            ))}
-          </select>
+        <div className="flex max-w-2xl flex-wrap items-center gap-3">
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setDropdownsOpen((prev) => ({ ...prev, currency: !prev.currency }))}
+              className={`${compactInputClass} flex w-[7.5rem] items-center justify-between bg-white font-medium text-slate-800`}
+              aria-label="Salary currency"
+            >
+              <span>{formData.salaryCurrency || 'Currency'}</span>
+              <ChevronDown size={15} className="text-slate-400" />
+            </button>
+            {dropdownsOpen.currency ? (
+              <>
+                <div
+                  className="fixed inset-0 z-10"
+                  onClick={() => setDropdownsOpen((prev) => ({ ...prev, currency: false }))}
+                />
+                <div className="absolute z-20 mt-1 w-44 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
+                  <div className="border-b border-slate-100 p-2">
+                    <div className="relative">
+                      <Search
+                        size={14}
+                        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                      />
+                      <input
+                        type="text"
+                        value={currencySearch}
+                        onChange={(e) => setCurrencySearch(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        placeholder="Search currency…"
+                        autoFocus
+                        className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                      />
+                    </div>
+                  </div>
+                  <ul className="max-h-56 overflow-y-auto py-1">
+                    {filteredCurrencies.length === 0 ? (
+                      <li className="px-3 py-2 text-sm text-slate-500">No currencies found</li>
+                    ) : (
+                      filteredCurrencies.map((code) => (
+                        <li key={code}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              patchForm({ salaryCurrency: code });
+                              setDropdownsOpen((prev) => ({ ...prev, currency: false }));
+                            }}
+                            className={`w-full px-3 py-2 text-left text-sm hover:bg-slate-50 ${
+                              formData.salaryCurrency === code
+                                ? 'bg-blue-50 font-medium text-blue-700'
+                                : 'text-slate-700'
+                            }`}
+                          >
+                            {code}
+                          </button>
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                </div>
+              </>
+            ) : null}
+          </div>
           <input
-            type="number"
-            min={0}
+            type="text"
+            inputMode="decimal"
             value={formData.payRangeMin}
             onChange={(e) => patchForm({ payRangeMin: e.target.value })}
-            placeholder="Min"
-            className={`${compactInputClass} w-24 sm:w-28`}
+            placeholder="Min (e.g. 18 or 18 LPA)"
+            className={`${compactInputClass} w-36 sm:w-44`}
             aria-label="Minimum salary"
           />
           <span className="shrink-0 text-sm font-medium text-slate-400" aria-hidden>
             –
           </span>
           <input
-            type="number"
-            min={0}
+            type="text"
+            inputMode="decimal"
             value={formData.payRangeMax}
             onChange={(e) => patchForm({ payRangeMax: e.target.value })}
-            placeholder="Max"
-            className={`${compactInputClass} w-24 sm:w-28`}
+            placeholder="Max (e.g. 28 or 28 LPA)"
+            className={`${compactInputClass} w-36 sm:w-44`}
             aria-label="Maximum salary"
           />
         </div>
