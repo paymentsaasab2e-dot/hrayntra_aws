@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Eye, EyeOff, Lock, LogIn, Mail, User, UserPlus } from 'lucide-react';
-import { apiLogin, apiRegister, formatAuthErrorMessage, syncTenantDbName } from '../../lib/api';
+import { apiLogin, apiRegister, formatAuthErrorMessage, getAccessToken, syncTenantDbName } from '../../lib/api';
 import { buildLoginDevicePayload } from '../../lib/sessionAuth';
 import { LoginSessionFlow } from '../../components/session/LoginSessionFlow';
 import type { ActiveSessionView } from '../../lib/sessionAuth';
@@ -51,6 +51,28 @@ export default function LoginPage() {
     if (sessionMsg) {
       setMessage(sessionMsg);
     }
+  }, [router]);
+
+  // Same browser, another tab already logged in — reuse session (localStorage + cookies are shared).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const goToAppIfAuthenticated = () => {
+      if (!getAccessToken()) return;
+      const redirectParam = new URLSearchParams(window.location.search).get('redirect');
+      const target = redirectParam && redirectParam !== '/leads' ? redirectParam : '/dashboard';
+      router.replace(target);
+    };
+
+    goToAppIfAuthenticated();
+
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === 'accessToken' && event.newValue) {
+        goToAppIfAuthenticated();
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
   }, [router]);
 
   const redirectAfterLogin = (requirePasswordReset: boolean, isSuperAdmin: boolean) => {

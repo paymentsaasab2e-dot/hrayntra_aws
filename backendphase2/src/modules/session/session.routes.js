@@ -11,5 +11,7 @@ router.post('/approve-session-transfer', authMiddleware, sessionController.appro
 router.post('/reject-session-transfer', authMiddleware, sessionController.rejectTransfer);
 router.get('/session/transfer/:requestId', sessionController.transferStatus);
 router.post('/complete-session-transfer', sessionController.completeTransfer);
+router.get('/session/transfer/email/approve', sessionController.emailApproveTransfer);
+router.get('/session/transfer/email/reject', sessionController.emailRejectTransfer);
 
 export default router;

@@ -354,6 +354,23 @@ async function appendOrgStatusOption(key, defaults, status, label = 'Status') {
   return getMergedStatusOptions(key, defaults);
 }
 
+async function removeOrgStatusOption(key, defaults, status, label = 'Status') {
+  const normalized = normalizeStatusLabel(status);
+  if (!normalized) throw new Error(`${label} name is required`);
+  if (defaults.some((item) => item.toLowerCase() === normalized.toLowerCase())) {
+    throw new Error(`${label} is a default option and cannot be deleted`);
+  }
+
+  const existingCustom = await getOrgCustomStatusOptions(key);
+  const nextCustom = existingCustom.filter((item) => item.toLowerCase() !== normalized.toLowerCase());
+  if (nextCustom.length === existingCustom.length) {
+    return getMergedStatusOptions(key, defaults);
+  }
+
+  await upsertOrgSettingJson(key, { statuses: nextCustom });
+  return getMergedStatusOptions(key, defaults);
+}
+
 export async function getOrgCustomLeadStatusOptions() {
   return getOrgCustomStatusOptions(KEY_LEAD_STATUS_OPTIONS);
 }
@@ -370,6 +387,10 @@ export async function appendLeadStatusOption(status) {
   return appendOrgStatusOption(KEY_LEAD_STATUS_OPTIONS, DEFAULT_LEAD_STATUS_OPTIONS, status, 'Lead status');
 }
 
+export async function removeLeadStatusOption(status) {
+  return removeOrgStatusOption(KEY_LEAD_STATUS_OPTIONS, DEFAULT_LEAD_STATUS_OPTIONS, status, 'Lead status');
+}
+
 export async function getOrgCustomClientLeadStatusOptions() {
   return getOrgCustomStatusOptions(KEY_CLIENT_LEAD_STATUS_OPTIONS);
 }
@@ -384,6 +405,15 @@ export async function setClientLeadStatusOptions(statuses) {
 
 export async function appendClientLeadStatusOption(status) {
   return appendOrgStatusOption(
+    KEY_CLIENT_LEAD_STATUS_OPTIONS,
+    DEFAULT_CLIENT_LEAD_STATUS_OPTIONS,
+    status,
+    'Client status',
+  );
+}
+
+export async function removeClientLeadStatusOption(status) {
+  return removeOrgStatusOption(
     KEY_CLIENT_LEAD_STATUS_OPTIONS,
     DEFAULT_CLIENT_LEAD_STATUS_OPTIONS,
     status,

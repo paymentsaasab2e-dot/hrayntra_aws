@@ -14,6 +14,15 @@ const leadStatusColors: Record<string, string> = {
   Lost: 'bg-slate-500/10 text-slate-700 ring-1 ring-slate-400/25',
 };
 
+function mergeStatusOptionsForRow(options: string[], current?: string | null) {
+  const normalized = String(current || '').trim();
+  if (!normalized) return options;
+  if (options.some((option) => option.toLowerCase() === normalized.toLowerCase())) {
+    return options;
+  }
+  return [...options, normalized];
+}
+
 interface ClientTableProps {
   clients: Client[];
   dynamicColumnLabels?: string[];
@@ -27,6 +36,17 @@ interface ClientTableProps {
   onCreateJob?: (client: Client) => void;
   /** When false, the "Create job" button is rendered disabled with a permission tooltip. */
   canCreateJob?: boolean;
+  /** Lead-style status options (defaults + org catalog). */
+  clientLeadStatusOptions?: string[];
+  /** When true, lead status is editable inline in the table. */
+  canUpdateLeadStatus?: boolean;
+  onLeadStatusChange?: (clientId: string, newStatus: string) => void;
+  /** Inline status change with optional remark (matches Leads table). */
+  statusEditClientId?: string | null;
+  statusEditRemark?: string;
+  onStatusEditRemarkChange?: (remark: string) => void;
+  onSaveStatusEdit?: () => void;
+  onCancelStatusEdit?: () => void;
   clientNameSortOrder: 'asc' | 'desc';
   onToggleClientNameSortOrder: () => void;
 }
@@ -57,6 +77,14 @@ export function ClientTable({
   onLogoUpdated,
   onCreateJob,
   canCreateJob = true,
+  clientLeadStatusOptions = [],
+  canUpdateLeadStatus = false,
+  onLeadStatusChange,
+  statusEditClientId = null,
+  statusEditRemark = '',
+  onStatusEditRemarkChange,
+  onSaveStatusEdit,
+  onCancelStatusEdit,
   clientNameSortOrder,
   onToggleClientNameSortOrder,
 }: ClientTableProps) {
@@ -234,8 +262,47 @@ export function ClientTable({
                     </td>
                   );
                 })}
-                <td className="px-3 sm:px-4 py-2">
-                  {client.leadStatus ? (
+                <td className="px-3 sm:px-4 py-2" onClick={(e) => e.stopPropagation()}>
+                  {canUpdateLeadStatus && onLeadStatusChange ? (
+                    <div className="flex flex-col gap-1.5">
+                      <select
+                        className="max-w-[10rem] cursor-pointer rounded-full border-0 bg-slate-100/80 px-2 py-1 text-[11px] font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200/90 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                        value={client.leadStatus || 'New'}
+                        onChange={(e) => onLeadStatusChange(client.id, e.target.value)}
+                      >
+                        {mergeStatusOptionsForRow(clientLeadStatusOptions, client.leadStatus).map((status) => (
+                          <option key={status} value={status}>
+                            {status}
+                          </option>
+                        ))}
+                      </select>
+                      {statusEditClientId === client.id && onSaveStatusEdit && onCancelStatusEdit ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            placeholder="Add remark for this status change"
+                            className="flex-1 rounded-md border border-slate-300 px-2 py-1 text-xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            value={statusEditRemark}
+                            onChange={(e) => onStatusEditRemarkChange?.(e.target.value)}
+                          />
+                          <button
+                            type="button"
+                            className="rounded-md bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700"
+                            onClick={onSaveStatusEdit}
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200"
+                            onClick={onCancelStatusEdit}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : client.leadStatus ? (
                     <span
                       className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${
                         leadStatusColors[client.leadStatus] ?? 'bg-indigo-500/10 text-indigo-800 ring-1 ring-indigo-500/20'

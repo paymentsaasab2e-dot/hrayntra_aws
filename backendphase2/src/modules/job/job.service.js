@@ -7,7 +7,7 @@ import {
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
 import { dbLogger } from '../../utils/db-logger.js';
 import activityService from '../../services/activityService.js';
-import { sendJobAssignmentEmail } from '../../services/emailService.js';
+import { sendJobAssignmentEmail, sendJobClosedEmail } from '../../services/emailService.js';
 import { buildSuperAdminOwnerScope, mergeWhereWithScope } from '../../utils/superAdminScope.js';
 import { canViewAllAssignments } from '../../utils/permissionScope.js';
 import {
@@ -1191,6 +1191,26 @@ export const jobService = {
         await this.notifyAssignment(updatedJob, data.performedById);
       }
 
+      const nextStatus = String(updatedJob.status || '').toUpperCase();
+      const prevStatus = String(currentJob.status || '').toUpperCase();
+      if (
+        ['CLOSED', 'FILLED'].includes(nextStatus) &&
+        nextStatus !== prevStatus &&
+        updatedJob?.assignedTo?.email
+      ) {
+        try {
+          await sendJobClosedEmail({
+            toEmail: updatedJob.assignedTo.email,
+            recipientName: updatedJob.assignedTo.name,
+            jobTitle: updatedJob.title,
+            status: nextStatus,
+            senderUserId: data.performedById,
+          });
+        } catch (emailErr) {
+          console.warn('[job.update] job closed email failed:', emailErr?.message || emailErr);
+        }
+      }
+
       try {
         await syncJobToJobPortalDb(updatedJob, data);
       } catch (syncError) {
@@ -1354,6 +1374,26 @@ export const jobService = {
       data.assignedToId !== currentJob.assignedToId
     ) {
       await this.notifyAssignment(updated, data.performedById);
+    }
+
+    const nextStatus = String(updated.status || '').toUpperCase();
+    const prevStatus = String(currentJob.status || '').toUpperCase();
+    if (
+      ['CLOSED', 'FILLED'].includes(nextStatus) &&
+      nextStatus !== prevStatus &&
+      updated?.assignedTo?.email
+    ) {
+      try {
+        await sendJobClosedEmail({
+          toEmail: updated.assignedTo.email,
+          recipientName: updated.assignedTo.name,
+          jobTitle: updated.title,
+          status: nextStatus,
+          senderUserId: data.performedById,
+        });
+      } catch (emailErr) {
+        console.warn('[job.update] job closed email failed:', emailErr?.message || emailErr);
+      }
     }
 
     try {

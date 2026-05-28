@@ -18,10 +18,21 @@ export const settingService = {
   },
 
   async getByKey(userId, key, scope) {
+    if (!userId) {
+      return prisma.setting.findFirst({
+        where: {
+          userId: null,
+          key,
+          scope: scope || 'USER',
+        },
+        orderBy: { updatedAt: 'desc' },
+      });
+    }
+
     return prisma.setting.findUnique({
       where: {
         userId_key_scope: {
-          userId: userId || null,
+          userId,
           key,
           scope: scope || 'USER',
         },

@@ -599,12 +599,28 @@ export async function apiAppendLeadStatus(status: string) {
   });
 }
 
+export async function apiRemoveLeadStatus(status: string) {
+  return apiFetch<StatusCatalogResponse>('/settings/org/lead-statuses/remove', {
+    method: 'POST',
+    auth: true,
+    body: { status },
+  });
+}
+
 export async function apiGetClientLeadStatusCatalog() {
   return apiFetch<StatusCatalogResponse>('/settings/org/client-lead-statuses', { auth: true });
 }
 
 export async function apiAppendClientLeadStatus(status: string) {
   return apiFetch<StatusCatalogResponse>('/settings/org/client-lead-statuses/append', {
+    method: 'POST',
+    auth: true,
+    body: { status },
+  });
+}
+
+export async function apiRemoveClientLeadStatus(status: string) {
+  return apiFetch<StatusCatalogResponse>('/settings/org/client-lead-statuses/remove', {
     method: 'POST',
     auth: true,
     body: { status },

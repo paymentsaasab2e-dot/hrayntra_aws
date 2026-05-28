@@ -15,7 +15,9 @@ import { dbLogger } from '../../utils/db-logger.js';
 import { generateMeetingLink } from '../../services/meetingService.js';
 import {
   sendCandidateAssignmentEmail,
+  sendCandidateHiredEmail,
   sendCandidateInterviewScheduledEmail,
+  sendCandidateRejectedEmail,
   sendInterviewPanelScheduledEmail,
 } from '../../services/emailService.js';
 import { buildSuperAdminOwnerScope, isSuperAdminUser } from '../../utils/superAdminScope.js';
@@ -2904,6 +2906,9 @@ export const candidateService = {
     const job = await prisma.job.findUnique({
       where: { id: jobId },
       include: {
+        client: {
+          select: { companyName: true },
+        },
         pipelineStages: {
           orderBy: { order: 'asc' },
         },
@@ -3061,6 +3066,23 @@ export const candidateService = {
         '[candidate.addToPipeline] candidate stage sync failed:',
         stageError?.message || stageError,
       );
+    }
+
+    if (
+      stageName.toLowerCase() === 'hired' &&
+      candidate.email
+    ) {
+      try {
+        await sendCandidateHiredEmail({
+          toEmail: candidate.email,
+          candidateName: `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim(),
+          jobTitle: job.title,
+          companyName: job.client?.companyName || null,
+          senderUserId: userId,
+        });
+      } catch (emailErr) {
+        console.warn('[candidate.addToPipeline] hired email failed:', emailErr?.message || emailErr);
+      }
     }
 
     return this.getById(candidateId);
@@ -3282,6 +3304,27 @@ export const candidateService = {
         '[candidate.rejectCandidate] notification failed (non-fatal):',
         bellErr?.message || bellErr
       );
+    }
+
+    if (Boolean(data?.sendEmail) && candidate.email) {
+      try {
+        const job = jobId
+          ? await prisma.job.findUnique({
+              where: { id: jobId },
+              select: { title: true },
+            })
+          : null;
+        await sendCandidateRejectedEmail({
+          toEmail: candidate.email,
+          candidateName: `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim(),
+          jobTitle: job?.title || null,
+          reason,
+          feedback: showFeedbackToCandidate ? feedback : '',
+          senderUserId: userId,
+        });
+      } catch (emailErr) {
+        console.warn('[candidate.rejectCandidate] rejection email failed:', emailErr?.message || emailErr);
+      }
     }
 
     return this.getById(candidateId);

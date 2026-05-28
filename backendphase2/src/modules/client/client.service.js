@@ -2,7 +2,10 @@ import { prisma, getActiveTenantDbName, getJobPortalPrismaClient } from '../../c
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
 import { dbLogger } from '../../utils/db-logger.js';
 import activityService from '../../services/activityService.js';
-import { sendClientAssignmentEmail } from '../../services/emailService.js';
+import {
+  sendClientAssignmentEmail,
+  sendClientFollowUpReminderEmail,
+} from '../../services/emailService.js';
 import { normalizeContactChannels } from '../../utils/contact-channels.js';
 import { buildSuperAdminOwnerScope, mergeWhereWithScope } from '../../utils/superAdminScope.js';
 import { canViewAllClients } from '../../utils/permissionScope.js';
@@ -553,6 +556,21 @@ export const clientService = {
     }
   },
 
+  async notifyFollowUpReminder(client, performedById) {
+    if (!client?.assignedTo?.email || !client?.nextFollowUpDue) return;
+    try {
+      await sendClientFollowUpReminderEmail({
+        toEmail: client.assignedTo.email,
+        recipientName: client.assignedTo.name,
+        clientCompanyName: client.companyName,
+        followUpDueDate: client.nextFollowUpDue,
+        senderUserId: performedById,
+      });
+    } catch (emailError) {
+      console.error('Failed to send client follow-up reminder email:', emailError);
+    }
+  },
+
   async create(data) {
     // Handle hiringLocations - convert array to string or set to null
     let hiringLocationsValue = null;
@@ -852,6 +870,16 @@ export const clientService = {
       data.assignedToId !== currentClient.assignedToId
     ) {
       await this.notifyAssignment(updated, data.performedById);
+    }
+
+    const prevFollowUp = currentClient.nextFollowUpDue
+      ? new Date(currentClient.nextFollowUpDue).getTime()
+      : null;
+    const nextFollowUp = updated.nextFollowUpDue
+      ? new Date(updated.nextFollowUpDue).getTime()
+      : null;
+    if (!data.skipSideEffects && nextFollowUp && nextFollowUp !== prevFollowUp) {
+      await this.notifyFollowUpReminder(updated, data.performedById);
     }
 
     await mirrorClientRowToJobPortalDb(updated);

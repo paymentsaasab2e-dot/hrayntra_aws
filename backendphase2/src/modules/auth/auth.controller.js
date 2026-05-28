@@ -56,6 +56,10 @@ export const authController = {
       const token = String(req.query?.token || '').replace(/^Bearer\s+/i, '').trim();
       const sessionId = String(req.query?.sessionId || '').trim();
       const tenantDbName = String(req.query?.tenantDbName || '').trim();
+      const finalize =
+        req.query?.finalize === '1' ||
+        req.query?.finalize === 'true' ||
+        req.query?.finalize === 'yes';
       if (!token || !sessionId) return res.status(204).end();
 
       let payload = verifyToken(token);
@@ -65,7 +69,11 @@ export const authController = {
       if (!payload?.userId) return res.status(204).end();
 
       await runWithTenantContext(tenantDbName || payload?.tenantDbName || '', async () => {
-        await sessionService.markSessionCloseIntent(String(payload.userId), sessionId);
+        if (finalize) {
+          await sessionService.finalizeBrowserLogout(String(payload.userId), sessionId);
+        } else {
+          await sessionService.markSessionCloseIntent(String(payload.userId), sessionId);
+        }
       });
 
       return res.status(204).end();

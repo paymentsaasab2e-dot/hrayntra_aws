@@ -11,6 +11,7 @@ import {
   getStoredSessionId,
   type ActiveSessionView,
 } from '@/lib/sessionAuth';
+import { registerAppTab, unregisterAppTab } from '@/lib/tabSessionCoordinator';
 import { buildApiUrl, buildSocketBaseUrl, getAccessToken, getTenantDbName } from '@/lib/api';
 import {
   InactivityWarningModal,
@@ -51,6 +52,12 @@ export default function ActiveSessionManager() {
     },
     [router],
   );
+
+  useEffect(() => {
+    if (isAuthRoute || typeof window === 'undefined') return;
+    if (!getAccessToken()) return;
+    registerAppTab();
+  }, [isAuthRoute, pathname]);
 
   useEffect(() => {
     if (isAuthRoute || typeof window === 'undefined') return;
@@ -99,26 +106,37 @@ export default function ActiveSessionManager() {
   useEffect(() => {
     if (isAuthRoute || typeof window === 'undefined') return;
 
-    const handleBeforeUnload = () => {
+    const sendBrowserCloseBeacon = () => {
       const token = getAccessToken();
       const sessionId = getStoredSessionId();
       if (!token || !sessionId) return;
+
+      const isLastTab = unregisterAppTab();
+      if (!isLastTab) return;
+
       const tenantDbName = getTenantDbName() || '';
       const url = buildApiUrl(
-        `/auth/logout-beacon?token=${encodeURIComponent(token)}&sessionId=${encodeURIComponent(sessionId)}&tenantDbName=${encodeURIComponent(tenantDbName)}`,
+        `/auth/logout-beacon?finalize=1&token=${encodeURIComponent(token)}&sessionId=${encodeURIComponent(sessionId)}&tenantDbName=${encodeURIComponent(tenantDbName)}`,
       );
 
       try {
-        // keepalive request lets browser finish logout while tab closes.
-        void fetch(url, { method: 'GET', keepalive: true, mode: 'no-cors' });
+        clearAuthStorage();
+        void fetch(url, { method: 'GET', keepalive: true, credentials: 'include' });
       } catch {
         /* best effort only */
       }
     };
 
-    window.addEventListener('beforeunload', handleBeforeUnload);
+    const handlePageHide = (event: PageTransitionEvent) => {
+      if (event.persisted) return;
+      sendBrowserCloseBeacon();
+    };
+
+    window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('beforeunload', sendBrowserCloseBeacon);
     return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('beforeunload', sendBrowserCloseBeacon);
     };
   }, [isAuthRoute]);
 

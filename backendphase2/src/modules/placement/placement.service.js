@@ -1,6 +1,7 @@
 import { prisma } from '../../config/prisma.js';
 import { getCandidateOrThrow } from '../candidate/candidate.service.js';
 import { sendPlacementEmail } from '../../emails/email.service.js';
+import { sendOfferReleasedEmail } from '../../services/emailService.js';
 import {
   PIPELINE_STAGES,
   syncApplicationOfferLetter,
@@ -688,6 +689,14 @@ export const placementService = {
         joiningDate || offerDate,
         client.companyName
       );
+      await sendOfferReleasedEmail({
+        toEmail: candidate.email,
+        candidateName: `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim(),
+        jobTitle: job.title,
+        companyName: client.companyName,
+        offerDate: offerDate || joiningDate,
+        senderUserId: userId,
+      });
     }
 
     await updateCandidateStage({

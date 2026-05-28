@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { BellRing, Mail, Plus, Trash2 } from 'lucide-react';
+import { BellRing, Mail, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   apiGetNotificationTriggerSettings,
@@ -159,7 +159,6 @@ export function NotificationTriggerSettings() {
   const [saving, setSaving] = useState(false);
   const [activeStates, setActiveStates] = useState<Record<string, boolean>>(DEFAULT_ACTIVE_STATE);
   const [additional, setAdditional] = useState<Array<{ id: string; label: string; enabled: boolean }>>([]);
-  const [newAdditional, setNewAdditional] = useState('');
 
   const enabledAdditional = useMemo(
     () => additional.filter((item) => item.enabled),
@@ -238,25 +237,6 @@ export function NotificationTriggerSettings() {
   const updateAdditional = (nextAdditional: Array<{ id: string; label: string; enabled: boolean }>) => {
     setAdditional(nextAdditional);
     void persist({ ...payload, additional: nextAdditional });
-  };
-
-  const addAdditionalTrigger = () => {
-    const label = newAdditional.trim();
-    if (!label) return;
-    if (additional.some((item) => item.label.toLowerCase() === label.toLowerCase())) {
-      toast.warning('This trigger is already added.');
-      return;
-    }
-    const next = [
-      ...additional,
-      {
-        id: `custom_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
-        label,
-        enabled: true,
-      },
-    ];
-    setNewAdditional('');
-    updateAdditional(next);
   };
 
   const enableSuggestedTrigger = (trigger: TriggerDefinition) => {
@@ -373,27 +353,7 @@ export function NotificationTriggerSettings() {
           )}
         </div>
 
-        <div className="mb-4 flex flex-col gap-2 sm:flex-row">
-          <input
-            type="text"
-            value={newAdditional}
-            onChange={(e) => setNewAdditional(e.target.value)}
-            placeholder="e.g. Candidate moved to final round"
-            className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-          />
-          <button
-            type="button"
-            onClick={addAdditionalTrigger}
-            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
-          >
-            <Plus className="h-4 w-4" />
-            Add Trigger
-          </button>
-        </div>
-
-        {additional.filter((item) => !item.enabled).length === 0 ? (
-          <p className="text-xs text-slate-500">No inactive additional triggers.</p>
-        ) : (
+        {additional.filter((item) => !item.enabled).length > 0 && (
           <div className="space-y-3">
             {additional
               .filter((item) => !item.enabled)

@@ -72,12 +72,16 @@ export async function apiRequestSessionTransfer(body: {
   deviceId?: string;
   userAgent?: string;
 }) {
+  const tenantDbName = getTenantDbName();
   return apiFetch<{ requestId: string; status: string; expiresAt: string }>(
     '/auth/request-session-transfer',
     {
       method: 'POST',
-      body,
-      includeTenantHeader: !!getTenantDbName(),
+      body: {
+        ...body,
+        tenantDbName: tenantDbName || undefined,
+      },
+      includeTenantHeader: !!tenantDbName,
     },
   );
 }
@@ -120,7 +124,10 @@ export async function apiCompleteSessionTransfer(body: {
     tenantDbName?: string;
   }>('/auth/complete-session-transfer', {
     method: 'POST',
-    body,
+    body: {
+      ...body,
+      tenantDbName: getTenantDbName() || undefined,
+    },
     includeTenantHeader: !!getTenantDbName(),
   });
 }
