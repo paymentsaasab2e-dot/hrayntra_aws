@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { SettingsSidebar } from '../../components/SettingsSidebar';
 import { CommunicationSettings } from '../../components/settings/CommunicationSettings';
+import { NotificationTriggerSettings } from '../../components/settings/NotificationTriggerSettings';
 import { RecruitmentWorkflowSettings } from '../../components/settings/RecruitmentWorkflowSettings';
 import { BillingSettings } from '../../components/BillingSettings';
 import { SecuritySettings } from '../../components/SecuritySettings';
@@ -28,6 +29,8 @@ export default function SettingsPage() {
           return true;
         case 'communication':
           return hasAnyPermission(['manage_settings', 'access_integrations']);
+        case 'notifications-triggers':
+          return hasAnyPermission(['manage_settings']);
         case 'recruitment':
         case 'security':
           return hasAnyPermission(['manage_settings']);
@@ -51,7 +54,15 @@ export default function SettingsPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const section = new URLSearchParams(window.location.search).get('section');
-    const allowedSections = ['profile', 'communication', 'recruitment', 'billing', 'security', 'customization'];
+    const allowedSections = [
+      'profile',
+      'communication',
+      'notifications-triggers',
+      'recruitment',
+      'billing',
+      'security',
+      'customization',
+    ];
     if (section && allowedSections.includes(section)) {
       setActiveSection(section);
     }
@@ -72,6 +83,8 @@ export default function SettingsPage() {
         return <ProfileSettings />;
       case 'communication':
         return <CommunicationSettings />;
+      case 'notifications-triggers':
+        return <NotificationTriggerSettings />;
       case 'recruitment':
         return <RecruitmentWorkflowSettings />;
       case 'billing':

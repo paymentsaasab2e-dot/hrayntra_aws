@@ -10,6 +10,7 @@ import {
   User as UserIcon,
   LifeBuoy,
   GitBranch,
+  BellRing,
 } from 'lucide-react';
 import { usePermissions } from '../hooks/usePermissions';
 
@@ -36,6 +37,12 @@ const baseSettingsNav: SettingsNavItem[] = [
     label: 'Communication & Integrations',
     icon: Share2,
     anyPermissions: ['manage_settings', 'access_integrations'],
+  },
+  {
+    id: 'notifications-triggers',
+    label: 'Notifications Trigger Points',
+    icon: BellRing,
+    anyPermissions: ['manage_settings'],
   },
   {
     id: 'recruitment',
