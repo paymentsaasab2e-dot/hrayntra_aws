@@ -234,7 +234,7 @@ function describePassMissing(passNum, sig) {
   return [];
 }
 
-function linesForPdfPassNarrative(passNum, title, text, settled) {
+function linesForPdfPassNarrative(passNum, title, text, settled, jobDocumentMode = false) {
   const lines = [title];
   if (settled?.status === 'rejected') {
     lines.push(`Status: ❌ FAILED — ${settled.reason?.message || settled.reason}`);
@@ -245,9 +245,22 @@ function linesForPdfPassNarrative(passNum, title, text, settled) {
   lines.push(`len=${sig.len} score=${sc}`);
 
   if (passNum === 1) {
+    if (jobDocumentMode) {
+      const missing = [];
+      if (!/\b(role|job title|position)\s*:/i.test(text)) missing.push('role/title');
+      if (!/\b(company|client|employer)\s*:/i.test(text)) missing.push('company');
+      if (!/\blocation\s*:/i.test(text)) missing.push('location');
+      if (missing.length) lines.push(`Missing: ${missing.join(', ')}`);
+      else lines.push('Missing: (none)');
+      return lines;
+    }
     const missing = describePassMissing(1, sig);
     if (missing.length) lines.push(`Missing: ${missing.join('; ')}`);
     else lines.push('Missing: (none)');
+    return lines;
+  }
+
+  if (jobDocumentMode) {
     return lines;
   }
 
@@ -1896,12 +1909,22 @@ ${capped}
     const usedMistral =
       modelName.includes('mistral') ||
       (!modelName.includes('gpt') && !modelName.includes('o1') && !modelName.includes('o3'));
+    const provider = String(completion?._provider || (usedMistral ? 'mistral' : 'openai')).toLowerCase();
+    const providerModel = String(
+      completion?._providerModel ||
+        completion?.model ||
+        (provider === 'mistral' ? env.MISTRAL_CHAT_MODEL : env.OPENAI_CHAT_MODEL)
+    ).trim();
+    const apiUsedLabel =
+      provider === 'mistral'
+        ? `Mistral API key (${providerModel || env.MISTRAL_CHAT_MODEL})`
+        : `OpenAI API key (${providerModel || env.OPENAI_CHAT_MODEL})`;
     const tokenUsage = extractCompletionTokenUsage(completion, usedMistral);
     const content = completion.choices?.[0]?.message?.content || '{}';
     const parsed = safeJsonParse(content);
     logNarrative([
       `Billable tokens (${tokenUsage.provider}) — input: ${tokenUsage.inputTokens}, output: ${tokenUsage.outputTokens}, total: ${tokenUsage.totalTokens}`,
-      `API key used: OpenAI API key (${env.OPENAI_CHAT_MODEL})`,
+      `API key used: ${apiUsedLabel}`,
     ]);
     return {
       parsed: parsed || null,
@@ -1909,10 +1932,14 @@ ${capped}
         skipped: false,
         ms,
         model: completion?.model || 'n/a',
+        provider,
+        providerModel,
         usedMistral,
         validJson: Boolean(parsed),
         circuitWasOpen: circuitBefore.circuitOpen,
         charsSent: cleanedText.length,
+        openAiErrorStatus: completion?._openAiErrorStatus ?? null,
+        openAiErrorMessage: completion?._openAiErrorMessage || '',
         ...tokenUsage,
       },
     };
@@ -1984,6 +2011,7 @@ function buildCvParseApiSummary(aiMeta = {}) {
   const circuitWasOpen = Boolean(aiMeta.circuitWasOpen);
   const reason = aiMeta.reason;
   const chatModel = env.OPENAI_CHAT_MODEL;
+  const providerHint = String(aiMeta.provider || '').trim().toLowerCase();
 
   let provider = 'system';
   let apiUsedLabel = 'System (regex fallback)';
@@ -1997,7 +2025,7 @@ function buildCvParseApiSummary(aiMeta = {}) {
     provider = 'none';
     apiUsedLabel = 'System (regex only — no API keys)';
     parseChain = 'No OpenAI/Mistral keys — System regex ✓';
-  } else if (!skipped && validJson && usedMistral) {
+  } else if (!skipped && validJson && (providerHint === 'mistral' || usedMistral)) {
     provider = 'mistral';
     apiUsedLabel = 'Mistral API key';
     billable = true;
@@ -2007,14 +2035,14 @@ function buildCvParseApiSummary(aiMeta = {}) {
     parseChain = circuitWasOpen
       ? 'OpenAI (circuit open, skipped) → Mistral ✓'
       : 'OpenAI (failed) → Mistral ✓';
-  } else if (!skipped && validJson && !usedMistral) {
+  } else if (!skipped && validJson && providerHint === 'openai') {
     provider = 'openai';
-    apiUsedLabel = `OpenAI API key (${chatModel})`;
+    apiUsedLabel = `OpenAI API key (${String(aiMeta.providerModel || chatModel).trim() || chatModel})`;
     billable = true;
     inputTokens = Number(aiMeta.inputTokens) || 0;
     outputTokens = Number(aiMeta.outputTokens) || 0;
     totalTokens = Number(aiMeta.totalTokens) || 0;
-    parseChain = `OpenAI ${chatModel} ✓`;
+    parseChain = `OpenAI ${String(aiMeta.providerModel || chatModel).trim() || chatModel} ✓`;
   } else if (skipped && reason === 'ai_error') {
     provider = 'system';
     apiUsedLabel = 'System (regex fallback)';
@@ -2246,8 +2274,13 @@ function normalizeResumeExtraction(merged = {}, fallback = {}, extras = {}) {
 /**
  * Stages 1–4 only: file validation, text extraction, clean, regex fallback (no AI / no uploads).
  * Used by bulk CV duplicate gate so we never call the LLM until the user resolves a duplicate.
+ * @param {import('multer').File} file
+ * @param {{ skipCandidateRegex?: boolean, skipProfilePhoto?: boolean, logTag?: string }} [options]
+ *   skipCandidateRegex — stages 1–3 only (for jobcreation pipeline; no candidate email/name regex).
  */
-export async function runCvPipelineThroughStage4(file) {
+export async function runCvPipelineThroughStage4(file, options = {}) {
+  const { skipCandidateRegex = false, skipProfilePhoto = false, logTag = '' } = options;
+  const tag = logTag ? `[${logTag}] ` : '';
   const displayName = file.originalname || file.filename || 'upload';
   const sizeBytes =
     file?.path && fs.existsSync(file.path) ? fs.statSync(file.path).size : Number(file?.size || 0);
@@ -2255,7 +2288,7 @@ export async function runCvPipelineThroughStage4(file) {
   const mime = file.mimetype || 'unknown';
   const ext = path.extname(displayName).toLowerCase();
 
-  logStageBanner(1, 'File Validation');
+  logStageBanner(1, `${tag}File Validation`);
   logNarrative([
     `File: ${displayName}`,
     `Size: ${sizeKb} KB`,
@@ -2277,7 +2310,7 @@ export async function runCvPipelineThroughStage4(file) {
 
   let combinedRaw = '';
   if (mime === 'application/pdf' || ext === '.pdf') {
-    logStageBanner(2, 'Text Extraction Engine (All 4 Passes)');
+    logStageBanner(2, `${tag}Text Extraction Engine (All 4 Passes)`);
     async function settlePass(fn) {
       try {
         return { status: 'fulfilled', value: await fn() };
@@ -2296,19 +2329,21 @@ export async function runCvPipelineThroughStage4(file) {
       (async () => {
         const s2 = await settlePass(() => pdfPass2RawItemDump(buffer));
         const s3 = await settlePass(() => pdfPass3PositionSorted(buffer));
-        try {
-          extractedProfilePhoto = await extractCvProfilePhotoFromPdfBuffer(buffer);
-          logNarrative([
-            '',
-            extractedProfilePhoto?.buffer?.length
-              ? `Embedded profile image: ✅ extracted (${extractedProfilePhoto.filename}, ${(
-                  extractedProfilePhoto.buffer.length / 1024
-                ).toFixed(1)} KB)`
-              : 'Embedded profile image: ⚪ none (no suitable embedded raster on page 1)',
-          ]);
-        } catch (photoErr) {
-          extractedProfilePhoto = null;
-          logNarrative(['', `Embedded profile image: ❌ failed — ${photoErr?.message || photoErr}`]);
+        if (!skipProfilePhoto) {
+          try {
+            extractedProfilePhoto = await extractCvProfilePhotoFromPdfBuffer(buffer);
+            logNarrative([
+              '',
+              extractedProfilePhoto?.buffer?.length
+                ? `Embedded profile image: ✅ extracted (${extractedProfilePhoto.filename}, ${(
+                    extractedProfilePhoto.buffer.length / 1024
+                  ).toFixed(1)} KB)`
+                : 'Embedded profile image: ⚪ none (no suitable embedded raster on page 1)',
+            ]);
+          } catch (photoErr) {
+            extractedProfilePhoto = null;
+            logNarrative(['', `Embedded profile image: ❌ failed — ${photoErr?.message || photoErr}`]);
+          }
         }
         return { s2, s3 };
       })(),
@@ -2328,7 +2363,7 @@ export async function runCvPipelineThroughStage4(file) {
     ];
     const texts = [text1, text2, text3, text4];
     for (let i = 0; i < 4; i += 1) {
-      logNarrative(linesForPdfPassNarrative(i + 1, passTitles[i], texts[i], settled[i]));
+      logNarrative(linesForPdfPassNarrative(i + 1, passTitles[i], texts[i], settled[i], skipCandidateRegex));
       logNarrative(['']);
     }
 
@@ -2342,15 +2377,24 @@ export async function runCvPipelineThroughStage4(file) {
       logNarrative([`Pass ${p.order}: len=${String(p.text || '').length}  score=${p.score}  ${hint}`]);
     });
     logNarrative(['']);
-    const emailInCombined = RX_EMAIL_IN_TEXT.test(combinedRaw);
-    const phoneInCombined = RX_PHONE_LOOSE.test(combinedRaw);
-    logNarrative([
-      `Combined text block length: ~${combinedRaw.length} chars`,
-      `Email found in combined text: ${emailInCombined ? '✅ YES' : '❌ NO'}`,
-      `Phone found in combined text: ${phoneInCombined ? '✅ YES' : '❌ NO'}`,
-    ]);
+    if (skipCandidateRegex) {
+      logNarrative([
+        `Combined text block length: ~${combinedRaw.length} chars`,
+        `Role/Job title line: ${/\b(role|job title|position)\s*:/i.test(combinedRaw) ? '✅ YES' : '❌ NO'}`,
+        `Company line: ${/\b(company|client|employer)\s*:/i.test(combinedRaw) ? '✅ YES' : '❌ NO'}`,
+        `Location line: ${/\blocation\s*:/i.test(combinedRaw) ? '✅ YES' : '❌ NO'}`,
+      ]);
+    } else {
+      const emailInCombined = RX_EMAIL_IN_TEXT.test(combinedRaw);
+      const phoneInCombined = RX_PHONE_LOOSE.test(combinedRaw);
+      logNarrative([
+        `Combined text block length: ~${combinedRaw.length} chars`,
+        `Email found in combined text: ${emailInCombined ? '✅ YES' : '❌ NO'}`,
+        `Phone found in combined text: ${phoneInCombined ? '✅ YES' : '❌ NO'}`,
+      ]);
+    }
   } else {
-    logStageBanner(2, 'Text Extraction Engine');
+    logStageBanner(2, `${tag}Text Extraction Engine`);
     if (
       mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
       ext === '.docx'
@@ -2380,7 +2424,7 @@ export async function runCvPipelineThroughStage4(file) {
   const dupStats = dedupeConsecutiveLinesMaxTwiceWithStats(afterCleanOnly);
   const cleaned = preprocessResumeTextForParsing(dupStats.text);
 
-  logStageBanner(3, 'Clean + Deduplicate');
+  logStageBanner(3, `${tag}Clean + Deduplicate`);
   logNarrative([
     `Input length:  ${combinedRaw.length} chars`,
     `After cleaning: ${cleaned.length} chars`,
@@ -2392,46 +2436,50 @@ export async function runCvPipelineThroughStage4(file) {
     cleaned.slice(0, 500).replace(/\n/g, '↵'),
   ]);
 
-  logStageBanner(4, 'Regex Safety Net');
-  const fallbackData = extractRegexFallbackData(cleaned, displayName);
-  const hints = regexHintsForLogs(cleaned, fallbackData);
-  const fullName = `${fallbackData.firstName} ${fallbackData.lastName}`.trim();
-  const skillSample = (fallbackData.skills || []).slice(0, 12).join(', ');
-  logNarrative([
-    fallbackData.email
-      ? `✅ Email found:    ${fallbackData.email}`
-      : '❌ Email:       not found',
-    ...(fallbackData.email && hints.emailHow ? [`                   ${hints.emailHow}`] : []),
-    '',
-    fallbackData.phone
-      ? `✅ Phone found:    ${fallbackData.phone}`
-      : '❌ Phone:       not found',
-    ...(fallbackData.phone && hints.phoneHow ? [`                   ${hints.phoneHow}`] : []),
-    '',
-    fullName
-      ? `✅ Name found:     ${fullName}`
-      : '❌ Name:        not found',
-    ...(fullName && hints.nameHow ? [`                   ${hints.nameHow}`] : []),
-    '',
-    fallbackData.location
-      ? `✅ Location found: ${fallbackData.location}`
-      : '❌ Location:    not found',
-    ...(fallbackData.location && hints.locHow ? [`                   ${hints.locHow}`] : []),
-    '',
-    fallbackData.linkedinUrl ? `✅ LinkedIn:       ${fallbackData.linkedinUrl}` : '❌ LinkedIn:       not found',
-    fallbackData.githubUrl ? `✅ GitHub:         ${fallbackData.githubUrl}` : '❌ GitHub:         not found',
-    '',
-    skillSample ? `✅ Skills found:\n   ${skillSample}` : '❌ Skills:         (no keyword hits)',
-    '',
-    String(fallbackData.educationRaw || '').trim()
-      ? '✅ Education raw block captured'
-      : '❌ Education raw block: not captured',
-    String(fallbackData.experienceRaw || '').trim()
-      ? '✅ Experience raw block captured'
-      : '❌ Experience raw block: not captured',
-    '',
-    'fallbackData saved — will fill any AI nulls',
-  ]);
+  let fallbackData = null;
+  let fullName = '';
+  if (!skipCandidateRegex) {
+    logStageBanner(4, `${tag}Regex Safety Net (candidate fields)`);
+    fallbackData = extractRegexFallbackData(cleaned, displayName);
+    const hints = regexHintsForLogs(cleaned, fallbackData);
+    fullName = `${fallbackData.firstName} ${fallbackData.lastName}`.trim();
+    const skillSample = (fallbackData.skills || []).slice(0, 12).join(', ');
+    logNarrative([
+      fallbackData.email
+        ? `✅ Email found:    ${fallbackData.email}`
+        : '❌ Email:       not found',
+      ...(fallbackData.email && hints.emailHow ? [`                   ${hints.emailHow}`] : []),
+      '',
+      fallbackData.phone
+        ? `✅ Phone found:    ${fallbackData.phone}`
+        : '❌ Phone:       not found',
+      ...(fallbackData.phone && hints.phoneHow ? [`                   ${hints.phoneHow}`] : []),
+      '',
+      fullName
+        ? `✅ Name found:     ${fullName}`
+        : '❌ Name:        not found',
+      ...(fullName && hints.nameHow ? [`                   ${hints.nameHow}`] : []),
+      '',
+      fallbackData.location
+        ? `✅ Location found: ${fallbackData.location}`
+        : '❌ Location:    not found',
+      ...(fallbackData.location && hints.locHow ? [`                   ${hints.locHow}`] : []),
+      '',
+      fallbackData.linkedinUrl ? `✅ LinkedIn:       ${fallbackData.linkedinUrl}` : '❌ LinkedIn:       not found',
+      fallbackData.githubUrl ? `✅ GitHub:         ${fallbackData.githubUrl}` : '❌ GitHub:         not found',
+      '',
+      skillSample ? `✅ Skills found:\n   ${skillSample}` : '❌ Skills:         (no keyword hits)',
+      '',
+      String(fallbackData.educationRaw || '').trim()
+        ? '✅ Education raw block captured'
+        : '❌ Education raw block: not captured',
+      String(fallbackData.experienceRaw || '').trim()
+        ? '✅ Experience raw block captured'
+        : '❌ Experience raw block: not captured',
+      '',
+      'fallbackData saved — will fill any AI nulls',
+    ]);
+  }
 
   return {
     displayName,
@@ -2484,7 +2532,21 @@ export async function finalizeCvPipelineFromStage5(
         ? `${circuitSnap.lastFailureIso} (within 10 min window)`
         : 'never'
     }`,
-    `  Circuit: ${circuitSnap.circuitOpen ? 'OPEN → OpenAI quota cooldown (Mistral fallback when configured)' : 'CLOSED → OpenAI gpt-4.1'}`,
+    `  Circuit: ${
+      circuitSnap.circuitOpen
+        ? 'OPEN → OpenAI quota cooldown (Mistral fallback when configured)'
+        : `CLOSED → OpenAI ${env.OPENAI_CHAT_MODEL}`
+    }`,
+    ...(circuitSnap.lastErrorStatus || circuitSnap.lastErrorMessage
+      ? [
+          `  Last OpenAI error: status=${circuitSnap.lastErrorStatus ?? 'n/a'} ${String(
+            circuitSnap.lastErrorMessage || ''
+          )
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 180)}`,
+        ]
+      : []),
     ...(circuitSnap.circuitOpen
       ? [`  Log: "OpenAI quota cooldown — Mistral fallback when MISTRAL_API_KEY is set"`]
       : ['  Log: (quiet mode — see Provider line after AI run)']),
@@ -2576,6 +2638,14 @@ export async function finalizeCvPipelineFromStage5(
     `AI processing time: ~${aiMeta.ms}ms`,
     `Parse chain:    ${apiSummary.parseChain}`,
     `API key used:   ${apiSummary.apiUsedLabel}`,
+    ...(apiSummary.provider === 'mistral' && (aiMeta.openAiErrorStatus || aiMeta.openAiErrorMessage)
+      ? [
+          `OpenAI attempt:  status=${aiMeta.openAiErrorStatus ?? 'n/a'} ${String(aiMeta.openAiErrorMessage || '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 180)}`,
+        ]
+      : []),
     ...(apiSummary.billable
       ? [
           `Billable tokens — input: ${apiSummary.inputTokens}, output: ${apiSummary.outputTokens}, total: ${apiSummary.totalTokens} (${apiSummary.provider})`,

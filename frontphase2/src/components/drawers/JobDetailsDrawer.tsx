@@ -354,7 +354,7 @@ const TAB_CONFIG = [
   { id: 'interviews' as const, label: 'Interviews', icon: Calendar },
   { id: 'placements' as const, label: 'Placements', icon: UserCheck },
   { id: 'activity' as const, label: 'Activity', icon: Activity },
-  { id: 'notes' as const, label: 'Notes', icon: StickyNote },
+  { id: 'notes' as const, label: 'Remarks', icon: StickyNote },
   { id: 'files' as const, label: 'Files', icon: Paperclip },
 ];
 /** Analytics is only opened via header button, not shown in tab bar */
@@ -1001,14 +1001,8 @@ export function JobDetailsDrawer({
       setApplyUrl(null);
       return;
     }
-    if (job.applyUrl) {
-      setApplyUrl(job.applyUrl);
-      return;
-    }
-    if (!job.applicationFormEnabled) {
-      setApplyUrl(null);
-      return;
-    }
+    const initialUrl = job.applyUrl || null;
+    setApplyUrl(initialUrl);
     let cancelled = false;
     setApplyLinkLoading(true);
     void apiGetJobApplyLink(job.id)
@@ -1018,7 +1012,7 @@ export function JobDetailsDrawer({
         if (!cancelled && url) setApplyUrl(url);
       })
       .catch(() => {
-        if (!cancelled) setApplyUrl(null);
+        if (!cancelled) setApplyUrl(initialUrl);
       })
       .finally(() => {
         if (!cancelled) setApplyLinkLoading(false);
@@ -1026,7 +1020,7 @@ export function JobDetailsDrawer({
     return () => {
       cancelled = true;
     };
-  }, [job?.id, job?.applyUrl, job?.applicationFormEnabled]);
+  }, [job?.id, job?.applyUrl]);
 
   useEffect(() => {
     if (job?.applyUrl) setApplyUrl(job.applyUrl);
@@ -1270,12 +1264,12 @@ export function JobDetailsDrawer({
             </button>
           </div>
 
-          {job?.applicationFormEnabled ? (
+          {job?.id ? (
             <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3">
               <div className="flex flex-wrap items-center gap-2">
                 <Link2 size={16} className="text-emerald-700 shrink-0" />
                 <p className="text-xs font-bold uppercase tracking-wide text-emerald-800">
-                  Public apply link
+                  Candidate apply link
                 </p>
               </div>
               {applyLinkLoading ? (
@@ -1317,7 +1311,7 @@ export function JobDetailsDrawer({
                 </div>
               ) : (
                 <p className="mt-2 text-sm text-slate-600">
-                  Publish this job (status Open) to generate the candidate apply link.
+                  We could not load the candidate apply link yet. Please try again in a moment.
                 </p>
               )}
             </div>
@@ -2073,7 +2067,7 @@ export function JobDetailsDrawer({
                   <NotesService
                     entityType="job"
                     entityId={job.id}
-                    availableTags={['JD', 'Requirements', 'Feedback', 'Hiring', 'Other']}
+                    availableTags={['Calls', 'WhatsApp', 'Emails']}
                     onNoteCreated={() => {
                       // Optionally refresh job data or show notification
                     }}

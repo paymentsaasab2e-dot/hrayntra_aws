@@ -79,7 +79,7 @@ export const jobPublicApplyController = {
     try {
       const token = await jobPublicApplyService.ensureApplyTokenForJob(req.params.jobId);
       if (!token) {
-        return sendError(res, 400, 'Application form is not enabled for this job');
+        return sendError(res, 404, 'Job not found or unavailable');
       }
       const job = await jobPublicApplyService.getJobTenantForApplyLink(req.params.jobId);
       const tenantDbName =

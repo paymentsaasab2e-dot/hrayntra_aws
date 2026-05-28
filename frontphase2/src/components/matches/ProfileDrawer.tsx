@@ -17,7 +17,7 @@ const tabs = [
   { id: 'overview', label: 'Overview' },
   { id: 'resume', label: 'Resume' },
   { id: 'ai', label: 'AI Score' },
-  { id: 'notes', label: 'Notes' },
+  { id: 'notes', label: 'Remarks' },
 ] as const;
 
 export default function ProfileDrawer({
@@ -82,7 +82,7 @@ export default function ProfileDrawer({
     if (!candidate?.id) return;
     const text = noteText.trim();
     if (!text) {
-      window.alert('Please enter a note before saving.');
+      window.alert('Please enter a remark before saving.');
       return;
     }
 
@@ -96,7 +96,7 @@ export default function ProfileDrawer({
       await refreshCandidateData();
       cancelEditNote();
     } catch (error: any) {
-      window.alert(error?.message || 'Failed to save note.');
+      window.alert(error?.message || 'Failed to save remark.');
     } finally {
       setIsSavingNote(false);
     }
@@ -104,7 +104,7 @@ export default function ProfileDrawer({
 
   const handleDeleteNote = async (noteId: string) => {
     if (!candidate?.id) return;
-    if (!window.confirm('Delete this note?')) return;
+    if (!window.confirm('Delete this remark?')) return;
 
     try {
       setIsSavingNote(true);
@@ -112,7 +112,7 @@ export default function ProfileDrawer({
       await refreshCandidateData();
       if (editingNoteId === noteId) cancelEditNote();
     } catch (error: any) {
-      window.alert(error?.message || 'Failed to delete note.');
+      window.alert(error?.message || 'Failed to delete remark.');
     } finally {
       setIsSavingNote(false);
     }
@@ -238,14 +238,14 @@ export default function ProfileDrawer({
                 <div className="space-y-4">
                   <div className="rounded-2xl border border-[#E5E7EB] bg-slate-50 p-4">
                     <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-slate-500">
-                      {editingNoteId ? 'Edit Note' : 'Add Note'}
+                      {editingNoteId ? 'Edit Remark' : 'Add Remark'}
                     </label>
                     <textarea
                       value={noteText}
                       onChange={(event) => setNoteText(event.target.value)}
                       rows={4}
                       className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-[#2563EB]"
-                      placeholder="Write a note for this candidate..."
+                      placeholder="Write a remark for this candidate..."
                     />
                     <div className="mt-3 flex items-center justify-between gap-2">
                       <p className="text-xs text-slate-500">Saved to the candidate record.</p>
@@ -267,7 +267,7 @@ export default function ProfileDrawer({
                           className="inline-flex items-center gap-2 rounded-xl bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
                         >
                           <Plus size={14} />
-                          {isSavingNote ? 'Saving...' : editingNoteId ? 'Update Note' : 'Add Note'}
+                          {isSavingNote ? 'Saving...' : editingNoteId ? 'Update Remark' : 'Add Remark'}
                         </button>
                       </div>
                     </div>
@@ -315,7 +315,7 @@ export default function ProfileDrawer({
                     ))
                   ) : (
                     <div className="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">
-                      No notes yet. Add the first note above.
+                      No remarks yet. Add the first remark above.
                     </div>
                   )}
                 </div>

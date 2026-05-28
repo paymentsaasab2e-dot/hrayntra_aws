@@ -4,7 +4,6 @@ import { SHOW_TABLE_ROW_EDIT_ICON } from '../../constants/tableUi';
 import {
   CheckCircle2,
   ChevronDown,
-  Eye,
   FilePenLine,
   FlagTriangleRight,
   MoreHorizontal,
@@ -451,12 +450,12 @@ export function InterviewTable({
                     <div className="flex flex-col items-start gap-1.5 sm:flex-row sm:items-center sm:gap-1">
                       <button
                         type="button"
-                        onClick={() => onViewCandidate(primary)}
+                        onClick={() => onEditInterview(primary)}
                         className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#E5E7EB] text-[#6B7280] hover:bg-[#F9FAFB] hover:text-[#111827]"
-                        title="Open interview details (next/upcoming round)"
-                        aria-label="View interview details"
+                        title="Edit interview"
+                        aria-label="Edit interview"
                       >
-                        <Eye className="size-3.5" />
+                        <FilePenLine className="size-3.5" />
                       </button>
                       <div className="relative" data-interview-actions-menu-root>
                         <button

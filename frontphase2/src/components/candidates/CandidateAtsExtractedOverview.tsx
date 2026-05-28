@@ -160,6 +160,169 @@ function EducationEntryCard({ entry, index }: { entry: Record<string, unknown>; 
   );
 }
 
+function normalizeLabelList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => String(item || '').trim())
+      .filter(Boolean);
+  }
+  const text = display(value);
+  if (!text) return [];
+  if (text.includes(';')) {
+    return text
+      .split(';')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  if (text.includes('\n')) {
+    return text
+      .split('\n')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [text];
+}
+
+function normalizePreferredList(primary: unknown, fallback?: unknown): string[] {
+  const primaryList = normalizeLabelList(primary);
+  if (primaryList.length) return primaryList;
+  return normalizeLabelList(fallback);
+}
+
+function normalizeStringMap(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([key, raw]) => [String(key || '').trim(), String(raw || '').trim()])
+      .filter(([key, raw]) => key && raw)
+  );
+}
+
+function formatAmount(value: unknown): string {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value.toLocaleString();
+  }
+  const text = display(value);
+  if (!text) return '';
+  const numeric = Number(text.replace(/,/g, ''));
+  if (Number.isFinite(numeric) && /^\d[\d,]*(\.\d+)?$/.test(text)) {
+    return numeric.toLocaleString();
+  }
+  return text;
+}
+
+function normalizeSalaryTypeLabel(value: unknown): string {
+  const text = display(value);
+  if (!text) return '';
+  const normalized = text.toUpperCase().replace(/\s+/g, '_');
+  if (normalized === 'ANNUAL' || normalized === 'ANNUALLY') return 'Annual';
+  if (normalized === 'MONTHLY') return 'Monthly';
+  if (normalized === 'HOURLY') return 'Hourly';
+  if (normalized === 'DAILY') return 'Daily';
+  return text;
+}
+
+function normalizeWorkModeLabel(value: unknown): string {
+  const text = display(value);
+  if (!text) return '';
+  const normalized = text.toUpperCase().replace(/\s+/g, '_');
+  if (normalized === 'REMOTE') return 'Remote';
+  if (normalized === 'ON_SITE' || normalized === 'ONSITE') return 'On-site';
+  if (normalized === 'HYBRID') return 'Hybrid';
+  return text;
+}
+
+function PreferenceCard({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
+      <div className="mt-3 space-y-3">{children}</div>
+    </div>
+  );
+}
+
+function CompactField({
+  label,
+  value,
+}: {
+  label: string;
+  value?: string | null;
+}) {
+  const text = display(value);
+  return (
+    <div>
+      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
+      <p className={`mt-1 text-sm ${text ? 'font-medium text-slate-800' : 'italic text-slate-400'}`}>
+        {text || 'Not provided'}
+      </p>
+    </div>
+  );
+}
+
+function ChipField({
+  label,
+  items,
+}: {
+  label: string;
+  items: string[];
+}) {
+  return (
+    <div>
+      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
+      {items.length ? (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {items.map((item) => (
+            <span
+              key={`${label}-${item}`}
+              className="rounded-full border border-indigo-100 bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-800"
+            >
+              {item}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-1 text-sm italic text-slate-400">Not provided</p>
+      )}
+    </div>
+  );
+}
+
+function PassportNumbersField({
+  values,
+}: {
+  values: Record<string, string>;
+}) {
+  const entries = Object.entries(values);
+  return (
+    <div>
+      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+        Passport Numbers By Location
+      </p>
+      {entries.length ? (
+        <div className="mt-2 space-y-1.5">
+          {entries.map(([location, passport]) => (
+            <div
+              key={location}
+              className="flex flex-col gap-0.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between"
+            >
+              <span className="font-medium text-slate-700">{location}</span>
+              <span className="font-mono text-slate-900">{passport}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-1 text-sm italic text-slate-400">Not provided</p>
+      )}
+    </div>
+  );
+}
+
 function buildOverviewModel(candidate: CandidateProfileDrawerData) {
   const extra = (candidate.extraData || {}) as Record<string, unknown>;
   const phase1 = getPhase1ProfileSnapshot(extra);
@@ -170,6 +333,10 @@ function buildOverviewModel(candidate: CandidateProfileDrawerData) {
   const socialPipe = (pipeline.social || extra.social || {}) as Record<string, unknown>;
   const summaryPipe = (pipeline.summary || {}) as Record<string, unknown>;
   const educationPipe = (pipeline.education || {}) as Record<string, unknown>;
+  const careerPrefs = {
+    ...(((phase1?.careerPreferences as Record<string, unknown> | null) || {})),
+    ...(((candidate.careerPreferences as Record<string, unknown> | null) || {})),
+  };
 
   const eduEntries = (
     Array.isArray(educationPipe.entries) && educationPipe.entries.length
@@ -292,38 +459,61 @@ function buildOverviewModel(candidate: CandidateProfileDrawerData) {
       summaryText: educationSummaryText,
     },
     professional: {
-      remarks: candidate.cvNotes || display(professional.remarks) || display(extra.remarks),
       experienceYears: computedExperienceYears,
       experienceLabel: formatExperienceYearsLabel(computedExperienceYears),
-      employer: candidate.currentCompany,
-      designation: candidate.designation || candidate.currentTitle,
-      currentSalary: candidate.cvCurrentSalary,
-      currentSalaryCurrency:
-        display(professional.currentSalaryCurrency) ||
-        (candidate.cvCurrentSalary || candidate.currentSalaryValue != null
-          ? candidate.salaryCurrency
-          : ''),
-      currentBenefits: display(professional.currentBenefits),
-      expectedSalary: candidate.cvExpectedSalary || candidate.expectedSalary,
-      expectedSalaryCurrency: display(professional.expectedSalaryCurrency),
-      expectedBenefits: display(professional.expectedBenefits),
+      currentPackage: {
+        role: display(careerPrefs.currentRole) || candidate.designation || candidate.currentTitle,
+        currency:
+          display(careerPrefs.currentCurrency) ||
+          display(professional.currentSalaryCurrency) ||
+          candidate.salaryCurrency,
+        salaryType: normalizeSalaryTypeLabel(careerPrefs.currentSalaryType),
+        salary: formatAmount(careerPrefs.currentSalary) || formatAmount(candidate.currentSalaryValue),
+        location: display(careerPrefs.currentLocation) || candidate.location || candidate.cvAddress,
+        benefits: normalizeLabelList(careerPrefs.currentBenefits || professional.currentBenefits),
+      },
+      preferredPackage: {
+        roles: normalizeLabelList(
+          careerPrefs.preferredRoles || careerPrefs.preferredJobTitles || professional.preferredRoles
+        ),
+        currency:
+          display(careerPrefs.preferredCurrency || careerPrefs.salaryCurrency) ||
+          display(professional.expectedSalaryCurrency) ||
+          candidate.salaryCurrency,
+        salaryType: normalizeSalaryTypeLabel(
+          careerPrefs.preferredSalaryType || careerPrefs.salaryFrequency
+        ),
+        salary:
+          formatAmount(careerPrefs.preferredSalary || careerPrefs.salaryAmount) ||
+          formatAmount(candidate.expectedSalaryValue),
+        locations: normalizeLabelList(careerPrefs.preferredLocations).length
+          ? normalizeLabelList(careerPrefs.preferredLocations)
+          : normalizeLabelList(candidate.cvPreferredLocation),
+        passportNumbersByLocation: normalizeStringMap(careerPrefs.passportNumbersByLocation),
+        workMode:
+          normalizeWorkModeLabel(careerPrefs.preferredWorkMode) ||
+          normalizeLabelList(careerPrefs.workModes)[0] ||
+          normalizeWorkModeLabel(candidate.cvAvailability),
+        benefits: normalizeLabelList(careerPrefs.preferredBenefits || professional.expectedBenefits),
+      },
+      roleDomain: {
+        industries: normalizePreferredList(
+          careerPrefs.preferredIndustries,
+          careerPrefs.preferredIndustry
+        ),
+        functionalAreas: normalizePreferredList(
+          careerPrefs.functionalAreas,
+          careerPrefs.functionalArea
+        ),
+        jobTypes: normalizeLabelList(careerPrefs.jobTypes),
+      },
+      availability: {
+        relocation: display(careerPrefs.relocationPreference),
+        earliestStartDate: display(careerPrefs.availabilityToStart) || candidate.cvAvailability,
+        noticePeriod: display(careerPrefs.noticePeriod) || candidate.noticePeriod,
+      },
       noticePeriod: candidate.noticePeriod,
       resume: candidate.resumeUrl,
-      courses: Array.isArray(professional.courses)
-        ? (professional.courses as string[]).join('; ')
-        : Array.isArray(extra.courses)
-          ? (extra.courses as string[]).join('; ')
-          : '',
-      extracurricular: Array.isArray(professional.extracurricularActivities)
-        ? (professional.extracurricularActivities as string[]).join('; ')
-        : Array.isArray(extra.extracurricularActivities)
-          ? (extra.extracurricularActivities as string[]).join('; ')
-          : '',
-      volunteers: Array.isArray(professional.volunteers)
-        ? (professional.volunteers as string[]).join('; ')
-        : Array.isArray(extra.volunteers)
-          ? (extra.volunteers as string[]).join('; ')
-          : '',
       workEntries,
     },
     social: {
@@ -412,23 +602,30 @@ export function CandidateAtsExtractedOverview({ candidate }: Props) {
 
   const prof = model.professional;
   const profScalarFilled = countFilled([
-    prof.remarks,
     prof.experienceLabel,
-    prof.employer,
-    prof.designation,
-    prof.currentSalary,
-    prof.currentSalaryCurrency,
-    prof.currentBenefits,
-    prof.expectedSalary,
-    prof.expectedSalaryCurrency,
-    prof.expectedBenefits,
-    prof.noticePeriod,
+    prof.currentPackage.role,
+    prof.currentPackage.currency,
+    prof.currentPackage.salaryType,
+    prof.currentPackage.salary,
+    prof.currentPackage.location,
+    prof.currentPackage.benefits.join('; '),
+    prof.preferredPackage.roles.join('; '),
+    prof.preferredPackage.currency,
+    prof.preferredPackage.salaryType,
+    prof.preferredPackage.salary,
+    prof.preferredPackage.locations.join('; '),
+    Object.values(prof.preferredPackage.passportNumbersByLocation).join('; '),
+    prof.preferredPackage.workMode,
+    prof.preferredPackage.benefits.join('; '),
+    prof.roleDomain.industries.join('; '),
+    prof.roleDomain.functionalAreas.join('; '),
+    prof.roleDomain.jobTypes.join('; '),
+    prof.availability.relocation,
+    prof.availability.earliestStartDate,
+    prof.availability.noticePeriod,
     prof.resume,
-    prof.courses,
-    prof.extracurricular,
-    prof.volunteers,
   ]);
-  const profTotal = 15;
+  const profTotal = 21;
   const workCount = prof.workEntries.length;
 
   const s = model.social;
@@ -479,12 +676,6 @@ export function CandidateAtsExtractedOverview({ candidate }: Props) {
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-slate-500">
-        Parsed from resume (bulk CV pipeline). Education and work history are shown as structured
-        entries; total experience is calculated from role durations or employment dates when
-        available.
-      </p>
-
       <SectionBlock
         id="personal"
         title="Personal Information"
@@ -540,7 +731,7 @@ export function CandidateAtsExtractedOverview({ candidate }: Props) {
 
       <SectionBlock
         id="professional"
-        title="Professional Information"
+        title="Career Preferences"
         icon={Briefcase}
         open={open.professional}
         onToggle={toggle}
@@ -552,6 +743,45 @@ export function CandidateAtsExtractedOverview({ candidate }: Props) {
             : undefined
         }
       >
+        <div className="grid gap-3 lg:grid-cols-2">
+          <PreferenceCard title="Current Package">
+            <CompactField label="Current Role" value={prof.currentPackage.role} />
+            <CompactField label="Currency" value={prof.currentPackage.currency} />
+            <CompactField label="Salary Type" value={prof.currentPackage.salaryType} />
+            <CompactField label="Current Salary" value={prof.currentPackage.salary} />
+            <CompactField label="Current Location" value={prof.currentPackage.location} />
+            <ChipField label="Benefits" items={prof.currentPackage.benefits} />
+          </PreferenceCard>
+          <PreferenceCard title="Preferred Package">
+            <ChipField label="Preferred Role" items={prof.preferredPackage.roles} />
+            <CompactField label="Currency" value={prof.preferredPackage.currency} />
+            <CompactField label="Salary Type" value={prof.preferredPackage.salaryType} />
+            <CompactField label="Preferred Salary" value={prof.preferredPackage.salary} />
+            <ChipField label="Preferred Locations" items={prof.preferredPackage.locations} />
+            <PassportNumbersField values={prof.preferredPackage.passportNumbersByLocation} />
+            <CompactField label="Preferred Work Mode" value={prof.preferredPackage.workMode} />
+            <ChipField label="Benefits" items={prof.preferredPackage.benefits} />
+          </PreferenceCard>
+        </div>
+
+        <PreferenceCard title="Role & Domain">
+          <ChipField label="Preferred Industries" items={prof.roleDomain.industries} />
+          <ChipField label="Functional Areas" items={prof.roleDomain.functionalAreas} />
+          <ChipField label="Job Types" items={prof.roleDomain.jobTypes} />
+        </PreferenceCard>
+
+        <div className="grid gap-3 lg:grid-cols-2">
+          <PreferenceCard title="Availability">
+            <CompactField label="Experience" value={prof.experienceLabel} />
+            <CompactField label="Relocation Preference" value={prof.availability.relocation} />
+            <CompactField label="Earliest Start Date" value={prof.availability.earliestStartDate} />
+            <CompactField label="Notice Period" value={prof.availability.noticePeriod} />
+          </PreferenceCard>
+          <PreferenceCard title="Resume">
+            <FieldRow label="Resume" value={prof.resume ? 'Attached' : ''} href={prof.resume} />
+          </PreferenceCard>
+        </div>
+
         {workCount > 0 ? (
           <div className="space-y-2">
             <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
@@ -563,32 +793,14 @@ export function CandidateAtsExtractedOverview({ candidate }: Props) {
           </div>
         ) : null}
 
-        <div className="grid gap-2 sm:grid-cols-2">
-          <FieldRow label="Remarks" value={prof.remarks} />
-          <FieldRow
-            label="Experience"
-            value={
-              prof.experienceLabel
-                ? workCount > 0
-                  ? `${prof.experienceLabel} (from ${workCount} role${workCount === 1 ? '' : 's'})`
-                  : prof.experienceLabel
-                : ''
-            }
-          />
-          <FieldRow label="Current Employer" value={prof.employer} />
-          <FieldRow label="Current Designation" value={prof.designation} />
-          <FieldRow label="Current Salary" value={prof.currentSalary} />
-          <FieldRow label="Current Salary Currency Type" value={prof.currentSalaryCurrency} />
-          <FieldRow label="Current Benefits" value={prof.currentBenefits} />
-          <FieldRow label="Expected Salary" value={prof.expectedSalary} />
-          <FieldRow label="Expected Salary Currency Type" value={prof.expectedSalaryCurrency} />
-          <FieldRow label="Expected Benefits" value={prof.expectedBenefits} />
-          <FieldRow label="Notice Period in days" value={prof.noticePeriod} />
-          <FieldRow label="Resume" value={prof.resume ? 'Attached' : ''} href={prof.resume} />
-          <FieldRow label="Courses" value={prof.courses} />
-          <FieldRow label="Extracurricular Activities" value={prof.extracurricular} />
-          <FieldRow label="Volunteers" value={prof.volunteers} />
-        </div>
+        {!workCount ? (
+          <div className="rounded-xl border border-slate-200/80 bg-white px-3 py-2.5">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+              Work experience entries
+            </p>
+            <p className="mt-1 text-sm italic text-slate-400">Not in resume</p>
+          </div>
+        ) : null}
       </SectionBlock>
 
       <SectionBlock

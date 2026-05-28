@@ -4,6 +4,8 @@ import app from './app.js';
 import { env } from './config/env.js';
 import { prisma } from './config/prisma.js';
 import { attachBulkCvSocket } from './socket/bulkCvSocket.js';
+import { attachSessionSocket } from './socket/sessionSocket.js';
+import { sessionService } from './modules/session/session.service.js';
 
 const PORT = env.PORT || 5001;
 
@@ -47,7 +49,41 @@ function startServer() {
     },
   });
   attachBulkCvSocket(io);
+  attachSessionSocket(io);
   console.log('[bulk-cv] Socket.IO attached for duplicate resolution');
+  console.log('[session] Socket.IO attached for single active session');
+
+  setInterval(() => {
+    void sessionService.runInactivityCleanup();
+    void sessionService.expireStaleTransfers();
+  }, 60 * 1000);
+
+  let isShuttingDown = false;
+
+  const shutdown = async (exitCode = 0) => {
+    if (isShuttingDown) {
+      return;
+    }
+    isShuttingDown = true;
+
+    await new Promise((resolve) => {
+      httpServer.close(() => resolve());
+    });
+
+    try {
+      await prisma.$disconnect();
+    } catch {
+      // Ignore disconnect errors during shutdown.
+    }
+
+    process.exit(exitCode);
+  };
+
+  process.once('SIGINT', () => {
+    console.log('\nShutting down server...');
+    shutdown(0);
+  });
+  process.once('SIGTERM', () => shutdown(0));
 
   const server = httpServer.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
@@ -71,10 +107,14 @@ function startServer() {
     if (error?.code === 'EADDRINUSE') {
       console.error(`Port ${PORT} is already in use.`);
       console.error('Stop the old backend process using this port, then run the server again.');
-      console.error(`PowerShell tip: Get-NetTCPConnection -LocalPort ${PORT} -State Listen`);
+      console.error(
+        `PowerShell tip: pnpm dev:stop`
+      );
+      shutdown(1);
       return;
     }
 
     console.error('Server failed to start:', error);
+    shutdown(1);
   });
 }

@@ -26,6 +26,7 @@ const TITLE_BY_ROUTE: Array<{ route: string; title: string }> = [
   { route: '/team', title: 'Team' },
   { route: '/setting', title: 'Settings' },
   { route: '/administration', title: 'Administration' },
+  { route: '/demoAi', title: 'Resume Parsing' },
 ];
 
 function getTitleFromPath(pathname: string): string {

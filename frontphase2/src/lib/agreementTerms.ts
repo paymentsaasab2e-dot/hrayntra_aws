@@ -1,10 +1,18 @@
 /** Shared Agreements & Terms fields for leads and clients. */
 
+import { formatDateDMY } from '../utils/dateDisplay';
+
 export type AgreementFreeReplacementUnit = 'MONTHS' | 'DAYS';
 
 export type AgreementTermsFormValues = {
   agreementLevel: string;
   agreementServiceChargePercent: string;
+  /** Legacy combined validity text kept for backwards compatibility. */
+  agreementContractValidity: string;
+  /** Start date of the agreement (`YYYY-MM-DD` for native calendar inputs). */
+  agreementContractStartDate: string;
+  /** End date of the agreement (`YYYY-MM-DD` for native calendar inputs). */
+  agreementContractEndDate: string;
   /** Payment terms (DB: agreementTimePeriod) */
   agreementTimePeriod: string;
   /** Advance payment % (DB: agreementAdvancePaymentPercent) */
@@ -33,6 +41,9 @@ export function emptyAgreementTerms(): AgreementTermsFormValues {
   return {
     agreementLevel: '',
     agreementServiceChargePercent: '',
+    agreementContractValidity: '',
+    agreementContractStartDate: '',
+    agreementContractEndDate: '',
     agreementTimePeriod: '',
     agreementAdvancePaymentPercent: '',
     agreementFreeReplacementValue: '',
@@ -56,6 +67,18 @@ export function agreementTermsFromRecord(
     agreementLevel: record.agreementLevel != null ? String(record.agreementLevel) : '',
     agreementServiceChargePercent:
       record.agreementServiceChargePercent != null ? String(record.agreementServiceChargePercent) : '',
+    agreementContractValidity:
+      (record as { agreementContractValidity?: string | null }).agreementContractValidity != null
+        ? String((record as { agreementContractValidity?: string | null }).agreementContractValidity)
+        : '',
+    agreementContractStartDate:
+      (record as { agreementContractStartDate?: string | null }).agreementContractStartDate != null
+        ? String((record as { agreementContractStartDate?: string | null }).agreementContractStartDate)
+        : '',
+    agreementContractEndDate:
+      (record as { agreementContractEndDate?: string | null }).agreementContractEndDate != null
+        ? String((record as { agreementContractEndDate?: string | null }).agreementContractEndDate)
+        : '',
     agreementTimePeriod: record.agreementTimePeriod != null ? String(record.agreementTimePeriod) : '',
     agreementAdvancePaymentPercent:
       record.agreementAdvancePaymentPercent != null && record.agreementAdvancePaymentPercent !== ''
@@ -82,6 +105,15 @@ export function agreementTermsApiPayload(values: AgreementTermsFormValues) {
     agreementTotalPayment: null,
     agreementLevel: values.agreementLevel.trim() || null,
     agreementServiceChargePercent: values.agreementServiceChargePercent.trim() || null,
+    agreementContractValidity:
+      values.agreementContractStartDate.trim() || values.agreementContractEndDate.trim()
+        ? [values.agreementContractStartDate.trim(), values.agreementContractEndDate.trim()]
+            .filter(Boolean)
+            .map((value) => formatDateDMY(value))
+            .join(' to ')
+        : values.agreementContractValidity.trim() || null,
+    agreementContractStartDate: values.agreementContractStartDate.trim() || null,
+    agreementContractEndDate: values.agreementContractEndDate.trim() || null,
     agreementTimePeriod: values.agreementTimePeriod.trim() || null,
     agreementAdvancePaymentPercent: values.agreementAdvancePaymentPercent.trim() || null,
     agreementFreeReplacementValue: freeReplacementValue,
@@ -101,6 +133,9 @@ export function mergeExtractedAgreementTerms(
   const keys: (keyof AgreementTermsFormValues)[] = [
     'agreementLevel',
     'agreementServiceChargePercent',
+    'agreementContractValidity',
+    'agreementContractStartDate',
+    'agreementContractEndDate',
     'agreementTimePeriod',
     'agreementAdvancePaymentPercent',
     'agreementFreeReplacementValue',
@@ -122,6 +157,17 @@ export function formatAgreementTermsSummary(values: AgreementTermsFormValues): s
   }
   if (values.agreementServiceChargePercent.trim()) {
     lines.push(`Service charge: ${values.agreementServiceChargePercent.trim()}%`);
+  }
+  if (values.agreementContractStartDate.trim() || values.agreementContractEndDate.trim()) {
+    const start = values.agreementContractStartDate.trim()
+      ? formatDateDMY(values.agreementContractStartDate.trim())
+      : '';
+    const end = values.agreementContractEndDate.trim()
+      ? formatDateDMY(values.agreementContractEndDate.trim())
+      : '';
+    lines.push(`Contract validity: ${[start, end].filter(Boolean).join(' to ')}`);
+  } else if (values.agreementContractValidity.trim()) {
+    lines.push(`Contract validity: ${values.agreementContractValidity.trim()}`);
   }
   if (values.agreementTimePeriod.trim()) {
     lines.push(`Payment terms: ${values.agreementTimePeriod.trim()}`);

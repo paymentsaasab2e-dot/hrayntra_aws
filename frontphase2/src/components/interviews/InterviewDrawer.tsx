@@ -32,7 +32,7 @@ const tabs: Array<{ id: DrawerTab; label: string }> = [
   { id: 'panel', label: 'Panel' },
   { id: 'feedback', label: 'Feedback' },
   { id: 'client', label: 'Client' },
-  { id: 'notes', label: 'Notes' },
+  { id: 'notes', label: 'Remarks' },
   { id: 'activity', label: 'Activity Log' },
   { id: 'files', label: 'Files' },
 ];

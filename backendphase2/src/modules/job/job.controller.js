@@ -1,7 +1,12 @@
 import { jobService } from './job.service.js';
 import { jobNoteService } from './job-note.service.js';
 import { jobFileService } from './job-file.service.js';
+import { clientService } from '../client/client.service.js';
 import { sendResponse, sendError } from '../../utils/response.js';
+import {
+  processJobCreationPipeline,
+  cleanupJobPipelineUpload,
+} from '../../services/jobCreationPipeline.service.js';
 
 export const jobController = {
   async getPublicFeed(req, res) {
@@ -40,6 +45,48 @@ export const jobController = {
       sendResponse(res, 201, 'Job created successfully', job);
     } catch (error) {
       sendError(res, 400, error.message, error);
+    }
+  },
+
+  async processJdFile(req, res) {
+    try {
+      if (!req.file) {
+        return sendError(res, 400, 'No job description file uploaded');
+      }
+
+      let currentForm = {};
+      if (req.body?.currentForm) {
+        try {
+          currentForm =
+            typeof req.body.currentForm === 'string'
+              ? JSON.parse(req.body.currentForm)
+              : req.body.currentForm;
+        } catch {
+          return sendError(res, 400, 'Invalid currentForm JSON');
+        }
+      }
+
+      let clients = [];
+      try {
+        const listReq = {
+          ...req,
+          query: { ...req.query, page: '1', limit: '500' },
+        };
+        const clientResult = await clientService.getAll(listReq);
+        const raw = clientResult?.data ?? clientResult;
+        clients = Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : [];
+      } catch {
+        clients = [];
+      }
+
+      const result = await processJobCreationPipeline(req.file, { currentForm, clients });
+      cleanupJobPipelineUpload(req.file);
+
+      return sendResponse(res, 200, 'Job details extracted from document', result);
+    } catch (error) {
+      cleanupJobPipelineUpload(req.file);
+      console.error('[processJdFile]', error);
+      return sendError(res, 500, error.message || 'Failed to process job description file', error);
     }
   },
 

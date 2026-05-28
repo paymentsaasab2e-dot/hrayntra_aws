@@ -133,6 +133,76 @@ const leadDetailsJsonSchema = {
   strict: true,
 };
 
+const clientDetailsJsonSchema = {
+  name: 'client_details_payload',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      companyName: { type: 'string' },
+      directorName: { type: 'string' },
+      directorSalutation: { type: 'string' },
+      designation: { type: 'string' },
+      email: { type: 'string' },
+      phone: { type: 'string' },
+      industry: { type: 'string' },
+      companySize: { type: 'string' },
+      website: { type: 'string' },
+      linkedIn: { type: 'string' },
+      location: { type: 'string' },
+      country: { type: 'string' },
+      city: { type: 'string' },
+      hiringLocations: { type: 'string' },
+      timezone: { type: 'string' },
+      leadStatus: { type: 'string' },
+      priority: { type: 'string' },
+      servicesNeeded: { type: 'string' },
+      expectedBusinessValue: { type: 'string' },
+      sla: { type: 'string' },
+      nextFollowUpDue: { type: 'string' },
+      assignedToId: { type: 'string' },
+      otherDetails: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            label: { type: 'string' },
+            value: { type: 'string' },
+          },
+          required: ['label', 'value'],
+        },
+      },
+    },
+    required: [
+      'companyName',
+      'directorName',
+      'directorSalutation',
+      'designation',
+      'email',
+      'phone',
+      'industry',
+      'companySize',
+      'website',
+      'linkedIn',
+      'location',
+      'country',
+      'city',
+      'hiringLocations',
+      'timezone',
+      'leadStatus',
+      'priority',
+      'servicesNeeded',
+      'expectedBusinessValue',
+      'sla',
+      'nextFollowUpDue',
+      'assignedToId',
+      'otherDetails',
+    ],
+  },
+  strict: true,
+};
+
 export const aiController = {
   async assistantChat(req, res) {
     try {
@@ -383,6 +453,66 @@ export const aiController = {
       return sendError(res, 500, error.message || 'Failed to generate lead details', error);
     }
   },
+
+  async generateClientDetails(req, res) {
+    try {
+      const { prompt, currentForm } = req.body || {};
+
+      if (!String(prompt || '').trim() && !currentForm) {
+        return sendError(res, 400, 'Client prompt is required');
+      }
+
+      if (!hasLlmProvider()) {
+        return sendError(res, 503, 'AI client generator is not configured');
+      }
+
+      const completion = await chatCompletionWithFallback(
+        {
+          model: env.OPENAI_CHAT_MODEL,
+          temperature: 0.2,
+          max_tokens: 1600,
+          response_format: {
+            type: 'json_schema',
+            json_schema: clientDetailsJsonSchema,
+          },
+          messages: [
+            {
+              role: 'system',
+              content:
+                'You are an ATS client onboarding assistant. Analyze all user-provided client information and optimize it into a clean structured client payload for a recruitment CRM Add Client form. Do not ask follow-up questions. Infer sensible defaults when data is missing. Always copy every email address from the user text into the email field exactly. Always copy the primary contact name into directorName. leadStatus should be one of New, Contacted, Qualified, Converted, Lost when possible. priority => High|Medium|Low. Dates must be YYYY-MM-DD or empty string. If a field is unknown, return empty string. Preserve assignedToId from the form unless the prompt clearly overrides it.',
+            },
+            {
+              role: 'user',
+              content: [
+                'Optimize this client for our Add Client drawer and return only valid JSON matching the schema.',
+                `User input:\n${String(prompt || '').trim()}`,
+                `Current form values:\n${JSON.stringify(currentForm || {}, null, 2)}`,
+                'Map hiring requirements or requested services into servicesNeeded.',
+                'Map commercial notes, budget, or deal context into expectedBusinessValue.',
+                'Lines like "Email: user@company.com" must populate email. Lines like "Contact: Jane Doe" must populate directorName.',
+                'Put extra useful facts that do not fit standard fields into otherDetails as label/value pairs.',
+                'Do not return markdown.',
+              ].join('\n\n'),
+            },
+          ],
+        },
+        'ai-client-details'
+      );
+
+      const raw = completion.choices?.[0]?.message?.content?.trim();
+      const parsed = raw ? JSON.parse(raw) : null;
+
+      if (!parsed?.companyName && !parsed?.directorName && !parsed?.email) {
+        return sendError(res, 500, 'AI returned an empty client payload');
+      }
+
+      return sendResponse(res, 200, 'Client details generated successfully', parsed);
+    } catch (error) {
+      console.error('[generateClientDetails]', error);
+      return sendError(res, 500, error.message || 'Failed to generate client details', error);
+    }
+  },
+
   async searchLocations(req, res) {
     try {
       const q = String(req.query?.q || req.query?.query || '').trim();

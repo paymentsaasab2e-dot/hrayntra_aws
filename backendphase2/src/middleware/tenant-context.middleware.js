@@ -43,7 +43,9 @@ export function tenantContextMiddleware(req, res, next) {
   const queryTenantDbName = String(
     req.query?.tenantDbName || req.query?.tenant || ''
   ).trim();
-  const tenantDbName = tokenTenantDbName || headerTenantDbName || queryTenantDbName;
+  const bodyTenantDbName = String(req.body?.tenantDbName || '').trim();
+  const tenantDbName =
+    tokenTenantDbName || headerTenantDbName || queryTenantDbName || bodyTenantDbName;
 
   return runWithTenantContext(tenantDbName, () => next());
 }

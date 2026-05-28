@@ -14,6 +14,16 @@ import BulkCvTokensDrawer from '../../components/candidates/BulkCvTokensDrawer';
 import { BULK_CV_TOKENS_CHANGED, getBulkCvTokenSession } from '../../lib/bulkCvTokensStore';
 import ModuleRecycleBinDrawer from '../../components/ModuleRecycleBinDrawer';
 import {
+  SmartSearchActiveKeywordsBar,
+  SmartSearchPromptPanel,
+  SmartSearchToggleButton,
+} from '../../components/smart-search/SmartSearchToolbar';
+import { useSmartSearch } from '../../hooks/useSmartSearch';
+import {
+  CANDIDATES_SMART_SEARCH_EXAMPLES,
+  parseCandidatesSmartSearchPrompt,
+} from '../../lib/smart-search/parsers';
+import {
   FAILED_BULK_RESUMES_CHANGED,
   getActiveFailedBulkResumes,
 } from '../../lib/failedBulkResumesStore';
@@ -691,15 +701,75 @@ function CandidatesPageContent() {
       columnFilters.ownerId,
   );
 
+  const candidateSmartSearchOptions = useMemo(
+    () => ({
+      jobs: jobFilterOptions.map((job) => ({ id: job.id, name: job.title })),
+      recruiters: pipelineRecruiters.map((recruiter) => ({ id: recruiter.id, name: recruiter.name })),
+      companies: companyFilterOptions,
+    }),
+    [companyFilterOptions, jobFilterOptions, pipelineRecruiters],
+  );
+
+  const candidateSmartSearch = useSmartSearch({
+    parsePrompt: (text) => parseCandidatesSmartSearchPrompt(text, candidateSmartSearchOptions),
+    applyParsed: (parsed) => {
+      setCurrentPage(1);
+      setFilters((prev) => ({
+        ...prev,
+        search: parsed.searchText,
+        ...(parsed.stage ? { status: '' } : {}),
+      }));
+      setColumnFilters({
+        stage: parsed.stage || '',
+        ownerId: parsed.ownerId || '',
+        company: parsed.company || '',
+        location: parsed.location || '',
+        jobId: parsed.jobId || '',
+        experienceRange: parsed.experienceRange || '',
+      });
+    },
+    onRemoveKeyword: (removed, remaining) => {
+      setCurrentPage(1);
+      if (removed.kind === 'stage') {
+        setColumnFilters((prev) => ({ ...prev, stage: '' }));
+      }
+      if (removed.kind === 'recruiter') {
+        setColumnFilters((prev) => ({ ...prev, ownerId: '' }));
+      }
+      if (removed.kind === 'client') {
+        setColumnFilters((prev) => ({ ...prev, jobId: '' }));
+      }
+      if (removed.kind === 'text') {
+        setColumnFilters((prev) => {
+          const next = { ...prev };
+          if (removed.value === prev.company) next.company = '';
+          if (removed.value === prev.location) next.location = '';
+          if (removed.value === prev.experienceRange) next.experienceRange = '';
+          return next;
+        });
+        const text = remaining
+          .filter((keyword) => keyword.kind === 'text')
+          .map((keyword) => keyword.value)
+          .join(' ');
+        setFilters((prev) => ({ ...prev, search: text }));
+      }
+    },
+    examples: CANDIDATES_SMART_SEARCH_EXAMPLES,
+  });
+
   const hasToolbarFilters = Boolean(
-    filters.search.trim() || filters.status || hasTableColumnFilters,
+    filters.search.trim() ||
+      filters.status ||
+      hasTableColumnFilters ||
+      candidateSmartSearch.activeKeywords.length > 0,
   );
 
   const handleClearToolbar = useCallback(() => {
     setFilters({ search: '', status: '' });
     setColumnFilters(EMPTY_CANDIDATE_TABLE_COLUMN_FILTERS);
+    candidateSmartSearch.clearSmartSearch();
     setCurrentPage(1);
-  }, []);
+  }, [candidateSmartSearch]);
 
   const handleColumnFiltersChange = useCallback((next: CandidateTableColumnFilters) => {
     setCurrentPage(1);
@@ -1452,6 +1522,10 @@ function CandidatesPageContent() {
                         className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
                       />
             </div>
+                    <SmartSearchToggleButton
+                      open={candidateSmartSearch.open}
+                      onToggle={() => candidateSmartSearch.setOpen((value) => !value)}
+                    />
                     <CandidateTableFilters
                       filters={columnFilters}
                       onChange={handleColumnFiltersChange}
@@ -1474,6 +1548,26 @@ function CandidatesPageContent() {
             </div>
           </div>
             </div>
+
+                {candidateSmartSearch.open ? (
+                  <SmartSearchPromptPanel
+                    prompt={candidateSmartSearch.prompt}
+                    onPromptChange={candidateSmartSearch.setPrompt}
+                    onApply={candidateSmartSearch.handleApply}
+                    previewKeywords={candidateSmartSearch.previewKeywords}
+                    examples={candidateSmartSearch.examples}
+                    onExampleClick={candidateSmartSearch.handleExample}
+                    entityLabel="candidates"
+                    placeholder="e.g. interviewing candidates in Bangalore with 5+ years"
+                  />
+                ) : null}
+
+                <SmartSearchActiveKeywordsBar
+                  chips={candidateSmartSearch.activeChips}
+                  onClearAll={handleClearToolbar}
+                  resultCount={totalEntries}
+                  showResultCount={!loading && !error}
+                />
 
                 {error ? (
                   <div className="p-10 text-center text-sm font-medium text-rose-600">Error: {error}</div>

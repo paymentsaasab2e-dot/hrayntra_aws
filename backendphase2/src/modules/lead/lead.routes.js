@@ -16,6 +16,7 @@ router.post('/trash/bulk-purge', requireAnyPermission(['leads_delete']), leadCon
 router.post('/:id/restore', requireAnyPermission(['leads_update', 'leads_create']), leadController.restore);
 router.delete('/:id/purge', requireAnyPermission(['leads_delete']), leadController.purge);
 router.post('/import/preview', requireAnyPermission(['leads_create']), importUpload.single('file'), leadController.previewImport);
+router.post('/import/check-duplicates', requireAnyPermission(['leads_create']), leadController.checkImportDuplicates);
 router.post('/import', requireAnyPermission(['leads_create']), leadController.importLeads);
 router.get('/:id', requireAnyPermission(['leads_read']), leadController.getById);
 router.get('/:id/activities', leadController.getActivities);

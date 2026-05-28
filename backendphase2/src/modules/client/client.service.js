@@ -10,6 +10,10 @@ import {
   applyAgreementTermsUpdateFields,
   buildAgreementTermsCreateFields,
 } from '../../utils/agreementTermsFields.js';
+import {
+  applyPostServiceKycFormUpdateFields,
+  buildPostServiceKycFormCreateFields,
+} from '../../utils/postServiceKycFormFields.js';
 
 /**
  * Recruiters / portal users: clients assigned to them, or they created/sourced (createdById).
@@ -67,6 +71,214 @@ function applySystemWorkspaceExclusion(where = {}, includeSystem = false) {
   }
 
   return { AND: [where, excludeWorkspaceWhere] };
+}
+
+const CLIENT_IMPORT_DUPLICATE_COMPARE_FIELDS = [
+  { key: 'companyName', label: 'Company Name' },
+  { key: 'industry', label: 'Industry' },
+  { key: 'location', label: 'Location' },
+  { key: 'city', label: 'City' },
+  { key: 'country', label: 'Country' },
+  { key: 'contactPerson', label: 'Contact Person' },
+  { key: 'email', label: 'Email' },
+  { key: 'phone', label: 'Phone' },
+  { key: 'companySize', label: 'Team Name' },
+  { key: 'servicesNeeded', label: 'Services Needed' },
+  { key: 'leadStatus', label: 'Status' },
+  { key: 'priority', label: 'Priority' },
+  { key: 'expectedBusinessValue', label: 'Expected Business Value' },
+  { key: 'notes', label: 'Notes' },
+];
+
+function normalizeClientImportValue(value) {
+  return String(value ?? '').trim();
+}
+
+function normalizeClientImportPriority(value) {
+  const normalized = normalizeClientImportValue(value).toLowerCase();
+  if (!normalized) return undefined;
+  if (['hot', 'high', 'warm'].includes(normalized)) return 'High';
+  if (['medium', 'med', 'moderate'].includes(normalized)) return 'Medium';
+  if (['low', 'cold'].includes(normalized)) return 'Low';
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function parseClientImportDateValue(value) {
+  const raw = normalizeClientImportValue(value);
+  if (!raw) return undefined;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
+}
+
+function prefixDuplicateCopyClientName(companyName, fallback = '') {
+  const base = normalizeClientImportValue(companyName || fallback);
+  if (!base) return 'Copy';
+  if (/^copy\b/i.test(base)) return base;
+  return `Copy ${base}`;
+}
+
+function buildClientImportComparisonSnapshot(source = {}) {
+  const snapshot = {};
+  for (const field of CLIENT_IMPORT_DUPLICATE_COMPARE_FIELDS) {
+    const raw = source?.[field.key];
+    snapshot[field.key] = raw == null ? null : String(raw);
+  }
+  return snapshot;
+}
+
+function stripImportCell(value) {
+  if (value === undefined || value === null) return '';
+  return String(value).replace(/\u00a0/g, ' ').trim();
+}
+
+function normalizeClientOtherDetails(value) {
+  if (!Array.isArray(value)) return null;
+
+  const normalized = value
+    .map((item) => ({
+      label: stripImportCell(item?.label),
+      value: stripImportCell(item?.value),
+    }))
+    .filter((item) => item.label && item.value);
+
+  return normalized.length ? normalized : null;
+}
+
+function buildImportedDynamicClientOtherDetails(row = {}, mapping = {}) {
+  const mappedColumns = new Set(
+    Object.values(mapping || {})
+      .map((column) => (typeof column === 'string' ? column.trim() : ''))
+      .filter(Boolean)
+  );
+
+  return Object.entries(row || {})
+    .map(([label, rawValue]) => ({
+      label: stripImportCell(label),
+      value: rawValue == null ? '' : stripImportCell(rawValue),
+    }))
+    .filter((item) => item.label && item.value && !mappedColumns.has(item.label));
+}
+
+function mergeClientImportOtherDetails(existingDetails, importedDetails) {
+  const merged = new Map();
+
+  for (const item of existingDetails || []) {
+    const label = stripImportCell(item?.label);
+    const value = stripImportCell(item?.value);
+    if (!label || !value) continue;
+    merged.set(label.toLowerCase(), { label, value });
+  }
+
+  for (const item of importedDetails || []) {
+    const label = stripImportCell(item?.label);
+    const value = stripImportCell(item?.value);
+    if (!label || !value) continue;
+    merged.set(label.toLowerCase(), { label, value });
+  }
+
+  return Array.from(merged.values());
+}
+
+function buildClientImportPayload(row = {}, mapping = {}) {
+  const getValue = (key) => {
+    const column = mapping[key];
+    if (!column) return '';
+    return normalizeClientImportValue(row[column]);
+  };
+
+  const extractLinksFromRow = () =>
+    Object.values(row)
+      .flatMap((value) => String(value ?? '').match(/https?:\/\/[^\s,|]+/gi) || [])
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+  const companyName = getValue('name');
+  const contactPerson = getValue('contactPerson');
+  const email = getValue('email').toLowerCase();
+  const phone = getValue('phone');
+  const teamName = getValue('companySize');
+  const city = getValue('city');
+  const country = getValue('country');
+  const location = getValue('location');
+  const servicesNeeded = getValue('servicesNeeded');
+  const expectedBusinessValue = getValue('expectedBusinessValue');
+  const notes = getValue('notes');
+  const priority = normalizeClientImportPriority(getValue('priority'));
+  const leadStatus = getValue('leadStatus');
+  const nextFollowUpDue = parseClientImportDateValue(getValue('nextFollowUpDue'));
+  const hiringLocations = [city, country].filter(Boolean).join(', ');
+  const detectedLinks = extractLinksFromRow();
+  const websiteValue = getValue('website');
+  const linkedinValue = detectedLinks.find((link) => link.toLowerCase().includes('linkedin.com')) || '';
+  const genericWebsiteValue =
+    websiteValue ||
+    detectedLinks.find((link) => !link.toLowerCase().includes('linkedin.com')) ||
+    '';
+  const importedDynamicOtherDetails = buildImportedDynamicClientOtherDetails(row, mapping);
+
+  return {
+    companyName,
+    industry: getValue('industry') || undefined,
+    location: location || undefined,
+    website: genericWebsiteValue || undefined,
+    linkedin: linkedinValue || undefined,
+    assignedToId: getValue('assignedToId') || undefined,
+    companySize: teamName || undefined,
+    hiringLocations: hiringLocations || undefined,
+    priority,
+    servicesNeeded: servicesNeeded || undefined,
+    expectedBusinessValue: expectedBusinessValue || undefined,
+    leadStatus: leadStatus || undefined,
+    nextFollowUpDue: nextFollowUpDue || undefined,
+    address: notes || undefined,
+    status: 'PROSPECT',
+    contactPerson,
+    email,
+    phone,
+    city,
+    country,
+    notes,
+    otherDetails: importedDynamicOtherDetails,
+  };
+}
+
+async function findExistingClientImportDuplicate(companyName) {
+  const normalizedCompanyName = normalizeClientImportValue(companyName);
+  if (!normalizedCompanyName) return null;
+  return prisma.client.findFirst({
+    where: {
+      companyName: {
+        equals: normalizedCompanyName,
+        mode: 'insensitive',
+      },
+    },
+    select: {
+      id: true,
+      companyName: true,
+      industry: true,
+      location: true,
+      city: true,
+      country: true,
+      contacts: {
+        take: 1,
+        orderBy: { createdAt: 'asc' },
+        select: {
+          firstName: true,
+          lastName: true,
+          email: true,
+          phone: true,
+          department: true,
+        },
+      },
+      companySize: true,
+      servicesNeeded: true,
+      leadStatus: true,
+      priority: true,
+      expectedBusinessValue: true,
+      address: true,
+      hiringLocations: true,
+    },
+  });
 }
 
 export const clientService = {
@@ -394,6 +606,8 @@ export const clientService = {
         ? new Date(data.agreementsUploadedAt)
         : (data.agreementsFileUrl ? new Date() : undefined),
       ...buildAgreementTermsCreateFields(data),
+      ...buildPostServiceKycFormCreateFields(data),
+      otherDetails: normalizeClientOtherDetails(data.otherDetails),
       // Only include fields that exist in the Prisma schema
       // Removed: annualRevenue, taxId, paymentTerms, contractStartDate, contractEndDate,
       // billingEmail, billingPhone, billingAddress, notes, tags, hot (not in schema)
@@ -583,6 +797,10 @@ export const clientService = {
         : null;
     }
     applyAgreementTermsUpdateFields(data, updateData);
+    applyPostServiceKycFormUpdateFields(data, updateData);
+    if (data.otherDetails !== undefined) {
+      updateData.otherDetails = normalizeClientOtherDetails(data.otherDetails);
+    }
 
     // Remove undefined values to avoid Prisma errors
     Object.keys(updateData).forEach(key => {
@@ -980,110 +1198,78 @@ export const clientService = {
 
     for (let index = 0; index < rows.length; index += 1) {
       const row = rows[index] || {};
-
-      const getValue = (key) => {
-        const column = mapping[key];
-        if (!column) return '';
-        return String(row[column] ?? '').trim();
-      };
-
-      const extractLinksFromRow = () =>
-        Object.values(row)
-          .flatMap((value) => String(value ?? '').match(/https?:\/\/[^\s,|]+/gi) || [])
-          .map((value) => value.trim())
-          .filter(Boolean);
-
-      const normalizePriority = (value) => {
-        const normalized = String(value || '').trim().toLowerCase();
-        if (!normalized) return undefined;
-        if (['hot', 'high', 'warm'].includes(normalized)) return 'High';
-        if (['medium', 'med', 'moderate'].includes(normalized)) return 'Medium';
-        if (['low', 'cold'].includes(normalized)) return 'Low';
-        return normalized.charAt(0).toUpperCase() + normalized.slice(1);
-      };
-
-      const parseDateValue = (value) => {
-        if (!value) return undefined;
-        const parsed = new Date(value);
-        return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
-      };
-
-      const companyName = getValue('name');
+      const payload = buildClientImportPayload(row, mapping);
+      const companyName = payload.companyName;
       if (!companyName) {
         results.failed += 1;
         results.errors.push(`Row ${index + 1}: Company name missing`);
         continue;
       }
 
-      const contactPerson = getValue('contactPerson');
-      const email = getValue('email').toLowerCase();
-      const phone = getValue('phone');
-      const teamName = getValue('companySize');
-      const city = getValue('city');
-      const country = getValue('country');
-      const location = getValue('location');
-      const servicesNeeded = getValue('servicesNeeded');
-      const expectedBusinessValue = getValue('expectedBusinessValue');
-      const notes = getValue('notes');
-      const priority = normalizePriority(getValue('priority'));
-      const leadStatus = getValue('leadStatus');
-      const nextFollowUpDue = parseDateValue(getValue('nextFollowUpDue'));
-      const hiringLocations = [city, country].filter(Boolean).join(', ');
-      const detectedLinks = extractLinksFromRow();
-      const websiteValue = getValue('website');
-      const linkedinValue = detectedLinks.find((link) => link.toLowerCase().includes('linkedin.com')) || '';
-      const genericWebsiteValue =
-        websiteValue ||
-        detectedLinks.find((link) => !link.toLowerCase().includes('linkedin.com')) ||
-        '';
-
-      const payload = {
-        companyName,
-        industry: getValue('industry') || undefined,
-        location: location || undefined,
-        website: genericWebsiteValue || undefined,
-        linkedin: linkedinValue || undefined,
-        assignedToId: getValue('assignedToId') || undefined,
-        companySize: teamName || undefined,
-        hiringLocations: hiringLocations || undefined,
-        priority,
-        servicesNeeded: servicesNeeded || undefined,
-        expectedBusinessValue: expectedBusinessValue || undefined,
-        leadStatus: leadStatus || undefined,
-        nextFollowUpDue: nextFollowUpDue || undefined,
-        address: notes || undefined,
-        status: 'PROSPECT',
-      };
-
       const upsertPrimaryContact = async (companyId) => {
+        const contactPerson = payload.contactPerson || '';
+        const email = payload.email || '';
+        const phone = payload.phone || '';
+        const teamName = payload.companySize || '';
+        const location = payload.location || '';
         if (!contactPerson && !email && !phone) return;
 
         const firstName = contactPerson.split(' ')[0] || 'Unknown';
         const lastName = contactPerson.split(' ').slice(1).join(' ') || '';
 
         if (email) {
-          await prisma.contact.upsert({
-            where: { email },
-            update: {
-              firstName,
-              lastName,
-              phone: phone || null,
-              designation: 'Director',
-              department: teamName || null,
-              location: location || null,
-              companyId,
-              ownerId: payload.assignedToId || null,
-            },
-            create: {
-              firstName,
-              lastName,
-              email,
-              phone: phone || null,
-              designation: 'Director',
-              department: teamName || null,
-              location: location || null,
-              companyId,
-              ownerId: payload.assignedToId || null,
+          const normalizedEmail = email.toLowerCase().trim();
+          const existingByEmail = await prisma.contact.findUnique({
+            where: { email: normalizedEmail },
+          });
+          const sharedContactFields = {
+            firstName,
+            lastName,
+            phone: phone || null,
+            designation: 'Director',
+            department: teamName || null,
+            location: location || null,
+            companyId,
+            ownerId: payload.assignedToId || null,
+          };
+
+          if (existingByEmail) {
+            if (String(existingByEmail.companyId || '') === String(companyId)) {
+              await prisma.contact.update({
+                where: { id: existingByEmail.id },
+                data: sharedContactFields,
+              });
+              return;
+            }
+
+            // Email already belongs to another client — keep the real email on the Client row only.
+            const placeholderEmail = `client-${companyId}-director@placeholder.local`;
+            const existingPlaceholder = await prisma.contact.findUnique({
+              where: { email: placeholderEmail },
+            });
+            if (existingPlaceholder) {
+              await prisma.contact.update({
+                where: { id: existingPlaceholder.id },
+                data: sharedContactFields,
+              });
+              return;
+            }
+
+            await prisma.contact.create({
+              data: {
+                ...sharedContactFields,
+                email: placeholderEmail,
+                tags: [],
+                associatedJobIds: [],
+              },
+            });
+            return;
+          }
+
+          await prisma.contact.create({
+            data: {
+              ...sharedContactFields,
+              email: normalizedEmail,
               tags: [],
               associatedJobIds: [],
             },
@@ -1113,15 +1299,7 @@ export const clientService = {
         let existing = existingClientByName.get(normalizedCompanyName) || null;
 
         if (!existing) {
-          existing = await prisma.client.findFirst({
-            where: {
-              companyName: {
-                equals: companyName,
-                mode: 'insensitive',
-              },
-            },
-            select: { id: true, companyName: true },
-          });
+          existing = await findExistingClientImportDuplicate(companyName);
 
           if (existing) {
             existingClientByName.set(normalizedCompanyName, existing);
@@ -1134,14 +1312,40 @@ export const clientService = {
         }
 
         if (existing && duplicateRule === 'update') {
-          await this.update(existing.id, { ...payload, performedById, skipSideEffects: true });
+          const existingWithDetails = await prisma.client.findUnique({
+            where: { id: existing.id },
+            select: { otherDetails: true },
+          });
+          await this.update(
+            existing.id,
+            {
+              ...payload,
+              otherDetails: mergeClientImportOtherDetails(
+                existingWithDetails?.otherDetails,
+                payload.otherDetails
+              ),
+              performedById,
+              skipSideEffects: true,
+            }
+          );
           await upsertPrimaryContact(existing.id);
           results.updated += 1;
           continue;
         }
 
+        const createPayload =
+          existing && duplicateRule === 'create'
+            ? {
+                ...payload,
+                companyName: prefixDuplicateCopyClientName(
+                  payload.companyName,
+                  existing.companyName || payload.companyName || 'Client'
+                ),
+              }
+            : payload;
+
         const createdClient = await this.create({
-          ...payload,
+          ...createPayload,
           performedById,
           performedByRole,
           skipSideEffects: true,
@@ -1159,5 +1363,56 @@ export const clientService = {
     }
 
     return results;
+  },
+
+  async checkImportDuplicates({ rows = [], mapping = {} }) {
+    const duplicates = [];
+
+    for (let index = 0; index < rows.length; index += 1) {
+      const row = rows[index] || {};
+      const payload = buildClientImportPayload(row, mapping);
+      if (!payload.companyName) continue;
+
+      const existing = await findExistingClientImportDuplicate(payload.companyName);
+      if (!existing) continue;
+
+      const primaryContact = Array.isArray(existing.contacts) && existing.contacts.length > 0
+        ? existing.contacts[0]
+        : null;
+      const existingSnapshot = {
+        id: existing.id,
+        companyName: existing.companyName ?? null,
+        industry: existing.industry ?? null,
+        location: existing.location ?? null,
+        city: existing.city ?? null,
+        country: existing.country ?? null,
+        contactPerson: [primaryContact?.firstName, primaryContact?.lastName].filter(Boolean).join(' ') || null,
+        email: primaryContact?.email ?? null,
+        phone: primaryContact?.phone ?? null,
+        companySize: existing.companySize ?? null,
+        servicesNeeded: existing.servicesNeeded ?? null,
+        leadStatus: existing.leadStatus ?? null,
+        priority: existing.priority ?? null,
+        expectedBusinessValue: existing.expectedBusinessValue ?? null,
+        notes: existing.address ?? null,
+      };
+
+      duplicates.push({
+        rowIndex: index + 1,
+        matchedBy: ['Company Name'],
+        imported: buildClientImportComparisonSnapshot(payload),
+        existing: {
+          id: existing.id,
+          ...buildClientImportComparisonSnapshot(existingSnapshot),
+        },
+      });
+    }
+
+    return {
+      totalRows: rows.length,
+      duplicateCount: duplicates.length,
+      duplicates,
+      compareFields: CLIENT_IMPORT_DUPLICATE_COMPARE_FIELDS,
+    };
   },
 };

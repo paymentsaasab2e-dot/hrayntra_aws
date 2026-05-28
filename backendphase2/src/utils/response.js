@@ -7,9 +7,13 @@ export const sendResponse = (res, statusCode, message, data = null) => {
 };
 
 export const sendError = (res, statusCode, message, error = null) => {
-  res.status(statusCode).json({
+  const payload = {
     success: false,
     message,
     error: process.env.NODE_ENV === 'development' ? error?.message : undefined,
-  });
+  };
+  if (error && typeof error === 'object' && error.code) {
+    payload.data = { code: error.code, ...(error.meta || {}) };
+  }
+  res.status(statusCode).json(payload);
 };

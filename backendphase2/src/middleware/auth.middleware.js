@@ -1,6 +1,8 @@
 import { verifyToken } from '../utils/jwt.js';
 import { sendError } from '../utils/response.js';
 import { prisma, setTenantAuditUser } from '../config/prisma.js';
+import { sessionService } from '../modules/session/session.service.js';
+import { env } from '../config/env.js';
 import jwt from 'jsonwebtoken';
 
 export const authMiddleware = async (req, res, next) => {
@@ -65,10 +67,18 @@ export const authMiddleware = async (req, res, next) => {
       // Token expiration is now set to 10 years, but even if expired,
       // we validate against database to ensure user still exists and is active
       if (user && user.isActive) {
+        if (env.SINGLE_ACTIVE_SESSION_ENABLED && tokenPayload?.sessionId) {
+          const sessionCheck = await sessionService.validateSessionFromToken(tokenPayload);
+          if (!sessionCheck.ok) {
+            return sendError(res, 401, sessionCheck.message, { code: sessionCheck.code });
+          }
+        }
+
         req.user = {
           ...user,
           orgId: tokenPayload?.orgId || tokenPayload?.tenantDbName || null,
           tenantDbName: tokenPayload?.tenantDbName || null,
+          sessionId: tokenPayload?.sessionId || null,
         };
         setTenantAuditUser(user);
         return next();

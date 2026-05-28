@@ -166,11 +166,15 @@ export const contactService = {
   async create(data, userId) {
     // Check for duplicate email
     if (data.email) {
+      const normalizedEmail = data.email.toLowerCase().trim();
       const existing = await prisma.contact.findUnique({
-        where: { email: data.email.toLowerCase().trim() },
+        where: { email: normalizedEmail },
       });
 
       if (existing) {
+        if (data.companyId && String(existing.companyId || '') === String(data.companyId)) {
+          return this.update(existing.id, data, userId);
+        }
         return {
           duplicate: true,
           existingContact: existing,

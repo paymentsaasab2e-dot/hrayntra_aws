@@ -2,8 +2,11 @@
 
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Mail, Lock, User, LogIn, UserPlus } from 'lucide-react';
+import { Eye, EyeOff, Lock, LogIn, Mail, User, UserPlus } from 'lucide-react';
 import { apiLogin, apiRegister, formatAuthErrorMessage, syncTenantDbName } from '../../lib/api';
+import { buildLoginDevicePayload } from '../../lib/sessionAuth';
+import { LoginSessionFlow } from '../../components/session/LoginSessionFlow';
+import type { ActiveSessionView } from '../../lib/sessionAuth';
 
 type Mode = 'login' | 'signup';
 
@@ -23,6 +26,13 @@ export default function LoginPage() {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [showSignupPassword, setShowSignupPassword] = useState(false);
+  const [duplicateSession, setDuplicateSession] = useState<{
+    identifier: string;
+    password: string;
+    activeSession: ActiveSessionView | null;
+  } | null>(null);
 
   // Team invite emails link to /login?token=...&tenantDbName=... — store tenant before any API call.
   useEffect(() => {
@@ -37,7 +47,32 @@ export default function LoginPage() {
     if (tenant) {
       syncTenantDbName(tenant);
     }
+    const sessionMsg = params.get('session');
+    if (sessionMsg) {
+      setMessage(sessionMsg);
+    }
   }, [router]);
+
+  const redirectAfterLogin = (requirePasswordReset: boolean, isSuperAdmin: boolean) => {
+    setTimeout(() => {
+      if (requirePasswordReset && !isSuperAdmin) {
+        router.push('/reset-password');
+        return;
+      }
+      if (isSuperAdmin && requirePasswordReset) {
+        localStorage.removeItem('requirePasswordReset');
+        const currentUser = localStorage.getItem('currentUser');
+        if (currentUser) {
+          const user = JSON.parse(currentUser);
+          user.requirePasswordReset = false;
+          localStorage.setItem('currentUser', JSON.stringify(user));
+        }
+      }
+      const redirectParam = new URLSearchParams(window.location.search).get('redirect');
+      const redirectTo = redirectParam && redirectParam !== '/leads' ? redirectParam : '/dashboard';
+      window.location.href = redirectTo;
+    }, 800);
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,7 +87,25 @@ export default function LoginPage() {
     try {
       setLoading(true);
       setLoadingMessage('Validating credentials...');
-      const response = await apiLogin(loginEmail.trim(), loginPassword.trim());
+      const response = await apiLogin(
+        loginEmail.trim(),
+        loginPassword.trim(),
+        buildLoginDevicePayload(),
+      );
+
+      if (response.data?.duplicateSession) {
+        if (response.data.tenantDbName) {
+          syncTenantDbName(response.data.tenantDbName);
+        }
+        setDuplicateSession({
+          identifier: loginEmail.trim(),
+          password: loginPassword.trim(),
+          activeSession: response.data.activeSession || null,
+        });
+        setLoading(false);
+        setLoadingMessage('');
+        return;
+      }
 
       const tenantProvisioningStatus = response.data?.tenantProvisioningStatus;
       if (tenantProvisioningStatus === 'CREATED') {
@@ -80,26 +133,7 @@ export default function LoginPage() {
       // Skip password reset for Super Admin
       const isSuperAdmin = roleName === 'super admin' || roleCode === 'super admin';
       
-      // Redirect to password reset if required (and not Super Admin), otherwise to dashboard
-      setTimeout(() => {
-        if (requirePasswordReset && !isSuperAdmin) {
-          router.push('/reset-password');
-        } else {
-          if (isSuperAdmin && requirePasswordReset) {
-            localStorage.removeItem('requirePasswordReset');
-            const currentUser = localStorage.getItem('currentUser');
-            if (currentUser) {
-              const user = JSON.parse(currentUser);
-              user.requirePasswordReset = false;
-              localStorage.setItem('currentUser', JSON.stringify(user));
-            }
-          }
-          const redirectParam = new URLSearchParams(window.location.search).get('redirect');
-          // Avoid bouncing the user back to a stale "/leads" redirect when they explicitly came to log in.
-          const redirectTo = redirectParam && redirectParam !== '/leads' ? redirectParam : '/dashboard';
-          window.location.href = redirectTo;
-        }
-      }, 800);
+      redirectAfterLogin(requirePasswordReset, isSuperAdmin);
     } catch (err: any) {
       setError(formatAuthErrorMessage(err, 'Failed to login. Please try again.'));
     } finally {
@@ -150,6 +184,40 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
+      {duplicateSession ? (
+        <LoginSessionFlow
+          identifier={duplicateSession.identifier}
+          password={duplicateSession.password}
+          activeSession={duplicateSession.activeSession}
+          onCancel={() => {
+            setDuplicateSession(null);
+            setLoginPassword('');
+          }}
+          onSuccess={({ requirePasswordReset }) => {
+            setDuplicateSession(null);
+            setMessage('Logged in successfully! Redirecting...');
+            const raw = localStorage.getItem('currentUser');
+            let isSuperAdmin = false;
+            if (raw) {
+              try {
+                const user = JSON.parse(raw);
+                const roleName = String(user?.roleName || '')
+                  .trim()
+                  .toLowerCase()
+                  .replace(/[\s_-]+/g, ' ');
+                const roleCode = String(user?.role || '')
+                  .trim()
+                  .toLowerCase()
+                  .replace(/[\s_-]+/g, ' ');
+                isSuperAdmin = roleName === 'super admin' || roleCode === 'super admin';
+              } catch {
+                /* ignore */
+              }
+            }
+            redirectAfterLogin(requirePasswordReset, isSuperAdmin);
+          }}
+        />
+      ) : null}
       {loading && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-xl">
@@ -202,14 +270,23 @@ export default function LoginPage() {
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Password</label>
                   <div className="relative">
-                    <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                     <input
-                      type="password"
+                      type={showLoginPassword ? 'text' : 'password'}
                       value={loginPassword}
                       onChange={(e) => setLoginPassword(e.target.value)}
                       placeholder="••••••••"
-                      className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      autoComplete="current-password"
+                      className="w-full pl-10 pr-11 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowLoginPassword((v) => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-0.5 text-slate-400 hover:text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                      aria-label={showLoginPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showLoginPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
                   </div>
                 </div>
                 <button
@@ -251,14 +328,23 @@ export default function LoginPage() {
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Password (min 6)</label>
                   <div className="relative">
-                    <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                     <input
-                      type="password"
+                      type={showSignupPassword ? 'text' : 'password'}
                       value={signupPassword}
                       onChange={(e) => setSignupPassword(e.target.value)}
                       placeholder="••••••••"
-                      className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      autoComplete="new-password"
+                      className="w-full pl-10 pr-11 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowSignupPassword((v) => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-0.5 text-slate-400 hover:text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                      aria-label={showSignupPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showSignupPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
                   </div>
                 </div>
                 <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-3">
@@ -292,6 +378,8 @@ export default function LoginPage() {
                   setMode(mode === 'login' ? 'signup' : 'login');
                   setError('');
                   setMessage('');
+                  setShowLoginPassword(false);
+                  setShowSignupPassword(false);
                 }}
                 className="text-sm text-blue-600 hover:text-blue-700 font-medium"
               >

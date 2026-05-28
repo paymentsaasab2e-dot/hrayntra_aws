@@ -27,9 +27,41 @@ function parseProfileSnapshot(row) {
   return snap && typeof snap === 'object' && !Array.isArray(snap) ? snap : null;
 }
 
+function normalizeCareerPreferences(preferences) {
+  if (!preferences || typeof preferences !== 'object' || Array.isArray(preferences)) return null;
+  const preferredIndustries =
+    Array.isArray(preferences.preferredIndustries) && preferences.preferredIndustries.length
+      ? preferences.preferredIndustries
+      : preferences.preferredIndustry
+        ? [String(preferences.preferredIndustry).trim()].filter(Boolean)
+        : [];
+  const functionalAreas =
+    Array.isArray(preferences.functionalAreas) && preferences.functionalAreas.length
+      ? preferences.functionalAreas
+      : preferences.functionalArea
+        ? [String(preferences.functionalArea).trim()].filter(Boolean)
+        : [];
+  return {
+    ...preferences,
+    preferredIndustries,
+    functionalAreas,
+  };
+}
+
 function applyProfileSnapshotFields(mapped, row) {
   const snapshot = parseProfileSnapshot(row);
   if (!snapshot) return mapped;
+  const mergedCareerPreferences =
+    row?.careerPreferences && typeof row.careerPreferences === 'object' && !Array.isArray(row.careerPreferences)
+      ? {
+          ...(snapshot?.careerPreferences && typeof snapshot.careerPreferences === 'object' && !Array.isArray(snapshot.careerPreferences)
+            ? snapshot.careerPreferences
+            : {}),
+          ...row.careerPreferences,
+        }
+      : snapshot?.careerPreferences && typeof snapshot.careerPreferences === 'object' && !Array.isArray(snapshot.careerPreferences)
+        ? snapshot.careerPreferences
+        : null;
 
   const pi = snapshot.personalInfo || {};
   const work = Array.isArray(snapshot.workExperience) ? snapshot.workExperience : [];
@@ -105,10 +137,7 @@ function applyProfileSnapshotFields(mapped, row) {
       mapped.availability ||
       null,
     address: row.addressLine || mapped.address || null,
-    careerPreferences:
-      (row.careerPreferences && typeof row.careerPreferences === 'object'
-        ? row.careerPreferences
-        : snapshot.careerPreferences) || mapped.careerPreferences || null,
+    careerPreferences: normalizeCareerPreferences(mergedCareerPreferences) || mapped.careerPreferences || null,
     certifications: certificationsFromSnap.length ? certificationsFromSnap : mapped.certifications,
     certificationsList: certificationsFromSnap.length
       ? certificationsFromSnap
@@ -138,6 +167,19 @@ export function mapCandidateCommonRowToCandidate(row) {
   if (!row) return null;
   const id = String(row.candidateId || row.id || '').trim();
   if (!id) return null;
+
+  const snapshot = parseProfileSnapshot(row);
+  const mergedCareerPreferences =
+    row.careerPreferences && typeof row.careerPreferences === 'object' && !Array.isArray(row.careerPreferences)
+      ? {
+          ...(snapshot?.careerPreferences && typeof snapshot.careerPreferences === 'object' && !Array.isArray(snapshot.careerPreferences)
+            ? snapshot.careerPreferences
+            : {}),
+          ...row.careerPreferences,
+        }
+      : snapshot?.careerPreferences && typeof snapshot.careerPreferences === 'object' && !Array.isArray(snapshot.careerPreferences)
+        ? snapshot.careerPreferences
+        : null;
 
   const skills = Array.isArray(row.skills) ? row.skills : [];
   const recruiterSkills = Array.isArray(row.recruiterSkills) ? row.recruiterSkills : skills;
@@ -174,10 +216,7 @@ export function mapCandidateCommonRowToCandidate(row) {
     noticePeriod: row.noticePeriod ?? null,
     availability: row.availability ?? null,
     address: row.addressLine ?? null,
-    careerPreferences:
-      row.careerPreferences && typeof row.careerPreferences === 'object'
-        ? row.careerPreferences
-        : null,
+    careerPreferences: normalizeCareerPreferences(mergedCareerPreferences),
     assignedJobs: Array.isArray(row.assignedJobs) ? row.assignedJobs : [],
     stage: row.stage ?? 'New',
     source: row.source ?? 'phase1',

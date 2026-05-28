@@ -391,10 +391,17 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
   }));
 
   const careerPrefs = c.careerPreferences || null;
+  const mergedCareerPrefs =
+    careerPrefs || phase1Snap?.careerPreferences
+      ? {
+          ...((phase1Snap?.careerPreferences as Record<string, unknown> | null) || {}),
+          ...((careerPrefs as Record<string, unknown> | null) || {}),
+        }
+      : null;
   const expectedSalaryFromPrefs = formatCandidateSalaryDisplay(
-    c.expectedSalary ?? careerPrefs?.preferredSalary ?? null,
-    careerPrefs?.preferredCurrency || c.salary?.currency || null,
-    careerPrefs?.preferredSalaryType || null
+    c.expectedSalary ?? mergedCareerPrefs?.preferredSalary ?? null,
+    mergedCareerPrefs?.preferredCurrency || c.salary?.currency || null,
+    mergedCareerPrefs?.preferredSalaryType || null
   );
   const expectedSalaryDisplay =
     expectedSalaryFromPrefs ||
@@ -423,10 +430,11 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
     linkedIn: c.linkedIn || null,
     designation: c.currentTitle || null,
     expectedSalary: expectedSalaryDisplay || '—',
-    expectedSalaryValue: c.expectedSalary ?? careerPrefs?.preferredSalary ?? null,
-    currentSalaryValue: c.currentSalary ?? careerPrefs?.currentSalary ?? null,
-    salaryCurrency: careerPrefs?.preferredCurrency || c.salary?.currency || 'INR',
-    noticePeriod: c.noticePeriod || careerPrefs?.noticePeriod || '—',
+    expectedSalaryValue: c.expectedSalary ?? mergedCareerPrefs?.preferredSalary ?? null,
+    currentSalaryValue: c.currentSalary ?? mergedCareerPrefs?.currentSalary ?? null,
+    salaryCurrency: mergedCareerPrefs?.preferredCurrency || c.salary?.currency || 'INR',
+    noticePeriod: c.noticePeriod || mergedCareerPrefs?.noticePeriod || '—',
+    careerPreferences: mergedCareerPrefs as CandidateProfileDrawerData['careerPreferences'],
     // Prefer the explicitly-assigned job (set via the candidate edit modal) over
     // any pre-existing Match record so changing the assignment reflects in the
     // drawer + dropdown immediately after save. If the title can't be resolved
@@ -444,7 +452,7 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
     status: c.status || 'NEW',
     availability:
       c.availability ||
-      careerPrefs?.availabilityToStart ||
+      mergedCareerPrefs?.availabilityToStart ||
       (c.status === 'ACTIVE' ? 'available' : c.status === 'PLACED' ? 'unavailable' : 'limited'),
     resumeUrl: c.resume || c.resumeUrl || null,
     summary:
@@ -454,18 +462,18 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
     cvAddress: c.address || null,
     cvCity: c.city || null,
     cvCountry: c.country || null,
-    cvAvailability: c.availability || careerPrefs?.availabilityToStart || null,
+    cvAvailability: c.availability || mergedCareerPrefs?.availabilityToStart || null,
     cvExpectedSalary:
       formatCandidateSalaryDisplay(
-        c.expectedSalary ?? careerPrefs?.preferredSalary ?? null,
-        careerPrefs?.preferredCurrency || c.salary?.currency || null,
-        careerPrefs?.preferredSalaryType || null
+        c.expectedSalary ?? mergedCareerPrefs?.preferredSalary ?? null,
+        mergedCareerPrefs?.preferredCurrency || c.salary?.currency || null,
+        mergedCareerPrefs?.preferredSalaryType || null
       ) || salary.expected || null,
     cvCurrentSalary:
       formatCandidateSalaryDisplay(
-        c.currentSalary ?? careerPrefs?.currentSalary ?? null,
-        careerPrefs?.currentCurrency || careerPrefs?.preferredCurrency || c.salary?.currency || null,
-        careerPrefs?.currentSalaryType || null
+        c.currentSalary ?? mergedCareerPrefs?.currentSalary ?? null,
+        mergedCareerPrefs?.currentCurrency || mergedCareerPrefs?.preferredCurrency || c.salary?.currency || null,
+        mergedCareerPrefs?.currentSalaryType || null
       ) || null,
     cvEducation: (() => {
       const entries = Array.isArray(c.cvEducationEntries) ? c.cvEducationEntries : [];
@@ -507,10 +515,10 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
     cvNotes: c.cvSummary || c.notes || null,
     cvPreferredLocation:
       c.preferredLocation ||
-      (Array.isArray(careerPrefs?.preferredLocations) && careerPrefs?.preferredLocations.length
-        ? careerPrefs.preferredLocations[0]
+      (Array.isArray(mergedCareerPrefs?.preferredLocations) && mergedCareerPrefs?.preferredLocations.length
+        ? mergedCareerPrefs.preferredLocations[0]
         : null) ||
-      careerPrefs?.currentLocation ||
+      mergedCareerPrefs?.currentLocation ||
       null,
     cvSkills:
       (Array.isArray(c.skills) && c.skills.length

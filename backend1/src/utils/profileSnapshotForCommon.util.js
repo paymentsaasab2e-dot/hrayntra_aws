@@ -205,6 +205,18 @@ function buildProfileSnapshot(candidate) {
   }));
 
   const cp = candidate.careerPreferences;
+  const preferredIndustries =
+    Array.isArray(cp?.preferredIndustries) && cp.preferredIndustries.length
+      ? cp.preferredIndustries
+      : cp?.preferredIndustry
+        ? [cp.preferredIndustry]
+        : [];
+  const functionalAreas =
+    Array.isArray(cp?.functionalAreas) && cp.functionalAreas.length
+      ? cp.functionalAreas
+      : cp?.functionalArea
+        ? [cp.functionalArea]
+        : [];
 
   return {
     candidateId: candidate.id,
@@ -238,12 +250,35 @@ function buildProfileSnapshot(candidate) {
     languages,
     careerPreferences: cp
       ? {
+          currentRole: cp.currentRole || '',
+          preferredJobTitles: cp.preferredJobTitles || [],
           preferredRoles: cp.preferredRoles || [],
+          preferredIndustries,
           preferredIndustry: cp.preferredIndustry || '',
+          functionalAreas,
+          functionalArea: cp.functionalArea || '',
+          jobTypes: cp.jobTypes || [],
+          workModes: cp.workModes || [],
           preferredLocations: cp.preferredLocations || [],
           preferredWorkMode: cp.preferredWorkMode || '',
+          relocationPreference: cp.relocationPreference || '',
+          salaryCurrency: cp.salaryCurrency || '',
+          salaryAmount: cp.salaryAmount ?? '',
+          salaryFrequency: cp.salaryFrequency || '',
+          preferredCurrency: cp.preferredCurrency || '',
+          preferredSalary: cp.preferredSalary ?? '',
+          preferredSalaryType: cp.preferredSalaryType || '',
+          preferredBenefits: cp.preferredBenefits || [],
+          currentCurrency: cp.currentCurrency || '',
+          currentSalaryType: cp.currentSalaryType || '',
+          currentSalary: cp.currentSalary ?? '',
+          currentLocation: cp.currentLocation || '',
+          currentBenefits: cp.currentBenefits || [],
           noticePeriod: cp.noticePeriod || '',
+          noticePeriodDays: cp.noticePeriodDays ?? '',
           availabilityToStart: cp.availabilityToStart || '',
+          openToRelocation: cp.openToRelocation || false,
+          passportNumbersByLocation: cp.passportNumbersByLocation || null,
         }
       : null,
     resume: candidate.resume

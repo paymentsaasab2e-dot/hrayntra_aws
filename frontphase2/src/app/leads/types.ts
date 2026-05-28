@@ -99,6 +99,9 @@ export interface Lead {
   agreementTotalPayment?: string | null;
   agreementLevel?: string | null;
   agreementServiceChargePercent?: string | null;
+  agreementContractValidity?: string | null;
+  agreementContractStartDate?: string | null;
+  agreementContractEndDate?: string | null;
   agreementTimePeriod?: string | null;
   agreementAdvancePaymentPercent?: string | null;
   agreementFreeReplacementValue?: number | null;

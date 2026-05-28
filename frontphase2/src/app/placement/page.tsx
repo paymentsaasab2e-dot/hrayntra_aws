@@ -24,6 +24,16 @@ import {
   PH2_TOOLBAR_ROW_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
 import { SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
+import {
+  SmartSearchActiveKeywordsBar,
+  SmartSearchPromptPanel,
+  SmartSearchToggleButton,
+} from '../../components/smart-search/SmartSearchToolbar';
+import { useSmartSearch } from '../../hooks/useSmartSearch';
+import {
+  PLACEMENTS_SMART_SEARCH_EXAMPLES,
+  parsePlacementsSmartSearchPrompt,
+} from '../../lib/smart-search/parsers';
 
 export const dynamic = 'force-dynamic';
 
@@ -81,6 +91,7 @@ function PlacementsPageContent() {
   const [failedPlacement, setFailedPlacement] = useState<Placement | null>(null);
   const [failedMode, setFailedMode] = useState<'FAILED' | 'NO_SHOW'>('FAILED');
   const [replacementPlacement, setReplacementPlacement] = useState<Placement | null>(null);
+  const [editingPlacement, setEditingPlacement] = useState<Placement | null>(null);
   const [detailDrawerOpen, setDetailDrawerOpen] = useState(false);
   const [detailPlacementId, setDetailPlacementId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | undefined>();
@@ -97,6 +108,7 @@ function PlacementsPageContent() {
     clientOptions,
     recruiterOptions,
     createPlacement,
+    updatePlacement,
     updatePlacementStatus,
     markJoined,
     markFailed,
@@ -105,6 +117,28 @@ function PlacementsPageContent() {
     exportPlacements,
     refresh,
   } = usePlacements(filters);
+
+  const editPlacementInitialValues = useMemo(
+    () =>
+      editingPlacement
+        ? {
+            candidateId: editingPlacement.candidateId,
+            jobId: editingPlacement.jobId,
+            companyId: editingPlacement.clientId,
+            recruiterId: editingPlacement.recruiterId || undefined,
+            offerSalary: editingPlacement.salaryOffered != null ? String(editingPlacement.salaryOffered) : '',
+            placementFee: editingPlacement.placementFee != null ? String(editingPlacement.placementFee) : '',
+            commissionPercentage:
+              editingPlacement.commissionPercentage != null ? String(editingPlacement.commissionPercentage) : '20',
+            currency: editingPlacement.currency || 'USD',
+            offerDate: editingPlacement.offerDate ? String(editingPlacement.offerDate).slice(0, 10) : '',
+            expectedJoiningDate: editingPlacement.joiningDate ? String(editingPlacement.joiningDate).slice(0, 10) : '',
+            employmentType: editingPlacement.employmentType || 'PERMANENT',
+            notes: editingPlacement.notes || '',
+          }
+        : undefined,
+    [editingPlacement]
+  );
 
   useEffect(() => {
     setSearchValue(filters.search || '');
@@ -138,6 +172,52 @@ function PlacementsPageContent() {
 
     router.replace(`${pathname}${params.toString() ? `?${params.toString()}` : ''}`);
   };
+
+  const placementSmartSearchOptions = useMemo(
+    () => ({
+      clients: clientOptions.map((client) => ({ id: client.id, name: client.companyName })),
+      recruiters: recruiterOptions.map((recruiter) => ({ id: recruiter.id, name: recruiter.name })),
+    }),
+    [clientOptions, recruiterOptions],
+  );
+
+  const placementSmartSearch = useSmartSearch({
+    parsePrompt: (text) => parsePlacementsSmartSearchPrompt(text, placementSmartSearchOptions),
+    applyParsed: (parsed) => {
+      setSearchValue(parsed.searchText);
+      updateFilters({
+        search: parsed.searchText,
+        status: (parsed.status || '') as PlacementFilters['status'],
+        companyId: parsed.companyId || '',
+        recruiterId: parsed.recruiterId || '',
+        employmentType: (parsed.employmentType || '') as PlacementFilters['employmentType'],
+        page: 1,
+      });
+    },
+    onRemoveKeyword: (removed, remaining) => {
+      if (removed.kind === 'status') {
+        updateFilters({ status: '' as PlacementFilters['status'], page: 1 });
+      }
+      if (removed.kind === 'client') {
+        updateFilters({ companyId: '', page: 1 });
+      }
+      if (removed.kind === 'recruiter') {
+        updateFilters({ recruiterId: '', page: 1 });
+      }
+      if (removed.kind === 'employment') {
+        updateFilters({ employmentType: '' as PlacementFilters['employmentType'], page: 1 });
+      }
+      if (removed.kind === 'text') {
+        const text = remaining
+          .filter((keyword) => keyword.kind === 'text')
+          .map((keyword) => keyword.value)
+          .join(' ');
+        setSearchValue(text);
+        updateFilters({ search: text, page: 1 });
+      }
+    },
+    examples: PLACEMENTS_SMART_SEARCH_EXAMPLES,
+  });
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -240,12 +320,40 @@ function PlacementsPageContent() {
               </div>
 
               <div className={PH2_TABLE_CARD_CLASS}>
-                <div className={PH2_TOOLBAR_ROW_CLASS}>
+                <div className={`${PH2_TOOLBAR_ROW_CLASS} flex flex-wrap items-center justify-between gap-2`}>
                   <p className="max-w-xl text-xs text-slate-600">
-                    Filter by client, status, employment type, and offer date range. Use <span className="font-semibold text-slate-800">Clear</span> when
-                    filters are active.
+                    Filter by client, status, employment type, and offer date range. Use smart search or{' '}
+                    <span className="font-semibold text-slate-800">Clear</span> when filters are active.
                   </p>
+                  <SmartSearchToggleButton
+                    open={placementSmartSearch.open}
+                    onToggle={() => placementSmartSearch.setOpen((value) => !value)}
+                  />
                 </div>
+
+                {placementSmartSearch.open ? (
+                  <SmartSearchPromptPanel
+                    prompt={placementSmartSearch.prompt}
+                    onPromptChange={placementSmartSearch.setPrompt}
+                    onApply={placementSmartSearch.handleApply}
+                    previewKeywords={placementSmartSearch.previewKeywords}
+                    examples={placementSmartSearch.examples}
+                    onExampleClick={placementSmartSearch.handleExample}
+                    entityLabel="placements"
+                    placeholder="e.g. joined permanent placements for Acme"
+                  />
+                ) : null}
+
+                <SmartSearchActiveKeywordsBar
+                  chips={placementSmartSearch.activeChips}
+                  onClearAll={() => {
+                    setSearchValue('');
+                    placementSmartSearch.clearSmartSearch();
+                    router.replace(pathname);
+                  }}
+                  resultCount={pagination.total}
+                  showResultCount={!loading && !error}
+                />
 
                 <div className="border-b border-indigo-100/40 px-3 py-3 sm:px-4">
                   <FiltersBar
@@ -284,6 +392,13 @@ function PlacementsPageContent() {
                             setDetailPlacementId(placement.id);
                             setDetailDrawerOpen(true);
                           }}
+                          onEdit={
+                            canUpdatePlacement
+                              ? (placement) => {
+                                  setEditingPlacement(placement);
+                                }
+                              : undefined
+                          }
                           onMarkJoined={canUpdatePlacement ? (placement) => setJoinedPlacement(placement) : undefined}
                           onMarkFailed={
                             canUpdatePlacement
@@ -367,6 +482,28 @@ function PlacementsPageContent() {
             toast.success('Placement created successfully');
           } catch (submitError: any) {
             toast.error(submitError.message || 'Failed to create placement');
+          }
+        }}
+      />
+
+      <CreatePlacementDrawer
+        isOpen={canUpdatePlacement && Boolean(editingPlacement)}
+        isSubmitting={submitting}
+        mode="edit"
+        currentUserId={currentUserId}
+        candidates={candidateOptions}
+        jobs={jobOptions}
+        recruiters={recruiterOptions}
+        initialValues={editPlacementInitialValues}
+        onClose={() => setEditingPlacement(null)}
+        onSubmit={async (payload) => {
+          if (!editingPlacement) return;
+          try {
+            await updatePlacement(editingPlacement.id, payload);
+            setEditingPlacement(null);
+            toast.success('Placement updated successfully');
+          } catch (submitError: any) {
+            toast.error(submitError.message || 'Failed to update placement');
           }
         }}
       />

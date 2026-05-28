@@ -310,4 +310,16 @@ export const clientController = {
       sendError(res, 400, error.message, error);
     }
   },
+
+  async checkImportDuplicates(req, res) {
+    try {
+      const result = await clientService.checkImportDuplicates({
+        rows: req.body?.rows || [],
+        mapping: req.body?.mapping || {},
+      });
+      sendResponse(res, 200, 'Client import duplicates checked successfully', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
 };

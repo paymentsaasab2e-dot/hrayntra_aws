@@ -4,9 +4,9 @@ import React from 'react';
 import {
   Bookmark,
   ChevronDown,
-  Eye,
   GitMerge,
   MapPin,
+  Pencil,
   Send,
   Sparkles,
   XCircle,
@@ -210,11 +210,11 @@ export default function MatchCandidateTable({
                         <div className="inline-flex items-center justify-end gap-0.5 rounded-2xl bg-slate-100/70 p-1 ring-1 ring-slate-200/60">
                           <button
                             type="button"
-                            className="flex h-8 w-8 items-center justify-center rounded-xl text-blue-600 transition-all hover:bg-white hover:text-blue-700 hover:shadow-sm"
-                            title="View profile"
+                            className="flex h-8 w-8 items-center justify-center rounded-xl text-amber-600 transition-all hover:bg-white hover:text-amber-800 hover:shadow-sm"
+                            title="Edit profile"
                             onClick={() => onViewProfile(candidate.id)}
                           >
-                            <Eye size={16} strokeWidth={2.25} />
+                            <Pencil size={16} strokeWidth={2.25} />
                           </button>
                           <button
                             type="button"

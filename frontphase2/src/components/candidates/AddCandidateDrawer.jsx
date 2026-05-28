@@ -688,8 +688,11 @@ export default function AddCandidateDrawer({
   /** When set (e.g. from Failed resumes → Re-upload), opens Bulk CV with this single file once. */
   pendingBulkRetryFile = null,
   onBulkRetryFileConsumed,
+  /** Inline bulk CV panel (e.g. /demoAi) — same parse pipeline, no drawer overlay. */
+  embeddedBulkCv = false,
 }) {
-  const [activeTab, setActiveTab] = useState(initialTab);
+  const drawerActive = isOpen || embeddedBulkCv;
+  const [activeTab, setActiveTab] = useState(embeddedBulkCv ? 'bulkResume' : initialTab);
   const [currentStep, setCurrentStep] = useState(1);
   const [avatarFile, setAvatarFile] = useState(null);
   const [avatarPreview, setAvatarPreview] = useState('');
@@ -775,18 +778,22 @@ export default function AddCandidateDrawer({
 
   // Same scope as /job table: only jobs created by the logged-in user (not all OPEN jobs in the tenant).
   useEffect(() => {
-    if (!isOpen) {
+    if (!drawerActive) {
       setDataLoaded(false);
     }
-  }, [isOpen]);
+  }, [drawerActive]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!drawerActive) return;
+    if (embeddedBulkCv) {
+      setActiveTab('bulkResume');
+      return;
+    }
     setActiveTab(initialTab || 'manual');
-  }, [initialTab, isOpen]);
+  }, [initialTab, drawerActive, embeddedBulkCv]);
 
   useEffect(() => {
-    if (!isOpen || !pendingBulkRetryFile) return;
+    if (!drawerActive || !pendingBulkRetryFile) return;
     const file = pendingBulkRetryFile;
     setEntryError('');
     setActiveTab('bulkResume');
@@ -798,15 +805,15 @@ export default function AddCandidateDrawer({
     if (typeof onBulkRetryFileConsumed === 'function') {
       onBulkRetryFileConsumed();
     }
-  }, [isOpen, pendingBulkRetryFile, onBulkRetryFileConsumed]);
+  }, [drawerActive, pendingBulkRetryFile, onBulkRetryFileConsumed]);
 
   useEffect(() => {
-    if (!isOpen || !normalizedDefaultJobId) return;
+    if (!drawerActive || !normalizedDefaultJobId) return;
     setFormData((prev) => ({ ...prev, jobId: normalizedDefaultJobId }));
-  }, [isOpen, normalizedDefaultJobId]);
+  }, [drawerActive, normalizedDefaultJobId]);
 
   useEffect(() => {
-    if (!isOpen || dataLoaded) return;
+    if (!drawerActive || dataLoaded) return;
 
     let ignore = false;
     async function loadOptions() {
@@ -849,10 +856,10 @@ export default function AddCandidateDrawer({
   }, [currentUser, formData.recruiterId]);
 
   useEffect(() => {
-    if (!isOpen) {
+    if (!drawerActive) {
       clearInterval(importProgressRef.current);
     }
-  }, [isOpen]);
+  }, [drawerActive]);
 
   const resetForNext = (nextTab = activeTab) => {
     setCurrentStep(1);
@@ -930,7 +937,11 @@ export default function AddCandidateDrawer({
 
   const handleDrawerClose = () => {
     if (isBulkResumeBusy) return;
-    resetForNext(activeTab);
+    resetForNext(embeddedBulkCv ? 'bulkResume' : activeTab);
+    if (embeddedBulkCv) {
+      onSuccess?.(null);
+      return;
+    }
     onClose();
   };
 
@@ -2453,10 +2464,16 @@ export default function AddCandidateDrawer({
     return { label: result.status, className: 'bg-red-100 text-red-700' };
   };
 
-  if (!isOpen) return null;
+  if (!drawerActive) return null;
+
+  const embeddedShellClass =
+    'mb-6 flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm';
+  const drawerShellClass = `absolute inset-x-0 bottom-0 h-[92vh] rounded-t-2xl bg-white shadow-2xl transition-transform duration-300 sm:inset-y-0 sm:right-0 sm:left-auto sm:h-full sm:w-[520px] sm:rounded-none ${
+    isOpen ? 'translate-y-0 sm:translate-x-0' : 'translate-y-full sm:translate-x-full'
+  } flex flex-col`;
 
   return (
-    <div className="fixed inset-0 z-[90]">
+    <div className={embeddedBulkCv ? '' : 'fixed inset-0 z-[90]'}>
       {bulkDuplicateModal ? (
         <div
           className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/70 p-4"
@@ -2530,20 +2547,26 @@ export default function AddCandidateDrawer({
         </div>
       ) : null}
 
-      <div
-        className={`absolute inset-0 bg-slate-900/50 ${isBulkResumeBusy ? 'cursor-not-allowed' : ''}`}
-        onClick={handleDrawerClose}
-      />
+      {!embeddedBulkCv ? (
+        <div
+          className={`absolute inset-0 bg-slate-900/50 ${isBulkResumeBusy ? 'cursor-not-allowed' : ''}`}
+          onClick={handleDrawerClose}
+        />
+      ) : null}
 
-      <div
-        className={`absolute inset-x-0 bottom-0 h-[92vh] rounded-t-2xl bg-white shadow-2xl transition-transform duration-300 sm:inset-y-0 sm:right-0 sm:left-auto sm:h-full sm:w-[520px] sm:rounded-none ${
-          isOpen ? 'translate-y-0 sm:translate-x-0' : 'translate-y-full sm:translate-x-full'
-        } flex flex-col`}
-      >
-        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+      <div className={embeddedBulkCv ? embeddedShellClass : drawerShellClass}>
+        <div
+          className={`flex items-center justify-between border-b border-slate-200 ${embeddedBulkCv ? 'px-5 py-4' : 'px-6 py-4'}`}
+        >
           <div>
-            <h2 className="text-base font-medium text-slate-900">{drawerTitle}</h2>
-            <p className="mt-0.5 text-xs text-slate-500">{drawerDescription}</p>
+            <h2 className="text-base font-medium text-slate-900">
+              {embeddedBulkCv ? 'Bulk CV upload' : drawerTitle}
+            </h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              {embeddedBulkCv
+                ? 'Same parsing pipeline as Candidates — upload files, ZIP, or folders; token usage appears below.'
+                : drawerDescription}
+            </p>
             {inlineSuccess ? <p className="mt-1 text-xs font-medium text-emerald-600">{inlineSuccess}</p> : null}
             {isBulkResumeBusy ? (
               <p className="mt-1 text-xs font-medium text-blue-600">
@@ -2551,23 +2574,38 @@ export default function AddCandidateDrawer({
               </p>
             ) : null}
           </div>
-          <button
-            type="button"
-            onClick={handleDrawerClose}
-            disabled={isBulkResumeBusy}
-            title={isBulkResumeBusy ? 'Parsing in progress — stop parsing first' : 'Close'}
-            className={`rounded-full p-2 transition ${
-              isBulkResumeBusy
-                ? 'cursor-not-allowed text-slate-300'
-                : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700'
-            }`}
-          >
-            <X size={18} />
-          </button>
+          {!embeddedBulkCv ? (
+            <button
+              type="button"
+              onClick={handleDrawerClose}
+              disabled={isBulkResumeBusy}
+              title={isBulkResumeBusy ? 'Parsing in progress — stop parsing first' : 'Close'}
+              className={`rounded-full p-2 transition ${
+                isBulkResumeBusy
+                  ? 'cursor-not-allowed text-slate-300'
+                  : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700'
+              }`}
+            >
+              <X size={18} />
+            </button>
+          ) : null}
         </div>
 
-        <div ref={formScrollRef} className="flex-1 overflow-y-auto px-6 py-5">
-          {showMethodTabs ? (
+        <div
+          ref={formScrollRef}
+          className={
+            embeddedBulkCv
+              ? 'max-h-[min(70vh,640px)] overflow-y-auto px-5 py-5'
+              : 'flex-1 overflow-y-auto px-6 py-5'
+          }
+        >
+          {entryError && embeddedBulkCv ? (
+            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {entryError}
+            </div>
+          ) : null}
+
+          {!embeddedBulkCv && showMethodTabs ? (
             <div className="mb-5 flex flex-wrap gap-2">
               {METHOD_TABS.map((tab) => (
                 <PillButton key={tab.key} active={activeTab === tab.key} onClick={() => handleTabChange(tab.key)}>
@@ -2577,7 +2615,7 @@ export default function AddCandidateDrawer({
             </div>
           ) : null}
 
-          {saveBanner ? (
+          {!embeddedBulkCv && saveBanner ? (
             <div
               className={`mb-4 rounded-xl border px-4 py-3 text-sm ${
                 saveBanner.type === 'duplicate'
@@ -2629,7 +2667,7 @@ export default function AddCandidateDrawer({
             </div>
           ) : null}
 
-          {activeTab === 'resume' ? (
+          {!embeddedBulkCv && activeTab === 'resume' ? (
             <div className="mb-5 space-y-4">
               <CandidatePhotoUpload
                 preview={avatarPreview || formData.avatar}
@@ -2954,7 +2992,7 @@ export default function AddCandidateDrawer({
             </div>
           ) : null}
 
-          {activeTab === 'bulkResume' ? (
+          {(embeddedBulkCv || activeTab === 'bulkResume') ? (
             <div className="space-y-4">
               {bulkResumePhase === 'upload' ? (
                 <div
@@ -3239,7 +3277,7 @@ export default function AddCandidateDrawer({
             </div>
           ) : null}
 
-          {activeTab === 'csv' ? (
+          {!embeddedBulkCv && activeTab === 'csv' ? (
             <div className="space-y-5">
               {csvPhase === 'upload' ? (
                 <>
@@ -3360,7 +3398,7 @@ export default function AddCandidateDrawer({
                 </div>
               ) : null}
             </div>
-          ) : activeTab === 'bulkResume' ? null : (
+          ) : (embeddedBulkCv || activeTab === 'bulkResume') ? null : (
             <>
               {activeTab === 'manual' ? (
                 <CandidatePhotoUpload
@@ -3403,8 +3441,10 @@ export default function AddCandidateDrawer({
           )}
         </div>
 
-        <div className="border-t border-slate-200 bg-white px-6 py-4">
-          {activeTab === 'csv' ? (
+        <div
+          className={`border-t border-slate-200 bg-white ${embeddedBulkCv ? 'px-5 py-4' : 'px-6 py-4'}`}
+        >
+          {!embeddedBulkCv && activeTab === 'csv' ? (
             <div className="flex items-center justify-between gap-3">
               <button
                 type="button"
@@ -3436,7 +3476,7 @@ export default function AddCandidateDrawer({
                 </button>
               ) : null}
             </div>
-          ) : activeTab === 'bulkResume' ? (
+          ) : (embeddedBulkCv || activeTab === 'bulkResume') ? (
             <div className="flex items-center justify-between gap-3">
               <button
                 type="button"
@@ -3449,7 +3489,11 @@ export default function AddCandidateDrawer({
                     : 'text-slate-700'
                 }`}
               >
-                {bulkResumePhase === 'complete' ? 'Done' : 'Cancel'}
+                {bulkResumePhase === 'complete'
+                  ? embeddedBulkCv
+                    ? 'Upload more'
+                    : 'Done'
+                  : 'Cancel'}
               </button>
               {bulkResumePhase === 'preview' ? (
                 <button
@@ -3457,7 +3501,9 @@ export default function AddCandidateDrawer({
                   onClick={handleBulkResumeImport}
                   className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white"
                 >
-                  Create {bulkCvStoredEntries.length + bulkResumeFiles.length} Candidates →
+                  {embeddedBulkCv
+                    ? `Parse ${bulkCvStoredEntries.length + bulkResumeFiles.length} CV${bulkCvStoredEntries.length + bulkResumeFiles.length === 1 ? '' : 's'} →`
+                    : `Create ${bulkCvStoredEntries.length + bulkResumeFiles.length} Candidates →`}
                 </button>
               ) : null}
               {bulkResumePhase === 'importing' ? (
@@ -3479,12 +3525,13 @@ export default function AddCandidateDrawer({
                 <button
                   type="button"
                   onClick={() => {
-                    resetForNext(activeTab);
-                    onClose();
+                    resetForNext(embeddedBulkCv ? 'bulkResume' : activeTab);
+                    onSuccess?.(null);
+                    if (!embeddedBulkCv) onClose();
                   }}
                   className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white"
                 >
-                  Close
+                  {embeddedBulkCv ? 'View summary below' : 'Close'}
                 </button>
               ) : null}
             </div>

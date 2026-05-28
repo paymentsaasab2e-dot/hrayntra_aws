@@ -1280,16 +1280,16 @@ export function TaskDetailsDrawer({
                         </div>
                       )}
 
-                      {/* Notes Section */}
+                      {/* Remarks Section */}
                       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
                         <div className="flex items-center justify-between mb-3">
-                          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Notes</h4>
+                          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Remarks</h4>
                           <button 
                             type="button" 
                             onClick={() => setShowAddNote(!showAddNote)}
                             className="flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700"
                           >
-                            <Plus size={14} /> Add Note
+                            <Plus size={14} /> Add Remark
                           </button>
                         </div>
                         
@@ -1298,7 +1298,7 @@ export function TaskDetailsDrawer({
                             <textarea
                               value={newNote}
                               onChange={(e) => setNewNote(e.target.value)}
-                              placeholder="Enter your note here..."
+                              placeholder="Enter your remark here..."
                               rows={3}
                               className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-y mb-2"
                             />
@@ -1343,7 +1343,7 @@ export function TaskDetailsDrawer({
                             ))}
                           </div>
                         ) : (
-                          !showAddNote && <p className="text-sm text-slate-500 italic">No notes yet.</p>
+                          !showAddNote && <p className="text-sm text-slate-500 italic">No remarks yet.</p>
                         )}
                       </div>
 

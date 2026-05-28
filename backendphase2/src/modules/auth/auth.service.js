@@ -7,6 +7,7 @@ import { headquartersAuthService } from './headquarters-auth.service.js';
 import { seedOrgRecruitmentFromOrganizationType } from '../setting/recruitmentMode.service.js';
 import { DEFAULT_SYSTEM_ROLES } from '../role/default-permissions.js';
 import { ensureSuperAdminHasAllPermissions, syncDefaultPermissions } from '../role/permission-sync.service.js';
+import { sessionService } from '../session/session.service.js';
 
 const DIRECT_SUPER_ADMIN_LOGIN_ID = 'super.admin@saasa';
 const DIRECT_SUPER_ADMIN_PASSWORD = 'UjvnE3WctAVa';
@@ -14,6 +15,20 @@ const DIRECT_SUPER_ADMIN_PASSWORD = 'UjvnE3WctAVa';
 function resolveActiveTenantDbName() {
   const tenantDbName = String(getActiveTenantDbName() || '').trim();
   return tenantDbName || '';
+}
+
+/** If login hit the default DB, re-run inside the tenant DB once we know the user. */
+async function rerunLoginInResolvedTenant(loginIdOrEmail, user, credential, rerun) {
+  if (resolveActiveTenantDbName()) return null;
+  const email = String(user?.email || '').trim();
+  let resolved = await headquartersAuthService.findTenantDbNameForUser(email || loginIdOrEmail);
+  if (!resolved) {
+    resolved = await headquartersAuthService.findTenantDbNameForUserByCredentialScan(
+      credential?.loginId || loginIdOrEmail
+    );
+  }
+  if (!resolved) return null;
+  return runWithTenantContext(resolved, rerun);
 }
 
 async function ensureWorkspaceClientForTenant(tenantDbName, user, fallbackWorkspaceName = '') {
@@ -317,7 +332,7 @@ export const authService = {
     };
   },
 
-  async login(loginIdOrEmail, password, ipAddress, userAgent) {
+  async login(loginIdOrEmail, password, ipAddress, userAgent, deviceMeta = {}) {
     // Plain `/login` (no invite token, no cached `x-tenant-db-name`) carries no
     // tenant context, so Prisma would fall back to the default DB and never see
     // tenant-scoped team-member credentials. Resolve the user's tenant via the
@@ -332,7 +347,7 @@ export const authService = {
       }
       if (resolvedTenantDbName) {
         return runWithTenantContext(resolvedTenantDbName, () =>
-          this.login(loginIdOrEmail, password, ipAddress, userAgent)
+          this.login(loginIdOrEmail, password, ipAddress, userAgent, deviceMeta)
         );
       }
     }
@@ -349,30 +364,40 @@ export const authService = {
       if (!headquartersUser) return null;
       const tenantWorkspace = await headquartersAuthService.ensureTenantProvisioning(headquartersUser.email);
       const tenantDbName = tenantWorkspace?.tenantDbName || headquartersUser.tenantDbName || '';
-      const { localUser, accessToken, refreshToken } = await runWithTenantContext(tenantDbName, async () => {
+      const hqLoginResult = await runWithTenantContext(tenantDbName, async () => {
         const tenantLocalUser = await ensureLocalSuperAdminFromHeadquarters(headquartersUser);
-        const tenantAccessToken = signToken({
+        const tokenResult = await sessionService.gateLoginOrIssueTokens({
           userId: tenantLocalUser.id,
-          email: tenantLocalUser.email,
-          role: 'SUPER_ADMIN',
-          roleName: 'Super Admin',
-          headquartersCompanyId: headquartersUser.companyId || undefined,
-          tenantDbName: tenantDbName || undefined,
+          tokenPayload: {
+            userId: tenantLocalUser.id,
+            email: tenantLocalUser.email,
+            role: 'SUPER_ADMIN',
+            roleName: 'Super Admin',
+            headquartersCompanyId: headquartersUser.companyId || undefined,
+            tenantDbName: tenantDbName || undefined,
+          },
+          refreshPayload: {
+            userId: tenantLocalUser.id,
+            email: tenantLocalUser.email,
+            role: 'SUPER_ADMIN',
+            roleName: 'Super Admin',
+            headquartersCompanyId: headquartersUser.companyId || undefined,
+            tenantDbName: tenantDbName || undefined,
+          },
+          deviceMeta,
+          identity: {
+            email: tenantLocalUser.email,
+            loginId: headquartersUser.loginId || loginIdOrEmail,
+          },
         });
-        const tenantRefreshToken = signRefreshToken({
-          userId: tenantLocalUser.id,
-          email: tenantLocalUser.email,
-          role: 'SUPER_ADMIN',
-          roleName: 'Super Admin',
-          headquartersCompanyId: headquartersUser.companyId || undefined,
-          tenantDbName: tenantDbName || undefined,
-        });
+
+        if (tokenResult.duplicateSession) {
+          return { duplicateSession: true, activeSession: tokenResult.activeSession };
+        }
 
         await prisma.user.update({
           where: { id: tenantLocalUser.id },
           data: {
-            refreshToken: tenantRefreshToken,
-            lastLogin: new Date(),
             isActive: true,
             role: 'SUPER_ADMIN',
           },
@@ -380,11 +405,20 @@ export const authService = {
 
         return {
           localUser: tenantLocalUser,
-          accessToken: tenantAccessToken,
-          refreshToken: tenantRefreshToken,
+          accessToken: tokenResult.accessToken,
+          refreshToken: tokenResult.refreshToken,
         };
       });
 
+      if (hqLoginResult?.duplicateSession) {
+        return {
+          duplicateSession: true,
+          activeSession: hqLoginResult.activeSession,
+          tenantDbName,
+        };
+      }
+
+      const { localUser, accessToken, refreshToken } = hqLoginResult;
       await ensureWorkspaceClientForTenant(tenantDbName, localUser, headquartersUser.name);
 
       return {
@@ -421,28 +455,38 @@ export const authService = {
       ) || ['all'];
       const tenantDbName = resolveActiveTenantDbName();
 
-      const accessToken = signToken({
+      const tokenResult = await sessionService.gateLoginOrIssueTokens({
         userId: directSuperAdmin.id,
-        email: directSuperAdmin.email,
-        role: 'SUPER_ADMIN',
-        roleId: directSuperAdmin.systemRole?.id,
-        roleName: directSuperAdmin.systemRole?.roleName || 'Super Admin',
-        permissions,
-        tenantDbName: tenantDbName || undefined,
+        tokenPayload: {
+          userId: directSuperAdmin.id,
+          email: directSuperAdmin.email,
+          role: 'SUPER_ADMIN',
+          roleId: directSuperAdmin.systemRole?.id,
+          roleName: directSuperAdmin.systemRole?.roleName || 'Super Admin',
+          permissions,
+          tenantDbName: tenantDbName || undefined,
+        },
+        refreshPayload: {
+          userId: directSuperAdmin.id,
+          tenantDbName: tenantDbName || undefined,
+        },
+        deviceMeta,
+        identity: { email: directSuperAdmin.email, loginId: loginIdOrEmail },
       });
-      const refreshToken = signRefreshToken({
-        userId: directSuperAdmin.id,
-        email: directSuperAdmin.email,
-        role: 'SUPER_ADMIN',
-        roleName: directSuperAdmin.systemRole?.roleName || 'Super Admin',
-        tenantDbName: tenantDbName || undefined,
-      });
+
+      if (tokenResult.duplicateSession) {
+        return {
+          duplicateSession: true,
+          activeSession: tokenResult.activeSession,
+          tenantDbName: tenantDbName || undefined,
+        };
+      }
+
+      const { accessToken, refreshToken } = tokenResult;
 
       await prisma.user.update({
         where: { id: directSuperAdmin.id },
         data: {
-          refreshToken,
-          lastLogin: new Date(),
           isActive: true,
           status: 'ACTIVE',
           role: 'SUPER_ADMIN',
@@ -598,6 +642,14 @@ export const authService = {
       const permissions = userWithRole.systemRole
         ? userWithRole.systemRole.rolePermissions.map((rp) => rp.permission.permissionName)
         : [];
+      const tenantRerun = await rerunLoginInResolvedTenant(
+        loginIdOrEmail,
+        user,
+        credential,
+        () => this.login(loginIdOrEmail, password, ipAddress, userAgent, deviceMeta)
+      );
+      if (tenantRerun) return tenantRerun;
+
       const tenantDbName = resolveActiveTenantDbName();
 
       // Issue JWT with required payload
@@ -609,20 +661,26 @@ export const authService = {
         tenantDbName: tenantDbName || undefined,
       };
 
-      const accessToken = signToken(tokenPayload);
-      const refreshToken = signRefreshToken({
+      const tokenResult = await sessionService.gateLoginOrIssueTokens({
         userId: user.id,
-        tenantDbName: tenantDbName || undefined,
+        tokenPayload,
+        refreshPayload: { userId: user.id, tenantDbName: tenantDbName || undefined },
+        deviceMeta,
+        identity: { email: user.email, loginId: loginIdOrEmail },
       });
 
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { refreshToken, lastLogin: new Date() },
-      });
+      if (tokenResult.duplicateSession) {
+        return {
+          duplicateSession: true,
+          activeSession: tokenResult.activeSession,
+          tenantDbName: tenantDbName || undefined,
+        };
+      }
+
+      const { accessToken, refreshToken } = tokenResult;
 
       await ensureWorkspaceClientForTenant(tenantDbName, user);
 
-      // Refresh HQ directory so future plain-/login attempts can resolve this user
       await headquartersAuthService.upsertTenantUserDirectoryEntry({
         email: user.email,
         loginId: credential.loginId,
@@ -631,6 +689,8 @@ export const authService = {
 
       return {
         token: accessToken,
+        accessToken,
+        refreshToken,
         user: {
           id: user.id,
           firstName: user.firstName,
@@ -736,6 +796,14 @@ export const authService = {
       const permissions = user.systemRole
         ? user.systemRole.rolePermissions.map((rp) => rp.permission.permissionName)
         : [];
+      const tenantRerun = await rerunLoginInResolvedTenant(
+        loginIdOrEmail,
+        user,
+        credential,
+        () => this.login(loginIdOrEmail, password, ipAddress, userAgent, deviceMeta)
+      );
+      if (tenantRerun) return tenantRerun;
+
       const tenantDbName = resolveActiveTenantDbName();
 
       const tokenPayload = {
@@ -747,16 +815,23 @@ export const authService = {
         tenantDbName: tenantDbName || undefined,
       };
 
-      const accessToken = signToken(tokenPayload);
-      const refreshToken = signRefreshToken({
+      const tokenResult = await sessionService.gateLoginOrIssueTokens({
         userId: user.id,
-        tenantDbName: tenantDbName || undefined,
+        tokenPayload,
+        refreshPayload: { userId: user.id, tenantDbName: tenantDbName || undefined },
+        deviceMeta,
+        identity: { email: user.email, loginId: credential.loginId },
       });
 
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { refreshToken },
-      });
+      if (tokenResult.duplicateSession) {
+        return {
+          duplicateSession: true,
+          activeSession: tokenResult.activeSession,
+          tenantDbName: tenantDbName || undefined,
+        };
+      }
+
+      const { accessToken, refreshToken } = tokenResult;
 
       await ensureWorkspaceClientForTenant(tenantDbName, user);
 
@@ -801,20 +876,27 @@ export const authService = {
       });
 
       const tenantDbName = resolveActiveTenantDbName();
-      const accessToken = signToken({
+      const tokenResult = await sessionService.gateLoginOrIssueTokens({
         userId: user.id,
-        email: user.email,
-        tenantDbName: tenantDbName || undefined,
-      });
-      const refreshToken = signRefreshToken({
-        userId: user.id,
-        tenantDbName: tenantDbName || undefined,
+        tokenPayload: {
+          userId: user.id,
+          email: user.email,
+          tenantDbName: tenantDbName || undefined,
+        },
+        refreshPayload: { userId: user.id, tenantDbName: tenantDbName || undefined },
+        deviceMeta,
+        identity: { email: user.email, loginId: loginIdOrEmail },
       });
 
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { refreshToken },
-      });
+      if (tokenResult.duplicateSession) {
+        return {
+          duplicateSession: true,
+          activeSession: tokenResult.activeSession,
+          tenantDbName: tenantDbName || undefined,
+        };
+      }
+
+      const { accessToken, refreshToken } = tokenResult;
 
       await ensureWorkspaceClientForTenant(tenantDbName, user);
 
@@ -833,11 +915,8 @@ export const authService = {
     }
   },
 
-  async logout(userId) {
-    await prisma.user.update({
-      where: { id: userId },
-      data: { refreshToken: null },
-    });
+  async logout(userId, sessionId = null) {
+    await sessionService.logoutSession(userId, sessionId);
   },
 
   async refreshToken(refreshToken) {
@@ -848,37 +927,7 @@ export const authService = {
 
     const tenantDbNameFromToken = String(decoded.tenantDbName || '').trim();
 
-    const refreshInScope = async () => {
-      const user = await prisma.user.findUnique({
-        where: { id: decoded.userId },
-      });
-
-      if (!user || user.refreshToken !== refreshToken) {
-        throw new Error('Invalid refresh token');
-      }
-
-      const tenantDbName = tenantDbNameFromToken || resolveActiveTenantDbName();
-      const accessToken = signToken({
-        userId: user.id,
-        email: user.email,
-        tenantDbName: tenantDbName || undefined,
-      });
-      const newRefreshToken = signRefreshToken({
-        userId: user.id,
-        tenantDbName: tenantDbName || undefined,
-      });
-
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { refreshToken: newRefreshToken },
-      });
-
-      return {
-        accessToken,
-        refreshToken: newRefreshToken,
-        tenantDbName: tenantDbName || undefined,
-      };
-    };
+    const refreshInScope = async () => sessionService.refreshWithSession(refreshToken);
 
     if (tenantDbNameFromToken) {
       return runWithTenantContext(tenantDbNameFromToken, refreshInScope);

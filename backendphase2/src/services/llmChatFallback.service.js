@@ -28,6 +28,8 @@ const mistralClient = env.MISTRAL_API_KEY
   : null;
 
 let _openAiFailedAt = null;
+let _openAiLastErrorStatus = null;
+let _openAiLastErrorMessage = '';
 const OPENAI_COOLDOWN_MS = 10 * 60 * 1000;
 
 function httpStatus(err) {
@@ -69,6 +71,8 @@ export function getCvLlmCircuitSnapshot() {
       agoSec: null,
       lastFailureIso: null,
       cooldownMs: OPENAI_COOLDOWN_MS,
+      lastErrorStatus: null,
+      lastErrorMessage: '',
     };
   }
   const agoMs = Date.now() - last;
@@ -79,6 +83,8 @@ export function getCvLlmCircuitSnapshot() {
     agoSec: circuitOpen ? Math.round(agoMs / 1000) : null,
     lastFailureIso: new Date(last).toISOString(),
     cooldownMs: OPENAI_COOLDOWN_MS,
+    lastErrorStatus: _openAiLastErrorStatus,
+    lastErrorMessage: _openAiLastErrorMessage,
   };
 }
 
@@ -126,6 +132,16 @@ function wrapProviderError(err, { openAiError = null, mistralError = null } = {}
   return wrapped;
 }
 
+function tagProviderResult(result, metadata = {}) {
+  if (!result || typeof result !== 'object') return result;
+  return Object.assign(result, {
+    _provider: metadata.provider || null,
+    _providerModel: metadata.providerModel || null,
+    _openAiErrorStatus: metadata.openAiErrorStatus ?? null,
+    _openAiErrorMessage: metadata.openAiErrorMessage || '',
+  });
+}
+
 async function runMistralChat(requestBody, logLabel, quiet) {
   if (!mistralClient) {
     throw new Error('MISTRAL_API_KEY is not configured');
@@ -165,7 +181,13 @@ export async function chatCompletionWithFallback(body, logLabel = 'llm', options
       );
     }
     try {
-      return await runMistralChat(requestBody, logLabel, quiet);
+      const result = await runMistralChat(requestBody, logLabel, quiet);
+      return tagProviderResult(result, {
+        provider: 'mistral',
+        providerModel: MISTRAL_CHAT_MODEL,
+        openAiErrorStatus: _openAiLastErrorStatus,
+        openAiErrorMessage: _openAiLastErrorMessage,
+      });
     } catch (mistralErr) {
       throw wrapProviderError(mistralErr, { mistralError: mistralErr });
     }
@@ -186,7 +208,12 @@ export async function chatCompletionWithFallback(body, logLabel = 'llm', options
     try {
       const result = await openaiClient.chat.completions.create(openAiBody);
       _openAiFailedAt = null;
-      return result;
+      _openAiLastErrorStatus = null;
+      _openAiLastErrorMessage = '';
+      return tagProviderResult(result, {
+        provider: 'openai',
+        providerModel: OPENAI_CHAT_MODEL,
+      });
     } catch (primaryErr) {
       openAiErr = primaryErr;
       const st = httpStatus(primaryErr);
@@ -198,6 +225,8 @@ export async function chatCompletionWithFallback(body, logLabel = 'llm', options
       }
       if (isQuotaOr429Error(primaryErr)) {
         _openAiFailedAt = Date.now();
+        _openAiLastErrorStatus = st ?? null;
+        _openAiLastErrorMessage = String(msg || '');
         if (logLabel === 'cv-parse' || !quiet) {
           console.warn(
             `[${logLabel}] OpenAI 429 — circuit OPEN for 10 min; will use Mistral when configured`
@@ -209,7 +238,13 @@ export async function chatCompletionWithFallback(body, logLabel = 'llm', options
 
   if (mistralClient) {
     try {
-      return await runMistralChat(requestBody, logLabel, quiet);
+      const result = await runMistralChat(requestBody, logLabel, quiet);
+      return tagProviderResult(result, {
+        provider: 'mistral',
+        providerModel: MISTRAL_CHAT_MODEL,
+        openAiErrorStatus: httpStatus(openAiErr),
+        openAiErrorMessage: openAiErr?.message ?? '',
+      });
     } catch (mistralErr) {
       const st = httpStatus(mistralErr);
       const msg = mistralErr?.message ?? String(mistralErr);

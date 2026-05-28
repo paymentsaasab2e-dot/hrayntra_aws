@@ -14,6 +14,7 @@ import type {
   PlacementStats,
   RequestReplacementPayload,
 } from '../types/placement';
+import type { PostServiceKycFormValues } from './clientKycForm';
 
 export type { BillingSettingsSnapshot, CreatePlacementInvoicePayload };
 
@@ -101,7 +102,7 @@ export interface ApiResponse<T> {
   };
 }
 
-function getAccessToken() {
+export function getAccessToken() {
   if (typeof window === 'undefined') return null;
   try {
     return localStorage.getItem('accessToken');
@@ -111,7 +112,7 @@ function getAccessToken() {
   }
 }
 
-function getTenantDbName() {
+export function getTenantDbName() {
   if (typeof window === 'undefined') return null;
   try {
     return localStorage.getItem('tenantDbName');
@@ -136,7 +137,7 @@ export function syncTenantDbName(value: string | null | undefined) {
   document.cookie = `tenantDbName=${encodeURIComponent(normalized)}; Path=/; SameSite=Lax`;
 }
 
-function syncAuthCookie(name: string, value: string | null) {
+export function syncAuthCookie(name: string, value: string | null) {
   if (typeof document === 'undefined') return;
 
   if (!value) {
@@ -329,6 +330,13 @@ export async function apiFetch<T>(
         }
       }
 
+      const sessionCode = json?.data?.code as string | undefined;
+      const sessionEnded =
+        sessionCode === 'SESSION_SUPERSEDED' ||
+        sessionCode === 'SESSION_EXPIRED' ||
+        sessionCode === 'SESSION_INVALID' ||
+        /session.*(expired|no longer active)/i.test(String(json?.message || ''));
+
       // If refresh failed or no refresh token, clear tokens and redirect
       if (typeof window !== 'undefined') {
         localStorage.removeItem('accessToken');
@@ -345,10 +353,17 @@ export async function apiFetch<T>(
         // Redirect to login page if not already there
         if (window.location.pathname !== '/login') {
           const currentPath = window.location.pathname + window.location.search;
-          window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`;
+          const sessionHint = sessionEnded
+            ? `&session=${encodeURIComponent(json?.message || 'Session ended')}`
+            : '';
+          window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}${sessionHint}`;
         }
       }
-      throw new Error('Authentication required. Please log in.');
+      throw new Error(
+        sessionEnded
+          ? json?.message || 'Your session is no longer active. Please log in again.'
+          : 'Authentication required. Please log in.',
+      );
     }
     // When the backend returns Zod validation errors as `data.errors[]`, surface
     // the per-field details in the thrown message so existing toasts/UI strings
@@ -942,9 +957,19 @@ interface AuthPayload {
   tenantDatabaseUrl?: string;
   tenantProvisioningStatus?: 'CREATED' | 'READY';
   message?: string;
+  duplicateSession?: boolean;
+  activeSession?: {
+    sessionId?: string;
+    browserInfo?: string;
+    operatingSystem?: string;
+    deviceType?: string;
+    ipAddress?: string;
+    location?: string;
+    deviceLabel?: string;
+  };
 }
 
-export async function apiLogin(email: string, password: string) {
+export async function apiLogin(email: string, password: string, devicePayload?: { deviceId?: string; userAgent?: string }) {
   // Invite links include ?tenantDbName= — apply right before login so first attempt works.
   if (typeof window !== 'undefined') {
     const fromUrl = new URLSearchParams(window.location.search).get('tenantDbName');
@@ -957,11 +982,22 @@ export async function apiLogin(email: string, password: string) {
   try {
     res = await apiFetch<AuthPayload>('/auth/login', {
       method: 'POST',
-      body: { email, password },
+      body: {
+        email: email.includes('@') ? email : undefined,
+        loginId: email.includes('@') ? undefined : email,
+        password,
+        deviceId: devicePayload?.deviceId,
+        userAgent: devicePayload?.userAgent,
+        tenantDbName: tenantDbNameHint || undefined,
+      },
       includeTenantHeader: !!tenantDbNameHint,
     });
   } catch (err: any) {
     throw new Error(formatAuthErrorMessage(err));
+  }
+
+  if (res.data?.duplicateSession) {
+    return res;
   }
 
   if (typeof window !== 'undefined') {
@@ -1078,9 +1114,20 @@ export async function apiLogout() {
   try {
     const token = localStorage.getItem('accessToken');
     if (token) {
+      let sessionId: string | undefined;
+      try {
+        const part = token.split('.')[1];
+        if (part) {
+          const json = JSON.parse(atob(part.replace(/-/g, '+').replace(/_/g, '/')));
+          if (json.sessionId) sessionId = String(json.sessionId);
+        }
+      } catch {
+        /* ignore */
+      }
       await apiFetch<{ success?: boolean; message?: string }>('/auth/logout', {
         method: 'POST',
         auth: true,
+        body: sessionId ? { sessionId } : undefined,
       });
     }
   } catch (error) {
@@ -1422,8 +1469,28 @@ export const apiGetJob = async (id: string) => {
   return apiFetch<BackendJob>(`/jobs/${id}`, { auth: true });
 };
 
+function resolvePhase1CandidatePortalBase(): string | null {
+  const envBase =
+    process.env.NEXT_PUBLIC_PHASE1_FRONTEND_URL?.trim() ||
+    process.env.NEXT_PUBLIC_JOB_PORTAL_URL?.trim() ||
+    '';
+  if (envBase) return envBase.replace(/\/$/, '');
+  if (typeof window === 'undefined') return null;
+
+  const { protocol, hostname } = window.location;
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return `${protocol}//${hostname}:3000`;
+  }
+  if (hostname.endsWith('.hryantra.com')) {
+    return `${protocol}//hryantra.com`;
+  }
+  return `${protocol}//${hostname}`;
+}
+
 export const apiGetJobApplyLink = async (jobId: string) => {
-  return apiFetch<{ token: string; applyUrl: string }>(`/jobs/${jobId}/apply-link`, {
+  const frontendBase = resolvePhase1CandidatePortalBase();
+  const qs = frontendBase ? `?frontendBase=${encodeURIComponent(frontendBase)}` : '';
+  return apiFetch<{ token: string; applyUrl: string }>(`/jobs/${jobId}/apply-link${qs}`, {
     auth: true,
   });
 };
@@ -1591,13 +1658,21 @@ export interface BackendCandidate {
    * Backend merges this in from the portal `career_preferences` collection.
    */
   careerPreferences?: {
+    currentRole?: string | null;
+    preferredJobTitles?: string[];
     preferredRoles?: string[];
+    preferredIndustries?: string[];
     preferredIndustry?: string | null;
+    functionalAreas?: string[];
     functionalArea?: string | null;
     jobTypes?: string[];
+    workModes?: string[];
     preferredWorkMode?: string | null;
     preferredLocations?: string[];
     relocationPreference?: string | null;
+    salaryCurrency?: string | null;
+    salaryAmount?: number | string | null;
+    salaryFrequency?: string | null;
     preferredCurrency?: string | null;
     preferredSalary?: number | null;
     preferredSalaryType?: string | null;
@@ -1611,6 +1686,7 @@ export interface BackendCandidate {
     currentCurrency?: string | null;
     currentSalaryType?: string | null;
     currentBenefits?: string[];
+    passportNumbersByLocation?: Record<string, string> | null;
   } | null;
   assignedTo?: {
     id: string;
@@ -2022,8 +2098,45 @@ export interface ClientImportExecuteResult {
   errors: string[];
 }
 
+export interface ClientImportDuplicateField {
+  key: string;
+  label: string;
+}
+
+export interface ClientImportDuplicateRecord {
+  rowIndex: number;
+  matchedBy: string[];
+  imported: Record<string, string | null>;
+  existing: { id: string } & Record<string, string | null>;
+}
+
+export interface ClientImportDuplicateCheckResult {
+  totalRows: number;
+  duplicateCount: number;
+  duplicates: ClientImportDuplicateRecord[];
+  compareFields: ClientImportDuplicateField[];
+}
+
 export type LeadImportPreviewResult = ClientImportPreviewResult;
 export type LeadImportExecuteResult = ClientImportExecuteResult;
+export interface LeadImportDuplicateField {
+  key: string;
+  label: string;
+}
+
+export interface LeadImportDuplicateRecord {
+  rowIndex: number;
+  matchedBy: string[];
+  imported: Record<string, string | null>;
+  existing: { id: string } & Record<string, string | null>;
+}
+
+export interface LeadImportDuplicateCheckResult {
+  totalRows: number;
+  duplicateCount: number;
+  duplicates: LeadImportDuplicateRecord[];
+  compareFields: LeadImportDuplicateField[];
+}
 
 export const apiCreateCandidateFromDrawer = async (
   payload: AddCandidatePayload,
@@ -2111,10 +2224,24 @@ export const apiImportClients = async (payload: {
   });
 };
 
+export const apiCheckClientImportDuplicates = async (payload: {
+  rows: Record<string, string | number | boolean | null>[];
+  mapping: Record<string, string>;
+}) => {
+  return apiFetch<ClientImportDuplicateCheckResult>('/clients/import/check-duplicates', {
+    method: 'POST',
+    body: payload,
+    auth: true,
+  });
+};
+
 export type AgreementDocumentParseData = {
   terms: {
     agreementLevel?: string;
     agreementServiceChargePercent?: string;
+    agreementContractValidity?: string;
+    agreementContractStartDate?: string;
+    agreementContractEndDate?: string;
     agreementTimePeriod?: string;
     agreementAdvancePaymentPercent?: string;
     agreementFreeReplacementValue?: string;
@@ -2153,6 +2280,17 @@ export const apiImportLeads = async (payload: {
   duplicateRule: string;
 }) => {
   return apiFetch<LeadImportExecuteResult>('/leads/import', {
+    method: 'POST',
+    body: payload,
+    auth: true,
+  });
+};
+
+export const apiCheckLeadImportDuplicates = async (payload: {
+  rows: Record<string, string | number | boolean | null>[];
+  mapping: Record<string, string>;
+}) => {
+  return apiFetch<LeadImportDuplicateCheckResult>('/leads/import/check-duplicates', {
     method: 'POST',
     body: payload,
     auth: true,
@@ -3243,6 +3381,9 @@ export interface BackendLead {
   agreementTotalPayment?: string | null;
   agreementLevel?: string | null;
   agreementServiceChargePercent?: string | null;
+  agreementContractValidity?: string | null;
+  agreementContractStartDate?: string | null;
+  agreementContractEndDate?: string | null;
   agreementTimePeriod?: string | null;
   agreementAdvancePaymentPercent?: string | null;
   agreementFreeReplacementValue?: number | null;
@@ -3471,10 +3612,15 @@ export interface BackendClient {
   agreementTotalPayment?: string | null;
   agreementLevel?: string | null;
   agreementServiceChargePercent?: string | null;
+  agreementContractValidity?: string | null;
+  agreementContractStartDate?: string | null;
+  agreementContractEndDate?: string | null;
   agreementTimePeriod?: string | null;
   agreementAdvancePaymentPercent?: string | null;
   agreementFreeReplacementValue?: number | null;
   agreementFreeReplacementUnit?: 'MONTHS' | 'DAYS' | null;
+  postServiceKycForm?: PostServiceKycFormValues | null;
+  otherDetails?: Array<{ label: string; value: string }> | null;
   avgTimeToFill?: string | null;
   healthStatus?: string | null;
   revenueGenerated?: string | null;
@@ -4273,10 +4419,15 @@ export interface CreateClientData {
   agreementTotalPayment?: string | null;
   agreementLevel?: string | null;
   agreementServiceChargePercent?: string | null;
+  agreementContractValidity?: string | null;
+  agreementContractStartDate?: string | null;
+  agreementContractEndDate?: string | null;
   agreementTimePeriod?: string | null;
   agreementAdvancePaymentPercent?: string | null;
   agreementFreeReplacementValue?: number | null;
   agreementFreeReplacementUnit?: 'MONTHS' | 'DAYS' | null;
+  postServiceKycForm?: PostServiceKycFormValues | null;
+  otherDetails?: Array<{ label: string; value: string }>;
 }
 
 export interface UpdateClientData {
@@ -4320,10 +4471,15 @@ export interface UpdateClientData {
   agreementTotalPayment?: string | null;
   agreementLevel?: string | null;
   agreementServiceChargePercent?: string | null;
+  agreementContractValidity?: string | null;
+  agreementContractStartDate?: string | null;
+  agreementContractEndDate?: string | null;
   agreementTimePeriod?: string | null;
   agreementAdvancePaymentPercent?: string | null;
   agreementFreeReplacementValue?: number | null;
   agreementFreeReplacementUnit?: 'MONTHS' | 'DAYS' | null;
+  postServiceKycForm?: PostServiceKycFormValues | null;
+  otherDetails?: Array<{ label: string; value: string }>;
 }
 
 export const apiCreateClient = async (data: CreateClientData) => {
@@ -5538,6 +5694,58 @@ export async function apiDeleteAssistantHistory(pageKey: string) {
   });
 }
 
+export type JobCreationPipelineResult = {
+  nationality: string;
+  jobTitle: string;
+  priority: string;
+  companyName: string;
+  companyId: string;
+  numberOfOpenings: string;
+  country: string;
+  state: string;
+  city: string;
+  industryType: string;
+  employmentType: string;
+  targetHireDate: string;
+  minExperience: number;
+  maxExperience: number;
+  payRangeMin: string;
+  payRangeMax: string;
+  salaryCurrency: string;
+  salaryInput: string;
+  jobLocation: string;
+  jobLocationType: string;
+  jobType: string;
+  languages: Array<{ language: string; proficiency: string }>;
+  skills: string[];
+  jobDescriptionHtml: string;
+  jobSummary: string;
+  keyResponsibilitiesText: string;
+  qualificationsExperienceText: string;
+  compensationBenefitsText: string;
+  educationalQualification: string;
+  educationalSpecialization: string;
+  extractedTextLength?: number;
+  jobParseMeta?: Record<string, unknown>;
+};
+
+export async function apiProcessJobCreationPipeline(
+  file: File,
+  currentForm?: Record<string, unknown>,
+  options: { signal?: AbortSignal } = {}
+) {
+  const formData = new FormData();
+  formData.append('jdFile', file);
+  if (currentForm && Object.keys(currentForm).length) {
+    formData.append('currentForm', JSON.stringify(currentForm));
+  }
+  return apiFetchFormData<JobCreationPipelineResult>('/jobs/process-jd-file', formData, {
+    method: 'POST',
+    auth: true,
+    signal: options.signal,
+  });
+}
+
 export async function apiGenerateJobDescription(body: {
   jobTitle: string;
   company?: string;
@@ -5604,6 +5812,41 @@ export async function apiGenerateLeadDetails(body: {
     nextFollowUp: string;
     assignedToId: string;
   }>('/ai/lead-details', {
+    method: 'POST',
+    body,
+    auth: true,
+  });
+}
+
+export async function apiGenerateClientDetails(body: {
+  prompt: string;
+  currentForm?: Record<string, unknown>;
+}) {
+  return apiFetch<{
+    companyName: string;
+    directorName: string;
+    directorSalutation: string;
+    designation: string;
+    email: string;
+    phone: string;
+    industry: string;
+    companySize: string;
+    website: string;
+    linkedIn: string;
+    location: string;
+    country: string;
+    city: string;
+    hiringLocations: string;
+    timezone: string;
+    leadStatus: string;
+    priority: string;
+    servicesNeeded: string;
+    expectedBusinessValue: string;
+    sla: string;
+    nextFollowUpDue: string;
+    assignedToId: string;
+    otherDetails: Array<{ label: string; value: string }>;
+  }>('/ai/client-details', {
     method: 'POST',
     body,
     auth: true,

@@ -9,7 +9,6 @@ import {
   RefreshCcw, 
   Search,
   XCircle,
-  Eye, 
   Pencil,
   UserPlus, 
   FileText, 
@@ -43,6 +42,13 @@ import { JobDetailsDrawer, type JobForDrawer, type JobCandidateItem } from '../.
 import { ScheduleInterviewModal } from '../../components/interviews/ScheduleInterviewModal';
 import { CreateJobDrawer } from '../../components/drawers/CreateJobDrawer';
 import ModuleRecycleBinDrawer from '../../components/ModuleRecycleBinDrawer';
+import {
+  SmartSearchActiveKeywordsBar,
+  SmartSearchPromptPanel,
+  SmartSearchToggleButton,
+} from '../../components/smart-search/SmartSearchToolbar';
+import { useSmartSearch } from '../../hooks/useSmartSearch';
+import { parseJobsSmartSearchPrompt, JOBS_SMART_SEARCH_EXAMPLES } from '../../lib/smart-search/parsers';
 import { StatusChangeService } from '../../components/StatusChangeService';
 import {
   apiAddCandidateNote,
@@ -196,7 +202,9 @@ interface Job {
   createdDate: string;
   hot: boolean;
   aiMatch: boolean;
+  aiMatchCount?: number;
   noCandidates: boolean;
+  candidates?: string;
   slaRisk: boolean;
   pipelineStages?: JobPipelineStageSummary[];
 }
@@ -508,14 +516,6 @@ const JobsListView = ({ jobs, onJobClick, onEditJob, onAddCandidate, onDeleteJob
             </td>
                 <td className="px-3 py-2 sm:px-4 text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="inline-flex items-center justify-end gap-0.5 rounded-2xl bg-slate-100/70 p-0.5 ring-1 ring-slate-200/60">
-                    <button
-                      type="button"
-                      onClick={() => onJobClick?.(job)}
-                      className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-500 hover:bg-white hover:text-indigo-600 hover:shadow-sm transition-all"
-                      title="Preview job"
-                    >
-                      <Eye size={15} strokeWidth={2.25} />
-                </button>
                 {SHOW_TABLE_ROW_EDIT_ICON ? (
                   <button
                     type="button"
@@ -747,10 +747,68 @@ function mapBackendJob(job: BackendJob): Job {
     createdDate: job.createdAt?.slice(0, 10) ?? '-',
     hot: (job as any).hot ?? false,
     aiMatch: (job as any).aiMatch ?? false,
+    aiMatchCount:
+      typeof (job as any).aiMatchCount === 'number'
+        ? Number((job as any).aiMatchCount)
+        : Number(job._count?.matches ?? 0),
     noCandidates: (job as any).noCandidates ?? false,
+    candidates: '',
     slaRisk: (job as any).slaRisk ?? false,
     pipelineStages: pipelineStagesDeduped.length ? pipelineStagesDeduped : undefined,
   };
+}
+
+function extractJobCandidateNames(job: any): string[] {
+  const names = new Set<string>();
+
+  const addName = (first?: unknown, last?: unknown, fallback?: unknown) => {
+    const full = `${String(first || '').trim()} ${String(last || '').trim()}`.trim();
+    const normalized = full || String(fallback || '').trim();
+    if (normalized) names.add(normalized);
+  };
+
+  if (Array.isArray(job?.applications)) {
+    for (const app of job.applications) {
+      addName(app?.candidate?.firstName, app?.candidate?.lastName);
+    }
+  }
+
+  if (Array.isArray(job?.matches)) {
+    for (const match of job.matches) {
+      addName(
+        match?.candidate?.firstName,
+        match?.candidate?.lastName,
+        match?.name
+      );
+    }
+  }
+
+  return Array.from(names);
+}
+
+async function enrichJobExportRow(baseJob: Job): Promise<Job> {
+  try {
+    const response = await apiGetJob(baseJob.id);
+    const backendJob = (response as any).data?.data || (response as any).data || response;
+
+    const candidateNames = extractJobCandidateNames(backendJob);
+    const aiMatchCount = Array.isArray(backendJob?.matches)
+      ? backendJob.matches.filter((match: any) => String(match?.matchSource || '').toLowerCase() === 'ai').length
+      : Number(backendJob?._count?.matches ?? baseJob.aiMatchCount ?? 0);
+
+    return {
+      ...baseJob,
+      candidates: candidateNames.join('; '),
+      aiMatchCount,
+      noCandidates: candidateNames.length === 0,
+    };
+  } catch {
+    return {
+      ...baseJob,
+      candidates: baseJob.candidates || '',
+      aiMatchCount: baseJob.aiMatchCount ?? 0,
+    };
+  }
 }
 
 function toJobCandidateItemFromApplied(match: any, fallbackRecruiter = '-'): JobCandidateItem {
@@ -971,13 +1029,44 @@ export default function JobsPage() {
   });
   const hasVisibleJobsRef = useRef(jobs.length > 0);
   const cloneDrawerTimerRef = useRef<number | null>(null);
-  const hasActiveFilters = Boolean(searchFilter || statusFilter || clientFilterId || recruiterFilterId);
+  const jobSmartSearch = useSmartSearch({
+    parsePrompt: (text) =>
+      parseJobsSmartSearchPrompt(text, {
+        clients: clientOptions,
+        recruiters: recruiterOptions,
+      }),
+    applyParsed: (parsed) => {
+      setCurrentPage(1);
+      setStatusFilter(parsed.status || '');
+      setClientFilterId(parsed.clientId || '');
+      setRecruiterFilterId(parsed.recruiterId || '');
+      setSearchFilter(parsed.searchText);
+    },
+    onRemoveKeyword: (removed, remaining) => {
+      setCurrentPage(1);
+      if (removed.kind === 'status') setStatusFilter('');
+      if (removed.kind === 'client') setClientFilterId('');
+      if (removed.kind === 'recruiter') setRecruiterFilterId('');
+      if (removed.kind === 'text') {
+        setSearchFilter(remaining.filter((k) => k.kind === 'text').map((k) => k.value).join(' '));
+      }
+    },
+    examples: JOBS_SMART_SEARCH_EXAMPLES,
+  });
+
+  const hasActiveFilters = Boolean(
+    searchFilter ||
+      statusFilter ||
+      clientFilterId ||
+      recruiterFilterId ||
+      jobSmartSearch.activeKeywords.length > 0,
+  );
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportJobs, setExportJobs] = useState<Job[]>([]);
   const [exportJobsLoading, setExportJobsLoading] = useState(false);
 
   const fetchAllJobsForExport = useCallback(async (): Promise<Job[]> => {
-    return fetchAllPaginated({
+    const allJobs = await fetchAllPaginated({
       fetchPage: async (page, limit) => {
         const jobsRes = await apiGetJobs({
           page,
@@ -999,6 +1088,7 @@ export default function JobsPage() {
         };
       },
     });
+    return Promise.all(allJobs.map((job) => enrichJobExportRow(job)));
   }, [clientFilterId, recruiterFilterId, searchFilter, statusFilter]);
 
   const openExportModal = async () => {
@@ -1832,14 +1922,12 @@ export default function JobsPage() {
     try {
       await apiUpdateJob(job.id, { status: 'OPEN' } as CreateJobData);
       let applyUrl: string | null = null;
-      if (job.applicationFormEnabled) {
-        try {
-          const linkRes = await apiGetJobApplyLink(job.id);
-          const linkData = (linkRes as { data?: { applyUrl?: string } })?.data ?? linkRes;
-          applyUrl = (linkData as { applyUrl?: string })?.applyUrl ?? null;
-        } catch {
-          /* link may appear after next refresh */
-        }
+      try {
+        const linkRes = await apiGetJobApplyLink(job.id);
+        const linkData = (linkRes as { data?: { applyUrl?: string } })?.data ?? linkRes;
+        applyUrl = (linkData as { applyUrl?: string })?.applyUrl ?? null;
+      } catch {
+        /* link may appear after next refresh */
       }
       const refreshed = await apiGetJob(job.id);
       const backendJob = (refreshed as { data?: Record<string, unknown> })?.data ?? refreshed;
@@ -2027,6 +2115,10 @@ export default function JobsPage() {
                     </button>
                 </div>
                   <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                    <SmartSearchToggleButton
+                      open={jobSmartSearch.open}
+                      onToggle={() => jobSmartSearch.setOpen((value) => !value)}
+                    />
                         <select
                       className={PH2_TOOLBAR_SELECT_CLASS}
                           value={statusFilter}
@@ -2081,6 +2173,7 @@ export default function JobsPage() {
                           setStatusFilter('');
                           setClientFilterId('');
                           setRecruiterFilterId('');
+                          jobSmartSearch.clearSmartSearch();
                           setCurrentPage(1);
                         }}
                       >
@@ -2090,6 +2183,33 @@ export default function JobsPage() {
                     ) : null}
                       </div>
                     </div>
+
+              {jobSmartSearch.open ? (
+                <SmartSearchPromptPanel
+                  prompt={jobSmartSearch.prompt}
+                  onPromptChange={jobSmartSearch.setPrompt}
+                  onApply={jobSmartSearch.handleApply}
+                  previewKeywords={jobSmartSearch.previewKeywords}
+                  examples={jobSmartSearch.examples}
+                  onExampleClick={jobSmartSearch.handleExample}
+                  entityLabel="jobs"
+                  placeholder="e.g. open jobs from LinkedIn for Acme in Bangalore"
+                />
+              ) : null}
+
+              <SmartSearchActiveKeywordsBar
+                chips={jobSmartSearch.activeChips}
+                onClearAll={() => {
+                  setSearchFilter('');
+                  setStatusFilter('');
+                  setClientFilterId('');
+                  setRecruiterFilterId('');
+                  jobSmartSearch.clearSmartSearch();
+                  setCurrentPage(1);
+                }}
+                resultCount={jobs.length}
+                showResultCount={!loading && !error}
+              />
             </div>
 
               {error ? (
