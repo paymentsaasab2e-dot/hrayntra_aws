@@ -27,6 +27,9 @@ import {
 import { requestConfirm, requestError, requestSuccess } from '@/lib/appDialog';
 import { formatDateTimeDMY } from '@/utils/dateDisplay';
 import { RECYCLE_BIN_SYNC_EVENT } from '@/constants/recycleBin';
+import { TableAuditColumnHeader, TableAuditCell } from '@/components/table/TableAuditCell';
+import { extractAuditMeta } from '@/utils/auditMeta';
+import type { AuditMeta } from '@/types/audit';
 
 export type ModuleRecycleBinKind = 'leads' | 'clients' | 'candidates' | 'jobs';
 
@@ -35,6 +38,7 @@ type TrashRow = {
   primary: string;
   secondary?: string | null;
   deletedAt?: string | null;
+  auditMeta?: AuditMeta | null;
 };
 
 function extractRows(response: unknown): any[] {
@@ -48,26 +52,50 @@ function extractRows(response: unknown): any[] {
 function mapLeadRow(row: any): TrashRow {
   const primary = String(row?.companyName || row?.contactPerson || row?.email || 'Lead');
   const secondary = [row?.contactPerson, row?.email].filter(Boolean).join(' • ') || null;
-  return { id: String(row?.id), primary, secondary, deletedAt: row?.deletedAt ?? null };
+  return {
+    id: String(row?.id),
+    primary,
+    secondary,
+    deletedAt: row?.deletedAt ?? null,
+    auditMeta: extractAuditMeta(row),
+  };
 }
 
 function mapClientRow(row: any): TrashRow {
   const primary = String(row?.companyName || row?.name || 'Client');
   const secondary = [row?.industry, row?.location].filter(Boolean).join(' • ') || null;
-  return { id: String(row?.id), primary, secondary, deletedAt: row?.deletedAt ?? null };
+  return {
+    id: String(row?.id),
+    primary,
+    secondary,
+    deletedAt: row?.deletedAt ?? null,
+    auditMeta: extractAuditMeta(row),
+  };
 }
 
 function mapCandidateRow(row: any): TrashRow {
   const fullName =
     [row?.firstName, row?.lastName].filter(Boolean).join(' ').trim() || row?.email || 'Candidate';
   const secondary = [row?.currentTitle, row?.email].filter(Boolean).join(' • ') || null;
-  return { id: String(row?.id), primary: fullName, secondary, deletedAt: row?.deletedAt ?? null };
+  return {
+    id: String(row?.id),
+    primary: fullName,
+    secondary,
+    deletedAt: row?.deletedAt ?? null,
+    auditMeta: extractAuditMeta(row),
+  };
 }
 
 function mapJobRow(row: any): TrashRow {
   const primary = String(row?.title || 'Job');
   const secondary = [row?.client?.companyName, row?.location].filter(Boolean).join(' • ') || null;
-  return { id: String(row?.id), primary, secondary, deletedAt: row?.deletedAt ?? null };
+  return {
+    id: String(row?.id),
+    primary,
+    secondary,
+    deletedAt: row?.deletedAt ?? null,
+    auditMeta: extractAuditMeta(row),
+  };
 }
 
 const KIND_CONFIG: Record<
@@ -460,6 +488,7 @@ export default function ModuleRecycleBinDrawer({ isOpen, onClose, kind, onRestor
                         <td className="max-w-[180px] truncate px-3 py-2.5 text-slate-500" title={row.secondary || ''}>
                           {row.secondary || '—'}
                         </td>
+                        <TableAuditCell audit={row.auditMeta} className="px-3 py-2.5" />
                         <td className="whitespace-nowrap px-3 py-2.5 text-slate-500">
                           {row.deletedAt ? formatDateTimeDMY(row.deletedAt) : '—'}
                         </td>

@@ -12,11 +12,12 @@ import { ProfileSettings } from '../../components/ProfileSettings';
 import { Toaster } from 'sonner';
 import { isOrgBillingNavEnabled, ORG_RECRUITMENT_CACHE_EVENT } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
+import { ActivityLogSettings } from '../../components/settings/ActivityLogSettings';
 
 export default function SettingsPage() {
   const [activeSection, setActiveSection] = useState('profile');
   const [showBillingSection, setShowBillingSection] = useState(true);
-  const { hasAnyPermission } = usePermissions();
+  const { hasAnyPermission, isSuperAdmin } = usePermissions();
 
   // Profile + Customization are always available; everything else needs at
   // least one of the listed permissions. This keeps non-admin users from
@@ -36,6 +37,8 @@ export default function SettingsPage() {
           return hasAnyPermission(['manage_settings']);
         case 'billing':
           return showBillingSection && hasAnyPermission(['access_billing', 'manage_settings']);
+        case 'activity-log':
+          return isSuperAdmin();
         default:
           return true;
       }
@@ -62,6 +65,7 @@ export default function SettingsPage() {
       'billing',
       'security',
       'customization',
+      'activity-log',
     ];
     if (section && allowedSections.includes(section)) {
       setActiveSection(section);
@@ -93,46 +97,71 @@ export default function SettingsPage() {
         return <SecuritySettings />;
       case 'customization':
         return <CustomizationSettings />;
+      case 'activity-log':
+        return <ActivityLogSettings />;
       default:
         return <ProfileSettings />;
     }
   };
 
+  const sectionTitleMap: Record<string, string> = {
+    profile: 'Personal Profile',
+    communication: 'Communication & Integrations',
+    'notifications-triggers': 'Notifications Trigger Points',
+    recruitment: 'Recruitment workflow',
+    billing: 'Billing & Commission',
+    security: 'Data & Security',
+    'activity-log': 'Activity Log',
+    customization: 'Customization',
+  };
+
+  const sectionTitle = sectionTitleMap[activeSection] || 'Settings';
+
   return (
     <>
       <Toaster position="top-right" richColors />
-      
-      {/* Main Content Area */}
-      <div className="flex h-full overflow-hidden">
-        {/* Settings Secondary Sidebar */}
+
+      <div className="flex min-h-[calc(100dvh-3.5rem)] bg-slate-50">
         <SettingsSidebar
           activeSection={activeSection}
           setActiveSection={setActiveSection}
           showBillingSection={showBillingSection}
         />
 
-        {/* Dynamic Settings Content */}
-        <div className="flex-1 overflow-y-auto bg-slate-50">
-          <div className="max-w-5xl mx-auto p-8 pt-10">
-            <div className="mb-8">
-              <nav className="flex items-center gap-2 text-xs font-medium text-slate-400 mb-2">
+        <div className="min-w-0 flex-1 overflow-y-auto">
+          <div
+            className={`mx-auto px-6 py-8 lg:px-10 ${
+              activeSection === 'activity-log' ? 'max-w-[90rem]' : 'max-w-5xl'
+            }`}
+          >
+            <header className="mb-8 border-b border-slate-200 pb-6">
+              <nav className="mb-2 flex items-center gap-2 text-xs font-medium text-slate-400">
                 <span>Dashboard</span>
-                <span>/</span>
-                <span className="text-slate-900">Settings</span>
+                <span aria-hidden>/</span>
+                <span>Settings</span>
+                <span aria-hidden>/</span>
+                <span className="text-slate-900">{sectionTitle}</span>
               </nav>
-              <h2 className="text-2xl font-bold text-slate-900 capitalize">
-                {activeSection.replace('-', ' ')} Settings
-              </h2>
-            </div>
+              <h2 className="text-2xl font-bold tracking-tight text-slate-900">{sectionTitle}</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Configure {sectionTitle.toLowerCase()} for your workspace.
+              </p>
+            </header>
 
             {renderContent()}
 
-            <footer className="mt-12 py-8 border-t border-slate-200 flex justify-between items-center text-xs text-slate-400">
+            <footer className="mt-12 flex flex-col gap-3 border-t border-slate-200 py-8 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between">
               <p>© 2026 HRYANTRA Recruitment Agency Platform. All rights reserved.</p>
-              <div className="flex gap-4">
-                <button className="hover:text-slate-600">Privacy Policy</button>
-                <button className="hover:text-slate-600">Terms of Service</button>
-                <button className="hover:text-slate-600">API Documentation</button>
+              <div className="flex flex-wrap gap-4">
+                <button type="button" className="hover:text-slate-600">
+                  Privacy Policy
+                </button>
+                <button type="button" className="hover:text-slate-600">
+                  Terms of Service
+                </button>
+                <button type="button" className="hover:text-slate-600">
+                  API Documentation
+                </button>
               </div>
             </footer>
           </div>

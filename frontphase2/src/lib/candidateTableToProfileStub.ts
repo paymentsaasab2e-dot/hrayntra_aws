@@ -27,6 +27,7 @@ export function candidateTableRowToProfileStub(
     assignedJobId: opts?.jobId ?? candidate.pipelineJobId ?? null,
     recruiter: candidate.owner,
     source: candidate.source,
+    isPhase1Candidate: candidate.isPhase1Candidate,
     availability: 'limited',
     summary: null,
     resumeUrl: null,

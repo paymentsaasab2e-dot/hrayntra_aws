@@ -105,9 +105,9 @@ export const env = {
   SINGLE_ACTIVE_SESSION_ENABLED:
     process.env.SINGLE_ACTIVE_SESSION_ENABLED !== 'false' &&
     process.env.SINGLE_ACTIVE_SESSION_ENABLED !== '0',
-  SESSION_INACTIVITY_MS: parseInt(process.env.SESSION_INACTIVITY_MS || String(5 * 60 * 1000), 10),
+  SESSION_INACTIVITY_MS: parseInt(process.env.SESSION_INACTIVITY_MS || String(30 * 60 * 1000), 10),
   SESSION_INACTIVITY_WARNING_MS: parseInt(
-    process.env.SESSION_INACTIVITY_WARNING_MS || String(60 * 1000),
+    process.env.SESSION_INACTIVITY_WARNING_MS || String(2 * 60 * 1000),
     10,
   ),
   SESSION_TRANSFER_TTL_MS: parseInt(process.env.SESSION_TRANSFER_TTL_MS || String(5 * 60 * 1000), 10),
@@ -256,6 +256,17 @@ export const env = {
       if (Number.isFinite(n) && n > 0) return n;
     }
     return 2000;
+  })(),
+
+  /**
+   * When true (default), CV parse stores summary/skills/jobs/education in the CV language (es/fr/en…).
+   * Set CV_PARSE_PRESERVE_SOURCE_LANGUAGE=false to normalize free-text to English via the LLM.
+   */
+  CV_PARSE_PRESERVE_SOURCE_LANGUAGE: (() => {
+    const raw = process.env.CV_PARSE_PRESERVE_SOURCE_LANGUAGE;
+    if (raw == null || String(raw).trim() === '') return true;
+    const v = String(raw).trim().toLowerCase();
+    return v !== 'false' && v !== '0' && v !== 'no';
   })(),
 
   /** Max ZIP upload size for bulk CV archive. Default 2GB. */

@@ -8,6 +8,7 @@ import {
   apiRejectSessionTransfer,
   apiSessionHeartbeat,
   clearAuthStorage,
+  endSessionOnServer,
   getStoredSessionId,
   type ActiveSessionView,
 } from '@/lib/sessionAuth';
@@ -36,19 +37,23 @@ export default function ActiveSessionManager() {
   const isAuthRoute =
     pathname === '/login' ||
     pathname?.startsWith('/hq/login') ||
+    pathname?.startsWith('/forgot-password') ||
     pathname?.startsWith('/reset-password') ||
     pathname?.startsWith('/apply') ||
     pathname?.startsWith('/client-review');
 
   const forceLogout = useCallback(
     (message?: string) => {
-      clearAuthStorage();
-      socketRef.current?.disconnect();
-      socketRef.current = null;
-      if (message) {
-        setSessionMessage({ title: 'Session ended', message });
-      }
-      router.replace(`/login?session=${encodeURIComponent(message || 'Session ended')}`);
+      void (async () => {
+        await endSessionOnServer();
+        clearAuthStorage();
+        socketRef.current?.disconnect();
+        socketRef.current = null;
+        if (message) {
+          setSessionMessage({ title: 'Session ended', message });
+        }
+        router.replace(`/login?session=${encodeURIComponent(message || 'Session ended')}`);
+      })();
     },
     [router],
   );

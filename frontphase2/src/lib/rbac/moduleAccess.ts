@@ -1,0 +1,53 @@
+/** Route / nav access: any listed permission grants module access */
+export const MODULE_ACCESS_MAP: Record<string, string[]> = {
+  Leads: ['leads_create', 'leads_read', 'leads_update', 'leads_delete', 'view_all_leads'],
+  Clients: ['clients_create', 'clients_read', 'clients_update', 'clients_delete', 'view_all_clients'],
+  Jobs: ['jobs_create', 'jobs_read', 'jobs_update', 'jobs_delete', 'assign_job', 'view_all_jobs', 'create_job', 'edit_job', 'delete_job', 'view_jobs'],
+  Candidates: [
+    'candidates_create', 'candidates_read', 'candidates_update', 'candidates_delete',
+    'view_all_candidates', 'view_assigned_candidates', 'add_candidate', 'edit_candidate',
+    'delete_candidate', 'move_pipeline', 'submit_candidate',
+  ],
+  Interviews: ['interviews_create', 'interviews_read', 'interviews_update', 'interviews_delete'],
+  Placements: ['placements_create', 'placements_read', 'placements_update', 'placements_delete'],
+  Contacts: ['contacts_create', 'contacts_read', 'contacts_update', 'contacts_delete'],
+  Tasks: ['tasks_create', 'tasks_read', 'tasks_update', 'tasks_delete'],
+  Pipeline: ['pipeline_read', 'pipeline_manage', 'move_pipeline'],
+  Matches: ['matches_read', 'matches_manage'],
+  Agreements: ['agreements_read', 'agreements_manage'],
+  Inbox: ['inbox_read', 'inbox_manage'],
+  Calendar: ['calendar_read', 'calendar_manage'],
+  Reports: ['reports_create', 'reports_read', 'reports_update', 'reports_delete'],
+  Billing: ['access_billing', 'create_invoice', 'record_payment', 'manage_billing_settings'],
+  Team: [
+    'view_team', 'add_team_member', 'edit_team_member', 'assign_roles', 'manage_roles',
+    'generate_credentials', 'manage_commission', 'manage_targets', 'view_team_activity',
+  ],
+  System: [
+    'manage_settings', 'access_integrations', 'export_data', 'view_activity_log',
+    'recycle_bin_manage', 'view_dashboard',
+  ],
+};
+
+export const ROUTE_PERMISSION_GUARDS: Record<string, string[]> = {
+  '/leads': MODULE_ACCESS_MAP.Leads,
+  '/client': MODULE_ACCESS_MAP.Clients,
+  '/job': MODULE_ACCESS_MAP.Jobs,
+  '/candidate': MODULE_ACCESS_MAP.Candidates,
+  '/interviews': MODULE_ACCESS_MAP.Interviews,
+  '/placement': MODULE_ACCESS_MAP.Placements,
+  '/placements': MODULE_ACCESS_MAP.Placements,
+  '/contacts': MODULE_ACCESS_MAP.Contacts,
+  '/Task&Activites': MODULE_ACCESS_MAP.Tasks,
+  '/pipeline': MODULE_ACCESS_MAP.Pipeline,
+  '/matches': MODULE_ACCESS_MAP.Matches,
+  '/reports': MODULE_ACCESS_MAP.Reports,
+  '/billing': MODULE_ACCESS_MAP.Billing,
+  '/team': MODULE_ACCESS_MAP.Team,
+  '/inbox': MODULE_ACCESS_MAP.Inbox,
+  '/calendar': MODULE_ACCESS_MAP.Calendar,
+  '/activity-feed': ['view_activity_log', 'reports_read'],
+  '/recycle-bin': ['recycle_bin_manage'],
+  '/dashboard': ['view_dashboard'],
+  '/administration': ['manage_settings', 'manage_roles', 'assign_roles'],
+};

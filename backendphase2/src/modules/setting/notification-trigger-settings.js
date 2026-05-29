@@ -15,6 +15,8 @@ const DEFAULT_ACTIVE_TRIGGER_STATE = {
   'interview.panel_scheduled': true,
   'match.submission_email': true,
   'placement.confirmed_email': true,
+  'placement.joining_scheduled_candidate': true,
+  'placement.joining_scheduled_reporting': true,
   'billing.invoice_email': true,
 };
 

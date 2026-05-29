@@ -439,7 +439,10 @@ export function parsePlacementsSmartSearchPrompt(
   const status = matchEnumToken(prompt, [
     { patterns: [/\bjoined\b/i], value: 'JOINED' },
     { patterns: [/\bno\s*show\b/i], value: 'NO_SHOW' },
+    { patterns: [/\boffer\s*sent\b/i], value: 'OFFER_SENT' },
     { patterns: [/\boffer\s*accepted\b/i], value: 'OFFER_ACCEPTED' },
+    { patterns: [/\boffer\s*reject/i], value: 'OFFER_REJECTED' },
+    { patterns: [/\bjoining\s*scheduled\b/i], value: 'JOINING_SCHEDULED' },
     { patterns: [/\bjoining\s*scheduled\b/i], value: 'JOINING_SCHEDULED' },
     { patterns: [/\bwithdrawn\b/i], value: 'WITHDRAWN' },
     { patterns: [/\bfailed\b/i], value: 'FAILED' },

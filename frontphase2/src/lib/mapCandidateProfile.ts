@@ -3,11 +3,16 @@ import {
   buildEducationSummaryFromCvEntries,
   isGarbageEducationSummary,
 } from './candidateEducation';
-import { enrichBackendCandidateFromPhase1Snapshot, getPhase1ProfileSnapshot } from './phase1ProfileSnapshot';
+import {
+  enrichBackendCandidateFromPhase1Snapshot,
+  getPhase1ProfileSnapshot,
+  PHASE1_CANDIDATE_TAG_LABEL,
+} from './phase1ProfileSnapshot';
 import { computeTotalExperienceYears } from './candidateExperience';
 import { resolveCandidateListStage } from './candidateListMapping';
 import type { CandidateProfileDrawerData } from '../components/drawers/CandidateProfileDrawer';
 import type { MatchCandidate } from '../components/matches/types';
+import { extractAuditMeta } from '../utils/auditMeta';
 
 export function isValidObjectId(id: string): boolean {
   return typeof id === 'string' && /^[a-f0-9]{24}$/i.test(id.trim());
@@ -376,6 +381,12 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
     });
   }
 
+  const isPhase1Candidate =
+    Boolean((c as BackendCandidate).isPhase1Candidate) ||
+    String(c.source || '').trim().toLowerCase() === 'phase1' ||
+    Boolean(phase1Snap);
+  const poolOrigin = (c as BackendCandidate).poolOrigin ?? null;
+
   const fallbackTags = Array.from(
     new Set([
       ...(c.tags || []),
@@ -383,6 +394,7 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
       (c.experience ?? 0) >= 5 ? 'Senior' : '',
       c.source?.toLowerCase().includes('referral') ? 'Referral' : '',
       c.location?.toLowerCase().includes('remote') ? 'Remote Candidate' : '',
+      isPhase1Candidate ? PHASE1_CANDIDATE_TAG_LABEL : '',
     ].filter(Boolean))
   ).map((tag) => ({
     id: `tag-${tag.toLowerCase().replace(/\s+/g, '-')}`,
@@ -531,7 +543,18 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
       c.extraData && typeof c.extraData === 'object' && !Array.isArray(c.extraData)
         ? (c.extraData as Record<string, unknown>)
         : null,
-    tags: c.tagObjects?.length ? c.tagObjects : fallbackTags,
+    isPhase1Candidate,
+    poolOrigin,
+    tags: (() => {
+      const base = c.tagObjects?.length ? c.tagObjects : fallbackTags;
+      if (!isPhase1Candidate) return base;
+      const hasPhase1 = base.some((t) => String(t.label).toLowerCase() === 'phase 1');
+      if (hasPhase1) return base;
+      return [
+        { id: 'tag-phase-1', label: PHASE1_CANDIDATE_TAG_LABEL, color: getTagColor(PHASE1_CANDIDATE_TAG_LABEL) },
+        ...base,
+      ];
+    })(),
     notes: c.internalNotes?.length ? c.internalNotes : fallbackNotes,
     files:
       c.resume || c.resumeUrl
@@ -612,6 +635,7 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
               }))
           : insightItems,
     },
+    auditMeta: extractAuditMeta(c as Record<string, unknown>),
   };
 }
 

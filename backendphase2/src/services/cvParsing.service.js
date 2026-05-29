@@ -20,6 +20,11 @@ import {
   logPipelineSectionsExtraction,
   CV_PIPELINE_SECTIONS,
 } from './cvPipelineSchema.js';
+import {
+  buildCvLanguagePreservePromptBlock,
+  cvParsePreserveSourceLanguage,
+  resolveCvSourceLanguage,
+} from './cvLanguagePreserve.js';
 
 const require = createRequire(import.meta.url);
 
@@ -33,11 +38,11 @@ const MIME_TO_EXTENSIONS = {
 const CV_PASS_DIVIDER = '--- CV_PASS_DIVIDER ---';
 
 const SECTION_HEADER_KEYWORDS =
-  /\b(education|experience|skills|summary|contact|profile|objective|employment|formation|parcours|projets|extracurricular|curricular|activities|volunteers?|certifications?|courses?|projects?|references?|languages?|awards?|honou?rs|hobbies|interests|achievements?|qualifications?|academic|strengths|competencies)\b/i;
+  /\b(education|experience|skills|summary|contact|profile|objective|employment|formation|parcours|projets|extracurricular|curricular|activities|volunteers?|certifications?|courses?|projects?|references?|languages?|awards?|honou?rs|hobbies|interests|achievements?|qualifications?|academic|strengths|competencies|expérience|experience|compétences|competences|langues|coordonnées|coordonnees|données\s+personnelles|donnees\s+personnelles|profil|études|etudes|diplômes|diplomes|educación|educacion|formación|formacion|experiencia|habilidades|competencias|datos\s+personales|información\s+personal|informacion\s+personal|perfil|resumen|idiomas|certificaciones|referencias|logros|ausbildung|berufserfahrung|werdegang|kenntnisse|fähigkeiten|fahigkeiten|sprachen|lebenslauf|persönliche\s+daten|personliche\s+daten|istruzione|esperienza|lavoro|competenze|lingue|formação|formacao|habilidades|conhecimentos|referências|referencias)\b/iu;
 
 /** Full-line section titles (PDF often emits these as pseudo "names"). */
 const RESUME_SECTION_LINE =
-  /^(?:summary|objective|profile|contact|skills|technical\s+skills|core\s+competencies|work\s+experience|employment|experience|education|academic|projects?|certifications?|courses?|languages?|references?|hobbies|interests|volunteers?|volunteering|achievements?|awards?|honou?rs(?:\s*(?:&|and)\s*awards)?|extra\s+curricular(?:\s+activities)?|extracurricular(?:\s+activities)?|professional\s+summary|personal\s+details|career\s+objective)\b/i;
+  /^(?:summary|objective|profile|contact|skills|technical\s+skills|core\s+competencies|work\s+experience|employment|experience|education|academic|projects?|certifications?|courses?|languages?|references?|hobbies|interests|volunteers?|volunteering|achievements?|awards?|honou?rs(?:\s*(?:&|and)\s*awards)?|extra\s+curricular(?:\s+activities)?|extracurricular(?:\s+activities)?|professional\s+summary|personal\s+details|career\s+objective|formation|expérience|experience|compétences|competences|langues|coordonnées|coordonnees|profil|études|etudes|educación|educacion|formación|formacion|experiencia(?:\s+(?:laboral|profesional))?|habilidades|competencias|datos\s+personales|información\s+personal|informacion\s+personal|perfil(?:\s+profesional)?|resumen(?:\s+profesional)?|idiomas|certificaciones|ausbildung|berufserfahrung|kenntnisse|fähigkeiten|fahigkeiten|sprachen|istruzione|esperienza(?:\s+(?:lavorativa|professionale))?|competenze|lingue|formação|formacao|conhecimentos)\b/iu;
 
 const NAME_JOB_TITLE_SUFFIX =
   /\s*(?:Computer|Software|Full[\s-]?Stack|Frontend|Front[\s-]?end|Backend|Back[\s-]?end|Web|Data|Mechanical|Electrical|Civil|UI|UX|DevOps|Cloud|Machine\s+Learning|ML|AI)\s+Engineer\b/i;
@@ -86,6 +91,33 @@ const NON_NAME_WORD_PARTS = new Set([
   'formation',
   'parcours',
   'projets',
+  'expérience',
+  'experience',
+  'compétences',
+  'competences',
+  'langues',
+  'coordonnées',
+  'coordonnees',
+  'educación',
+  'educacion',
+  'formación',
+  'formacion',
+  'experiencia',
+  'habilidades',
+  'competencias',
+  'idiomas',
+  'certificaciones',
+  'perfil',
+  'resumen',
+  'ausbildung',
+  'berufserfahrung',
+  'kenntnisse',
+  'sprachen',
+  'istruzione',
+  'esperienza',
+  'competenze',
+  'lingue',
+  'conhecimentos',
 ]);
 
 const FALLBACK_SKILL_KEYWORDS = [
@@ -148,10 +180,10 @@ const TECH_SKILLS_REGEX = (() => {
 })();
 
 const EDU_SCORE_WORDS =
-  /\b(bachelor|master|degree|licence|license|brevet|university|école|ecole|institute|diplôme|diploma|phd|b\.?s\.?c|m\.?s\.?c|mba|btech|mtech)\b/i;
+  /\b(bachelor|master|degree|licence|license|licenciatura|maestría|maestria|brevet|university|universidad|université|universite|école|ecole|escuela|institute|instituto|diplôme|diploma|diplom|phd|b\.?s\.?c|m\.?s\.?c|mba|btech|mtech|formación|formacion|ausbildung|istruzione)\b/iu;
 
 const WORK_SCORE_WORDS =
-  /\b(experience|worked|company|société|societe|manager|engineer|analyst|developer|développeur|developpeur|consultant|internship|stage)\b/i;
+  /\b(experience|experiencia|expérience|worked|company|empresa|société|societe|manager|engineer|analyst|developer|développeur|developpeur|desarrollador|consultant|internship|stage|praktikum|berufserfahrung)\b/iu;
 
 const PROJECT_SCORE_WORDS = /\b(project|projet|built|developed|created|créé|cree)\b/i;
 
@@ -204,12 +236,16 @@ function passTextSignals(text) {
     hasPhone: Boolean(phoneMatch),
     emailSample: emailMatch ? String(emailMatch[0]) : '',
     phoneSample: phoneMatch ? String(phoneMatch[0]).replace(/\s+/g, ' ').trim() : '',
-    hasProfile: /\b(profil|profile)\b/i.test(t),
-    hasFormation: /\b(formation|éducation|education|academic|parcours)\b/i.test(t),
-    hasExperience: /\b(expérience|experience|employment|parcours\s+professionnel)\b/i.test(t),
-    hasSkills: /\b(compétence|skills|technical)\b/i.test(t),
-    hasLang: /\b(langue|languages)\b/i.test(t),
-    hasContactLabel: /(?:téléphone|telephone|tel|courriel|e-mail|email)\s*:/i.test(t),
+    hasProfile: /\b(profil|profile|perfil)\b/iu.test(t),
+    hasFormation:
+      /\b(formation|éducation|education|academic|parcours|educación|educacion|formación|formacion|estudios|ausbildung|istruzione|formação|formacao)\b/iu.test(t),
+    hasExperience:
+      /\b(expérience|experience|employment|parcours\s+professionnel|experiencia(?:\s+(?:laboral|profesional))?|berufserfahrung|werdegang|esperienza(?:\s+(?:lavorativa|professionale))?)\b/iu.test(t),
+    hasSkills:
+      /\b(compétence|competence|skills|technical|habilidades|competencias|kenntnisse|fähigkeiten|fahigkeiten|conhecimentos)\b/iu.test(t),
+    hasLang: /\b(langue|languages|langues|idiomas|sprachen|lingue)\b/iu.test(t),
+    hasContactLabel:
+      /(?:téléphone|telephone|tel|móvil|movil|celular|courriel|correo|e-mail|email|telefono|telefon)\s*:/iu.test(t),
   };
 }
 
@@ -527,6 +563,40 @@ function preprocessResumeTextForParsing(rawText = '') {
     'Volunteers',
     'Honours & Awards',
     'Honors & Awards',
+    // French
+    'Formation',
+    'Expérience',
+    'Expérience professionnelle',
+    'Compétences',
+    'Langues',
+    'Coordonnées',
+    'Profil',
+    // Spanish
+    'Educación',
+    'Formación',
+    'Experiencia',
+    'Experiencia laboral',
+    'Experiencia profesional',
+    'Habilidades',
+    'Competencias',
+    'Idiomas',
+    'Datos personales',
+    'Resumen',
+    'Perfil',
+    // German
+    'Ausbildung',
+    'Berufserfahrung',
+    'Kenntnisse',
+    'Sprachen',
+    // Italian / Portuguese
+    'Istruzione',
+    'Esperienza',
+    'Esperienza lavorativa',
+    'Competenze',
+    'Lingue',
+    'Formação',
+    'Experiência',
+    'Habilidades',
   ];
   for (const hdr of sectionBreaks) {
     const esc = hdr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -1853,11 +1923,13 @@ async function extractStructuredResumeDataWithOpenAI(cleanedText, file) {
   const prompt = `Extract structured candidate data from the resume text below for a recruitment ATS import.
 
 Rules:
-- CV may be any language. Extract all supported fields wherever they appear (headers, sidebars, tables).
+- Extract all supported fields from localized section headers, sidebars, and tables.
 - Extract every email into rawEmailsFound and every phone into rawPhonesFound.
 - Never invent data: use null for missing scalar fields. Omit empty extraFields keys.
 - Return ONLY one valid JSON object. No markdown or commentary.
 - All score.* values: integers 0-100 (never decimals like 0.85).
+
+${buildCvLanguagePreservePromptBlock()}
 
 ${buildCvExtractionPromptInstructions()}
 
@@ -1895,8 +1967,9 @@ ${capped}
         messages: [
           {
             role: 'system',
-            content:
-              'You are a multilingual resume parsing engine. Output JSON only, no markdown, following the user instructions exactly. All score fields must be integers 0-100, never decimals between 0 and 1.',
+            content: cvParsePreserveSourceLanguage()
+              ? 'You are a multilingual resume parsing engine. Output JSON only. Never translate resume text — store summary, skills, jobs, and education in the same language as the CV (Spanish CV → Spanish fields, French → French, English → English). Set sourceLanguage on the JSON root. All score fields must be integers 0-100, never decimals between 0 and 1.'
+              : 'You are a resume parsing engine. Output JSON only. Translate all free-text fields to English. All score fields must be integers 0-100, never decimals between 0 and 1.',
           },
           { role: 'user', content: prompt },
         ],
@@ -2675,6 +2748,7 @@ export async function finalizeCvPipelineFromStage5(
   ]);
 
   const mergedFlat = enrichParsedFromNarrative(mergeAiWithFallback(aiParsed, fallbackData), cleaned);
+  mergedFlat.sourceLanguage = resolveCvSourceLanguage(aiParsed, cleaned);
   const portfolioLinks = extractPortfolioLinks(cleaned);
   if (!mergedFlat.portfolioLinks?.length) mergedFlat.portfolioLinks = portfolioLinks;
 
@@ -2683,6 +2757,7 @@ export async function finalizeCvPipelineFromStage5(
     resumeUrl,
     profilePhotoUrl,
     cleanedText: cleaned,
+    sourceLanguage: mergedFlat.sourceLanguage,
   };
   const normalizedData = normalizeResumeExtraction(mergedFlat, {}, extrasBase);
 

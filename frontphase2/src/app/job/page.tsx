@@ -30,6 +30,9 @@ import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
 import { buildJobsCsvColumns, JOBS_EXPORT_COLUMNS } from '../../lib/export/jobsExportColumns';
 import { fetchAllPaginated, totalPagesFromPagination } from '../../lib/export/fetchAllPaginated';
 import { formatDateTimeDMY } from '../../utils/dateDisplay';
+import { extractAuditMeta } from '../../utils/auditMeta';
+import { TableAuditColumnHeader, TableAuditCell } from '../../components/table/TableAuditCell';
+import type { AuditMeta } from '../../types/audit';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import PaginationAll from '../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
@@ -207,6 +210,7 @@ interface Job {
   candidates?: string;
   slaRisk: boolean;
   pipelineStages?: JobPipelineStageSummary[];
+  auditMeta?: AuditMeta;
 }
 
 /** Map list Job to drawer JobForDrawer - uses only backend data, no mock data */
@@ -406,13 +410,14 @@ const JobsListView = ({ jobs, onJobClick, onEditJob, onAddCandidate, onDeleteJob
             <th className="px-3 py-2 sm:px-4">Status</th>
             <th className="px-3 py-2 sm:px-4">Pipeline</th>
             <th className="px-3 py-2 sm:px-4">Details</th>
+            <TableAuditColumnHeader />
             <th className="px-3 py-2 sm:px-4 text-right">Actions</th>
         </tr>
       </thead>
         <tbody className="divide-y divide-slate-100/80">
           {jobs.length === 0 ? (
             <tr>
-              <td colSpan={7} className="px-4 py-12 text-center">
+              <td colSpan={8} className="px-4 py-12 text-center">
                 <p className="text-xs font-medium text-slate-500">No jobs match your filters</p>
                 <p className="mt-1 text-[11px] text-slate-400">Try adjusting search or clear filters</p>
               </td>
@@ -514,6 +519,7 @@ const JobsListView = ({ jobs, onJobClick, onEditJob, onAddCandidate, onDeleteJob
                     <span className="text-[10px] text-slate-500">{job.createdDate}</span>
               </div>
             </td>
+                <TableAuditCell audit={job.auditMeta} />
                 <td className="px-3 py-2 sm:px-4 text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="inline-flex items-center justify-end gap-0.5 rounded-2xl bg-slate-100/70 p-0.5 ring-1 ring-slate-200/60">
                 {SHOW_TABLE_ROW_EDIT_ICON ? (
@@ -755,6 +761,7 @@ function mapBackendJob(job: BackendJob): Job {
     candidates: '',
     slaRisk: (job as any).slaRisk ?? false,
     pipelineStages: pipelineStagesDeduped.length ? pipelineStagesDeduped : undefined,
+    auditMeta: extractAuditMeta(job as Record<string, unknown>),
   };
 }
 
@@ -1516,6 +1523,7 @@ export default function JobsPage() {
         slaRisk: Boolean(backendJob.slaRisk),
         managerName: backendJob.manager?.name || undefined,
         visibility: backendJob.visibility || undefined,
+        auditMeta: extractAuditMeta(backendJob as Record<string, unknown>),
       };
       
       setJobDetails(mappedJob);
@@ -2412,6 +2420,7 @@ export default function JobsPage() {
             ? async (interviewData) => {
                 const payload = {
                   jobId: interviewData.jobId,
+                  clientId: interviewData.clientId || undefined,
                   type: interviewData.type,
                   round: interviewData.round,
                   date: interviewData.date,

@@ -3,6 +3,7 @@ import { getActiveTenantDbName } from '../config/prisma.js';
 import { getCache, setCache } from '../cache/redis.js';
 import { sendError } from '../utils/response.js';
 import logger from '../utils/logger.js';
+import { userHasAnyPermission } from '../modules/role/permission-aliases.js';
 
 function buildPermissionCacheKey(userId) {
   const tenant = getActiveTenantDbName() || 'default';
@@ -14,8 +15,7 @@ function normalizePermissions(values = []) {
 }
 
 function hasAnyPermission(userPermissions, requiredPermissions = []) {
-  if (userPermissions.includes('all')) return true;
-  return requiredPermissions.some((permission) => userPermissions.includes(permission));
+  return userHasAnyPermission(userPermissions, requiredPermissions);
 }
 
 /**

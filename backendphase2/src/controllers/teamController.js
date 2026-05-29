@@ -11,6 +11,7 @@ import {
 import { sendInviteEmail, sendPasswordResetEmail } from '../services/emailService.js';
 import { isSuperAdminUser } from '../utils/superAdminScope.js';
 import { headquartersAuthService } from '../modules/auth/headquarters-auth.service.js';
+import activityService from '../services/activityService.js';
 
 /**
  * Best-effort: register the new credential's email/loginId in the HQ directory
@@ -489,6 +490,24 @@ export async function createTeamMember(req, res) {
 
     await deleteCacheByPattern(getTeamListCachePattern());
 
+    if (req.user?.id && createdMember) {
+      const memberName =
+        `${createdMember.firstName || ''} ${createdMember.lastName || ''}`.trim() || createdMember.name || email;
+      await activityService.logTeamActivity({
+        entityId: createdMember.id,
+        performedById: req.user.id,
+        action: 'Team member added',
+        description: `${memberName} was added to the team${createdMember.systemRole?.roleName ? ` as ${createdMember.systemRole.roleName}` : ''}.`,
+        relatedLabel: memberName,
+        metadata: {
+          memberId: createdMember.id,
+          email: createdMember.email,
+          roleId: createdMember.roleId,
+          roleName: createdMember.systemRole?.roleName,
+        },
+      });
+    }
+
     return res.status(201).json({
       success: true,
       data: {
@@ -582,6 +601,11 @@ export async function updateTeamMember(req, res) {
       });
     }
 
+    const memberBefore = await prisma.user.findUnique({
+      where: { id },
+      select: { roleId: true, firstName: true, lastName: true, name: true },
+    });
+
     // Check email uniqueness if email is being changed
     if (email && email.trim()) {
       const existing = await prisma.user.findFirst({
@@ -644,6 +668,29 @@ export async function updateTeamMember(req, res) {
     await deleteCacheByPattern(getTeamListCachePattern());
     if (updateData.roleId !== undefined) {
       await deleteCacheByPattern(getPermissionCachePattern());
+    }
+
+    if (req.user?.id) {
+      const memberName =
+        `${updatedMember.firstName || ''} ${updatedMember.lastName || ''}`.trim() || updatedMember.name || 'Member';
+      const roleChanged =
+        updateData.roleId !== undefined &&
+        String(updateData.roleId || '') !== String(memberBefore?.roleId || '');
+      await activityService.logTeamActivity({
+        entityId: id,
+        performedById: req.user.id,
+        action: roleChanged ? 'Member role changed' : 'Team member updated',
+        description: roleChanged
+          ? `${memberName} role changed to ${updatedMember.systemRole?.roleName || '—'}.`
+          : `${memberName} profile was updated.`,
+        relatedLabel: memberName,
+        metadata: {
+          memberId: id,
+          roleId: updatedMember.roleId,
+          roleName: updatedMember.systemRole?.roleName,
+          updatedFields: Object.keys(updateData),
+        },
+      });
     }
 
     // Normalize the response to match frontend expectations

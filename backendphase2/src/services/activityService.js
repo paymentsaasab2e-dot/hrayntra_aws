@@ -184,6 +184,8 @@ export async function logFieldChanges({
     [ENTITY_TYPES.INTERVIEW]: ACTIVITY_CATEGORIES.INTERVIEWS,
     [ENTITY_TYPES.PLACEMENT]: ACTIVITY_CATEGORIES.PLACEMENTS,
     [ENTITY_TYPES.CONTACT]: ACTIVITY_CATEGORIES.CONTACTS,
+    [ENTITY_TYPES.TASK]: ACTIVITY_CATEGORIES.GENERAL,
+    [ENTITY_TYPES.USER]: ACTIVITY_CATEGORIES.TEAM,
   };
 
   const category = categoryMap[entityType] || ACTIVITY_CATEGORIES.GENERAL;
@@ -284,6 +286,8 @@ export async function logEntityCreated({
     [ENTITY_TYPES.INTERVIEW]: 'Interview Created',
     [ENTITY_TYPES.PLACEMENT]: 'Placement Created',
     [ENTITY_TYPES.CONTACT]: 'Contact Created',
+    [ENTITY_TYPES.TASK]: 'Task Created',
+    [ENTITY_TYPES.USER]: 'Team member added',
   };
 
   const action = actionMap[entityType] || 'Entity Created';
@@ -328,6 +332,8 @@ export async function logEntityDeleted({
     [ENTITY_TYPES.INTERVIEW]: 'Interview Deleted',
     [ENTITY_TYPES.PLACEMENT]: 'Placement Deleted',
     [ENTITY_TYPES.CONTACT]: 'Contact Deleted',
+    [ENTITY_TYPES.TASK]: 'Task Deleted',
+    [ENTITY_TYPES.USER]: 'Team member removed',
   };
 
   const action = actionMap[entityType] || 'Entity Deleted';
@@ -470,7 +476,26 @@ export const activityService = {
 
   // Contact activities
   logContactActivity: (params) => logActivity({ ...params, entityType: ENTITY_TYPES.CONTACT, category: ACTIVITY_CATEGORIES.CONTACTS }),
+  logContactFieldChanges: (params) => logFieldChanges({ ...params, entityType: ENTITY_TYPES.CONTACT }),
   logContactCreated: (params) => logEntityCreated({ ...params, entityType: ENTITY_TYPES.CONTACT, category: ACTIVITY_CATEGORIES.CONTACTS }),
+  logContactDeleted: (params) => logEntityDeleted({ ...params, entityType: ENTITY_TYPES.CONTACT }),
+
+  // Task activities
+  logTaskActivity: (params) => logActivity({ ...params, entityType: ENTITY_TYPES.TASK, category: ACTIVITY_CATEGORIES.GENERAL }),
+  logTaskFieldChanges: (params) => logFieldChanges({ ...params, entityType: ENTITY_TYPES.TASK }),
+  logTaskCreated: (params) => logEntityCreated({ ...params, entityType: ENTITY_TYPES.TASK, category: ACTIVITY_CATEGORIES.GENERAL }),
+  logTaskDeleted: (params) => logEntityDeleted({ ...params, entityType: ENTITY_TYPES.TASK }),
+
+  // Placement field changes
+  logPlacementFieldChanges: (params) => logFieldChanges({ ...params, entityType: ENTITY_TYPES.PLACEMENT }),
+
+  // Team / roles (entityId = user or role id; category Team)
+  logTeamActivity: (params) =>
+    logActivity({
+      ...params,
+      entityType: ENTITY_TYPES.USER,
+      category: ACTIVITY_CATEGORIES.TEAM,
+    }),
 
   // Generic functions
   logActivity,

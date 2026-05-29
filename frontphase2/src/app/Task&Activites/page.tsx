@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { SHOW_TABLE_ROW_EDIT_ICON } from '../../constants/tableUi';
 import { 
   CheckSquare, 
@@ -31,15 +31,26 @@ import PaginationAll from '../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 import { TaskDetailsDrawer, type TaskForDrawer, type TaskActivityItem } from '../../components/drawers/TaskDetailsDrawer';
 import { TaskSLAAlertBadge, TaskSLAAlertsPanel } from '../../components/TaskSLAAlerts';
+import { MOCK_TASK_COMMUNICATIONS, MOCK_CANDIDATE_INTERACTIONS, MOCK_AI_TASK_SUGGESTIONS } from './types';
+import { mapBackendActivityToTaskEvent } from '../../lib/taskActivityMapper';
+import { getAllTeamMembersForAssign } from '../../lib/api/teamApi';
+import type { TaskFormValues, TaskActivityEvent } from './types';
 import {
-  MOCK_TASK_ACTIVITY_EVENTS,
-  MOCK_TASK_COMMUNICATIONS,
-  MOCK_CANDIDATE_INTERACTIONS,
-  MOCK_AI_TASK_SUGGESTIONS,
-} from './types';
-import type { TaskFormValues } from './types';
-import { apiGetTasks, apiGetJobs, apiGetCandidates, apiGetClients, apiGetInterviews, apiGetTask, apiMarkTaskCompleted, apiDeleteTask, apiGetTaskStats, type TaskStats } from '../../lib/api';
+  apiGetTasks,
+  apiGetJobs,
+  apiGetCandidates,
+  apiGetClients,
+  apiGetInterviews,
+  apiGetTask,
+  apiGetTaskActivities,
+  apiMarkTaskCompleted,
+  apiDeleteTask,
+  apiGetTaskStats,
+  type TaskStats,
+  type BackendActivity,
+} from '../../lib/api';
 import { transformBackendTaskToFrontend, transformBackendTaskToDrawer } from '../../lib/taskTransform';
+import { TableAuditColumnHeader, TableAuditCell } from '../../components/table/TableAuditCell';
 import type { BackendCandidate, BackendClient, BackendInterviewListItem, BackendJob, BackendTask } from '../../lib/api';
 import { requestConfirm, requestError } from '../../lib/appDialog';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
@@ -56,7 +67,8 @@ import { SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/
 
 type TaskType = 'Call' | 'Email' | 'Interview' | 'Follow-up' | 'Meeting' | 'Note';
 type Priority = 'Low' | 'Medium' | 'High';
-type Status = 'Pending' | 'Completed' | 'Overdue';
+type Status = 'Pending' | 'In Progress' | 'Completed' | 'Cancelled' | 'Overdue';
+type TaskScope = 'all' | 'assigned_to_me' | 'created_by_me';
 type TaskStatusSummary = 'Pending' | 'In Progress' | 'Completed' | 'Cancelled';
 
 interface RelatedTo {
@@ -148,10 +160,12 @@ const PriorityBadge = ({ priority }: { priority: Priority }) => {
 };
 
 const StatusBadge = ({ status }: { status: Status }) => {
-  const colors = {
-    Pending: 'bg-gray-100 text-gray-600',
-    Completed: 'bg-emerald-100 text-emerald-600',
-    Overdue: 'bg-red-100 text-red-600',
+  const colors: Record<Status, string> = {
+    Pending: 'bg-slate-100 text-slate-700',
+    'In Progress': 'bg-blue-100 text-blue-700',
+    Completed: 'bg-emerald-100 text-emerald-700',
+    Cancelled: 'bg-slate-200 text-slate-500',
+    Overdue: 'bg-red-100 text-red-700',
   };
   return (
     <span className={`px-2.5 py-1 rounded-md text-[11px] font-bold ${colors[status]}`}>
@@ -200,10 +214,12 @@ const TasksFilterToolbar = ({
   priority,
   assignedTo,
   assigneeOptions,
+  scope,
   searchQuery,
   onTodayToggle,
   onPriorityChange,
   onAssignedToChange,
+  onScopeChange,
   onSearchChange,
   onClearFilters,
   hasActiveFilters,
@@ -213,11 +229,13 @@ const TasksFilterToolbar = ({
   todayOnly: boolean;
   priority: string;
   assignedTo: string;
-  assigneeOptions: string[];
+  assigneeOptions: { id: string; name: string }[];
+  scope: TaskScope;
   searchQuery: string;
   onTodayToggle: () => void;
   onPriorityChange: (value: string) => void;
   onAssignedToChange: (value: string) => void;
+  onScopeChange: (value: TaskScope) => void;
   onSearchChange: (value: string) => void;
   onClearFilters: () => void;
   hasActiveFilters: boolean;
@@ -260,14 +278,24 @@ const TasksFilterToolbar = ({
         <option value="Low">Low</option>
       </select>
       <select
+        value={scope}
+        onChange={(e) => onScopeChange(e.target.value as TaskScope)}
+        className={PH2_TOOLBAR_SELECT_CLASS}
+        title="Work queue"
+      >
+        <option value="all">All tasks</option>
+        <option value="assigned_to_me">Assigned to me</option>
+        <option value="created_by_me">Created by me</option>
+      </select>
+      <select
         value={assignedTo}
         onChange={(e) => onAssignedToChange(e.target.value)}
         className={PH2_TOOLBAR_SELECT_CLASS}
       >
         <option value="">All assignees</option>
-        {assigneeOptions.map((option) => (
-          <option key={option} value={option}>
-            {option}
+        {assigneeOptions.map((member) => (
+          <option key={member.id} value={member.id}>
+            {member.name}
           </option>
         ))}
       </select>
@@ -430,12 +458,25 @@ const CalendarView = ({ tasks, onTaskClick, shellClassName = '' }: { tasks: Task
   );
 };
 
+function readCurrentUserId(): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    const raw = localStorage.getItem('currentUser');
+    if (!raw) return '';
+    const user = JSON.parse(raw);
+    return String(user?.id || '');
+  } catch {
+    return '';
+  }
+}
+
 export default function App() {
   const [view, setView] = useState<'list' | 'calendar'>('list');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<'create' | 'detail' | 'edit'>('detail');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [selectedBackendTask, setSelectedBackendTask] = useState<BackendTask | null>(null);
+  const [taskActivityEvents, setTaskActivityEvents] = useState<TaskActivityEvent[]>([]);
   const [createTaskPrefill, setCreateTaskPrefill] = useState<Partial<TaskFormValues> | null>(null);
   const [deleteConfirmTask, setDeleteConfirmTask] = useState<Task | null>(null);
   const [slaDrawerOpen, setSlaDrawerOpen] = useState(false);
@@ -457,7 +498,10 @@ export default function App() {
     priority: '',
     assignedTo: '',
     search: '',
+    scope: 'all' as TaskScope,
   });
+  const [currentUserId, setCurrentUserId] = useState('');
+  const [teamAssigneeOptions, setTeamAssigneeOptions] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<TaskStats | null>(null);
@@ -467,6 +511,49 @@ export default function App() {
     const timeout = window.setTimeout(() => setShowTaskSuccessToast(false), 3000);
     return () => window.clearTimeout(timeout);
   }, [showTaskSuccessToast]);
+
+  useEffect(() => {
+    setCurrentUserId(readCurrentUserId());
+    void getAllTeamMembersForAssign()
+      .then((members) => {
+        const opts = members.map((m) => ({
+          id: m.id,
+          name: [m.firstName, m.lastName].filter(Boolean).join(' ').trim() || m.email || m.id,
+        }));
+        setTeamAssigneeOptions(opts.sort((a, b) => a.name.localeCompare(b.name)));
+      })
+      .catch(() => setTeamAssigneeOptions([]));
+  }, []);
+
+  const urlTaskOpenedRef = useRef(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || loading || urlTaskOpenedRef.current) return;
+    const taskId = new URLSearchParams(window.location.search).get('taskId');
+    if (!taskId || !isBackendTaskObjectId(taskId)) return;
+    urlTaskOpenedRef.current = true;
+
+    const openTaskFromUrl = async () => {
+      try {
+        const response = await apiGetTask(taskId);
+        if (!response.data) return;
+        const backendTask = response.data as BackendTask;
+        setSelectedBackendTask(backendTask);
+        const fullTask = transformBackendTaskToFrontend(backendTask, {
+          relatedEntityName: getRelatedEntityName(backendTask),
+        });
+        setSelectedTask(fullTask);
+        setDrawerMode('detail');
+        setDrawerOpen(true);
+        await loadTaskActivities(taskId);
+      } catch (error) {
+        console.error('Failed to open task from URL:', error);
+      }
+    };
+
+    void openTaskFromUrl();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
 
   const extractBackendTasks = (responseData: unknown): BackendTask[] => {
     if (Array.isArray(responseData)) return responseData as BackendTask[];
@@ -738,7 +825,13 @@ export default function App() {
       return taskList.filter((task) => {
         if (filters.todayOnly && task.dueDate !== todayString) return false;
         if (filters.priority && task.priority !== filters.priority) return false;
-        if (filters.assignedTo && task.owner.name !== filters.assignedTo) return false;
+        if (filters.assignedTo && task.assigneeId !== filters.assignedTo) return false;
+        if (filters.scope === 'assigned_to_me' && currentUserId && task.assigneeId !== currentUserId) {
+          return false;
+        }
+        if (filters.scope === 'created_by_me' && currentUserId && task.createdById !== currentUserId) {
+          return false;
+        }
         const q = filters.search.trim().toLowerCase();
         if (q) {
           const relatedLabel =
@@ -753,7 +846,7 @@ export default function App() {
         return true;
       });
     },
-    [filters, jobTitleById],
+    [filters, jobTitleById, currentUserId],
   );
 
   const filteredTasks = useMemo(() => applyTaskListFilters(tasks), [applyTaskListFilters, tasks]);
@@ -806,11 +899,7 @@ export default function App() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [filters.todayOnly, filters.priority, filters.assignedTo, filters.search]);
-
-  const assigneeOptions = useMemo(() => {
-    return Array.from(new Set(tasks.map((task) => task.owner.name))).sort();
-  }, [tasks]);
+  }, [filters.todayOnly, filters.priority, filters.assignedTo, filters.search, filters.scope]);
 
   const clearFilters = () => {
     setCurrentPage(1);
@@ -819,6 +908,7 @@ export default function App() {
       priority: '',
       assignedTo: '',
       search: '',
+      scope: 'all',
     });
   };
 
@@ -868,10 +958,25 @@ export default function App() {
     setDrawerOpen(true);
   };
 
+  const loadTaskActivities = async (taskId: string) => {
+    if (!isBackendTaskObjectId(taskId)) {
+      setTaskActivityEvents([]);
+      return;
+    }
+    try {
+      const res = await apiGetTaskActivities(taskId);
+      const list = Array.isArray(res.data) ? res.data : [];
+      setTaskActivityEvents(list.map(mapBackendActivityToTaskEvent));
+    } catch {
+      setTaskActivityEvents([]);
+    }
+  };
+
   const handleCloseDrawer = () => {
     setDrawerOpen(false);
     setCreateTaskPrefill(null);
     setSelectedBackendTask(null);
+    setTaskActivityEvents([]);
   };
 
   const handleRequestTaskDelete = (task: Task, e: React.MouseEvent) => {
@@ -916,6 +1021,7 @@ export default function App() {
             relatedEntityName: getRelatedEntityName(backendTask),
           });
           setSelectedTask(fullTask);
+          void loadTaskActivities(task.id);
         } else {
         setSelectedBackendTask(null);
         setSelectedTask(task);
@@ -962,7 +1068,11 @@ export default function App() {
   };
 
   const hasToolbarFilters = Boolean(
-    filters.search.trim() || filters.todayOnly || filters.priority || filters.assignedTo
+    filters.search.trim() ||
+      filters.todayOnly ||
+      filters.priority ||
+      filters.assignedTo ||
+      filters.scope !== 'all'
   );
 
   const viewSegmented = (
@@ -999,7 +1109,8 @@ export default function App() {
       todayOnly={filters.todayOnly}
       priority={filters.priority}
       assignedTo={filters.assignedTo}
-      assigneeOptions={assigneeOptions}
+      assigneeOptions={teamAssigneeOptions}
+      scope={filters.scope}
       searchQuery={filters.search}
       onSearchChange={(search) => {
         setCurrentPage(1);
@@ -1016,6 +1127,10 @@ export default function App() {
       onAssignedToChange={(assignedTo) => {
         setCurrentPage(1);
         setFilters((prev) => ({ ...prev, assignedTo }));
+      }}
+      onScopeChange={(scope) => {
+        setCurrentPage(1);
+        setFilters((prev) => ({ ...prev, scope }));
       }}
       onClearFilters={clearFilters}
       hasActiveFilters={hasToolbarFilters}
@@ -1122,25 +1237,26 @@ export default function App() {
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Priority</th>
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Status</th>
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Assigned to</th>
+                    <TableAuditColumnHeader className="px-6 py-4" />
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {loading ? (
                     <tr>
-                      <td colSpan={8} className="p-0">
-                        <TableSkeleton rows={6} columns={8} className="border-0 shadow-none rounded-none" />
+                      <td colSpan={9} className="p-0">
+                        <TableSkeleton rows={6} columns={9} className="border-0 shadow-none rounded-none" />
                       </td>
                     </tr>
                   ) : error ? (
                     <tr>
-                      <td colSpan={8} className="px-6 py-8 text-center text-sm text-red-500">
+                      <td colSpan={9} className="px-6 py-8 text-center text-sm text-red-500">
                         {error}
                       </td>
                     </tr>
                   ) : filteredTasks.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-6 py-8 text-center text-sm text-gray-500">
+                      <td colSpan={9} className="px-6 py-8 text-center text-sm text-gray-500">
                         No tasks found. Try clearing the filters or create a new task.
                       </td>
                     </tr>
@@ -1192,9 +1308,10 @@ export default function App() {
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
                           <ImageWithFallback src={task.owner.avatar} className="w-6 h-6 rounded-full" />
-                          <span className="text-[13px] font-medium text-gray-600">{task.owner.name.split(' ')[0]}</span>
+                          <span className="text-[13px] font-medium text-gray-600">{task.owner?.name?.split(' ')[0] ?? '—'}</span>
                         </div>
                       </td>
+                      <TableAuditCell audit={task.auditMeta} className="px-6 py-4" />
                       <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
                         {/* Colored action icons — same design language as
                             Leads / Clients / Candidates / Contacts. */}
@@ -1392,22 +1509,38 @@ export default function App() {
             priority: selectedTask.priority,
             status: selectedTask.status,
             owner: selectedTask.owner,
+            auditMeta: selectedTask.auditMeta,
           };
           return taskForDrawer;
         })() : null)}
-        activities={(selectedTask ? (MOCK_ACTIVITIES[selectedTask.id] ?? []) : []) as TaskActivityItem[]}
-        activityEvents={selectedTask ? (MOCK_TASK_ACTIVITY_EVENTS[selectedTask.id] ?? []) : []}
+        activities={[]}
+        activityEvents={taskActivityEvents}
         communicationEntries={selectedTask ? (MOCK_TASK_COMMUNICATIONS[selectedTask.id] ?? []) : []}
         candidateInteractionEntries={selectedTask ? (MOCK_CANDIDATE_INTERACTIONS[selectedTask.id] ?? []) : []}
         createTaskPrefill={createTaskPrefill}
         aiSuggestions={MOCK_AI_TASK_SUGGESTIONS}
         onCreateTaskFromSuggestion={handleCreateTaskFromSuggestion}
-        onCreateSuccess={async () => {
+        onCreateSuccess={async (createdTaskId?: string) => {
           setCreateTaskPrefill(null);
-          setTaskSuccessToastMessage('Task created successfully');
+          setTaskSuccessToastMessage('Task created and assigned successfully');
           setShowTaskSuccessToast(true);
           try {
             await refreshTasksAndStats();
+            if (createdTaskId && isBackendTaskObjectId(createdTaskId)) {
+              const response = await apiGetTask(createdTaskId);
+              if (response.data) {
+                const backendTask = response.data as BackendTask;
+                setSelectedBackendTask(backendTask);
+                setSelectedTask(
+                  transformBackendTaskToFrontend(backendTask, {
+                    relatedEntityName: getRelatedEntityName(backendTask),
+                  })
+                );
+                setDrawerMode('detail');
+                setDrawerOpen(true);
+                await loadTaskActivities(createdTaskId);
+              }
+            }
           } catch (error) {
             console.error('Failed to refresh tasks:', error);
           }
@@ -1443,6 +1576,7 @@ export default function App() {
                 setSelectedTask(transformBackendTaskToFrontend(backendTask, {
                   relatedEntityName: getRelatedEntityName(backendTask),
                 }));
+                await loadTaskActivities(selectedTask.id);
               }
             }
           } catch (error) {

@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { usePermissions } from '../hooks/usePermissions';
+import { MODULE_ACCESS_MAP } from '../lib/rbac/moduleAccess';
 import { useUser } from '../hooks/useUser';
 import {
   apiGetUnifiedCalendar,
@@ -54,7 +55,8 @@ import {
   LogOut,
   Repeat,
   DollarSign,
-  Trash2
+  Trash2,
+  History,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -1001,7 +1003,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
 
         <div className="flex flex-1 justify-center px-4">
           <div className="relative w-full max-w-2xl">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-sky-400 pointer-events-none" />
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-sky-400" />
             <input
               type="text"
               value={navSearch}
@@ -1021,7 +1023,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
                 }
               }}
               placeholder="Search candidates, jobs, clients, team, tasks…"
-              className="w-full rounded-full border border-white/15 bg-white py-2.5 pl-11 pr-4 text-[13px] text-slate-900 shadow-sm outline-none transition-colors placeholder:text-slate-400 focus:border-white/30 focus:ring-2 focus:ring-white/20"
+              className="h-9 w-full rounded-full border border-white/15 bg-white py-0 pl-10 pr-3.5 text-[13px] leading-none text-slate-900 shadow-sm outline-none transition-colors placeholder:text-slate-400 focus:border-white/30 focus:ring-2 focus:ring-white/20"
             />
             {searchFocused && (searchLoading || searchResults.length > 0) && (
               <div className="absolute left-0 right-0 top-[calc(100%+10px)] z-[70] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
@@ -1125,8 +1127,9 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
           onScroll={persistScrollPosition}
           className="sidenav-scrollbar flex-1 overflow-y-auto overflow-x-hidden py-2"
         >
-          {/* Dashboard - always show */}
-          <NavItem icon={LayoutDashboard} label="Dashboard" href="/dashboard" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="sky" />
+          {(mounted && (showAll || hasAnyPermission(['view_dashboard']) || isSuperAdmin())) && (
+            <NavItem icon={LayoutDashboard} label="Dashboard" href="/dashboard" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="sky" />
+          )}
           
           {/* Leads */}
           {(mounted && (showAll || hasAnyPermission(['leads_read', 'leads_create', 'leads_update', 'leads_delete']))) && (
@@ -1159,7 +1162,7 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
           )}
           
           {/* Pipeline */}
-          {(mounted && (showAll || hasPermission('move_pipeline'))) && (
+          {(mounted && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Pipeline))) && (
             <>
               <SectionLabel label="Recruitment Hub" collapsed={isCollapsed} />
               <NavItem icon={GitBranch} label="Pipeline" href="/pipeline" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="indigo" />
@@ -1167,20 +1170,21 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
           )}
           
           {/* Matches */}
-          {(mounted && (showAll || hasAnyPermission(['jobs_read', 'view_jobs', 'candidates_read', 'view_all_candidates', 'view_assigned_candidates']))) && (
+          {(mounted && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Matches))) && (
             <NavItem icon={Zap} label="Matches" href="/matches" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="orange" />
           )}
 
           <Divider />
 
-          {/* Tasks & Activities - always show */}
-          <NavItem icon={CheckSquare} label="Tasks & Activities" href="/Task&Activites" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="lime" />
-          
-          {/* Inbox - always show */}
-          <NavItem icon={Mail} label="Inbox" href="/inbox" collapsed={isCollapsed} badge={3} onNavigate={persistScrollPosition} accent="fuchsia" />
-          
-          {/* Contacts */}
-          {(mounted && (showAll || hasAnyPermission(['clients_read', 'leads_read', 'candidates_read', 'view_all_candidates', 'view_assigned_candidates']))) && (
+          {(mounted && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Tasks))) && (
+            <NavItem icon={CheckSquare} label="Tasks & Activities" href="/Task&Activites" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="lime" />
+          )}
+
+          {(mounted && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Inbox))) && (
+            <NavItem icon={Mail} label="Inbox" href="/inbox" collapsed={isCollapsed} badge={3} onNavigate={persistScrollPosition} accent="fuchsia" />
+          )}
+
+          {(mounted && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Contacts))) && (
             <NavItem icon={Contact} label="Contacts" href="/contacts" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="teal" />
           )}
 
@@ -1210,10 +1214,14 @@ export function Sidenav({ avatarUrl = '', userProfile, children }: SidenavProps)
             <NavItem icon={Trash2} label="Recycle Bin" href="/recycle-bin" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="slate" />
           )}
 
+          {mounted ? (
+            <NavItem icon={History} label="Activity log" href="/activity-feed" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="violet" />
+          ) : null}
+
           <div className="h-4" />
 
           {/* Team */}
-          {(mounted && (showAll || hasAnyPermission(['add_team_member', 'assign_roles', 'edit_team_member', 'generate_credentials', 'manage_targets', 'manage_commission']))) && (
+          {(mounted && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Team))) && (
             <>
               <SectionLabel label="Team Management" collapsed={isCollapsed} />
               <NavItem icon={UserPlus} label="Team" href="/team" collapsed={isCollapsed} onNavigate={persistScrollPosition} accent="blue" />

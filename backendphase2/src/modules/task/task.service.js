@@ -5,6 +5,11 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { canViewAllAssignments } from '../../utils/permissionScope.js';
+import { prepareListWithAuditMeta } from '../../utils/listAuditMeta.js';
+import { ENTITY_TYPES } from '../../services/activityService.js';
+import { attachAuditMetaToEntity } from '../../utils/listAuditMeta.js';
+import activityService from '../../services/activityService.js';
+import { notifyTaskAssignment, notifyTaskStatusChange } from './taskWorkflow.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -79,7 +84,8 @@ export const taskService = {
       prisma.task.count({ where }),
     ]);
 
-    return formatPaginationResponse(tasks, page, limit, total);
+    const withAudit = await prepareListWithAuditMeta(tasks, ENTITY_TYPES.TASK);
+    return formatPaginationResponse(withAudit, page, limit, total);
   },
 
   async getById(id, req = null) {
@@ -115,10 +121,11 @@ export const taskService = {
     const dueDate = new Date(task.dueDate);
     const isOverdue = task.status !== 'DONE' && dueDate < now;
 
-    return {
+    const merged = {
       ...task,
       isOverdue,
     };
+    return attachAuditMetaToEntity(merged, ENTITY_TYPES.TASK);
   },
 
   async create(data) {
@@ -227,6 +234,43 @@ export const taskService = {
 
     console.log(`✅ Task created successfully with ID: ${task.id}\n`);
 
+    if (data.createdById) {
+      await activityService.logTaskCreated({
+        entityId: task.id,
+        performedById: data.createdById,
+        entityName: task.title,
+        metadata: {
+          assigneeId: task.assignedToId,
+          assigneeName: task.assignedTo?.name || null,
+        },
+      });
+
+      if (task.assignedToId && task.assignedToId !== data.createdById) {
+        await activityService.logTaskActivity({
+          entityId: task.id,
+          performedById: data.createdById,
+          action: 'Task assigned',
+          description: `Assigned to ${task.assignedTo?.name || 'team member'}`,
+          metadata: { assigneeId: task.assignedToId },
+        });
+      }
+    }
+
+    const shouldNotify =
+      task.notifyAssignee !== false &&
+      task.assignedToId &&
+      data.createdById &&
+      task.assignedToId !== data.createdById;
+
+    if (shouldNotify) {
+      await notifyTaskAssignment({
+        task,
+        actorUserId: data.createdById,
+        assigneeUserId: task.assignedToId,
+        isReassign: false,
+      });
+    }
+
     return task;
   },
 
@@ -319,17 +363,16 @@ export const taskService = {
 
     dbLogger.logUpdate('TASK', id, updateData);
 
+    const accessWhere = { id };
     if (!canViewAllAssignments(req) && req?.user?.id) {
-      const accessibleTask = await prisma.task.findFirst({
-        where: {
-          id,
-          OR: [{ assignedToId: req.user.id }, { createdById: req.user.id }],
-        },
-        select: { id: true },
-      });
-      if (!accessibleTask) {
-        throw new Error('Task not found');
-      }
+      accessWhere.OR = [{ assignedToId: req.user.id }, { createdById: req.user.id }];
+    }
+
+    const existingTask = await prisma.task.findFirst({
+      where: accessWhere,
+    });
+    if (!existingTask) {
+      throw new Error('Task not found');
     }
 
     const updated = await prisma.task.update({
@@ -354,6 +397,45 @@ export const taskService = {
     });
 
     console.log(`✅ Task updated successfully (ID: ${id})\n`);
+
+    const performerId = req?.user?.id || data.performedById;
+    if (performerId) {
+      await activityService.logTaskFieldChanges({
+        entityId: id,
+        performedById: performerId,
+        oldData: existingTask,
+        newData: { ...existingTask, ...updateData },
+        trackedFields: Object.keys(updateData),
+      });
+    }
+
+    const assigneeChanged =
+      updateData.assignedToId !== undefined &&
+      String(updateData.assignedToId) !== String(existingTask.assignedToId);
+
+    if (assigneeChanged && updated.assignedToId) {
+      const notify =
+        updated.notifyAssignee !== false &&
+        performerId &&
+        updated.assignedToId !== performerId;
+      if (notify) {
+        await notifyTaskAssignment({
+          task: updated,
+          actorUserId: performerId,
+          assigneeUserId: updated.assignedToId,
+          isReassign: true,
+          actorUser: req?.user,
+        });
+      }
+    }
+
+    if (updateData.status === 'DONE' && existingTask.status !== 'DONE') {
+      await notifyTaskStatusChange({
+        task: updated,
+        actorUserId: performerId,
+        newStatus: 'DONE',
+      });
+    }
 
     return updated;
   },
@@ -393,10 +475,18 @@ export const taskService = {
     await prisma.taskFile.deleteMany({ where: { taskId: id } });
     await prisma.task.delete({ where: { id } });
 
+    if (req?.user?.id) {
+      await activityService.logTaskDeleted({
+        entityId: id,
+        performedById: req.user.id,
+        entityName: task.title,
+      });
+    }
+
     return { message: 'Task deleted successfully' };
   },
 
-  async addNote(id, note) {
+  async addNote(id, note, performedById = null) {
     if (!note || !note.trim()) {
       throw new Error('Note cannot be empty');
     }
@@ -422,6 +512,15 @@ export const taskService = {
     });
 
     console.log(`✅ Note added to task (ID: ${id})\n`);
+
+    if (performedById) {
+      await activityService.logTaskActivity({
+        entityId: id,
+        performedById,
+        action: 'Note added',
+        description: note.trim(),
+      });
+    }
 
     return updated;
   },

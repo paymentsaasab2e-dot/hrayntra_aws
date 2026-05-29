@@ -2,7 +2,7 @@ import jwt from 'jsonwebtoken';
 import { authService } from './auth.service.js';
 import { sessionService } from '../session/session.service.js';
 import { sendResponse, sendError } from '../../utils/response.js';
-import { buildDeviceMeta } from '../../utils/deviceFingerprint.js';
+import { buildDeviceMeta, resolveClientIp } from '../../utils/deviceFingerprint.js';
 import { runWithTenantContext } from '../../config/prisma.js';
 import { verifyToken } from '../../utils/jwt.js';
 
@@ -20,10 +20,9 @@ export const authController = {
     try {
       const { email, loginId, password } = req.body;
       const loginIdentifier = loginId || email;
-      const ipAddress = req.ip || req.connection.remoteAddress;
-      const userAgent = req.get('user-agent') || 'Unknown';
-      
       const deviceMeta = buildDeviceMeta(req, req.body);
+      const ipAddress = resolveClientIp(req, req.body) || deviceMeta.ipAddress || req.ip || 'Unknown';
+      const userAgent = req.get('user-agent') || deviceMeta.userAgent || 'Unknown';
       const result = await authService.login(loginIdentifier, password, ipAddress, userAgent, deviceMeta);
       if (result?.duplicateSession) {
         return sendResponse(res, 200, 'Duplicate session detected', result);
@@ -94,9 +93,11 @@ export const authController = {
 
   async forgotPassword(req, res) {
     try {
-      const { email } = req.body;
-      const result = await authService.forgotPassword(email);
-      sendResponse(res, 200, result.message);
+      const identifier = req.body.loginId || req.body.email;
+      const result = await authService.forgotPassword(identifier);
+      sendResponse(res, 200, result.message, {
+        email: result.email || undefined,
+      });
     } catch (error) {
       sendError(res, 400, error.message, error);
     }
@@ -104,8 +105,9 @@ export const authController = {
 
   async verifyOtp(req, res) {
     try {
-      const { email, otp } = req.body;
-      const result = await authService.verifyOtp(email, otp);
+      const identifier = req.body.loginId || req.body.email;
+      const { otp } = req.body;
+      const result = await authService.verifyOtp(identifier, otp);
       sendResponse(res, 200, 'OTP verified', result);
     } catch (error) {
       sendError(res, 400, error.message, error);
@@ -114,8 +116,9 @@ export const authController = {
 
   async resetPassword(req, res) {
     try {
-      const { email, otp, newPassword } = req.body;
-      const result = await authService.resetPassword(email, otp, newPassword);
+      const identifier = req.body.loginId || req.body.email;
+      const { otp, newPassword } = req.body;
+      const result = await authService.resetPassword(identifier, otp, newPassword);
       sendResponse(res, 200, result.message);
     } catch (error) {
       sendError(res, 400, error.message, error);

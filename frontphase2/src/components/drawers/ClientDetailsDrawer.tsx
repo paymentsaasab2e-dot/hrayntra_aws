@@ -111,6 +111,8 @@ import {
   Bell,
 } from 'lucide-react';
 import type { Client, ClientStage, ClientHealthStatus, ClientContact, ClientJob, JobStatus, ClientPipelineCandidate, PipelineStageName, ClientPlacement, PlacementStatus, ClientInvoice, InvoiceStatus, ClientActivityItem, ActivityFilterType, ClientNote, NoteTag, ClientFile, ClientFileType } from '@/app/client/types';
+import { EntityAuditSummary } from '../table/TableAuditCell';
+import { extractAuditMeta } from '../../utils/auditMeta';
 import { ImageWithFallback } from '../ImageWithFallback';
 import { useFiles } from '../../hooks/useFiles';
 import { ScheduleMeetingForm } from '../ScheduleMeetingForm';
@@ -6453,6 +6455,9 @@ export function ClientDetailsDrawer({
                   };
                   return (
                   <div className="space-y-4">
+                    <EntityAuditSummary
+                      audit={client?.auditMeta ?? extractAuditMeta(client as Record<string, unknown> | undefined)}
+                    />
                     {/* Timeline filters - same soft card layout as Billing */}
                     <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
                       <div className="flex flex-wrap items-center gap-2">

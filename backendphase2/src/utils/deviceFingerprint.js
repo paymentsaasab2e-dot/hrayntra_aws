@@ -26,17 +26,36 @@ export function parseDeviceFromUserAgent(userAgent = '') {
   return { browser, operatingSystem, deviceType };
 }
 
+function isLoopbackIp(ip) {
+  const normalized = formatDisplayIp(ip);
+  return !normalized || normalized === '127.0.0.1';
+}
+
+/**
+ * Best-effort client IP from proxy headers, socket, or browser-reported public IP.
+ * On localhost, prefers `clientPublicIp` from the frontend (ipify) over 127.0.0.1.
+ */
+export function resolveClientIp(req, body = {}) {
+  const bodyIp = formatDisplayIp(body.clientPublicIp || body.ipAddress);
+  const forwarded = formatDisplayIp(
+    String(req.headers['x-forwarded-for'] || '')
+      .split(',')[0]
+      ?.trim()
+  );
+  const direct = formatDisplayIp(
+    req.ip || req.socket?.remoteAddress || req.connection?.remoteAddress
+  );
+
+  if (!isLoopbackIp(forwarded)) return forwarded;
+  if (!isLoopbackIp(direct)) return direct;
+  if (!isLoopbackIp(bodyIp)) return bodyIp;
+  return direct || bodyIp || forwarded || null;
+}
+
 export function buildDeviceMeta(req, body = {}) {
   const userAgent = req.get('user-agent') || body.userAgent || 'Unknown';
   const parsed = parseDeviceFromUserAgent(userAgent);
-  const ipAddress =
-    String(body.ipAddress || '').trim() ||
-    String(req.headers['x-forwarded-for'] || '')
-      .split(',')[0]
-      ?.trim() ||
-    req.ip ||
-    req.connection?.remoteAddress ||
-    '';
+  const ipAddress = resolveClientIp(req, body) || '';
 
   const deviceId =
     String(body.deviceId || '').trim() ||
@@ -61,4 +80,41 @@ export function formatDeviceLabel(session) {
   const location = session?.location ? `\n${session.location}` : '';
   const ip = session?.ipAddress ? `\nIP: ${session.ipAddress}` : '';
   return `${browser} on ${os}${location}${ip}`;
+}
+
+/** Normalize IPv4-mapped IPv6 (::ffff:127.0.0.1 → 127.0.0.1). */
+export function formatDisplayIp(ipAddress) {
+  if (!ipAddress) return null;
+  let ip = String(ipAddress).trim();
+  if (!ip) return null;
+  if (ip.startsWith('::ffff:')) ip = ip.slice(7);
+  if (ip === '::1') return '127.0.0.1';
+  return ip;
+}
+
+/** Short browser label from a stored UA string or pre-parsed browser name. */
+export function formatDisplayBrowser(deviceOrUserAgent) {
+  if (!deviceOrUserAgent) return null;
+  const raw = String(deviceOrUserAgent).trim();
+  if (!raw) return null;
+  if (!/Mozilla|AppleWebKit|Chrome|Safari|Firefox|Edg/i.test(raw) && raw.length <= 32) {
+    return raw;
+  }
+  return parseDeviceFromUserAgent(raw).browser;
+}
+
+/** Activity log line: device IP + browser (no full user-agent). */
+export function formatAuthConnectionDetails(ipAddress, deviceOrUserAgent) {
+  const ip = formatDisplayIp(ipAddress);
+  const browser = formatDisplayBrowser(deviceOrUserAgent);
+  const parts = [];
+  if (ip) parts.push(`IP: ${ip}`);
+  if (browser) parts.push(`Browser: ${browser}`);
+  return parts.length ? parts.join(' · ') : undefined;
+}
+
+/** IP only — for dedicated activity-log columns. */
+export function formatAuthIpAddress(ipAddress) {
+  const ip = formatDisplayIp(ipAddress);
+  return ip ? `IP: ${ip}` : undefined;
 }

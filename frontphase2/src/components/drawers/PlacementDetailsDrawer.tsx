@@ -5,7 +5,6 @@ import { AnimatePresence, motion } from 'motion/react';
 import Link from 'next/link';
 import { Download, Eye, FileText, X } from 'lucide-react';
 import { apiGetPlacement } from '../../lib/api';
-import type { Placement } from '../../types/placement';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import {
   formatCurrency,
@@ -13,22 +12,32 @@ import {
   getEmploymentTypeBadgeStyle,
   getPlacementStatusLabel,
   getStatusBadgeStyle,
+  PLACEMENT_STATUS_OPTIONS,
 } from '../../utils/placements';
+import type { Placement, PlacementStatus } from '../../types/placement';
+import { EntityAuditSummary } from '../table/TableAuditCell';
 
 interface PlacementDetailsDrawerProps {
   isOpen: boolean;
   placementId: string | null;
   onClose: () => void;
+  canUpdate?: boolean;
+  onStatusChange?: (placement: Placement, status: PlacementStatus) => Promise<void>;
+  onScheduleJoining?: (placement: Placement) => void;
 }
 
 export function PlacementDetailsDrawer({
   isOpen,
   placementId,
   onClose,
+  canUpdate = false,
+  onStatusChange,
+  onScheduleJoining,
 }: PlacementDetailsDrawerProps) {
   const [placement, setPlacement] = useState<Placement | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [statusUpdating, setStatusUpdating] = useState(false);
 
   const uploadsBase = useMemo(
     () =>
@@ -75,6 +84,28 @@ export function PlacementDetailsDrawer({
       cancelled = true;
     };
   }, [isOpen, placementId]);
+
+  const reloadPlacement = async () => {
+    if (!placementId) return;
+    const response = await apiGetPlacement(placementId);
+    setPlacement(response.data);
+  };
+
+  const handleStatusSelect = async (nextStatus: PlacementStatus) => {
+    if (!placement || !onStatusChange) return;
+    if (nextStatus === placement.status) return;
+    if (nextStatus === 'JOINING_SCHEDULED') {
+      onScheduleJoining?.(placement);
+      return;
+    }
+    try {
+      setStatusUpdating(true);
+      await onStatusChange(placement, nextStatus);
+      await reloadPlacement();
+    } finally {
+      setStatusUpdating(false);
+    }
+  };
 
   const statusStyle = placement ? getStatusBadgeStyle(placement.status) : null;
   const typeStyle = placement ? getEmploymentTypeBadgeStyle(placement.employmentType) : null;
@@ -174,6 +205,33 @@ export function PlacementDetailsDrawer({
                         </p>
                       </div>
                     </div>
+
+                    {canUpdate &&
+                    onScheduleJoining &&
+                    ['OFFER_ACCEPTED', 'JOINING_SCHEDULED'].includes(placement.status) ? (
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => onScheduleJoining(placement)}
+                          className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
+                        >
+                          {placement.status === 'JOINING_SCHEDULED' ? 'Edit joining schedule' : 'Schedule joining'}
+                        </button>
+                      </div>
+                    ) : null}
+
+                    {placement.reportingToName ? (
+                      <div className="mt-4 rounded-xl border border-amber-100 bg-amber-50/80 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">Reporting contact</p>
+                        <p className="mt-1 font-medium text-[#111827]">{placement.reportingToName}</p>
+                        {placement.reportingToTitle ? (
+                          <p className="text-sm text-[#6B7280]">{placement.reportingToTitle}</p>
+                        ) : null}
+                        {placement.reportingToEmail ? (
+                          <p className="text-sm text-[#2563EB]">{placement.reportingToEmail}</p>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="grid gap-6 xl:grid-cols-[1.4fr_1fr]">
@@ -207,6 +265,7 @@ export function PlacementDetailsDrawer({
                       </section>
 
                       <section className="rounded-2xl border border-[#E5E7EB] bg-white p-6 shadow-sm">
+                        <EntityAuditSummary audit={placement.auditMeta} className="mb-4" />
                         <h4 className="text-lg font-semibold text-[#111827]">Activity Log</h4>
                         <div className="mt-4 space-y-4">
                           {(placement.activityLog || []).length ? (

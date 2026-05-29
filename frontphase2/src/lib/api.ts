@@ -13,6 +13,7 @@ import type {
   PlacementFilters,
   PlacementStats,
   RequestReplacementPayload,
+  ScheduleJoiningPayload,
 } from '../types/placement';
 import type { PostServiceKycFormValues } from './clientKycForm';
 
@@ -737,6 +738,7 @@ export interface InvoiceActivityResponse {
     fee: number;
   } | null;
   events: InvoiceActivityEvent[];
+  auditMeta?: import('../types/audit').AuditMeta | null;
 }
 
 export async function apiGetInvoiceActivity(invoiceId: string) {
@@ -985,7 +987,11 @@ interface AuthPayload {
   };
 }
 
-export async function apiLogin(email: string, password: string, devicePayload?: { deviceId?: string; userAgent?: string }) {
+export async function apiLogin(
+  email: string,
+  password: string,
+  devicePayload?: { deviceId?: string; userAgent?: string; clientPublicIp?: string; ipAddress?: string }
+) {
   // Invite links include ?tenantDbName= — apply right before login so first attempt works.
   if (typeof window !== 'undefined') {
     const fromUrl = new URLSearchParams(window.location.search).get('tenantDbName');
@@ -1004,6 +1010,8 @@ export async function apiLogin(email: string, password: string, devicePayload?: 
         password,
         deviceId: devicePayload?.deviceId,
         userAgent: devicePayload?.userAgent,
+        clientPublicIp: devicePayload?.clientPublicIp,
+        ipAddress: devicePayload?.ipAddress,
         tenantDbName: tenantDbNameHint || undefined,
       },
       includeTenantHeader: !!tenantDbNameHint,
@@ -1057,6 +1065,59 @@ export async function apiLogin(email: string, password: string, devicePayload?: 
   }
 
   return res;
+}
+
+function applyTenantDbNameFromUrl() {
+  if (typeof window === 'undefined') return;
+  const fromUrl = new URLSearchParams(window.location.search).get('tenantDbName');
+  if (fromUrl) {
+    syncTenantDbName(fromUrl);
+  }
+}
+
+export async function apiForgotPassword(identifier: string) {
+  applyTenantDbNameFromUrl();
+  const trimmed = identifier.trim();
+  const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+  const tenantDbNameHint = getTenantDbName();
+  const tenantPayload = tenantDbNameHint ? { tenantDbName: tenantDbNameHint } : {};
+  return apiFetch<{ email?: string }>('/auth/forgot-password', {
+    method: 'POST',
+    body: isEmail
+      ? { email: trimmed.toLowerCase(), ...tenantPayload }
+      : { loginId: trimmed, ...tenantPayload },
+    includeTenantHeader: !!tenantDbNameHint,
+  });
+}
+
+export async function apiVerifyOtp(identifier: string, otp: string) {
+  applyTenantDbNameFromUrl();
+  const trimmed = identifier.trim();
+  const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+  const tenantDbNameHint = getTenantDbName();
+  const tenantPayload = tenantDbNameHint ? { tenantDbName: tenantDbNameHint } : {};
+  return apiFetch<{ verified: boolean; email?: string }>('/auth/verify-otp', {
+    method: 'POST',
+    body: isEmail
+      ? { email: trimmed.toLowerCase(), otp: otp.trim(), ...tenantPayload }
+      : { loginId: trimmed, otp: otp.trim(), ...tenantPayload },
+    includeTenantHeader: !!tenantDbNameHint,
+  });
+}
+
+export async function apiResetPasswordWithOtp(identifier: string, otp: string, newPassword: string) {
+  applyTenantDbNameFromUrl();
+  const trimmed = identifier.trim();
+  const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+  const tenantDbNameHint = getTenantDbName();
+  const tenantPayload = tenantDbNameHint ? { tenantDbName: tenantDbNameHint } : {};
+  return apiFetch('/auth/reset-password', {
+    method: 'POST',
+    body: isEmail
+      ? { email: trimmed.toLowerCase(), otp: otp.trim(), newPassword, ...tenantPayload }
+      : { loginId: trimmed, otp: otp.trim(), newPassword, ...tenantPayload },
+    includeTenantHeader: !!tenantDbNameHint,
+  });
 }
 
 export async function apiRegister(name: string, email: string, password: string, role?: string) {
@@ -2480,6 +2541,7 @@ export const apiScheduleCandidateInterview = async (
   candidateId: string,
   payload: {
     jobId?: string | null;
+    clientId?: string | null;
     type: string;
     round: number;
     date: string;
@@ -3096,6 +3158,14 @@ export const apiCreatePlacementInvoice = async (
 
 export const apiRequestPlacementReplacement = async (id: string, payload: RequestReplacementPayload) => {
   return apiFetch<Placement>(`/placements/${id}/request-replacement`, {
+    method: 'PATCH',
+    body: payload,
+    auth: true,
+  });
+};
+
+export const apiSchedulePlacementJoining = async (id: string, payload: ScheduleJoiningPayload) => {
+  return apiFetch<Placement>(`/placements/${id}/schedule-joining`, {
     method: 'PATCH',
     body: payload,
     auth: true,
@@ -4149,6 +4219,7 @@ export interface BackendContact {
   activities?: BackendContactActivity[];
   communications?: BackendContactCommunication[];
   associatedJobs?: Array<{ id: string; title: string; status: string }>;
+  auditMeta?: import('../types/audit').AuditMeta | null;
 }
 
 export interface BackendContactNote {
@@ -4544,16 +4615,38 @@ export interface BackendGlobalActivity {
   createdAt: string;
   performedBy: {
     id: string;
-    name: string;
+    name?: string;
+    firstName?: string;
+    lastName?: string;
     email: string;
     avatar?: string | null;
+    systemRole?: { roleName?: string };
   };
 }
 
-export const apiGetActivityFeed = async (params?: { page?: number; limit?: number }) => {
+export async function apiGetTaskActivities(taskId: string) {
+  return apiFetch<BackendActivity[]>(`/tasks/${encodeURIComponent(taskId)}/activities`, { auth: true });
+}
+
+export const apiGetActivityFeed = async (params?: {
+  page?: number;
+  limit?: number;
+  entityType?: string;
+  category?: string;
+  search?: string;
+  mine?: boolean;
+  from?: string;
+  to?: string;
+}) => {
   const queryParams = new URLSearchParams();
   if (params?.page) queryParams.append('page', String(params.page));
   if (params?.limit) queryParams.append('limit', String(params.limit));
+  if (params?.entityType) queryParams.append('entityType', params.entityType);
+  if (params?.category) queryParams.append('category', params.category);
+  if (params?.search) queryParams.append('search', params.search);
+  if (params?.mine) queryParams.append('mine', 'true');
+  if (params?.from) queryParams.append('from', params.from);
+  if (params?.to) queryParams.append('to', params.to);
   const qs = queryParams.toString();
   return apiFetch<{ data: BackendGlobalActivity[]; pagination: any }>(`/activities${qs ? `?${qs}` : ''}`, {
     auth: true,

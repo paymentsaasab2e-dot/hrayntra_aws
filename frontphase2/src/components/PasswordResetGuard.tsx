@@ -9,7 +9,7 @@ export function PasswordResetGuard({ children }: { children: React.ReactNode }) 
 
   useEffect(() => {
     // Skip check for login and reset-password pages
-    if (pathname === '/login' || pathname === '/reset-password') {
+    if (pathname === '/login' || pathname === '/forgot-password' || pathname === '/reset-password') {
       return;
     }
 

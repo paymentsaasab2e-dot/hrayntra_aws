@@ -20,7 +20,7 @@ export default function TeamLayout({
           avatarUrl: avatarUrl
         }}
       >
-        <PermissionRouteGuard anyPermissions={['add_team_member', 'assign_roles', 'edit_team_member', 'generate_credentials', 'manage_commission', 'manage_targets']}>
+        <PermissionRouteGuard anyPermissions={['view_team', 'add_team_member', 'assign_roles', 'manage_roles', 'edit_team_member', 'generate_credentials', 'manage_commission', 'manage_targets', 'view_team_activity']}>
           {children}
         </PermissionRouteGuard>
       </Sidenav>

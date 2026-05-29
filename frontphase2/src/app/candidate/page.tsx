@@ -52,6 +52,7 @@ import {
   Coins,
 } from 'lucide-react';
 import { downloadCsv } from '../../utils/csv';
+import { extractAuditMeta } from '../../utils/auditMeta';
 import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
 import { buildCandidatesCsvColumns, CANDIDATES_EXPORT_COLUMNS } from '../../lib/export/candidatesExportColumns';
 import { fetchAllPaginated, totalPagesFromPagination } from '../../lib/export/fetchAllPaginated';
@@ -259,6 +260,7 @@ function mapBackendCandidate(c: BackendCandidate): Candidate {
     isPhase1Candidate: Boolean(c.isPhase1Candidate),
     isNewCandidate: Boolean(c.isNewCandidate),
     isJobAppliedCandidate: candidateShowsAppliedTag(c),
+    auditMeta: extractAuditMeta(c as Record<string, unknown>),
   };
 }
 
@@ -2053,6 +2055,7 @@ function CandidatesPageContent() {
         onScheduleInterview={canUpdateCandidate ? async (interviewData) => {
           const payload = {
             jobId: interviewData.jobId,
+            clientId: interviewData.clientId || undefined,
             type: interviewData.type,
             round: interviewData.round,
             date: interviewData.date,

@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { createRole } from '../../lib/api/teamApi';
 import type { Permission } from '../../types/team';
 import { buildFallbackPermissionsMap, mergePermissionMaps } from './permissionCatalog';
+import { PermissionPicker } from './PermissionPicker';
 
 interface AddRoleDrawerProps {
   isOpen: boolean;
@@ -37,27 +38,6 @@ const colorClassMap: Record<string, string> = {
   orange: 'bg-orange-500',
   red: 'bg-red-500',
   gray: 'bg-gray-500',
-};
-
-const moduleOrder = [
-  'Leads',
-  'Clients',
-  'Jobs',
-  'Candidates',
-  'Interviews',
-  'Placements',
-  'Reports / Analytics',
-  'Billing',
-  'Team',
-  'System',
-];
-
-// Format permission name to human-readable
-const formatPermissionName = (name: string): string => {
-  return name
-    .split('_')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
 };
 
 export const AddRoleDrawer: React.FC<AddRoleDrawerProps> = ({ isOpen, permissions, onClose, onSuccess }) => {
@@ -92,16 +72,6 @@ export const AddRoleDrawer: React.FC<AddRoleDrawerProps> = ({ isOpen, permission
 
   // Calculate selected permission count
   const selectedCount = formData.selectedPermissions.size;
-
-  // Get modules in sorted order
-  const modules = Object.keys(effectivePermissions).sort((a, b) => {
-    const aIndex = moduleOrder.indexOf(a);
-    const bIndex = moduleOrder.indexOf(b);
-    if (aIndex === -1 && bIndex === -1) return a.localeCompare(b);
-    if (aIndex === -1) return 1;
-    if (bIndex === -1) return -1;
-    return aIndex - bIndex;
-  });
 
   const handleChange = (field: string, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -305,54 +275,12 @@ export const AddRoleDrawer: React.FC<AddRoleDrawerProps> = ({ isOpen, permission
                 </div>
                 {errors.permissions && <p className="text-xs text-red-600">{errors.permissions}</p>}
 
-                <div className="space-y-4 max-h-[400px] overflow-y-auto">
-                  {modules.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-slate-200 bg-white px-4 py-6 text-center">
-                      <p className="text-sm font-semibold text-slate-800">Loading permissions...</p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        If the API response is delayed, the default permission groups will appear here automatically.
-                      </p>
-                    </div>
-                  ) : null}
-                  {modules.map((module) => {
-                    const modulePermissions = effectivePermissions[module] || [];
-                    const allSelected = modulePermissions.length > 0 && modulePermissions.every((p) => formData.selectedPermissions.has(p.id));
-                    const someSelected = modulePermissions.some((p) => formData.selectedPermissions.has(p.id));
-
-                    return (
-                      <div key={module} className="border border-slate-200 rounded-lg p-4 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <h4 className="text-sm font-semibold text-slate-900">{module}</h4>
-                          <button
-                            type="button"
-                            onClick={() => handleModuleSelectAll(module)}
-                            className="text-xs font-medium text-blue-600 hover:text-blue-700"
-                          >
-                            {allSelected ? 'Deselect all' : 'Select all'}
-                          </button>
-                        </div>
-                        <div className="grid grid-cols-1 gap-2">
-                          {modulePermissions.map((permission) => (
-                            <label
-                              key={permission.id}
-                              className="flex items-center gap-2 cursor-pointer p-2 hover:bg-slate-50 rounded-lg transition-colors"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={formData.selectedPermissions.has(permission.id)}
-                                onChange={() => handlePermissionToggle(permission.id)}
-                                className="size-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                              />
-                              <span className="text-sm text-slate-700 flex-1">
-                                {formatPermissionName(permission.permissionName)}
-                              </span>
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                <PermissionPicker
+                  permissionsByModule={effectivePermissions}
+                  selectedIds={formData.selectedPermissions}
+                  onToggle={handlePermissionToggle}
+                  onModuleSelectAll={handleModuleSelectAll}
+                />
               </div>
             </form>
 

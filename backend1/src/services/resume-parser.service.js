@@ -2,8 +2,8 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Anthropic = require('@anthropic-ai/sdk');
 const OpenAI = require('openai');
 const { Mistral } = require('@mistralai/mistralai');
-const pdfParse = require('pdf-parse');
 const path = require('path');
+const { extractPdfText } = require('../utils/pdfTextExtract.util');
 
 /** Treat placeholder .env values as unset so fallbacks can run. */
 function isConfiguredApiKey(value) {
@@ -62,8 +62,11 @@ async function parseDocument(buffer, extension) {
     let rawText = '';
 
     if (extension === '.pdf') {
-      const data = await pdfParse(buffer);
-      rawText = data.text;
+      const { text, engine } = await extractPdfText(buffer);
+      rawText = text;
+      if (engine !== 'pdf-parse') {
+        console.log(`  ℹ️ PDF extracted via ${engine} (fallback)`);
+      }
     } else if (extension === '.docx' || extension === '.doc') {
       const mammoth = require('mammoth');
       const result = await mammoth.extractRawText({ buffer });

@@ -23,7 +23,7 @@ function isEnabled() {
 }
 
 function inactivityMs() {
-  return Number(env.SESSION_INACTIVITY_MS || 5 * 60 * 1000);
+  return Number(env.SESSION_INACTIVITY_MS || 30 * 60 * 1000);
 }
 
 function transferTtlMs() {
@@ -31,7 +31,7 @@ function transferTtlMs() {
 }
 
 function warningBeforeMs() {
-  return Number(env.SESSION_INACTIVITY_WARNING_MS || 60 * 1000);
+  return Number(env.SESSION_INACTIVITY_WARNING_MS || 2 * 60 * 1000);
 }
 
 function redisSessionKey(userId) {
@@ -60,6 +60,36 @@ async function audit(userId, action, deviceMeta = {}, metadata = null) {
   } catch (err) {
     console.warn('[session] audit log failed', err?.message);
   }
+}
+
+/** Same browser/device re-login after timeout or local logout — do not block with duplicate modal. */
+function isSameClientRelogin(activeRow, deviceMeta = {}) {
+  if (!activeRow || !deviceMeta) return false;
+
+  const incomingDeviceId = String(deviceMeta.deviceId || '').trim();
+  const activeDeviceId = String(activeRow.deviceId || '').trim();
+  if (incomingDeviceId && activeDeviceId && incomingDeviceId === activeDeviceId) {
+    return true;
+  }
+
+  const incomingIp = String(deviceMeta.ipAddress || '').trim();
+  const activeIp = String(activeRow.ipAddress || '').trim();
+  const incomingBrowser = String(deviceMeta.browserInfo || '').trim().toLowerCase();
+  const activeBrowser = String(activeRow.browserInfo || '').trim().toLowerCase();
+  const incomingOs = String(deviceMeta.operatingSystem || '').trim().toLowerCase();
+  const activeOs = String(activeRow.operatingSystem || '').trim().toLowerCase();
+
+  return Boolean(
+    incomingIp &&
+      activeIp &&
+      incomingIp === activeIp &&
+      incomingBrowser &&
+      activeBrowser &&
+      incomingBrowser === activeBrowser &&
+      incomingOs &&
+      activeOs &&
+      incomingOs === activeOs
+  );
 }
 
 function publicSessionView(session) {
@@ -272,11 +302,23 @@ export async function gateLoginOrIssueTokens({
 
   const active = await findActiveSessionForUser(userId, identityPayload);
   if (active) {
-    await audit(userId, 'DUPLICATE_LOGIN_ATTEMPT', deviceMeta, { activeSessionId: active.sessionId });
-    return {
-      duplicateSession: true,
-      activeSession: publicSessionView(active),
-    };
+    if (isSameClientRelogin(active, deviceMeta)) {
+      await expireSession(active, 'REPLACED');
+      await prisma.user.update({
+        where: { id: userId },
+        data: { refreshToken: null },
+      });
+      await audit(userId, 'SAME_CLIENT_RELOGIN', deviceMeta, {
+        releasedSessionId: active.sessionId,
+        reason: 'auto_release_after_local_logout_or_timeout',
+      });
+    } else {
+      await audit(userId, 'DUPLICATE_LOGIN_ATTEMPT', deviceMeta, { activeSessionId: active.sessionId });
+      return {
+        duplicateSession: true,
+        activeSession: publicSessionView(active),
+      };
+    }
   }
 
   return createSessionAndTokens({ userId, tokenPayload, refreshPayload, deviceMeta });
@@ -345,6 +387,17 @@ export async function heartbeat(userId, sessionId) {
   if (!row) {
     return { ok: false, code: 'SESSION_EXPIRED' };
   }
+
+  const idleMs = Date.now() - new Date(row.lastActivity).getTime();
+  if (!Number.isFinite(idleMs) || idleMs > inactivityMs()) {
+    await expireSession(row, 'INACTIVITY_TIMEOUT');
+    await prisma.user.update({
+      where: { id: userId },
+      data: { refreshToken: null },
+    });
+    return { ok: false, code: 'SESSION_EXPIRED' };
+  }
+
   const now = new Date();
   await prisma.activeSession.update({
     where: { id: row.id },
@@ -353,8 +406,7 @@ export async function heartbeat(userId, sessionId) {
   await cacheActiveSession(userId, sessionId);
   await deleteCache(closeIntentKey(userId, sessionId));
 
-  const inactiveMs = Date.now() - new Date(row.lastActivity).getTime();
-  const warn = inactiveMs >= inactivityMs() - warningBeforeMs();
+  const warn = idleMs >= inactivityMs() - warningBeforeMs();
 
   return {
     ok: true,

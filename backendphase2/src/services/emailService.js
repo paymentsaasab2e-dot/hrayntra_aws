@@ -5,6 +5,10 @@ import { oauthTokenService } from '../modules/oauth/oauth-token.service.js';
 import { isNotificationTriggerEnabled } from '../modules/setting/notification-trigger-settings.js';
 import { interviewScheduledTemplate } from '../utils/emailTemplates.js';
 import { buildPlacementInvoiceEmailHtml } from '../utils/invoiceEmailHtml.js';
+import {
+  joiningScheduledCandidateTemplate,
+  joiningScheduledReportingContactTemplate,
+} from '../emails/templates/placement.template.js';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 // Use the Resend configured from address; fallback to a generic placeholder.
@@ -900,6 +904,116 @@ export async function sendPlacementInvoiceEmail(payload) {
   } catch (error) {
     console.error('Error sending placement invoice email:', error);
     return { success: false, error: error.message || 'Failed to send invoice email' };
+  }
+}
+
+export async function sendJoiningScheduledCandidateEmail(payload) {
+  try {
+    const triggerEnabled = await isNotificationTriggerEnabled('placement.joining_scheduled_candidate', {
+      userId: payload?.senderUserId || null,
+      aliases: ['joining scheduled candidate', 'placement joining candidate'],
+    });
+    if (!triggerEnabled) return { success: true, skipped: true };
+
+    const {
+      toEmail,
+      candidateName,
+      jobTitle,
+      companyName,
+      joiningDateLabel,
+      reportingToName,
+      reportingToTitle,
+      reportingToEmail,
+      joiningNotes,
+      recruiterName,
+      recruiterEmail,
+      senderUserId,
+    } = payload;
+
+    if (!toEmail) return { success: true, skipped: true, reason: 'no_email' };
+
+    const html = joiningScheduledCandidateTemplate({
+      candidateName,
+      jobTitle,
+      companyName,
+      joiningDateLabel,
+      reportingToName,
+      reportingToTitle,
+      reportingToEmail,
+      joiningNotes,
+      recruiterName,
+      recruiterEmail,
+    });
+
+    await sendEmail({
+      senderUserId,
+      toEmail,
+      subject: `Joining scheduled${jobTitle ? `: ${jobTitle}` : ''}${companyName ? ` at ${companyName}` : ''}`,
+      html,
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error sending joining scheduled candidate email:', error);
+    return { success: false, error: error.message || 'Failed to send email' };
+  }
+}
+
+export async function sendJoiningScheduledReportingContactEmail(payload) {
+  try {
+    const triggerEnabled = await isNotificationTriggerEnabled('placement.joining_scheduled_reporting', {
+      userId: payload?.senderUserId || null,
+      aliases: ['joining scheduled reporting', 'placement joining reporting contact'],
+    });
+    if (!triggerEnabled) return { success: true, skipped: true };
+
+    const {
+      toEmail,
+      recipientName,
+      candidateName,
+      candidateEmail,
+      candidatePhone,
+      candidateLocation,
+      currentTitle,
+      currentCompany,
+      jobTitle,
+      companyName,
+      joiningDateLabel,
+      joiningNotes,
+      recruiterName,
+      recruiterEmail,
+      senderUserId,
+    } = payload;
+
+    if (!toEmail) return { success: true, skipped: true, reason: 'no_email' };
+
+    const html = joiningScheduledReportingContactTemplate({
+      recipientName,
+      candidateName,
+      candidateEmail,
+      candidatePhone,
+      candidateLocation,
+      currentTitle,
+      currentCompany,
+      jobTitle,
+      companyName,
+      joiningDateLabel,
+      joiningNotes,
+      recruiterName,
+      recruiterEmail,
+    });
+
+    await sendEmail({
+      senderUserId,
+      toEmail,
+      subject: `Joining scheduled — ${candidateName || 'Candidate'}${jobTitle ? ` (${jobTitle})` : ''}`,
+      html,
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error sending joining scheduled reporting contact email:', error);
+    return { success: false, error: error.message || 'Failed to send email' };
   }
 }
 

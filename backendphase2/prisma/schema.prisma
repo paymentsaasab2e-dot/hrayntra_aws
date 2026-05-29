@@ -1264,7 +1264,9 @@ enum PlacementStatus {
   ACTIVE
   COMPLETED
   CANCELLED
+  OFFER_SENT
   OFFER_ACCEPTED
+  OFFER_REJECTED
   JOINING_SCHEDULED
   JOINED
   NO_SHOW
@@ -1328,6 +1330,9 @@ model Placement {
   billingStatus        String? // Pending Invoice, Invoiced, Paid
   warrantyDaysLeft     Int? // Guarantee period days remaining
   employmentType       EmploymentType?
+  reportingToName      String?
+  reportingToTitle     String?
+  reportingToEmail       String?
   notes                String?
   deletedAt            DateTime?
   createdAt            DateTime        @default(now())
@@ -1556,6 +1561,8 @@ enum ActivityEntityType {
   PLACEMENT
   LEAD
   TASK
+  CONTACT
+  USER
 }
 
 model Activity {

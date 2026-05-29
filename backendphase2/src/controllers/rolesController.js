@@ -3,7 +3,12 @@ import { isSuperAdminUser } from '../utils/superAdminScope.js';
 import { getCache, setCache, deleteCacheByPattern } from '../cache/redis.js';
 import logger from '../utils/logger.js';
 import { DEFAULT_PERMISSIONS } from '../modules/role/default-permissions.js';
-import { ensureSuperAdminHasAllPermissions, syncDefaultPermissions } from '../modules/role/permission-sync.service.js';
+import {
+  ensureSuperAdminHasAllPermissions,
+  syncDefaultPermissions,
+  syncDefaultRolePresets,
+} from '../modules/role/permission-sync.service.js';
+import activityService from '../services/activityService.js';
 
 function getRolesCacheKey(page = 1, limit = 20) {
   const tenant = getActiveTenantDbName() || 'default';
@@ -28,6 +33,7 @@ export async function getAllRoles(req, res) {
   try {
     await syncDefaultPermissions();
     await ensureSuperAdminHasAllPermissions();
+    await syncDefaultRolePresets();
 
     const page = Math.max(Number.parseInt(String(req.query.page || '1'), 10) || 1, 1);
     const limit = Math.min(Math.max(Number.parseInt(String(req.query.limit || '20'), 10) || 20, 1), 100);
@@ -317,6 +323,17 @@ export async function createRole(req, res) {
     lines.forEach((name) => console.log(`  - ${name}`));
     console.log('==============================================\n');
 
+    if (req.user?.id) {
+      await activityService.logTeamActivity({
+        entityId: createdRole.id,
+        performedById: req.user.id,
+        action: 'Role created',
+        description: `Role "${createdRole.roleName}" was created with ${lines.length} permission(s).`,
+        relatedLabel: createdRole.roleName,
+        metadata: { roleId: createdRole.id, permissions: lines },
+      });
+    }
+
     return res.status(201).json({
       success: true,
       data: createdRole,
@@ -341,6 +358,20 @@ export async function updateRole(req, res) {
 
     const { id } = req.params;
     const { roleName, description, color, permissionIds } = req.body;
+
+    const existingRole = await prisma.systemRole.findUnique({
+      where: { id },
+      select: { id: true, roleName: true },
+    });
+    if (!existingRole) {
+      return res.status(404).json({ success: false, message: 'Role not found' });
+    }
+    if (existingRole.roleName === 'Super Admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'The Super Admin role cannot be modified.',
+      });
+    }
 
     // Check if roleName is being changed and if it's unique
     if (roleName) {
@@ -380,13 +411,33 @@ export async function updateRole(req, res) {
 
       // Create new relationships if permissionIds array is not empty
       if (Array.isArray(permissionIds) && permissionIds.length > 0) {
-        const uniquePermissionIds = [...new Set(permissionIds.map((id) => String(id).trim()).filter(Boolean))];
-        await prisma.rolePermission.createMany({
-          data: uniquePermissionIds.map((permissionId) => ({
-            roleId: id,
-            permissionId,
-          })),
+        const rawPermissionValues = [...new Set(permissionIds.map((v) => String(v).trim()).filter(Boolean))];
+        const permissionRecords = await prisma.permission.findMany({
+          where: {
+            OR: [
+              { id: { in: rawPermissionValues } },
+              { permissionName: { in: rawPermissionValues } },
+            ],
+          },
+          select: { id: true, permissionName: true },
         });
+        const permissionById = new Map(permissionRecords.map((p) => [p.id, p.id]));
+        const permissionByName = new Map(permissionRecords.map((p) => [p.permissionName, p.id]));
+        const uniquePermissionIds = [
+          ...new Set(
+            rawPermissionValues
+              .map((value) => permissionById.get(value) || permissionByName.get(value))
+              .filter(Boolean),
+          ),
+        ];
+        if (uniquePermissionIds.length) {
+          await prisma.rolePermission.createMany({
+            data: uniquePermissionIds.map((permissionId) => ({
+              roleId: id,
+              permissionId,
+            })),
+          });
+        }
       }
     }
 
@@ -426,6 +477,20 @@ export async function updateRole(req, res) {
     console.log('Permissions assigned:');
     permLines.forEach((p) => console.log(`  - ${p.name}${p.module ? ` (${p.module})` : ''}`));
     console.log('========================================\n');
+
+    if (req.user?.id) {
+      await activityService.logTeamActivity({
+        entityId: id,
+        performedById: req.user.id,
+        action: 'Role updated',
+        description: `Role "${updatedRole.roleName}" was updated.`,
+        relatedLabel: updatedRole.roleName,
+        metadata: {
+          roleId: id,
+          permissions: permLines.map((p) => p.name),
+        },
+      });
+    }
 
     return res.status(200).json({
       success: true,
@@ -490,6 +555,17 @@ export async function deleteRole(req, res) {
       where: { roleId: id },
     });
 
+    if (req.user?.id) {
+      await activityService.logTeamActivity({
+        entityId: id,
+        performedById: req.user.id,
+        action: 'Role deleted',
+        description: `Role "${role.roleName}" was deleted.`,
+        relatedLabel: role.roleName,
+        metadata: { roleId: id },
+      });
+    }
+
     // Delete the role
     await prisma.systemRole.delete({
       where: { id },
@@ -526,6 +602,7 @@ export async function getAllPermissions(req, res) {
   try {
     await syncDefaultPermissions();
     await ensureSuperAdminHasAllPermissions();
+    await syncDefaultRolePresets();
 
     const permissions = await prisma.permission.findMany({
       select: {
@@ -574,6 +651,11 @@ export async function getAllPermissions(req, res) {
     return res.status(200).json({
       success: true,
       data: grouped,
+      meta: {
+        total: permissions.length,
+        catalogTotal: DEFAULT_PERMISSIONS.length,
+        modules: Object.keys(grouped).length,
+      },
     });
   } catch (error) {
     logger.error({ route: req.originalUrl || req.url, message: error?.message || 'Failed to fetch permissions' });

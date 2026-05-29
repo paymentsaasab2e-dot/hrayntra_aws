@@ -41,6 +41,7 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { SUPPORTED_CURRENCIES, formatCurrencyAmount } from '../../utils/currency';
 import { formatDateTimeDMY } from '../../utils/dateDisplay';
 import { Skeleton } from '../ui/Skeleton';
+import { EntityAuditSummary } from '../table/TableAuditCell';
 
 type Tone = {
   bg: string;
@@ -365,6 +366,8 @@ export default function InvoiceActivityDrawer({
                   consistent.
                 </p>
               </section>
+
+              <EntityAuditSummary audit={data.auditMeta} className="mb-5" />
 
               <section>
                 <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">Timeline</p>

@@ -14,6 +14,8 @@ import {
   applyAgreementTermsUpdateFields,
   buildAgreementTermsCreateFields,
 } from '../../utils/agreementTermsFields.js';
+import { prepareListWithAuditMeta, attachAuditMetaToEntity } from '../../utils/listAuditMeta.js';
+import { ENTITY_TYPES } from '../../services/activityService.js';
 
 function isValidObjectId(value) {
   return typeof value === 'string' && /^[a-fA-F0-9]{24}$/.test(value.trim());
@@ -527,7 +529,10 @@ export const leadService = {
     ]);
 
     await attachAssignees(leads);
-    return formatPaginationResponse(leads, page, limit, total);
+    const withAudit = await prepareListWithAuditMeta(leads, ENTITY_TYPES.LEAD, {
+      resolveLeadCreators: true,
+    });
+    return formatPaginationResponse(withAudit, page, limit, total);
   },
 
   async getById(id, req = null) {
@@ -552,7 +557,7 @@ export const leadService = {
     });
     if (!lead) return null;
     await attachAssignees(lead);
-    return lead;
+    return attachAuditMetaToEntity(lead, ENTITY_TYPES.LEAD, { resolveLeadCreators: true });
   },
 
   async create(data) {
@@ -1354,7 +1359,10 @@ export const leadService = {
       prisma.lead.count({ where }),
     ]);
     await attachAssignees(leads);
-    return formatPaginationResponse(leads, page, limit, total);
+    const withAudit = await prepareListWithAuditMeta(leads, ENTITY_TYPES.LEAD, {
+      resolveLeadCreators: true,
+    });
+    return formatPaginationResponse(withAudit, page, limit, total);
   },
 
   /** Recycle Bin — restore a soft-deleted lead. */

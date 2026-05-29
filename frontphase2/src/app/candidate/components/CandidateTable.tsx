@@ -21,6 +21,8 @@ import {
 } from '../../../utils/candidateStage';
 import { WhatsAppIcon } from '../../../components/icons/WhatsAppIcon';
 import { displayMatchBand, scoreBadgeClass } from '../../../components/matches/types';
+import type { AuditMeta } from '../../../types/audit';
+import { TableAuditColumnHeader, TableAuditCell } from '../../../components/table/TableAuditCell';
 
 export type { CandidateTableColumnFilters } from './CandidateTableFilters';
 export { EMPTY_CANDIDATE_TABLE_COLUMN_FILTERS } from './CandidateTableFilters';
@@ -37,6 +39,7 @@ export interface Candidate {
   stage: string;
   owner: string;
   lastActivity: string;
+  auditMeta?: AuditMeta;
   hotlist: boolean;
   phone: string;
   email: string;
@@ -132,6 +135,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
               <th className="px-3 py-2 sm:px-4">Assigned job</th>
               <th className="px-3 py-2 sm:px-4">Stage</th>
               <th className="px-3 py-2 sm:px-4">Owner</th>
+              <TableAuditColumnHeader />
               <th className="px-3 py-2 text-right sm:px-4">Actions</th>
             </tr>
           </thead>
@@ -173,7 +177,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                         />
                       </div>
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <button
                         type="button"
                         onClick={() => onViewProfile?.(candidate)}
@@ -181,6 +185,18 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                       >
                         {candidate.name}
                       </button>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                        {candidate.isJobAppliedCandidate ? (
+                          <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-amber-700">
+                            Applied
+                          </span>
+                        ) : null}
+                        {candidate.isPhase1Candidate ? (
+                          <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-violet-700">
+                            Phase 1
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
                 </td>
@@ -244,6 +260,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                     <span className="text-sm text-slate-600 truncate max-w-[80px]">{candidate.owner}</span>
                   </div>
                 </td>
+                <TableAuditCell audit={candidate.auditMeta} />
                 <td className="px-3 py-2.5 text-right sm:px-4 sm:py-3">
                   {/* Colored action icons — matches the design used on the
                       Leads / Clients tabs so each verb has its own hue:

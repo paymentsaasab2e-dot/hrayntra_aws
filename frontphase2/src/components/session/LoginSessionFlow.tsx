@@ -9,6 +9,7 @@ import {
   apiSessionTransferStatus,
   buildLoginDevicePayload,
   buildLoginIdentifierFields,
+  type LoginDevicePayload,
   finalizeAuthAfterTokens,
   type ActiveSessionView,
 } from '@/lib/sessionAuth';
@@ -34,21 +35,27 @@ export function LoginSessionFlow({ identifier, password, activeSession, onCancel
   const socketRef = useRef<Socket | null>(null);
 
   const loginFields = buildLoginIdentifierFields(identifier);
-  const device = buildLoginDevicePayload();
+  const [device, setDevice] = useState<LoginDevicePayload | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+    void buildLoginDevicePayload().then((payload) => {
+      if (!cancelled) setDevice(payload);
+    });
     return () => {
+      cancelled = true;
       socketRef.current?.disconnect();
       socketRef.current = null;
     };
   }, []);
 
   const completeApprovedLogin = async (approvedRequestId: string) => {
+    const devicePayload = device ?? (await buildLoginDevicePayload());
     const res = await apiCompleteSessionTransfer({
       requestId: approvedRequestId,
       ...loginFields,
       password,
-      ...device,
+      ...devicePayload,
     });
     if (!res.data?.accessToken) {
       throw new Error('Failed to complete login after approval.');

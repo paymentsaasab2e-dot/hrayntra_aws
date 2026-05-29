@@ -1,5 +1,7 @@
 import React from 'react';
 import type { InterviewActivity } from '../../types/interview.types';
+import type { AuditMeta } from '../../types/audit';
+import { EntityAuditSummary } from '../table/TableAuditCell';
 
 const colorMap = {
   blue: 'bg-[#2563EB]',
@@ -11,11 +13,13 @@ const colorMap = {
 
 interface DrawerActivityLogProps {
   items: InterviewActivity[];
+  audit?: AuditMeta | null;
 }
 
-export function DrawerActivityLog({ items }: DrawerActivityLogProps) {
+export function DrawerActivityLog({ items, audit }: DrawerActivityLogProps) {
   return (
     <div className="space-y-4">
+      <EntityAuditSummary audit={audit} />
       {items.map((item) => (
         <div key={item.id} className="flex gap-3">
           <div className="mt-1 flex flex-col items-center">

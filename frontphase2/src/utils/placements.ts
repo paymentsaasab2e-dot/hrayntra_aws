@@ -3,12 +3,16 @@ import { formatDateDMY } from './dateDisplay';
 
 export function getStatusBadgeStyle(status: PlacementStatus) {
   switch (status) {
+    case 'OFFER_SENT':
+      return { bg: 'bg-[#E0E7FF]', text: 'text-[#3730A3]' };
     case 'JOINING_SCHEDULED':
       return { bg: 'bg-[#FEF3C7]', text: 'text-[#92400E]' };
     case 'JOINED':
       return { bg: 'bg-[#D1FAE5]', text: 'text-[#065F46]' };
     case 'OFFER_ACCEPTED':
       return { bg: 'bg-[#DBEAFE]', text: 'text-[#1E40AF]' };
+    case 'OFFER_REJECTED':
+      return { bg: 'bg-[#FEE2E2]', text: 'text-[#991B1B]' };
     case 'NO_SHOW':
     case 'FAILED':
       return { bg: 'bg-[#FEE2E2]', text: 'text-[#991B1B]' };
@@ -64,11 +68,12 @@ export function getPlacementStatusLabel(status: PlacementStatus) {
 
 /** All statuses available in the placements table dropdown */
 export const PLACEMENT_STATUS_OPTIONS: PlacementStatus[] = [
+  'OFFER_SENT',
   'OFFER_ACCEPTED',
+  'OFFER_REJECTED',
   'JOINING_SCHEDULED',
   'JOINED',
   'NO_SHOW',
-  'FAILED',
   'WITHDRAWN',
   'REPLACEMENT_REQUIRED',
   'REPLACED',

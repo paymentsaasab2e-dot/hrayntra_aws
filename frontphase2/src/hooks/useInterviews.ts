@@ -41,6 +41,8 @@ import type {
   } from '../types/interview.types';
 import { ALL_STATUS_LABEL } from '../constants/filterLabels';
 import { fetchAllPaginated } from '../lib/export/fetchAllPaginated';
+import { extractAuditMeta } from '../utils/auditMeta';
+import type { AuditMeta } from '../types/audit';
 
 const defaultFilters: InterviewFiltersState = {
   date: 'This Week',
@@ -214,6 +216,7 @@ const mapInterview = (item: BackendInterviewListItem): Interview => ({
     color: activityColor(log.action),
   })),
   recording: null,
+  auditMeta: extractAuditMeta(item as unknown as Record<string, unknown>),
 });
 
 const unwrapCollection = <T,>(value: T[] | { data?: T[]; pagination?: any } | undefined | null): T[] => {

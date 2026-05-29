@@ -1,6 +1,7 @@
 import { prisma, runWithTenantContext, getJobPortalPrismaClient } from '../../config/prisma.js';
 import { PIPELINE_STAGES, updateCandidateStage } from '../stage/candidateStage.service.js';
 import { createUserNotification } from '../notification/notification.service.js';
+import { placementService } from '../placement/placement.service.js';
 
 /**
  * When a candidate applies on the job portal, mirror the application into the tenant DB
@@ -387,4 +388,17 @@ export async function backfillPortalJobTenantDbNames({ tenantDbName }) {
 
     return { tenantDbName: tdb, scanned: tenantJobs.length, updated, missing };
   });
+}
+
+/** Candidate accepted/declined offer on Phase 1 — update tenant placement row. */
+export async function applyPlacementOfferResponse({ tenantDbName, candidateId, jobId, decision }) {
+  const tdb = String(tenantDbName || '').trim();
+  if (!tdb) throw new Error('tenantDbName is required');
+  const candId = String(candidateId || '').trim();
+  const jId = String(jobId || '').trim();
+  if (!candId || !jId) throw new Error('candidateId and jobId are required');
+
+  return runWithTenantContext(tdb, async () =>
+    placementService.respondToPortalOffer({ candidateId: candId, jobId: jId, decision })
+  );
 }

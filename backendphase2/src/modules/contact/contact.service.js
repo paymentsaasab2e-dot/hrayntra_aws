@@ -1,5 +1,9 @@
 import { prisma } from '../../config/prisma.js';
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
+import { prepareListWithAuditMeta } from '../../utils/listAuditMeta.js';
+import { ENTITY_TYPES } from '../../services/activityService.js';
+import { attachAuditMetaToEntity } from '../../utils/listAuditMeta.js';
+import activityService from '../../services/activityService.js';
 import { dbLogger } from '../../utils/db-logger.js';
 
 export const contactService = {
@@ -114,7 +118,10 @@ export const contactService = {
       prisma.contact.count({ where }),
     ]);
 
-    return formatPaginationResponse(contacts, page, limit, total);
+    const withAudit = await prepareListWithAuditMeta(contacts, ENTITY_TYPES.CONTACT, {
+      useOwnerAsCreator: true,
+    });
+    return formatPaginationResponse(withAudit, page, limit, total);
   },
 
   async getById(id) {
@@ -157,10 +164,11 @@ export const contactService = {
         })
       : [];
 
-    return {
+    const merged = {
       ...contact,
       associatedJobs,
     };
+    return attachAuditMetaToEntity(merged, ENTITY_TYPES.CONTACT, { useOwnerAsCreator: true });
   },
 
   async create(data, userId) {
@@ -215,15 +223,23 @@ export const contactService = {
       },
     });
 
-    // Log activity
+    const actorId = userId || contact.ownerId;
     await prisma.contactActivity.create({
       data: {
         contactId: contact.id,
         activityType: 'created',
         description: `Contact created`,
-        userId: userId || contact.ownerId,
+        userId: actorId,
       },
     });
+    if (actorId) {
+      const entityName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || contact.email || 'Contact';
+      await activityService.logContactCreated({
+        entityId: contact.id,
+        performedById: actorId,
+        entityName,
+      });
+    }
 
     console.log(`✅ Contact created successfully with ID: ${contact.id}\n`);
 
@@ -266,6 +282,21 @@ export const contactService = {
 
     dbLogger.logUpdate('CONTACT', id, updateData);
 
+    const beforeContact = await prisma.contact.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        phone: true,
+        status: true,
+        contactType: true,
+        ownerId: true,
+        companyId: true,
+      },
+    });
+
     const updated = await prisma.contact.update({
       where: { id },
       data: updateData,
@@ -279,7 +310,6 @@ export const contactService = {
       },
     });
 
-    // Log activity
     await prisma.contactActivity.create({
       data: {
         contactId: id,
@@ -288,6 +318,15 @@ export const contactService = {
         userId: userId,
       },
     });
+    if (userId && beforeContact && Object.keys(updateData).length) {
+      await activityService.logContactFieldChanges({
+        entityId: id,
+        performedById: userId,
+        oldData: beforeContact,
+        newData: { ...beforeContact, ...updateData },
+        trackedFields: Object.keys(updateData),
+      });
+    }
 
     console.log(`✅ Contact updated successfully (ID: ${id})\n`);
 
@@ -295,7 +334,10 @@ export const contactService = {
   },
 
   async delete(id, userId) {
-    // Log activity before deletion
+    const existing = await prisma.contact.findUnique({
+      where: { id },
+      select: { firstName: true, lastName: true, email: true },
+    });
     await prisma.contactActivity.create({
       data: {
         contactId: id,
@@ -306,6 +348,15 @@ export const contactService = {
     });
 
     await prisma.contact.delete({ where: { id } });
+    if (userId && existing) {
+      const entityName =
+        `${existing.firstName || ''} ${existing.lastName || ''}`.trim() || existing.email || 'Contact';
+      await activityService.logContactDeleted({
+        entityId: id,
+        performedById: userId,
+        entityName,
+      });
+    }
     return { message: 'Contact deleted successfully' };
   },
 

@@ -62,6 +62,8 @@ import {
   X,
 } from 'lucide-react';
 import type { DefaultLeadStatus, Lead, LeadStatus, LeadSource, LeadType, LeadNote, LeadNoteTag, Activity as LeadActivity } from '@/app/leads/types';
+import { EntityAuditSummary } from '../table/TableAuditCell';
+import { extractAuditMeta } from '../../utils/auditMeta';
 import { ImageWithFallback } from '../ImageWithFallback';
 import { ScheduleMeetingForm } from '../ScheduleMeetingForm';
 import { NotesService } from '../NotesService';
@@ -4287,6 +4289,9 @@ export function LeadDetailsDrawer({
                 </div>
               ) : activeTab === 'activities' ? (
                 <div className="space-y-6">
+                  <EntityAuditSummary
+                    audit={lead?.auditMeta ?? extractAuditMeta(lead as Record<string, unknown> | undefined)}
+                  />
                   {/* Activity Filter — aligned with /leads table controls */}
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100">

@@ -1230,6 +1230,15 @@ async function getApplicationById(req, res) {
     let offerLetterFileName = null;
     let offerLetterUploadedAt = null;
     let offerDetailsText = application.offerDetails || null;
+    let placementId = null;
+    let placementStatus = null;
+    let offerResponse = null;
+    let offerRespondedAt = null;
+    let joiningDate = null;
+    let reportingToName = null;
+    let reportingToTitle = null;
+    let reportingToEmail = null;
+    let joiningNotes = null;
     if (application.offerDetails) {
       try {
         const parsed = JSON.parse(application.offerDetails);
@@ -1238,6 +1247,15 @@ async function getApplicationById(req, res) {
           offerLetterFileName = parsed.offerLetterFileName || null;
           offerLetterUploadedAt = parsed.offerLetterUploadedAt || null;
           offerDetailsText = parsed.legacyOfferText || null;
+          placementId = parsed.placementId || null;
+          placementStatus = parsed.placementStatus || null;
+          offerResponse = parsed.offerResponse || null;
+          offerRespondedAt = parsed.offerRespondedAt || null;
+          joiningDate = parsed.joiningDate || null;
+          reportingToName = parsed.reportingToName || null;
+          reportingToTitle = parsed.reportingToTitle || null;
+          reportingToEmail = parsed.reportingToEmail || null;
+          joiningNotes = parsed.joiningNotes || null;
         }
       } catch {
         offerDetailsText = application.offerDetails;
@@ -1263,6 +1281,15 @@ async function getApplicationById(req, res) {
         offerLetterUrl,
         offerLetterFileName,
         offerLetterUploadedAt,
+        placementId,
+        placementStatus,
+        offerResponse,
+        offerRespondedAt,
+        joiningDate,
+        reportingToName,
+        reportingToTitle,
+        reportingToEmail,
+        joiningNotes,
         screeningAnswers: application.screeningAnswers || null,
         interviewRounds,
         interviewDetails: latestInterview,
@@ -1292,6 +1319,105 @@ async function getApplicationById(req, res) {
       success: false,
       message: 'Failed to fetch application detail',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+}
+
+async function syncPhase2PlacementOfferResponse(candidateId, jobId, decision) {
+  const base =
+    process.env.PHASE2_INTERNAL_API_URL ||
+    process.env.PHASE2_API_URL ||
+    process.env.PHASE2_BASE_URL ||
+    'http://localhost:5001';
+  const secret =
+    process.env.PHASE2_PORTAL_SYNC_SECRET || 'phase2-portal-sync-2026-shared-secret';
+
+  let tenantDbName = null;
+  try {
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      select: { tenantDbName: true },
+    });
+    tenantDbName = String(job?.tenantDbName || '').trim() || null;
+  } catch (e) {
+    console.warn('[Application] Could not read job.tenantDbName for offer response:', e?.message || e);
+  }
+  if (!tenantDbName) {
+    tenantDbName = String(process.env.PHASE2_DEFAULT_TENANT_DB_NAME || '').trim() || null;
+  }
+  if (!tenantDbName) {
+    throw new Error('Tenant routing is not configured for this job');
+  }
+
+  const url = `${String(base).replace(/\/$/, '')}/api/v1/internal/placement-offer-response`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-phase2-portal-sync-secret': secret,
+    },
+    body: JSON.stringify({ tenantDbName, candidateId, jobId, decision }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(text || `Phase2 offer response failed (${res.status})`);
+  }
+  return res.json();
+}
+
+/**
+ * POST /api/applications/detail/:applicationId/offer-response
+ * Body: { candidateId, decision: 'accept' | 'reject' }
+ */
+async function respondToOfferLetter(req, res) {
+  try {
+    const { applicationId } = req.params;
+    const candidateId = String(req.body?.candidateId || '').trim();
+    const decision = String(req.body?.decision || '').trim().toLowerCase();
+
+    if (!applicationId || !candidateId) {
+      return res.status(400).json({ success: false, message: 'applicationId and candidateId are required' });
+    }
+    if (!['accept', 'reject'].includes(decision)) {
+      return res.status(400).json({ success: false, message: 'decision must be accept or reject' });
+    }
+
+    const application = await prisma.application.findUnique({
+      where: { id: applicationId },
+      select: { id: true, candidateId: true, jobId: true, offerDetails: true },
+    });
+    if (!application || application.candidateId !== candidateId) {
+      return res.status(404).json({ success: false, message: 'Application not found' });
+    }
+
+    let parsed = {};
+    if (application.offerDetails) {
+      try {
+        const maybe = JSON.parse(application.offerDetails);
+        parsed = maybe && typeof maybe === 'object' ? maybe : {};
+      } catch {
+        parsed = {};
+      }
+    }
+    if (!parsed.offerLetterUrl) {
+      return res.status(400).json({ success: false, message: 'No offer letter is available for this application' });
+    }
+    if (parsed.offerResponse && parsed.offerResponse !== 'PENDING') {
+      return res.status(400).json({ success: false, message: 'You have already responded to this offer' });
+    }
+
+    const phase2 = await syncPhase2PlacementOfferResponse(candidateId, application.jobId, decision);
+
+    return res.json({
+      success: true,
+      message: decision === 'accept' ? 'Offer accepted successfully' : 'Offer declined',
+      data: phase2?.data || null,
+    });
+  } catch (error) {
+    console.error('Error responding to offer:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to submit offer response',
     });
   }
 }
@@ -1453,4 +1579,5 @@ module.exports = {
   getApplicationById,
   withdrawApplication,
   checkApplication,
+  respondToOfferLetter,
 };

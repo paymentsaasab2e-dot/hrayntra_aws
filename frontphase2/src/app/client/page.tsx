@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { downloadCsv } from '../../utils/csv';
 import { formatDateDMY } from '../../utils/dateDisplay';
+import { extractAuditMeta } from '../../utils/auditMeta';
 import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
 import { buildClientsCsvColumns, CLIENTS_EXPORT_COLUMNS } from '../../lib/export/clientsExportColumns';
 import { fetchAllPaginated, totalPagesFromPagination } from '../../lib/export/fetchAllPaginated';
@@ -244,6 +245,7 @@ function mapBackendClientToFrontend(backendClient: BackendClient): Client {
       avatar: backendClient.assignedTo.avatar || '',
     } : { name: 'Unassigned', avatar: '' },
     lastActivity: backendClient.updatedAt ? formatDateDMY(backendClient.updatedAt) : 'Never',
+    auditMeta: extractAuditMeta(backendClient as Record<string, unknown>),
     logo: backendClient.logo || '',
     revenue: backendClient.revenueGenerated || undefined,
     companySize: backendClient.companySize || undefined,

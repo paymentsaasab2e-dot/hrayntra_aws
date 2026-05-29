@@ -34,7 +34,7 @@ export const candidateController = {
 
   async update(req, res) {
     try {
-      const candidate = await candidateService.update(req.params.id, req.body);
+      const candidate = await candidateService.update(req.params.id, req.body, req.user?.id);
       sendResponse(res, 200, 'Candidate updated successfully', candidate);
     } catch (error) {
       sendError(res, 400, error.message, error);

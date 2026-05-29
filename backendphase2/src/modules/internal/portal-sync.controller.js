@@ -1,5 +1,6 @@
 import {
   applyPortalApplicationSync,
+  applyPlacementOfferResponse,
   backfillPortalJobTenantDbNames,
 } from './portal-sync.service.js';
 
@@ -34,6 +35,23 @@ export async function postSyncPortalApplication(req, res) {
  *
  * Body: { tenantDbName: string }
  */
+export async function postPlacementOfferResponse(req, res) {
+  try {
+    const { tenantDbName, candidateId, jobId, decision } = req.body || {};
+    const placement = await applyPlacementOfferResponse({
+      tenantDbName,
+      candidateId,
+      jobId,
+      decision,
+    });
+    return res.json({ success: true, data: { placementId: placement?.id, status: placement?.status } });
+  } catch (error) {
+    const message = String(error?.message || 'Offer response failed');
+    const status = message.includes('not found') ? 404 : 400;
+    return res.status(status).json({ success: false, message });
+  }
+}
+
 export async function postBackfillPortalJobTenants(req, res) {
   try {
     const { tenantDbName } = req.body || {};

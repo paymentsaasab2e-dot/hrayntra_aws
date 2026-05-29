@@ -5,6 +5,7 @@ import { TableBrandAvatar } from './ui/TableBrandAvatar';
 import type { Client } from '@/app/client/types';
 import { apiUpdateClient, filesApiUpload } from '../lib/api';
 import { requestError, requestWarning } from '../lib/appDialog';
+import { TableAuditColumnHeader, TableAuditCell } from './table/TableAuditCell';
 
 const leadStatusColors: Record<string, string> = {
   New: 'bg-blue-500/10 text-blue-800 ring-1 ring-blue-500/20',
@@ -190,7 +191,7 @@ export function ClientTable({
               ))}
               <th className="px-3 sm:px-4 py-2">Lead Status</th>
               <th className="px-3 sm:px-4 py-2">Recruiter</th>
-              <th className="px-3 sm:px-4 py-2">Last Activity</th>
+              <TableAuditColumnHeader />
               <th className="px-3 sm:px-4 py-2 text-right">Actions</th>
             </tr>
           </thead>
@@ -326,7 +327,7 @@ export function ClientTable({
                     <span className="text-[11px] font-medium text-slate-700">{client.owner.name}</span>
                   </div>
                 </td>
-                <td className="px-3 sm:px-4 py-2 text-[11px] text-slate-500">{client.lastActivity}</td>
+                <TableAuditCell audit={client.auditMeta} />
                 <td className="px-3 sm:px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="inline-flex items-center justify-end gap-0.5 rounded-xl bg-slate-100/70 p-0.5 ring-1 ring-slate-200/60">
                     {SHOW_TABLE_ROW_EDIT_ICON ? (

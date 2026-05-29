@@ -2,6 +2,7 @@ import {
   apiFetch,
   apiGetMe,
   apiGetMyPermissions,
+  buildApiUrl,
   getTenantDbName,
   syncAuthCookie,
   syncOrgRecruitmentSummaryFromApi,
@@ -60,9 +61,36 @@ export function clearAuthStorage() {
     'currentUser',
     'userPermissions',
     'requirePasswordReset',
+    'tenantDbName',
+    'orgRecruitmentMode',
+    'orgBillingEnabled',
   ].forEach((key) => localStorage.removeItem(key));
   syncAuthCookie('accessToken', null);
   syncAuthCookie('refreshToken', null);
+  syncTenantDbName(null);
+}
+
+/** Tell the API to end the active session row before wiping local tokens (timeout / logout). */
+export async function endSessionOnServer() {
+  if (typeof window === 'undefined') return;
+  const sessionId = getStoredSessionId();
+  const token = localStorage.getItem('accessToken');
+  if (!token) return;
+  try {
+    const tenantDbName = getTenantDbName();
+    await fetch(buildApiUrl('/auth/logout'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        ...(tenantDbName ? { 'X-Tenant-Db-Name': tenantDbName } : {}),
+      },
+      body: JSON.stringify(sessionId ? { sessionId } : {}),
+      keepalive: true,
+    });
+  } catch {
+    /* best effort — login will auto-release same-device stale sessions */
+  }
 }
 
 export async function apiRequestSessionTransfer(body: {
@@ -156,10 +184,21 @@ export function getDeviceId(): string {
   return id;
 }
 
-export function buildLoginDevicePayload() {
+export type LoginDevicePayload = {
+  deviceId: string;
+  userAgent: string;
+  clientPublicIp?: string;
+  ipAddress?: string;
+};
+
+export async function buildLoginDevicePayload(): Promise<LoginDevicePayload> {
+  const { fetchClientPublicIp } = await import('../utils/clientPublicIp');
+  const clientPublicIp = await fetchClientPublicIp();
+
   return {
     deviceId: getDeviceId(),
     userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'Unknown',
+    ...(clientPublicIp ? { clientPublicIp, ipAddress: clientPublicIp } : {}),
   };
 }
 
