@@ -1,27 +1,20 @@
 'use client';
 
 import { Sidenav } from '../../components/Sidenav';
+import { PasswordResetGuard } from '../../components/PasswordResetGuard';
+import PermissionRouteGuard from '../../components/PermissionRouteGuard';
 
-export default function RecycleBinLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RecycleBinLayout({ children }: { children: React.ReactNode }) {
   const avatarUrl =
-    'https://images.unsplash.com/photo-1701463387028-3947648f1337?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBidXNpbmVzcyUyMHBlcnNvbiUyMHBvcnRyYWl0JTIwYXZhdGFyfGVufDF8fHx8MTc3MDE4MTAyMHww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral';
+    'https://images.unsplash.com/photo-1701463387028-3947648f1337?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBidXNpbmVzcyUyMHBlcnNvbiUyMHBvcnRyYWl0JTIwYXZhdGFyfGVufDF8fHx8MTc3MDE4MTAyMHww&ixlib=rb-4.1.0&q=80&w=1080';
 
   return (
-    <div className="min-h-screen bg-slate-50 font-['Arimo',sans-serif]">
-      <Sidenav
-        avatarUrl={avatarUrl}
-        userProfile={{
-          name: 'Ulli Thumke',
-          role: 'UI Designer',
-          avatarUrl,
-        }}
-      >
-        {children}
-      </Sidenav>
-    </div>
+    <PasswordResetGuard>
+      <div className="min-h-screen bg-slate-50 font-['Arimo',sans-serif]">
+        <Sidenav avatarUrl={avatarUrl}>
+          <PermissionRouteGuard anyPermissions={['recycle_bin_manage']}>{children}</PermissionRouteGuard>
+        </Sidenav>
+      </div>
+    </PasswordResetGuard>
   );
 }

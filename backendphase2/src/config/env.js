@@ -14,6 +14,31 @@ dotenv.config({ path: path.join(projectRoot, '.env') });
 
 const OPENAI_CHAT_MODEL = resolveOpenAiChatModel();
 
+/** Ensure invite / email links always include http:// or https:// (Gmail ignores bare host:port hrefs). */
+export function normalizePublicUrl(value, fallback = '') {
+  let base = String(value ?? fallback ?? '').trim();
+  if (!base) return String(fallback || '').trim();
+  // Strip accidental inline comments from .env (e.g. "localhost:3001 # note")
+  const hashIdx = base.indexOf('#');
+  if (hashIdx > 0 && !/^https?:\/\//i.test(base.slice(0, hashIdx))) {
+    base = base.slice(0, hashIdx).trim();
+  }
+  base = base.replace(/\/+$/, '');
+  if (!/^https?:\/\//i.test(base)) {
+    base = `http://${base.replace(/^\/+/, '')}`;
+  }
+  return base;
+}
+
+export function isLoopbackPublicUrl(url) {
+  try {
+    const host = new URL(normalizePublicUrl(url)).hostname.toLowerCase();
+    return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]';
+  } catch {
+    return true;
+  }
+}
+
 /**
  * Base URL for the employers SPA (emails, invite links). Reads several env aliases used in deployment.
  * Production must set one of: FRONTEND_URL, CLIENT_URL, NEXT_PUBLIC_APP_URL, APP_PUBLIC_URL, EMPLOYERS_APP_URL.
@@ -31,13 +56,17 @@ export function resolvePublicFrontendUrl() {
   for (const key of keys) {
     const v = process.env[key];
     if (v != null && String(v).trim()) {
-      return String(v).trim().replace(/\/+$/, '');
+      return normalizePublicUrl(v);
     }
   }
   return 'http://localhost:3001';
 }
 
 const publicFrontendUrl = resolvePublicFrontendUrl();
+const publicBackendUrl = normalizePublicUrl(
+  process.env.BACKEND_PUBLIC_URL,
+  `http://localhost:${parseInt(process.env.PORT || '5001', 10)}`,
+);
 
 export const env = {
   NODE_ENV: process.env.NODE_ENV || 'development',
@@ -76,9 +105,9 @@ export const env = {
   SINGLE_ACTIVE_SESSION_ENABLED:
     process.env.SINGLE_ACTIVE_SESSION_ENABLED !== 'false' &&
     process.env.SINGLE_ACTIVE_SESSION_ENABLED !== '0',
-  SESSION_INACTIVITY_MS: parseInt(process.env.SESSION_INACTIVITY_MS || String(5 * 60 * 1000), 10),
+  SESSION_INACTIVITY_MS: parseInt(process.env.SESSION_INACTIVITY_MS || String(30 * 60 * 1000), 10),
   SESSION_INACTIVITY_WARNING_MS: parseInt(
-    process.env.SESSION_INACTIVITY_WARNING_MS || String(60 * 1000),
+    process.env.SESSION_INACTIVITY_WARNING_MS || String(2 * 60 * 1000),
     10,
   ),
   SESSION_TRANSFER_TTL_MS: parseInt(process.env.SESSION_TRANSFER_TTL_MS || String(5 * 60 * 1000), 10),
@@ -98,9 +127,7 @@ export const env = {
   // Frontend (invite emails, OAuth UI redirects — must match deployed employers app URL in production)
   FRONTEND_URL: publicFrontendUrl,
   CLIENT_URL: publicFrontendUrl,
-  BACKEND_PUBLIC_URL:
-    process.env.BACKEND_PUBLIC_URL ||
-    `http://localhost:${parseInt(process.env.PORT || '5001', 10)}`,
+  BACKEND_PUBLIC_URL: publicBackendUrl,
   
   // AWS S3 (uploads — replaces Cloudinary)
   AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID,
@@ -229,6 +256,17 @@ export const env = {
       if (Number.isFinite(n) && n > 0) return n;
     }
     return 2000;
+  })(),
+
+  /**
+   * When true (default), CV parse stores summary/skills/jobs/education in the CV language (es/fr/en…).
+   * Set CV_PARSE_PRESERVE_SOURCE_LANGUAGE=false to normalize free-text to English via the LLM.
+   */
+  CV_PARSE_PRESERVE_SOURCE_LANGUAGE: (() => {
+    const raw = process.env.CV_PARSE_PRESERVE_SOURCE_LANGUAGE;
+    if (raw == null || String(raw).trim() === '') return true;
+    const v = String(raw).trim().toLowerCase();
+    return v !== 'false' && v !== '0' && v !== 'no';
   })(),
 
   /** Max ZIP upload size for bulk CV archive. Default 2GB. */

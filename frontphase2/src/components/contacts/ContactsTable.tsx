@@ -12,6 +12,8 @@ import { ContactTypeBadge } from './ContactTypeBadge';
 import { OwnerAvatar } from './OwnerAvatar';
 import { formatDirectorDisplay } from '../../constants/salutations';
 import { PH2_TABLE_CARD_FOOTER_CLASS } from '../layout/Ph2ModulePageLayout';
+import { extractAuditMeta } from '../../utils/auditMeta';
+import { TableAuditColumnHeader, TableAuditCell } from '../table/TableAuditCell';
 
 interface ContactsTableProps {
   contacts: BackendContact[];
@@ -154,6 +156,7 @@ export function ContactsTable({
                 <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                   Status
                 </th>
+                <TableAuditColumnHeader className="px-3 py-2.5 sm:px-4" />
                 <th className="px-3 py-2.5 sm:px-4 text-[11px] font-bold uppercase tracking-wider text-slate-500 text-right">
                   Actions
                 </th>
@@ -237,6 +240,10 @@ export function ContactsTable({
                       <span className="text-xs text-slate-600 capitalize">{contact.status.toLowerCase()}</span>
                     </div>
                   </td>
+                  <TableAuditCell
+                    audit={extractAuditMeta(contact as unknown as Record<string, unknown>)}
+                    className="px-3 py-2.5 sm:px-4"
+                  />
                   <td className="px-3 py-2.5 sm:px-4 text-right" onClick={(e) => e.stopPropagation()}>
                     {/* Colored action icons — keeps the row actions visually
                         identical to the Leads / Clients / Candidates tables. */}

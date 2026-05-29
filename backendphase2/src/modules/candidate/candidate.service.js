@@ -11,11 +11,19 @@ import {
   updateCandidateStage,
 } from '../stage/candidateStage.service.js';
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
+import {
+  USER_BRIEF_SELECT,
+  prepareListWithAuditMeta,
+  attachAuditMetaToEntity,
+} from '../../utils/listAuditMeta.js';
+import activityService, { ENTITY_TYPES } from '../../services/activityService.js';
 import { dbLogger } from '../../utils/db-logger.js';
 import { generateMeetingLink } from '../../services/meetingService.js';
 import {
   sendCandidateAssignmentEmail,
+  sendCandidateHiredEmail,
   sendCandidateInterviewScheduledEmail,
+  sendCandidateRejectedEmail,
   sendInterviewPanelScheduledEmail,
 } from '../../services/emailService.js';
 import { buildSuperAdminOwnerScope, isSuperAdminUser } from '../../utils/superAdminScope.js';
@@ -41,12 +49,74 @@ function isPhase1CandidateRecord(candidate) {
   return isPhase1CandidateSource(candidate?.source);
 }
 
-function candidateHasRealJobLink(candidate) {
+/** All non-deleted job ids in the active tenant DB (used to scope cross-pool merges). */
+async function getTenantJobIdSet() {
+  const jobs = await prisma.job.findMany({
+    where: { isDeleted: { not: true } },
+    select: { id: true },
+  });
+  return new Set(jobs.map((job) => String(job.id)));
+}
+
+/** Keep only job links that belong to the signed-in tenant (drops other tenants' apply/pipeline ids). */
+function scopeCandidateJobLinksToTenant(candidate, tenantJobIdSet) {
+  if (!candidate) return candidate;
+  if (!tenantJobIdSet || tenantJobIdSet.size === 0) {
+    return {
+      ...candidate,
+      assignedJobs: [],
+      applications: [],
+      pipelineEntries: [],
+      matches: [],
+      interviews: [],
+      assignedJobTitles: [],
+    };
+  }
+  const allowed = tenantJobIdSet;
+  const assignedJobs = (Array.isArray(candidate.assignedJobs) ? candidate.assignedJobs : [])
+    .map((id) => String(id || '').trim())
+    .filter((id) => id && allowed.has(id));
+
+  const applications = (Array.isArray(candidate.applications) ? candidate.applications : []).filter(
+    (row) => allowed.has(String(row?.jobId || '').trim())
+  );
+  const pipelineEntries = (Array.isArray(candidate.pipelineEntries)
+    ? candidate.pipelineEntries
+    : []
+  ).filter((row) => allowed.has(String(row?.jobId || '').trim()));
+  const matches = (Array.isArray(candidate.matches) ? candidate.matches : []).filter((row) =>
+    allowed.has(String(row?.jobId || row?.job?.id || '').trim())
+  );
+  const interviews = (Array.isArray(candidate.interviews) ? candidate.interviews : []).filter(
+    (row) => allowed.has(String(row?.jobId || row?.job?.id || '').trim())
+  );
+
+  const assignedJobTitles = (Array.isArray(candidate.assignedJobTitles)
+    ? candidate.assignedJobTitles
+    : []
+  ).filter((_, index) => index < assignedJobs.length);
+
+  return {
+    ...candidate,
+    assignedJobs,
+    applications,
+    pipelineEntries,
+    matches,
+    interviews,
+    assignedJobTitles,
+  };
+}
+
+function candidateHasRealJobLink(candidate, tenantJobIdSet = null) {
   if (!candidate) return false;
-  const assigned = Array.isArray(candidate.assignedJobs) ? candidate.assignedJobs : [];
+  const row =
+    tenantJobIdSet && tenantJobIdSet.size > 0
+      ? scopeCandidateJobLinksToTenant(candidate, tenantJobIdSet)
+      : candidate;
+  const assigned = Array.isArray(row.assignedJobs) ? row.assignedJobs : [];
   if (assigned.some((id) => String(id || '').trim())) return true;
-  if (Array.isArray(candidate.applications) && candidate.applications.length > 0) return true;
-  if (Array.isArray(candidate.pipelineEntries) && candidate.pipelineEntries.length > 0) return true;
+  if (Array.isArray(row.applications) && row.applications.length > 0) return true;
+  if (Array.isArray(row.pipelineEntries) && row.pipelineEntries.length > 0) return true;
   return false;
 }
 
@@ -62,14 +132,78 @@ function isTerminalCandidateStage(stage) {
   );
 }
 
+/** Rank workflow stages so merges never downgrade Interviewing → Applied → New. */
+function candidateWorkflowStageRank(stage) {
+  const s = String(stage || '')
+    .trim()
+    .toLowerCase();
+  if (!s || s === 'new') return 0;
+  if (s.includes('reject')) return 70;
+  if (s.includes('hire') || s.includes('placed') || s.includes('joined') || s.includes('onboard')) return 60;
+  if (s.includes('offer')) return 50;
+  if (s.includes('interview')) return 40;
+  if (s.includes('screen') || s.includes('short') || s.includes('long') || s.includes('submit')) return 30;
+  if (s.includes('applied') || s.includes('apply')) return 20;
+  return 15;
+}
+
+function mergeCandidateWorkflowStages(...stages) {
+  let best = '';
+  let bestRank = -1;
+  for (const stage of stages) {
+    const label = String(stage || '').trim();
+    if (!label) continue;
+    const rank = candidateWorkflowStageRank(label);
+    if (rank > bestRank) {
+      bestRank = rank;
+      best = label;
+    }
+  }
+  return best;
+}
+
+function candidateHasActiveInterviewLink(candidate, tenantJobIdSet = null) {
+  const scoped =
+    tenantJobIdSet && tenantJobIdSet.size > 0
+      ? scopeCandidateJobLinksToTenant(candidate, tenantJobIdSet)
+      : candidate;
+  const interviews = Array.isArray(scoped?.interviews) ? scoped.interviews : [];
+  return interviews.some((row) => {
+    const status = String(row?.status || 'SCHEDULED').toUpperCase();
+    if (['CANCELLED', 'CANCELED', 'REJECTED'].includes(status)) return false;
+    return true;
+  });
+}
+
+function candidateHasTenantApplicationLink(candidate, tenantJobIdSet = null) {
+  const scoped =
+    tenantJobIdSet && tenantJobIdSet.size > 0
+      ? scopeCandidateJobLinksToTenant(candidate, tenantJobIdSet)
+      : candidate;
+  return Array.isArray(scoped?.applications) && scoped.applications.length > 0;
+}
+
 /** CRM list/drawer stage: job-linked candidates default to Applied unless a later stage is set. */
-function resolveCandidateStageForList(candidate) {
+function resolveCandidateStageForList(candidate, tenantJobIdSet = null) {
+  const hasTenantJob = candidateHasRealJobLink(candidate, tenantJobIdSet);
+  const hasInterview = candidateHasActiveInterviewLink(candidate, tenantJobIdSet);
   const explicit = String(candidate?.stage || '').trim();
   const explicitLower = explicit.toLowerCase();
+
+  if (hasInterview) {
+    const merged = mergeCandidateWorkflowStages(explicit, 'Interviewing');
+    if (hasTenantJob || explicitLower !== 'new') {
+      return merged || 'Interviewing';
+    }
+  }
+
   if (explicit && explicitLower !== 'new') {
+    if (!hasTenantJob) {
+      return 'New';
+    }
     return explicit;
   }
-  if (candidateHasRealJobLink(candidate)) {
+  if (candidateHasTenantApplicationLink(candidate, tenantJobIdSet) || hasTenantJob) {
     return 'Applied';
   }
   const status = String(candidate?.status || '').toUpperCase();
@@ -138,11 +272,11 @@ function candidateMatchesSearch(candidate, search) {
   return hay.includes(needle);
 }
 
-function annotateCandidateListFlags(candidate) {
+function annotateCandidateListFlags(candidate, tenantJobIdSet = null) {
   const phase1 = isPhase1CandidateRecord(candidate);
-  const hasJob = candidateHasRealJobLink(candidate);
+  const hasJob = candidateHasRealJobLink(candidate, tenantJobIdSet);
   const discoveryOnly = phase1 && !hasJob;
-  const resolvedStage = resolveCandidateStageForList(candidate);
+  const resolvedStage = resolveCandidateStageForList(candidate, tenantJobIdSet);
   const stageNew = ['new', ''].includes(String(resolvedStage || '').trim().toLowerCase());
   return {
     ...candidate,
@@ -171,6 +305,9 @@ const INTERVIEW_ACTIVITY_KIND = 'candidate-interview';
 const candidateDetailInclude = {
   assignedTo: {
     select: { id: true, name: true, email: true, avatar: true },
+  },
+  createdBy: {
+    select: USER_BRIEF_SELECT,
   },
   interviews: {
     include: {
@@ -211,6 +348,9 @@ const candidateListInclude = {
   assignedTo: {
     select: { id: true, name: true, email: true },
   },
+  createdBy: {
+    select: USER_BRIEF_SELECT,
+  },
   applications: {
     select: { id: true, jobId: true },
     take: 30,
@@ -231,6 +371,11 @@ const candidateListInclude = {
     },
     orderBy: { createdAt: 'desc' },
     take: 40,
+  },
+  interviews: {
+    select: { id: true, jobId: true, status: true, scheduledAt: true },
+    orderBy: { scheduledAt: 'desc' },
+    take: 15,
   },
 };
 
@@ -352,10 +497,17 @@ function mergePortalAndTenantCandidateRow(portalRow, tenantRow) {
       portalRow.pipelineEntries,
       (row) => String(row?.id || `${row?.jobId || ''}:${row?.candidateId || ''}`)
     ),
+    interviews: mergeCandidateRelationRows(
+      tenantRow.interviews,
+      portalRow.interviews,
+      (row) => String(row?.id || `${row?.jobId || ''}:${row?.scheduledAt || ''}`)
+    ),
   };
   for (const key of scalarKeys) {
+    if (key === 'stage') continue;
     merged[key] = pickFirstNonEmpty(portalRow[key], tenantRow[key]);
   }
+  merged.stage = mergeCandidateWorkflowStages(portalRow?.stage, tenantRow?.stage);
   for (const key of arrayKeys) {
     merged[key] = pickFirstNonEmpty(portalRow[key], tenantRow[key]);
   }
@@ -660,24 +812,43 @@ function parseDurationToMinutes(duration) {
   return Math.round(amount);
 }
 
+function normalizeInterviewTimeInput(time) {
+  return String(time || '')
+    .trim()
+    .replace(/\u202f/g, ' ')
+    .replace(/\s+/g, ' ');
+}
+
 function buildScheduledAt(date, time) {
   if (!date || !time) {
     throw new Error('Interview date and time are required');
   }
 
-  const normalizedTime = String(time).trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-  if (!normalizedTime) {
-    throw new Error('Invalid interview time format');
+  const normalizedTime = normalizeInterviewTimeInput(time);
+  const twelveHour = normalizedTime.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  const twentyFourHour = normalizedTime.match(/^(\d{1,2}):(\d{2})$/);
+
+  let hours;
+  let minutes;
+
+  if (twelveHour) {
+    hours = Number(twelveHour[1]);
+    minutes = Number(twelveHour[2]);
+    const meridiem = twelveHour[3].toUpperCase();
+    if (hours === 12) {
+      hours = meridiem === 'AM' ? 0 : 12;
+    } else if (meridiem === 'PM') {
+      hours += 12;
+    }
+  } else if (twentyFourHour) {
+    hours = Number(twentyFourHour[1]);
+    minutes = Number(twentyFourHour[2]);
+  } else {
+    throw new Error('Invalid interview time format. Use a time like 9:00 AM.');
   }
 
-  let hours = Number(normalizedTime[1]);
-  const minutes = Number(normalizedTime[2]);
-  const meridiem = normalizedTime[3].toUpperCase();
-
-  if (hours === 12) {
-    hours = meridiem === 'AM' ? 0 : 12;
-  } else if (meridiem === 'PM') {
-    hours += 12;
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+    throw new Error('Invalid interview time');
   }
 
   const scheduledAt = new Date(`${date}T00:00:00`);
@@ -688,6 +859,35 @@ function buildScheduledAt(date, time) {
   }
 
   return scheduledAt;
+}
+
+function resolveInterviewClientIdForJob(job, data) {
+  const fromPayload = String(data?.clientId || '').trim();
+  const fromJob = String(job?.clientId || '').trim();
+  const clientId = fromPayload || fromJob;
+  if (!clientId) {
+    throw new Error(
+      'This job is not linked to a client. Select a client on the job or link a client before scheduling an interview.'
+    );
+  }
+  if (fromJob && fromPayload && fromPayload !== fromJob) {
+    throw new Error('Selected client does not match the job client');
+  }
+  return clientId;
+}
+
+function resolveScheduleInterviewers(data, userId) {
+  const interviewers = Array.isArray(data?.interviewers)
+    ? data.interviewers.filter((item) => item && String(item.id || '').trim())
+    : [];
+  if (interviewers.length) return interviewers;
+
+  const uid = String(userId || '').trim();
+  if (uid) {
+    return [{ id: uid, name: 'You', role: 'Lead Interviewer' }];
+  }
+
+  throw new Error('Select at least one interviewer');
 }
 
 async function generateCandidateMeetingLink({ candidate, job, data, interviewers, userId }) {
@@ -960,49 +1160,126 @@ async function materializeCandidateForMatch(poolRow, options = {}) {
 }
 
 /**
+ * Materialize a portal / Phase 1 / application-only candidate into the active tenant DB so
+ * mutations (schedule interview, reject, notes, etc.) succeed for rows shown in merged lists.
+ */
+async function materializeCandidateIntoTenantById(candidateId, options = {}) {
+  const id = String(candidateId || '').trim();
+  if (!id) return null;
+
+  const jobIdHint = String(options.jobIdHint || '').trim();
+
+  const commonRow = await fetchCandidateCommonByCandidateId(id, { requireVerified: false });
+  if (commonRow) {
+    const assigned = Array.isArray(commonRow.assignedJobs)
+      ? commonRow.assignedJobs.map((jid) => String(jid || '').trim()).filter(Boolean)
+      : [];
+    const withJob =
+      jobIdHint && !assigned.includes(jobIdHint)
+        ? {
+            ...commonRow,
+            assignedJobs: [...assigned, jobIdHint],
+            stage:
+              commonRow.stage && String(commonRow.stage).trim().toLowerCase() !== 'new'
+                ? commonRow.stage
+                : 'Applied',
+          }
+        : commonRow;
+    const phase1 = isPhase1CandidateSource(withJob.source);
+    const linkJob = Boolean(jobIdHint);
+    return materializeCandidateForMatch(withJob, {
+      matchingJobId: jobIdHint,
+      aiMatchOnly: phase1 && !linkJob && !assigned.length,
+    });
+  }
+
+  let portalPrisma = null;
+  try {
+    portalPrisma = getJobPortalPrismaClient();
+  } catch {
+    portalPrisma = null;
+  }
+
+  if (portalPrisma) {
+    const portalRow = await portalPrisma.candidate.findUnique({
+      where: { id },
+    });
+    if (portalRow) {
+      return materializePortalCandidateIntoTenant(portalRow);
+    }
+  }
+
+  const applicationRows = await prisma.application.findMany({
+    where: { candidateId: id },
+    orderBy: { createdAt: 'desc' },
+    take: 10,
+    select: { jobId: true },
+  });
+  const applicationJobIds = [
+    ...new Set(applicationRows.map((row) => String(row.jobId || '').trim()).filter(Boolean)),
+  ];
+  if (applicationJobIds.length) {
+    const assignedJobs = jobIdHint
+      ? [...new Set([...applicationJobIds, jobIdHint])]
+      : applicationJobIds;
+    return materializePortalCandidateIntoTenant({
+      id,
+      firstName: null,
+      lastName: null,
+      email: null,
+      phone: null,
+      source: 'Job portal',
+      assignedJobs,
+      stage: 'Applied',
+      status: 'ACTIVE',
+      lastActivity: new Date(),
+    });
+  }
+
+  return null;
+}
+
+/**
  * Resolve a candidate by id from the tenant DB, falling back to the job-portal DB and
  * materializing the row into the tenant on demand. The merged candidate list view shows
  * portal-only rows in the picker, so callers that mutate (interview create, reject, etc.)
  * must use this helper instead of `prisma.candidate.findUnique` to avoid a "Candidate not
  * found" 400 for candidates that exist on the portal side but not in the tenant yet.
  */
-async function getCandidateOrThrow(id) {
+async function getCandidateOrThrow(id, options = {}) {
   const candidateId = String(id || '').trim();
   if (!candidateId) {
     throw new Error('Candidate not found');
   }
 
-  const candidate = await prisma.candidate.findUnique({
+  const jobIdHint = String(options.jobId || options.jobIdHint || '').trim();
+
+  const tenantRow = await prisma.candidate.findUnique({
     where: { id: candidateId },
   });
 
-  if (candidate) {
-    if (candidate.isDeleted === true) {
-      throw new Error('Candidate not found');
-    }
-    return candidate;
+  if (tenantRow && tenantRow.isDeleted !== true) {
+    return tenantRow;
   }
 
   if (!isTenantScopedRequest()) {
     throw new Error('Candidate not found');
   }
 
-  // Phase 1 / shared pool (candidatecommon) — same ids shown in placement & interview pickers
-  const commonRow = await fetchCandidateCommonByCandidateId(candidateId, { requireVerified: false });
-  if (commonRow) {
-    return materializeCandidateForMatch(commonRow);
+  const purgedRef = await prisma.purgedCandidateRef
+    .findUnique({ where: { candidateId }, select: { candidateId: true } })
+    .catch(() => null);
+
+  const materialized = await materializeCandidateIntoTenantById(candidateId, { jobIdHint });
+  if (materialized) {
+    return materialized;
   }
 
-  const portalPrisma = getJobPortalPrismaClient();
-  const portalRow = await portalPrisma.candidate.findUnique({
-    where: { id: candidateId },
-  });
-
-  if (!portalRow) {
+  if (purgedRef || tenantRow?.isDeleted === true) {
     throw new Error('Candidate not found');
   }
 
-  return materializePortalCandidateIntoTenant(portalRow);
+  throw new Error('Candidate not found');
 }
 
 /**
@@ -1592,8 +1869,10 @@ async function buildCandidateResponse(candidate, activityClient = prisma) {
     aiCandidateAnalysis: buildAiCandidateAnalysis(candidate),
   };
 
+  const withAudit = await attachAuditMetaToEntity(normalizedCandidate, ENTITY_TYPES.CANDIDATE);
+
   return {
-    ...normalizedCandidate,
+    ...withAudit,
     tags: customTags.map((tag) => tag.label),
     tagObjects: customTags,
     internalNotes,
@@ -1601,16 +1880,63 @@ async function buildCandidateResponse(candidate, activityClient = prisma) {
   };
 }
 
+/** Job ids the signed-in user owns (creator, assignee, manager, or supporting recruiter). */
+async function getMyJobIds(userId) {
+  if (!userId) return [];
+  const myJobs = await prisma.job.findMany({
+    where: buildMyJobsWhereClause(userId),
+    select: { id: true },
+  });
+  return myJobs.map((j) => String(j.id));
+}
+
+/**
+ * In-memory check on merged list rows (tenant + portal + common pool).
+ * Ensures applicants linked only on portal/assignedJobs still appear under My candidates.
+ */
+function candidateMatchesMineScope(candidate, userId, myJobIds) {
+  if (!candidate || !userId) return false;
+  const uid = String(userId);
+  if (String(candidate.createdById || candidate.createdBy?.id || '') === uid) return true;
+  if (String(candidate.assignedToId || candidate.assignedTo?.id || '') === uid) return true;
+
+  const jobIdSet = new Set((myJobIds || []).map((id) => String(id)).filter(Boolean));
+  if (!jobIdSet.size) {
+    return String(candidate.createdById || candidate.createdBy?.id || '') === uid
+      || String(candidate.assignedToId || candidate.assignedTo?.id || '') === uid;
+  }
+
+  const assigned = Array.isArray(candidate.assignedJobs) ? candidate.assignedJobs : [];
+  if (assigned.some((id) => jobIdSet.has(String(id || '').trim()))) return true;
+
+  const matchJobIds = Array.isArray(candidate.matchJobIds) ? candidate.matchJobIds : [];
+  if (matchJobIds.some((id) => jobIdSet.has(String(id || '').trim()))) return true;
+
+  const applications = Array.isArray(candidate.applications) ? candidate.applications : [];
+  if (applications.some((row) => jobIdSet.has(String(row?.jobId || '').trim()))) return true;
+
+  const pipelineEntries = Array.isArray(candidate.pipelineEntries) ? candidate.pipelineEntries : [];
+  if (pipelineEntries.some((row) => jobIdSet.has(String(row?.jobId || '').trim()))) return true;
+
+  const matches = Array.isArray(candidate.matches) ? candidate.matches : [];
+  if (matches.some((row) => jobIdSet.has(String(row?.jobId || row?.job?.id || '').trim()))) {
+    return true;
+  }
+
+  const interviews = Array.isArray(candidate.interviews) ? candidate.interviews : [];
+  if (interviews.some((row) => jobIdSet.has(String(row?.jobId || row?.job?.id || '').trim()))) {
+    return true;
+  }
+
+  return false;
+}
+
 /** Candidates the user may see when mine=true: created by them, assigned to them, or linked to jobs they own. */
 async function buildMineCandidatesScope(userId) {
   if (!userId) {
     return { id: { in: [] } };
   }
-  const myJobs = await prisma.job.findMany({
-    where: buildMyJobsWhereClause(userId),
-    select: { id: true },
-  });
-  const myJobIds = myJobs.map((j) => j.id);
+  const myJobIds = await getMyJobIds(userId);
   const orClause = [{ createdById: userId }, { assignedToId: userId }];
   if (myJobIds.length > 0) {
     orClause.push({ matches: { some: { jobId: { in: myJobIds } } } });
@@ -1962,6 +2288,8 @@ export const candidateService = {
       req.query?.includeCommonPool === 'true' || req.query?.includeCommonPool === '1';
     const mine =
       req.query?.mine === 'true' || req.query?.mine === '1' || req.query?.mine === true;
+    const loadCommonPool = includeCommonPool || mine;
+    const myJobIds = mine && req.user?.id ? await getMyJobIds(req.user.id) : [];
 
     if (mine && !req.user?.id) {
       return formatPaginationResponse([], page, limit, 0);
@@ -1981,7 +2309,7 @@ export const candidateService = {
     // the soft-delete column existed) without tripping Prisma's "Argument isDeleted is missing".
     andParts.push({ isDeleted: { not: true } });
     // Phase 1 discovery rows (no job link) appear on "All candidates" via includeCommonPool + candidatecommon merge.
-    if (!includeCommonPool) {
+    if (!loadCommonPool) {
       andParts.push(buildCrmCandidatesListScopeClause());
     }
     const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
@@ -2020,7 +2348,7 @@ export const candidateService = {
 
     if (isTenantScopedRequest()) {
       let commonCandidates = [];
-      if (includeCommonPool) {
+      if (loadCommonPool) {
         commonCandidates = await fetchCandidateCommonForCandidatesList(req);
       }
 
@@ -2062,13 +2390,18 @@ export const candidateService = {
         );
       }
 
-      const merged = Array.from(mergedById.values())
-        .filter((candidate) => shouldShowOnCrmCandidatesList(candidate, { includeCommonPool }))
+      let merged = Array.from(mergedById.values())
+        .filter((candidate) => shouldShowOnCrmCandidatesList(candidate, { includeCommonPool: loadCommonPool }))
         .filter((candidate) => candidateMatchesSearch(candidate, search))
-        .filter((candidate) => candidateMatchesListFilters(candidate, listFilters))
-        .sort(
-          (a, b) => candidateListSortTimestamp(b) - candidateListSortTimestamp(a)
+        .filter((candidate) => candidateMatchesListFilters(candidate, listFilters));
+
+      if (mine && req.user?.id) {
+        merged = merged.filter((candidate) =>
+          candidateMatchesMineScope(candidate, req.user.id, myJobIds)
         );
+      }
+
+      merged.sort((a, b) => candidateListSortTimestamp(b) - candidateListSortTimestamp(a));
 
       total = merged.length;
       candidates = merged.slice(skip, skip + limit);
@@ -2079,7 +2412,7 @@ export const candidateService = {
         orderBy: { createdAt: 'desc' },
       });
 
-      if (includeCommonPool) {
+      if (loadCommonPool) {
         const commonCandidates = await fetchCandidateCommonForCandidatesList(req);
         const softDeletedTenantIds = commonCandidates.length
           ? await collectSoftDeletedTenantCandidateIds(commonCandidates.map((c) => c.id))
@@ -2096,13 +2429,19 @@ export const candidateService = {
             prior ? mergePortalAndTenantCandidateRow(prior, candidate) : candidate
           );
         }
-        const merged = Array.from(mergedById.values())
-          .filter((candidate) => shouldShowOnCrmCandidatesList(candidate, { includeCommonPool }))
+        let merged = Array.from(mergedById.values())
+          .filter((candidate) => shouldShowOnCrmCandidatesList(candidate, { includeCommonPool: loadCommonPool }))
           .filter((candidate) => candidateMatchesSearch(candidate, search))
-          .filter((candidate) => candidateMatchesListFilters(candidate, listFilters))
-          .sort(
-            (a, b) => candidateListSortTimestamp(b) - candidateListSortTimestamp(a)
+          .filter((candidate) => candidateMatchesListFilters(candidate, listFilters));
+
+        if (mine && req.user?.id) {
+          merged = merged.filter((candidate) =>
+            candidateMatchesMineScope(candidate, req.user.id, myJobIds)
           );
+        }
+
+        merged.sort((a, b) => candidateListSortTimestamp(b) - candidateListSortTimestamp(a));
+
         total = merged.length;
         candidates = merged.slice(skip, skip + limit);
       } else {
@@ -2138,39 +2477,58 @@ export const candidateService = {
       candidates.map((c) => c.id).filter(Boolean)
     );
 
+    const tenantJobIdSet = isTenantScopedRequest() ? await getTenantJobIdSet() : null;
+
     const enriched = candidates.map((candidate) => {
       const careerPrefs = careerPrefsByCandidate.get(String(candidate.id));
       if (careerPrefs) mergeCareerPreferencesIntoCandidate(candidate, careerPrefs);
-      const titles = (Array.isArray(candidate.assignedJobs) ? candidate.assignedJobs : [])
+      const scopedCandidate =
+        tenantJobIdSet && tenantJobIdSet.size > 0
+          ? scopeCandidateJobLinksToTenant(candidate, tenantJobIdSet)
+          : candidate;
+      const titles = (Array.isArray(scopedCandidate.assignedJobs) ? scopedCandidate.assignedJobs : [])
         .map((jobId) => jobsById.get(jobId))
         .filter(Boolean);
-      return annotateCandidateListFlags({
-        ...candidate,
-        resume: candidate.resume || candidate.resumeUrl || null,
-        skills:
-          Array.isArray(candidate.skills) && candidate.skills.length
-            ? candidate.skills
-            : Array.isArray(candidate.recruiterSkills)
-              ? candidate.recruiterSkills
-              : [],
-        experience: candidate.experience ?? candidate.experienceYears ?? null,
-        status: candidate.status || candidate.recruiterStatus || 'NEW',
-        education: candidate.education || candidate.recruiterEducation || null,
-        languages:
-          Array.isArray(candidate.languages) && candidate.languages.length
-            ? candidate.languages
-            : Array.isArray(candidate.recruiterLanguages)
-              ? candidate.recruiterLanguages
-              : [],
-        notes: candidate.notes || candidate.recruiterNotes || null,
-        assignedJobTitles: titles,
-      });
+      return annotateCandidateListFlags(
+        {
+          ...scopedCandidate,
+          resume: scopedCandidate.resume || scopedCandidate.resumeUrl || null,
+          skills:
+            Array.isArray(scopedCandidate.skills) && scopedCandidate.skills.length
+              ? scopedCandidate.skills
+              : Array.isArray(scopedCandidate.recruiterSkills)
+                ? scopedCandidate.recruiterSkills
+                : [],
+          experience: scopedCandidate.experience ?? scopedCandidate.experienceYears ?? null,
+          status: scopedCandidate.status || scopedCandidate.recruiterStatus || 'NEW',
+          education: scopedCandidate.education || scopedCandidate.recruiterEducation || null,
+          languages:
+            Array.isArray(scopedCandidate.languages) && scopedCandidate.languages.length
+              ? scopedCandidate.languages
+              : Array.isArray(scopedCandidate.recruiterLanguages)
+                ? scopedCandidate.recruiterLanguages
+                : [],
+          notes: scopedCandidate.notes || scopedCandidate.recruiterNotes || null,
+          assignedJobTitles: titles,
+        },
+        tenantJobIdSet
+      );
     });
 
-    return formatPaginationResponse(enriched, page, limit, total);
+    const withAudit = await prepareListWithAuditMeta(enriched, ENTITY_TYPES.CANDIDATE);
+    return formatPaginationResponse(withAudit, page, limit, total);
   },
 
   async getById(id, req = null) {
+    const tenantJobIdSet = isTenantScopedRequest() ? await getTenantJobIdSet() : null;
+    const annotateForTenant = (row) =>
+      annotateCandidateListFlags(
+        tenantJobIdSet && tenantJobIdSet.size > 0
+          ? scopeCandidateJobLinksToTenant(row, tenantJobIdSet)
+          : row,
+        tenantJobIdSet
+      );
+
     // Super admins should be able to open ANY candidate in their tenant by default.
     // buildSuperAdminOwnerScope already returns null unless mineOnly=true is explicitly
     // passed, so we don't apply any extra "mine" restriction here. Non-super users
@@ -2216,7 +2574,7 @@ export const candidateService = {
         const careerPrefs = await fetchPortalCareerPreferencesRaw(portalPrisma, id);
         mergeCareerPreferencesIntoCandidate(commonCandidate, careerPrefs);
         await hydrateCandidateResumeFromPortal(commonCandidate, portalPrisma);
-        return buildCandidateResponse(annotateCandidateListFlags(commonCandidate), portalPrisma);
+        return buildCandidateResponse(annotateForTenant(commonCandidate), portalPrisma);
       }
       if (tombstone || purgedRef) {
         return null;
@@ -2235,7 +2593,7 @@ export const candidateService = {
           const careerPrefs = await fetchPortalCareerPreferencesRaw(portalPrisma, candidate.id);
           mergeCareerPreferencesIntoCandidate(candidate, careerPrefs);
           await hydrateCandidateResumeFromPortal(candidate, portalPrisma);
-          return buildCandidateResponse(annotateCandidateListFlags(candidate), portalPrisma);
+          return buildCandidateResponse(annotateForTenant(candidate), portalPrisma);
         }
       }
 
@@ -2243,7 +2601,7 @@ export const candidateService = {
         const careerPrefs = await fetchPortalCareerPreferencesRaw(portalPrisma, id);
         mergeCareerPreferencesIntoCandidate(commonCandidate, careerPrefs);
         await hydrateCandidateResumeFromPortal(commonCandidate, portalPrisma);
-        return buildCandidateResponse(annotateCandidateListFlags(commonCandidate), portalPrisma);
+        return buildCandidateResponse(annotateForTenant(commonCandidate), portalPrisma);
       }
     }
 
@@ -2262,7 +2620,7 @@ export const candidateService = {
     mergeCareerPreferencesIntoCandidate(candidate, careerPrefs);
     await hydrateCandidateResumeFromPortal(candidate, portalClientForPrefs);
 
-    return buildCandidateResponse(candidate);
+    return buildCandidateResponse(annotateForTenant(candidate), portalClientForPrefs);
   },
 
   async create(data, createdByUserId) {
@@ -2319,10 +2677,20 @@ export const candidateService = {
 
     console.log(`✅ Candidate created successfully with ID: ${candidate.id}\n`);
 
+    if (createdByUserId) {
+      const entityName =
+        `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() || candidate.email || 'Candidate';
+      await activityService.logCandidateCreated({
+        entityId: candidate.id,
+        performedById: createdByUserId,
+        entityName,
+      });
+    }
+
     return candidate;
   },
 
-  async update(id, data) {
+  async update(id, data, performedByUserId = null) {
     // Whitelist of fields that exist on the Candidate Prisma model. Anything not
     // in this list (e.g. legacy `tags`, `dateOfBirth`, `workAuthorization`,
     // `state`, `zipCode`, `github`, `gender`, `willingToRelocate`,
@@ -2431,6 +2799,22 @@ export const candidateService = {
 
     dbLogger.logUpdate('CANDIDATE', id, updateData);
 
+    const beforeUpdate = await prisma.candidate.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        status: true,
+        stage: true,
+        assignedToId: true,
+        notes: true,
+        currentTitle: true,
+        currentCompany: true,
+      },
+    });
+
     // The candidate may live in the main tenant DB (recruiter-created) OR in
     // the per-tenant job-portal DB (self-registered via the public portal).
     // We update wherever the row actually exists so saves never fail with
@@ -2464,6 +2848,16 @@ export const candidateService = {
     }
 
     console.log(`✅ Candidate updated successfully (ID: ${id})\n`);
+
+    if (performedByUserId && beforeUpdate && Object.keys(updateData).length) {
+      await activityService.logCandidateFieldChanges({
+        entityId: id,
+        performedById: performedByUserId,
+        oldData: beforeUpdate,
+        newData: { ...beforeUpdate, ...updateData },
+        trackedFields: Object.keys(updateData),
+      });
+    }
 
     return updated;
   },
@@ -2547,6 +2941,11 @@ export const candidateService = {
         ? rowBeforeDelete.extraData
         : {};
 
+    const deletedRow = await prisma.candidate.findUnique({
+      where: { id },
+      select: { firstName: true, lastName: true, email: true },
+    });
+
     await prisma.candidate.update({
       where: { id },
       data: {
@@ -2563,6 +2962,20 @@ export const candidateService = {
         },
       },
     });
+
+    if (performedById && deletedRow) {
+      const entityName =
+        `${deletedRow.firstName || ''} ${deletedRow.lastName || ''}`.trim() ||
+        rowBeforeDelete?.email ||
+        'Candidate';
+      await activityService.logCandidateActivity({
+        entityId: id,
+        performedById,
+        action: 'Candidate moved to Recycle Bin',
+        description: `"${entityName}" was soft-deleted.`,
+      });
+    }
+
     return { message: 'Candidate moved to Recycle Bin' };
   },
 
@@ -2608,7 +3021,8 @@ export const candidateService = {
       }),
       prisma.candidate.count({ where }),
     ]);
-    return formatPaginationResponse(candidates, page, limit, total);
+    const withAudit = await prepareListWithAuditMeta(candidates, ENTITY_TYPES.CANDIDATE);
+    return formatPaginationResponse(withAudit, page, limit, total);
   },
 
   /** Recycle Bin — restore a soft-deleted candidate. */
@@ -2904,6 +3318,9 @@ export const candidateService = {
     const job = await prisma.job.findUnique({
       where: { id: jobId },
       include: {
+        client: {
+          select: { companyName: true },
+        },
         pipelineStages: {
           orderBy: { order: 'asc' },
         },
@@ -3061,6 +3478,23 @@ export const candidateService = {
         '[candidate.addToPipeline] candidate stage sync failed:',
         stageError?.message || stageError,
       );
+    }
+
+    if (
+      stageName.toLowerCase() === 'hired' &&
+      candidate.email
+    ) {
+      try {
+        await sendCandidateHiredEmail({
+          toEmail: candidate.email,
+          candidateName: `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim(),
+          jobTitle: job.title,
+          companyName: job.client?.companyName || null,
+          senderUserId: userId,
+        });
+      } catch (emailErr) {
+        console.warn('[candidate.addToPipeline] hired email failed:', emailErr?.message || emailErr);
+      }
     }
 
     return this.getById(candidateId);
@@ -3284,19 +3718,41 @@ export const candidateService = {
       );
     }
 
+    if (Boolean(data?.sendEmail) && candidate.email) {
+      try {
+        const job = jobId
+          ? await prisma.job.findUnique({
+              where: { id: jobId },
+              select: { title: true },
+            })
+          : null;
+        await sendCandidateRejectedEmail({
+          toEmail: candidate.email,
+          candidateName: `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim(),
+          jobTitle: job?.title || null,
+          reason,
+          feedback: showFeedbackToCandidate ? feedback : '',
+          senderUserId: userId,
+        });
+      } catch (emailErr) {
+        console.warn('[candidate.rejectCandidate] rejection email failed:', emailErr?.message || emailErr);
+      }
+    }
+
     return this.getById(candidateId);
   },
 
   async scheduleInterview(candidateId, data, userId) {
-    const candidate = await getCandidateOrThrow(candidateId);
-    const jobId = String(data?.jobId || candidate.assignedJobs?.[0] || '').trim();
+    const jobId = String(data?.jobId || '').trim();
+    const candidate = await getCandidateOrThrow(candidateId, { jobId: jobId || undefined });
+    const resolvedJobId = String(jobId || candidate.assignedJobs?.[0] || '').trim();
 
-    if (!jobId) {
+    if (!resolvedJobId) {
       throw new Error('Linked job is required to schedule an interview');
     }
 
     const job = await prisma.job.findUnique({
-      where: { id: jobId },
+      where: { id: resolvedJobId },
       select: {
         id: true,
         title: true,
@@ -3308,10 +3764,8 @@ export const candidateService = {
       throw new Error('Job not found');
     }
 
-    const interviewers = Array.isArray(data?.interviewers) ? data.interviewers.filter(Boolean) : [];
-    if (!interviewers.length) {
-      throw new Error('Select at least one interviewer');
-    }
+    const clientId = resolveInterviewClientIdForJob(job, data);
+    const interviewers = resolveScheduleInterviewers(data, userId);
     const panelMembers = await prisma.user.findMany({
       where: { id: { in: interviewers.map((item) => item.id).filter(Boolean) } },
       select: { id: true, name: true, email: true },
@@ -3333,16 +3787,30 @@ export const candidateService = {
     }
 
     const client = await prisma.client.findUnique({
-      where: { id: job.clientId },
+      where: { id: clientId },
       select: { companyName: true },
     });
+    if (!client) {
+      throw new Error('Client not found. Link a valid client to this job before scheduling.');
+    }
+
+    const assignedJobs = Array.isArray(candidate.assignedJobs) ? candidate.assignedJobs.map(String) : [];
+    if (!assignedJobs.includes(resolvedJobId)) {
+      await prisma.candidate.update({
+        where: { id: candidateId },
+        data: {
+          assignedJobs: [...assignedJobs, resolvedJobId],
+          lastActivity: new Date(),
+        },
+      });
+    }
 
     const interview = await prisma.$transaction(async (tx) => {
       const createdInterview = await tx.interview.create({
         data: {
           candidateId,
-          jobId,
-          clientId: job.clientId,
+          jobId: resolvedJobId,
+          clientId,
           interviewerId: leadInterviewer?.id || null,
           createdById: userId,
           scheduledAt,
@@ -3505,7 +3973,7 @@ export const candidateService = {
 
     await updateCandidateStage({
       candidateId,
-      jobId,
+      jobId: resolvedJobId,
       stage: PIPELINE_STAGES.INTERVIEW,
       metadata: {
         scheduledAt: interview.scheduledAt,
@@ -3541,15 +4009,16 @@ export const candidateService = {
   },
 
   async generateInterviewMeetingLink(candidateId, data, userId) {
-    const candidate = await getCandidateOrThrow(candidateId);
-    const jobId = String(data?.jobId || candidate.assignedJobs?.[0] || '').trim();
+    const jobId = String(data?.jobId || '').trim();
+    const candidate = await getCandidateOrThrow(candidateId, { jobId: jobId || undefined });
+    const resolvedJobId = String(jobId || candidate.assignedJobs?.[0] || '').trim();
 
-    if (!jobId) {
+    if (!resolvedJobId) {
       throw new Error('Linked job is required to generate a meeting link');
     }
 
     const job = await prisma.job.findUnique({
-      where: { id: jobId },
+      where: { id: resolvedJobId },
       select: { id: true, title: true, clientId: true },
     });
 
@@ -3571,7 +4040,9 @@ export const candidateService = {
   },
 
   async updateInterview(candidateId, interviewId, data, userId) {
-    const candidate = await getCandidateOrThrow(candidateId);
+    const candidate = await getCandidateOrThrow(candidateId, {
+      jobId: data?.jobId || undefined,
+    });
 
     const existing = await prisma.interview.findUnique({
       where: { id: interviewId },
@@ -3694,7 +4165,9 @@ export const candidateService = {
       req.query?.includeCommonPool === 'true' || req.query?.includeCommonPool === '1';
     const mine =
       req.query?.mine === 'true' || req.query?.mine === '1' || req.query?.mine === true;
+    const loadCommonPool = includeCommonPool || mine;
     const userId = req.user?.id;
+    const myJobIds = mine && userId ? await getMyJobIds(userId) : [];
 
     const emptyStats = {
       all: 0,
@@ -3734,12 +4207,22 @@ export const candidateService = {
       AND: [
         scopeWhere || {},
         { isDeleted: { not: true } },
-        ...(includeCommonPool ? [] : [buildCrmCandidatesListScopeClause()]),
+        ...(loadCommonPool ? [] : [buildCrmCandidatesListScopeClause()]),
       ],
     };
     let scopedCandidates = await prisma.candidate.findMany({
       where: scopedStatsWhere,
-      select: { id: true, stage: true, source: true },
+      select: {
+        id: true,
+        stage: true,
+        source: true,
+        createdById: true,
+        assignedToId: true,
+        assignedJobs: true,
+        applications: { select: { jobId: true }, take: 30 },
+        pipelineEntries: { select: { jobId: true }, take: 30 },
+        matches: { select: { jobId: true }, take: 30 },
+      },
     });
 
     if (isTenantScopedRequest()) {
@@ -3757,44 +4240,52 @@ export const candidateService = {
       const byId = new Map(scopedCandidates.map((candidate) => [candidate.id, candidate]));
       for (const portalCandidate of portalCandidates) {
         if (softDeletedTenantIds.has(portalCandidate.id)) continue;
-        if (!byId.has(portalCandidate.id)) {
-          byId.set(portalCandidate.id, { id: portalCandidate.id, stage: portalCandidate.stage || null });
-        }
+        const prior = byId.get(portalCandidate.id);
+        const mergedRow = prior
+          ? mergePortalAndTenantCandidateRow(portalCandidate, prior)
+          : portalCandidate;
+        byId.set(portalCandidate.id, mergedRow);
       }
       scopedCandidates = Array.from(byId.values());
     }
 
-    if (includeCommonPool && isTenantScopedRequest()) {
+    if (loadCommonPool && isTenantScopedRequest()) {
       const commonCandidates = await fetchCandidateCommonForCandidatesList(req);
       const softDeletedTenantIds = commonCandidates.length
         ? await collectSoftDeletedTenantCandidateIds(commonCandidates.map((c) => c.id))
         : new Set();
       const byId = new Map(scopedCandidates.map((candidate) => [candidate.id, candidate]));
       for (const commonRow of commonCandidates) {
-        if (!byId.has(commonRow.id)) {
-          byId.set(commonRow.id, {
-            id: commonRow.id,
-            stage: commonRow.stage || null,
-            source: commonRow.source,
-            firstName: commonRow.firstName,
-            lastName: commonRow.lastName,
-            email: commonRow.email,
-          });
-        }
+        const prior = byId.get(commonRow.id);
+        byId.set(
+          commonRow.id,
+          prior ? mergePortalAndTenantCandidateRow(commonRow, prior) : commonRow
+        );
       }
       scopedCandidates = Array.from(byId.values());
     }
 
-    scopedCandidates = scopedCandidates.filter((candidate) =>
-      shouldShowOnCrmCandidatesList(candidate, { includeCommonPool })
-    );
+    scopedCandidates = scopedCandidates
+      .filter((candidate) => shouldShowOnCrmCandidatesList(candidate, { includeCommonPool: loadCommonPool }))
+      .filter((candidate) =>
+        mine && userId ? candidateMatchesMineScope(candidate, userId, myJobIds) : true
+      );
+
+    const tenantJobIdSet = isTenantScopedRequest() ? await getTenantJobIdSet() : null;
+    const resolvedForStats = scopedCandidates.map((candidate) => {
+      const scoped =
+        tenantJobIdSet && tenantJobIdSet.size > 0
+          ? scopeCandidateJobLinksToTenant(candidate, tenantJobIdSet)
+          : candidate;
+      return annotateCandidateListFlags(scoped, tenantJobIdSet);
+    });
 
     const stageCounts = stages.map((stageName) => ({
       stage: stageName,
-      count: scopedCandidates.filter((candidate) => String(candidate.stage || '') === stageName).length,
+      count: resolvedForStats.filter((candidate) => String(candidate.stage || '') === stageName).length,
     }));
 
-    const totalCount = scopedCandidates.length;
+    const totalCount = resolvedForStats.length;
 
     // Build result object
     const result = {

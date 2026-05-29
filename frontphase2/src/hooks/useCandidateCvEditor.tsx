@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import CVEditorModal from '../components/CVEditorModal';
 import {
   apiGetCandidate,
@@ -69,32 +69,65 @@ export function useCandidateCvEditor({
     return uploadsBase ? buildFileHref(raw, uploadsBase) : raw;
   })();
 
-  const refreshBackend = useCallback(async () => {
-    if (!candidateId) return null;
-    try {
-      const raw = await apiGetCandidate(candidateId);
-      const data = enrichBackendCandidateFromPhase1Snapshot(extractApiData<BackendCandidate>(raw));
-      setBackendCandidate(data);
-      onBackendCandidateChange?.(data);
-      return data;
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Unable to load CV data';
-      const hasListResume = Boolean(String(resumeUrl || '').trim());
-      if (!/candidate not found/i.test(message) || !hasListResume) {
-        onToast?.(message);
-      }
-      return null;
-    }
-  }, [candidateId, onBackendCandidateChange, onToast]);
+  const onToastRef = useRef(onToast);
+  const onBackendCandidateChangeRef = useRef(onBackendCandidateChange);
+  const onCandidateUpdatedRef = useRef(onCandidateUpdated);
+  const resumeUrlRef = useRef(resumeUrl);
+  const fetchInflightRef = useRef<Promise<BackendCandidate | null> | null>(null);
 
   useEffect(() => {
-    if (!enabled || !candidateId) return;
+    onToastRef.current = onToast;
+  }, [onToast]);
+  useEffect(() => {
+    onBackendCandidateChangeRef.current = onBackendCandidateChange;
+  }, [onBackendCandidateChange]);
+  useEffect(() => {
+    onCandidateUpdatedRef.current = onCandidateUpdated;
+  }, [onCandidateUpdated]);
+  useEffect(() => {
+    resumeUrlRef.current = resumeUrl;
+  }, [resumeUrl]);
+
+  const refreshBackend = useCallback(async () => {
+    if (!candidateId) return null;
+    if (fetchInflightRef.current) {
+      return fetchInflightRef.current;
+    }
+
+    const run = (async () => {
+      try {
+        const raw = await apiGetCandidate(candidateId);
+        const data = enrichBackendCandidateFromPhase1Snapshot(extractApiData<BackendCandidate>(raw));
+        setBackendCandidate(data);
+        onBackendCandidateChangeRef.current?.(data);
+        return data;
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Unable to load CV data';
+        const hasListResume = Boolean(String(resumeUrlRef.current || '').trim());
+        if (!/candidate not found/i.test(message) || !hasListResume) {
+          onToastRef.current?.(message);
+        }
+        return null;
+      } finally {
+        fetchInflightRef.current = null;
+      }
+    })();
+
+    fetchInflightRef.current = run;
+    return run;
+  }, [candidateId]);
+
+  useEffect(() => {
+    if (!enabled || !candidateId) {
+      fetchInflightRef.current = null;
+      return;
+    }
     void refreshBackend();
   }, [enabled, candidateId, refreshBackend]);
 
   const openEditor = useCallback(async () => {
     if (!candidateId) {
-      onToast?.('Candidate not loaded');
+      onToastRef.current?.('Candidate not loaded');
       return;
     }
     setCvEditorLoading(true);
@@ -103,20 +136,20 @@ export function useCandidateCvEditor({
       setCvEditorData(candidateToCvEditorData(data));
       setCvEditorOpen(true);
     } catch (error: unknown) {
-      onToast?.(error instanceof Error ? error.message : 'Unable to open CV editor');
+      onToastRef.current?.(error instanceof Error ? error.message : 'Unable to open CV editor');
     } finally {
       setCvEditorLoading(false);
     }
-  }, [candidateId, onToast, refreshBackend]);
+  }, [candidateId, refreshBackend]);
 
   const openStructuredPreview = useCallback(() => {
     if (!backendCandidate) {
-      onToast?.('Loading CV data…');
+      onToastRef.current?.('Loading CV data…');
       return;
     }
     setCvViewData(candidateToCvEditorData(backendCandidate));
     setCvViewOpen(true);
-  }, [backendCandidate, onToast]);
+  }, [backendCandidate]);
 
   const handleSave = useCallback(
     async (data: CVEditorData) => {
@@ -157,24 +190,17 @@ export function useCandidateCvEditor({
           onBackendCandidateChange?.(withPref);
         }
 
-        await onCandidateUpdated?.();
-        onToast?.('CV saved');
+        await onCandidateUpdatedRef.current?.();
+        onToastRef.current?.('CV saved');
         setCvEditorOpen(false);
       } catch (error: unknown) {
-        onToast?.(error instanceof Error ? error.message : 'Unable to save CV');
+        onToastRef.current?.(error instanceof Error ? error.message : 'Unable to save CV');
         throw error;
       } finally {
         setSaving(false);
       }
     },
-    [
-      backendCandidate,
-      onBackendCandidateChange,
-      onCandidateUpdated,
-      onToast,
-      onViewModeChange,
-      resumeHref,
-    ]
+    [backendCandidate, onViewModeChange, resumeHref]
   );
 
   const busy = cvEditorLoading || saving;

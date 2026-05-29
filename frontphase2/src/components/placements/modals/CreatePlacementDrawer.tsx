@@ -3,8 +3,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Upload, X } from 'lucide-react';
-import type { CreatePlacementPayload, EmploymentType } from '../../../types/placement';
-import { calculatePlacementFee } from '../../../utils/placements';
+import type { CreatePlacementPayload, EmploymentType, PlacementStatus } from '../../../types/placement';
+import {
+  calculatePlacementFee,
+  getPlacementStatusLabel,
+  PLACEMENT_STATUS_OPTIONS,
+} from '../../../utils/placements';
 import { SUPPORTED_CURRENCIES, formatCurrencyAmount } from '../../../utils/currency';
 
 interface CreatePlacementDrawerProps {
@@ -34,6 +38,7 @@ const initialState = {
   offerDate: '',
   expectedJoiningDate: '',
   employmentType: 'PERMANENT' as EmploymentType,
+  status: 'OFFER_SENT' as PlacementStatus,
   notes: '',
 };
 
@@ -76,6 +81,7 @@ export function CreatePlacementDrawer({
           ? { expectedJoiningDate: String(initialValues.expectedJoiningDate).slice(0, 10) }
           : null),
         ...(initialValues?.employmentType ? { employmentType: initialValues.employmentType } : null),
+        ...(initialValues?.status ? { status: initialValues.status } : null),
         ...(initialValues?.notes !== undefined ? { notes: String(initialValues.notes || '') } : null),
         ...(prefill?.candidateId ? { candidateId: prefill.candidateId } : null),
         ...(prefill?.jobId ? { jobId: prefill.jobId } : null),
@@ -118,6 +124,10 @@ export function CreatePlacementDrawer({
     if (!form.placementFee || Number(form.placementFee) <= 0) nextErrors.placementFee = 'Placement fee is required';
     if (!form.offerDate) nextErrors.offerDate = 'Offer date is required';
     if (!form.employmentType) nextErrors.employmentType = 'Employment type is required';
+    if (!form.status) nextErrors.status = 'Status is required';
+    if (form.status === 'JOINING_SCHEDULED' && !form.expectedJoiningDate) {
+      nextErrors.expectedJoiningDate = 'Joining date is required for Joining Scheduled status';
+    }
     if (!isEditMode && offerLetter) {
       const name = offerLetter.name.toLowerCase();
       const type = (offerLetter.type || '').toLowerCase();
@@ -340,6 +350,11 @@ export function CreatePlacementDrawer({
                   onChange={(event) => setForm((current) => ({ ...current, expectedJoiningDate: event.target.value }))}
                   className="h-11 w-full rounded-xl border border-[#D1D5DB] bg-white px-3 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
                 />
+                {errors.expectedJoiningDate ? (
+                  <p className="mt-1 text-xs text-red-600">{errors.expectedJoiningDate}</p>
+                ) : form.status === 'JOINING_SCHEDULED' ? (
+                  <p className="mt-1 text-xs text-[#6B7280]">Required when status is Joining Scheduled.</p>
+                ) : null}
               </div>
 
               <div>
@@ -357,6 +372,32 @@ export function CreatePlacementDrawer({
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-[#111827]">Status*</label>
+                <select
+                  value={form.status}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      status: event.target.value as PlacementStatus,
+                    }))
+                  }
+                  className="h-11 w-full rounded-xl border border-[#D1D5DB] bg-white px-3 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
+                >
+                  {PLACEMENT_STATUS_OPTIONS.map((status) => (
+                    <option key={status} value={status}>
+                      {getPlacementStatusLabel(status)}
+                    </option>
+                  ))}
+                </select>
+                {errors.status ? <p className="mt-1 text-xs text-red-600">{errors.status}</p> : null}
+                {!isEditMode && form.status === 'OFFER_SENT' ? (
+                  <p className="mt-1 text-xs text-[#6B7280]">
+                    Default when sending an offer letter to the candidate on Phase 1.
+                  </p>
+                ) : null}
               </div>
 
               {!isEditMode ? (
@@ -418,6 +459,7 @@ export function CreatePlacementDrawer({
                       offerDate: form.offerDate,
                       expectedJoiningDate: form.expectedJoiningDate || undefined,
                       employmentType: form.employmentType,
+                      status: form.status,
                       notes: form.notes || undefined,
                     },
                     isEditMode ? null : offerLetter

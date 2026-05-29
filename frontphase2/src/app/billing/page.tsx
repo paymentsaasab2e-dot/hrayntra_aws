@@ -41,6 +41,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import PaginationAll from '../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 import InvoiceActivityDrawer from '../../components/billing/InvoiceActivityDrawer';
+import { TableAuditColumnHeader, TableAuditCell } from '../../components/table/TableAuditCell';
+import type { AuditMeta } from '../../types/audit';
 import {
   SUPPORTED_CURRENCIES,
   convertAmount,
@@ -308,6 +310,7 @@ function Table({
   updatingInvoiceId,
   deletingRowId,
   onInvoiceStatusChange,
+  showRecordLog,
 }: {
   columns: string[];
   rows: Array<Record<string, any>>;
@@ -326,9 +329,11 @@ function Table({
   updatingInvoiceId?: string | null;
   deletingRowId?: string | null;
   onInvoiceStatusChange?: (invoiceId: string) => void;
+  showRecordLog?: boolean;
 }) {
   const trailingActionColumn = onRowOpen || onRowDelete ? 1 : 0;
-  const totalCols = columns.length + trailingActionColumn;
+  const recordLogColumn = showRecordLog ? 1 : 0;
+  const totalCols = columns.length + recordLogColumn + trailingActionColumn;
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[900px] border-collapse">
@@ -339,6 +344,7 @@ function Table({
                 {column}
               </th>
             ))}
+            {showRecordLog ? <TableAuditColumnHeader className="py-2" /> : null}
             {trailingActionColumn ? (
               <th className="px-3 sm:px-4 py-2 text-right">Actions</th>
             ) : null}
@@ -389,6 +395,12 @@ function Table({
                       </td>
                     );
                   })}
+                  {showRecordLog ? (
+                    <TableAuditCell
+                      audit={(row.auditMeta as AuditMeta | null | undefined) ?? null}
+                      className="py-3"
+                    />
+                  ) : null}
                   {trailingActionColumn ? (
                     <td className="px-3 py-3 text-right" onClick={(event) => event.stopPropagation()}>
                       <div className="inline-flex items-center justify-end gap-1">
@@ -561,6 +573,7 @@ export default function BillingPage() {
         Amount: Number(row.amount || 0),
         Total: Number(row.total || 0),
         Status: row.status,
+        auditMeta: row.auditMeta ?? null,
       }));
     }
     if (activeTab === 'Invoices') {
@@ -575,6 +588,7 @@ export default function BillingPage() {
         Amount: Number(row.amount || 0),
         Total: Number(row.total || 0),
         Status: row.status,
+        auditMeta: row.auditMeta ?? null,
       }));
     }
     if (activeTab === 'Payments') {
@@ -631,7 +645,7 @@ export default function BillingPage() {
     setRowCurrencies((current) => ({ ...current, [rowCurrencyKey(rowId)]: next }));
 
   const columns = tableRows[0]
-    ? Object.keys(tableRows[0]).filter((column) => column !== 'id')
+    ? Object.keys(tableRows[0]).filter((column) => column !== 'id' && column !== 'auditMeta')
     : activeTab === 'Taxes & Compliance' || activeTab === 'Billing Settings'
       ? []
       : DEFAULT_COLUMNS[activeTab];
@@ -1099,6 +1113,7 @@ export default function BillingPage() {
                       }
                     : undefined
                 }
+                showRecordLog={activeTab === 'Invoices' || activeTab === 'Saved drafts'}
               />
             </div>
 

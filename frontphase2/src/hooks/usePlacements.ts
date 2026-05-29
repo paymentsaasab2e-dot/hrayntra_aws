@@ -16,6 +16,7 @@ import {
   apiMarkPlacementFailed,
   apiMarkPlacementJoined,
   apiRequestPlacementReplacement,
+  apiSchedulePlacementJoining,
 } from '../lib/api';
 import { PLACEMENT_FORM_JOBS_PARAMS } from '../lib/myJobsListParams';
 import type {
@@ -26,6 +27,7 @@ import type {
   PlacementFilters,
   PlacementStats,
   RequestReplacementPayload,
+  ScheduleJoiningPayload,
 } from '../types/placement';
 import { coerceTablePageSize } from '../constants/tablePagination';
 
@@ -230,6 +232,15 @@ export function usePlacements(filters: PlacementFilters) {
         setSubmitting(true);
         try {
           await apiRequestPlacementReplacement(id, payload);
+          await fetchData();
+        } finally {
+          setSubmitting(false);
+        }
+      },
+      async scheduleJoining(id: string, payload: ScheduleJoiningPayload) {
+        setSubmitting(true);
+        try {
+          await apiSchedulePlacementJoining(id, payload);
           await fetchData();
         } finally {
           setSubmitting(false);

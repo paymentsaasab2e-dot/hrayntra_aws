@@ -34,6 +34,8 @@ import { downloadCsv } from '../../utils/csv';
 import { buildLeadsCsvColumns, LEADS_EXPORT_COLUMNS } from '../../lib/leadsExportColumns';
 import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
 import { formatDateDMY } from '../../utils/dateDisplay';
+import { extractAuditMeta } from '../../utils/auditMeta';
+import { TableAuditColumnHeader, TableAuditCell } from '../../components/table/TableAuditCell';
 import { formatDirectorDisplay } from '../../constants/salutations';
 import { formatContactListDisplay, normalizeContactList } from '../../lib/contact-channels';
 import { AssigneeAvatars } from './AssigneeAvatars';
@@ -399,6 +401,7 @@ function mapBackendLeadToFrontend(backendLead: BackendLead): Lead {
         ? backendLead.agreementFreeReplacementValue
         : undefined,
     agreementFreeReplacementUnit: backendLead.agreementFreeReplacementUnit || undefined,
+    auditMeta: extractAuditMeta(backendLead as Record<string, unknown>),
   };
 }
 
@@ -2155,13 +2158,14 @@ export default function RecruitmentAgencyDashboard() {
                         <th className="px-3 sm:px-4 py-2">Status</th>
                         <th className="px-3 sm:px-4 py-2">Assigned To</th>
                         <th className="px-3 sm:px-4 py-2">Last Follow-up</th>
+                        <TableAuditColumnHeader />
                         <th className="px-3 sm:px-4 py-2 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100/80">
                       {filteredLeads.length === 0 ? (
                         <tr>
-                          <td colSpan={8 + selectedDynamicColumnLabels.length} className="px-4 py-12 text-center">
+                          <td colSpan={9 + selectedDynamicColumnLabels.length} className="px-4 py-12 text-center">
                             <p className="text-xs font-medium text-slate-500">No leads match your filters</p>
                             <p className="mt-1 text-[11px] text-slate-400">Try adjusting search or clear filters</p>
                           </td>
@@ -2296,6 +2300,7 @@ export default function RecruitmentAgencyDashboard() {
                                 nextFollowUp={lead.nextFollowUp}
                               />
                             </td>
+                            <TableAuditCell audit={lead.auditMeta} />
                             <td className="px-3 sm:px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                               <div className="inline-flex items-center justify-end gap-0.5 rounded-xl bg-slate-100/70 p-0.5 ring-1 ring-slate-200/60">
                                 {SHOW_TABLE_ROW_EDIT_ICON ? (

@@ -15,6 +15,8 @@ import {
   sendInterviewScheduled,
 } from './notificationService.js';
 import { INTERVIEW_ACTIVITY_ACTIONS, logActivity } from '../utils/activityLogger.js';
+import { prepareListWithAuditMeta, attachAuditMetaToEntity } from '../utils/listAuditMeta.js';
+import { ENTITY_TYPES } from './activityService.js';
 import { canViewAllAssignments } from '../utils/permissionScope.js';
 import { notifyInterviewScheduleChange } from '../modules/notification/interviewNotifications.js';
 import {
@@ -648,8 +650,10 @@ export const interviewService = {
       countKpis(finalWhere),
     ]);
 
+    const withAudit = await prepareListWithAuditMeta(data, ENTITY_TYPES.INTERVIEW);
+
     return {
-      data,
+      data: withAudit,
       total,
       page,
       totalPages: Math.ceil(total / limit),
@@ -666,7 +670,7 @@ export const interviewService = {
     if (!interview) {
       throw new Error('Interview not found');
     }
-    return interview;
+    return attachAuditMetaToEntity(interview, ENTITY_TYPES.INTERVIEW);
   },
 
   async create(payload, user) {

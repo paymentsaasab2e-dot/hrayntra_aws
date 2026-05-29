@@ -4,6 +4,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { createPortal } from 'react-dom';
 import {
   ArrowUpDown,
+  Calendar,
   Check,
   FileText,
   MoreHorizontal,
@@ -22,6 +23,7 @@ import {
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import PaginationAll from '../PaginationAll';
 import { TableSkeleton } from '../ui/Skeleton';
+import { TableAuditColumnHeader, TableAuditCell } from '../table/TableAuditCell';
 
 interface PlacementsTableProps {
   data: Placement[];
@@ -38,6 +40,7 @@ interface PlacementsTableProps {
   onView: (placement: Placement) => void;
   onEdit?: (placement: Placement) => void;
   onMarkJoined?: (placement: Placement) => void;
+  onScheduleJoining?: (placement: Placement) => void;
   onMarkFailed?: (placement: Placement, mode: 'FAILED' | 'NO_SHOW') => void;
   onRequestReplacement?: (placement: Placement) => void;
   onDelete?: (placement: Placement) => void;
@@ -266,6 +269,7 @@ export function PlacementsTable({
   onView,
   onEdit,
   onMarkJoined,
+  onScheduleJoining,
   onMarkFailed,
   onRequestReplacement,
   onDelete,
@@ -357,6 +361,7 @@ export function PlacementsTable({
               </th>
               <th className={thPad}>Type</th>
               <th className={thPad}>Status</th>
+              <TableAuditColumnHeader className={thPad} />
               <th className={`${thPad} text-right`}>Actions</th>
             </tr>
           </thead>
@@ -364,7 +369,10 @@ export function PlacementsTable({
             {data.map((placement) => {
               const statusStyle = getStatusBadgeStyle(placement.status);
               const typeStyle = getEmploymentTypeBadgeStyle(placement.employmentType);
-              const canMarkJoinedStatus = ['OFFER_ACCEPTED', 'JOINING_SCHEDULED'].includes(placement.status);
+              const canMarkJoinedStatus = placement.status === 'JOINING_SCHEDULED';
+              const canScheduleJoining =
+                onScheduleJoining &&
+                ['OFFER_ACCEPTED', 'JOINING_SCHEDULED'].includes(placement.status);
 
               return (
                 <tr key={placement.id} className={rowClass}>
@@ -436,6 +444,8 @@ export function PlacementsTable({
                     )}
                   </td>
 
+                  <TableAuditCell audit={placement.auditMeta} className={tdPad} />
+
                   <td className={tdPad}>
                     <div className="flex items-center justify-end gap-1" onClick={(event) => event.stopPropagation()}>
                       <button
@@ -476,6 +486,21 @@ export function PlacementsTable({
                           }
                         >
                           <Receipt className="h-4 w-4" />
+                        </button>
+                      ) : null}
+
+                      {onScheduleJoining && canScheduleJoining ? (
+                        <button
+                          type="button"
+                          onClick={() => onScheduleJoining(placement)}
+                          className="rounded-lg p-2 text-slate-400 hover:bg-amber-50 hover:text-amber-700"
+                          title={
+                            placement.status === 'JOINING_SCHEDULED'
+                              ? 'Edit joining schedule'
+                              : 'Schedule joining'
+                          }
+                        >
+                          <Calendar className="h-4 w-4" />
                         </button>
                       ) : null}
 

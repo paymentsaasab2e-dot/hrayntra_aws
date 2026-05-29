@@ -12,6 +12,8 @@ export type InterviewMode = 'Online' | 'Offline';
 export type Recommendation = 'Pass' | 'Reject' | 'Hold';
 export type DrawerTab = 'overview' | 'panel' | 'feedback' | 'client' | 'notes' | 'activity' | 'files';
 
+import type { AuditMeta } from './audit';
+
 export interface InterviewCandidate {
   id: string;
   name: string;
@@ -105,6 +107,7 @@ export interface Interview {
   internalNotes: InterviewNote[];
   activityLog: InterviewActivity[];
   recording?: InterviewRecording | null;
+  auditMeta?: AuditMeta;
 }
 
 export interface InterviewFiltersState {

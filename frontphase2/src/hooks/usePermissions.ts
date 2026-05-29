@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { USER_PERMISSIONS_CHANGED_EVENT } from '../lib/api';
+import { MODULE_ACCESS_MAP } from '../lib/rbac/moduleAccess';
+import { userHasAnyPermission as checkAnyPermission } from '../lib/rbac/permissionAliases';
 
 interface UserData {
   role?: string;
@@ -91,25 +93,19 @@ export function usePermissions() {
       normalizedRole === 'super admin' || normalizedRoleName === 'super admin';
     const hasFullAccess = isSuperAdminRole || permissions.includes('all');
 
-    const hasPermission = (permissionName: string): boolean => {
-      if (hasFullAccess) {
-        return true;
-      }
-      return permissions.includes(permissionName);
+    const hasAnyPermission = (permissionNames: string[]): boolean => {
+      if (hasFullAccess) return true;
+      return checkAnyPermission(permissions, permissionNames);
     };
 
-    const hasAnyPermission = (permissionNames: string[]): boolean => {
-      if (hasFullAccess) {
-        return true;
-      }
-      return permissionNames.some((perm) => permissions.includes(perm));
+    const hasPermission = (permissionName: string): boolean => {
+      if (hasFullAccess) return true;
+      return checkAnyPermission(permissions, [permissionName]);
     };
 
     const hasAllPermissions = (permissionNames: string[]): boolean => {
-      if (hasFullAccess) {
-        return true;
-      }
-      return permissionNames.every((perm) => permissions.includes(perm));
+      if (hasFullAccess) return true;
+      return permissionNames.every((perm) => checkAnyPermission(permissions, [perm]));
     };
 
     const isSuperAdmin = (): boolean => {
@@ -125,20 +121,7 @@ export function usePermissions() {
     };
 
     const canAccess = (module: string): boolean => {
-      const modulePermissionMap: Record<string, string[]> = {
-        Leads: ['leads_create', 'leads_read', 'leads_update', 'leads_delete'],
-        Clients: ['clients_create', 'clients_read', 'clients_update', 'clients_delete'],
-        Jobs: ['jobs_create', 'jobs_read', 'jobs_update', 'jobs_delete', 'assign_job', 'create_job', 'edit_job', 'delete_job', 'view_jobs'],
-        Candidates: ['candidates_create', 'candidates_read', 'candidates_update', 'candidates_delete', 'view_all_candidates', 'view_assigned_candidates', 'add_candidate', 'edit_candidate', 'delete_candidate', 'move_pipeline', 'submit_candidate'],
-        Interviews: ['interviews_create', 'interviews_read', 'interviews_update', 'interviews_delete'],
-        Placements: ['placements_create', 'placements_read', 'placements_update', 'placements_delete'],
-        Billing: ['access_billing', 'create_invoice', 'record_payment'],
-        Reports: ['reports_create', 'reports_read', 'reports_update', 'reports_delete'],
-        Team: ['add_team_member', 'edit_team_member', 'assign_roles', 'generate_credentials', 'manage_commission', 'manage_targets'],
-        System: ['manage_settings', 'access_integrations', 'export_data'],
-      };
-
-      const modulePermissions = modulePermissionMap[module] || [];
+      const modulePermissions = MODULE_ACCESS_MAP[module] || [];
       return hasAnyPermission(modulePermissions);
     };
 

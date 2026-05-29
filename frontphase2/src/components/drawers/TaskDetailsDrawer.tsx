@@ -31,6 +31,8 @@ import { TaskSLAAlertBadge, TaskSLAAlertsPanel, getDaysOverdue } from '../TaskSL
 import { ImageWithFallback } from '../ImageWithFallback';
 import { TaskForm } from '../TaskForm';
 import { TaskActivityLog } from '../TaskActivityLog';
+import { EntityAuditSummary } from '../table/TableAuditCell';
+import type { AuditMeta } from '../../types/audit';
 import { TaskCommunicationHistory } from '../TaskCommunicationHistory';
 import { CandidateInteractionLogs } from '../CandidateInteractionLogs';
 import { AITaskSuggestionsPanel } from '../AITaskSuggestionsPanel';
@@ -81,6 +83,7 @@ export interface TaskForDrawer {
   createdBy?: { name: string; at: string };
   notes?: string[];
   attachments?: TaskAttachment[];
+  auditMeta?: AuditMeta | null;
 }
 
 export interface TaskActivityItem {
@@ -110,7 +113,7 @@ export interface TaskDetailsDrawerProps {
   aiSuggestions?: AITaskSuggestion[];
   /** Called when user clicks Create Task on a suggestion — parent should set prefill and switch to create mode */
   onCreateTaskFromSuggestion?: (suggestion: AITaskSuggestion) => void;
-  onCreateSuccess?: () => void;
+  onCreateSuccess?: (createdTaskId?: string) => void;
   onUpdateSuccess?: () => void;
   /** Called when user clicks Edit from task detail view — parent should set mode to 'edit' */
   onRequestEdit?: () => void;
@@ -975,7 +978,7 @@ export function TaskDetailsDrawer({
         }
       }
 
-      onCreateSuccess?.();
+      onCreateSuccess?.(task.data?.id);
       handleClose();
     } catch (error: any) {
       console.error('Failed to create task:', error);
@@ -1376,7 +1379,10 @@ export function TaskDetailsDrawer({
                   )}
 
                   {task && activeTab === 'activity' && (
-                    <TaskActivityLog events={activityEvents} />
+                    <div className="space-y-4">
+                      <EntityAuditSummary audit={task.auditMeta} />
+                      <TaskActivityLog events={activityEvents} />
+                    </div>
                   )}
 
                   {task && activeTab === 'communication' && (

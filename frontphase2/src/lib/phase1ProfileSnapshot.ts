@@ -13,6 +13,10 @@ export type Phase1ProfileSnapshot = {
     dob?: string;
     country?: string;
     city?: string;
+    address?: string;
+    nationality?: string;
+    passportNumber?: string;
+    employment?: string;
     linkedinUrl?: string;
   } | null;
   summaryText?: string;
@@ -20,7 +24,13 @@ export type Phase1ProfileSnapshot = {
   education?: Array<Record<string, unknown>>;
   skills?: Array<{ name?: string; proficiency?: string; category?: string }>;
   languages?: Array<{ name?: string; proficiency?: string }>;
-  certifications?: Array<{ certificationName?: string }>;
+  certifications?: Array<{
+    id?: string;
+    certificationName?: string;
+    issuingOrganization?: string;
+    issueDate?: string;
+    expiryDate?: string;
+  }>;
   portfolioLinks?: Array<{ type?: string; url?: string }>;
   careerPreferences?: Record<string, unknown> | null;
   resume?: {
@@ -28,10 +38,34 @@ export type Phase1ProfileSnapshot = {
     fileUrl?: string;
     atsScore?: number | null;
   } | null;
-  gapExplanations?: unknown[];
-  internships?: unknown[];
-  accomplishments?: unknown[];
+  gapExplanations?: Array<Record<string, unknown>>;
+  internships?: Array<Record<string, unknown>>;
+  accomplishments?: Array<Record<string, unknown>>;
+  projects?: Array<Record<string, unknown>>;
+  academicAchievements?: Array<Record<string, unknown>>;
+  competitiveExams?: Array<Record<string, unknown>>;
+  visaWorkAuthorization?: Record<string, unknown> | null;
+  vaccination?: Record<string, unknown> | null;
 };
+
+export const PHASE1_CANDIDATE_TAG_LABEL = 'Phase 1';
+
+export function isPhase1PortalCandidate(
+  candidate?: {
+    isPhase1Candidate?: boolean;
+    source?: string | null;
+    poolOrigin?: string | null;
+    extraData?: Record<string, unknown> | null;
+  } | null
+): boolean {
+  if (!candidate) return false;
+  if (candidate.isPhase1Candidate) return true;
+  const src = String(candidate.source || '').trim().toLowerCase();
+  if (src === 'phase1') return true;
+  const origin = String(candidate.poolOrigin || '').trim().toLowerCase();
+  if (origin === 'phase1' || origin === 'phase1_common') return true;
+  return Boolean(getPhase1ProfileSnapshot(candidate.extraData));
+}
 
 type ResumeSourceLike = {
   resume?: string | null;

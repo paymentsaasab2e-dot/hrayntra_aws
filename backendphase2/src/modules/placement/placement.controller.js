@@ -115,6 +115,15 @@ export const placementController = {
     }
   },
 
+  async scheduleJoining(req, res) {
+    try {
+      const placement = await placementService.scheduleJoining(req.params.id, req.body, req.user.id);
+      sendResponse(res, 200, 'Joining scheduled successfully', placement);
+    } catch (error) {
+      sendError(res, getStatusCode(error), error.message, error);
+    }
+  },
+
   async exportCsv(req, res) {
     try {
       const csv = await placementService.exportCsv(req);

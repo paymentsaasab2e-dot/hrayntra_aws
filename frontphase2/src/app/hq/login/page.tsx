@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Building2, Lock, LogIn, Mail, Shield } from 'lucide-react';
 import { apiLogin, formatAuthErrorMessage } from '../../../lib/api';
+import { buildLoginDevicePayload } from '../../../lib/sessionAuth';
 import { HQ_PLATFORM_EMAIL, isEmailAllowedForHq } from '../../../lib/hqAccess';
 
 export default function HqLoginPage() {
@@ -30,7 +31,7 @@ export default function HqLoginPage() {
 
     try {
       setLoading(true);
-      const response = await apiLogin(normalizedEmail, password.trim());
+      const response = await apiLogin(normalizedEmail, password.trim(), await buildLoginDevicePayload());
       const loggedInEmail = String(response.data?.user?.email || normalizedEmail).trim().toLowerCase();
 
       if (!isEmailAllowedForHq(loggedInEmail)) {

@@ -237,7 +237,9 @@ export function InterviewDrawer({
                 />
               ) : null}
               {activeTab === 'notes' && onAddNote ? <DrawerNotesTab notes={interview.internalNotes} onAddNote={onAddNote} /> : null}
-              {activeTab === 'activity' ? <DrawerActivityLog items={interview.activityLog} /> : null}
+              {activeTab === 'activity' ? (
+                <DrawerActivityLog items={interview.activityLog} audit={interview.auditMeta} />
+              ) : null}
               {activeTab === 'files' ? <DrawerFilesTab interviewId={interview.id} /> : null}
             </div>
           </motion.aside>

@@ -11,6 +11,7 @@ import {
   LifeBuoy,
   GitBranch,
   BellRing,
+  History,
 } from 'lucide-react';
 import { usePermissions } from '../hooks/usePermissions';
 
@@ -28,6 +29,8 @@ type SettingsNavItem = {
   anyPermissions?: string[];
   /** When true, also requires the org-level billing toggle to be on. */
   requiresBillingNav?: boolean;
+  /** When true, only Super Admin users see this section. */
+  superAdminOnly?: boolean;
 };
 
 const baseSettingsNav: SettingsNavItem[] = [
@@ -63,6 +66,12 @@ const baseSettingsNav: SettingsNavItem[] = [
     icon: Lock,
     anyPermissions: ['manage_settings'],
   },
+  {
+    id: 'activity-log',
+    label: 'Activity Log',
+    icon: History,
+    superAdminOnly: true,
+  },
   { id: 'customization', label: 'Customization', icon: Sliders },
 ];
 
@@ -77,58 +86,77 @@ export function SettingsSidebar({
   setActiveSection,
   showBillingSection = true,
 }: SettingsSidebarProps) {
-  const { hasAnyPermission } = usePermissions();
+  const { hasAnyPermission, isSuperAdmin } = usePermissions();
 
   const settingsNav = baseSettingsNav.filter((item) => {
     if (item.requiresBillingNav && !showBillingSection) return false;
+    if (item.superAdminOnly && !isSuperAdmin()) return false;
     if (item.anyPermissions && !hasAnyPermission(item.anyPermissions)) return false;
     return true;
   });
+
   return (
-    <div className="w-72 border-r border-slate-200 h-full bg-white flex flex-col shrink-0">
-      <div className="p-6">
-        <h1 className="text-xl font-bold text-slate-900">Settings</h1>
-        <p className="text-sm text-slate-500 mt-1">Manage your platform preferences</p>
+    <aside className="flex w-[17.5rem] shrink-0 flex-col border-r border-slate-200 bg-white">
+      <div className="border-b border-slate-100 px-5 py-5">
+        <h1 className="text-lg font-bold tracking-tight text-slate-900">Settings</h1>
+        <p className="mt-1 text-sm leading-snug text-slate-500">Manage your platform preferences</p>
       </div>
-      <div className="flex-1 overflow-y-auto px-3 py-2">
-        <nav className="space-y-1">
+
+      <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="Settings sections">
+        <ul className="flex flex-col gap-1">
           {settingsNav.map((item) => {
             const isActive = activeSection === item.id;
+            const Icon = item.icon;
             return (
-              <button
-                key={item.id}
-                onClick={() => setActiveSection(item.id)}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-                  isActive 
-                    ? 'bg-[#2b7fff]/5 text-[#2b7fff]' 
-                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                }`}
-              >
-                <item.icon className={`w-5 h-5 ${isActive ? 'text-[#2b7fff]' : 'text-slate-400'}`} />
-                <span className="text-sm font-semibold">{item.label}</span>
-                {isActive && (
-                  <div className="ml-auto w-1.5 h-1.5 rounded-full bg-[#2b7fff]" />
-                )}
-              </button>
+              <li key={item.id}>
+                <button
+                  type="button"
+                  onClick={() => setActiveSection(item.id)}
+                  aria-current={isActive ? 'page' : undefined}
+                  className={`group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors ${
+                    isActive
+                      ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-100'
+                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
+                >
+                  <span
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+                      isActive
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-slate-100 text-slate-500 group-hover:bg-slate-200 group-hover:text-slate-700'
+                    }`}
+                  >
+                    <Icon className="h-[18px] w-[18px]" strokeWidth={2} />
+                  </span>
+                  <span
+                    className={`min-w-0 flex-1 text-sm font-medium leading-snug ${
+                      isActive ? 'text-blue-900' : ''
+                    }`}
+                  >
+                    {item.label}
+                  </span>
+                </button>
+              </li>
             );
           })}
-        </nav>
-      </div>
-      <div className="p-6 border-t border-slate-100">
-        <div className="bg-slate-50 rounded-xl p-4">
-          <p className="text-xs font-bold text-slate-400 uppercase mb-2">Support</p>
+        </ul>
+      </nav>
+
+      <div className="border-t border-slate-100 p-4">
+        <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Support</p>
           <Link
             href="/help-center"
-            className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700 transition-colors hover:text-[#2b7fff]"
+            className="mt-2 inline-flex items-center gap-2 text-sm font-semibold text-blue-600 transition-colors hover:text-blue-700"
           >
-            <LifeBuoy className="h-4 w-4" />
+            <LifeBuoy className="h-4 w-4 shrink-0" />
             Need help?
           </Link>
-          <p className="mt-1 text-[11px] text-slate-400">
+          <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
             Open the Help Center for FAQs and contact options.
           </p>
         </div>
       </div>
-    </div>
+    </aside>
   );
 }

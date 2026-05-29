@@ -1,5 +1,6 @@
 import { sendResponse, sendError } from '../../utils/response.js';
 import { buildDeviceMeta } from '../../utils/deviceFingerprint.js';
+import { runWithTenantContext } from '../../config/prisma.js';
 import { sessionService } from './session.service.js';
 export const sessionController = {
   async heartbeat(req, res) {
@@ -98,6 +99,66 @@ export const sessionController = {
       });
     } catch (error) {
       sendError(res, 401, error.message, error);
+    }
+  },
+
+  async emailApproveTransfer(req, res) {
+    const token = String(req.query?.token || '').trim();
+    const tenantDbName = String(req.query?.tenantDbName || '').trim();
+    try {
+      if (!token) throw new Error('Missing approval token');
+      const runApprove = () => sessionService.approveSessionTransferFromEmailToken(token);
+      if (tenantDbName) {
+        await runWithTenantContext(tenantDbName, runApprove);
+      } else {
+        await runApprove();
+      }
+      return res.redirect(
+        302,
+        sessionService.buildSessionTransferEmailRedirect({
+          status: 'approved',
+          message: 'Approval Done. The new device may now complete sign-in.',
+        }),
+      );
+    } catch (error) {
+      const mapped = sessionService.redirectStatusForTransferError(error);
+      return res.redirect(
+        302,
+        sessionService.buildSessionTransferEmailRedirect({
+          status: mapped.status,
+          message: mapped.message,
+        }),
+      );
+    }
+  },
+
+  async emailRejectTransfer(req, res) {
+    const token = String(req.query?.token || '').trim();
+    const tenantDbName = String(req.query?.tenantDbName || '').trim();
+    try {
+      if (!token) throw new Error('Missing rejection token');
+      const runReject = () => sessionService.rejectSessionTransferFromEmailToken(token);
+      if (tenantDbName) {
+        await runWithTenantContext(tenantDbName, runReject);
+      } else {
+        await runReject();
+      }
+      return res.redirect(
+        302,
+        sessionService.buildSessionTransferEmailRedirect({
+          status: 'rejected',
+          message: 'The duplicate login attempt was declined.',
+        }),
+      );
+    } catch (error) {
+      const mapped = sessionService.redirectStatusForTransferError(error);
+      return res.redirect(
+        302,
+        sessionService.buildSessionTransferEmailRedirect({
+          status: mapped.status,
+          message: mapped.message,
+        }),
+      );
     }
   },
 };

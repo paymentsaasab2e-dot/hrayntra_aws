@@ -1,4 +1,5 @@
 import { taskService } from './task.service.js';
+import { getEntityActivities, ENTITY_TYPES } from '../../services/activityService.js';
 import { taskFileService } from './task-file.service.js';
 import { sendResponse, sendError } from '../../utils/response.js';
 import fs from 'fs';
@@ -83,6 +84,22 @@ export const taskController = {
     }
   },
 
+  async getActivities(req, res) {
+    try {
+      const task = await taskService.getById(req.params.id, req);
+      if (!task) {
+        return sendError(res, 404, 'Task not found');
+      }
+      const activities = await getEntityActivities({
+        entityType: ENTITY_TYPES.TASK,
+        entityId: req.params.id,
+      });
+      sendResponse(res, 200, 'Task activities retrieved successfully', activities);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
   async create(req, res) {
     try {
       const task = await taskService.create({
@@ -119,7 +136,7 @@ export const taskController = {
       if (!note) {
         return sendError(res, 400, 'Note is required');
       }
-      const task = await taskService.addNote(req.params.id, note);
+      const task = await taskService.addNote(req.params.id, note, req.user?.id);
       sendResponse(res, 200, 'Note added successfully', task);
     } catch (error) {
       sendError(res, 400, error.message, error);

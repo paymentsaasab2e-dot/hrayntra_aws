@@ -1,4 +1,5 @@
 import type { PostServiceKycFormValues } from '../../lib/clientKycForm';
+import type { AuditMeta } from '../../types/audit';
 
 export type ClientStage = 'Active' | 'On Hold' | 'Inactive' | 'Hot Clients 🔥';
 export type ClientPriority = 'Low' | 'Medium' | 'High';
@@ -127,6 +128,7 @@ export interface Client {
   leadStatus?: string;
   owner: { name: string; avatar: string };
   lastActivity: string;
+  auditMeta?: AuditMeta;
   logo: string;
   revenue?: string;
   // Overview — Company Snapshot

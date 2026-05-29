@@ -12,6 +12,7 @@ import {
 import type { Interview } from '../../types/interview.types';
 import PaginationAll from '../PaginationAll';
 import { getCandidateStageBadgeClasses, getCandidateStageLabel } from '../../utils/candidateStage';
+import { TableAuditColumnHeader, TableAuditCell } from '../table/TableAuditCell';
 
 interface InterviewGroup {
   key: string;
@@ -304,6 +305,7 @@ export function InterviewTable({
                 INT
               </th>
               <th className="min-w-[16rem] border-l border-indigo-100/40 pl-10 pr-3 py-2 sm:pl-12 sm:pr-4 sm:py-2">Status</th>
+              <TableAuditColumnHeader />
               <th className="px-3 py-2 text-right sm:px-4">Actions</th>
             </tr>
           </thead>
@@ -446,6 +448,7 @@ export function InterviewTable({
                       </div>
                     ) : null}
                   </td>
+                  <TableAuditCell audit={primary.auditMeta} />
                   <td className="px-3 py-2.5 text-right sm:px-4" onClick={(event) => event.stopPropagation()}>
                     <div className="flex flex-col items-start gap-1.5 sm:flex-row sm:items-center sm:gap-1">
                       <button

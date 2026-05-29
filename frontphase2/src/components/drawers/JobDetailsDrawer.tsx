@@ -90,6 +90,9 @@ import {
 import { useFiles } from '../../hooks/useFiles';
 import { DocumentUploadButton } from '../import/documentUploadUi';
 import { formatDateDMY, formatDateTimeDMY, formatTime12hEnGb } from '../../utils/dateDisplay';
+import type { AuditMeta } from '../../types/audit';
+import { EntityAuditSummary } from '../table/TableAuditCell';
+import { extractAuditMeta } from '../../utils/auditMeta';
 import { JobOverviewTabContent } from './JobOverviewTabContent';
 
 /** Render salary as `currency min - max` (or single number when only one bound). */
@@ -169,6 +172,7 @@ export interface JobForDrawer {
   slaRisk?: boolean;
   managerName?: string;
   visibility?: string;
+  auditMeta?: AuditMeta;
 }
 
 export interface JobApplicationSubmission {
@@ -1965,6 +1969,9 @@ export function JobDetailsDrawer({
                 
                 return (
                   <div className="space-y-4">
+                    <EntityAuditSummary
+                      audit={job?.auditMeta ?? extractAuditMeta(job as Record<string, unknown> | undefined)}
+                    />
                     {/* Timeline filters */}
                     <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
                       <div className="flex flex-wrap items-center gap-2">

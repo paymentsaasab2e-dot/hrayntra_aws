@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { downloadCsv } from '../../utils/csv';
 import { formatDateDMY } from '../../utils/dateDisplay';
+import { extractAuditMeta } from '../../utils/auditMeta';
 import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
 import { buildClientsCsvColumns, CLIENTS_EXPORT_COLUMNS } from '../../lib/export/clientsExportColumns';
 import { fetchAllPaginated, totalPagesFromPagination } from '../../lib/export/fetchAllPaginated';
@@ -52,9 +53,18 @@ import PaginationAll from '../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 import { INITIAL_CLIENTS } from './types';
 import type { Client } from './types';
-import { apiGetClients, apiGetClient, apiDeleteClient, apiUpdateClient, type BackendClient, type BackendUser, type UpdateClientData } from '../../lib/api';
+import {
+  apiGetClients,
+  apiGetClient,
+  apiDeleteClient,
+  apiUpdateClient,
+  apiGetClientLeadStatusCatalog,
+  type BackendClient,
+  type BackendUser,
+  type UpdateClientData,
+} from '../../lib/api';
 import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
-import { requestConfirm } from '../../lib/appDialog';
+import { requestConfirm, requestError } from '../../lib/appDialog';
 import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
@@ -69,6 +79,34 @@ export const dynamic = 'force-dynamic';
 const CLIENT_TOOLBAR_SELECT =
   'rounded-lg border border-indigo-100/90 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 cursor-pointer hover:border-indigo-200/90 hover:bg-indigo-50/40';
 const CLIENTS_DYNAMIC_COLUMNS_STORAGE_KEY = 'clients.dynamicColumns';
+
+const DEFAULT_CLIENT_LEAD_STATUSES = ['New', 'Contacted', 'Qualified', 'Converted', 'Lost'] as const;
+
+function deriveClientLifecycleStatus(leadStatusValue: string): UpdateClientData['status'] {
+  return String(leadStatusValue || '').trim() === 'Converted' ? 'ACTIVE' : 'PROSPECT';
+}
+
+function mergeClientLeadStatusOptions(
+  savedStatuses: string[] | null | undefined,
+  currentStatuses: Array<string | null | undefined> = [],
+) {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  const push = (value: string | null | undefined) => {
+    const normalized = String(value || '').trim();
+    if (!normalized) return;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(normalized);
+  };
+
+  DEFAULT_CLIENT_LEAD_STATUSES.forEach(push);
+  (savedStatuses || []).forEach(push);
+  currentStatuses.forEach(push);
+
+  return merged;
+}
 
 function getClientDynamicFieldValue(client: Client, label: string): string {
   if (!Array.isArray(client.otherDetails)) return '';
@@ -207,6 +245,7 @@ function mapBackendClientToFrontend(backendClient: BackendClient): Client {
       avatar: backendClient.assignedTo.avatar || '',
     } : { name: 'Unassigned', avatar: '' },
     lastActivity: backendClient.updatedAt ? formatDateDMY(backendClient.updatedAt) : 'Never',
+    auditMeta: extractAuditMeta(backendClient as Record<string, unknown>),
     logo: backendClient.logo || '',
     revenue: backendClient.revenueGenerated || undefined,
     companySize: backendClient.companySize || undefined,
@@ -302,6 +341,7 @@ export default function App() {
   const searchParams = useSearchParams();
   const { hasAnyPermission } = usePermissions();
   const canCreateJob = hasAnyPermission(['jobs_create', 'create_job']);
+  const canUpdateClient = hasAnyPermission(['clients_update']);
   const canOpenClientTrash = hasAnyPermission(['clients_delete']);
   const [activeTab, setActiveTab] = useState('all');
   const [clientNameSortOrder, setClientNameSortOrder] = useState<'asc' | 'desc'>('asc');
@@ -320,8 +360,19 @@ export default function App() {
     }
   }, []);
   const [selectedClients, setSelectedClients] = useState<string[]>([]);
-  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [selectedClientDrawerMode, setSelectedClientDrawerMode] = useState<'view' | 'edit'>('view');
+  const [statusEdit, setStatusEdit] = useState<{
+    clientId: string | null;
+    newStatus: string | null;
+    remark: string;
+    previousStatus: string | null;
+  }>({
+    clientId: null,
+    newStatus: null,
+    remark: '',
+    previousStatus: null,
+  });
   const [showAddClientDrawer, setShowAddClientDrawer] = useState(false);
   const [showCreateJobDrawer, setShowCreateJobDrawer] = useState(false);
   const [clientIdForJob, setClientIdForJob] = useState<string | null>(null);
@@ -341,6 +392,28 @@ export default function App() {
   const [bulkStatus, setBulkStatus] = useState('');
   const [bulkAssignedTo, setBulkAssignedTo] = useState('');
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
+  const [clientLeadStatusOptions, setClientLeadStatusOptions] = useState<string[]>([
+    ...DEFAULT_CLIENT_LEAD_STATUSES,
+  ]);
+
+  const selectedClient = useMemo(
+    () => (selectedClientId ? clients.find((client) => client.id === selectedClientId) ?? null : null),
+    [clients, selectedClientId],
+  );
+
+  const patchClientInList = useCallback((id: string, patch: Partial<Client>) => {
+    setClients((prev) => prev.map((client) => (client.id === id ? { ...client, ...patch } : client)));
+  }, []);
+
+  const mergeClientOptimistically = useCallback((incoming: Client) => {
+    setClients((prev) => {
+      const exists = prev.some((client) => client.id === incoming.id);
+      if (exists) {
+        return prev.map((client) => (client.id === incoming.id ? { ...client, ...incoming } : client));
+      }
+      return [incoming, ...prev];
+    });
+  }, []);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<TablePageSize>(10);
   const pendingDeepLinkClientIdRef = useRef<string | null>(null);
@@ -510,12 +583,19 @@ export default function App() {
       return;
     }
     // Only react when the URL parameter itself changes — without this guard,
-    // closing the drawer (which clears `selectedClient`) used to re-fire and
+    // closing the drawer (which clears `selectedClientId`) used to re-fire and
     // immediately reopen the same client.
     if (pendingDeepLinkClientIdRef.current === clientId) {
       return;
     }
     pendingDeepLinkClientIdRef.current = clientId;
+
+    const existingClient = clients.find((client) => client.id === clientId);
+    if (existingClient) {
+      setSelectedClientId(clientId);
+      setSelectedClientDrawerMode('view');
+      return;
+    }
 
     let cancelled = false;
     void (async () => {
@@ -525,7 +605,8 @@ export default function App() {
         const backendClient = (response as any).data?.data || (response as any).data || response;
         if (!backendClient) return;
         const mappedClient = mapBackendClientToFrontend(backendClient);
-        setSelectedClient(mappedClient);
+        mergeClientOptimistically(mappedClient);
+        setSelectedClientId(mappedClient.id);
         setSelectedClientDrawerMode('view');
       } catch (error) {
         console.error('Failed to open client from search:', error);
@@ -535,7 +616,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [searchParams]);
+  }, [clients, mergeClientOptimistically, searchParams]);
 
   const fetchClients = useCallback(async (overrides?: { page?: number; search?: string }) => {
     try {
@@ -592,6 +673,40 @@ export default function App() {
   useEffect(() => {
     fetchClients();
   }, [fetchClients]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchClientLeadStatusCatalog = async () => {
+      try {
+        const response = await apiGetClientLeadStatusCatalog();
+        if (cancelled) return;
+        setClientLeadStatusOptions(
+          mergeClientLeadStatusOptions(
+            response?.data?.statuses,
+            clients.map((client) => client.leadStatus),
+          ),
+        );
+      } catch (err) {
+        if (cancelled) return;
+        console.error('Failed to load client lead status catalog:', err);
+        setClientLeadStatusOptions(
+          mergeClientLeadStatusOptions(undefined, clients.map((client) => client.leadStatus)),
+        );
+      }
+    };
+
+    void fetchClientLeadStatusCatalog();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    setClientLeadStatusOptions((current) =>
+      mergeClientLeadStatusOptions(current, clients.map((client) => client.leadStatus)),
+    );
+  }, [clients]);
 
   // Reusable auto-refresh: poll while visible + refresh on focus + on
   // `jobportal:clients-changed` / `jobportal:jobs-changed`.
@@ -664,6 +779,58 @@ export default function App() {
     setBulkStatus(status);
     if (status) await handleBulkUpdate({ status: status as UpdateClientData['status'] });
   };
+
+  const handleInlineLeadStatusChange = useCallback(
+    (clientId: string, newStatus: string) => {
+      const previous = clients.find((client) => client.id === clientId);
+      const previousStatus = previous?.leadStatus ?? null;
+      if (previousStatus === newStatus) return;
+
+      patchClientInList(clientId, { leadStatus: newStatus, leadStatusValue: newStatus });
+      setStatusEdit({
+        clientId,
+        newStatus,
+        remark: '',
+        previousStatus,
+      });
+    },
+    [clients, patchClientInList],
+  );
+
+  const handleSaveStatusEdit = useCallback(async () => {
+    if (!statusEdit.clientId || !statusEdit.newStatus) return;
+
+    try {
+      await apiUpdateClient(statusEdit.clientId, {
+        leadStatus: statusEdit.newStatus,
+        status: deriveClientLifecycleStatus(statusEdit.newStatus),
+      });
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('jobportal:clients-changed'));
+      }
+      await fetchClients();
+      toast.success('Lead status updated');
+    } catch (err: unknown) {
+      console.error('Failed to update client lead status:', err);
+      void requestError(err instanceof Error ? err.message : 'Failed to update lead status');
+      try {
+        await fetchClients();
+      } catch {
+        // ignore refresh failure
+      }
+    } finally {
+      setStatusEdit({ clientId: null, newStatus: null, remark: '', previousStatus: null });
+    }
+  }, [fetchClients, statusEdit.clientId, statusEdit.newStatus]);
+
+  const handleCancelStatusEdit = useCallback(async () => {
+    setStatusEdit({ clientId: null, newStatus: null, remark: '', previousStatus: null });
+    try {
+      await fetchClients();
+    } catch {
+      // ignore refresh failure
+    }
+  }, [fetchClients]);
 
   const handleBulkAssignChange = async (assignedToId: string) => {
     setBulkAssignedTo(assignedToId);
@@ -936,7 +1103,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => {
-                setSelectedClient(null);
+                setSelectedClientId(null);
                 setShowAddClientDrawer(true);
               }}
               className="bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 text-white px-3.5 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-lg shadow-indigo-500/30 active:scale-[0.98]"
@@ -965,7 +1132,7 @@ export default function App() {
             <EmptyState
               onImportClick={() => setShowImportDrawer(true)}
               onCreateClick={() => {
-                setSelectedClient(null);
+                setSelectedClientId(null);
                 setShowAddClientDrawer(true);
               }}
             />
@@ -1098,15 +1265,29 @@ export default function App() {
                     onSelectionChange={setSelectedClients}
                     onSelectClient={(client) => {
                       setSelectedClientDrawerMode('view');
-                      setSelectedClient(client);
+                      setSelectedClientId(client.id);
                     }}
                     onEditClient={(client) => {
                       setSelectedClientDrawerMode('edit');
-                      setSelectedClient(client);
+                      setSelectedClientId(client.id);
                     }}
                     onDeleteClient={handleDeleteClient}
                     onLogoUpdated={handleRefresh}
                     canCreateJob={canCreateJob}
+                    clientLeadStatusOptions={clientLeadStatusOptions}
+                    canUpdateLeadStatus={canUpdateClient}
+                    onLeadStatusChange={handleInlineLeadStatusChange}
+                    statusEditClientId={statusEdit.clientId}
+                    statusEditRemark={statusEdit.remark}
+                    onStatusEditRemarkChange={(remark) =>
+                      setStatusEdit((prev) => ({ ...prev, remark }))
+                    }
+                    onSaveStatusEdit={() => {
+                      void handleSaveStatusEdit();
+                    }}
+                    onCancelStatusEdit={() => {
+                      void handleCancelStatusEdit();
+                    }}
                     onCreateJob={(client) => {
                       if (!canCreateJob) {
                         toast.error("You don't have permission to create jobs.");
@@ -1148,7 +1329,7 @@ export default function App() {
           isAddMode={showAddClientDrawer}
           initialMode={selectedClientDrawerMode}
           onClose={() => {
-            setSelectedClient(null);
+            setSelectedClientId(null);
             setSelectedClientDrawerMode('view');
             setShowAddClientDrawer(false);
             if (searchParams.get('clientId')) {
@@ -1160,12 +1341,15 @@ export default function App() {
             }
           }}
           onDelete={(id) => {
-            setSelectedClient(null);
+            setSelectedClientId(null);
             handleDeleteClient(id);
+          }}
+          onClientUpdated={(patch) => {
+            patchClientInList(patch.id, patch);
           }}
           onClientCreated={() => {
             setShowAddClientDrawer(false);
-            setSelectedClient(null);
+            setSelectedClientId(null);
             setActiveTab('all');
             setSelectedClients([]);
             setSearchQuery('');

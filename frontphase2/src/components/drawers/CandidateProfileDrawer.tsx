@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { CandidateResumeTabPanel } from '../candidates/CandidateResumeTabPanel';
 import {
@@ -12,6 +12,9 @@ import {
 } from '../candidates/CandidateEditAtsSections';
 import { useCandidateCvEditor } from '../../hooks/useCandidateCvEditor';
 import { formatDateDMY, formatDateTimeDMY } from '../../utils/dateDisplay';
+import type { AuditMeta } from '../../types/audit';
+import { EntityAuditSummary } from '../table/TableAuditCell';
+import { extractAuditMeta } from '../../utils/auditMeta';
 import { AnimatePresence, motion } from 'motion/react';
 import { requestSuccess } from '../../lib/appDialog';
 import {
@@ -65,7 +68,9 @@ import {
 } from '../../utils/dateInputConstraints';
 import { profileCanSubmitToClient } from '../../lib/candidateSubmitToClient';
 import { CandidateAtsExtractedOverview } from '../candidates/CandidateAtsExtractedOverview';
+import { CandidatePhase1DetailSections } from '../candidates/CandidatePhase1DetailSections';
 import { mergeProfileWithClientPresentation } from '../../lib/clientPresentationDraft';
+import { isPhase1PortalCandidate } from '../../lib/phase1ProfileSnapshot';
 
 const MAX_EDIT_AVATAR_FILE_BYTES = 5 * 1024 * 1024;
 
@@ -298,6 +303,10 @@ export interface CandidateProfileDrawerData {
     }>;
   };
   scheduledInterviews?: CandidateScheduledInterview[];
+  auditMeta?: AuditMeta;
+  /** Job portal / candidatecommon (Phase 1) pool */
+  isPhase1Candidate?: boolean;
+  poolOrigin?: string | null;
 }
 
 interface CandidateProfileDrawerProps {
@@ -1147,8 +1156,8 @@ function ScheduleInterviewModal({
     if (!selectedJobId) {
       nextErrors.linkedJob = 'Linked job is required';
     }
-    if (selectedInterviewers.length === 0 && selectedClientContacts.length === 0) {
-      nextErrors.interviewers = 'Select at least one interviewer or client contact';
+    if (selectedInterviewers.length === 0) {
+      nextErrors.interviewers = 'Select at least one internal interviewer';
     }
     if (mode === 'video' && !meetingPlatform) nextErrors.modeField = 'Select Google Meet or Zoom';
     if (mode === 'video' && !meetingLink.trim()) nextErrors.modeField = 'Meeting link is required';
@@ -1161,7 +1170,7 @@ function ScheduleInterviewModal({
   const isFormValid =
     Boolean(status && interviewType && roundNumber >= 1 && date && time && duration && mode) &&
     Boolean(selectedJobId) &&
-    (selectedInterviewers.length > 0 || selectedClientContacts.length > 0) &&
+    selectedInterviewers.length > 0 &&
     (mode !== 'video' || Boolean(meetingPlatform)) &&
     (mode !== 'video' || Boolean(meetingLink.trim())) &&
     (mode !== 'in-person' || Boolean(location.trim())) &&
@@ -1278,6 +1287,10 @@ function ScheduleInterviewModal({
       const prettyDate = formatDateDMY(new Date(`${date}T00:00:00`));
       onScheduledSuccess?.(editInterview?.id ? `Interview updated (${status})` : `Interview scheduled for ${prettyDate} at ${time}`);
       onClose();
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to schedule interview. Please try again.';
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }
@@ -3685,14 +3698,22 @@ export function CandidateProfileDrawer({
     deleteFile: deleteCandidateFile,
   } = useFiles('candidate', candidate?.id);
 
+  const handleCvToast = useCallback((message: string) => {
+    setToastMessage(message);
+  }, []);
+
+  const handleCvCandidateUpdated = useCallback(() => {
+    if (!candidate?.id || !onRefreshCandidate) return;
+    void onRefreshCandidate(candidate.id);
+  }, [candidate?.id, onRefreshCandidate]);
+
   const cvEditor = useCandidateCvEditor({
     candidateId: candidate?.id,
     resumeUrl: candidate?.resumeUrl,
     enabled: isOpen && Boolean(candidate?.id),
     canEdit: Boolean(onUpdateCandidate),
-    onCandidateUpdated:
-      candidate && onRefreshCandidate ? () => onRefreshCandidate(candidate.id) : undefined,
-    onToast: (message) => setToastMessage(message),
+    onCandidateUpdated: onRefreshCandidate ? handleCvCandidateUpdated : undefined,
+    onToast: handleCvToast,
   });
 
   const uploadsBase = useMemo(() => {
@@ -4236,7 +4257,11 @@ export function CandidateProfileDrawer({
               <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-6">
                 {activeTab === 'Overview' && (
                   <div className="space-y-5">
-                    <CandidateAtsExtractedOverview candidate={candidate} />
+                    {isPhase1PortalCandidate(candidate) ? (
+                      <CandidatePhase1DetailSections candidate={candidate} />
+                    ) : (
+                      <CandidateAtsExtractedOverview candidate={candidate} />
+                    )}
                   </div>
                 )}
 
@@ -4501,6 +4526,13 @@ export function CandidateProfileDrawer({
 
                 {activeTab === 'Activity' && (
                   <section className="rounded-2xl border border-slate-200 bg-white p-5">
+                    <EntityAuditSummary
+                      audit={
+                        candidate?.auditMeta ??
+                        extractAuditMeta(candidate as Record<string, unknown> | undefined)
+                      }
+                      className="mb-4"
+                    />
                     <h3 className="text-sm font-semibold text-slate-900">Recent Activity</h3>
                     <div ref={activityContainerRef} className="mt-4 max-h-[32rem] space-y-6 overflow-y-auto pr-1">
                       {groupedActivity.length > 0 ? (

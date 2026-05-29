@@ -1,6 +1,8 @@
+import type { AuditMeta } from '../../types/audit';
+
 export type TaskRelatedTo = 'Candidate' | 'Job' | 'Client' | 'Interview' | 'Internal';
 export type TaskPriority = 'Low' | 'Medium' | 'High';
-export type TaskStatus = 'Pending' | 'Completed' | 'Overdue';
+export type TaskStatus = 'Pending' | 'In Progress' | 'Completed' | 'Cancelled' | 'Overdue';
 /** Status options for Edit Task form */
 export type TaskEditStatus = 'Pending' | 'In Progress' | 'Completed' | 'Cancelled';
 export type TaskType = 'Call' | 'Email' | 'Interview' | 'Follow-up' | 'Meeting' | 'Note';
@@ -46,8 +48,18 @@ export interface Task {
   priority: TaskPriority;
   status: TaskStatus;
   assignee: TaskAssignee;
+  /** Mongo user id of assignee */
+  assigneeId?: string;
+  /** Reporter / creator */
+  createdById?: string;
+  createdByName?: string;
+  /** Raw workflow column (Jira-style) before overdue overlay */
+  workflowStatus?: TaskStatus;
   reminder?: string;
   notifyAssignee?: boolean;
+  auditMeta?: AuditMeta;
+  /** @deprecated legacy list mapper field */
+  owner?: { name: string; avatar?: string };
 }
 
 export interface TaskActivity {

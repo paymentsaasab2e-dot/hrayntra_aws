@@ -29,6 +29,8 @@ export interface LeadNote {
   isPinned?: boolean;
 }
 
+import type { AuditMeta } from '../../types/audit';
+
 export interface Lead {
   id: string;
   companyName: string;
@@ -59,6 +61,7 @@ export interface Lead {
   }>;
   lastFollowUp: string;
   nextFollowUp?: string;
+  auditMeta?: AuditMeta;
   priority: Priority;
   interestedNeeds: string;
   servicesNeeded?: string;

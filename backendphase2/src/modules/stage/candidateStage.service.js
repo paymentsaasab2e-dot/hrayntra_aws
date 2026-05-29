@@ -82,6 +82,31 @@ export async function resolveJobPipelineStageForRole(jobId, canonicalStage) {
   return stages.find((s) => mapStageNameToPipelineBucket(s.name) === role) || null;
 }
 
+/** When a job has no pipeline columns yet, create a default stage for workflow moves (e.g. Interviewing). */
+export async function ensureJobPipelineStageForRole(jobId, canonicalStage) {
+  const existing = await resolveJobPipelineStageForRole(jobId, canonicalStage);
+  if (existing) return existing;
+
+  const role = String(canonicalStage || '').toUpperCase();
+  if (!jobId || !role) return null;
+
+  const label = mapPipelineStageToCrmCandidateLabel(canonicalStage);
+  const maxOrderRow = await prisma.pipelineStage.findFirst({
+    where: { jobId },
+    orderBy: { order: 'desc' },
+    select: { order: true },
+  });
+
+  return prisma.pipelineStage.create({
+    data: {
+      jobId,
+      name: label,
+      order: (maxOrderRow?.order ?? 0) + 1,
+      systemRole: role,
+    },
+  });
+}
+
 async function upsertTenantPipelineEntry(candidateId, jobId, stageId, movedById) {
   if (!candidateId || !jobId || !stageId) return;
   const existing = await prisma.pipelineEntry.findFirst({
@@ -217,7 +242,11 @@ function buildAbsoluteUploadsUrl(relativeUrl) {
  * resolver) and an absolute URL (for the portal frontend to open directly
  * across origins).
  */
-export async function syncApplicationOfferLetter(candidateId, jobId, { fileUrl, fileName }) {
+export async function syncApplicationOfferLetter(
+  candidateId,
+  jobId,
+  { fileUrl, fileName, placementId, placementStatus }
+) {
   if (!candidateId || !jobId || !fileUrl) return;
   const portal = getJobPortalPrismaClient();
   const app = await portal.application.findUnique({
@@ -238,9 +267,98 @@ export async function syncApplicationOfferLetter(candidateId, jobId, { fileUrl, 
   parsed.offerLetterRelativeUrl = fileUrl;
   parsed.offerLetterFileName = fileName || null;
   parsed.offerLetterUploadedAt = new Date().toISOString();
+  if (placementId) parsed.placementId = String(placementId);
+  if (placementStatus) parsed.placementStatus = String(placementStatus);
+  parsed.offerResponse = parsed.offerResponse || 'PENDING';
   await portal.application.update({
     where: { id: app.id },
     data: { offerDetails: JSON.stringify(parsed) },
+  });
+}
+
+/** Push joining schedule + reporting contact to the candidate portal application. */
+export async function syncApplicationJoiningDetails(candidateId, jobId, details = {}) {
+  if (!candidateId || !jobId) return;
+  const portal = getJobPortalPrismaClient();
+  const app = await portal.application.findUnique({
+    where: { candidateId_jobId: { candidateId, jobId } },
+    select: { id: true, offerDetails: true },
+  });
+  if (!app) return;
+  let parsed = {};
+  if (app.offerDetails) {
+    try {
+      const maybe = JSON.parse(app.offerDetails);
+      parsed = maybe && typeof maybe === 'object' ? maybe : { legacyOfferText: app.offerDetails };
+    } catch {
+      parsed = { legacyOfferText: app.offerDetails };
+    }
+  }
+  parsed.placementStatus = 'JOINING_SCHEDULED';
+  parsed.joiningScheduledAt = new Date().toISOString();
+  parsed.joiningDate = details.joiningDate || null;
+  parsed.reportingToName = details.reportingToName || null;
+  parsed.reportingToTitle = details.reportingToTitle || null;
+  parsed.reportingToEmail = details.reportingToEmail || null;
+  parsed.joiningNotes = details.joiningNotes || null;
+  await portal.application.update({
+    where: { id: app.id },
+    data: { offerDetails: JSON.stringify(parsed) },
+  });
+
+  const joiningTitle = 'Joining scheduled';
+  const lines = [
+    details.joiningDate ? `Date: ${details.joiningDate}` : null,
+    details.reportingToName
+      ? `Report to: ${details.reportingToName}${details.reportingToTitle ? ` (${details.reportingToTitle})` : ''}`
+      : null,
+    details.reportingToEmail ? `Contact: ${details.reportingToEmail}` : null,
+    details.joiningNotes || null,
+  ].filter(Boolean);
+  await portal.applicationTimeline.create({
+    data: {
+      applicationId: app.id,
+      status: 'SELECTED',
+      title: joiningTitle,
+      description: lines.join('\n') || 'Your joining date has been scheduled.',
+    },
+  });
+}
+
+export async function syncApplicationOfferResponse(candidateId, jobId, { decision, placementStatus }) {
+  if (!candidateId || !jobId) return;
+  const portal = getJobPortalPrismaClient();
+  const app = await portal.application.findUnique({
+    where: { candidateId_jobId: { candidateId, jobId } },
+    select: { id: true, offerDetails: true },
+  });
+  if (!app) return;
+  let parsed = {};
+  if (app.offerDetails) {
+    try {
+      const maybe = JSON.parse(app.offerDetails);
+      parsed = maybe && typeof maybe === 'object' ? maybe : { legacyOfferText: app.offerDetails };
+    } catch {
+      parsed = { legacyOfferText: app.offerDetails };
+    }
+  }
+  parsed.offerResponse = decision === 'accept' ? 'ACCEPTED' : 'REJECTED';
+  parsed.offerRespondedAt = new Date().toISOString();
+  if (placementStatus) parsed.placementStatus = placementStatus;
+  await portal.application.update({
+    where: { id: app.id },
+    data: { offerDetails: JSON.stringify(parsed) },
+  });
+  await portal.applicationTimeline.create({
+    data: {
+      applicationId: app.id,
+      status: decision === 'accept' ? 'SELECTED' : 'REJECTED',
+      title: decision === 'accept' ? 'Offer accepted' : 'Offer declined',
+      description:
+        decision === 'accept'
+          ? 'You accepted the offer letter on the candidate portal.'
+          : 'You declined the offer letter on the candidate portal.',
+    },
   });
 }
 
@@ -372,7 +490,7 @@ export async function updateCandidateStage({
     await syncApplicationState(candidateId, jobId, portalExtra);
 
     try {
-      const resolvedStage = await resolveJobPipelineStageForRole(jobId, upper);
+      const resolvedStage = await ensureJobPipelineStageForRole(jobId, upper);
       if (resolvedStage?.id) {
         await upsertTenantPipelineEntry(candidateId, jobId, resolvedStage.id, performedById || null);
       }

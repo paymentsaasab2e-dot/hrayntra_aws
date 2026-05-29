@@ -14,7 +14,7 @@ export const settingController = {
   async getByKey(req, res) {
     try {
       const setting = await settingService.getByKey(
-        req.query.userId,
+        req.query.userId || req.user?.id,
         req.params.key,
         req.query.scope
       );

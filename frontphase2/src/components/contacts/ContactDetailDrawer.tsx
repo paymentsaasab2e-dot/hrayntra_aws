@@ -10,6 +10,8 @@ import { ContactTypeBadge } from './ContactTypeBadge';
 import { OwnerAvatar } from './OwnerAvatar';
 import { formatDirectorDisplay } from '../../constants/salutations';
 import { formatDateTimeDMY } from '../../utils/dateDisplay';
+import { extractAuditMeta } from '../../utils/auditMeta';
+import { EntityAuditSummary } from '../table/TableAuditCell';
 
 interface ContactDetailDrawerProps {
   contact: BackendContact | null;
@@ -215,6 +217,7 @@ export function ContactDetailDrawer({ contact, isOpen, onClose, onEdit, onDelete
 
                   {activeTab === 'activity' && (
                     <div className="space-y-3">
+                      <EntityAuditSummary audit={extractAuditMeta(contact as Record<string, unknown>)} />
                       {contact.activities && contact.activities.length > 0 ? (
                         contact.activities.map((activity) => (
                           <div key={activity.id} className="border-l-2 border-blue-200 pl-4 py-2">

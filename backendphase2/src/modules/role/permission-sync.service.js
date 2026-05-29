@@ -1,5 +1,10 @@
 import { prisma } from '../../config/prisma.js';
-import { DEFAULT_PERMISSIONS, DEFAULT_PERMISSION_NAMES } from './default-permissions.js';
+import {
+  DEFAULT_PERMISSIONS,
+  DEFAULT_PERMISSION_NAMES,
+  DEFAULT_ROLE_PERMISSION_PRESETS,
+  DEFAULT_SYSTEM_ROLES,
+} from './default-permissions.js';
 
 function unique(values = []) {
   return [...new Set(values.filter(Boolean))];
@@ -49,7 +54,6 @@ export async function ensureSuperAdminHasAllPermissions() {
   if (!superAdminRole?.id) return;
 
   const permissions = await prisma.permission.findMany({
-    where: { permissionName: { in: DEFAULT_PERMISSION_NAMES } },
     select: { id: true },
   });
   if (!permissions.length) return;
@@ -74,4 +78,40 @@ export async function ensureSuperAdminHasAllPermissions() {
       permissionId,
     })),
   });
+}
+
+async function resolvePermissionIdsByNames(names = []) {
+  const uniqueNames = [...new Set(names.map((n) => String(n).trim()).filter(Boolean))];
+  if (!uniqueNames.length) return [];
+  const rows = await prisma.permission.findMany({
+    where: { permissionName: { in: uniqueNames } },
+    select: { id: true },
+  });
+  return rows.map((r) => r.id);
+}
+
+/** Apply preset permissions to default system roles (does not touch Super Admin). */
+export async function syncDefaultRolePresets() {
+  for (const roleDef of DEFAULT_SYSTEM_ROLES) {
+    if (roleDef.roleName === 'Super Admin') continue;
+
+    const preset = DEFAULT_ROLE_PERMISSION_PRESETS[roleDef.roleName];
+    if (!preset?.length) continue;
+
+    const role = await prisma.systemRole.findUnique({
+      where: { roleName: roleDef.roleName },
+      select: { id: true },
+    });
+    if (!role?.id) continue;
+
+    const existingCount = await prisma.rolePermission.count({ where: { roleId: role.id } });
+    if (existingCount > 0) continue;
+
+    const permissionIds = await resolvePermissionIdsByNames(preset);
+    if (!permissionIds.length) continue;
+
+    await prisma.rolePermission.createMany({
+      data: permissionIds.map((permissionId) => ({ roleId: role.id, permissionId })),
+    });
+  }
 }

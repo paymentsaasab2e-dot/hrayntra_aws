@@ -1,40 +1,32 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Eye, EyeOff, Lock, LogIn, Mail, User, UserPlus } from 'lucide-react';
-import { apiLogin, apiRegister, formatAuthErrorMessage, syncTenantDbName } from '../../lib/api';
+import { Eye, EyeOff, Lock, LogIn, Mail } from 'lucide-react';
+import { apiLogin, formatAuthErrorMessage, getAccessToken, syncTenantDbName } from '../../lib/api';
 import { buildLoginDevicePayload } from '../../lib/sessionAuth';
 import { LoginSessionFlow } from '../../components/session/LoginSessionFlow';
 import type { ActiveSessionView } from '../../lib/sessionAuth';
 
-type Mode = 'login' | 'signup';
-
 export default function LoginPage() {
   const router = useRouter();
-  const [mode, setMode] = useState<Mode>('login');
 
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
-
-  const [signupName, setSignupName] = useState('');
-  const [signupEmail, setSignupEmail] = useState('');
-  const [signupPassword, setSignupPassword] = useState('');
-  const [signupAsSuperAdmin, setSignupAsSuperAdmin] = useState(false);
 
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
   const [showLoginPassword, setShowLoginPassword] = useState(false);
-  const [showSignupPassword, setShowSignupPassword] = useState(false);
+  const [forgotPasswordHref, setForgotPasswordHref] = useState('/forgot-password');
   const [duplicateSession, setDuplicateSession] = useState<{
     identifier: string;
     password: string;
     activeSession: ActiveSessionView | null;
   } | null>(null);
 
-  // Team invite emails link to /login?token=...&tenantDbName=... — store tenant before any API call.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
@@ -51,6 +43,33 @@ export default function LoginPage() {
     if (sessionMsg) {
       setMessage(sessionMsg);
     }
+
+    const forgotQs = new URLSearchParams();
+    if (redirect) forgotQs.set('redirect', redirect);
+    if (tenant) forgotQs.set('tenantDbName', tenant);
+    const forgotSuffix = forgotQs.toString() ? `?${forgotQs.toString()}` : '';
+    setForgotPasswordHref(`/forgot-password${forgotSuffix}`);
+  }, [router]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const goToAppIfAuthenticated = () => {
+      if (!getAccessToken()) return;
+      const redirectParam = new URLSearchParams(window.location.search).get('redirect');
+      const target = redirectParam && redirectParam !== '/leads' ? redirectParam : '/dashboard';
+      router.replace(target);
+    };
+
+    goToAppIfAuthenticated();
+
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === 'accessToken' && event.newValue) {
+        goToAppIfAuthenticated();
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
   }, [router]);
 
   const redirectAfterLogin = (requirePasswordReset: boolean, isSuperAdmin: boolean) => {
@@ -90,7 +109,7 @@ export default function LoginPage() {
       const response = await apiLogin(
         loginEmail.trim(),
         loginPassword.trim(),
-        buildLoginDevicePayload(),
+        await buildLoginDevicePayload(),
       );
 
       if (response.data?.duplicateSession) {
@@ -113,69 +132,31 @@ export default function LoginPage() {
       } else {
         setLoadingMessage('Preparing your workspace...');
       }
-      
-      // Verify tokens are stored
+
       if (typeof window !== 'undefined') {
         const storedToken = localStorage.getItem('accessToken');
         if (!storedToken) {
           throw new Error('Failed to store authentication token. Please try again.');
         }
-        console.log('[Login] Access token stored successfully');
       }
-      
+
       setMessage('Logged in successfully! Redirecting...');
-      
-      // Check if password reset is required
+
       const requirePasswordReset = response.data?.requirePasswordReset || false;
-      const roleName = String(response.data?.user?.roleName || '').trim().toLowerCase().replace(/[\s_-]+/g, ' ');
-      const roleCode = String(response.data?.user?.role || '').trim().toLowerCase().replace(/[\s_-]+/g, ' ');
-      
-      // Skip password reset for Super Admin
+      const roleName = String(response.data?.user?.roleName || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[\s_-]+/g, ' ');
+      const roleCode = String(response.data?.user?.role || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[\s_-]+/g, ' ');
+
       const isSuperAdmin = roleName === 'super admin' || roleCode === 'super admin';
-      
+
       redirectAfterLogin(requirePasswordReset, isSuperAdmin);
-    } catch (err: any) {
-      setError(formatAuthErrorMessage(err, 'Failed to login. Please try again.'));
-    } finally {
-      setLoading(false);
-      setLoadingMessage('');
-    }
-  };
-
-  const handleSignup = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setMessage('');
-
-    if (!signupName.trim() || !signupEmail.trim() || !signupPassword.trim()) {
-      setError('Name, email and password are required.');
-      return;
-    }
-    if (signupPassword.length < 6) {
-      setError('Password must be at least 6 characters.');
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setLoadingMessage('Creating your account and workspace...');
-      const response = await apiRegister(
-        signupName.trim(),
-        signupEmail.trim().toLowerCase(),
-        signupPassword,
-        signupAsSuperAdmin ? 'SUPER_ADMIN' : 'RECRUITER'
-      );
-
-      setMode('login');
-      setLoginEmail(signupEmail.trim().toLowerCase());
-      setLoginPassword('');
-      setSignupPassword('');
-      setMessage(
-        response.data?.message ||
-        'Account created successfully. Please log in to continue.'
-      );
-    } catch (err: any) {
-      setError(formatAuthErrorMessage(err, 'Failed to create account. Please try again.'));
+    } catch (err: unknown) {
+      setError(formatAuthErrorMessage(err as { message?: string }, 'Failed to login. Please try again.'));
     } finally {
       setLoading(false);
       setLoadingMessage('');
@@ -232,12 +213,8 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         <div className="bg-white rounded-2xl border border-slate-200 shadow-lg overflow-hidden">
           <div className="p-6 border-b border-slate-100 bg-slate-50/50">
-            <h1 className="text-xl font-bold text-slate-900 text-center">
-              {mode === 'login' ? 'Log in' : 'Sign up'}
-            </h1>
-            <p className="text-sm text-slate-500 text-center mt-1">
-              {mode === 'login' ? 'Enter your credentials' : 'Create a new account'}
-            </p>
+            <h1 className="text-xl font-bold text-slate-900 text-center">Log in</h1>
+            <p className="text-sm text-slate-500 text-center mt-1">Enter your credentials</p>
           </div>
 
           <div className="p-6">
@@ -252,145 +229,64 @@ export default function LoginPage() {
               </div>
             )}
 
-            {mode === 'login' ? (
-              <form onSubmit={handleLogin} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Email / Admin ID</label>
-                  <div className="relative">
-                    <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input
-                      type="text"
-                      value={loginEmail}
-                      onChange={(e) => setLoginEmail(e.target.value)}
-                      placeholder="you@example.com or superadmin_acme"
-                      className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Password</label>
-                  <div className="relative">
-                    <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                    <input
-                      type={showLoginPassword ? 'text' : 'password'}
-                      value={loginPassword}
-                      onChange={(e) => setLoginPassword(e.target.value)}
-                      placeholder="••••••••"
-                      autoComplete="current-password"
-                      className="w-full pl-10 pr-11 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowLoginPassword((v) => !v)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-0.5 text-slate-400 hover:text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                      aria-label={showLoginPassword ? 'Hide password' : 'Show password'}
-                    >
-                      {showLoginPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                    </button>
-                  </div>
-                </div>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-                >
-                  <LogIn size={16} /> {loading ? 'Logging in...' : 'Log in'}
-                </button>
-              </form>
-            ) : (
-              <form onSubmit={handleSignup} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Name</label>
-                  <div className="relative">
-                    <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input
-                      type="text"
-                      value={signupName}
-                      onChange={(e) => setSignupName(e.target.value)}
-                      placeholder="Your name"
-                      className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Email</label>
-                  <div className="relative">
-                    <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input
-                      type="email"
-                      value={signupEmail}
-                      onChange={(e) => setSignupEmail(e.target.value)}
-                      placeholder="you@example.com"
-                      className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Password (min 6)</label>
-                  <div className="relative">
-                    <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                    <input
-                      type={showSignupPassword ? 'text' : 'password'}
-                      value={signupPassword}
-                      onChange={(e) => setSignupPassword(e.target.value)}
-                      placeholder="••••••••"
-                      autoComplete="new-password"
-                      className="w-full pl-10 pr-11 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowSignupPassword((v) => !v)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-0.5 text-slate-400 hover:text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                      aria-label={showSignupPassword ? 'Hide password' : 'Show password'}
-                    >
-                      {showSignupPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                    </button>
-                  </div>
-                </div>
-                <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-3">
-                  <input
-                    type="checkbox"
-                    checked={signupAsSuperAdmin}
-                    onChange={(e) => setSignupAsSuperAdmin(e.target.checked)}
-                    className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <span className="block">
-                    <span className="block text-sm font-semibold text-slate-900">Create as Super Admin</span>
-                    <span className="block text-xs text-slate-500">
-                      Grants full portal access for this new account.
-                    </span>
-                  </span>
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                  Email / Admin ID
                 </label>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-                >
-                  <UserPlus size={16} /> {loading ? 'Creating account...' : 'Sign up'}
-                </button>
-              </form>
-            )}
-
-            <div className="mt-5 pt-4 border-t border-slate-100 text-center">
+                <div className="relative">
+                  <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={loginEmail}
+                    onChange={(e) => setLoginEmail(e.target.value)}
+                    placeholder="you@example.com or superadmin_acme"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  />
+                </div>
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">
+                    Password
+                  </label>
+                  <Link
+                    href={forgotPasswordHref}
+                    className="text-xs font-medium text-blue-600 hover:text-blue-700"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
+                <div className="relative">
+                  <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  <input
+                    type={showLoginPassword ? 'text' : 'password'}
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    placeholder="••••••••"
+                    autoComplete="current-password"
+                    className="w-full pl-10 pr-11 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowLoginPassword((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-0.5 text-slate-400 hover:text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                    aria-label={showLoginPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showLoginPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </div>
               <button
-                type="button"
-                onClick={() => {
-                  setMode(mode === 'login' ? 'signup' : 'login');
-                  setError('');
-                  setMessage('');
-                  setShowLoginPassword(false);
-                  setShowSignupPassword(false);
-                }}
-                className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                type="submit"
+                disabled={loading}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
               >
-                {mode === 'login' ? "Don't have an account? Sign up" : 'Already have an account? Log in'}
+                <LogIn size={16} /> {loading ? 'Logging in...' : 'Log in'}
               </button>
-            </div>
+            </form>
           </div>
         </div>
-        <p className="text-center text-xs text-slate-400 mt-4">
-          Auth is now backed by the API (JWT), using the backend you configured.
-        </p>
       </div>
     </div>
   );

@@ -11,7 +11,8 @@ import type { SystemRole } from '../../../types/team';
 import { AddRoleDrawer } from '../AddRoleDrawer';
 import { EditRoleDrawer } from '../EditRoleDrawer';
 import { RoleMembersDrawer } from '../RoleMembersDrawer';
-import { mergePermissionMaps } from '../permissionCatalog';
+import { RoleDetailDrawer } from '../RoleDetailDrawer';
+import { mergePermissionMaps, RBAC_CATALOG_TOTAL } from '../permissionCatalog';
 import { PH2_TABLE_CARD_CLASS } from '../../../components/layout/Ph2ModulePageLayout';
 import { TableSkeleton } from '../../../components/ui/Skeleton';
 
@@ -54,6 +55,7 @@ export const RolesTab: React.FC = () => {
   const [showAddDrawer, setShowAddDrawer] = useState(false);
   const [showEditDrawer, setShowEditDrawer] = useState(false);
   const [showMembersDrawer, setShowMembersDrawer] = useState(false);
+  const [showDetailDrawer, setShowDetailDrawer] = useState(false);
   const [selectedRole, setSelectedRole] = useState<SystemRole | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
@@ -109,8 +111,14 @@ export const RolesTab: React.FC = () => {
     setRoles((prev) => prev.filter((role) => role.id !== roleId));
   }, []);
 
+  const handleView = (role: SystemRole) => {
+    setSelectedRole(role);
+    setShowDetailDrawer(true);
+  };
+
   const handleEdit = (role: SystemRole) => {
     setSelectedRole(role);
+    setShowDetailDrawer(false);
     setShowEditDrawer(true);
   };
 
@@ -150,6 +158,13 @@ export const RolesTab: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3 text-sm text-indigo-950">
+        <p className="font-semibold">Role-based access (RBAC)</p>
+        <p className="mt-1 text-xs text-indigo-800/90">
+          {RBAC_CATALOG_TOTAL} permissions across {Object.keys(permissions).length || '…'} modules. Super Admin
+          receives every permission automatically. Click a role to view its full permission list.
+        </p>
+      </div>
       <div className={PH2_TABLE_CARD_CLASS}>
         <div className="overflow-hidden">
           <div className="no-scrollbar overflow-x-auto">
@@ -183,9 +198,14 @@ export const RolesTab: React.FC = () => {
                     const permCount = getPermissionCount(role);
                     const memberCount = role._count?.users || 0;
                     const isSuperAdmin = role.roleName === 'Super Admin';
+                    const displayPermCount = isSuperAdmin ? RBAC_CATALOG_TOTAL : permCount;
 
                     return (
-                      <tr key={role.id} className={ROLES_TR}>
+                      <tr
+                        key={role.id}
+                        className={`${ROLES_TR} cursor-pointer`}
+                        onClick={() => handleView(role)}
+                      >
                         <td className="px-3 py-3 sm:px-4 sm:py-3.5">
                           <div className="flex items-center gap-3">
                             <div className={`size-2 shrink-0 rounded-full ${getSafeRoleColorClass(role.color)}`} />
@@ -203,7 +223,10 @@ export const RolesTab: React.FC = () => {
                         <td className="px-3 py-3 sm:px-4 sm:py-3.5">
                           <button
                             type="button"
-                            onClick={() => handleMembersClick(role)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleMembersClick(role);
+                            }}
                             className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-800 ring-1 ring-indigo-100/80 transition-colors hover:bg-indigo-100/80"
                           >
                             <Users size={12} />
@@ -213,7 +236,7 @@ export const RolesTab: React.FC = () => {
                         <td className="px-3 py-3 sm:px-4 sm:py-3.5">
                           <div className="space-y-2">
                             <div className="text-xs font-semibold text-slate-900">
-                              {permCount} permission{permCount !== 1 ? 's' : ''}
+                              {displayPermCount} / {RBAC_CATALOG_TOTAL} permission{displayPermCount !== 1 ? 's' : ''}
                             </div>
                             {modules.length > 0 ? (
                               <div className="flex flex-wrap gap-1.5">
@@ -229,7 +252,7 @@ export const RolesTab: React.FC = () => {
                             ) : null}
                           </div>
                         </td>
-                        <td className="px-3 py-3 text-right sm:px-4 sm:py-3.5">
+                        <td className="px-3 py-3 text-right sm:px-4 sm:py-3.5" onClick={(e) => e.stopPropagation()}>
                           <div className="inline-flex items-center justify-end gap-0.5 rounded-2xl bg-slate-100/70 p-1 ring-1 ring-slate-200/60">
                             {SHOW_TABLE_ROW_EDIT_ICON ? (
                               <button
@@ -300,6 +323,18 @@ export const RolesTab: React.FC = () => {
 
       {selectedRole && (
         <>
+          <RoleDetailDrawer
+            isOpen={showDetailDrawer}
+            role={selectedRole}
+            permissions={permissions}
+            onClose={() => {
+              setShowDetailDrawer(false);
+              setSelectedRole(null);
+            }}
+            onEdit={(r) => handleEdit(r)}
+            onMembers={(r) => handleMembersClick(r)}
+          />
+
           <EditRoleDrawer
             isOpen={showEditDrawer}
             role={selectedRole}

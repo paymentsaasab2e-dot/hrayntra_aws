@@ -136,11 +136,20 @@ async function uploadCV(req, res) {
 
     if (ext === '.pdf' || file.mimetype === 'application/pdf') {
       try {
-        const pdfParse = require('pdf-parse');
-        const pdfData = await pdfParse(file.buffer);
-        resumeText = pdfData.text || '';
+        const { extractPdfText } = require('../utils/pdfTextExtract.util');
+        const { text } = await extractPdfText(file.buffer);
+        resumeText = text || '';
       } catch (pdfError) {
         console.warn('⚠️ Could not parse PDF text for portfolio URL extraction:', pdfError.message);
+        resumeText = parsedData?.personalInformation
+          ? [
+              parsedData.personalInformation.fullName,
+              parsedData.personalInformation.email,
+              parsedData.personalInformation.linkedinProfile,
+            ]
+              .filter(Boolean)
+              .join('\n')
+          : '';
       }
     } else if (ext === '.docx' || ext === '.doc') {
       try {

@@ -60,6 +60,8 @@ import {
   PH2_TABLE_CARD_CLASS,
   PH2_TOOLBAR_ROW_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
+import { TableAuditColumnHeader, TableAuditCell } from '../../components/table/TableAuditCell';
+import { extractAuditMeta } from '../../utils/auditMeta';
 
 /** Table header row — matches Leads list. */
 const RB_TABLE_HEAD_ROW =
@@ -1072,6 +1074,7 @@ export default function RecycleBinPage() {
                                   </th>
                                   <th className={RB_TH}>Name</th>
                                   <th className={RB_TH}>Details</th>
+                                  <TableAuditColumnHeader className={RB_TH} />
                                   <th className={RB_TH}>Deleted</th>
                                   <th className={`${RB_TH} text-right`}>Actions</th>
                                 </tr>
@@ -1101,6 +1104,10 @@ export default function RecycleBinPage() {
                                       <td className="max-w-[260px] truncate px-3 py-3 text-xs text-slate-600 sm:px-4">
                                         {item.secondary || '—'}
                                       </td>
+                                      <TableAuditCell
+                                        audit={extractAuditMeta(item.raw as Record<string, unknown>)}
+                                        className="px-3 py-3 sm:px-4"
+                                      />
                                       <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-500 sm:px-4">
                                         {item.deletedAt ? formatDateTimeDMY(item.deletedAt) : '—'}
                                       </td>

@@ -111,6 +111,8 @@ import {
   Bell,
 } from 'lucide-react';
 import type { Client, ClientStage, ClientHealthStatus, ClientContact, ClientJob, JobStatus, ClientPipelineCandidate, PipelineStageName, ClientPlacement, PlacementStatus, ClientInvoice, InvoiceStatus, ClientActivityItem, ActivityFilterType, ClientNote, NoteTag, ClientFile, ClientFileType } from '@/app/client/types';
+import { EntityAuditSummary } from '../table/TableAuditCell';
+import { extractAuditMeta } from '../../utils/auditMeta';
 import { ImageWithFallback } from '../ImageWithFallback';
 import { useFiles } from '../../hooks/useFiles';
 import { ScheduleMeetingForm } from '../ScheduleMeetingForm';
@@ -127,6 +129,7 @@ import {
   apiFetch,
   apiGetClientActivities,
   apiGetClientLeadStatusCatalog,
+  apiRemoveClientLeadStatus,
   apiGetClientScheduledMeetings,
   apiGetContacts,
   apiGetJob,
@@ -327,13 +330,6 @@ function filterImportedDynamicOtherDetails(
       value: String(item.value ?? ''),
     }));
 }
-
-const STAGE_STYLES: Record<ClientStage, string> = {
-  Active: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  'On Hold': 'bg-amber-100 text-amber-700 border-amber-200',
-  Inactive: 'bg-slate-100 text-slate-600 border-slate-200',
-  'Hot Clients ðŸ”¥': 'bg-red-100 text-red-700 border-red-200',
-};
 
 type ClientOverviewForm = {
   companyName: string;
@@ -586,6 +582,86 @@ function mergeClientLeadStatusOptions(
   return merged;
 }
 
+const ClientLeadStatusDropdown = ({
+  value,
+  options,
+  deleting,
+  onSelect,
+  onDelete,
+}: {
+  value: string;
+  options: string[];
+  deleting: boolean;
+  onSelect: (status: string) => void;
+  onDelete: (status: string) => void;
+}) => {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocumentMouseDown = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocumentMouseDown);
+    return () => document.removeEventListener('mousedown', onDocumentMouseDown);
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-left text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+      >
+        <span>{value || 'New'}</span>
+        <ChevronDown size={16} className="text-slate-500" />
+      </button>
+
+      {open ? (
+        <div className="absolute z-30 mt-1 max-h-64 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+          {options.map((status) => {
+            const isDefault = isDefaultClientLeadStatus(status);
+            const isActive = String(value || '') === String(status || '');
+            return (
+              <button
+                key={status}
+                type="button"
+                onClick={() => {
+                  onSelect(status);
+                  setOpen(false);
+                }}
+                className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm ${
+                  isActive ? 'bg-blue-50 text-blue-700' : 'text-slate-800 hover:bg-slate-50'
+                }`}
+              >
+                <span>{status}</span>
+                {!isDefault ? (
+                  <span
+                    role="button"
+                    aria-label={`Delete ${status}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onDelete(status);
+                    }}
+                    className={`inline-flex items-center rounded p-1 text-rose-500 hover:bg-rose-50 hover:text-rose-600 ${
+                      deleting ? 'pointer-events-none opacity-50' : ''
+                    }`}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
 function deriveClientLifecycleStatus(leadStatusValue: string) {
   return String(leadStatusValue || '').trim() === 'Converted' ? 'ACTIVE' : 'PROSPECT';
 }
@@ -714,6 +790,8 @@ interface ClientDetailsDrawerProps {
   onMessage?: (clientId: string) => void;
   onDelete?: (clientId: string) => void;
   onClientCreated?: () => void;
+  /** Keeps the clients table/list in sync after drawer saves (e.g. lead status). */
+  onClientUpdated?: (patch: Partial<Client> & { id: string }) => void;
   onJobCreated?: () => void;
 }
 
@@ -726,6 +804,7 @@ export function ClientDetailsDrawer({
   onMessage,
   onDelete,
   onClientCreated,
+  onClientUpdated,
   onJobCreated,
 }: ClientDetailsDrawerProps) {
   const [activeTab, setActiveTab] = useState<
@@ -862,6 +941,34 @@ export function ClientDetailsDrawer({
     }
   }, [client?.id, propIsAddMode]);
 
+  // Keep drawer view/edit state aligned when the parent list updates (e.g. inline table status).
+  useEffect(() => {
+    if (!client?.id || propIsAddMode) return;
+
+    const nextLeadStatus = String(client.leadStatus || client.leadStatusValue || '').trim();
+
+    setFullClientData((prev) => {
+      if (!prev || prev.id !== client.id) {
+        return client;
+      }
+      if ((prev.leadStatus || '') === nextLeadStatus && (prev.leadStatusValue || '') === nextLeadStatus) {
+        return prev;
+      }
+      return {
+        ...prev,
+        leadStatus: nextLeadStatus || prev.leadStatus,
+        leadStatusValue: nextLeadStatus || prev.leadStatusValue,
+        stage: client.stage || prev.stage,
+      };
+    });
+
+    setOverviewEditForm((prev) => {
+      const normalized = nextLeadStatus || prev.leadStatusValue || 'New';
+      if (prev.leadStatusValue === normalized) return prev;
+      return { ...prev, leadStatusValue: normalized };
+    });
+  }, [client?.id, client?.leadStatus, client?.leadStatusValue, client?.stage, propIsAddMode]);
+
   const [overviewOpen, setOverviewOpen] = useState<Record<string, boolean>>({
     leadInformation: true,
     agreementsTerms: true,
@@ -929,6 +1036,7 @@ export function ClientDetailsDrawer({
   const [showAddClientLeadStatusInput, setShowAddClientLeadStatusInput] = useState(false);
   const [newClientLeadStatusValue, setNewClientLeadStatusValue] = useState('');
   const [savingClientLeadStatus, setSavingClientLeadStatus] = useState(false);
+  const [deletingClientLeadStatus, setDeletingClientLeadStatus] = useState(false);
   const clientLeadStatusOptions = useMemo(
     () => mergeClientLeadStatusOptions(clientLeadStatusCatalog, overviewEditForm.leadStatusValue),
     [clientLeadStatusCatalog, overviewEditForm.leadStatusValue],
@@ -1270,7 +1378,6 @@ export function ClientDetailsDrawer({
   const [loadingUsers, setLoadingUsers] = useState(false);
   /** Mirrors LeadDetailsDrawer.loadingRecruiters so the multi-select shows its spinner. */
   const loadingRecruiters = loadingUsers;
-  const [stageDropdownOpen, setStageDropdownOpen] = useState(false);
   const [clientJobs, setClientJobs] = useState<ClientJob[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(false);
   const [clientContacts, setClientContacts] = useState<ClientContact[]>([]);
@@ -2577,8 +2684,41 @@ export function ClientDetailsDrawer({
           }
           if (updateData.emails !== undefined) next.emails = updateData.emails;
           if (updateData.phones !== undefined) next.phones = updateData.phones;
+          if (updateData.leadStatus !== undefined) {
+            next.leadStatus = updateData.leadStatus ?? undefined;
+            next.leadStatusValue = updateData.leadStatus ?? undefined;
+          }
+          if (updateData.status !== undefined) {
+            const reverseStatusMap: Record<string, Client['stage']> = {
+              ACTIVE: 'Active',
+              PROSPECT: 'Active',
+              ON_HOLD: 'On Hold',
+              INACTIVE: 'Inactive',
+            };
+            next.stage = reverseStatusMap[String(updateData.status)] || next.stage;
+          }
           return next;
         });
+        if (updateData.leadStatus !== undefined || updateData.status !== undefined) {
+          const reverseStatusMap: Record<string, Client['stage']> = {
+            ACTIVE: 'Active',
+            PROSPECT: 'Active',
+            ON_HOLD: 'On Hold',
+            INACTIVE: 'Inactive',
+          };
+          onClientUpdated?.({
+            id: client.id,
+            ...(updateData.leadStatus !== undefined
+              ? {
+                  leadStatus: updateData.leadStatus ?? undefined,
+                  leadStatusValue: updateData.leadStatus ?? undefined,
+                }
+              : {}),
+            ...(updateData.status !== undefined
+              ? { stage: reverseStatusMap[String(updateData.status)] || client.stage }
+              : {}),
+          });
+        }
         resetClientLogoDraft();
         setPendingAgreementsFile(null);
         const pendingClientKycUpdate = [...pendingKycFiles, ...pendingTeamMemberKycFiles];
@@ -2752,6 +2892,33 @@ export function ClientDetailsDrawer({
       requestError(error, 'Failed to add status');
     } finally {
       setSavingClientLeadStatus(false);
+    }
+  };
+
+  const deleteClientLeadStatusOption = async (status: string, onSelect: (status: string) => void) => {
+    const normalized = String(status || '').trim();
+    if (!normalized || isDefaultClientLeadStatus(normalized)) return;
+
+    const confirmed = await requestConfirm(`Delete status "${normalized}"?`, {
+      title: 'Delete status',
+      tone: 'warning',
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+    });
+    if (!confirmed) return;
+
+    setDeletingClientLeadStatus(true);
+    try {
+      const response = await apiRemoveClientLeadStatus(normalized);
+      const fallback = 'New';
+      const nextOptions = mergeClientLeadStatusOptions(response?.data?.statuses, fallback);
+      setClientLeadStatusCatalog(nextOptions);
+      onSelect(fallback);
+      toast.success(`Status "${normalized}" deleted.`);
+    } catch (error) {
+      requestError(error, 'Failed to delete status');
+    } finally {
+      setDeletingClientLeadStatus(false);
     }
   };
 
@@ -3073,106 +3240,6 @@ export function ClientDetailsDrawer({
                     <h2 className="text-lg font-bold text-slate-900 truncate">
                       {isAddMode ? 'Add New Client' : client?.name}
                     </h2>
-                    {!isAddMode && (
-                      <div className="relative mt-2">
-                        <button
-                          type="button"
-                          onClick={() => setStageDropdownOpen(!stageDropdownOpen)}
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border ${STAGE_STYLES[client?.stage || 'Active']} hover:opacity-80 transition-opacity`}
-                        >
-                          {client?.stage}
-                          <ChevronDown size={12} className="opacity-60" />
-                        </button>
-                        {stageDropdownOpen && (
-                          <>
-                            <div className="fixed inset-0 z-10" onClick={() => setStageDropdownOpen(false)} aria-hidden />
-                            <ul className="absolute z-20 mt-1 left-0 rounded-xl border border-slate-200 bg-white py-1 shadow-lg min-w-[160px]">
-                              {CLIENT_STAGES.map((stage) => (
-                                <li key={stage}>
-                                  <button
-                                    type="button"
-                                    onClick={async () => {
-                                      setStageDropdownOpen(false);
-                                      // Update stage immediately
-                                      const statusMap: Record<string, 'ACTIVE' | 'ON_HOLD' | 'INACTIVE'> = {
-                                        'Active': 'ACTIVE',
-                                        'On Hold': 'ON_HOLD',
-                                        'Inactive': 'INACTIVE',
-                                        'Hot Clients ðŸ”¥': 'ACTIVE',
-                                      };
-                                      try {
-                                        await apiUpdateClient(client!.id, {
-                                          status: statusMap[stage] || 'ACTIVE',
-                                        });
-                                        
-                                        // Refresh activities if Activity tab is open
-                                        if (activeTab === 'activity') {
-                                          const response = await apiGetClientActivities(client!.id);
-                                          const activities = Array.isArray(response.data) ? response.data : [];
-                                          
-                                          const mappedActivities: ClientActivityItem[] = activities.map((activity: any) => {
-                                            const user = activity.performedBy || {};
-                                            const userName = user.firstName && user.lastName 
-                                              ? `${user.firstName} ${user.lastName}`.trim()
-                                              : user.name || user.email || 'Unknown User';
-
-                                            const activityDate = new Date(activity.createdAt);
-                                            const now = new Date();
-                                            const isToday = activityDate.toDateString() === now.toDateString();
-                                            const isYesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000).toDateString() === activityDate.toDateString();
-                                            
-                                            let dateDisplay = '';
-                                            if (isToday) {
-                                              dateDisplay = 'Today';
-                                            } else if (isYesterday) {
-                                              dateDisplay = 'Yesterday';
-                                            } else {
-                                              dateDisplay = formatDateDMY(activityDate);
-                                            }
-                                            
-                                            const timeDisplay = formatTime12hEnGb(activityDate);
-                                            
-                                            const timestamp = `${dateDisplay} at ${timeDisplay}`;
-
-                                            return {
-                                              id: activity.id,
-                                              category: mapClientActivityCategory(activity),
-                                              title: activity.action,
-                                              description: activity.description,
-                                              user: {
-                                                name: userName,
-                                                avatar: user.avatar || undefined,
-                                              },
-                                              timestamp: timestamp,
-                                              timestampFull: activityDate.toISOString(),
-                                              relatedType: activity.relatedType as any,
-                                              relatedLabel: activity.relatedLabel,
-                                              relatedId: activity.relatedId,
-                                            };
-                                          });
-
-                                          setClientActivities(mappedActivities);
-                                        }
-                                        
-                                        // Refresh the page to show updated stage
-                                        window.location.reload();
-                                      } catch (error: any) {
-                                        console.error('Failed to update client stage:', error);
-                                        void requestError(error.message || 'Failed to update client stage');
-                                      }
-                                    }}
-                                    className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 flex items-center gap-2 ${client?.stage === stage ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'}`}
-                                  >
-                                    <span className={`inline-block w-2 h-2 rounded-full ${STAGE_STYLES[stage].split(' ')[0]}`} />
-                                    {stage}
-                                  </button>
-                                </li>
-                              ))}
-                            </ul>
-                          </>
-                        )}
-                      </div>
-                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
@@ -3570,21 +3637,27 @@ export function ClientDetailsDrawer({
                                       Add status
                                     </button>
                                   </div>
-                                  <select
+                                  <ClientLeadStatusDropdown
                                     value={overviewEditForm.leadStatusValue || 'New'}
-                                    onChange={(e) =>
+                                    options={clientLeadStatusOptions}
+                                    deleting={deletingClientLeadStatus}
+                                    onSelect={(status) =>
                                       setOverviewEditForm((p) => ({
                                         ...p,
-                                        leadStatusValue: e.target.value,
-                                        status: deriveClientLifecycleStatus(e.target.value),
+                                        leadStatusValue: status,
+                                        status: deriveClientLifecycleStatus(status),
                                       }))
                                     }
-                                    className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
-                                  >
-                                    {clientLeadStatusOptions.map((status) => (
-                                      <option key={status} value={status}>{status}</option>
-                                    ))}
-                                  </select>
+                                    onDelete={(status) =>
+                                      deleteClientLeadStatusOption(status, (nextStatus) =>
+                                        setOverviewEditForm((p) => ({
+                                          ...p,
+                                          leadStatusValue: nextStatus,
+                                          status: deriveClientLifecycleStatus(nextStatus),
+                                        })),
+                                      )
+                                    }
+                                  />
                                   {showAddClientLeadStatusInput ? (
                                     <div className="mt-2 flex items-center gap-2">
                                       <input
@@ -4888,21 +4961,27 @@ export function ClientDetailsDrawer({
                                     Add status
                                   </button>
                                 </div>
-                                <select
+                                <ClientLeadStatusDropdown
                                   value={overviewEditForm.leadStatusValue || 'New'}
-                                  onChange={(e) =>
+                                  options={clientLeadStatusOptions}
+                                  deleting={deletingClientLeadStatus}
+                                  onSelect={(status) =>
                                     setOverviewEditForm((p) => ({
                                       ...p,
-                                      leadStatusValue: e.target.value,
-                                      status: deriveClientLifecycleStatus(e.target.value),
+                                      leadStatusValue: status,
+                                      status: deriveClientLifecycleStatus(status),
                                     }))
                                   }
-                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
-                                >
-                                  {clientLeadStatusOptions.map((status) => (
-                                    <option key={status} value={status}>{status}</option>
-                                  ))}
-                                </select>
+                                  onDelete={(status) =>
+                                    deleteClientLeadStatusOption(status, (nextStatus) =>
+                                      setOverviewEditForm((p) => ({
+                                        ...p,
+                                        leadStatusValue: nextStatus,
+                                        status: deriveClientLifecycleStatus(nextStatus),
+                                      })),
+                                    )
+                                  }
+                                />
                                 {showAddClientLeadStatusInput ? (
                                   <div className="mt-2 flex items-center gap-2">
                                     <input
@@ -6376,6 +6455,9 @@ export function ClientDetailsDrawer({
                   };
                   return (
                   <div className="space-y-4">
+                    <EntityAuditSummary
+                      audit={client?.auditMeta ?? extractAuditMeta(client as Record<string, unknown> | undefined)}
+                    />
                     {/* Timeline filters - same soft card layout as Billing */}
                     <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
                       <div className="flex flex-wrap items-center gap-2">

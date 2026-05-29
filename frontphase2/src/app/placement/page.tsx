@@ -10,6 +10,7 @@ import { PlacementsTable } from '../../components/placements/PlacementsTable';
 import { CreatePlacementDrawer } from '../../components/placements/modals/CreatePlacementDrawer';
 import { MarkFailedDrawer } from '../../components/placements/modals/MarkFailedDrawer';
 import { MarkJoinedDrawer } from '../../components/placements/modals/MarkJoinedDrawer';
+import { ScheduleJoiningDrawer } from '../../components/placements/modals/ScheduleJoiningDrawer';
 import { RequestReplacementDrawer } from '../../components/placements/modals/RequestReplacementDrawer';
 import { PlacementDetailsDrawer } from '../../components/drawers/PlacementDetailsDrawer';
 import { usePlacements } from '../../hooks/usePlacements';
@@ -88,6 +89,7 @@ function PlacementsPageContent() {
     };
   }, [searchParams]);
   const [joinedPlacement, setJoinedPlacement] = useState<Placement | null>(null);
+  const [scheduleJoiningPlacement, setScheduleJoiningPlacement] = useState<Placement | null>(null);
   const [failedPlacement, setFailedPlacement] = useState<Placement | null>(null);
   const [failedMode, setFailedMode] = useState<'FAILED' | 'NO_SHOW'>('FAILED');
   const [replacementPlacement, setReplacementPlacement] = useState<Placement | null>(null);
@@ -111,6 +113,7 @@ function PlacementsPageContent() {
     updatePlacement,
     updatePlacementStatus,
     markJoined,
+    scheduleJoining,
     markFailed,
     requestReplacement,
     deletePlacement,
@@ -134,6 +137,7 @@ function PlacementsPageContent() {
             offerDate: editingPlacement.offerDate ? String(editingPlacement.offerDate).slice(0, 10) : '',
             expectedJoiningDate: editingPlacement.joiningDate ? String(editingPlacement.joiningDate).slice(0, 10) : '',
             employmentType: editingPlacement.employmentType || 'PERMANENT',
+            status: editingPlacement.status,
             notes: editingPlacement.notes || '',
           }
         : undefined,
@@ -427,6 +431,10 @@ function PlacementsPageContent() {
                           onStatusChange={
                             canUpdatePlacement
                               ? async (placement, status) => {
+                                  if (status === 'JOINING_SCHEDULED') {
+                                    setScheduleJoiningPlacement(placement);
+                                    return;
+                                  }
                                   try {
                                     await updatePlacementStatus(placement.id, status);
                                     toast.success('Placement status updated');
@@ -435,6 +443,11 @@ function PlacementsPageContent() {
                                     throw statusError;
                                   }
                                 }
+                              : undefined
+                          }
+                          onScheduleJoining={
+                            canUpdatePlacement
+                              ? (placement) => setScheduleJoiningPlacement(placement)
                               : undefined
                           }
                           onPageChange={(page) => updateFilters({ page })}
@@ -560,9 +573,42 @@ function PlacementsPageContent() {
         }}
       />
 
+      <ScheduleJoiningDrawer
+        isOpen={canUpdatePlacement && Boolean(scheduleJoiningPlacement)}
+        placement={scheduleJoiningPlacement}
+        isSubmitting={submitting}
+        onClose={() => setScheduleJoiningPlacement(null)}
+        onSubmit={async (payload) => {
+          if (!scheduleJoiningPlacement) return;
+          try {
+            await scheduleJoining(scheduleJoiningPlacement.id, payload);
+            setScheduleJoiningPlacement(null);
+            toast.success('Joining scheduled and shared with candidate');
+          } catch (submitError: any) {
+            toast.error(submitError.message || 'Failed to schedule joining');
+          }
+        }}
+      />
+
       <PlacementDetailsDrawer
         isOpen={detailDrawerOpen}
         placementId={detailPlacementId}
+        canUpdate={canUpdatePlacement}
+        onStatusChange={
+          canUpdatePlacement
+            ? async (placement, status) => {
+                if (status === 'JOINING_SCHEDULED') {
+                  setScheduleJoiningPlacement(placement);
+                  return;
+                }
+                await updatePlacementStatus(placement.id, status);
+                toast.success('Placement status updated');
+              }
+            : undefined
+        }
+        onScheduleJoining={
+          canUpdatePlacement ? (placement) => setScheduleJoiningPlacement(placement) : undefined
+        }
         onClose={() => {
           setDetailDrawerOpen(false);
           setDetailPlacementId(null);

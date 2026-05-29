@@ -1,15 +1,24 @@
 import { prisma } from '../../config/prisma.js';
 import { getCandidateOrThrow } from '../candidate/candidate.service.js';
-import { sendPlacementEmail } from '../../emails/email.service.js';
+import {
+  sendJoiningScheduledCandidateEmail,
+  sendJoiningScheduledReportingContactEmail,
+  sendOfferReleasedEmail,
+} from '../../services/emailService.js';
 import {
   PIPELINE_STAGES,
+  syncApplicationJoiningDetails,
   syncApplicationOfferLetter,
+  syncApplicationOfferResponse,
   updateCandidateStage,
 } from '../stage/candidateStage.service.js';
 import {
   createUserNotification,
   pushPortalNotification,
 } from '../notification/notification.service.js';
+import { prepareListWithAuditMeta } from '../../utils/listAuditMeta.js';
+import { ENTITY_TYPES } from '../../services/activityService.js';
+import { attachAuditMetaToEntity } from '../../utils/listAuditMeta.js';
 
 const OBJECT_ID_REGEX = /^[a-f\d]{24}$/i;
 const DEFAULT_LIMIT = 20;
@@ -80,6 +89,9 @@ function normalizePlacementStatus(value) {
   const normalized = String(value).trim().toUpperCase();
   if (
     ![
+      'OFFER_SENT',
+      'OFFER_ACCEPTED',
+      'OFFER_REJECTED',
       'FAILED',
       'NO_SHOW',
       'WITHDRAWN',
@@ -87,7 +99,6 @@ function normalizePlacementStatus(value) {
       'REPLACED',
       'JOINED',
       'JOINING_SCHEDULED',
-      'OFFER_ACCEPTED',
     ].includes(normalized)
   ) {
     throw new Error('Invalid placement status');
@@ -359,7 +370,7 @@ async function fetchPlacementOrThrow(id) {
     throw new Error('Placement not found');
   }
 
-  return placement;
+  return attachAuditMetaToEntity(placement, ENTITY_TYPES.PLACEMENT, { useRecruiterAsCreator: true });
 }
 
 export const placementService = {
@@ -378,7 +389,7 @@ export const placementService = {
       prisma.placement.count({
         where: {
           deletedAt: null,
-          status: { in: ['OFFER_ACCEPTED', 'JOINING_SCHEDULED'] },
+          status: { in: ['OFFER_SENT', 'OFFER_ACCEPTED', 'JOINING_SCHEDULED'] },
         },
       }),
       prisma.placement.count({
@@ -463,9 +474,12 @@ export const placementService = {
     ]);
 
     const list = placements.map(formatPlacementListItem);
+    const withAudit = await prepareListWithAuditMeta(list, ENTITY_TYPES.PLACEMENT, {
+      useRecruiterAsCreator: true,
+    });
     console.log('[Placement] getAll: total=', total, 'list length=', list.length, 'where deletedAt=', where.deletedAt);
     return {
-      data: list,
+      data: withAudit,
       pagination: {
         page,
         limit,
@@ -491,7 +505,14 @@ export const placementService = {
     const commissionPercentage = parseNumber(data.commissionPercentage, 'Commission percentage', { min: 0 }) ?? 20;
     const currency = String(data.currency || 'USD').trim().toUpperCase() || 'USD';
     const offerDate = parseDate(data.offerDate, 'Offer date', { required: true });
-    const joiningDate = parseDate(data.expectedJoiningDate ?? data.joiningDate, 'Expected joining date');
+    const expectedJoining = parseDate(data.expectedJoiningDate ?? data.joiningDate, 'Expected joining date');
+    const initialStatus = data.status ? normalizePlacementStatus(data.status) : 'OFFER_SENT';
+    if (!initialStatus) {
+      throw new Error('Invalid placement status');
+    }
+    if (initialStatus === 'JOINING_SCHEDULED' && !expectedJoining) {
+      throw new Error('Expected joining date is required when status is Joining Scheduled');
+    }
     const employmentType = normalizeEmploymentType(data.employmentType);
     if (!employmentType) {
       throw new Error('Employment type is required');
@@ -531,9 +552,9 @@ export const placementService = {
           jobId: job.id,
           clientId: client.id,
           recruiterId: recruiter.id,
-          startDate: joiningDate || offerDate,
+          startDate: initialStatus === 'JOINING_SCHEDULED' && expectedJoining ? expectedJoining : offerDate,
           offerDate,
-          joiningDate,
+          joiningDate: initialStatus === 'JOINING_SCHEDULED' ? expectedJoining : null,
           salary: salaryOffered,
           salaryOffered,
           fee: placementFee,
@@ -542,7 +563,7 @@ export const placementService = {
           commissionPercentage,
           revenue: placementFee,
           employmentType,
-          status: joiningDate ? 'JOINING_SCHEDULED' : 'OFFER_ACCEPTED',
+          status: initialStatus,
           notes: data.notes?.trim() || null,
           deletedAt: null,
         },
@@ -636,7 +657,7 @@ export const placementService = {
         candidateId: candidate.id,
         jobId: job.id,
         clientId: client.id,
-        status: joiningDate ? 'JOINING_SCHEDULED' : 'OFFER_ACCEPTED',
+        status: 'OFFER_SENT',
       });
 
       await tx.activity.create({
@@ -653,7 +674,7 @@ export const placementService = {
           metadata: {
             jobId: job.id,
             clientId: client.id,
-            status: joiningDate ? 'JOINING_SCHEDULED' : 'OFFER_ACCEPTED',
+            status: 'OFFER_SENT',
           },
         },
       });
@@ -671,7 +692,11 @@ export const placementService = {
     // CRM placement.
     if (offerLetterToMirror?.fileUrl) {
       try {
-        await syncApplicationOfferLetter(candidate.id, job.id, offerLetterToMirror);
+        await syncApplicationOfferLetter(candidate.id, job.id, {
+          ...offerLetterToMirror,
+          placementId: placementResult.id,
+          placementStatus: initialStatus,
+        });
       } catch (offerSyncError) {
         console.warn(
           '[placement.create] portal offer letter sync failed:',
@@ -680,20 +705,21 @@ export const placementService = {
       }
     }
 
-    if (candidate.email) {
-      await sendPlacementEmail(
-        candidate.email,
-        `${candidate.firstName} ${candidate.lastName}`,
-        job.title,
-        joiningDate || offerDate,
-        client.companyName
-      );
+    if (candidate.email && offerLetterToMirror?.fileUrl) {
+      await sendOfferReleasedEmail({
+        toEmail: candidate.email,
+        candidateName: `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim(),
+        jobTitle: job.title,
+        companyName: client.companyName,
+        offerDate: offerDate || new Date(),
+        senderUserId: userId,
+      });
     }
 
     await updateCandidateStage({
       candidateId: candidate.id,
       jobId: job.id,
-      stage: PIPELINE_STAGES.HIRED,
+      stage: PIPELINE_STAGES.OFFER,
       metadata: { placementId: placementResult.id, jobTitle: job.title, offerDate: offerDate?.toISOString?.() || String(offerDate) },
       performedById: userId,
       skipStageActivity: true,
@@ -779,6 +805,21 @@ export const placementService = {
       recruiterId: data.recruiterId || undefined,
     };
 
+    if (data.status !== undefined && data.status !== null && data.status !== '') {
+      updateData.status = normalizePlacementStatus(data.status);
+      if (!updateData.status) {
+        throw new Error('Invalid placement status');
+      }
+      if (updateData.status === 'JOINING_SCHEDULED' && !updateData.joiningDate && !existing.joiningDate) {
+        const fallbackJoin = parseDate(data.expectedJoiningDate, 'Expected joining date');
+        if (!fallbackJoin) {
+          throw new Error('Joining date is required when status is Joining Scheduled');
+        }
+        updateData.joiningDate = fallbackJoin;
+        updateData.startDate = fallbackJoin;
+      }
+    }
+
     const updatedPlacement = await prisma.$transaction(async (tx) => {
       const updated = await tx.placement.update({
       where: { id },
@@ -853,6 +894,28 @@ export const placementService = {
     return updated;
     });
 
+    if (userId && Object.keys(updateData).filter((k) => updateData[k] !== undefined).length) {
+      try {
+        await prisma.activity.create({
+          data: {
+            action: 'Placement updated',
+            description: `Placement record was updated (${Object.keys(updateData).filter((k) => updateData[k] !== undefined).join(', ')}).`,
+            performedById: userId,
+            entityType: 'PLACEMENT',
+            entityId: id,
+            category: 'Placements',
+            relatedType: 'placement',
+            relatedId: id,
+            metadata: {
+              updatedFields: Object.keys(updateData).filter((k) => updateData[k] !== undefined),
+            },
+          },
+        });
+      } catch (activityErr) {
+        console.warn('[placement.update] activity log failed:', activityErr?.message || activityErr);
+      }
+    }
+
     return fetchPlacementOrThrow(updatedPlacement.id);
   },
 
@@ -904,6 +967,24 @@ export const placementService = {
         reason: data.reason?.trim() || 'Replacement requested from placements table',
         expectedReplacementDate: data.expectedReplacementDate,
       }, userId);
+    }
+
+    if (nextStatus === 'JOINING_SCHEDULED') {
+      throw new Error('Use Schedule Joining to set joining date and reporting contact');
+    }
+
+    if (nextStatus === 'OFFER_SENT' || nextStatus === 'OFFER_ACCEPTED' || nextStatus === 'OFFER_REJECTED') {
+      await prisma.$transaction(async (tx) => {
+        await tx.placement.update({
+          where: { id },
+          data: { status: nextStatus },
+        });
+        await createPlacementActivity(tx, id, `Status changed to ${nextStatus}`, userId, {
+          previousStatus: existing.status,
+          nextStatus,
+        });
+      });
+      return fetchPlacementOrThrow(id);
     }
 
     await prisma.$transaction(async (tx) => {
@@ -1030,6 +1111,259 @@ export const placementService = {
     });
 
     return fetchPlacementOrThrow(id);
+  },
+
+  async scheduleJoining(id, data, userId) {
+    const joiningDate = parseDate(data.joiningDate, 'Joining date', { required: true });
+    const reportingToName = String(data.reportingToName || '').trim();
+    const reportingToTitle = String(data.reportingToTitle || '').trim();
+    const reportingToEmail = String(data.reportingToEmail || '').trim();
+    const joiningNotes = String(data.joiningNotes || data.notes || '').trim();
+
+    if (!reportingToName) {
+      throw new Error('Reporting contact name is required');
+    }
+
+    const existing = await fetchPlacementOrThrow(id);
+    if (!['OFFER_ACCEPTED', 'JOINING_SCHEDULED'].includes(existing.status)) {
+      throw new Error('Joining can only be scheduled after the offer is accepted');
+    }
+
+    const candidate = await prisma.candidate.findUnique({
+      where: { id: existing.candidateId },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        phone: true,
+        location: true,
+        currentTitle: true,
+        currentCompany: true,
+      },
+    });
+    const job = await prisma.job.findUnique({
+      where: { id: existing.jobId },
+      select: { id: true, title: true },
+    });
+    const client = await prisma.client.findUnique({
+      where: { id: existing.clientId },
+      select: { companyName: true },
+    });
+    const scheduler = userId
+      ? await prisma.user.findUnique({
+          where: { id: userId },
+          select: { name: true, email: true },
+        }).catch(() => null)
+      : null;
+    const recruiterUser = existing.recruiterId
+      ? await prisma.user.findUnique({
+          where: { id: existing.recruiterId },
+          select: { name: true, email: true },
+        }).catch(() => null)
+      : null;
+    const recruiterName = scheduler?.name || recruiterUser?.name || null;
+    const recruiterEmail = scheduler?.email || recruiterUser?.email || null;
+    const candidateName =
+      `${candidate?.firstName || ''} ${candidate?.lastName || ''}`.trim() || 'Candidate';
+
+    await prisma.$transaction(async (tx) => {
+      await tx.placement.update({
+        where: { id },
+        data: {
+          status: 'JOINING_SCHEDULED',
+          joiningDate,
+          startDate: joiningDate,
+          reportingToName,
+          reportingToTitle: reportingToTitle || null,
+          reportingToEmail: reportingToEmail || null,
+          notes: joiningNotes || existing.notes || null,
+        },
+      });
+      await createPlacementActivity(tx, id, 'Joining scheduled', userId, {
+        joiningDate,
+        reportingToName,
+        reportingToTitle,
+        reportingToEmail,
+      });
+    });
+
+    const joiningDateLabel = joiningDate.toLocaleDateString('en-IN', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+
+    try {
+      await syncApplicationJoiningDetails(existing.candidateId, existing.jobId, {
+        joiningDate: joiningDateLabel,
+        reportingToName,
+        reportingToTitle,
+        reportingToEmail,
+        joiningNotes,
+      });
+    } catch (syncErr) {
+      console.warn('[placement.scheduleJoining] portal sync failed:', syncErr?.message || syncErr);
+    }
+
+    const emailBase = {
+      jobTitle: job?.title || null,
+      companyName: client?.companyName || null,
+      joiningDateLabel,
+      reportingToName,
+      reportingToTitle: reportingToTitle || null,
+      reportingToEmail: reportingToEmail || null,
+      joiningNotes: joiningNotes || null,
+      recruiterName,
+      recruiterEmail,
+      senderUserId: userId,
+    };
+
+    if (candidate?.email) {
+      try {
+        await sendJoiningScheduledCandidateEmail({
+          ...emailBase,
+          toEmail: candidate.email,
+          candidateName,
+        });
+      } catch (mailErr) {
+        console.warn('[placement.scheduleJoining] candidate email failed:', mailErr?.message || mailErr);
+      }
+    }
+
+    if (reportingToEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(reportingToEmail)) {
+      try {
+        await sendJoiningScheduledReportingContactEmail({
+          ...emailBase,
+          toEmail: reportingToEmail,
+          recipientName: reportingToName,
+          candidateName,
+          candidateEmail: candidate?.email || null,
+          candidatePhone: candidate?.phone || null,
+          candidateLocation: candidate?.location || null,
+          currentTitle: candidate?.currentTitle || null,
+          currentCompany: candidate?.currentCompany || null,
+        });
+      } catch (mailErr) {
+        console.warn(
+          '[placement.scheduleJoining] reporting contact email failed:',
+          mailErr?.message || mailErr
+        );
+      }
+    }
+
+    try {
+      const recipients = new Set([userId, existing.recruiterId].filter(Boolean));
+      await Promise.allSettled(
+        Array.from(recipients).map((uid) =>
+          createUserNotification(uid, {
+            category: 'PLACEMENT',
+            title: 'Joining scheduled',
+            description: `${candidateName} — ${joiningDateLabel}. Report to ${reportingToName}.`,
+            actionLabel: 'View placement',
+            actionPath: `/placement?placementId=${id}`,
+          })
+        )
+      );
+      await pushPortalNotification(existing.candidateId, {
+        title: 'Joining date scheduled',
+        body: `Your joining for ${job?.title || 'the role'} is scheduled on ${joiningDateLabel}.`,
+      });
+    } catch (notifyErr) {
+      console.warn('[placement.scheduleJoining] notifications failed:', notifyErr?.message || notifyErr);
+    }
+
+    return fetchPlacementOrThrow(id);
+  },
+
+  /**
+   * Candidate accepted or rejected offer on Phase 1 portal (internal webhook).
+   */
+  async respondToPortalOffer({ candidateId, jobId, decision }, userId = null) {
+    const normalized = String(decision || '').trim().toLowerCase();
+    if (!['accept', 'reject', 'accepted', 'rejected'].includes(normalized)) {
+      throw new Error('Invalid offer decision');
+    }
+    const isAccept = normalized === 'accept' || normalized === 'accepted';
+    const nextStatus = isAccept ? 'OFFER_ACCEPTED' : 'OFFER_REJECTED';
+
+    const placement = await prisma.placement.findFirst({
+      where: {
+        candidateId,
+        jobId,
+        deletedAt: null,
+        status: { in: ['OFFER_SENT', 'OFFER_ACCEPTED'] },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!placement) {
+      throw new Error('Placement not found for this application');
+    }
+    if (placement.status !== 'OFFER_SENT') {
+      throw new Error('Offer has already been responded to');
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.placement.update({
+        where: { id: placement.id },
+        data: { status: nextStatus },
+      });
+      await createPlacementActivity(
+        tx,
+        placement.id,
+        isAccept ? 'Offer accepted by candidate' : 'Offer rejected by candidate',
+        userId,
+        { decision: isAccept ? 'accept' : 'reject', source: 'portal' }
+      );
+    });
+
+    try {
+      await syncApplicationOfferResponse(candidateId, jobId, {
+        decision: isAccept ? 'accept' : 'reject',
+        placementStatus: nextStatus,
+      });
+    } catch (syncErr) {
+      console.warn('[placement.respondToPortalOffer] portal sync failed:', syncErr?.message || syncErr);
+    }
+
+    if (isAccept) {
+      try {
+        await updateCandidateStage({
+          candidateId,
+          jobId,
+          stage: PIPELINE_STAGES.OFFER,
+          performedById: userId,
+          skipStageActivity: true,
+          metadata: { source: 'portal-offer-accept', placementId: placement.id },
+        });
+      } catch (stageErr) {
+        console.warn('[placement.respondToPortalOffer] stage sync failed:', stageErr?.message || stageErr);
+      }
+    }
+
+    const candidate = await prisma.candidate.findUnique({
+      where: { id: candidateId },
+      select: { firstName: true, lastName: true },
+    });
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      select: { title: true },
+    });
+    const candidateName = `${candidate?.firstName || ''} ${candidate?.lastName || ''}`.trim() || 'Candidate';
+    const notifyIds = new Set([placement.recruiterId].filter(Boolean));
+    await Promise.allSettled(
+      Array.from(notifyIds).map((uid) =>
+        createUserNotification(uid, {
+          category: 'PLACEMENT',
+          title: isAccept ? 'Offer accepted' : 'Offer declined',
+          description: `${candidateName} ${isAccept ? 'accepted' : 'declined'} the offer for ${job?.title || 'the role'}.`,
+          actionLabel: 'View placement',
+          actionPath: `/placement?placementId=${placement.id}`,
+        })
+      )
+    );
+
+    return fetchPlacementOrThrow(placement.id);
   },
 
   async delete(id, userId) {

@@ -1,5 +1,6 @@
 import type { BackendTask } from './api';
 import { formatDateTimeDMY } from '../utils/dateDisplay';
+import { extractAuditMeta } from '../utils/auditMeta';
 import type { Task, TaskForDrawer, TaskStatus, TaskPriority, TaskType, TaskRelatedTo } from '../app/Task&Activites/types';
 
 /**
@@ -16,11 +17,19 @@ export function transformBackendTaskToFrontend(
   };
 
   const statusMap: Record<string, TaskStatus> = {
-    'PENDING': 'Pending',
-    'TODO': 'Pending',
-    'IN_PROGRESS': 'Pending', // Frontend doesn't have In Progress, map to Pending
-    'DONE': 'Completed',
-    'CANCELLED': 'Cancelled',
+    PENDING: 'Pending',
+    TODO: 'Pending',
+    IN_PROGRESS: 'Pending',
+    DONE: 'Completed',
+    CANCELLED: 'Cancelled',
+  };
+
+  const workflowStatusMap: Record<string, TaskStatus> = {
+    PENDING: 'Pending',
+    TODO: 'Pending',
+    IN_PROGRESS: 'In Progress',
+    DONE: 'Completed',
+    CANCELLED: 'Cancelled',
   };
 
   const linkedEntityTypeMap: Record<string, TaskRelatedTo> = {
@@ -31,9 +40,9 @@ export function transformBackendTaskToFrontend(
     'INTERNAL': 'Internal',
   };
 
-  // Determine status - if overdue and not completed, mark as Overdue
-  let status: TaskStatus = statusMap[backendTask.status] || 'Pending';
-  if (backendTask.isOverdue && status !== 'Completed') {
+  const workflowStatus: TaskStatus = workflowStatusMap[backendTask.status] || 'Pending';
+  let status: TaskStatus = workflowStatus;
+  if (backendTask.isOverdue && workflowStatus !== 'Completed' && workflowStatus !== 'Cancelled') {
     status = 'Overdue';
   }
 
@@ -58,10 +67,19 @@ export function transformBackendTaskToFrontend(
     dueTime: backendTask.dueTime || '',
     priority: priorityMap[backendTask.priority] || 'Medium',
     status,
-    owner: {
-      name: backendTask.assignedTo.name,
-      avatar: '', // Backend doesn't return avatar, would need to fetch separately
+    workflowStatus,
+    assignee: {
+      id: backendTask.assignedTo?.id || backendTask.assignedToId,
+      name: backendTask.assignedTo?.name || 'Unassigned',
     },
+    assigneeId: backendTask.assignedToId || backendTask.assignedTo?.id,
+    createdById: backendTask.createdById || backendTask.createdBy?.id,
+    createdByName: backendTask.createdBy?.name,
+    owner: {
+      name: backendTask.assignedTo?.name || 'Unassigned',
+      avatar: '',
+    },
+    auditMeta: extractAuditMeta(backendTask as Record<string, unknown>),
   };
 }
 
@@ -78,24 +96,25 @@ export function transformBackendTaskToDrawer(
     'HIGH': 'High',
   };
 
-  const statusMap: Record<string, TaskStatus> = {
-    'PENDING': 'Pending',
-    'TODO': 'Pending',
-    'IN_PROGRESS': 'Pending',
-    'DONE': 'Completed',
-    'CANCELLED': 'Cancelled',
+  const workflowStatusMap: Record<string, TaskStatus> = {
+    PENDING: 'Pending',
+    TODO: 'Pending',
+    IN_PROGRESS: 'In Progress',
+    DONE: 'Completed',
+    CANCELLED: 'Cancelled',
   };
 
   const linkedEntityTypeMap: Record<string, TaskRelatedTo> = {
-    'CANDIDATE': 'Candidate',
-    'JOB': 'Job',
-    'CLIENT': 'Client',
-    'INTERVIEW': 'Interview',
-    'INTERNAL': 'Internal',
+    CANDIDATE: 'Candidate',
+    JOB: 'Job',
+    CLIENT: 'Client',
+    INTERVIEW: 'Interview',
+    INTERNAL: 'Internal',
   };
 
-  let status: TaskStatus = statusMap[backendTask.status] || 'Pending';
-  if (backendTask.isOverdue && status !== 'Completed') {
+  const workflowStatus: TaskStatus = workflowStatusMap[backendTask.status] || 'Pending';
+  let status: TaskStatus = workflowStatus;
+  if (backendTask.isOverdue && workflowStatus !== 'Completed' && workflowStatus !== 'Cancelled') {
     status = 'Overdue';
   }
 
@@ -115,11 +134,19 @@ export function transformBackendTaskToDrawer(
     dueTime: backendTask.dueTime || '',
     priority: priorityMap[backendTask.priority] || 'Medium',
     status,
+    workflowStatus,
     owner: {
       name: backendTask.assignedTo.name,
       avatar: backendTask.assignedTo.avatar || '',
     },
-    assignedToId: backendTask.assignedToId || backendTask.assignedTo?.id, // Store assignee ID
+    assignee: {
+      id: backendTask.assignedToId || backendTask.assignedTo?.id,
+      name: backendTask.assignedTo.name,
+    },
+    assigneeId: backendTask.assignedToId || backendTask.assignedTo?.id,
+    createdById: backendTask.createdById || backendTask.createdBy?.id,
+    createdByName: backendTask.createdBy?.name,
+    assignedToId: backendTask.assignedToId || backendTask.assignedTo?.id,
     backendStatus: backendTask.status, // Store original backend status for edit form mapping
     description: backendTask.description || undefined,
     reminder: backendTask.reminder || undefined,
@@ -163,5 +190,6 @@ export function transformBackendTaskToDrawer(
       }
       return undefined;
     })(),
+    auditMeta: extractAuditMeta(backendTask as Record<string, unknown>),
   };
 }

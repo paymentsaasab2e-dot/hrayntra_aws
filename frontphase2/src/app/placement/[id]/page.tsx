@@ -14,6 +14,7 @@ import {
   getPlacementStatusLabel,
   getStatusBadgeStyle,
 } from '../../../utils/placements';
+import { EntityAuditSummary } from '../../../components/table/TableAuditCell';
 
 export default function PlacementDetailPage() {
   const params = useParams<{ id: string }>();
@@ -158,6 +159,7 @@ export default function PlacementDetailPage() {
             </section>
 
             <section className="rounded-2xl border border-[#E5E7EB] bg-white p-6 shadow-sm">
+              <EntityAuditSummary audit={placement.auditMeta} className="mb-4" />
               <h2 className="text-lg font-semibold text-[#111827]">Activity Log</h2>
               <div className="mt-4 space-y-4">
                 {(placement.activityLog || []).length ? (

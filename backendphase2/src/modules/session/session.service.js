@@ -1,6 +1,6 @@
 import crypto from 'crypto';
-import { prisma } from '../../config/prisma.js';
-import { env } from '../../config/env.js';
+import { prisma, getActiveTenantDbName, runWithTenantContext } from '../../config/prisma.js';
+import { env, normalizePublicUrl, isLoopbackPublicUrl } from '../../config/env.js';
 import { signToken, signRefreshToken, verifyRefreshToken } from '../../utils/jwt.js';
 import { hashToken } from '../../utils/tokenHash.js';
 import { formatDeviceLabel } from '../../utils/deviceFingerprint.js';
@@ -10,6 +10,11 @@ import {
   emitSessionRevoked,
   emitSessionTransferResolved,
 } from '../../socket/sessionSocket.js';
+import { sendSessionTransferRequestEmail } from '../../services/emailService.js';
+import {
+  signSessionTransferEmailToken,
+  verifySessionTransferEmailToken,
+} from '../../utils/sessionTransferEmailToken.js';
 
 const SESSION_STATUS_ACTIVE = 'ACTIVE';
 
@@ -18,7 +23,7 @@ function isEnabled() {
 }
 
 function inactivityMs() {
-  return Number(env.SESSION_INACTIVITY_MS || 5 * 60 * 1000);
+  return Number(env.SESSION_INACTIVITY_MS || 30 * 60 * 1000);
 }
 
 function transferTtlMs() {
@@ -26,7 +31,7 @@ function transferTtlMs() {
 }
 
 function warningBeforeMs() {
-  return Number(env.SESSION_INACTIVITY_WARNING_MS || 60 * 1000);
+  return Number(env.SESSION_INACTIVITY_WARNING_MS || 2 * 60 * 1000);
 }
 
 function redisSessionKey(userId) {
@@ -55,6 +60,36 @@ async function audit(userId, action, deviceMeta = {}, metadata = null) {
   } catch (err) {
     console.warn('[session] audit log failed', err?.message);
   }
+}
+
+/** Same browser/device re-login after timeout or local logout — do not block with duplicate modal. */
+function isSameClientRelogin(activeRow, deviceMeta = {}) {
+  if (!activeRow || !deviceMeta) return false;
+
+  const incomingDeviceId = String(deviceMeta.deviceId || '').trim();
+  const activeDeviceId = String(activeRow.deviceId || '').trim();
+  if (incomingDeviceId && activeDeviceId && incomingDeviceId === activeDeviceId) {
+    return true;
+  }
+
+  const incomingIp = String(deviceMeta.ipAddress || '').trim();
+  const activeIp = String(activeRow.ipAddress || '').trim();
+  const incomingBrowser = String(deviceMeta.browserInfo || '').trim().toLowerCase();
+  const activeBrowser = String(activeRow.browserInfo || '').trim().toLowerCase();
+  const incomingOs = String(deviceMeta.operatingSystem || '').trim().toLowerCase();
+  const activeOs = String(activeRow.operatingSystem || '').trim().toLowerCase();
+
+  return Boolean(
+    incomingIp &&
+      activeIp &&
+      incomingIp === activeIp &&
+      incomingBrowser &&
+      activeBrowser &&
+      incomingBrowser === activeBrowser &&
+      incomingOs &&
+      activeOs &&
+      incomingOs === activeOs
+  );
 }
 
 function publicSessionView(session) {
@@ -267,11 +302,23 @@ export async function gateLoginOrIssueTokens({
 
   const active = await findActiveSessionForUser(userId, identityPayload);
   if (active) {
-    await audit(userId, 'DUPLICATE_LOGIN_ATTEMPT', deviceMeta, { activeSessionId: active.sessionId });
-    return {
-      duplicateSession: true,
-      activeSession: publicSessionView(active),
-    };
+    if (isSameClientRelogin(active, deviceMeta)) {
+      await expireSession(active, 'REPLACED');
+      await prisma.user.update({
+        where: { id: userId },
+        data: { refreshToken: null },
+      });
+      await audit(userId, 'SAME_CLIENT_RELOGIN', deviceMeta, {
+        releasedSessionId: active.sessionId,
+        reason: 'auto_release_after_local_logout_or_timeout',
+      });
+    } else {
+      await audit(userId, 'DUPLICATE_LOGIN_ATTEMPT', deviceMeta, { activeSessionId: active.sessionId });
+      return {
+        duplicateSession: true,
+        activeSession: publicSessionView(active),
+      };
+    }
   }
 
   return createSessionAndTokens({ userId, tokenPayload, refreshPayload, deviceMeta });
@@ -340,6 +387,17 @@ export async function heartbeat(userId, sessionId) {
   if (!row) {
     return { ok: false, code: 'SESSION_EXPIRED' };
   }
+
+  const idleMs = Date.now() - new Date(row.lastActivity).getTime();
+  if (!Number.isFinite(idleMs) || idleMs > inactivityMs()) {
+    await expireSession(row, 'INACTIVITY_TIMEOUT');
+    await prisma.user.update({
+      where: { id: userId },
+      data: { refreshToken: null },
+    });
+    return { ok: false, code: 'SESSION_EXPIRED' };
+  }
+
   const now = new Date();
   await prisma.activeSession.update({
     where: { id: row.id },
@@ -348,8 +406,7 @@ export async function heartbeat(userId, sessionId) {
   await cacheActiveSession(userId, sessionId);
   await deleteCache(closeIntentKey(userId, sessionId));
 
-  const inactiveMs = Date.now() - new Date(row.lastActivity).getTime();
-  const warn = inactiveMs >= inactivityMs() - warningBeforeMs();
+  const warn = idleMs >= inactivityMs() - warningBeforeMs();
 
   return {
     ok: true,
@@ -363,6 +420,29 @@ export async function markSessionCloseIntent(userId, sessionId) {
   if (!userId || !sessionId) return;
   const ttlSeconds = Math.max(5, Math.ceil(closeIntentGraceMs() / 1000));
   await setCache(closeIntentKey(userId, sessionId), '1', ttlSeconds);
+}
+
+/** Last browser tab closed — end this session immediately so the next login is not blocked. */
+export async function finalizeBrowserLogout(userId, sessionId) {
+  if (!userId || !sessionId || !isEnabled()) return;
+
+  const row = await prisma.activeSession.findFirst({
+    where: { userId, sessionId, sessionStatus: SESSION_STATUS_ACTIVE },
+  });
+
+  if (row) {
+    await expireSession(row, 'BROWSER_CLOSED');
+  }
+
+  await deleteCache(closeIntentKey(userId, sessionId));
+  await deleteCache(redisSessionKey(userId));
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { refreshToken: null },
+  });
+
+  await audit(userId, 'LOGOUT', { sessionId }, { reason: 'BROWSER_CLOSED' });
 }
 
 export async function logoutSession(userId, sessionId) {
@@ -480,21 +560,139 @@ export async function requestSessionTransfer({ loginIdentifier, password, device
 
   await audit(user.id, 'SESSION_TRANSFER_REQUESTED', deviceMeta, { requestId });
 
+  const challengerView = publicSessionView({
+    browserInfo: deviceMeta.browserInfo,
+    operatingSystem: deviceMeta.operatingSystem,
+    deviceType: deviceMeta.deviceType,
+    ipAddress: deviceMeta.ipAddress,
+    location: deviceMeta.location,
+    loginTime: new Date(),
+    lastActivity: new Date(),
+  });
+
   emitSessionTransferRequest(user.id, {
     requestId,
-    challenger: publicSessionView({
-      browserInfo: deviceMeta.browserInfo,
-      operatingSystem: deviceMeta.operatingSystem,
-      deviceType: deviceMeta.deviceType,
-      ipAddress: deviceMeta.ipAddress,
-      location: deviceMeta.location,
-      loginTime: new Date(),
-      lastActivity: new Date(),
-    }),
+    challenger: challengerView,
     expiresAt: expiresAt.toISOString(),
   });
 
+  void notifyActiveUserOfSessionTransferRequest({
+    user,
+    requestId,
+    expiresAt,
+    challengerView,
+    deviceMeta,
+  });
+
   return { requestId, status: 'PENDING', expiresAt };
+}
+
+async function notifyActiveUserOfSessionTransferRequest({
+  user,
+  requestId,
+  expiresAt,
+  challengerView,
+  deviceMeta,
+}) {
+  const email = String(user?.email || '').trim();
+  if (!email) return;
+
+  const tenantDbName = getActiveTenantDbName();
+
+  const approveToken = signSessionTransferEmailToken({
+    requestId,
+    userId: user.id,
+    action: 'approve',
+    expiresAt,
+    tenantDbName,
+  });
+  const rejectToken = signSessionTransferEmailToken({
+    requestId,
+    userId: user.id,
+    action: 'reject',
+    expiresAt,
+    tenantDbName,
+  });
+
+  const tenantQ = tenantDbName ? `&tenantDbName=${encodeURIComponent(tenantDbName)}` : '';
+  const emailPublicOverride = normalizePublicUrl(process.env.SESSION_TRANSFER_EMAIL_PUBLIC_URL || '');
+  const frontendBase = normalizePublicUrl(env.FRONTEND_URL);
+  const backendBase = normalizePublicUrl(env.BACKEND_PUBLIC_URL);
+
+  let approveUrl;
+  let rejectUrl;
+  if (emailPublicOverride && !isLoopbackPublicUrl(emailPublicOverride)) {
+    const base = emailPublicOverride;
+    approveUrl = `${base}/api/session-transfer/email/approve?token=${encodeURIComponent(approveToken)}${tenantQ}`;
+    rejectUrl = `${base}/api/session-transfer/email/reject?token=${encodeURIComponent(rejectToken)}${tenantQ}`;
+  } else if (!isLoopbackPublicUrl(frontendBase)) {
+    approveUrl = `${frontendBase}/api/session-transfer/email/approve?token=${encodeURIComponent(approveToken)}${tenantQ}`;
+    rejectUrl = `${frontendBase}/api/session-transfer/email/reject?token=${encodeURIComponent(rejectToken)}${tenantQ}`;
+  } else {
+    // Local dev: frontend proxy → API (keeps redirect on :3001 with ?status=approved)
+    approveUrl = `${frontendBase}/api/session-transfer/email/approve?token=${encodeURIComponent(approveToken)}${tenantQ}`;
+    rejectUrl = `${frontendBase}/api/session-transfer/email/reject?token=${encodeURIComponent(rejectToken)}${tenantQ}`;
+  }
+
+  const recipientName =
+    [user.firstName, user.lastName].filter(Boolean).join(' ').trim() || user.name || email;
+
+  const ttlMinutes = Math.max(1, Math.round(transferTtlMs() / 60000));
+
+  try {
+    await sendSessionTransferRequestEmail({
+      toEmail: email,
+      recipientName,
+      challengerDeviceLabel: challengerView?.deviceLabel || formatDeviceLabel(deviceMeta),
+      challengerIp: deviceMeta?.ipAddress || challengerView?.ipAddress,
+      approveUrl,
+      rejectUrl,
+      expiresMinutes: ttlMinutes,
+    });
+  } catch (err) {
+    console.warn('[session] transfer request email failed', err?.message);
+  }
+}
+
+function redirectStatusForTransferError(error) {
+  const msg = String(error?.message || '');
+  if (/expired/i.test(msg)) return { status: 'expired', message: msg };
+  if (/not pending|already/i.test(msg)) return { status: 'already_resolved', message: msg };
+  return { status: 'error', message: msg || 'Invalid or expired link' };
+}
+
+async function runSessionTransferEmailAction(token, expectedAction, handler) {
+  const payload = verifySessionTransferEmailToken(token);
+  if (!payload || payload.action !== expectedAction) {
+    throw new Error(`Invalid or expired ${expectedAction === 'approve' ? 'approval' : 'rejection'} link`);
+  }
+  const tenantDbName = String(payload.tenantDbName || '').trim();
+  if (tenantDbName) {
+    return runWithTenantContext(tenantDbName, () => handler(payload));
+  }
+  return handler(payload);
+}
+
+export async function approveSessionTransferFromEmailToken(token) {
+  return runSessionTransferEmailAction(token, 'approve', (payload) =>
+    approveSessionTransfer(payload.userId, payload.requestId),
+  );
+}
+
+export async function rejectSessionTransferFromEmailToken(token) {
+  return runSessionTransferEmailAction(token, 'reject', (payload) =>
+    rejectSessionTransfer(payload.userId, payload.requestId),
+  );
+}
+
+export function buildSessionTransferEmailRedirect(query) {
+  const base = normalizePublicUrl(env.FRONTEND_URL, 'http://localhost:3001');
+  const params = new URLSearchParams();
+  Object.entries(query || {}).forEach(([key, value]) => {
+    if (value != null && String(value).trim()) params.set(key, String(value));
+  });
+  const qs = params.toString();
+  return `${base}/session-transfer${qs ? `?${qs}` : ''}`;
 }
 
 export async function getTransferStatus(requestId) {
@@ -634,12 +832,17 @@ export const sessionService = {
   validateSessionFromToken,
   heartbeat,
   markSessionCloseIntent,
+  finalizeBrowserLogout,
   logoutSession,
   refreshWithSession,
   requestSessionTransfer,
   getTransferStatus,
   approveSessionTransfer,
   rejectSessionTransfer,
+  approveSessionTransferFromEmailToken,
+  rejectSessionTransferFromEmailToken,
+  buildSessionTransferEmailRedirect,
+  redirectStatusForTransferError,
   completeTransferLogin,
   runInactivityCleanup,
   expireStaleTransfers,

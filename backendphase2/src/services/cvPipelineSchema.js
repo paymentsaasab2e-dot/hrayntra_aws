@@ -1,3 +1,10 @@
+import {
+  cvParsePreserveSourceLanguage,
+  detectCvDocumentLanguage,
+  formatNoticePeriodInLanguage,
+  normalizeSourceLanguageCode,
+} from './cvLanguagePreserve.js';
+
 /**
  * Bulk CV pipeline — field catalog and mapping to candidate create payload.
  * Sections mirror ATS import: Personal, Education, Professional, Social, Summary.
@@ -48,6 +55,7 @@ export const CV_PIPELINE_SECTIONS = {
 /** JSON schema fragment for the LLM prompt. */
 export function buildCvExtractionJsonSchemaBlock() {
   return `{
+  "sourceLanguage": "en"|"es"|"fr"|"de"|"it"|"pt"|"nl"|"ar"|"hi"|null,
   "firstName": string|null,
   "lastName": string|null,
   "email": string|null,
@@ -136,6 +144,14 @@ export function buildCvExtractionJsonSchemaBlock() {
 export function buildCvExtractionPromptInstructions() {
   return `
 FIELD CATALOG — extract into the JSON keys below (use null when absent; never invent).
+
+sourceLanguage: ISO 639-1 code for the dominant language of the resume text (required when detectable).
+
+MULTILINGUAL CVs — store text in the CV language (do not translate):
+- Spanish CV → Spanish in summary, skills, jobs, education. French CV → French. English → English.
+- Map localized section headers to JSON keys (Formation/Educación/Ausbildung → educationEntries; Expérience/Experiencia → workExperienceEntries; Compétences/Habilidades → skills).
+- Extract emails, phones, URLs regardless of language. Dates: copy as written; ongoing roles use CV-language labels (Présent, Actualidad, Present, etc.).
+- languageProficiency[]: proficiency exactly as on the CV (nativo, courant, B2, fluido, etc.).
 
 CRITICAL for short or narrative-only resumes:
 - If employers are mentioned in prose (e.g. "Worked at Kalki Digital, Ellitecodo, Pravidon"), you MUST populate workExperienceEntries (one entry per company) AND currentEmployer/currentCompany (most recent).
@@ -266,7 +282,15 @@ export function buildPipelineExtraData(base = {}, legacyExtra = {}) {
       : [],
   };
 
+  const sourceLanguage =
+    normalizeSourceLanguageCode(base.sourceLanguage) ||
+    detectCvDocumentLanguage(base.cleanedText || base.summary || '');
+
   const pipeline = {
+    meta: {
+      sourceLanguage: sourceLanguage || null,
+      preserveSourceLanguage: cvParsePreserveSourceLanguage(),
+    },
     personal: Object.fromEntries(Object.entries(personal).filter(([, v]) => v != null && v !== '')),
     education: {
       entries: eduEntries,
@@ -450,13 +474,28 @@ export function logPipelineSectionsExtraction(data = {}) {
  */
 export function enrichParsedFromNarrative(data = {}, cleanedText = '') {
   const out = { ...data };
+  const lang =
+    normalizeSourceLanguageCode(out.sourceLanguage) || detectCvDocumentLanguage(cleanedText || out.summary || '');
+  if (lang) out.sourceLanguage = lang;
+
   const blob = [cleanedText, out.summary, out.workHistory, out.experienceRaw].filter(Boolean).join('\n');
 
   if (out.experience == null && out.totalExperience == null) {
-    const ym = blob.match(/(\d{1,2})\s*(?:\+?\s*)?years?\s+(?:of\s+)?experience/i);
-    if (ym) {
-      out.experience = Number(ym[1]);
-      out.totalExperience = Number(ym[1]);
+    const expPatterns = [
+      /(\d{1,2})\s*(?:\+?\s*)?years?\s+(?:of\s+)?experience/i,
+      /(\d{1,2})\s*ans?\s+d['']expérience/i,
+      /(\d{1,2})\s*años?\s+de\s+experiencia/i,
+      /(\d{1,2})\s+Jahre\s+(?:Berufserfahrung|Erfahrung)/i,
+      /(\d{1,2})\s+anni?\s+di\s+esperienza/i,
+      /(\d{1,2})\s+anos?\s+de\s+experiência/i,
+    ];
+    for (const rx of expPatterns) {
+      const ym = blob.match(rx);
+      if (ym) {
+        out.experience = Number(ym[1]);
+        out.totalExperience = Number(ym[1]);
+        break;
+      }
     }
   } else if (out.experience == null && out.totalExperience != null) {
     out.experience = out.totalExperience;
@@ -465,16 +504,28 @@ export function enrichParsedFromNarrative(data = {}, cleanedText = '') {
   }
 
   if (!Array.isArray(out.workExperienceEntries) || !out.workExperienceEntries.length) {
-    const workedAt = blob.match(/worked\s+at\s+([^.!\n]+)/i);
+    const workedAtPatterns = [
+      /worked\s+at\s+([^.!\n]+)/i,
+      /trabaj(?:ó|o)\s+en\s+([^.!\n]+)/i,
+      /travaill(?:é|e)\s+(?:chez|à)\s+([^.!\n]+)/i,
+      /arbeitete\s+bei\s+([^.!\n]+)/i,
+    ];
+    let workedAt = null;
+    for (const rx of workedAtPatterns) {
+      workedAt = blob.match(rx);
+      if (workedAt) break;
+    }
     if (workedAt) {
-      const chunk = workedAt[1].replace(/\s+and\s+/gi, ',');
+      const chunk = workedAt[1].replace(/\s+(?:and|y|et|und|e)\s+/gi, ',');
       const companies = chunk
         .split(',')
         .map((s) => s.trim().replace(/\.$/, ''))
         .filter((s) => s.length > 2);
       const deduped = [...new Set(companies)];
       if (deduped.length) {
-        const title = str(out.designation || out.currentDesignation) || 'Professional';
+        const title =
+          str(out.designation || out.currentDesignation) ||
+          (lang === 'en' || !lang ? 'Professional' : '');
         out.workExperienceEntries = deduped.map((company) => ({
           title,
           company,
@@ -533,9 +584,13 @@ export function applyPipelineFieldsToNormalized(base, fallback = {}, extras = {}
     Array.isArray(merged.educationEntries) ? merged.educationEntries : []
   );
 
+  const docLang =
+    normalizeSourceLanguageCode(merged.sourceLanguage) || detectCvDocumentLanguage(cleanedText);
   const noticePeriod =
     str(merged.noticePeriod) ||
-    (merged.noticePeriodInDays != null ? `${merged.noticePeriodInDays} days` : '');
+    (merged.noticePeriodInDays != null
+      ? formatNoticePeriodInLanguage(merged.noticePeriodInDays, docLang || 'en')
+      : '');
 
   const state = str(merged.state);
   const city = str(merged.city || fallback.city);
@@ -550,7 +605,7 @@ export function applyPipelineFieldsToNormalized(base, fallback = {}, extras = {}
       : {};
 
   const extraData = buildPipelineExtraData(
-    { ...merged, educationEntries: eduEntries },
+    { ...merged, educationEntries: eduEntries, cleanedText },
     legacyExtra
   );
 
@@ -572,6 +627,7 @@ export function applyPipelineFieldsToNormalized(base, fallback = {}, extras = {}
 
   return {
     ...merged,
+    sourceLanguage: docLang || merged.sourceLanguage || null,
     city,
     state,
     location,

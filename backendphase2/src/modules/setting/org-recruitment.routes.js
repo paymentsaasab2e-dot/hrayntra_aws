@@ -20,10 +20,12 @@ import {
   getOrgCustomLeadStatusOptions,
   getLeadStatusOptions,
   appendLeadStatusOption,
+  removeLeadStatusOption,
   DEFAULT_LEAD_STATUS_OPTIONS,
   getOrgCustomClientLeadStatusOptions,
   getClientLeadStatusOptions,
   appendClientLeadStatusOption,
+  removeClientLeadStatusOption,
   DEFAULT_CLIENT_LEAD_STATUS_OPTIONS,
   DEFAULT_COMPANY_SERVICES,
   RECOMMENDED_COMPANY_SERVICES,
@@ -256,6 +258,19 @@ router.post('/lead-statuses/append', async (req, res) => {
   }
 });
 
+router.post('/lead-statuses/remove', async (req, res) => {
+  try {
+    const status = req.body?.status ?? req.body?.name ?? req.body;
+    const statuses = await removeLeadStatusOption(status);
+    sendResponse(res, 200, 'Lead status removed', {
+      statuses,
+      defaults: DEFAULT_LEAD_STATUS_OPTIONS,
+    });
+  } catch (error) {
+    sendError(res, 400, error.message || 'Failed to remove lead status', error);
+  }
+});
+
 router.get('/client-lead-statuses', async (req, res) => {
   try {
     const custom = await getOrgCustomClientLeadStatusOptions();
@@ -280,6 +295,19 @@ router.post('/client-lead-statuses/append', async (req, res) => {
     });
   } catch (error) {
     sendError(res, 400, error.message || 'Failed to add client status', error);
+  }
+});
+
+router.post('/client-lead-statuses/remove', async (req, res) => {
+  try {
+    const status = req.body?.status ?? req.body?.name ?? req.body;
+    const statuses = await removeClientLeadStatusOption(status);
+    sendResponse(res, 200, 'Client status removed', {
+      statuses,
+      defaults: DEFAULT_CLIENT_LEAD_STATUS_OPTIONS,
+    });
+  } catch (error) {
+    sendError(res, 400, error.message || 'Failed to remove client status', error);
   }
 });
 

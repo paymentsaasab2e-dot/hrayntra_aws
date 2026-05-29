@@ -1,5 +1,9 @@
+import type { AuditMeta } from './audit';
+
 export type PlacementStatus =
+  | 'OFFER_SENT'
   | 'OFFER_ACCEPTED'
+  | 'OFFER_REJECTED'
   | 'JOINING_SCHEDULED'
   | 'JOINED'
   | 'NO_SHOW'
@@ -83,11 +87,15 @@ export interface Placement {
   offerDate?: string | null;
   joiningDate?: string | null;
   actualJoiningDate?: string | null;
+  reportingToName?: string | null;
+  reportingToTitle?: string | null;
+  reportingToEmail?: string | null;
   status: PlacementStatus;
   failureReason?: string | null;
   notes?: string | null;
   createdAt: string;
   updatedAt: string;
+  auditMeta?: AuditMeta;
   paymentStatus?: BillingPaymentStatus;
   currency?: string | null;
   invoiceNumber?: string | null;
@@ -181,6 +189,7 @@ export interface CreatePlacementPayload {
   offerDate: string;
   expectedJoiningDate?: string;
   employmentType: EmploymentType;
+  status?: PlacementStatus;
   notes?: string;
 }
 
@@ -198,4 +207,12 @@ export interface MarkFailedPayload {
 export interface RequestReplacementPayload {
   reason?: string;
   expectedReplacementDate?: string;
+}
+
+export interface ScheduleJoiningPayload {
+  joiningDate: string;
+  reportingToName: string;
+  reportingToTitle?: string;
+  reportingToEmail?: string;
+  joiningNotes?: string;
 }

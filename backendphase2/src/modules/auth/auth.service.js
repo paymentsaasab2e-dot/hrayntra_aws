@@ -7,7 +7,7 @@ import { headquartersAuthService } from './headquarters-auth.service.js';
 import { seedOrgRecruitmentFromOrganizationType } from '../setting/recruitmentMode.service.js';
 import { DEFAULT_SYSTEM_ROLES } from '../role/default-permissions.js';
 import { ensureSuperAdminHasAllPermissions, syncDefaultPermissions } from '../role/permission-sync.service.js';
-import { sessionService } from '../session/session.service.js';
+import { revokeAllSessionsForUser, sessionService } from '../session/session.service.js';
 
 const DIRECT_SUPER_ADMIN_LOGIN_ID = 'super.admin@saasa';
 const DIRECT_SUPER_ADMIN_PASSWORD = 'UjvnE3WctAVa';
@@ -721,8 +721,12 @@ export const authService = {
         },
       });
 
-      if (user && user.credential) {
+      if (user?.credential) {
         credential = user.credential;
+      } else if (user) {
+        credential = await prisma.userCredential.findUnique({
+          where: { userId: user.id },
+        });
       }
     }
 
@@ -917,6 +921,8 @@ export const authService = {
 
   async logout(userId, sessionId = null) {
     await sessionService.logoutSession(userId, sessionId);
+    const { logUserSessionActivity } = await import('../../utils/userSessionAudit.js');
+    await logUserSessionActivity(userId, 'Logged out', { sessionId: sessionId || null });
   },
 
   async refreshToken(refreshToken) {
@@ -936,84 +942,248 @@ export const authService = {
     return refreshInScope();
   },
 
-  async forgotPassword(email) {
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) {
-      // Don't reveal if user exists
-      return { message: 'If the email exists, an OTP has been sent' };
+  async forgotPassword(identifier) {
+    const resolved = await this._resolveUserForPasswordReset(identifier);
+    if (!resolved?.user?.email) {
+      return { message: 'If the account exists, an OTP has been sent to the registered email.' };
+    }
+
+    const { user, tenantDbName } = resolved;
+    if (user.status === 'INACTIVE' || user.isActive === false) {
+      return { message: 'If the account exists, an OTP has been sent to the registered email.' };
     }
 
     const otp = generateOtp();
     const otpHash = hashOtp(otp);
     const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { otp: otpHash, otpExpiry },
+    return this._withPasswordResetContext(tenantDbName, async () => {
+      const updated = await prisma.user.updateMany({
+        where: { id: user.id },
+        data: { otp: otpHash, otpExpiry },
+      });
+      if (updated.count === 0) {
+        throw new Error('Unable to send verification code. Please contact your administrator.');
+      }
+
+      const displayName =
+        String(user.name || '').trim() ||
+        [user.firstName, user.lastName].filter(Boolean).join(' ').trim() ||
+        'User';
+      await sendOtpEmail(user.email, otp, displayName);
+
+      return {
+        message: 'If the account exists, an OTP has been sent to the registered email.',
+        email: user.email,
+      };
     });
-
-    await sendOtpEmail(email, otp, user.name);
-
-    return { message: 'OTP sent to email' };
   },
 
-  async verifyOtp(email, otp) {
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user || !user.otp || !user.otpExpiry) {
+  async verifyOtp(identifier, otp) {
+    const resolved = await this._resolveUserForPasswordReset(identifier);
+    if (!resolved?.user?.email) {
       throw new Error('Invalid OTP');
     }
 
-    if (new Date() > user.otpExpiry) {
-      throw new Error('OTP expired');
-    }
+    return this._withPasswordResetContext(resolved.tenantDbName, async () => {
+      const user = await prisma.user.findUnique({
+        where: { email: resolved.user.email },
+      });
+      if (!user || !user.otp || !user.otpExpiry) {
+        throw new Error('Invalid OTP');
+      }
 
-    const isValid = compareOtp(otp, user.otp);
-    if (!isValid) {
-      throw new Error('Invalid OTP');
-    }
+      if (new Date() > user.otpExpiry) {
+        throw new Error('OTP expired');
+      }
 
-    return { verified: true };
+      const isValid = compareOtp(otp, user.otp);
+      if (!isValid) {
+        throw new Error('Invalid OTP');
+      }
+
+      return { verified: true, email: user.email };
+    });
   },
 
-  async resetPassword(email, otp, newPassword) {
-    await this.verifyOtp(email, otp);
+  async resetPassword(identifier, otp, newPassword) {
+    const trimmedPassword = String(newPassword || '').trim();
+    if (trimmedPassword.length < 8) {
+      throw new Error('Password must be at least 8 characters');
+    }
 
-    const passwordHash = await bcrypt.hash(newPassword, 10);
-    await prisma.user.update({
-      where: { email },
-      data: {
-        passwordHash,
-        otp: null,
-        otpExpiry: null,
-      },
+    const resolved = await this._resolveUserForPasswordReset(identifier);
+    if (!resolved?.user?.email) {
+      throw new Error('Account not found');
+    }
+
+    await this.verifyOtp(identifier, otp);
+
+    const email = resolved.user.email.toLowerCase();
+    const loginIdHint =
+      resolved.credential?.loginId ||
+      (identifier.includes('@') ? null : String(identifier).trim());
+
+    await this._withPasswordResetContext(resolved.tenantDbName, async () => {
+      await this._persistPasswordResetForEmail(email, trimmedPassword, loginIdHint);
     });
 
-    return { message: 'Password reset successfully' };
+    // Clear stale copies in the default (platform) DB when the account lives in a tenant DB.
+    if (resolved.tenantDbName) {
+      await runWithTenantContext('', async () => {
+        await this._persistPasswordResetForEmail(email, trimmedPassword, loginIdHint, {
+          skipSessionRevoke: true,
+        });
+      });
+    }
+
+    return { message: 'Password reset successfully. You can log in with your new password.' };
+  },
+
+  /**
+   * Writes the new password to User.passwordHash and UserCredential.hashedPassword
+   * in the current Prisma DB scope. Login always prefers UserCredential when present.
+   */
+  async _persistPasswordResetForEmail(email, plainPassword, loginIdHint = null, options = {}) {
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    if (!normalizedEmail) {
+      throw new Error('Account not found');
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      include: { credential: true },
+    });
+    if (!user) {
+      return false;
+    }
+
+    const hashedPassword = await bcrypt.hash(String(plainPassword || '').trim(), 12);
+    const loginId =
+      String(loginIdHint || user.credential?.loginId || normalizedEmail).trim() || normalizedEmail;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: user.id },
+        data: {
+          passwordHash: hashedPassword,
+          otp: null,
+          otpExpiry: null,
+          refreshToken: null,
+        },
+      });
+
+      const existingCredential = await tx.userCredential.findUnique({
+        where: { userId: user.id },
+      });
+
+      if (existingCredential) {
+        await tx.userCredential.update({
+          where: { userId: user.id },
+          data: {
+            hashedPassword,
+            tempPasswordFlag: false,
+            failedAttempts: 0,
+            isLocked: false,
+          },
+        });
+      } else {
+        await tx.userCredential.create({
+          data: {
+            userId: user.id,
+            loginId,
+            hashedPassword,
+            tempPasswordFlag: false,
+            failedAttempts: 0,
+            isLocked: false,
+          },
+        });
+      }
+    });
+
+    if (!options.skipSessionRevoke) {
+      await revokeAllSessionsForUser(user.id, 'PASSWORD_RESET');
+    }
+
+    return true;
+  },
+
+  async _withPasswordResetContext(tenantDbName, fn) {
+    const tenant = String(tenantDbName || '').trim();
+    if (tenant) {
+      return runWithTenantContext(tenant, fn);
+    }
+    return fn();
+  },
+
+  async _resolveUserForPasswordReset(identifier) {
+    const normalized = String(identifier || '').trim();
+    if (!normalized) return null;
+
+    const lookup = async () => {
+      const isLoginId =
+        normalized.endsWith('@saasa') ||
+        !normalized.includes('@') ||
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized);
+
+      if (isLoginId) {
+        const credential = await prisma.userCredential.findUnique({
+          where: { loginId: normalized },
+          include: { user: true },
+        });
+        if (!credential?.user) return null;
+        return { user: credential.user, credential };
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { email: normalized.toLowerCase() },
+        include: { credential: true },
+      });
+      if (!user) return null;
+      return { user, credential: user.credential };
+    };
+
+    const activeTenant = resolveActiveTenantDbName();
+    if (activeTenant) {
+      const inActiveTenant = await lookup();
+      if (inActiveTenant) {
+        return { ...inActiveTenant, tenantDbName: activeTenant };
+      }
+    }
+
+    let tenantDbName = await headquartersAuthService.findTenantDbNameForUser(normalized);
+    if (!tenantDbName) {
+      tenantDbName = await headquartersAuthService.findTenantDbNameForUserByCredentialScan(normalized);
+    }
+    if (tenantDbName) {
+      const inTenant = await runWithTenantContext(tenantDbName, lookup);
+      if (inTenant) {
+        return { ...inTenant, tenantDbName };
+      }
+    }
+
+    const inDefault = await lookup();
+    if (inDefault) {
+      return { ...inDefault, tenantDbName: activeTenant || '' };
+    }
+
+    return null;
   },
 
   async changePassword(userId, newPassword) {
-    // Find user credential
-    const credential = await prisma.userCredential.findUnique({
-      where: { userId },
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { credential: true },
     });
-
-    if (!credential) {
-      throw new Error('User credential not found');
+    if (!user) {
+      throw new Error('User not found');
     }
 
-    // Hash the new password
-    const hashedPassword = await bcrypt.hash(newPassword, 12);
-
-    // Update credential: set new password and clear temp password flag
-    await prisma.userCredential.update({
-      where: { userId },
-      data: {
-        hashedPassword,
-        tempPasswordFlag: false,
-        failedAttempts: 0, // Reset failed attempts on password change
-        isLocked: false, // Unlock account if locked
-      },
-    });
+    await this._persistPasswordResetForEmail(
+      user.email,
+      newPassword,
+      user.credential?.loginId || null
+    );
 
     return { message: 'Password changed successfully' };
   },

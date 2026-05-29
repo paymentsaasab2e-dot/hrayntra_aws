@@ -23,7 +23,7 @@ import {
 } from '../../lib/contact-channels';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
-import { requestError } from '../../lib/appDialog';
+import { requestConfirm, requestError } from '../../lib/appDialog';
 import {
   Edit2,
   MoreVertical,
@@ -62,6 +62,8 @@ import {
   X,
 } from 'lucide-react';
 import type { DefaultLeadStatus, Lead, LeadStatus, LeadSource, LeadType, LeadNote, LeadNoteTag, Activity as LeadActivity } from '@/app/leads/types';
+import { EntityAuditSummary } from '../table/TableAuditCell';
+import { extractAuditMeta } from '../../utils/auditMeta';
 import { ImageWithFallback } from '../ImageWithFallback';
 import { ScheduleMeetingForm } from '../ScheduleMeetingForm';
 import { NotesService } from '../NotesService';
@@ -72,6 +74,7 @@ import {
   apiGetLead,
   apiGetLeadActivities,
   apiGetLeadStatusCatalog,
+  apiRemoveLeadStatus,
   apiUpdateLead,
   filesApiUpload,
   type CreateLeadData,
@@ -136,6 +139,7 @@ function mergeLocationFields<
 }
 
 const DEFAULT_LEAD_STATUSES: DefaultLeadStatus[] = ['New', 'Contacted', 'Qualified', 'Converted', 'Lost'];
+const DEFAULT_LEAD_STATUS_SET = new Set(DEFAULT_LEAD_STATUSES.map((status) => status.toLowerCase()));
 
 const STATUS_STYLES: Record<DefaultLeadStatus, string> = {
   New: 'bg-blue-50 text-blue-700 border-blue-100',
@@ -445,6 +449,86 @@ const FieldRowDateTime = ({ label, value }: { label: string; value: string | nul
   );
 };
 
+const LeadStatusDropdown = ({
+  value,
+  options,
+  onSelect,
+  onDelete,
+  deleting,
+}: {
+  value: string;
+  options: string[];
+  onSelect: (status: string) => void;
+  onDelete: (status: string) => void;
+  deleting: boolean;
+}) => {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocumentMouseDown = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocumentMouseDown);
+    return () => document.removeEventListener('mousedown', onDocumentMouseDown);
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-left text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+      >
+        <span>{value || 'New'}</span>
+        <ChevronDown size={16} className="text-slate-500" />
+      </button>
+
+      {open ? (
+        <div className="absolute z-30 mt-1 max-h-64 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+          {options.map((status) => {
+            const isDefault = DEFAULT_LEAD_STATUS_SET.has(String(status || '').toLowerCase());
+            const isActive = String(value || '') === String(status || '');
+            return (
+              <button
+                key={status}
+                type="button"
+                onClick={() => {
+                  onSelect(status);
+                  setOpen(false);
+                }}
+                className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm ${
+                  isActive ? 'bg-blue-50 text-blue-700' : 'text-slate-800 hover:bg-slate-50'
+                }`}
+              >
+                <span>{status}</span>
+                {!isDefault ? (
+                  <span
+                    role="button"
+                    aria-label={`Delete ${status}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onDelete(status);
+                    }}
+                    className={`inline-flex items-center rounded p-1 text-rose-500 hover:bg-rose-50 hover:text-rose-600 ${
+                      deleting ? 'pointer-events-none opacity-50' : ''
+                    }`}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
 export function LeadDetailsDrawer({
   lead,
   addLeadMode = false,
@@ -539,6 +623,7 @@ export function LeadDetailsDrawer({
   const [showAddLeadStatusInput, setShowAddLeadStatusInput] = useState(false);
   const [newLeadStatusValue, setNewLeadStatusValue] = useState('');
   const [savingLeadStatus, setSavingLeadStatus] = useState(false);
+  const [deletingLeadStatus, setDeletingLeadStatus] = useState(false);
   const [addLeadErrors, setAddLeadErrors] = useState<LeadRequiredFieldErrors>({});
 
   /** Pending Agreements & Terms file selected in the Add Lead form (uploaded after the lead is created). */
@@ -1441,6 +1526,35 @@ export function LeadDetailsDrawer({
       requestError(error, 'Failed to add status');
     } finally {
       setSavingLeadStatus(false);
+    }
+  };
+
+  const deleteLeadStatusOption = async (status: string, onSelect: (status: string) => void) => {
+    const normalized = String(status || '').trim();
+    if (!normalized) return;
+    if (DEFAULT_LEAD_STATUS_SET.has(normalized.toLowerCase())) {
+      toast.error('Default statuses cannot be deleted.');
+      return;
+    }
+    const confirmed = await requestConfirm(`Delete status "${normalized}"?`, {
+      title: 'Delete status',
+      tone: 'warning',
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+    });
+    if (!confirmed) return;
+
+    setDeletingLeadStatus(true);
+    try {
+      const response = await apiRemoveLeadStatus(normalized);
+      const nextOptions = mergeLeadStatusOptions(response?.data?.statuses, 'New');
+      setLeadStatusCatalog(nextOptions);
+      onSelect('New');
+      toast.success(`Status "${normalized}" deleted.`);
+    } catch (error) {
+      requestError(error, 'Failed to delete status');
+    } finally {
+      setDeletingLeadStatus(false);
     }
   };
 
@@ -2848,29 +2962,31 @@ export function LeadDetailsDrawer({
                         <div>
                           <div className="mb-1 flex items-center justify-between gap-3">
                             <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">Status</label>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setShowAddLeadStatusInput((prev) => !prev);
-                                setNewLeadStatusValue('');
-                              }}
-                              className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
-                            >
-                              <Plus className="h-3.5 w-3.5" />
-                              Add status
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowAddLeadStatusInput((prev) => !prev);
+                                  setNewLeadStatusValue('');
+                                }}
+                                className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                                Add status
+                              </button>
+                            </div>
                           </div>
-                          <select
+                          <LeadStatusDropdown
                             value={addLeadForm.status ?? 'New'}
-                            onChange={(e) => setAddLeadForm((p) => ({ ...p, status: e.target.value as LeadStatus }))}
-                            className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
-                          >
-                            {addLeadStatusOptions.map((status) => (
-                              <option key={status} value={status}>
-                                {status}
-                              </option>
-                            ))}
-                          </select>
+                            options={addLeadStatusOptions}
+                            deleting={deletingLeadStatus}
+                            onSelect={(status) => setAddLeadForm((p) => ({ ...p, status: status as LeadStatus }))}
+                            onDelete={(status) =>
+                              deleteLeadStatusOption(status, (nextStatus) =>
+                                setAddLeadForm((p) => ({ ...p, status: nextStatus as LeadStatus })),
+                              )
+                            }
+                          />
                           {showAddLeadStatusInput ? (
                             <div className="mt-2 flex items-center gap-2">
                               <input
@@ -3139,29 +3255,31 @@ export function LeadDetailsDrawer({
                           <div>
                             <div className="mb-1 flex items-center justify-between gap-3">
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">Status</label>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setShowAddLeadStatusInput((prev) => !prev);
-                                  setNewLeadStatusValue('');
-                                }}
-                                className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
-                              >
-                                <Plus className="h-3.5 w-3.5" />
-                                Add status
-                              </button>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowAddLeadStatusInput((prev) => !prev);
+                                    setNewLeadStatusValue('');
+                                  }}
+                                  className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
+                                >
+                                  <Plus className="h-3.5 w-3.5" />
+                                  Add status
+                                </button>
+                              </div>
                             </div>
-                            <select
+                            <LeadStatusDropdown
                               value={addLeadForm.status ?? 'New'}
-                              onChange={(e) => setAddLeadForm((p) => ({ ...p, status: e.target.value as LeadStatus }))}
-                              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
-                            >
-                              {addLeadStatusOptions.map((status) => (
-                                <option key={status} value={status}>
-                                  {status}
-                                </option>
-                              ))}
-                            </select>
+                              options={addLeadStatusOptions}
+                              deleting={deletingLeadStatus}
+                              onSelect={(status) => setAddLeadForm((p) => ({ ...p, status: status as LeadStatus }))}
+                              onDelete={(status) =>
+                                deleteLeadStatusOption(status, (nextStatus) =>
+                                  setAddLeadForm((p) => ({ ...p, status: nextStatus as LeadStatus })),
+                                )
+                              }
+                            />
                             {showAddLeadStatusInput ? (
                               <div className="mt-2 flex items-center gap-2">
                                 <input
@@ -3493,29 +3611,31 @@ export function LeadDetailsDrawer({
                             <div>
                               <div className="mb-1 flex items-center justify-between gap-3">
                                 <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">Status</label>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setShowAddLeadStatusInput((prev) => !prev);
-                                    setNewLeadStatusValue('');
-                                  }}
-                                  className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
-                                >
-                                  <Plus className="h-3.5 w-3.5" />
-                                  Add status
-                                </button>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setShowAddLeadStatusInput((prev) => !prev);
+                                      setNewLeadStatusValue('');
+                                    }}
+                                    className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
+                                  >
+                                    <Plus className="h-3.5 w-3.5" />
+                                    Add status
+                                  </button>
+                                </div>
                               </div>
-                              <select
+                              <LeadStatusDropdown
                                 value={overviewEditForm.status || 'New'}
-                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, status: e.target.value as LeadStatus }))}
-                                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
-                              >
-                                {overviewLeadStatusOptions.map((status) => (
-                                  <option key={status} value={status}>
-                                    {status}
-                                  </option>
-                                ))}
-                              </select>
+                                options={overviewLeadStatusOptions}
+                                deleting={deletingLeadStatus}
+                                onSelect={(status) => setOverviewEditForm((p) => ({ ...p, status: status as LeadStatus }))}
+                                onDelete={(status) =>
+                                  deleteLeadStatusOption(status, (nextStatus) =>
+                                    setOverviewEditForm((p) => ({ ...p, status: nextStatus as LeadStatus })),
+                                  )
+                                }
+                              />
                               {showAddLeadStatusInput ? (
                                 <div className="mt-2 flex items-center gap-2">
                                   <input
@@ -4010,27 +4130,31 @@ export function LeadDetailsDrawer({
                             <div>
                               <div className="mb-1 flex items-center justify-between gap-3">
                                 <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">Lead Status</label>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setShowAddLeadStatusInput((prev) => !prev);
-                                    setNewLeadStatusValue('');
-                                  }}
-                                  className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
-                                >
-                                  <Plus className="h-3.5 w-3.5" />
-                                  Add status
-                                </button>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setShowAddLeadStatusInput((prev) => !prev);
+                                      setNewLeadStatusValue('');
+                                    }}
+                                    className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
+                                  >
+                                    <Plus className="h-3.5 w-3.5" />
+                                    Add status
+                                  </button>
+                                </div>
                               </div>
-                              <select
+                              <LeadStatusDropdown
                                 value={overviewEditForm.status || 'New'}
-                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, status: e.target.value as LeadStatus }))}
-                                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
-                              >
-                                {overviewLeadStatusOptions.map((status) => (
-                                  <option key={status} value={status}>{status}</option>
-                                ))}
-                              </select>
+                                options={overviewLeadStatusOptions}
+                                deleting={deletingLeadStatus}
+                                onSelect={(status) => setOverviewEditForm((p) => ({ ...p, status: status as LeadStatus }))}
+                                onDelete={(status) =>
+                                  deleteLeadStatusOption(status, (nextStatus) =>
+                                    setOverviewEditForm((p) => ({ ...p, status: nextStatus as LeadStatus })),
+                                  )
+                                }
+                              />
                               {showAddLeadStatusInput ? (
                                 <div className="mt-2 flex items-center gap-2">
                                   <input
@@ -4165,6 +4289,9 @@ export function LeadDetailsDrawer({
                 </div>
               ) : activeTab === 'activities' ? (
                 <div className="space-y-6">
+                  <EntityAuditSummary
+                    audit={lead?.auditMeta ?? extractAuditMeta(lead as Record<string, unknown> | undefined)}
+                  />
                   {/* Activity Filter — aligned with /leads table controls */}
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100">

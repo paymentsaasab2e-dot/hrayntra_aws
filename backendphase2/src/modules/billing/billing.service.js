@@ -5,6 +5,7 @@ import { prisma } from '../../config/prisma.js';
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
 import { clientBillingEmailSelect, resolveClientBillingEmail } from '../../utils/resolveClientBillingEmail.js';
 import { sendPlacementInvoiceEmail } from '../../services/emailService.js';
+import { enrichBillingRecordsWithAudit } from '../../utils/listAuditMeta.js';
 
 const EXPORT_DIR = path.join(process.cwd(), 'uploads', 'reports');
 const DEFAULT_SETTINGS = {
@@ -1068,7 +1069,9 @@ export const billingService = {
         }),
       ]);
 
-    const invoicesMapped = billingRecordsRaw.map((record) => {
+    const billingRecordsWithAudit = await enrichBillingRecordsWithAudit(billingRecordsRaw);
+
+    const invoicesMapped = billingRecordsWithAudit.map((record) => {
       const invoiceStatusValue = deriveInvoiceStatus(record);
       const candidateName = `${record.placement?.candidate?.firstName || ''} ${record.placement?.candidate?.lastName || ''}`.trim();
       const total = formatMoney(record.amount);
@@ -1091,6 +1094,7 @@ export const billingService = {
         recordStatus: record.status,
         placementId: record.placementId || '',
         invoiceUrl: record.invoiceUrl || '',
+        auditMeta: record.auditMeta ?? null,
       };
     });
 
@@ -1423,6 +1427,8 @@ export const billingService = {
 
     if (!invoice) throw new Error('Invoice not found');
 
+    const [invoiceWithAudit] = await enrichBillingRecordsWithAudit([invoice]);
+
     const placement = invoice.placement || null;
     const candidate = placement?.candidate || null;
     const job = placement?.job || null;
@@ -1624,6 +1630,7 @@ export const billingService = {
           }
         : null,
       events: eventsSorted,
+      auditMeta: invoiceWithAudit?.auditMeta ?? null,
     };
   },
 

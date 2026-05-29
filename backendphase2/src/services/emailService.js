@@ -5,6 +5,10 @@ import { oauthTokenService } from '../modules/oauth/oauth-token.service.js';
 import { isNotificationTriggerEnabled } from '../modules/setting/notification-trigger-settings.js';
 import { interviewScheduledTemplate } from '../utils/emailTemplates.js';
 import { buildPlacementInvoiceEmailHtml } from '../utils/invoiceEmailHtml.js';
+import {
+  joiningScheduledCandidateTemplate,
+  joiningScheduledReportingContactTemplate,
+} from '../emails/templates/placement.template.js';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 // Use the Resend configured from address; fallback to a generic placeholder.
@@ -900,5 +904,413 @@ export async function sendPlacementInvoiceEmail(payload) {
   } catch (error) {
     console.error('Error sending placement invoice email:', error);
     return { success: false, error: error.message || 'Failed to send invoice email' };
+  }
+}
+
+export async function sendJoiningScheduledCandidateEmail(payload) {
+  try {
+    const triggerEnabled = await isNotificationTriggerEnabled('placement.joining_scheduled_candidate', {
+      userId: payload?.senderUserId || null,
+      aliases: ['joining scheduled candidate', 'placement joining candidate'],
+    });
+    if (!triggerEnabled) return { success: true, skipped: true };
+
+    const {
+      toEmail,
+      candidateName,
+      jobTitle,
+      companyName,
+      joiningDateLabel,
+      reportingToName,
+      reportingToTitle,
+      reportingToEmail,
+      joiningNotes,
+      recruiterName,
+      recruiterEmail,
+      senderUserId,
+    } = payload;
+
+    if (!toEmail) return { success: true, skipped: true, reason: 'no_email' };
+
+    const html = joiningScheduledCandidateTemplate({
+      candidateName,
+      jobTitle,
+      companyName,
+      joiningDateLabel,
+      reportingToName,
+      reportingToTitle,
+      reportingToEmail,
+      joiningNotes,
+      recruiterName,
+      recruiterEmail,
+    });
+
+    await sendEmail({
+      senderUserId,
+      toEmail,
+      subject: `Joining scheduled${jobTitle ? `: ${jobTitle}` : ''}${companyName ? ` at ${companyName}` : ''}`,
+      html,
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error sending joining scheduled candidate email:', error);
+    return { success: false, error: error.message || 'Failed to send email' };
+  }
+}
+
+export async function sendJoiningScheduledReportingContactEmail(payload) {
+  try {
+    const triggerEnabled = await isNotificationTriggerEnabled('placement.joining_scheduled_reporting', {
+      userId: payload?.senderUserId || null,
+      aliases: ['joining scheduled reporting', 'placement joining reporting contact'],
+    });
+    if (!triggerEnabled) return { success: true, skipped: true };
+
+    const {
+      toEmail,
+      recipientName,
+      candidateName,
+      candidateEmail,
+      candidatePhone,
+      candidateLocation,
+      currentTitle,
+      currentCompany,
+      jobTitle,
+      companyName,
+      joiningDateLabel,
+      joiningNotes,
+      recruiterName,
+      recruiterEmail,
+      senderUserId,
+    } = payload;
+
+    if (!toEmail) return { success: true, skipped: true, reason: 'no_email' };
+
+    const html = joiningScheduledReportingContactTemplate({
+      recipientName,
+      candidateName,
+      candidateEmail,
+      candidatePhone,
+      candidateLocation,
+      currentTitle,
+      currentCompany,
+      jobTitle,
+      companyName,
+      joiningDateLabel,
+      joiningNotes,
+      recruiterName,
+      recruiterEmail,
+    });
+
+    await sendEmail({
+      senderUserId,
+      toEmail,
+      subject: `Joining scheduled — ${candidateName || 'Candidate'}${jobTitle ? ` (${jobTitle})` : ''}`,
+      html,
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error sending joining scheduled reporting contact email:', error);
+    return { success: false, error: error.message || 'Failed to send email' };
+  }
+}
+
+export async function sendOfferReleasedEmail(payload) {
+  try {
+    const triggerEnabled = await isNotificationTriggerEnabled('offer.released_email', {
+      userId: payload?.senderUserId || null,
+      aliases: ['offer released'],
+    });
+    if (!triggerEnabled) return { success: true, skipped: true };
+
+    const { toEmail, candidateName, jobTitle, companyName, offerDate, senderUserId } = payload;
+    const formattedOfferDate = offerDate ? new Date(offerDate).toLocaleDateString() : 'soon';
+    const html = `
+<!DOCTYPE html>
+<html>
+<body style="font-family: Arial, sans-serif; line-height:1.6; color:#111827;">
+  <h2 style="color:#2563eb;">Offer Released</h2>
+  <p>Hello ${candidateName || 'Candidate'},</p>
+  <p>Your offer has been released for <strong>${jobTitle || 'the role'}</strong>${companyName ? ` at <strong>${companyName}</strong>` : ''}.</p>
+  <p><strong>Offer Date:</strong> ${formattedOfferDate}</p>
+  <p>Our team will guide you through the next steps.</p>
+</body>
+</html>
+    `;
+
+    await sendEmail({
+      senderUserId,
+      toEmail,
+      subject: `Offer Released${jobTitle ? `: ${jobTitle}` : ''}`,
+      html,
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error sending offer released email:', error);
+    return { success: false, error: error.message || 'Failed to send email' };
+  }
+}
+
+export async function sendCandidateRejectedEmail(payload) {
+  try {
+    const triggerEnabled = await isNotificationTriggerEnabled('candidate.rejected_email', {
+      userId: payload?.senderUserId || null,
+      aliases: ['candidate rejected'],
+    });
+    if (!triggerEnabled) return { success: true, skipped: true };
+
+    const { toEmail, candidateName, jobTitle, reason, feedback, senderUserId } = payload;
+    const html = `
+<!DOCTYPE html>
+<html>
+<body style="font-family: Arial, sans-serif; line-height:1.6; color:#111827;">
+  <h2 style="color:#dc2626;">Application Update</h2>
+  <p>Hello ${candidateName || 'Candidate'},</p>
+  <p>Thank you for your interest${jobTitle ? ` in <strong>${jobTitle}</strong>` : ''}. We will not be moving forward with this application.</p>
+  ${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ''}
+  ${feedback ? `<p><strong>Feedback:</strong> ${feedback}</p>` : ''}
+  <p>We appreciate your time and wish you the best.</p>
+</body>
+</html>
+    `;
+
+    await sendEmail({
+      senderUserId,
+      toEmail,
+      subject: `Application Update${jobTitle ? `: ${jobTitle}` : ''}`,
+      html,
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error sending candidate rejected email:', error);
+    return { success: false, error: error.message || 'Failed to send email' };
+  }
+}
+
+export async function sendCandidateHiredEmail(payload) {
+  try {
+    const triggerEnabled = await isNotificationTriggerEnabled('candidate.hired_email', {
+      userId: payload?.senderUserId || null,
+      aliases: ['candidate hired'],
+    });
+    if (!triggerEnabled) return { success: true, skipped: true };
+
+    const { toEmail, candidateName, jobTitle, companyName, senderUserId } = payload;
+    const html = `
+<!DOCTYPE html>
+<html>
+<body style="font-family: Arial, sans-serif; line-height:1.6; color:#111827;">
+  <h2 style="color:#16a34a;">Congratulations</h2>
+  <p>Hello ${candidateName || 'Candidate'},</p>
+  <p>You have been marked as hired${jobTitle ? ` for <strong>${jobTitle}</strong>` : ''}${companyName ? ` at <strong>${companyName}</strong>` : ''}.</p>
+  <p>Our team will contact you with onboarding details.</p>
+</body>
+</html>
+    `;
+
+    await sendEmail({
+      senderUserId,
+      toEmail,
+      subject: `Hiring Update${jobTitle ? `: ${jobTitle}` : ''}`,
+      html,
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error sending candidate hired email:', error);
+    return { success: false, error: error.message || 'Failed to send email' };
+  }
+}
+
+export async function sendJobClosedEmail(payload) {
+  try {
+    const triggerEnabled = await isNotificationTriggerEnabled('job.closed_email', {
+      userId: payload?.senderUserId || null,
+      aliases: ['job closed'],
+    });
+    if (!triggerEnabled) return { success: true, skipped: true };
+
+    const { toEmail, recipientName, jobTitle, status, senderUserId } = payload;
+    const html = `
+<!DOCTYPE html>
+<html>
+<body style="font-family: Arial, sans-serif; line-height:1.6; color:#111827;">
+  <h2 style="color:#6b7280;">Job Closed</h2>
+  <p>Hello ${recipientName || 'Team Member'},</p>
+  <p>The job requisition <strong>${jobTitle || 'Untitled Job'}</strong> has been marked as <strong>${status || 'CLOSED'}</strong>.</p>
+  <p>Please review pending pipeline actions if required.</p>
+</body>
+</html>
+    `;
+
+    await sendEmail({
+      senderUserId,
+      toEmail,
+      subject: `Job Closed${jobTitle ? `: ${jobTitle}` : ''}`,
+      html,
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error sending job closed email:', error);
+    return { success: false, error: error.message || 'Failed to send email' };
+  }
+}
+
+export async function sendClientFollowUpReminderEmail(payload) {
+  try {
+    const triggerEnabled = await isNotificationTriggerEnabled('client.followup_email', {
+      userId: payload?.senderUserId || null,
+      aliases: ['client follow-up reminder', 'client followup reminder'],
+    });
+    if (!triggerEnabled) return { success: true, skipped: true };
+
+    const { toEmail, recipientName, clientCompanyName, followUpDueDate, senderUserId } = payload;
+    const due = followUpDueDate ? new Date(followUpDueDate).toLocaleString() : 'scheduled';
+    const html = `
+<!DOCTYPE html>
+<html>
+<body style="font-family: Arial, sans-serif; line-height:1.6; color:#111827;">
+  <h2 style="color:#2563eb;">Client Follow-up Reminder</h2>
+  <p>Hello ${recipientName || 'Team Member'},</p>
+  <p>A follow-up is due for <strong>${clientCompanyName || 'your client'}</strong>.</p>
+  <p><strong>Due:</strong> ${due}</p>
+  <p>Please connect with the client and update the CRM.</p>
+</body>
+</html>
+    `;
+
+    await sendEmail({
+      senderUserId,
+      toEmail,
+      subject: `Client Follow-up Reminder${clientCompanyName ? `: ${clientCompanyName}` : ''}`,
+      html,
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error sending client follow-up reminder email:', error);
+    return { success: false, error: error.message || 'Failed to send email' };
+  }
+}
+
+/**
+ * Notify the account owner (active session) that another device requested login — includes Allow/Reject links.
+ */
+export async function sendSessionTransferRequestEmail(payload) {
+  try {
+    const {
+      toEmail,
+      recipientName,
+      challengerDeviceLabel,
+      challengerIp,
+      approveUrl,
+      rejectUrl,
+      expiresMinutes = 5,
+    } = payload;
+
+    if (!toEmail) {
+      return { success: false, error: 'Missing recipient email' };
+    }
+
+    const deviceLine = challengerDeviceLabel || 'Unknown device';
+    const ipLine =
+      challengerIp && !String(deviceLine).includes(challengerIp)
+        ? `<p style="margin:8px 0 0;font-size:14px;color:#4b5563;"><strong>IP:</strong> ${challengerIp}</p>`
+        : '';
+    const isLocalLink = /^https?:\/\/(localhost|127\.0\.0\.1)/i.test(approveUrl);
+
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Duplicate login request</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; line-height: 1.6; color: #111827; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f3f4f6;">
+  <div style="background: #ffffff; border-radius: 12px; padding: 32px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);">
+    <h1 style="color: #4f46e5; margin: 0 0 16px; font-size: 22px;">Duplicate login detected</h1>
+    <p style="font-size: 16px; margin: 0 0 16px;">Hello ${recipientName || 'there'},</p>
+    <p style="font-size: 15px; margin: 0 0 16px;">
+      Someone is trying to sign in to your SAASA account from another device or browser while you already have an active session.
+    </p>
+    <div style="background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 16px; margin: 20px 0;">
+      <p style="margin: 0; font-size: 14px; font-weight: 600; color: #92400e;">New login attempt</p>
+      <p style="margin: 8px 0 0; font-size: 14px; color: #374151; white-space: pre-line;">${deviceLine}</p>
+      ${ipLine && !deviceLine.includes(challengerIp || '') ? ipLine : ''}
+    </div>
+    <p style="font-size: 15px; margin: 0 0 20px;">
+      If this was you, you can <strong>allow</strong> the new login (your current session will be logged out).
+      If this was not you, choose <strong>reject</strong> to keep your current session.
+    </p>
+    <p style="font-size: 13px; color: #6b7280; margin: 0 0 20px;">
+      You can also approve or reject from the portal if you are already logged in. These links expire in about ${expiresMinutes} minutes.
+    </p>
+    ${
+      isLocalLink
+        ? `<p style="font-size: 13px; color: #b45309; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 12px; margin: 0 0 16px;">
+      <strong>Development note:</strong> Some email apps block clickable <em>localhost</em> links. Use the portal popup if you are logged in, or copy one of the full links below into Chrome on this computer.
+    </p>`
+        : ''
+    }
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 0 0 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+            <tr>
+              <td align="center" bgcolor="#059669" style="border-radius: 8px;">
+                <a href="${approveUrl}" target="_blank" rel="noopener noreferrer" style="display: inline-block; padding: 14px 32px; font-size: 16px; font-weight: 600; color: #ffffff !important; text-decoration: none; border-radius: 8px; background-color: #059669;">Allow login</a>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 0 0 24px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+            <tr>
+              <td align="center" bgcolor="#ffffff" style="border-radius: 8px; border: 2px solid #fecaca;">
+                <a href="${rejectUrl}" target="_blank" rel="noopener noreferrer" style="display: inline-block; padding: 14px 32px; font-size: 16px; font-weight: 600; color: #b91c1c !important; text-decoration: none; border-radius: 8px;">Reject</a>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+    <p style="font-size: 13px; color: #374151; margin: 0 0 8px; font-weight: 600;">Or copy a link into your browser:</p>
+    <p style="font-size: 12px; color: #4b5563; word-break: break-all; margin: 0 0 8px;">
+      <strong>Allow:</strong><br>
+      <a href="${approveUrl}" target="_blank" rel="noopener noreferrer" style="color: #2563eb; text-decoration: underline;">${approveUrl}</a>
+    </p>
+    <p style="font-size: 12px; color: #4b5563; word-break: break-all; margin: 0;">
+      <strong>Reject:</strong><br>
+      <a href="${rejectUrl}" target="_blank" rel="noopener noreferrer" style="color: #2563eb; text-decoration: underline;">${rejectUrl}</a>
+    </p>
+    <p style="font-size: 14px; color: #6b7280; margin-top: 28px;">
+      Best regards,<br><strong>The SAASA Team</strong>
+    </p>
+  </div>
+</body>
+</html>
+    `;
+
+    await sendEmail({
+      senderUserId: null,
+      toEmail,
+      subject: 'Duplicate login request — approve or reject',
+      html,
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error sending session transfer request email:', error);
+    return { success: false, error: error.message || 'Failed to send email' };
   }
 }

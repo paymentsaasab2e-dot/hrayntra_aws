@@ -7,7 +7,7 @@ import {
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
 import { dbLogger } from '../../utils/db-logger.js';
 import activityService from '../../services/activityService.js';
-import { sendJobAssignmentEmail } from '../../services/emailService.js';
+import { sendJobAssignmentEmail, sendJobClosedEmail } from '../../services/emailService.js';
 import { buildSuperAdminOwnerScope, mergeWhereWithScope } from '../../utils/superAdminScope.js';
 import { canViewAllAssignments } from '../../utils/permissionScope.js';
 import {
@@ -20,6 +20,12 @@ import {
   schemaFromLegacyQuestions,
   defaultApplicationFormSchema,
 } from '../../utils/applicationFormSchema.js';
+import {
+  USER_BRIEF_SELECT,
+  prepareListWithAuditMeta,
+  attachAuditMetaToEntity,
+} from '../../utils/listAuditMeta.js';
+import { ENTITY_TYPES } from '../../services/activityService.js';
 import {
   jobPublicApplyService,
   buildApplyUrlFromToken,
@@ -703,6 +709,9 @@ export const jobService = {
           assignedTo: {
             select: { id: true, name: true, email: true, avatar: true },
           },
+          createdBy: {
+            select: USER_BRIEF_SELECT,
+          },
           // Per-stage data so the Jobs table can render a dynamic pipeline column
           // (e.g. agency uses Applied/Screened/Interview/Offer/Joined while standalone
           // uses the org template the tenant configured in Settings → Recruitment workflow).
@@ -729,10 +738,12 @@ export const jobService = {
     if (jobs.length) {
       const appliedCountMap = await getMergedAppliedCountByJobId(jobs.map((job) => job.id));
       const mergedJobs = attachAppliedCountsToJobs(jobs, appliedCountMap);
-      return formatPaginationResponse(mergedJobs, page, limit, total);
+      const withAudit = await prepareListWithAuditMeta(mergedJobs, ENTITY_TYPES.JOB);
+      return formatPaginationResponse(withAudit, page, limit, total);
     }
 
-    return formatPaginationResponse(jobs, page, limit, total);
+    const withAudit = await prepareListWithAuditMeta(jobs, ENTITY_TYPES.JOB);
+    return formatPaginationResponse(withAudit, page, limit, total);
   },
 
   async getById(id, req = null) {
@@ -749,6 +760,9 @@ export const jobService = {
         client: true,
         assignedTo: {
           select: { id: true, name: true, email: true, avatar: true },
+        },
+        createdBy: {
+          select: USER_BRIEF_SELECT,
         },
         manager: {
           select: { id: true, name: true, email: true },
@@ -828,7 +842,8 @@ export const jobService = {
     };
 
     if (!isTenantScopedRequest()) {
-      return enrichJobWithApplyLink(baseWithApplied);
+      const withAudit = await attachAuditMetaToEntity(baseWithApplied, ENTITY_TYPES.JOB);
+      return enrichJobWithApplyLink(withAudit);
     }
 
     const portalPrisma = getJobPortalPrismaClient();
@@ -857,14 +872,15 @@ export const jobService = {
     });
 
     if (!portalJob?.matches?.length && !portalJob?.applications?.length) {
-      return enrichJobWithApplyLink(baseWithApplied);
+      const withAudit = await attachAuditMetaToEntity(baseWithApplied, ENTITY_TYPES.JOB);
+      return enrichJobWithApplyLink(withAudit);
     }
 
     const mergedMatches = mergeJobMatches(job.matches || [], portalJob.matches || []);
     const mergedApplications = mergeJobApplications(job.applications || [], portalJob.applications || []);
     const mergedAppliedCount = mergedApplications.length || mergedMatches.length || appliedCount;
 
-    return enrichJobWithApplyLink({
+    const mergedJob = {
       ...baseWithApplied,
       matches: mergedMatches,
       applications: mergedApplications,
@@ -879,7 +895,9 @@ export const jobService = {
         interviews: Array.isArray(job.interviews) ? job.interviews.length : 0,
         placements: Array.isArray(job.placements) ? job.placements.length : 0,
       },
-    });
+    };
+    const withAudit = await attachAuditMetaToEntity(mergedJob, ENTITY_TYPES.JOB);
+    return enrichJobWithApplyLink(withAudit);
   },
 
   async create(data, createdByUserId) {
@@ -1191,6 +1209,26 @@ export const jobService = {
         await this.notifyAssignment(updatedJob, data.performedById);
       }
 
+      const nextStatus = String(updatedJob.status || '').toUpperCase();
+      const prevStatus = String(currentJob.status || '').toUpperCase();
+      if (
+        ['CLOSED', 'FILLED'].includes(nextStatus) &&
+        nextStatus !== prevStatus &&
+        updatedJob?.assignedTo?.email
+      ) {
+        try {
+          await sendJobClosedEmail({
+            toEmail: updatedJob.assignedTo.email,
+            recipientName: updatedJob.assignedTo.name,
+            jobTitle: updatedJob.title,
+            status: nextStatus,
+            senderUserId: data.performedById,
+          });
+        } catch (emailErr) {
+          console.warn('[job.update] job closed email failed:', emailErr?.message || emailErr);
+        }
+      }
+
       try {
         await syncJobToJobPortalDb(updatedJob, data);
       } catch (syncError) {
@@ -1356,6 +1394,26 @@ export const jobService = {
       await this.notifyAssignment(updated, data.performedById);
     }
 
+    const nextStatus = String(updated.status || '').toUpperCase();
+    const prevStatus = String(currentJob.status || '').toUpperCase();
+    if (
+      ['CLOSED', 'FILLED'].includes(nextStatus) &&
+      nextStatus !== prevStatus &&
+      updated?.assignedTo?.email
+    ) {
+      try {
+        await sendJobClosedEmail({
+          toEmail: updated.assignedTo.email,
+          recipientName: updated.assignedTo.name,
+          jobTitle: updated.title,
+          status: nextStatus,
+          senderUserId: data.performedById,
+        });
+      } catch (emailErr) {
+        console.warn('[job.update] job closed email failed:', emailErr?.message || emailErr);
+      }
+    }
+
     try {
       await syncJobToJobPortalDb(updated, data);
     } catch (syncError) {
@@ -1460,11 +1518,13 @@ export const jobService = {
             },
           },
           assignedTo: { select: { id: true, name: true, email: true, avatar: true } },
+          createdBy: { select: USER_BRIEF_SELECT },
         },
       }),
       prisma.job.count({ where }),
     ]);
-    return formatPaginationResponse(jobs, page, limit, total);
+    const withAudit = await prepareListWithAuditMeta(jobs, ENTITY_TYPES.JOB);
+    return formatPaginationResponse(withAudit, page, limit, total);
   },
 
   /** Recycle Bin — restore a soft-deleted job. */

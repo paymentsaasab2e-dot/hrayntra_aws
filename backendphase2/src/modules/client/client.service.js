@@ -2,7 +2,10 @@ import { prisma, getActiveTenantDbName, getJobPortalPrismaClient } from '../../c
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
 import { dbLogger } from '../../utils/db-logger.js';
 import activityService from '../../services/activityService.js';
-import { sendClientAssignmentEmail } from '../../services/emailService.js';
+import {
+  sendClientAssignmentEmail,
+  sendClientFollowUpReminderEmail,
+} from '../../services/emailService.js';
 import { normalizeContactChannels } from '../../utils/contact-channels.js';
 import { buildSuperAdminOwnerScope, mergeWhereWithScope } from '../../utils/superAdminScope.js';
 import { canViewAllClients } from '../../utils/permissionScope.js';
@@ -14,6 +17,13 @@ import {
   applyPostServiceKycFormUpdateFields,
   buildPostServiceKycFormCreateFields,
 } from '../../utils/postServiceKycFormFields.js';
+import {
+  USER_BRIEF_SELECT,
+  prepareListWithAuditMeta,
+  buildAuditMeta,
+  enrichListWithLastUpdater,
+} from '../../utils/listAuditMeta.js';
+import { ENTITY_TYPES } from '../../services/activityService.js';
 
 /**
  * Recruiters / portal users: clients assigned to them, or they created/sourced (createdById).
@@ -314,6 +324,9 @@ export const clientService = {
       assignedTo: {
         select: { id: true, name: true, email: true },
       },
+      createdBy: {
+        select: USER_BRIEF_SELECT,
+      },
       _count: {
         select: { jobs: true, contacts: true, placements: true },
       },
@@ -400,7 +413,8 @@ export const clientService = {
         })
       : clients;
 
-    return formatPaginationResponse(mergedClients, page, limit, total);
+    const withAudit = await prepareListWithAuditMeta(mergedClients, ENTITY_TYPES.CLIENT);
+    return formatPaginationResponse(withAudit, page, limit, total);
   },
 
   async getById(id, req = null) {
@@ -413,6 +427,9 @@ export const clientService = {
       include: {
         assignedTo: {
           select: { id: true, name: true, email: true, avatar: true },
+        },
+        createdBy: {
+          select: USER_BRIEF_SELECT,
         },
         contacts: {
           orderBy: { createdAt: 'desc' },
@@ -522,7 +539,11 @@ export const clientService = {
       }, null, 2));
     }
 
-    return mergedClient;
+    const [withUpdater] = await enrichListWithLastUpdater([mergedClient], ENTITY_TYPES.CLIENT);
+    return {
+      ...withUpdater,
+      auditMeta: buildAuditMeta(withUpdater),
+    };
   },
 
   async notifyAssignment(client, performedById) {
@@ -550,6 +571,21 @@ export const clientService = {
       });
     } catch (emailError) {
       console.error('Failed to send client assignment email:', emailError);
+    }
+  },
+
+  async notifyFollowUpReminder(client, performedById) {
+    if (!client?.assignedTo?.email || !client?.nextFollowUpDue) return;
+    try {
+      await sendClientFollowUpReminderEmail({
+        toEmail: client.assignedTo.email,
+        recipientName: client.assignedTo.name,
+        clientCompanyName: client.companyName,
+        followUpDueDate: client.nextFollowUpDue,
+        senderUserId: performedById,
+      });
+    } catch (emailError) {
+      console.error('Failed to send client follow-up reminder email:', emailError);
     }
   },
 
@@ -854,6 +890,16 @@ export const clientService = {
       await this.notifyAssignment(updated, data.performedById);
     }
 
+    const prevFollowUp = currentClient.nextFollowUpDue
+      ? new Date(currentClient.nextFollowUpDue).getTime()
+      : null;
+    const nextFollowUp = updated.nextFollowUpDue
+      ? new Date(updated.nextFollowUpDue).getTime()
+      : null;
+    if (!data.skipSideEffects && nextFollowUp && nextFollowUp !== prevFollowUp) {
+      await this.notifyFollowUpReminder(updated, data.performedById);
+    }
+
     await mirrorClientRowToJobPortalDb(updated);
 
     return updated;
@@ -922,12 +968,14 @@ export const clientService = {
         orderBy: { deletedAt: 'desc' },
         include: {
           assignedTo: { select: { id: true, name: true, email: true } },
+          createdBy: { select: USER_BRIEF_SELECT },
         },
       }),
       prisma.client.count({ where }),
     ]);
 
-    return formatPaginationResponse(clients, page, limit, total);
+    const withAudit = await prepareListWithAuditMeta(clients, ENTITY_TYPES.CLIENT);
+    return formatPaginationResponse(withAudit, page, limit, total);
   },
 
   /** Recycle Bin — restore a soft-deleted client. */
