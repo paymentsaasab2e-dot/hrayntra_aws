@@ -1,10 +1,45 @@
 import { apiCreateMatch, apiGetMatches, type BackendMatch } from './api';
 import type { JobCandidateItem } from '../components/drawers/JobDetailsDrawer';
 
+/** Map portal/CRM application enum to pipeline stage label. */
+export function mapApplicationStatusToCrmStage(status?: string | null): string {
+  const key = String(status || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '_');
+  switch (key) {
+    case 'SUBMITTED':
+    case 'UNDER_REVIEW':
+    case 'REVIEWED':
+      return 'Applied';
+    case 'SHORTLISTED':
+      return 'Shortlisted';
+    case 'ASSESSMENT':
+      return 'Screening';
+    case 'INTERVIEW':
+      return 'Interviewing';
+    case 'FINAL_DECISION':
+      return 'Offer';
+    case 'SELECTED':
+      return 'Hired';
+    case 'REJECTED':
+      return 'Rejected';
+    default:
+      return '';
+  }
+}
+
+function stageLooksTerminalHire(stage?: string | null): boolean {
+  const s = String(stage || '').trim().toLowerCase();
+  return /\b(hired|placed|joined|onboarded)\b/.test(s);
+}
+
 /** Stage label for job drawer / candidates tab — linked rows default to Applied. */
 export function resolveJobCandidateDisplayStage(currentStage?: string | null): string {
   const normalized = String(currentStage || '').trim();
   if (!normalized || normalized.toLowerCase() === 'new') return 'Applied';
+  const fromApp = mapApplicationStatusToCrmStage(normalized);
+  if (fromApp) return fromApp;
   return normalized;
 }
 
@@ -44,12 +79,26 @@ export function resolveJobCandidateStageFromMatchRow(
     return resolveJobCandidateDisplayStage(seeded);
   }
 
-  const crmStage = String(match.candidateStage || match.candidate?.stage || '').trim();
-  if (crmStage && crmStage.toLowerCase() !== 'new') {
-    return crmStage;
+  const displayStatus = String(match.status || '').trim();
+  const fromMatchEnum = mapApplicationStatusToCrmStage(displayStatus);
+  if (fromMatchEnum) {
+    return fromMatchEnum;
   }
 
-  const displayStatus = String(match.status || '').trim();
+  const crmStage = String(match.candidateStage || match.candidate?.stage || '').trim();
+  if (crmStage && crmStage.toLowerCase() !== 'new') {
+    const matchIsAppliedWorkflow =
+      isMatchWorkflowStatus(displayStatus) &&
+      ['REVIEWED', 'SUBMITTED'].includes(displayStatus.toUpperCase());
+    if (stageLooksTerminalHire(crmStage) && matchIsAppliedWorkflow) {
+      return 'Applied';
+    }
+    if (stageLooksTerminalHire(crmStage) && mapApplicationStatusToCrmStage(displayStatus)) {
+      return 'Applied';
+    }
+    return resolveJobCandidateDisplayStage(crmStage);
+  }
+
   if (displayStatus && !isMatchWorkflowStatus(displayStatus)) {
     return resolveJobCandidateDisplayStage(displayStatus);
   }
@@ -253,7 +302,22 @@ export function extractApplicationsJobCandidateItems(
 }
 
 function pickMergedJobCandidateStage(...stages: Array<string | null | undefined>): string {
-  const normalized = stages.map((value) => String(value || '').trim()).filter(Boolean);
+  const normalized = stages
+    .map((value) => {
+      const raw = String(value || '').trim();
+      return mapApplicationStatusToCrmStage(raw) || raw;
+    })
+    .filter(Boolean);
+  const appliedLike = normalized.filter(
+    (stage) =>
+      isJobAppliedDisplayStage(stage) ||
+      stage.toLowerCase().includes('applied') ||
+      stage.toLowerCase().includes('submit'),
+  );
+  const terminalHire = normalized.filter((stage) => stageLooksTerminalHire(stage));
+  if (appliedLike.length && terminalHire.length) {
+    return resolveJobCandidateDisplayStage(appliedLike[0]);
+  }
   for (const stage of normalized) {
     if (!isMatchWorkflowStatus(stage)) {
       return resolveJobCandidateDisplayStage(stage);
@@ -322,7 +386,7 @@ export function extractPipelineJobCandidateItems(
         experience: typeof c?.experience === 'number' ? c.experience : 0,
         location: c?.location ? String(c.location).trim() : '—',
         phone: c?.phone ? String(c.phone).trim() : '',
-        currentStage: stageName,
+        currentStage: resolveJobCandidateDisplayStage(stageName),
         isJobAppliedCandidate: isJobAppliedDisplayStage(stageName),
         score: '-',
         recruiter: fallbackRecruiter,

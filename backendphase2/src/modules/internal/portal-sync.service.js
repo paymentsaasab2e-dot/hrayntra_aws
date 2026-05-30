@@ -1,5 +1,9 @@
 import { prisma, runWithTenantContext, getJobPortalPrismaClient } from '../../config/prisma.js';
-import { PIPELINE_STAGES, updateCandidateStage } from '../stage/candidateStage.service.js';
+import {
+  PIPELINE_STAGES,
+  resolveJobPipelineStageForRole,
+  updateCandidateStage,
+} from '../stage/candidateStage.service.js';
 import { createUserNotification } from '../notification/notification.service.js';
 import { placementService } from '../placement/placement.service.js';
 
@@ -126,11 +130,26 @@ export async function applyPortalApplicationSync({
     //  • Anything else → Applied.
     const previousStageLower = String(existing.stage || '').trim().toLowerCase();
     const previouslyRejected = previousStageLower.includes('reject');
-    const stageIsPositiveTerminal =
+    const globalLooksTerminal =
       previousStageLower.includes('hire') ||
       previousStageLower === 'placed' ||
       previousStageLower === 'joined' ||
       previousStageLower === 'onboarded';
+
+    let stageIsPositiveTerminal = false;
+    if (globalLooksTerminal && !previouslyRejected) {
+      const [selectedApp, activePlacement] = await Promise.all([
+        prisma.application.findFirst({
+          where: { candidateId: candId, status: 'SELECTED' },
+          select: { id: true },
+        }),
+        prisma.placement.findFirst({
+          where: { candidateId: candId },
+          select: { id: true },
+        }),
+      ]);
+      stageIsPositiveTerminal = Boolean(selectedApp || activePlacement);
+    }
 
     await prisma.candidate.update({
       where: { id: candId },
@@ -170,26 +189,52 @@ export async function applyPortalApplicationSync({
       });
     }
 
-    const firstStage = await prisma.pipelineStage.findFirst({
+    const appliedPipelineStage = await resolveJobPipelineStageForRole(jId, PIPELINE_STAGES.APPLIED);
+    const fallbackStage = await prisma.pipelineStage.findFirst({
       where: { jobId: jId },
       orderBy: { order: 'asc' },
       select: { id: true },
     });
-    if (firstStage) {
+    const pipelineStageId = appliedPipelineStage?.id || fallbackStage?.id;
+    if (pipelineStageId) {
       const pe = await prisma.pipelineEntry.findFirst({
         where: { candidateId: candId, jobId: jId },
-        select: { id: true },
+        select: { id: true, stageId: true },
       });
       if (!pe) {
         await prisma.pipelineEntry.create({
           data: {
             candidateId: candId,
             jobId: jId,
-            stageId: firstStage.id,
+            stageId: pipelineStageId,
             movedById: performedById || job.createdById || job.assignedToId || undefined,
             notes: 'Applied from candidate portal',
           },
         });
+      } else if (
+        appliedPipelineStage?.id &&
+        String(pe.stageId) !== String(appliedPipelineStage.id)
+      ) {
+        const currentStage = await prisma.pipelineStage.findUnique({
+          where: { id: pe.stageId },
+          select: { name: true, systemRole: true },
+        });
+        const currentName = String(currentStage?.name || '').toLowerCase();
+        const currentRole = String(currentStage?.systemRole || '').toUpperCase();
+        const wronglyOnTerminalColumn =
+          currentName.includes('hire') ||
+          currentRole === 'HIRED' ||
+          currentRole === 'PLACED';
+        if (wronglyOnTerminalColumn) {
+          await prisma.pipelineEntry.update({
+            where: { id: pe.id },
+            data: {
+              stageId: appliedPipelineStage.id,
+              movedAt: new Date(),
+              notes: 'Corrected portal apply — moved to Applied stage',
+            },
+          });
+        }
       }
     }
 

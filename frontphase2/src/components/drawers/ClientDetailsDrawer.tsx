@@ -3886,6 +3886,10 @@ export function ClientDetailsDrawer({
                                 uploadSuccess={kycUploadFeedback.uploadSuccess}
                                 uploadPercent={kycUploadFeedback.uploadPercent}
                                 disabled={uploadingAgreements}
+                                currentForm={overviewEditForm.postServiceKycForm}
+                                onFormExtracted={(postServiceKycForm) =>
+                                  setOverviewEditForm((p) => ({ ...p, postServiceKycForm }))
+                                }
                               />
                               <ClientPostServiceKycFormSection
                                 values={overviewEditForm.postServiceKycForm}
@@ -3897,6 +3901,9 @@ export function ClientDetailsDrawer({
                                 pendingFilesByField={pendingPostServiceKycFiles}
                                 onPendingFilesChange={setPendingPostServiceKycFilesForField}
                                 onRemoveStoredFile={removeStoredPostServiceKycFile}
+                                onFormExtracted={(postServiceKycForm) =>
+                                  setOverviewEditForm((p) => ({ ...p, postServiceKycForm }))
+                                }
                               />
                             </div>
                           ) : null}
@@ -5224,6 +5231,10 @@ export function ClientDetailsDrawer({
                                     uploadSuccess={kycUploadFeedback.uploadSuccess}
                                     uploadPercent={kycUploadFeedback.uploadPercent}
                                     disabled={uploadingAgreements}
+                                    currentForm={overviewEditForm.postServiceKycForm}
+                                    onFormExtracted={(postServiceKycForm) =>
+                                      setOverviewEditForm((p) => ({ ...p, postServiceKycForm }))
+                                    }
                                   />
                                   <ClientPostServiceKycFormSection
                                     values={overviewEditForm.postServiceKycForm}
@@ -5235,6 +5246,9 @@ export function ClientDetailsDrawer({
                                     pendingFilesByField={pendingPostServiceKycFiles}
                                     onPendingFilesChange={setPendingPostServiceKycFilesForField}
                                     onRemoveStoredFile={removeStoredPostServiceKycFile}
+                                    onFormExtracted={(postServiceKycForm) =>
+                                      setOverviewEditForm((p) => ({ ...p, postServiceKycForm }))
+                                    }
                                   />
                                 </div>
                               ) : null}

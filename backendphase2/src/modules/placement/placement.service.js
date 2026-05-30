@@ -1489,6 +1489,13 @@ export const placementService = {
         })();
 
     const candidateName = `${placement.candidate?.firstName || ''} ${placement.candidate?.lastName || ''}`.trim();
+    const defaultPlacementSummary = {
+      candidateName,
+      jobTitle: placement.job?.title || '',
+      clientName: placement.client?.companyName || '',
+      offerDate: placement.offerDate,
+      joiningDate: placement.joiningDate,
+    };
     const invoicePayload = {
       lineItems: filteredLineItems,
       additionalCharges,
@@ -1498,13 +1505,16 @@ export const placementService = {
       total,
       buyer: data.buyer || null,
       seller: data.seller || null,
-      placementSummary: {
-        candidateName,
-        jobTitle: placement.job?.title || '',
-        clientName: placement.client?.companyName || '',
-        offerDate: placement.offerDate,
-        joiningDate: placement.joiningDate,
-      },
+      placementSummary:
+        data.placementSummary && typeof data.placementSummary === 'object'
+          ? data.placementSummary
+          : defaultPlacementSummary,
+      ...(data.termsAndConditions ? { termsAndConditions: data.termsAndConditions } : {}),
+      ...(data.legalTerms ? { legalTerms: data.legalTerms } : {}),
+      ...(data.sellerBank ? { sellerBank: data.sellerBank } : {}),
+      ...(data.buyerBank ? { buyerBank: data.buyerBank } : {}),
+      ...(data.clientSignatory ? { clientSignatory: data.clientSignatory } : {}),
+      ...(data.agencySignatory ? { agencySignatory: data.agencySignatory } : {}),
     };
 
     let createdBillingRecordId = null;

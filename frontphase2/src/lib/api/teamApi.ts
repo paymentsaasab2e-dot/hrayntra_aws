@@ -9,6 +9,7 @@ import type {
   SystemRole,
   Role,
   Department,
+  DepartmentRoleInput,
   LoginHistory,
   UserActivity,
   TeamMemberStats,
@@ -164,12 +165,12 @@ export function teamMembersToBackendUsers(members: TeamMember[]): BackendUser[] 
 /**
  * Load every team member for “Assigned to” / owner pickers (follows pagination until complete).
  */
-export async function getAllTeamMembersForAssign(): Promise<TeamMember[]> {
+async function getAllTeamMembersPaginated(assignmentDirectory: boolean): Promise<TeamMember[]> {
   const limit = TEAM_LIST_MAX_PAGE_SIZE;
   const all: TeamMember[] = [];
   let page = 1;
   for (;;) {
-    const res = await getTeamMembers({ limit, page }, { assignmentDirectory: true });
+    const res = await getTeamMembers({ limit, page }, { assignmentDirectory });
     const batch = res.data || [];
     all.push(...batch);
     const total = res.pagination?.total;
@@ -179,6 +180,19 @@ export async function getAllTeamMembersForAssign(): Promise<TeamMember[]> {
     if (page > 50) break;
   }
   return all;
+}
+
+export async function getAllTeamMembersForAssign(): Promise<TeamMember[]> {
+  return getAllTeamMembersPaginated(true);
+}
+
+/** Full tenant team directory (activity log, reports). Falls back to assignable list if needed. */
+export async function getAllTeamMembersForDirectory(): Promise<TeamMember[]> {
+  try {
+    return await getAllTeamMembersPaginated(false);
+  } catch {
+    return getAllTeamMembersPaginated(true);
+  }
 }
 
 /**
@@ -594,17 +608,12 @@ export async function getRoles() {
  */
 export async function getDepartments() {
   const path = buildPath('/departments');
-  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-  
+  const headers = getTeamAuthHeaders();
+
   const res = await fetch(`${API_BASE_NEW}${path}`, {
     method: 'GET',
     headers,
+    cache: 'no-store',
   });
   
   const json = await res.json();
@@ -618,19 +627,46 @@ export async function getDepartments() {
 /**
  * Get department by ID
  */
-export async function getDepartmentById(id: string) {
-  const path = buildPath(`/departments/${id}`);
-  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-  
+export async function getDepartmentReportingManagers(
+  departmentId: string,
+  roleId: string,
+  excludeMemberId?: string,
+) {
+  const params = new URLSearchParams({ roleId });
+  if (excludeMemberId) params.set('excludeMemberId', excludeMemberId);
+  const path = buildPath(`/departments/${departmentId}/reporting-managers?${params.toString()}`);
+  const headers = getTeamAuthHeaders();
+
   const res = await fetch(`${API_BASE_NEW}${path}`, {
     method: 'GET',
     headers,
+    cache: 'no-store',
+  });
+
+  const json = await res.json();
+  if (!res.ok || json?.success === false) {
+    throw new Error(json?.message || `Request failed with status ${res.status}`);
+  }
+
+  const list = Array.isArray(json.data)
+    ? (json.data as TeamMember[])
+    : normalizeArrayPayload<TeamMember>(json.data);
+
+  return {
+    data: list,
+    defaultManagerId: (json.defaultManagerId as string) || '',
+    success: json.success,
+  };
+}
+
+export async function getDepartmentById(id: string) {
+  const path = buildPath(`/departments/${id}`);
+  const headers = getTeamAuthHeaders();
+
+  const res = await fetch(`${API_BASE_NEW}${path}`, {
+    method: 'GET',
+    headers,
+    cache: 'no-store',
   });
   
   const json = await res.json();
@@ -644,16 +680,14 @@ export async function getDepartmentById(id: string) {
 /**
  * Create a department
  */
-export async function createDepartment(payload: { name: string; description?: string }) {
+export async function createDepartment(payload: {
+  name: string;
+  description?: string;
+  roles?: DepartmentRoleInput[];
+}) {
   const path = buildPath('/departments');
-  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-  
+  const headers = getTeamAuthHeaders();
+
   const res = await fetch(`${API_BASE_NEW}${path}`, {
     method: 'POST',
     headers,
@@ -671,16 +705,13 @@ export async function createDepartment(payload: { name: string; description?: st
 /**
  * Update a department
  */
-export async function updateDepartment(id: string, payload: { name?: string; description?: string }) {
+export async function updateDepartment(
+  id: string,
+  payload: { name?: string; description?: string; roles?: DepartmentRoleInput[] },
+) {
   const path = buildPath(`/departments/${id}`);
-  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-  
+  const headers = getTeamAuthHeaders();
+
   const res = await fetch(`${API_BASE_NEW}${path}`, {
     method: 'PATCH',
     headers,

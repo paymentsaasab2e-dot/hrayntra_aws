@@ -17,6 +17,13 @@ const DEFAULT_SETTINGS = {
   swiftCode: '',
   taxLabel: 'Tax',
   taxRate: 0,
+  companyName: '',
+  accountHolderName: '',
+  iban: '',
+  bankAddress: '',
+  authorizedSignatoryName: '',
+  authorizedSignatoryDesignation: '',
+  agencySignatureUrl: '',
 };
 
 function ensureExportDir() {
@@ -763,6 +770,13 @@ export const billingService = {
       throw new Error(`Invoice number ${invoiceNumber} is already in use`);
     }
 
+    const defaultPlacementSummary = {
+      candidateName,
+      jobTitle: placement?.job?.title || '',
+      clientName: placement?.client?.companyName || '',
+      offerDate: placement?.offerDate,
+      joiningDate: placement?.joiningDate,
+    };
     const invoicePayload = {
       lineItems: filteredLineItems,
       additionalCharges,
@@ -772,13 +786,16 @@ export const billingService = {
       total,
       buyer: data.buyer || null,
       seller: data.seller || null,
-      placementSummary: {
-        candidateName,
-        jobTitle: placement?.job?.title || '',
-        clientName: placement?.client?.companyName || '',
-        offerDate: placement?.offerDate,
-        joiningDate: placement?.joiningDate,
-      },
+      placementSummary:
+        data.placementSummary && typeof data.placementSummary === 'object'
+          ? data.placementSummary
+          : defaultPlacementSummary,
+      ...(data.termsAndConditions ? { termsAndConditions: data.termsAndConditions } : {}),
+      ...(data.legalTerms ? { legalTerms: data.legalTerms } : {}),
+      ...(data.sellerBank ? { sellerBank: data.sellerBank } : {}),
+      ...(data.buyerBank ? { buyerBank: data.buyerBank } : {}),
+      ...(data.clientSignatory ? { clientSignatory: data.clientSignatory } : {}),
+      ...(data.agencySignatory ? { agencySignatory: data.agencySignatory } : {}),
     };
 
     await prisma.$transaction(async (tx) => {

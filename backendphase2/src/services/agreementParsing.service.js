@@ -1,10 +1,6 @@
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
-import { randomUUID } from 'crypto';
 import { env } from '../config/env.js';
 import { parseAgreementTermsFromText } from '../utils/parseAgreementTermsFromText.js';
-import { runCvPipelineThroughStage4, validateCvUploadFile } from './cvParsing.service.js';
+import { runAgreementPipeline } from './agreementPipeline.service.js';
 import { chatCompletionWithFallback, hasLlmProvider } from './llmChatFallback.service.js';
 
 const LEVEL_OPTIONS = ['Level 1', 'Level 2', 'Level 3', 'Level 4', 'Executive'];
@@ -20,16 +16,48 @@ function safeJsonParse(raw) {
 function normalizeLevel(value) {
   const v = String(value || '').trim();
   if (!v) return '';
-  const exact = LEVEL_OPTIONS.find((level) => level.toLowerCase() === v.toLowerCase());
+
+  const lower = v.toLowerCase();
+  const tierMap = [
+    { keys: ['entry level', 'entry'], level: 'Level 1' },
+    { keys: ['middle level', 'middle'], level: 'Level 2' },
+    { keys: ['top level', 'top'], level: 'Level 3' },
+  ];
+  for (const row of tierMap) {
+    if (row.keys.some((key) => lower === key || lower.includes(key))) {
+      return row.level;
+    }
+  }
+
+  const exact = LEVEL_OPTIONS.find((level) => level.toLowerCase() === lower);
   if (exact) return exact;
-  const loose = LEVEL_OPTIONS.find((level) => v.toLowerCase().includes(level.toLowerCase()));
-  return loose || v;
+
+  if (/\bexecutive\b/i.test(v) && !/senior\s+executive/i.test(v)) {
+    return 'Executive';
+  }
+
+  const loose = LEVEL_OPTIONS.find((level) => lower.includes(level.toLowerCase()));
+  return loose || '';
 }
 
 function stripPercent(value) {
   return String(value ?? '')
     .replace(/%/g, '')
     .trim();
+}
+
+function normalizeDateLike(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const iso = raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (iso) {
+    return `${iso[1]}-${String(iso[2]).padStart(2, '0')}-${String(iso[3]).padStart(2, '0')}`;
+  }
+  const dmy = raw.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  if (dmy) {
+    return `${dmy[3]}-${String(dmy[2]).padStart(2, '0')}-${String(dmy[1]).padStart(2, '0')}`;
+  }
+  return raw;
 }
 
 function mapFreeReplacement(parsed = {}) {
@@ -66,6 +94,13 @@ function mapAiTerms(parsed = {}) {
     agreementServiceChargePercent: stripPercent(
       parsed.agreementServiceChargePercent ?? parsed.serviceChargePercent ?? '',
     ),
+    agreementContractValidity: String(parsed.agreementContractValidity ?? parsed.contractValidity ?? '').trim(),
+    agreementContractStartDate: normalizeDateLike(
+      parsed.agreementContractStartDate ?? parsed.contractStartDate ?? parsed.startDate ?? '',
+    ),
+    agreementContractEndDate: normalizeDateLike(
+      parsed.agreementContractEndDate ?? parsed.contractEndDate ?? parsed.endDate ?? '',
+    ),
     agreementTimePeriod: String(
       parsed.agreementPaymentTerms ?? parsed.agreementTimePeriod ?? parsed.paymentTerms ?? '',
     ).trim(),
@@ -77,10 +112,22 @@ function mapAiTerms(parsed = {}) {
 
 function mergeAgreementTerms(aiTerms, regexTerms) {
   const merged = { ...regexTerms };
+  const protectLevelFromBadAi =
+    regexTerms.agreementLevel &&
+    ['Level 1', 'Level 2', 'Level 3', 'Level 4'].includes(regexTerms.agreementLevel) &&
+    String(aiTerms?.agreementLevel || '').trim() === 'Executive';
+
   for (const [key, value] of Object.entries(aiTerms || {})) {
-    if (value != null && String(value).trim() !== '') {
-      merged[key] = value;
+    if (value == null || String(value).trim() === '') continue;
+    if (protectLevelFromBadAi && key === 'agreementLevel') continue;
+    if (
+      protectLevelFromBadAi &&
+      key === 'agreementServiceChargePercent' &&
+      regexTerms.agreementServiceChargePercent
+    ) {
+      continue;
     }
+    merged[key] = value;
   }
   return merged;
 }
@@ -99,7 +146,11 @@ async function extractAgreementTermsWithAi(cleanedText, fileName = 'agreement') 
 
 Return ONLY one valid JSON object with these keys (use null if not found):
 - agreementLevel: one of "Level 1", "Level 2", "Level 3", "Level 4", "Executive"
-- agreementServiceChargePercent: string number only without % (e.g. "8.5")
+  Map document tiers: Entry Level -> Level 1, Middle Level -> Level 2, Top Level -> Level 3. Do NOT use "Executive" from arbitration text.
+- agreementServiceChargePercent: string number only without % (e.g. "10" for Middle Level). Use the fee table under PROFESSIONAL FEES when present.
+- agreementContractStartDate: string in YYYY-MM-DD when present
+- agreementContractEndDate: string in YYYY-MM-DD when present
+- agreementContractValidity: string summary of the contract validity period (if available)
 - agreementPaymentTerms: string — when/how the client pays (e.g. "Payment due after candidate joins")
 - agreementAdvancePaymentPercent: string number only without % for advance/upfront payment
 - agreementFreeReplacementValue: string integer (e.g. "3")
@@ -136,63 +187,35 @@ ${capped}`;
  * Same text pipeline as bulk CV (multi-pass PDF / mammoth / word-extractor), then AI + regex terms.
  */
 export async function parseAgreementDocumentFromUpload(multerFile) {
-  const ext = path.extname(multerFile.originalname || '.pdf').toLowerCase() || '.pdf';
-  const tmpPath = path.join(os.tmpdir(), `agreement-${randomUUID()}${ext}`);
-  fs.writeFileSync(tmpPath, multerFile.buffer);
+  if (!multerFile?.buffer?.length) {
+    throw new Error('No file uploaded');
+  }
 
-  const file = {
-    path: tmpPath,
-    originalname: multerFile.originalname || `agreement${ext}`,
-    filename: multerFile.originalname || `agreement${ext}`,
-    mimetype: multerFile.mimetype,
-    size: multerFile.size,
-  };
+  const stage = await runAgreementPipeline(multerFile);
+  const cleaned = stage.cleaned || '';
+  if (cleaned.length < 20) {
+    throw new Error(
+      'Could not read enough text from this document. Try a text-based PDF or Word file.',
+    );
+  }
+
+  const fileName = multerFile.originalname || 'agreement-document';
+  const regexResult = parseAgreementTermsFromText(cleaned);
+  let terms = { ...regexResult.terms };
 
   try {
-    const allowedMimeTypes = [
-      'application/pdf',
-      'application/msword',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    ];
-    if (!allowedMimeTypes.includes(file.mimetype)) {
-      throw new Error('Only PDF, DOC, and DOCX files are allowed');
+    const aiTerms = await extractAgreementTermsWithAi(cleaned, fileName);
+    if (aiTerms) {
+      terms = mergeAgreementTerms(aiTerms, terms);
     }
-
-    const validation = validateCvUploadFile(file);
-    if (!validation.ok) {
-      throw new Error(validation.message);
-    }
-
-    const stage4 = await runCvPipelineThroughStage4(file);
-    const cleaned = stage4.cleaned || '';
-    if (cleaned.length < 20) {
-      throw new Error(
-        'Could not read enough text from this document. Try a text-based PDF or Word file.',
-      );
-    }
-
-    const regexResult = parseAgreementTermsFromText(cleaned);
-    let terms = { ...regexResult.terms };
-
-    try {
-      const aiTerms = await extractAgreementTermsWithAi(cleaned, file.originalname);
-      if (aiTerms) {
-        terms = mergeAgreementTerms(aiTerms, terms);
-      }
-    } catch {
-      /* keep regex-only result */
-    }
-
-    return {
-      terms,
-      filledCount: countFilled(terms),
-      textLength: cleaned.length,
-    };
-  } finally {
-    try {
-      fs.unlinkSync(tmpPath);
-    } catch {
-      /* ignore */
-    }
+  } catch {
+    /* keep regex-only result */
   }
+
+  return {
+    terms,
+    filledCount: countFilled(terms),
+    textLength: cleaned.length,
+    diagnostics: stage.diagnostics,
+  };
 }

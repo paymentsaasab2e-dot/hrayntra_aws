@@ -1,5 +1,13 @@
 import { prisma } from '../config/prisma.js';
 import { isSuperAdminUser } from '../utils/superAdminScope.js';
+import {
+  applyDepartmentRoles,
+  departmentRoleInclude,
+  sortDepartmentRoles,
+  syncDepartmentRoles,
+  listReportingManagerCandidates,
+  pickDefaultManagerFromCandidates,
+} from '../services/departmentRole.service.js';
 
 async function buildAccessibleDepartmentWhere(req) {
   if (!isSuperAdminUser(req) || !req?.user?.id) {
@@ -53,6 +61,7 @@ export async function getAllDepartments(req, res) {
     const departments = await prisma.department.findMany({
       where: scopedWhere,
       include: {
+        ...departmentRoleInclude,
         users: {
           where: {
             status: 'ACTIVE',
@@ -92,10 +101,13 @@ export async function getAllDepartments(req, res) {
     });
 
     // Format response - limit users to 4 for preview
-    const formatted = departments.map((dept) => ({
-      ...dept,
-      users: dept.users.slice(0, 4), // Ensure max 4 users
-    }));
+    const formatted = departments.map((dept) => {
+      const sorted = sortDepartmentRoles(dept);
+      return {
+        ...sorted,
+        users: sorted.users.slice(0, 4),
+      };
+    });
 
     return res.status(200).json({
       success: true,
@@ -124,6 +136,7 @@ export async function getDepartmentById(req, res) {
         ? { AND: [{ id }, scopedWhere] }
         : { id },
       include: {
+        ...departmentRoleInclude,
         users: {
           where: isSuperAdminUser(req) && req?.user?.id
             ? {
@@ -154,7 +167,7 @@ export async function getDepartmentById(req, res) {
 
     return res.status(200).json({
       success: true,
-      data: department,
+      data: sortDepartmentRoles(department),
     });
   } catch (error) {
     console.error('Error fetching department:', error);
@@ -166,12 +179,60 @@ export async function getDepartmentById(req, res) {
 }
 
 /**
+ * Reporting manager candidates for a department role (rank hierarchy).
+ * GET /api/departments/:id/reporting-managers?roleId=&excludeMemberId=
+ */
+export async function getDepartmentReportingManagers(req, res) {
+  try {
+    const { id: departmentId } = req.params;
+    const { roleId, excludeMemberId } = req.query;
+
+    if (!roleId) {
+      return res.status(400).json({
+        success: false,
+        message: 'roleId is required',
+      });
+    }
+
+    const department = await prisma.department.findUnique({
+      where: { id: departmentId },
+      select: { id: true },
+    });
+
+    if (!department) {
+      return res.status(404).json({
+        success: false,
+        message: 'Department not found',
+      });
+    }
+
+    const candidates = await listReportingManagerCandidates(departmentId, String(roleId), {
+      excludeMemberId: excludeMemberId ? String(excludeMemberId) : undefined,
+    });
+
+    const defaultManagerId = await pickDefaultManagerFromCandidates(candidates);
+
+    return res.status(200).json({
+      success: true,
+      data: candidates,
+      defaultManagerId,
+    });
+  } catch (error) {
+    console.error('Error fetching reporting managers:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch reporting managers',
+    });
+  }
+}
+
+/**
  * Create new department
  * POST /api/departments
  */
 export async function createDepartment(req, res) {
   try {
-    const { name, description } = req.body;
+    const { name, description, roles } = req.body;
 
     // Validation
     if (!name) {
@@ -179,6 +240,16 @@ export async function createDepartment(req, res) {
         success: false,
         message: 'Department name is required',
       });
+    }
+
+    if (Array.isArray(roles) && roles.length > 0) {
+      const ranks = roles.map((r, i) => (Number.isFinite(Number(r?.rank)) ? Number(r.rank) : i + 1));
+      if (new Set(ranks).size !== ranks.length) {
+        return res.status(400).json({
+          success: false,
+          message: 'Each role in a department must have a unique rank',
+        });
+      }
     }
 
     // Check if name already exists
@@ -201,6 +272,23 @@ export async function createDepartment(req, res) {
       },
     });
 
+    if (Array.isArray(roles) && roles.length > 0) {
+      try {
+        await applyDepartmentRoles(department.id, roles);
+      } catch (roleError) {
+        await prisma.department.delete({ where: { id: department.id } }).catch(() => {});
+        return res.status(400).json({
+          success: false,
+          message: roleError?.message || 'Failed to assign department roles',
+        });
+      }
+    }
+
+    const departmentWithRoles = await prisma.department.findUnique({
+      where: { id: department.id },
+      include: departmentRoleInclude,
+    });
+
     if (req?.user?.id) {
       await prisma.userActivity.create({
         data: {
@@ -217,7 +305,7 @@ export async function createDepartment(req, res) {
 
     return res.status(201).json({
       success: true,
-      data: department,
+      data: sortDepartmentRoles(departmentWithRoles || department),
       message: 'Department created',
     });
   } catch (error) {
@@ -236,7 +324,7 @@ export async function createDepartment(req, res) {
 export async function updateDepartment(req, res) {
   try {
     const { id } = req.params;
-    const { name, description } = req.body;
+    const { name, description, roles } = req.body;
     const scopedWhere = await buildAccessibleDepartmentWhere(req);
     if (scopedWhere?.OR?.length) {
       const existingScoped = await prisma.department.findFirst({
@@ -270,20 +358,46 @@ export async function updateDepartment(req, res) {
       }
     }
 
+    if (Array.isArray(roles) && roles.length > 0) {
+      const ranks = roles.map((r, i) => (Number.isFinite(Number(r?.rank)) ? Number(r.rank) : i + 1));
+      if (new Set(ranks).size !== ranks.length) {
+        return res.status(400).json({
+          success: false,
+          message: 'Each role in a department must have a unique rank',
+        });
+      }
+    }
+
     // Build update data
     const updateData = {};
     if (name !== undefined) updateData.name = name;
     if (description !== undefined) updateData.description = description;
 
     // Update department
-    const updatedDept = await prisma.department.update({
+    await prisma.department.update({
       where: { id },
       data: updateData,
     });
 
+    if (Array.isArray(roles)) {
+      try {
+        await syncDepartmentRoles(id, roles);
+      } catch (roleError) {
+        return res.status(400).json({
+          success: false,
+          message: roleError?.message || 'Failed to update department roles',
+        });
+      }
+    }
+
+    const updatedDept = await prisma.department.findUnique({
+      where: { id },
+      include: departmentRoleInclude,
+    });
+
     return res.status(200).json({
       success: true,
-      data: updatedDept,
+      data: sortDepartmentRoles(updatedDept),
     });
   } catch (error) {
     console.error('Error updating department:', error);

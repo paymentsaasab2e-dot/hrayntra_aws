@@ -163,11 +163,37 @@ function deriveDisplayStatus(match, candidate, activities, jobId) {
 }
 
 /** CRM pipeline stage for job drawer / candidates list — not Match.status (SUGGESTED, etc.). */
-function resolveCandidateCrmStageForMatch(candidate, jobId) {
+function resolveCandidateCrmStageForMatch(candidate, jobId, pipelineStageName, isAppliedMatch) {
+  const pipelineLabel = String(pipelineStageName || '').trim();
+  if (pipelineLabel) {
+    const pipelineLower = pipelineLabel.toLowerCase();
+    const pipelineLooksTerminal =
+      pipelineLower.includes('hire') ||
+      pipelineLower === 'placed' ||
+      pipelineLower.includes('joined') ||
+      pipelineLower.includes('onboard');
+    if (isAppliedMatch && pipelineLooksTerminal) {
+      return 'Applied';
+    }
+    return pipelineLabel;
+  }
+
   const explicit = String(candidate?.stage || '').trim();
-  if (explicit && explicit.toLowerCase() !== 'new') {
+  const explicitLower = explicit.toLowerCase();
+  const globalLooksTerminal =
+    explicitLower.includes('hire') ||
+    explicitLower === 'placed' ||
+    explicitLower.includes('joined') ||
+    explicitLower.includes('onboard');
+
+  if (isAppliedMatch && (!explicit || explicitLower === 'new' || globalLooksTerminal)) {
+    return 'Applied';
+  }
+
+  if (explicit && explicitLower !== 'new') {
     return explicit;
   }
+
   const assigned = Array.isArray(candidate?.assignedJobs)
     ? candidate.assignedJobs.map((id) => String(id || '').trim()).filter(Boolean)
     : [];
@@ -307,6 +333,7 @@ function mapMatchRecord(match, activitiesByCandidateId) {
 
   const salary = parseSalary(candidate.salary);
   const displayStatus = deriveDisplayStatus(match, candidate, activities, job.id);
+  const isAppliedMatch = matchRepresentsJobApplication(match, candidate, job.id);
 
   return {
     id: match.id,
@@ -322,7 +349,12 @@ function mapMatchRecord(match, activitiesByCandidateId) {
     salary,
     noticePeriod: candidate.noticePeriod || 'Not shared',
     status: displayStatus,
-    candidateStage: resolveCandidateCrmStageForMatch(candidate, job.id),
+    candidateStage: resolveCandidateCrmStageForMatch(
+      candidate,
+      job.id,
+      match.__pipelineStageName,
+      isAppliedMatch,
+    ),
     matchRecordStatus: match.status,
     candidate: { stage: candidate.stage || null },
     matchSource: match.createdById ? 'manual' : 'ai',
@@ -354,6 +386,20 @@ function mapMatchRecord(match, activitiesByCandidateId) {
 
 function isAppliedPipelineEvaluation(evaluation) {
   return evaluation && typeof evaluation === 'object' && evaluation.origin === 'applied';
+}
+
+function matchRepresentsJobApplication(match, candidate, jobId) {
+  if (isAppliedPipelineEvaluation(match?.evaluation)) return true;
+  const notes = String(match?.notes || '').toLowerCase();
+  if (notes.includes('applied from candidate portal') || notes.includes('job portal')) {
+    return true;
+  }
+  const status = String(match?.status || '').toUpperCase();
+  if (status === 'REVIEWED' && notes.includes('applied')) return true;
+  const assigned = Array.isArray(candidate?.assignedJobs)
+    ? candidate.assignedJobs.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  return Boolean(jobId && assigned.includes(String(jobId)) && ['REVIEWED', 'SUBMITTED'].includes(status));
 }
 
 export const matchService = {
@@ -508,6 +554,24 @@ export const matchService = {
       activitiesByCandidateId.set(activity.entityId, candidateActivities);
     }
 
+    const pipelineStageByCandidateId = new Map();
+    if (jobId && matches.length) {
+      const candidateIds = [...new Set(matches.map((match) => match.candidateId).filter(Boolean))];
+      const pipelineRows = await prisma.pipelineEntry.findMany({
+        where: { jobId: String(jobId), candidateId: { in: candidateIds } },
+        include: { stage: { select: { name: true, systemRole: true } } },
+        orderBy: [{ movedAt: 'desc' }, { createdAt: 'desc' }],
+      });
+      for (const row of pipelineRows) {
+        if (!pipelineStageByCandidateId.has(row.candidateId)) {
+          pipelineStageByCandidateId.set(row.candidateId, row.stage?.name || null);
+        }
+      }
+    }
+    for (const match of matches) {
+      match.__pipelineStageName = pipelineStageByCandidateId.get(match.candidateId) || null;
+    }
+
     if (source === 'ai') {
       matches = matches.filter((match) => !isAppliedPipelineEvaluation(match.evaluation));
       total = matches.length;
@@ -596,6 +660,15 @@ export const matchService = {
     });
 
     if (!match) return null;
+
+    if (match.jobId) {
+      const pipelineRow = await prisma.pipelineEntry.findFirst({
+        where: { candidateId: match.candidateId, jobId: match.jobId },
+        include: { stage: { select: { name: true } } },
+        orderBy: [{ movedAt: 'desc' }, { createdAt: 'desc' }],
+      });
+      match.__pipelineStageName = pipelineRow?.stage?.name || null;
+    }
 
     const activities = await getCandidateActivities([match.candidate.id]);
     const activitiesByCandidateId = new Map([[match.candidate.id, activities]]);

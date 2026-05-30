@@ -4,6 +4,7 @@ import { requirePermission } from '../middleware/permission.middleware.js';
 import {
   getAllDepartments,
   getDepartmentById,
+  getDepartmentReportingManagers,
   createDepartment,
   updateDepartment,
   deleteDepartment,
@@ -16,6 +17,7 @@ router.use(authMiddleware);
 
 // Department routes
 router.get('/', getAllDepartments);
+router.get('/:id/reporting-managers', getDepartmentReportingManagers);
 router.get('/:id', getDepartmentById);
 router.post('/', requirePermission('add_team_member'), createDepartment);
 router.patch('/:id', requirePermission('edit_team_member'), updateDepartment);

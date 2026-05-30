@@ -3,7 +3,13 @@ import { filesApiUpload, type EntityFile, type FileEntityType } from './api';
 export const KYC_FILE_TYPE = 'KYC';
 
 const KYC_ACCEPT =
-  'application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/jpeg,image/png,image/webp,.pdf,.doc,.docx,.jpg,.jpeg,.png,.webp';
+  'application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,image/jpeg,image/png,image/webp,.pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.webp';
+
+const KYC_PARSEABLE_EXTENSIONS = /\.(pdf|docx?|xlsx?)$/i;
+
+export function isKycParseableFile(file: File): boolean {
+  return KYC_PARSEABLE_EXTENSIONS.test(file.name);
+}
 
 export const KYC_FILE_ACCEPT = KYC_ACCEPT;
 
@@ -15,6 +21,14 @@ export function filterKycFiles(files: EntityFile[]): EntityFile[] {
 
 export function validateKycFile(file: File): string | null {
   if (file.size > MAX_BYTES) return `${file.name} exceeds 10MB limit`;
+  const allowed =
+    /\.(pdf|doc|docx|xls|xlsx|jpe?g|png|webp)$/i.test(file.name) ||
+    /^(application\/pdf|application\/msword|application\/vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|spreadsheetml\.sheet)|application\/vnd\.ms-excel|image\/(jpeg|png|webp))$/i.test(
+      file.type,
+    );
+  if (!allowed) {
+    return `${file.name}: only PDF, DOC, DOCX, XLS, XLSX, JPG, PNG, and WEBP are allowed`;
+  }
   return null;
 }
 

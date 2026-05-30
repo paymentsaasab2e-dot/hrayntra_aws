@@ -19,8 +19,7 @@ import {
   MOCK_JOBS,
   MOCK_CLIENTS,
 } from '../app/Task&Activites/types';
-import { apiGetCandidates, apiGetJobs, apiGetClients, apiGetInterviews, type BackendCandidate, type BackendJob, type BackendClient, type BackendInterviewListItem } from '../lib/api';
-import { getAllTeamMembersForAssign } from '../lib/api/teamApi';
+import { apiGetCandidates, apiGetJobs, apiGetClients, apiGetInterviews, apiGetTaskAssignableMembers, type BackendCandidate, type BackendJob, type BackendClient, type BackendInterviewListItem } from '../lib/api';
 import { clampDateToMinLocal, getLocalDateInputMinToday, getLocalTimeInputMinNow, isLocalDateTimeNotPast } from '../utils/dateInputConstraints';
 
 const DEFAULT_FORM_VALUES: TaskFormValues = {
@@ -111,21 +110,41 @@ export function TaskForm({
       try {
         setLoadingEntities(true);
         
-        // Fetch users/assignees
+        // Fetch users allowed for task assignment (hierarchy + self)
         try {
-          const members = await getAllTeamMembersForAssign();
+          const res = await apiGetTaskAssignableMembers();
+          const members = Array.isArray(res.data) ? res.data : [];
           const mappedAssignees: TaskAssignee[] = members.map((m) => {
-            const name = [m.firstName, m.lastName].filter(Boolean).join(' ').trim() || m.email;
+            const name =
+              [m.firstName, m.lastName].filter(Boolean).join(' ').trim() ||
+              m.name ||
+              m.email ||
+              'Unknown';
             return {
               id: m.id,
               name,
-              avatar: (m as { avatar?: string }).avatar,
+              avatar: undefined,
               role: m.role?.roleName,
             };
           });
-          setAssignees(mappedAssignees);
+          if (mappedAssignees.length > 0) {
+            setAssignees(mappedAssignees);
+          }
+          if (mode === 'create' && !values.assigneeId) {
+            const raw = typeof window !== 'undefined' ? localStorage.getItem('currentUser') : null;
+            if (raw) {
+              try {
+                const current = JSON.parse(raw) as { id?: string };
+                if (current?.id && mappedAssignees.some((a) => a.id === current.id)) {
+                  onChange({ ...values, assigneeId: current.id });
+                }
+              } catch {
+                // ignore
+              }
+            }
+          }
         } catch (err) {
-          console.error('Failed to fetch users:', err);
+          console.error('Failed to fetch task assignees:', err);
         }
 
         // Fetch candidates

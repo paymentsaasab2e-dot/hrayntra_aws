@@ -203,6 +203,20 @@ function resolveApplicationDisplayStatus({
     return formatApplicationStatus(appStatus);
   }
 
+  if (appU === 'SUBMITTED' || appU === 'UNDER_REVIEW') {
+    const pipeLooksTerminal =
+      pipeLower.includes('hire') ||
+      pipeLower.includes('placed') ||
+      pipeLower.includes('joined') ||
+      pipeLower.includes('onboard');
+    if (pipeLooksTerminal) {
+      return 'Applied';
+    }
+    const pipelineStageText = String(pipelineStageName || '').trim();
+    if (pipelineStageText) return pipelineStageText;
+    return formatApplicationStatus(appStatus) || 'Applied';
+  }
+
   const pipelineStageText = String(pipelineStageName || '').trim();
   if (pipelineStageText) return pipelineStageText;
 

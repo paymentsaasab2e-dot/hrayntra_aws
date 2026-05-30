@@ -12,6 +12,11 @@ import { sendInviteEmail, sendPasswordResetEmail } from '../services/emailServic
 import { isSuperAdminUser } from '../utils/superAdminScope.js';
 import { headquartersAuthService } from '../modules/auth/headquarters-auth.service.js';
 import activityService from '../services/activityService.js';
+import {
+  assertRoleAllowedInDepartment,
+  resolveDefaultManagerId,
+  validateReportingManager,
+} from '../services/departmentRole.service.js';
 
 /**
  * Best-effort: register the new credential's email/loginId in the HQ directory
@@ -385,6 +390,25 @@ export async function createTeamMember(req, res) {
       });
     }
 
+    if (departmentId && roleId) {
+      try {
+        await assertRoleAllowedInDepartment(departmentId, roleId);
+        if (managerId) {
+          await validateReportingManager(departmentId, roleId, managerId);
+        }
+      } catch (validationError) {
+        return res.status(400).json({
+          success: false,
+          message: validationError?.message || 'Invalid department role assignment',
+        });
+      }
+    }
+
+    let resolvedManagerId = managerId || null;
+    if (departmentId && roleId) {
+      resolvedManagerId = await resolveDefaultManagerId(departmentId, roleId, managerId || null);
+    }
+
     // Create user
     const user = await prisma.user.create({
       data: {
@@ -397,7 +421,7 @@ export async function createTeamMember(req, res) {
         location,
         departmentId,
         roleId,
-        managerId,
+        managerId: resolvedManagerId,
         status: status || 'ACTIVE',
         isActive: status !== 'INACTIVE',
         passwordHash: 'PLACEHOLDER', // Will be set if credentials generated
@@ -603,7 +627,14 @@ export async function updateTeamMember(req, res) {
 
     const memberBefore = await prisma.user.findUnique({
       where: { id },
-      select: { roleId: true, firstName: true, lastName: true, name: true },
+      select: {
+        roleId: true,
+        departmentId: true,
+        managerId: true,
+        firstName: true,
+        lastName: true,
+        name: true,
+      },
     });
 
     // Check email uniqueness if email is being changed
@@ -620,6 +651,43 @@ export async function updateTeamMember(req, res) {
           success: false,
           message: 'A member with this email already exists',
         });
+      }
+    }
+
+    const effectiveDepartmentId =
+      updateData.departmentId !== undefined ? updateData.departmentId : memberBefore?.departmentId;
+    const effectiveRoleId = updateData.roleId !== undefined ? updateData.roleId : memberBefore?.roleId;
+
+    if (effectiveDepartmentId && effectiveRoleId) {
+      try {
+        await assertRoleAllowedInDepartment(effectiveDepartmentId, effectiveRoleId);
+        const explicitManager =
+          updateData.managerId !== undefined ? updateData.managerId : memberBefore?.managerId;
+        if (explicitManager) {
+          await validateReportingManager(effectiveDepartmentId, effectiveRoleId, explicitManager);
+        } else if (updateData.managerId === null || updateData.managerId === '') {
+          updateData.managerId = await resolveDefaultManagerId(
+            effectiveDepartmentId,
+            effectiveRoleId,
+            null,
+          );
+        }
+      } catch (validationError) {
+        return res.status(400).json({
+          success: false,
+          message: validationError?.message || 'Invalid department role assignment',
+        });
+      }
+    }
+
+    if (effectiveDepartmentId && effectiveRoleId && updateData.managerId === undefined) {
+      const currentManagerId = memberBefore?.managerId;
+      if (!currentManagerId) {
+        updateData.managerId = await resolveDefaultManagerId(
+          effectiveDepartmentId,
+          effectiveRoleId,
+          null,
+        );
       }
     }
 

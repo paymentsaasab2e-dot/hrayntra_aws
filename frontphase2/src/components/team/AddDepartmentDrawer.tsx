@@ -4,9 +4,17 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
-import { createDepartment, updateDepartment } from '../../lib/api/teamApi';
-import type { Department } from '../../types/team';
+import { createDepartment, updateDepartment, getRoles, getAllPermissions } from '../../lib/api/teamApi';
+import type { Department, Permission, Role } from '../../types/team';
 import { PortalHost } from './PortalHost';
+import {
+  DepartmentRolesEditor,
+  departmentRoleDraftsToPayload,
+  departmentRolesToDrafts,
+  validateDepartmentRoleDrafts,
+  type DepartmentRoleDraft,
+} from './DepartmentRolesEditor';
+import { mergePermissionMaps } from './permissionCatalog';
 
 interface AddDepartmentDrawerProps {
   isOpen: boolean;
@@ -22,6 +30,10 @@ const EMPTY_FORM = {
 
 export const AddDepartmentDrawer: React.FC<AddDepartmentDrawerProps> = ({ isOpen, onClose, onSuccess, department = null }) => {
   const [formData, setFormData] = useState(EMPTY_FORM);
+  const [roleDrafts, setRoleDrafts] = useState<DepartmentRoleDraft[]>([]);
+  const [predefinedRoles, setPredefinedRoles] = useState<Role[]>([]);
+  const [permissions, setPermissions] = useState<Record<string, Permission[]>>({});
+  const [loadingRoles, setLoadingRoles] = useState(false);
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -46,8 +58,26 @@ export const AddDepartmentDrawer: React.FC<AddDepartmentDrawerProps> = ({ isOpen
       newErrors.name = 'Department name is required';
     }
 
+    const roleError = validateDepartmentRoleDrafts(roleDrafts);
+    if (roleError) {
+      newErrors.roles = roleError;
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
+  };
+
+  const loadRoleOptions = async () => {
+    setLoadingRoles(true);
+    try {
+      const [rolesRes, permsRes] = await Promise.all([getRoles(), getAllPermissions()]);
+      setPredefinedRoles(rolesRes.data || []);
+      setPermissions(mergePermissionMaps(permsRes.data || {}));
+    } catch {
+      toast.error('Failed to load roles and permissions');
+    } finally {
+      setLoadingRoles(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -59,23 +89,26 @@ export const AddDepartmentDrawer: React.FC<AddDepartmentDrawerProps> = ({ isOpen
       const payload = {
         name: formData.name.trim(),
         description: formData.description.trim() || undefined,
+        roles: departmentRoleDraftsToPayload(roleDrafts),
       };
 
       if (isEditMode && department?.id) {
         const response = await updateDepartment(department.id, payload);
         toast.success('Department updated');
-        onSuccess((response as any)?.data || { ...department, ...payload });
+        onSuccess((response as { data?: Department })?.data || { ...department, ...payload });
       } else {
         const response = await createDepartment(payload);
         toast.success('Department created');
-        onSuccess((response as any)?.data);
+        onSuccess((response as { data?: Department })?.data);
       }
 
       handleClose();
-    } catch (error: any) {
-      const errorMessage = error?.message || `Failed to ${isEditMode ? 'update' : 'create'} department`;
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : `Failed to ${isEditMode ? 'update' : 'create'} department`;
       if (errorMessage.toLowerCase().includes('name') || errorMessage.toLowerCase().includes('already')) {
         setErrors({ name: errorMessage });
+      } else if (errorMessage.toLowerCase().includes('rank') || errorMessage.toLowerCase().includes('role')) {
+        setErrors({ roles: errorMessage });
       } else {
         toast.error(errorMessage);
       }
@@ -86,20 +119,22 @@ export const AddDepartmentDrawer: React.FC<AddDepartmentDrawerProps> = ({ isOpen
 
   const handleClose = () => {
     setFormData(EMPTY_FORM);
+    setRoleDrafts([]);
     setErrors({});
     onClose();
   };
 
   useEffect(() => {
     if (!isOpen) return;
+    loadRoleOptions();
     setFormData({
       name: department?.name || '',
       description: department?.description || '',
     });
+    setRoleDrafts(departmentRolesToDrafts(department?.departmentRoles));
     setErrors({});
   }, [department, isOpen]);
 
-  // Close on Escape
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
@@ -115,7 +150,6 @@ export const AddDepartmentDrawer: React.FC<AddDepartmentDrawerProps> = ({ isOpen
       <AnimatePresence>
       {isOpen && (
         <>
-          {/* Backdrop */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -124,7 +158,6 @@ export const AddDepartmentDrawer: React.FC<AddDepartmentDrawerProps> = ({ isOpen
             className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[60]"
           />
 
-          {/* Modal */}
           <motion.div
             initial={{ opacity: 0, scale: 0.96, y: 12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -133,9 +166,8 @@ export const AddDepartmentDrawer: React.FC<AddDepartmentDrawerProps> = ({ isOpen
             onClick={(e) => e.stopPropagation()}
             className="fixed inset-0 z-[70] flex items-center justify-center p-4 sm:p-6"
           >
-            <div className="w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-black/5">
+            <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-black/5">
               <form onSubmit={handleSubmit} className="flex max-h-[calc(100vh-2rem)] flex-col">
-                {/* Header */}
                 <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
                   <h2 className="text-lg font-bold text-slate-900">{isEditMode ? 'Modify Department' : 'Add Department'}</h2>
                   <button
@@ -147,7 +179,6 @@ export const AddDepartmentDrawer: React.FC<AddDepartmentDrawerProps> = ({ isOpen
                   </button>
                 </div>
 
-                {/* Content */}
                 <div className="flex-1 overflow-y-auto px-6 py-6">
                   <div className="space-y-6">
                     <div className="space-y-1.5">
@@ -169,15 +200,24 @@ export const AddDepartmentDrawer: React.FC<AddDepartmentDrawerProps> = ({ isOpen
                       <textarea
                         value={formData.description}
                         onChange={(e) => handleChange('description', e.target.value)}
-                        rows={4}
+                        rows={3}
                         className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
                         placeholder="Brief description of this department"
+                      />
+                    </div>
+
+                    <div className={loadingRoles ? 'pointer-events-none opacity-60' : ''}>
+                      <DepartmentRolesEditor
+                        value={roleDrafts}
+                        onChange={setRoleDrafts}
+                        predefinedRoles={predefinedRoles}
+                        permissions={permissions}
+                        error={errors.roles}
                       />
                     </div>
                   </div>
                 </div>
 
-                {/* Footer */}
                 <div className="border-t border-slate-200 bg-slate-50/70 px-6 py-4">
                   <div className="flex items-center justify-end gap-3">
                     <button
@@ -189,7 +229,7 @@ export const AddDepartmentDrawer: React.FC<AddDepartmentDrawerProps> = ({ isOpen
                     </button>
                     <button
                       type="submit"
-                      disabled={isSubmitting}
+                      disabled={isSubmitting || loadingRoles}
                       className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {isSubmitting ? (

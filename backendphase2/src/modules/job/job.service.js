@@ -11,7 +11,6 @@ import { sendJobAssignmentEmail, sendJobClosedEmail } from '../../services/email
 import { buildSuperAdminOwnerScope, mergeWhereWithScope } from '../../utils/superAdminScope.js';
 import { canViewAllAssignments } from '../../utils/permissionScope.js';
 import {
-  getRecruitmentMode,
   getDefaultPipelineTemplate,
   applyOrgPipelineTemplateToEmptyJobs,
 } from '../setting/recruitmentMode.service.js';
@@ -62,28 +61,25 @@ function resolveApplicationFormSchemaFromPayload(data) {
   return data.applicationFormEnabled ? defaultApplicationFormSchema() : null;
 }
 
-/** First `getAll` per tenant awaits a one-time standalone pipeline repair (legacy → org template). */
-const standalonePipelineRepairPromiseByTenant = new Map();
+/** First `getAll` per tenant awaits a one-time pipeline repair (empty / legacy → org template). */
+const orgPipelineRepairPromiseByTenant = new Map();
 
-async function ensureStandalonePipelineTemplateRepairOnce() {
+async function ensureOrgPipelineTemplateRepairOnce() {
   const tenantDbName = getActiveTenantDbName();
   if (!tenantDbName) return;
-  if (!standalonePipelineRepairPromiseByTenant.has(tenantDbName)) {
-    standalonePipelineRepairPromiseByTenant.set(
+  if (!orgPipelineRepairPromiseByTenant.has(tenantDbName)) {
+    orgPipelineRepairPromiseByTenant.set(
       tenantDbName,
       (async () => {
         try {
-          const mode = await getRecruitmentMode();
-          if (mode === 'standalone') {
-            await applyOrgPipelineTemplateToEmptyJobs();
-          }
+          await applyOrgPipelineTemplateToEmptyJobs();
         } catch (error) {
-          console.warn('[job.service] standalone pipeline repair skipped:', error?.message || error);
+          console.warn('[job.service] org pipeline repair skipped:', error?.message || error);
         }
       })()
     );
   }
-  await standalonePipelineRepairPromiseByTenant.get(tenantDbName);
+  await orgPipelineRepairPromiseByTenant.get(tenantDbName);
 }
 
 // Helper function to get color for pipeline stage
@@ -653,7 +649,7 @@ export const jobService = {
     const { page, limit, skip } = getPaginationParams(req);
     const { status, clientId, assignedToId, search, mine } = req.query;
 
-    await ensureStandalonePipelineTemplateRepairOnce();
+    await ensureOrgPipelineTemplateRepairOnce();
 
     const where = {};
     if (status) where.status = status;
@@ -985,16 +981,13 @@ export const jobService = {
       },
     });
 
-    // Create pipeline stages when provided, or when org is standalone and no stages sent (use org template).
+    // Create pipeline stages when provided, or seed from org default template (agency + standalone).
     let pipelineStages = Array.isArray(data.pipelineStages) ? data.pipelineStages : [];
     if (pipelineStages.length === 0) {
       try {
-        const mode = await getRecruitmentMode();
-        if (mode === 'standalone') {
-          pipelineStages = await getDefaultPipelineTemplate();
-        }
+        pipelineStages = await getDefaultPipelineTemplate();
       } catch (modeErr) {
-        console.warn('[job.create] recruitment mode read failed, skipping template seed:', modeErr?.message || modeErr);
+        console.warn('[job.create] default pipeline template read failed, skipping seed:', modeErr?.message || modeErr);
       }
     }
     if (pipelineStages.length > 0) {

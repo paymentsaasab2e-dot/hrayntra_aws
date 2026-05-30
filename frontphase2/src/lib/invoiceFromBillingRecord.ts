@@ -1,4 +1,5 @@
 import type { BillingSettingsSnapshot, RecruitmentInvoiceData } from '../types/recruitmentInvoice';
+import { migrateLegacyInvoiceNotesToTerms } from './placementInvoiceClientContext';
 import { resolveClientEmail } from './invoiceCurrency';
 import { recalcInvoiceTotals, recalcLineItem } from './invoiceCalculations';
 
@@ -47,7 +48,7 @@ export function invoiceFromBillingRecord(
   const resolvedBuyerEmail =
     String(payloadBuyer?.email || '').trim() || resolveClientEmail(clientForBillTo);
 
-  return {
+  return migrateLegacyInvoiceNotesToTerms({
     invoiceNo: record.invoiceNumber || '',
     invoiceDate: toIsoDate(record.invoiceDate) || toIsoDate(record.createdAt),
     dueDate: toIsoDate(record.dueDate),
@@ -76,6 +77,12 @@ export function invoiceFromBillingRecord(
     taxAmount: totals.taxAmount,
     total: totals.total,
     notes: record.notes || '',
+    termsAndConditions: String(payload.termsAndConditions || ''),
     placementSummary: payload.placementSummary as RecruitmentInvoiceData['placementSummary'],
-  };
+    legalTerms: payload.legalTerms as RecruitmentInvoiceData['legalTerms'],
+    sellerBank: payload.sellerBank as RecruitmentInvoiceData['sellerBank'],
+    buyerBank: payload.buyerBank as RecruitmentInvoiceData['buyerBank'],
+    clientSignatory: payload.clientSignatory as RecruitmentInvoiceData['clientSignatory'],
+    agencySignatory: payload.agencySignatory as RecruitmentInvoiceData['agencySignatory'],
+  });
 }

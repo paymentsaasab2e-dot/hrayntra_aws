@@ -98,8 +98,7 @@ function LeadFollowUpTableCell({
       )}
       {next && (
         <div className="rounded-xl bg-gradient-to-br from-blue-500/10 to-indigo-500/10 px-2.5 py-2 ring-1 ring-blue-400/15">
-          <p className="text-[9px] font-bold text-blue-700 uppercase tracking-[0.12em]">Next</p>
-          <p className="text-xs font-semibold text-blue-900 leading-snug mt-0.5">{next.date}</p>
+          <p className="text-xs font-semibold text-blue-900 leading-snug">{next.date}</p>
           <p className="text-[10px] text-blue-700/90 mt-1 tabular-nums">{next.time}</p>
         </div>
       )}
@@ -2300,7 +2299,7 @@ export default function RecruitmentAgencyDashboard() {
                                 nextFollowUp={lead.nextFollowUp}
                               />
                             </td>
-                            <TableAuditCell audit={lead.auditMeta} />
+                            <TableAuditCell audit={lead.auditMeta} hideUnchangedUpdated />
                             <td className="px-3 sm:px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                               <div className="inline-flex items-center justify-end gap-0.5 rounded-xl bg-slate-100/70 p-0.5 ring-1 ring-slate-200/60">
                                 {SHOW_TABLE_ROW_EDIT_ICON ? (

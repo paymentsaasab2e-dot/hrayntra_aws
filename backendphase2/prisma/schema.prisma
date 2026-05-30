@@ -1899,9 +1899,29 @@ model Department {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  users User[]
+  users           User[]
+  departmentRoles DepartmentRole[]
 
   @@map("departments")
+}
+
+model DepartmentRole {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  departmentId String   @db.ObjectId
+  roleId       String   @db.ObjectId
+  /// Lower number = higher authority (1 is top of hierarchy).
+  rank         Int
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  role       SystemRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([departmentId, roleId])
+  @@unique([departmentId, rank])
+  @@index([departmentId])
+  @@index([roleId])
+  @@map("department_roles")
 }
 
 model SystemRole {
@@ -1914,6 +1934,7 @@ model SystemRole {
 
   users           User[]
   rolePermissions RolePermission[]
+  departmentRoles DepartmentRole[]
 
   @@map("system_roles")
 }

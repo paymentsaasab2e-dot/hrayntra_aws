@@ -58,6 +58,55 @@ async function getTenantJobIdSet() {
   return new Set(jobs.map((job) => String(job.id)));
 }
 
+/** All job ids linked to a candidate (assign, apply, pipeline, match). */
+function collectCandidateLinkedJobIds(candidate) {
+  const ids = new Set();
+  const push = (raw) => {
+    const id = String(raw || '').trim();
+    if (id) ids.add(id);
+  };
+  for (const id of Array.isArray(candidate?.assignedJobs) ? candidate.assignedJobs : []) {
+    push(id);
+  }
+  for (const row of Array.isArray(candidate?.applications) ? candidate.applications : []) {
+    push(row?.jobId);
+  }
+  for (const row of Array.isArray(candidate?.pipelineEntries) ? candidate.pipelineEntries : []) {
+    push(row?.jobId);
+  }
+  for (const row of Array.isArray(candidate?.matches) ? candidate.matches : []) {
+    push(row?.jobId);
+    push(row?.job?.id);
+  }
+  return Array.from(ids);
+}
+
+function resolveCandidateAssignedJobTitlesForList(candidate, jobsById) {
+  const titles = [];
+  const seen = new Set();
+  for (const jobId of collectCandidateLinkedJobIds(candidate)) {
+    let title = jobsById.get(jobId);
+    if (!title) {
+      const match = (Array.isArray(candidate?.matches) ? candidate.matches : []).find(
+        (row) => String(row?.jobId || row?.job?.id || '').trim() === jobId
+      );
+      title = match?.job?.title;
+    }
+    if (!title) {
+      const application = (Array.isArray(candidate?.applications) ? candidate.applications : []).find(
+        (row) => String(row?.jobId || '').trim() === jobId
+      );
+      title = application?.job?.title;
+    }
+    const label = String(title || '').trim();
+    if (label && !seen.has(label)) {
+      seen.add(label);
+      titles.push(label);
+    }
+  }
+  return titles;
+}
+
 /** Keep only job links that belong to the signed-in tenant (drops other tenants' apply/pipeline ids). */
 function scopeCandidateJobLinksToTenant(candidate, tenantJobIdSet) {
   if (!candidate) return candidate;
@@ -117,6 +166,7 @@ function candidateHasRealJobLink(candidate, tenantJobIdSet = null) {
   if (assigned.some((id) => String(id || '').trim())) return true;
   if (Array.isArray(row.applications) && row.applications.length > 0) return true;
   if (Array.isArray(row.pipelineEntries) && row.pipelineEntries.length > 0) return true;
+  if (Array.isArray(row.matches) && row.matches.length > 0) return true;
   return false;
 }
 
@@ -183,6 +233,18 @@ function candidateHasTenantApplicationLink(candidate, tenantJobIdSet = null) {
   return Array.isArray(scoped?.applications) && scoped.applications.length > 0;
 }
 
+function candidateHasFreshSubmittedApplication(candidate, tenantJobIdSet = null) {
+  const scoped =
+    tenantJobIdSet && tenantJobIdSet.size > 0
+      ? scopeCandidateJobLinksToTenant(candidate, tenantJobIdSet)
+      : candidate;
+  const apps = Array.isArray(scoped?.applications) ? scoped.applications : [];
+  return apps.some((row) => {
+    const status = String(row?.status || '').toUpperCase();
+    return status === 'SUBMITTED' || status === 'UNDER_REVIEW';
+  });
+}
+
 /** CRM list/drawer stage: job-linked candidates default to Applied unless a later stage is set. */
 function resolveCandidateStageForList(candidate, tenantJobIdSet = null) {
   const hasTenantJob = candidateHasRealJobLink(candidate, tenantJobIdSet);
@@ -200,6 +262,12 @@ function resolveCandidateStageForList(candidate, tenantJobIdSet = null) {
   if (explicit && explicitLower !== 'new') {
     if (!hasTenantJob) {
       return 'New';
+    }
+    if (
+      candidateHasFreshSubmittedApplication(candidate, tenantJobIdSet) &&
+      isTerminalCandidateStage(explicit)
+    ) {
+      return 'Applied';
     }
     return explicit;
   }
@@ -342,7 +410,39 @@ const candidateDetailInclude = {
     },
     orderBy: { movedAt: 'desc' },
   },
+  applications: {
+    select: {
+      id: true,
+      jobId: true,
+      status: true,
+      appliedAt: true,
+      job: { select: { id: true, title: true } },
+    },
+    orderBy: { appliedAt: 'desc' },
+    take: 30,
+  },
 };
+
+async function enrichCandidateDetailJobTitles(candidate, tenantJobIdSet = null) {
+  if (!candidate) return candidate;
+  const scoped =
+    tenantJobIdSet && tenantJobIdSet.size > 0
+      ? scopeCandidateJobLinksToTenant(candidate, tenantJobIdSet)
+      : candidate;
+  const jobIds = collectCandidateLinkedJobIds(scoped);
+  const jobsById = new Map();
+  if (jobIds.length) {
+    const jobs = await prisma.job.findMany({
+      where: { id: { in: jobIds } },
+      select: { id: true, title: true },
+    });
+    for (const job of jobs) jobsById.set(job.id, job.title);
+  }
+  return {
+    ...candidate,
+    assignedJobTitles: resolveCandidateAssignedJobTitlesForList(scoped, jobsById),
+  };
+}
 
 const candidateListInclude = {
   assignedTo: {
@@ -352,7 +452,12 @@ const candidateListInclude = {
     select: USER_BRIEF_SELECT,
   },
   applications: {
-    select: { id: true, jobId: true },
+    select: {
+      id: true,
+      jobId: true,
+      status: true,
+      job: { select: { id: true, title: true } },
+    },
     take: 30,
   },
   pipelineEntries: {
@@ -2450,14 +2555,18 @@ export const candidateService = {
       }
     }
 
-    // Resolve assigned job ids into human-readable job titles for list UI.
-    // Candidates created via drawer store `assignedJobs: [jobId]` but may not have a Match yet.
+    const tenantJobIdSet = isTenantScopedRequest() ? await getTenantJobIdSet() : null;
+
+    // Resolve linked job ids (assign, apply, pipeline, match) into titles for list UI.
     const assignedJobIds = Array.from(
       new Set(
-        candidates
-          .flatMap((candidate) => (Array.isArray(candidate.assignedJobs) ? candidate.assignedJobs : []))
-          .filter(Boolean)
-          .map((id) => String(id))
+        candidates.flatMap((candidate) => {
+          const scoped =
+            tenantJobIdSet && tenantJobIdSet.size > 0
+              ? scopeCandidateJobLinksToTenant(candidate, tenantJobIdSet)
+              : candidate;
+          return collectCandidateLinkedJobIds(scoped);
+        })
       )
     );
 
@@ -2477,8 +2586,6 @@ export const candidateService = {
       candidates.map((c) => c.id).filter(Boolean)
     );
 
-    const tenantJobIdSet = isTenantScopedRequest() ? await getTenantJobIdSet() : null;
-
     const enriched = candidates.map((candidate) => {
       const careerPrefs = careerPrefsByCandidate.get(String(candidate.id));
       if (careerPrefs) mergeCareerPreferencesIntoCandidate(candidate, careerPrefs);
@@ -2486,9 +2593,7 @@ export const candidateService = {
         tenantJobIdSet && tenantJobIdSet.size > 0
           ? scopeCandidateJobLinksToTenant(candidate, tenantJobIdSet)
           : candidate;
-      const titles = (Array.isArray(scopedCandidate.assignedJobs) ? scopedCandidate.assignedJobs : [])
-        .map((jobId) => jobsById.get(jobId))
-        .filter(Boolean);
+      const titles = resolveCandidateAssignedJobTitlesForList(scopedCandidate, jobsById);
       return annotateCandidateListFlags(
         {
           ...scopedCandidate,
@@ -2574,7 +2679,10 @@ export const candidateService = {
         const careerPrefs = await fetchPortalCareerPreferencesRaw(portalPrisma, id);
         mergeCareerPreferencesIntoCandidate(commonCandidate, careerPrefs);
         await hydrateCandidateResumeFromPortal(commonCandidate, portalPrisma);
-        return buildCandidateResponse(annotateForTenant(commonCandidate), portalPrisma);
+        return buildCandidateResponse(
+          await enrichCandidateDetailJobTitles(annotateForTenant(commonCandidate), tenantJobIdSet),
+          portalPrisma
+        );
       }
       if (tombstone || purgedRef) {
         return null;
@@ -2593,7 +2701,10 @@ export const candidateService = {
           const careerPrefs = await fetchPortalCareerPreferencesRaw(portalPrisma, candidate.id);
           mergeCareerPreferencesIntoCandidate(candidate, careerPrefs);
           await hydrateCandidateResumeFromPortal(candidate, portalPrisma);
-          return buildCandidateResponse(annotateForTenant(candidate), portalPrisma);
+          return buildCandidateResponse(
+            await enrichCandidateDetailJobTitles(annotateForTenant(candidate), tenantJobIdSet),
+            portalPrisma
+          );
         }
       }
 
@@ -2601,7 +2712,10 @@ export const candidateService = {
         const careerPrefs = await fetchPortalCareerPreferencesRaw(portalPrisma, id);
         mergeCareerPreferencesIntoCandidate(commonCandidate, careerPrefs);
         await hydrateCandidateResumeFromPortal(commonCandidate, portalPrisma);
-        return buildCandidateResponse(annotateForTenant(commonCandidate), portalPrisma);
+        return buildCandidateResponse(
+          await enrichCandidateDetailJobTitles(annotateForTenant(commonCandidate), tenantJobIdSet),
+          portalPrisma
+        );
       }
     }
 
@@ -2620,7 +2734,10 @@ export const candidateService = {
     mergeCareerPreferencesIntoCandidate(candidate, careerPrefs);
     await hydrateCandidateResumeFromPortal(candidate, portalClientForPrefs);
 
-    return buildCandidateResponse(annotateForTenant(candidate), portalClientForPrefs);
+    return buildCandidateResponse(
+      await enrichCandidateDetailJobTitles(annotateForTenant(candidate), tenantJobIdSet),
+      portalClientForPrefs
+    );
   },
 
   async create(data, createdByUserId) {

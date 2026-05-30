@@ -14,7 +14,7 @@ export type ActiveSessionView = {
   browserInfo?: string;
   operatingSystem?: string;
   deviceType?: string;
-  ipAddress?: string;
+  macAddress?: string;
   location?: string;
   deviceLabel?: string;
 };
@@ -98,15 +98,20 @@ export async function apiRequestSessionTransfer(body: {
   loginId?: string;
   password: string;
   deviceId?: string;
+  macAddress?: string;
   userAgent?: string;
 }) {
   const tenantDbName = getTenantDbName();
+  const mac = body.macAddress || body.deviceId;
   return apiFetch<{ requestId: string; status: string; expiresAt: string }>(
     '/auth/request-session-transfer',
     {
       method: 'POST',
       body: {
         ...body,
+        macAddress: mac,
+        macId: mac,
+        deviceId: mac,
         tenantDbName: tenantDbName || undefined,
       },
       includeTenantHeader: !!tenantDbName,
@@ -143,8 +148,10 @@ export async function apiCompleteSessionTransfer(body: {
   loginId?: string;
   password: string;
   deviceId?: string;
+  macAddress?: string;
   userAgent?: string;
 }) {
+  const mac = body.macAddress || body.deviceId;
   return apiFetch<{
     accessToken: string;
     refreshToken: string;
@@ -154,6 +161,9 @@ export async function apiCompleteSessionTransfer(body: {
     method: 'POST',
     body: {
       ...body,
+      macAddress: mac,
+      macId: mac,
+      deviceId: mac,
       tenantDbName: getTenantDbName() || undefined,
     },
     includeTenantHeader: !!getTenantDbName(),
@@ -173,32 +183,42 @@ export async function apiSessionHeartbeat(sessionId: string) {
   });
 }
 
-export function getDeviceId(): string {
+const MAC_STORAGE_KEY = 'hrayntra_mac_id';
+const LEGACY_DEVICE_STORAGE_KEY = 'hrayntra_device_id';
+
+/** Stable per-browser device id used as MAC id for duplicate-login detection. */
+export function getMacAddress(): string {
   if (typeof window === 'undefined') return 'server';
-  const key = 'hrayntra_device_id';
-  let id = localStorage.getItem(key);
-  if (!id) {
-    id = crypto.randomUUID();
-    localStorage.setItem(key, id);
+  let mac = localStorage.getItem(MAC_STORAGE_KEY);
+  if (!mac) {
+    mac = localStorage.getItem(LEGACY_DEVICE_STORAGE_KEY);
+    if (mac) {
+      localStorage.setItem(MAC_STORAGE_KEY, mac);
+    } else {
+      mac = crypto.randomUUID();
+      localStorage.setItem(MAC_STORAGE_KEY, mac);
+    }
   }
-  return id;
+  return mac;
+}
+
+/** @deprecated Use getMacAddress — kept for callers that still read deviceId. */
+export function getDeviceId(): string {
+  return getMacAddress();
 }
 
 export type LoginDevicePayload = {
+  macAddress: string;
   deviceId: string;
   userAgent: string;
-  clientPublicIp?: string;
-  ipAddress?: string;
 };
 
 export async function buildLoginDevicePayload(): Promise<LoginDevicePayload> {
-  const { fetchClientPublicIp } = await import('../utils/clientPublicIp');
-  const clientPublicIp = await fetchClientPublicIp();
-
+  const macAddress = getMacAddress();
   return {
-    deviceId: getDeviceId(),
+    macAddress,
+    deviceId: macAddress,
     userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'Unknown',
-    ...(clientPublicIp ? { clientPublicIp, ipAddress: clientPublicIp } : {}),
   };
 }
 

@@ -1,11 +1,25 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { X, Check, Minus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
-import { createTeamMember, getRoles, getDepartments, getTeamMembers } from '../../lib/api/teamApi';
+import {
+  createTeamMember,
+  getRoles,
+  getDepartments,
+  getDepartmentReportingManagers,
+  getAllTeamMembersForDirectory,
+} from '../../lib/api/teamApi';
 import type { Role, Department, CreateMemberPayload, TeamMember } from '../../types/team';
+import {
+  filterReportingManagers,
+  getRoleRankInDepartment,
+  getRolesForDepartment,
+  getMemberRoleId,
+  pickDefaultManagerId,
+  type DepartmentWithRoles,
+} from '../../lib/teamReporting';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const KNOWN_DOMAINS = [
@@ -89,8 +103,10 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
   });
 
   const [roles, setRoles] = useState<Role[]>([]);
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [managers, setManagers] = useState<any[]>([]);
+  const [departments, setDepartments] = useState<DepartmentWithRoles[]>([]);
+  const [teamDirectory, setTeamDirectory] = useState<TeamMember[]>([]);
+  const [reportingManagers, setReportingManagers] = useState<TeamMember[]>([]);
+  const [loadingReporting, setLoadingReporting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loadingOptions, setLoadingOptions] = useState(true);
@@ -106,15 +122,16 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
   const loadOptions = async () => {
     setLoadingOptions(true);
     try {
-      const [rolesRes, deptsRes, membersRes] = await Promise.all([
+      const [rolesRes, deptsRes, directory] = await Promise.all([
         getRoles(),
         getDepartments(),
-        getTeamMembers({ status: 'ACTIVE' }),
+        getAllTeamMembersForDirectory(),
       ]);
 
       setRoles(rolesRes.data || []);
       setDepartments(deptsRes.data || []);
-      setManagers(membersRes.data || []);
+      setTeamDirectory(directory);
+      setReportingManagers([]);
     } catch (error: any) {
       toast.error('Failed to load options');
     } finally {
@@ -127,8 +144,103 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
     ? `${formData.firstName.toLowerCase().replace(/[^a-z0-9]/g, '')}.${formData.lastName.toLowerCase().replace(/[^a-z0-9]/g, '')}@saasa`
     : '';
 
-  // Get selected role
-  const selectedRole = roles.find((r) => r.id === formData.roleId);
+  const availableRoles = useMemo(
+    () => getRolesForDepartment(formData.departmentId, departments, roles),
+    [formData.departmentId, departments, roles],
+  );
+
+  // Get selected role (includes rank from department config)
+  const selectedRole =
+    availableRoles.find((r) => String(r.id) === String(formData.roleId)) ||
+    roles.find((r) => String(r.id) === String(formData.roleId));
+
+  useEffect(() => {
+    if (!formData.departmentId) {
+      setReportingManagers([]);
+      return;
+    }
+    if (
+      formData.roleId &&
+      !availableRoles.some((r) => String(r.id) === String(formData.roleId))
+    ) {
+      setFormData((prev) => ({ ...prev, roleId: '', managerId: '' }));
+      setReportingManagers([]);
+      return;
+    }
+    if (!formData.roleId) {
+      setReportingManagers([]);
+      return;
+    }
+
+    let cancelled = false;
+    const memberRank = selectedRole?.rank ?? null;
+
+    const applyList = (list: TeamMember[], defaultId?: string) => {
+      setReportingManagers(list);
+      const resolvedDefault = defaultId || pickDefaultManagerId(list, formData.managerId);
+      if (resolvedDefault) {
+        setFormData((prev) => ({
+          ...prev,
+          managerId:
+            prev.managerId && list.some((m) => m.id === prev.managerId)
+              ? prev.managerId
+              : resolvedDefault,
+        }));
+      }
+    };
+
+    const clientFallback = async () => {
+      let directory = teamDirectory;
+      if (!directory.length) {
+        directory = await getAllTeamMembersForDirectory();
+        if (!cancelled) setTeamDirectory(directory);
+      }
+      return filterReportingManagers({
+        managers: directory,
+        departmentId: formData.departmentId,
+        roleId: formData.roleId,
+        departments,
+        memberRank,
+        departmentRoleOptions: availableRoles,
+      });
+    };
+
+    setLoadingReporting(true);
+    getDepartmentReportingManagers(formData.departmentId, formData.roleId)
+      .then(async (res) => {
+        if (cancelled) return;
+        let list = res.data || [];
+        const hasNonSuper = list.some((m) => m.role?.roleName !== 'Super Admin');
+        if (!hasNonSuper) {
+          const fallback = await clientFallback();
+          const fallbackNonSuper = fallback.some((m) => m.role?.roleName !== 'Super Admin');
+          if (fallbackNonSuper) list = fallback;
+        }
+        applyList(list, res.defaultManagerId || pickDefaultManagerId(list));
+      })
+      .catch(async () => {
+        if (cancelled) return;
+        try {
+          applyList(await clientFallback());
+        } catch {
+          if (!cancelled) setReportingManagers([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingReporting(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    formData.departmentId,
+    formData.roleId,
+    availableRoles,
+    departments,
+    teamDirectory,
+    selectedRole?.rank,
+  ]);
 
   // Get modules from role permissions
   const getModules = () => {
@@ -368,7 +480,14 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
                     <label className="text-xs font-semibold text-slate-700">Department</label>
                     <select
                       value={formData.departmentId || ''}
-                      onChange={(e) => handleChange('departmentId', e.target.value || '')}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          departmentId: e.target.value || '',
+                          roleId: '',
+                          managerId: '',
+                        }))
+                      }
                       className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
                       disabled={loadingOptions}
                     >
@@ -381,19 +500,28 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
                     </select>
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-slate-700">System Role *</label>
+                    <label className="text-xs font-semibold text-slate-700">Department Role *</label>
                     <select
                       value={formData.roleId}
-                      onChange={(e) => handleChange('roleId', e.target.value)}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          roleId: e.target.value,
+                          managerId: '',
+                        }))
+                      }
                       className={`w-full px-3 py-2 bg-white border rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all ${
                         errors.roleId ? 'border-red-300' : 'border-slate-200'
                       }`}
-                      disabled={loadingOptions}
+                      disabled={loadingOptions || !formData.departmentId}
                     >
-                      <option value="">Select role</option>
-                      {roles.map((role) => (
+                      <option value="">
+                        {formData.departmentId ? 'Select role' : 'Select department first'}
+                      </option>
+                      {availableRoles.map((role) => (
                         <option key={role.id} value={role.id}>
                           {role.roleName}
+                          {'rank' in role && role.rank != null ? ` (Rank ${role.rank})` : ''}
                         </option>
                       ))}
                     </select>
@@ -405,15 +533,29 @@ export const AddMemberDrawer: React.FC<AddMemberDrawerProps> = ({ isOpen, onClos
                       value={formData.managerId || ''}
                       onChange={(e) => handleChange('managerId', e.target.value || '')}
                       className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
-                      disabled={loadingOptions}
+                      disabled={loadingOptions || loadingReporting || !formData.roleId}
                     >
-                      <option value="">Select manager</option>
-                      {managers.map((mgr) => (
-                        <option key={mgr.id} value={mgr.id}>
-                          {mgr.firstName} {mgr.lastName}
-                        </option>
-                      ))}
+                      <option value="">
+                        {formData.roleId ? 'Select manager' : 'Select role first'}
+                      </option>
+                      {reportingManagers.map((mgr) => {
+                        const mgrRank = getRoleRankInDepartment(
+                          formData.departmentId,
+                          getMemberRoleId(mgr),
+                          departments,
+                        );
+                        return (
+                          <option key={mgr.id} value={mgr.id}>
+                            {mgr.firstName} {mgr.lastName}
+                            {mgr.role?.roleName ? ` — ${mgr.role.roleName}` : ''}
+                            {mgrRank != null ? ` (Rank ${mgrRank})` : ''}
+                          </option>
+                        );
+                      })}
                     </select>
+                    <p className="text-[11px] text-slate-500">
+                      Shows members with a higher rank (lower rank number). Super Admin is always available if no one else qualifies yet.
+                    </p>
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold text-slate-700">Location</label>

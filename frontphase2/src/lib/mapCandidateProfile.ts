@@ -9,7 +9,10 @@ import {
   PHASE1_CANDIDATE_TAG_LABEL,
 } from './phase1ProfileSnapshot';
 import { computeTotalExperienceYears } from './candidateExperience';
-import { resolveCandidateListStage } from './candidateListMapping';
+import {
+  resolveCandidateAssignedJobTitles,
+  resolveCandidateListStage,
+} from './candidateListMapping';
 import type { CandidateProfileDrawerData } from '../components/drawers/CandidateProfileDrawer';
 import type { MatchCandidate } from '../components/matches/types';
 import { extractAuditMeta } from '../utils/auditMeta';
@@ -182,6 +185,18 @@ function buildAssignedJobsList(c: BackendCandidate): NonNullable<CandidateProfil
     });
   }
 
+  for (const application of c.applications || []) {
+    const jobId = String(application.jobId || application.job?.id || '').trim();
+    const title = String(application.job?.title || findJobTitleById(jobId, c.matches) || '').trim();
+    if (!jobId && !title) continue;
+    upsert({
+      id: jobId || null,
+      title: title || 'Untitled job',
+      status: application.status || null,
+      stage: c.stage || null,
+    });
+  }
+
   const titleArr = Array.isArray(c.assignedJobTitles) ? c.assignedJobTitles : [];
   const idArr = Array.isArray(c.assignedJobs) ? c.assignedJobs : [];
   const max = Math.max(titleArr.length, idArr.length);
@@ -227,6 +242,13 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
   const latestMatch = c.matches?.[0];
   const latestInterview = c.interviews?.[0];
   const salary = formatSalary(c.salary);
+  const assignedJobTitles = resolveCandidateAssignedJobTitles(c);
+  const primaryAssignedJobId =
+    (Array.isArray(c.assignedJobs) ? c.assignedJobs.find((id) => String(id || '').trim()) : null) ||
+    c.applications?.find((row) => row?.jobId)?.jobId ||
+    c.pipelineEntries?.find((row) => row?.jobId)?.jobId ||
+    latestMatch?.job?.id ||
+    null;
   const stage = resolveCandidateListStage(c);
   const skillsCount = c.skills?.length || 0;
   const skillsMatch = Math.min(95, skillsCount > 0 ? 55 + skillsCount * 8 : 38);
@@ -452,11 +474,8 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
     // drawer + dropdown immediately after save. If the title can't be resolved
     // locally we leave it empty — the drawer enriches it from the loaded jobs
     // list before display.
-    assignedJob:
-      (c.assignedJobs?.[0] && findJobTitleById(c.assignedJobs[0], c.matches)) ||
-      latestMatch?.job?.title ||
-      '—',
-    assignedJobId: c.assignedJobs?.[0] || latestMatch?.job?.id || null,
+    assignedJob: assignedJobTitles[0] || latestMatch?.job?.title || '—',
+    assignedJobId: primaryAssignedJobId ? String(primaryAssignedJobId) : null,
     assignedJobs: buildAssignedJobsList(c),
     recruiter: c.assignedTo?.name || 'Unassigned',
     recruiterId: c.assignedTo?.id || null,

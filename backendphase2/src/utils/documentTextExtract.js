@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import { randomUUID } from 'crypto';
 
-function cleanDocumentText(text = '') {
+export function cleanDocumentText(text = '') {
   return String(text)
     .replace(/\u0000/g, ' ')
     .replace(/\r/g, '\n')
@@ -49,20 +49,20 @@ async function getPdfParseFn() {
   return cachedPdfParseFn;
 }
 
-async function extractPdfText(buffer) {
+export async function extractPdfText(buffer) {
   const pdfParse = await getPdfParseFn();
   const pdfData = await pdfParse(buffer);
   return cleanDocumentText(pdfData?.text || '');
 }
 
-async function extractDocxText(buffer) {
+export async function extractDocxText(buffer) {
   const mammothModule = await import('mammoth');
   const mammoth = mammothModule.default || mammothModule;
   const result = await mammoth.extractRawText({ buffer });
   return cleanDocumentText(result?.value || '');
 }
 
-async function extractDocText(filePath) {
+export async function extractDocText(filePath) {
   const wordExtractorModule = await import('word-extractor');
   const WordExtractor = wordExtractorModule.default || wordExtractorModule;
   const extractor = new WordExtractor();
@@ -70,11 +70,23 @@ async function extractDocText(filePath) {
   return cleanDocumentText(doc.getBody() || '');
 }
 
+export async function readFileBuffer(file) {
+  if (file?.buffer?.length) {
+    return file.buffer;
+  }
+  const filePath = String(file?.path || '').trim();
+  if (filePath && fs.existsSync(filePath)) {
+    return fs.readFileSync(filePath);
+  }
+  return null;
+}
+
 /**
  * Extract plain text from an uploaded agreement file (multer memory file).
  */
 export async function extractDocumentTextFromUpload(file) {
-  if (!file?.buffer?.length) {
+  const buffer = await readFileBuffer(file);
+  if (!buffer?.length) {
     throw new Error('No file data received');
   }
 
@@ -82,20 +94,20 @@ export async function extractDocumentTextFromUpload(file) {
   const mimetype = String(file.mimetype || '').toLowerCase();
 
   if (mimetype === 'application/pdf' || extension === '.pdf') {
-    return extractPdfText(file.buffer);
+    return extractPdfText(buffer);
   }
 
   if (
     mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
     extension === '.docx'
   ) {
-    return extractDocxText(file.buffer);
+    return extractDocxText(buffer);
   }
 
   if (mimetype === 'application/msword' || extension === '.doc') {
     const tmpPath = path.join(os.tmpdir(), `agreement-${randomUUID()}${extension || '.doc'}`);
     try {
-      fs.writeFileSync(tmpPath, file.buffer);
+      fs.writeFileSync(tmpPath, buffer);
       return await extractDocText(tmpPath);
     } finally {
       try {
@@ -107,7 +119,7 @@ export async function extractDocumentTextFromUpload(file) {
   }
 
   if (mimetype === 'text/plain' || extension === '.txt') {
-    return cleanDocumentText(file.buffer.toString('utf8'));
+    return cleanDocumentText(buffer.toString('utf8'));
   }
 
   throw new Error('Unsupported file type. Upload PDF, DOC, or DOCX.');

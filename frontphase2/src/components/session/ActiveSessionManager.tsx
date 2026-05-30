@@ -121,11 +121,10 @@ export default function ActiveSessionManager() {
 
       const tenantDbName = getTenantDbName() || '';
       const url = buildApiUrl(
-        `/auth/logout-beacon?finalize=1&token=${encodeURIComponent(token)}&sessionId=${encodeURIComponent(sessionId)}&tenantDbName=${encodeURIComponent(tenantDbName)}`,
+        `/auth/logout-beacon?token=${encodeURIComponent(token)}&sessionId=${encodeURIComponent(sessionId)}&tenantDbName=${encodeURIComponent(tenantDbName)}`,
       );
 
       try {
-        clearAuthStorage();
         void fetch(url, { method: 'GET', keepalive: true, credentials: 'include' });
       } catch {
         /* best effort only */
