@@ -70,6 +70,53 @@ export function filterWidgetChartRecommendations(
   return filtered;
 }
 
+/** Chart types allowed in the module command-center widget picker. */
+export const COMMAND_CENTER_CHART_IDS = new Set([
+  'pie',
+  'donut',
+  'funnel',
+  'kpi',
+  'table',
+  'expandableTable',
+]);
+
+/** Command center picker catalog (subset of WidgetChart types). */
+export const WIDGET_PICKER_CHART_CATALOG: { id: string; label: string; reason: string }[] = [
+  { id: 'pie', label: 'Pie Chart', reason: 'partition' },
+  { id: 'donut', label: 'Donut Chart', reason: 'partition' },
+  { id: 'funnel', label: 'Funnel Graph', reason: 'progress' },
+  { id: 'kpi', label: 'KPI card', reason: 'kpi' },
+  { id: 'table', label: 'Data Table', reason: 'raw' },
+  { id: 'expandableTable', label: 'Expandable table', reason: 'raw' },
+];
+
+/** Merge API recommendations with the command-center picker catalog. */
+export function mergeWidgetChartRecommendations(
+  recommendations: ChartRecommendation[],
+  opts?: { datasetId?: string; datasetKind?: 'list' | 'metrics' },
+): ChartRecommendation[] {
+  const merged = filterWidgetChartRecommendations(recommendations, opts).filter((r) =>
+    COMMAND_CENTER_CHART_IDS.has(r.id),
+  );
+  const byId = new Map<string, ChartRecommendation>();
+  for (const rec of merged) byId.set(rec.id, rec);
+
+  for (const item of WIDGET_PICKER_CHART_CATALOG) {
+    if (!COMMAND_CENTER_CHART_IDS.has(item.id)) continue;
+    if (isMetricsDatasetId(opts?.datasetId) && PARTITION_CHART_TYPES.has(item.id)) continue;
+    if (!byId.has(item.id)) {
+      byId.set(item.id, {
+        id: item.id,
+        label: item.label,
+        suitability: 20,
+        reasons: [item.reason],
+      });
+    }
+  }
+
+  return [...byId.values()].sort((a, b) => b.suitability - a.suitability);
+}
+
 export function buildWidgetTitle(
   datasetLabel: string,
   chartType: string,

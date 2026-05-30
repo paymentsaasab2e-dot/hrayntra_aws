@@ -191,7 +191,9 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                             Applied
                           </span>
                         ) : null}
-                        {candidate.isPhase1Candidate ? (
+                        {candidate.isPhase1Candidate &&
+                        !candidate.isJobAppliedCandidate &&
+                        !(candidate.assignedJobs?.length > 0) ? (
                           <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-violet-700">
                             Phase 1
                           </span>

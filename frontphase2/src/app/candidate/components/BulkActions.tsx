@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   BadgeCheck,
   ArrowRightLeft,
+  CalendarPlus,
   ChevronDown,
   Download,
   Mail,
@@ -22,6 +23,7 @@ interface BulkActionsProps {
   onAddTag?: (ids: string[]) => void;
   onExport?: (ids: string[]) => void;
   onReject?: (ids: string[]) => void;
+  onScheduleInterview?: (ids: string[]) => void;
   onDeselect: () => void;
 }
 
@@ -42,6 +44,7 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
   onAddTag,
   onExport,
   onReject,
+  onScheduleInterview,
   onDeselect,
 }) => {
   const mobileMenuRef = useRef<HTMLDivElement | null>(null);
@@ -60,6 +63,9 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
 
   const actions: ActionConfig[] = [
     onMoveStage ? { key: 'move-stage', label: 'Move Stage', icon: ArrowRightLeft, onClick: onMoveStage } : null,
+    onScheduleInterview
+      ? { key: 'schedule-interview', label: 'Schedule Interview', icon: CalendarPlus, onClick: onScheduleInterview }
+      : null,
     onAssignRecruiter ? { key: 'assign', label: 'Assign Recruiter', icon: User, onClick: onAssignRecruiter } : null,
     onSendEmail ? { key: 'email', label: 'Send Email', icon: Mail, onClick: onSendEmail } : null,
     onAddTag ? { key: 'tag', label: 'Add Tag', icon: Tag, onClick: onAddTag } : null,

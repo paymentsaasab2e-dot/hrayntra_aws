@@ -249,10 +249,43 @@ export async function fetchCandidateCommonForMatchPipeline(req) {
   return rows.map(mapCandidateCommonRowToCandidate).filter(Boolean);
 }
 
+function candidateHasAnyJobLink(row) {
+  if (!row) return false;
+  const assigned = Array.isArray(row.assignedJobs) ? row.assignedJobs : [];
+  if (assigned.some((id) => String(id || '').trim())) return true;
+  if (Array.isArray(row.applications) && row.applications.length > 0) return true;
+  if (Array.isArray(row.pipelineEntries) && row.pipelineEntries.length > 0) return true;
+  if (Array.isArray(row.matches) && row.matches.length > 0) return true;
+  if (Array.isArray(row.interviews) && row.interviews.length > 0) return true;
+  return false;
+}
+
+function rowHasTenantJobLink(row, allowed) {
+  const inSet = (id) => allowed.has(String(id || '').trim());
+  const assigned = Array.isArray(row.assignedJobs) ? row.assignedJobs : [];
+  if (assigned.some((id) => inSet(id))) return true;
+  const matchJobIds = Array.isArray(row.matchJobIds) ? row.matchJobIds : [];
+  if (matchJobIds.some((id) => inSet(id))) return true;
+  for (const listKey of ['applications', 'pipelineEntries', 'matches', 'interviews']) {
+    const rows = Array.isArray(row[listKey]) ? row[listKey] : [];
+    if (rows.some((entry) => inSet(entry?.jobId || entry?.job?.id))) return true;
+  }
+  return false;
+}
+
+async function getAllTenantJobIdSet() {
+  const jobs = await prisma.job.findMany({
+    where: { isDeleted: { not: true } },
+    select: { id: true },
+  });
+  return new Set(jobs.map((job) => String(job.id)));
+}
+
 /**
  * Verified Phase 1 snapshots for CRM "All candidates" (tenant uploads + portal pool).
+ * Job links on candidatecommon are global — keep only rows for this tenant or pure discovery.
  */
-export async function fetchCandidateCommonForCandidatesList(_req) {
+export async function fetchCandidateCommonForCandidatesList(req) {
   const commonPrisma = getCandidateCommonPrismaClient();
   if (!commonPrisma) return [];
 
@@ -267,7 +300,47 @@ export async function fetchCandidateCommonForCandidatesList(_req) {
     take: limit,
   });
 
-  return rows.map(mapCandidateCommonRowToCandidate).filter(Boolean);
+  let mapped = rows.map(mapCandidateCommonRowToCandidate).filter(Boolean);
+
+  if (isTenantScopedRequest()) {
+    const allowed = await getAllTenantJobIdSet();
+    mapped = mapped
+      .filter((row) => {
+        if (!candidateHasAnyJobLink(row)) return true;
+        if (!allowed.size) return false;
+        return rowHasTenantJobLink(row, allowed);
+      })
+      .map((row) => {
+        if (!allowed.size) {
+          return {
+            ...row,
+            assignedJobs: [],
+            applications: [],
+            pipelineEntries: [],
+            matches: [],
+            interviews: [],
+            assignedJobTitles: [],
+            stage: 'New',
+          };
+        }
+        const assignedJobs = (Array.isArray(row.assignedJobs) ? row.assignedJobs : [])
+          .map((id) => String(id || '').trim())
+          .filter((id) => id && allowed.has(id));
+        const hasTenantLink = rowHasTenantJobLink(row, allowed);
+        return {
+          ...row,
+          assignedJobs,
+          applications: hasTenantLink ? row.applications : [],
+          pipelineEntries: hasTenantLink ? row.pipelineEntries : [],
+          matches: hasTenantLink ? row.matches : [],
+          interviews: hasTenantLink ? row.interviews : [],
+          assignedJobTitles: hasTenantLink ? row.assignedJobTitles : [],
+          stage: hasTenantLink ? row.stage : 'New',
+        };
+      });
+  }
+
+  return mapped;
 }
 
 /** Load one Phase 1 snapshot by portal candidate id (for profile drawer). */

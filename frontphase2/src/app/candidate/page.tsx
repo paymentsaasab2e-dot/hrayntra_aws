@@ -8,6 +8,17 @@ import {
   EMPTY_CANDIDATE_TABLE_COLUMN_FILTERS,
 } from './components/CandidateTableFilters';
 import { BulkActions } from './components/BulkActions';
+import { ScheduleInterviewModal } from '../../components/interviews/ScheduleInterviewModal';
+import {
+  combineInterviewDateAndTimeToIso,
+  mapInterviewUiTypeToBackend,
+} from '../../lib/interview-schedule-helpers';
+import type {
+  InterviewCandidate,
+  InterviewJob,
+  InterviewPanelMember,
+  ScheduleInterviewPayload,
+} from '../../types/interview.types';
 import AddCandidateDrawer from '../../components/candidates/AddCandidateDrawer';
 import FailedBulkResumesDrawer from '../../components/candidates/FailedBulkResumesDrawer';
 import BulkCvTokensDrawer from '../../components/candidates/BulkCvTokensDrawer';
@@ -80,6 +91,7 @@ import {
   apiPinCandidateNote,
   apiRejectCandidate,
   apiRemoveCandidateTag,
+  apiCreateInterview,
   apiScheduleCandidateInterview,
   emitNotificationsUpdated,
   apiUpdateCandidate,
@@ -244,7 +256,7 @@ function mapBackendCandidate(c: BackendCandidate): Candidate {
     experience: c.experience ?? 0,
     location: c.location || '—',
     assignedJobs: assignedJobsFromAssignedTitles,
-    stage: resolveCandidateListStage(c),
+    stage: String(c.stage || '').trim() || resolveCandidateListStage(c),
     owner: c.assignedTo?.name || 'Unassigned',
     lastActivity: (c.updatedAt || c.createdAt)
       ? (c.updatedAt || c.createdAt).slice(0, 10)
@@ -258,9 +270,9 @@ function mapBackendCandidate(c: BackendCandidate): Candidate {
     source: c.source || '',
     rating: c.rating ?? 0,
     pipelineJobId: resolveSubmitJobIdFromBackend(c),
-    isPhase1Candidate: Boolean(c.isPhase1Candidate),
+    isPhase1Candidate: c.isPhase1Candidate === true,
     isNewCandidate: Boolean(c.isNewCandidate),
-    isJobAppliedCandidate: candidateShowsAppliedTag(c),
+    isJobAppliedCandidate: c.isJobAppliedCandidate === true || candidateShowsAppliedTag(c),
     auditMeta: extractAuditMeta(c as Record<string, unknown>),
   };
 }
@@ -276,6 +288,11 @@ function CandidatesPageContent() {
   const canSubmitToClient = hasAnyPermission(['submit_candidate', 'candidates_update', 'edit_candidate']);
   const canDeleteCandidate = hasAnyPermission(['candidates_delete', 'delete_candidate']);
   const canAssignCandidate = hasAnyPermission(['candidates_update', 'move_pipeline']);
+  const canScheduleInterview = hasAnyPermission([
+    'interviews_create',
+    'candidates_update',
+    'edit_candidate',
+  ]);
   const canExportCandidate = hasPermission('export_data');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
@@ -365,6 +382,9 @@ function CandidatesPageContent() {
   }, []);
 
   const [interviewPanelMembers, setInterviewPanelMembers] = useState<CandidateInterviewerOption[]>([]);
+  const [bulkScheduleInterviewOpen, setBulkScheduleInterviewOpen] = useState(false);
+  const [bulkScheduleCandidateIds, setBulkScheduleCandidateIds] = useState<string[]>([]);
+  const [bulkScheduleJobs, setBulkScheduleJobs] = useState<InterviewJob[]>([]);
   const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
   const [bulkAssignSaving, setBulkAssignSaving] = useState(false);
   const [bulkAssignRecruiterIds, setBulkAssignRecruiterIds] = useState<string[]>([]);
@@ -1111,6 +1131,149 @@ function CandidatesPageContent() {
     setBulkAssignOpen(true);
   }, []);
 
+  const bulkScheduleCandidates = useMemo<InterviewCandidate[]>(() => {
+    const selected = new Set(bulkScheduleCandidateIds);
+    return candidates
+      .filter((row) => selected.has(row.id))
+      .map((row) => ({
+        id: row.id,
+        name: row.name?.trim() || 'Unnamed',
+        email: row.email || '',
+        stage: row.stage || null,
+        status: row.stage || null,
+      }));
+  }, [bulkScheduleCandidateIds, candidates]);
+
+  const bulkScheduleInterviewers = useMemo<InterviewPanelMember[]>(
+    () =>
+      interviewPanelMembers.map((member) => ({
+        id: member.id,
+        userId: member.id,
+        name: member.name,
+        role: 'Technical' as const,
+        department: member.department || 'General',
+        email: '',
+        phone: '-',
+        avatar:
+          member.avatar ||
+          member.name
+            .split(/\s+/)
+            .map((part) => part[0])
+            .join('')
+            .slice(0, 2)
+            .toUpperCase() ||
+          'NA',
+      })),
+    [interviewPanelMembers],
+  );
+
+  const openBulkScheduleInterview = useCallback(
+    async (ids: string[]) => {
+      if (!ids.length) return;
+      setBulkScheduleCandidateIds(ids);
+      try {
+        const jobsRes = await apiGetJobs({ page: 1, limit: 500 });
+        const parsed = parseJobsListFromResponse(jobsRes);
+        setBulkScheduleJobs(
+          parsed
+            .filter((job) => job.id)
+            .map((job) => ({
+              id: String(job.id),
+              title: String(job.title || 'Untitled job').trim() || 'Untitled job',
+              client: job.client?.companyName || job.department || 'Client',
+              clientId: job.client?.id || (job as { clientId?: string }).clientId,
+            })),
+        );
+      } catch {
+        setBulkScheduleJobs(
+          pipelineJobs.map((job) => ({
+            id: job.id,
+            title: job.title,
+            client: job.department || 'Client',
+          })),
+        );
+      }
+      setBulkScheduleInterviewOpen(true);
+    },
+    [pipelineJobs],
+  );
+
+  const closeBulkScheduleInterview = useCallback(() => {
+    setBulkScheduleInterviewOpen(false);
+    setBulkScheduleCandidateIds([]);
+  }, []);
+
+  const handleBulkScheduleInterview = useCallback(
+    async (payload: ScheduleInterviewPayload) => {
+      const job = bulkScheduleJobs.find((item) => item.id === payload.jobId);
+      const clientId = job?.clientId || payload.clientId;
+      if (!clientId) {
+        toast.error('Select a job linked to a client before scheduling.');
+        throw new Error('Missing client');
+      }
+
+      const targetIds =
+        bulkScheduleCandidateIds.length > 0 ? bulkScheduleCandidateIds : [payload.candidateId];
+      const createPayload = {
+        jobId: payload.jobId,
+        clientId,
+        round: payload.round.toUpperCase(),
+        type: mapInterviewUiTypeToBackend(payload.type),
+        mode: payload.mode === 'Online' ? 'ONLINE' : 'OFFLINE',
+        date: combineInterviewDateAndTimeToIso(payload.date, payload.time),
+        duration: payload.duration,
+        timezone: payload.timezone,
+        meetingPlatform:
+          payload.mode === 'Online'
+            ? payload.meetingPlatform === 'Google Meet'
+              ? 'GOOGLE_MEET'
+              : payload.meetingPlatform === 'MS Teams'
+                ? 'MS_TEAMS'
+                : 'ZOOM'
+            : null,
+        location: payload.mode === 'Offline' ? payload.location : undefined,
+        panelUserIds: payload.panelIds,
+        panelRoles: Object.fromEntries(payload.panelIds.map((id) => [id, 'TECHNICAL'])),
+        notes: payload.notes,
+        sendCalendarInvite: payload.sendCalendarInvite,
+        sendEmailNotification: payload.sendEmailNotification,
+        sendWhatsappReminder: payload.sendWhatsAppReminder,
+      };
+
+      let succeeded = 0;
+      let failed = 0;
+      for (const candidateId of targetIds) {
+        try {
+          await apiCreateInterview({ ...createPayload, candidateId });
+          succeeded += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+
+      if (succeeded > 0) {
+        toast.success(
+          `Scheduled ${succeeded} interview${succeeded === 1 ? '' : 's'} successfully`,
+        );
+        emitNotificationsUpdated();
+        setSelectedIds([]);
+        closeBulkScheduleInterview();
+        await loadCandidates();
+      }
+      if (failed > 0) {
+        toast.error(
+          failed === targetIds.length
+            ? 'Could not schedule interviews for the selected candidates.'
+            : `${failed} candidate${failed === 1 ? '' : 's'} could not be scheduled.`,
+        );
+      }
+      if (succeeded === 0) {
+        throw new Error('Schedule failed');
+      }
+    },
+    [bulkScheduleCandidateIds, bulkScheduleJobs, closeBulkScheduleInterview, loadCandidates],
+  );
+
   const closeBulkAssignModal = useCallback(() => {
     if (bulkAssignSaving) return;
     setBulkAssignOpen(false);
@@ -1606,6 +1769,9 @@ function CandidatesPageContent() {
                       toast.error(err?.message || 'Failed to delete candidates');
                     }
                   } : undefined}
+                  onScheduleInterview={
+                    canScheduleInterview ? openBulkScheduleInterview : undefined
+                  }
                   onAssignRecruiter={canAssignCandidate ? openBulkAssignModal : undefined}
                   onSendEmail={async (ids) => {
                     toast.info(`Send email to ${ids.length} candidate(s) - Feature coming soon`);
@@ -2008,6 +2174,21 @@ function CandidatesPageContent() {
           </div>
         </div>
       ) : null}
+
+      <ScheduleInterviewModal
+        isOpen={bulkScheduleInterviewOpen}
+        candidates={bulkScheduleCandidates}
+        jobs={bulkScheduleJobs}
+        interviewers={bulkScheduleInterviewers}
+        bulkScheduleForCandidateIds={
+          bulkScheduleCandidateIds.length > 1 ? bulkScheduleCandidateIds : undefined
+        }
+        prefillCandidateId={
+          bulkScheduleCandidateIds.length === 1 ? bulkScheduleCandidateIds[0] : null
+        }
+        onClose={closeBulkScheduleInterview}
+        onSchedule={handleBulkScheduleInterview}
+      />
 
       <CandidateProfileDrawer
         key={`${selectedCandidateProfile?.id || 'candidate'}-${candidateDrawerMode}`}
