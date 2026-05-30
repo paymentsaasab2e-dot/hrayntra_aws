@@ -54,7 +54,8 @@ export function mapStageNameToPipelineBucket(stageName) {
   const n = String(stageName || '').trim().toLowerCase();
   if (!n) return PIPELINE_STAGES.APPLIED;
   if (n.includes('reject')) return PIPELINE_STAGES.REJECTED;
-  if (n.includes('hire') || n.includes('joined') || n.includes('placed') || n.includes('onboard')) {
+  if (n.includes('applied') || n === 'apply' || n.includes('submit')) return PIPELINE_STAGES.APPLIED;
+  if (/\b(hired|joined|placed|onboarded)\b/.test(n)) {
     return PIPELINE_STAGES.HIRED;
   }
   if (n.includes('offer')) return PIPELINE_STAGES.OFFER;

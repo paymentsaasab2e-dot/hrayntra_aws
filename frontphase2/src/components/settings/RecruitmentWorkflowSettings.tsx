@@ -231,7 +231,7 @@ export function RecruitmentWorkflowSettings() {
         <div className="p-5 border-b border-slate-100">
           <h3 className="text-sm font-bold text-slate-900">Recruitment mode</h3>
           <p className="text-xs text-slate-500 mt-1">
-            Agency mode keeps billing and commission flows. Standalone mode hides billing and seeds new jobs from your default pipeline template below.
+            Agency mode keeps billing and commission flows. Both agency and standalone use the default pipeline template below for new jobs unless a job has its own customized pipeline.
           </p>
         </div>
         <div className="p-5 space-y-4">
@@ -274,7 +274,7 @@ export function RecruitmentWorkflowSettings() {
           <div>
             <h3 className="text-sm font-bold text-slate-900">Default pipeline template</h3>
             <p className="text-xs text-slate-500 mt-1">
-              Used when creating jobs in standalone mode (unless the job payload already includes custom stages). System roles help the platform map candidate lifecycle events to the right stage.
+              Used for all new jobs in your tenant (agency and standalone) unless that job already has custom pipeline stages. Customize per job from the job drawer with “Customize pipeline”. System roles map candidate lifecycle events to the right stage.
             </p>
           </div>
           <button

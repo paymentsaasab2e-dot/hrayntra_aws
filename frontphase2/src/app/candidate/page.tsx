@@ -100,6 +100,7 @@ import {
 } from '../../components/layout/Ph2ModulePageLayout';
 import {
   candidateShowsAppliedTag,
+  resolveCandidateAssignedJobTitles,
   resolveCandidateListStage,
 } from '../../lib/candidateListMapping';
 import {
@@ -232,7 +233,7 @@ function mapBackendCandidate(c: BackendCandidate): Candidate {
     email ||
     phone ||
     (shortId ? `Candidate …${shortId}` : 'Candidate');
-  const assignedJobsFromAssignedTitles = (c.assignedJobTitles || []).filter((title) => Boolean(title && title.trim()));
+  const assignedJobsFromAssignedTitles = resolveCandidateAssignedJobTitles(c);
 
   return {
     id: c.id,

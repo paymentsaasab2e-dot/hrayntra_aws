@@ -981,7 +981,7 @@ interface AuthPayload {
     browserInfo?: string;
     operatingSystem?: string;
     deviceType?: string;
-    ipAddress?: string;
+    macAddress?: string;
     location?: string;
     deviceLabel?: string;
   };
@@ -990,7 +990,7 @@ interface AuthPayload {
 export async function apiLogin(
   email: string,
   password: string,
-  devicePayload?: { deviceId?: string; userAgent?: string; clientPublicIp?: string; ipAddress?: string }
+  devicePayload?: { deviceId?: string; macAddress?: string; macId?: string; userAgent?: string }
 ) {
   // Invite links include ?tenantDbName= — apply right before login so first attempt works.
   if (typeof window !== 'undefined') {
@@ -1009,9 +1009,9 @@ export async function apiLogin(
         loginId: email.includes('@') ? undefined : email,
         password,
         deviceId: devicePayload?.deviceId,
+        macAddress: devicePayload?.macAddress || devicePayload?.deviceId,
+        macId: devicePayload?.macAddress || devicePayload?.deviceId,
         userAgent: devicePayload?.userAgent,
-        clientPublicIp: devicePayload?.clientPublicIp,
-        ipAddress: devicePayload?.ipAddress,
         tenantDbName: tenantDbNameHint || undefined,
       },
       includeTenantHeader: !!tenantDbNameHint,
@@ -1693,7 +1693,12 @@ export interface BackendCandidate {
   isNewCandidate?: boolean;
   /** Assigned to a job and/or applied — CRM stage is Applied */
   isJobAppliedCandidate?: boolean;
-  applications?: Array<{ id?: string; jobId?: string }>;
+  applications?: Array<{
+    id?: string;
+    jobId?: string;
+    status?: string;
+    job?: { id?: string; title?: string | null };
+  }>;
   pipelineEntries?: Array<{ id?: string; jobId?: string }>;
   poolOrigin?: 'phase1_common' | 'phase1' | 'tenant' | string | null;
   tags?: string[];
@@ -2335,6 +2340,25 @@ export const apiParseAgreementDocument = async (
   const formData = new FormData();
   formData.append('file', file);
   const res = await apiFetchFormData<AgreementDocumentParseData>('/agreements/parse-document', formData, {
+    method: 'POST',
+    auth: true,
+    signal: options.signal,
+  });
+  return res.data;
+};
+
+export type KycDocumentParseData = {
+  form: Partial<import('./clientKycForm').PostServiceKycFormValues>;
+  filledCount: number;
+  textLength?: number;
+  sourceType?: string;
+  message?: string | null;
+};
+
+export const apiParseKycDocument = async (file: File, options: { signal?: AbortSignal } = {}) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await apiFetchFormData<KycDocumentParseData>('/kyc/parse-document', formData, {
     method: 'POST',
     auth: true,
     signal: options.signal,
@@ -4635,6 +4659,7 @@ export const apiGetActivityFeed = async (params?: {
   category?: string;
   search?: string;
   mine?: boolean;
+  performedById?: string;
   from?: string;
   to?: string;
 }) => {
@@ -4645,6 +4670,7 @@ export const apiGetActivityFeed = async (params?: {
   if (params?.category) queryParams.append('category', params.category);
   if (params?.search) queryParams.append('search', params.search);
   if (params?.mine) queryParams.append('mine', 'true');
+  if (params?.performedById) queryParams.append('performedById', params.performedById);
   if (params?.from) queryParams.append('from', params.from);
   if (params?.to) queryParams.append('to', params.to);
   const qs = queryParams.toString();
@@ -4770,6 +4796,20 @@ export interface TaskStats {
 export const apiGetTaskStats = async (userId?: string) => {
   const query = userId ? `?userId=${userId}` : '';
   return apiFetch<TaskStats>(`/tasks/stats${query}`, { auth: true });
+};
+
+export type TaskAssignableMember = {
+  id: string;
+  firstName?: string;
+  lastName?: string;
+  name?: string;
+  email?: string;
+  role?: { id?: string; roleName?: string; color?: string };
+  department?: { id?: string; name?: string };
+};
+
+export const apiGetTaskAssignableMembers = async () => {
+  return apiFetch<TaskAssignableMember[]>('/tasks/assignable-members', { auth: true });
 };
 
 export const apiCreateTask = async (data: CreateTaskData) => {

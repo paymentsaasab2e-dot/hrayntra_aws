@@ -1,11 +1,22 @@
 'use client';
 
-import React, { useId } from 'react';
-import { CheckCircle, FileText, Paperclip, X } from 'lucide-react';
+import React, { useCallback, useId, useRef, useState } from 'react';
+import { CheckCircle, FileText, Loader2, Paperclip, X } from 'lucide-react';
+import { toast } from 'sonner';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { formatDateDMY } from '../../utils/dateDisplay';
 import type { EntityFile } from '../../lib/api';
-import { KYC_FILE_ACCEPT } from '../../lib/kycDocuments';
+import { apiParseKycDocument } from '../../lib/api';
+import {
+  isKycParseableFile,
+  KYC_FILE_ACCEPT,
+} from '../../lib/kycDocuments';
+import {
+  emptyPostServiceKycForm,
+  mergeExtractedPostServiceKycForm,
+  postServiceKycFormFromParseResponse,
+  type PostServiceKycFormValues,
+} from '../../lib/clientKycForm';
 import { DocumentUploadButton } from '../import/documentUploadUi';
 import { ImportProgressBar } from '../import/importDrawerUi';
 
@@ -21,6 +32,10 @@ export type KycDocumentsFieldProps = {
   uploadsBase?: string;
   label?: string;
   description?: string;
+  /** When set, PDF/DOC/DOCX/XLS/XLSX text is parsed and merged into the KYC form. */
+  onFormExtracted?: (values: PostServiceKycFormValues) => void;
+  currentForm?: PostServiceKycFormValues;
+  isExtracting?: boolean;
 };
 
 export function KycDocumentsField({
@@ -34,9 +49,81 @@ export function KycDocumentsField({
   uploadPercent = 0,
   uploadsBase = '',
   label = 'KYC Documents',
-  description = 'Upload identity or compliance documents (PDF, DOC, DOCX, JPG, PNG). Up to 10MB each. You can add multiple files.',
+  description = 'Upload identity or compliance documents (PDF, DOC, DOCX, XLS, XLSX, JPG, PNG). Up to 10MB each. Filled KYC forms auto-fill fields below.',
+  onFormExtracted,
+  currentForm,
+  isExtracting: isExtractingProp,
 }: KycDocumentsFieldProps) {
   const inputId = useId();
+  const [isExtractingLocal, setIsExtractingLocal] = useState(false);
+  const extractAbortRef = useRef<AbortController | null>(null);
+  const isExtracting = isExtractingProp ?? isExtractingLocal;
+
+  const runExtract = useCallback(
+    async (file: File) => {
+      if (!onFormExtracted || !isKycParseableFile(file)) return;
+
+      extractAbortRef.current?.abort();
+      const controller = new AbortController();
+      extractAbortRef.current = controller;
+
+      setIsExtractingLocal(true);
+      try {
+        const data = await apiParseKycDocument(file, { signal: controller.signal });
+        if (data?.message && (data.filledCount ?? 0) === 0) {
+          toast.info(data.message);
+          return;
+        }
+
+        const parsed = postServiceKycFormFromParseResponse(data?.form);
+        const merged = mergeExtractedPostServiceKycForm(
+          currentForm ?? emptyPostServiceKycForm(),
+          parsed,
+        );
+        onFormExtracted(merged);
+
+        const filled = data?.filledCount ?? 0;
+        const total = data?.totalExtractable;
+        if (filled > 0) {
+          toast.success(
+            total != null
+              ? `Filled ${filled} of ${total} KYC fields from the document`
+              : `Filled ${filled} KYC field${filled === 1 ? '' : 's'} from the document`,
+          );
+        } else {
+          toast.info('Document added. Could not detect KYC fields automatically — enter them manually.');
+        }
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === 'AbortError') return;
+        const message = err instanceof Error ? err.message : 'Could not read KYC document';
+        toast.error(message);
+      } finally {
+        if (extractAbortRef.current === controller) {
+          setIsExtractingLocal(false);
+        }
+      }
+    },
+    [currentForm, onFormExtracted],
+  );
+
+  const handleFilesSelected = useCallback(
+    (files: FileList | File[]) => {
+      const list = Array.isArray(files) ? files : Array.from(files);
+      const next = [...pendingFiles];
+      for (const file of list) {
+        if (!next.some((f) => f.name === file.name && f.size === file.size)) {
+          next.push(file);
+        }
+      }
+      onPendingFilesChange(next);
+
+      const parseable = list.find(isKycParseableFile);
+      if (parseable) {
+        void runExtract(parseable);
+      }
+    },
+    [onPendingFilesChange, pendingFiles, runExtract],
+  );
 
   return (
     <div>
@@ -79,7 +166,7 @@ export function KycDocumentsField({
                   <button
                     type="button"
                     onClick={() => onRemoveStored(file.id)}
-                    disabled={disabled || uploading}
+                    disabled={disabled || uploading || isExtracting}
                     className="shrink-0 rounded-lg p-1 text-red-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
                     aria-label={`Remove ${file.fileName}`}
                   >
@@ -97,13 +184,16 @@ export function KycDocumentsField({
               <CheckCircle size={14} className="shrink-0 text-emerald-600" />
               <FileText size={14} className="shrink-0 text-emerald-600" />
               <span className="min-w-0 flex-1 truncate">{file.name}</span>
-              <span className="shrink-0 text-xs text-emerald-700">Ready to upload</span>
+              <span className="shrink-0 text-xs text-emerald-700">
+                {isExtracting && isKycParseableFile(file) ? 'Reading document…' : 'Ready to upload'}
+              </span>
               <button
                 type="button"
-                onClick={() =>
-                  onPendingFilesChange(pendingFiles.filter((_, i) => i !== index))
-                }
-                disabled={disabled || uploading}
+                onClick={() => {
+                  extractAbortRef.current?.abort();
+                  onPendingFilesChange(pendingFiles.filter((_, i) => i !== index));
+                }}
+                disabled={disabled || uploading || isExtracting}
                 className="shrink-0 rounded-lg p-1 text-red-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
                 aria-label={`Remove ${file.name}`}
               >
@@ -114,8 +204,15 @@ export function KycDocumentsField({
         </ul>
       )}
 
+      {isExtracting ? (
+        <div className="mb-2 flex items-center gap-2 text-xs text-slate-500">
+          <Loader2 size={14} className="animate-spin text-blue-500" />
+          Extracting KYC fields from document…
+        </div>
+      ) : null}
+
       <DocumentUploadButton
-        disabled={disabled}
+        disabled={disabled || isExtracting}
         isUploading={Boolean(uploading)}
         uploadSuccess={uploadSuccess}
         uploadPercent={uploadPercent}
@@ -124,15 +221,7 @@ export function KycDocumentsField({
         variant="secondary"
         label="Upload KYC documents"
         uploadingLabel="Uploading"
-        onFilesSelected={(files) => {
-          const next = [...pendingFiles];
-          for (const file of files) {
-            if (!next.some((f) => f.name === file.name && f.size === file.size)) {
-              next.push(file);
-            }
-          }
-          onPendingFilesChange(next);
-        }}
+        onFilesSelected={handleFilesSelected}
       />
 
       {uploading ? (

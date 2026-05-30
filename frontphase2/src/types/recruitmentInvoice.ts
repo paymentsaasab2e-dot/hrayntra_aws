@@ -20,6 +20,36 @@ export type InvoicePartyDetails = {
   country?: string;
 };
 
+export type InvoiceBankDetails = {
+  bankName: string;
+  accountHolderName?: string;
+  accountNumber: string;
+  iban?: string;
+  swiftCode: string;
+  bankAddress?: string;
+  currency?: string;
+};
+
+export type InvoiceSignatoryBlock = {
+  label: string;
+  name: string;
+  designation?: string;
+  signatureImageUrl?: string;
+};
+
+export type InvoiceLegalTerms = {
+  agreementLevel?: string;
+  serviceChargePercent?: number;
+  commissionLabel?: string;
+  contractStartDate?: string | null;
+  contractEndDate?: string | null;
+  contractValidity?: string | null;
+  paymentTerms?: string;
+  advancePaymentPercent?: number;
+  freeReplacementText?: string;
+  agreementValidNote?: string;
+};
+
 export type RecruitmentInvoiceData = {
   invoiceNo: string;
   invoiceDate: string;
@@ -36,6 +66,8 @@ export type RecruitmentInvoiceData = {
   taxAmount: number;
   total: number;
   notes: string;
+  /** Legal / agreement text shown under Terms & conditions on page 2 (not Notes). */
+  termsAndConditions?: string;
   placementSummary?: {
     candidateName?: string;
     jobTitle?: string;
@@ -43,6 +75,11 @@ export type RecruitmentInvoiceData = {
     offerDate?: string | null;
     joiningDate?: string | null;
   };
+  legalTerms?: InvoiceLegalTerms;
+  sellerBank?: InvoiceBankDetails;
+  buyerBank?: InvoiceBankDetails;
+  clientSignatory?: InvoiceSignatoryBlock;
+  agencySignatory?: InvoiceSignatoryBlock;
 };
 
 export type BillingSettingsSnapshot = {
@@ -55,6 +92,12 @@ export type BillingSettingsSnapshot = {
   taxLabel: string;
   taxRate: number;
   companyName?: string;
+  accountHolderName?: string;
+  iban?: string;
+  bankAddress?: string;
+  authorizedSignatoryName?: string;
+  authorizedSignatoryDesignation?: string;
+  agencySignatureUrl?: string;
 };
 
 export type CreatePlacementInvoicePayload = {
@@ -65,6 +108,7 @@ export type CreatePlacementInvoicePayload = {
   currency?: string;
   status?: 'DRAFT' | 'SENT';
   notes?: string;
+  termsAndConditions?: string;
   lineItems: InvoiceLineItem[];
   additionalCharges: InvoiceAdditionalCharge[];
   subtotal: number;
@@ -73,4 +117,10 @@ export type CreatePlacementInvoicePayload = {
   total: number;
   buyer?: InvoicePartyDetails | null;
   seller?: InvoicePartyDetails | null;
+  placementSummary?: RecruitmentInvoiceData['placementSummary'];
+  legalTerms?: InvoiceLegalTerms;
+  sellerBank?: InvoiceBankDetails;
+  buyerBank?: InvoiceBankDetails;
+  clientSignatory?: InvoiceSignatoryBlock;
+  agencySignatory?: InvoiceSignatoryBlock;
 };

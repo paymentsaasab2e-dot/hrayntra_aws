@@ -3,7 +3,7 @@ import { prisma, getActiveTenantDbName, runWithTenantContext } from '../../confi
 import { env, normalizePublicUrl, isLoopbackPublicUrl } from '../../config/env.js';
 import { signToken, signRefreshToken, verifyRefreshToken } from '../../utils/jwt.js';
 import { hashToken } from '../../utils/tokenHash.js';
-import { formatDeviceLabel } from '../../utils/deviceFingerprint.js';
+import { formatDeviceLabel, formatMacDisplay } from '../../utils/deviceFingerprint.js';
 import { setCache, deleteCache, getCache } from '../../cache/redis.js';
 import {
   emitSessionTransferRequest,
@@ -53,7 +53,7 @@ async function audit(userId, action, deviceMeta = {}, metadata = null) {
         userId: userId || null,
         action,
         deviceInfo: deviceMeta.userAgent || formatDeviceLabel(deviceMeta),
-        ipAddress: deviceMeta.ipAddress || null,
+        ipAddress: null,
         metadata: metadata || undefined,
       },
     });
@@ -62,34 +62,13 @@ async function audit(userId, action, deviceMeta = {}, metadata = null) {
   }
 }
 
-/** Same browser/device re-login after timeout or local logout — do not block with duplicate modal. */
+/** Same device (MAC id) re-login after timeout or local logout — do not block with duplicate modal. */
 function isSameClientRelogin(activeRow, deviceMeta = {}) {
   if (!activeRow || !deviceMeta) return false;
 
-  const incomingDeviceId = String(deviceMeta.deviceId || '').trim();
-  const activeDeviceId = String(activeRow.deviceId || '').trim();
-  if (incomingDeviceId && activeDeviceId && incomingDeviceId === activeDeviceId) {
-    return true;
-  }
-
-  const incomingIp = String(deviceMeta.ipAddress || '').trim();
-  const activeIp = String(activeRow.ipAddress || '').trim();
-  const incomingBrowser = String(deviceMeta.browserInfo || '').trim().toLowerCase();
-  const activeBrowser = String(activeRow.browserInfo || '').trim().toLowerCase();
-  const incomingOs = String(deviceMeta.operatingSystem || '').trim().toLowerCase();
-  const activeOs = String(activeRow.operatingSystem || '').trim().toLowerCase();
-
-  return Boolean(
-    incomingIp &&
-      activeIp &&
-      incomingIp === activeIp &&
-      incomingBrowser &&
-      activeBrowser &&
-      incomingBrowser === activeBrowser &&
-      incomingOs &&
-      activeOs &&
-      incomingOs === activeOs
-  );
+  const incomingMac = String(deviceMeta.macAddress || deviceMeta.deviceId || '').trim();
+  const activeMac = String(activeRow.deviceId || '').trim();
+  return Boolean(incomingMac && activeMac && incomingMac === activeMac);
 }
 
 function publicSessionView(session) {
@@ -99,7 +78,7 @@ function publicSessionView(session) {
     browserInfo: session.browserInfo,
     operatingSystem: session.operatingSystem,
     deviceType: session.deviceType,
-    ipAddress: session.ipAddress,
+    macAddress: session.deviceId || session.macAddress || null,
     location: session.location,
     loginTime: session.loginTime,
     lastActivity: session.lastActivity,
@@ -341,7 +320,7 @@ export async function createSessionAndTokens({ userId, tokenPayload, refreshPayl
       browserInfo: deviceMeta.browserInfo,
       operatingSystem: deviceMeta.operatingSystem,
       deviceType: deviceMeta.deviceType,
-      ipAddress: deviceMeta.ipAddress,
+      ipAddress: null,
       location: deviceMeta.location,
       sessionStatus: SESSION_STATUS_ACTIVE,
       lastActivity: new Date(),
@@ -412,7 +391,7 @@ export async function heartbeat(userId, sessionId) {
     ok: true,
     lastActivity: now.toISOString(),
     inactivityWarning: warn,
-    expiresInMs: Math.max(0, inactivityMs() - inactiveMs),
+    expiresInMs: Math.max(0, inactivityMs() - idleMs),
   };
 }
 
@@ -553,7 +532,7 @@ export async function requestSessionTransfer({ loginIdentifier, password, device
       requestId,
       status: 'PENDING',
       challengerDevice: deviceMeta,
-      challengerIp: deviceMeta.ipAddress,
+      challengerIp: null,
       expiresAt,
     },
   });
@@ -561,10 +540,10 @@ export async function requestSessionTransfer({ loginIdentifier, password, device
   await audit(user.id, 'SESSION_TRANSFER_REQUESTED', deviceMeta, { requestId });
 
   const challengerView = publicSessionView({
+    deviceId: deviceMeta.deviceId,
     browserInfo: deviceMeta.browserInfo,
     operatingSystem: deviceMeta.operatingSystem,
     deviceType: deviceMeta.deviceType,
-    ipAddress: deviceMeta.ipAddress,
     location: deviceMeta.location,
     loginTime: new Date(),
     lastActivity: new Date(),
@@ -644,7 +623,9 @@ async function notifyActiveUserOfSessionTransferRequest({
       toEmail: email,
       recipientName,
       challengerDeviceLabel: challengerView?.deviceLabel || formatDeviceLabel(deviceMeta),
-      challengerIp: deviceMeta?.ipAddress || challengerView?.ipAddress,
+      challengerMacAddress: formatMacDisplay(
+        deviceMeta?.macAddress || deviceMeta?.deviceId || challengerView?.macAddress,
+      ),
       approveUrl,
       rejectUrl,
       expiresMinutes: ttlMinutes,

@@ -100,12 +100,24 @@ export const taskController = {
     }
   },
 
+  async getAssignableMembers(req, res) {
+    try {
+      const members = await taskService.getAssignableMembers(req);
+      sendResponse(res, 200, 'Assignable members retrieved successfully', members);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
   async create(req, res) {
     try {
-      const task = await taskService.create({
-        ...req.body,
-        createdById: req.user.id,
-      });
+      const task = await taskService.create(
+        {
+          ...req.body,
+          createdById: req.user.id,
+        },
+        req,
+      );
       sendResponse(res, 201, 'Task created successfully', task);
     } catch (error) {
       sendError(res, 400, error.message, error);

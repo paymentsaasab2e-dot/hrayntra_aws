@@ -70,6 +70,13 @@ type BillingSettings = {
   swiftCode: string;
   taxLabel: string;
   taxRate: number;
+  companyName?: string;
+  accountHolderName?: string;
+  iban?: string;
+  bankAddress?: string;
+  authorizedSignatoryName?: string;
+  authorizedSignatoryDesignation?: string;
+  agencySignatureUrl?: string;
 };
 
 type SummaryResponse = {
@@ -875,7 +882,6 @@ export default function BillingPage() {
             {TABS.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.name;
-              const comingSoon = tab.name === 'Billing Settings';
               return (
                 <button
                   key={tab.name}
@@ -892,11 +898,6 @@ export default function BillingPage() {
                   {tab.name === 'Saved drafts' && !loading && (data?.kpis.draftCount ?? 0) > 0 ? (
                     <span className="ml-0.5 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-indigo-800">
                       {data?.kpis.draftCount}
-                    </span>
-                  ) : null}
-                  {comingSoon ? (
-                    <span className="ml-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-700 ring-1 ring-amber-200">
-                      Soon
                     </span>
                   ) : null}
                 </button>
@@ -944,50 +945,138 @@ export default function BillingPage() {
             </Card>
           </div>
         ) : activeTab === 'Billing Settings' ? (
-          <Card className="relative overflow-hidden p-6">
-            {/* Read-only preview of the upcoming Billing Settings panel.
-                The form fields render but every input is disabled and the
-                Save button is hidden behind a "Coming Soon" overlay. The
-                org-level default currency configured under Settings → System
-                still drives the actual portal currency. */}
-            <div className="grid gap-4 md:grid-cols-2 opacity-60 pointer-events-none select-none">
+          <Card className="p-6 space-y-6">
+            <p className="text-sm text-slate-600">
+              Defaults for new placement invoices: agency bank details, authorized signatory, and signature image.
+            </p>
+            <div className="grid gap-4 md:grid-cols-2">
               {[
                 ['invoicePrefix', 'Invoice Prefix'],
                 ['defaultCurrency', 'Default Currency'],
                 ['defaultPaymentTerms', 'Default Payment Terms'],
+                ['companyName', 'Company / agency name'],
                 ['bankName', 'Bank Name'],
+                ['accountHolderName', 'Account holder name'],
                 ['accountNumber', 'Account Number'],
-                ['swiftCode', 'SWIFT / BIC'],
+                ['swiftCode', 'SWIFT / IFSC'],
+                ['iban', 'IBAN (optional)'],
                 ['taxLabel', 'Tax Label'],
               ].map(([key, label]) => (
                 <div key={key}>
-                  <label className="mb-2 block text-[11px] font-bold uppercase tracking-wider text-slate-500">{label}</label>
+                  <label className="mb-2 block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    {label}
+                  </label>
                   <input
-                    value={settingsForm ? ((settingsForm as any)[key] || '') : ''}
-                    disabled
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500"
+                    value={settingsForm ? String((settingsForm as any)[key] ?? '') : ''}
+                    onChange={(e) =>
+                      setSettingsForm((current) =>
+                        current ? { ...current, [key]: e.target.value } : current,
+                      )
+                    }
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800"
                   />
                 </div>
               ))}
               <div>
-                <label className="mb-2 block text-[11px] font-bold uppercase tracking-wider text-slate-500">Tax Rate (%)</label>
+                <label className="mb-2 block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  Tax Rate (%)
+                </label>
                 <input
                   type="number"
                   value={settingsForm?.taxRate ?? 0}
-                  disabled
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500"
+                  onChange={(e) =>
+                    setSettingsForm((current) =>
+                      current ? { ...current, taxRate: Number(e.target.value) } : current,
+                    )
+                  }
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="mb-2 block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  Bank address (optional)
+                </label>
+                <textarea
+                  value={settingsForm?.bankAddress || ''}
+                  onChange={(e) =>
+                    setSettingsForm((current) =>
+                      current ? { ...current, bankAddress: e.target.value } : current,
+                    )
+                  }
+                  className="w-full min-h-[72px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800"
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  Authorized signatory name
+                </label>
+                <input
+                  value={settingsForm?.authorizedSignatoryName || ''}
+                  onChange={(e) =>
+                    setSettingsForm((current) =>
+                      current ? { ...current, authorizedSignatoryName: e.target.value } : current,
+                    )
+                  }
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800"
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  Signatory designation
+                </label>
+                <input
+                  value={settingsForm?.authorizedSignatoryDesignation || ''}
+                  onChange={(e) =>
+                    setSettingsForm((current) =>
+                      current
+                        ? { ...current, authorizedSignatoryDesignation: e.target.value }
+                        : current,
+                    )
+                  }
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="mb-2 block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  Agency signature image
+                </label>
+                {settingsForm?.agencySignatureUrl ? (
+                  <img
+                    src={settingsForm.agencySignatureUrl}
+                    alt="Agency signature"
+                    className="mb-2 max-h-20 object-contain border border-slate-200 rounded-lg bg-white p-2"
+                  />
+                ) : null}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="text-sm w-full"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      const url = typeof reader.result === 'string' ? reader.result : '';
+                      if (url) {
+                        setSettingsForm((current) =>
+                          current ? { ...current, agencySignatureUrl: url } : current,
+                        );
+                      }
+                    };
+                    reader.readAsDataURL(file);
+                  }}
                 />
               </div>
             </div>
-            <div className="mt-8 flex flex-col items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50/60 px-6 py-8 text-center">
-              <span className="rounded-full bg-amber-100 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-amber-700 ring-1 ring-amber-200">
-                Coming Soon
-              </span>
-              <p className="max-w-md text-sm text-slate-600">
-                Self-serve Billing Settings (invoice prefix, bank details, tax fields…) are getting a dedicated rewrite.
-                Until they ship, your <strong>portal currency</strong> is driven by the organization default in{' '}
-                <strong>Settings → System</strong> and applies to every invoice, placement, and report automatically.
-              </p>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => void saveSettings()}
+                disabled={savingSettings}
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {savingSettings ? 'Saving…' : 'Save billing settings'}
+              </button>
             </div>
           </Card>
         ) : showsTablePanel ? (

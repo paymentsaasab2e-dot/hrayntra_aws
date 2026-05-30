@@ -10,6 +10,7 @@ import { ENTITY_TYPES } from '../../services/activityService.js';
 import { attachAuditMetaToEntity } from '../../utils/listAuditMeta.js';
 import activityService from '../../services/activityService.js';
 import { notifyTaskAssignment, notifyTaskStatusChange } from './taskWorkflow.js';
+import { assertCanAssignTask, listTaskAssigneeCandidates } from '../../services/taskAssignmentScope.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -128,7 +129,7 @@ export const taskService = {
     return attachAuditMetaToEntity(merged, ENTITY_TYPES.TASK);
   },
 
-  async create(data) {
+  async create(data, req = null) {
     // Validate ObjectID format
     const isValidObjectId = (id) => {
       if (!id || typeof id !== 'string') return false;
@@ -166,6 +167,11 @@ export const taskService = {
     }
     if (!isValidObjectId(assignedToId)) {
       throw new Error(`Invalid assignee ID format. Expected MongoDB ObjectID, got: ${assignedToId}`);
+    }
+
+    const actorId = data.createdById || req?.user?.id;
+    if (actorId) {
+      await assertCanAssignTask(actorId, assignedToId);
     }
 
     // Validate linkedEntityId if provided
@@ -375,6 +381,14 @@ export const taskService = {
       throw new Error('Task not found');
     }
 
+    const newAssigneeId = updateData.assignedToId;
+    if (newAssigneeId !== undefined) {
+      const actorId = req?.user?.id || data.performedById;
+      if (actorId) {
+        await assertCanAssignTask(actorId, newAssigneeId);
+      }
+    }
+
     const updated = await prisma.task.update({
       where: { id },
       data: updateData,
@@ -438,6 +452,12 @@ export const taskService = {
     }
 
     return updated;
+  },
+
+  async getAssignableMembers(req) {
+    const actorId = req?.user?.id;
+    if (!actorId) return [];
+    return listTaskAssigneeCandidates(actorId);
   },
 
   async delete(id, req = null) {

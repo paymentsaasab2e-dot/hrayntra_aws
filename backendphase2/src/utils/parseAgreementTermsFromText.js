@@ -1,5 +1,12 @@
 const LEVEL_OPTIONS = ['Level 1', 'Level 2', 'Level 3', 'Level 4', 'Executive'];
 
+/** Map recruitment agreement tier labels (Entry/Middle/Top) to form level options. */
+const DOCUMENT_TIER_TO_LEVEL = [
+  { pattern: /entry\s*level/i, level: 'Level 1' },
+  { pattern: /middle\s*level/i, level: 'Level 2' },
+  { pattern: /top\s*level/i, level: 'Level 3' },
+];
+
 function normalizeText(text = '') {
   return String(text)
     .replace(/\r/g, '\n')
@@ -11,12 +18,70 @@ function countFilled(terms) {
   return Object.values(terms).filter((v) => v != null && String(v).trim() !== '').length;
 }
 
+function professionalFeesSection(text) {
+  const match = text.match(
+    /professional\s*fees?[\s\S]{0,1800}?(?=payment\s*terms|background\s*verification|time\s*frame|replacement\s*:|validity\s*:|$)/i,
+  );
+  return match ? match[0] : text;
+}
+
+/**
+ * Extract Entry / Middle / Top tier table (e.g. 8.33%, 10%, 12%).
+ * Defaults to Middle Level (Level 2, 10%) when multiple tiers exist.
+ */
+function pickFeeTierLevelAndCharge(text) {
+  const block = professionalFeesSection(text);
+  const tiers = [];
+
+  for (const tier of DOCUMENT_TIER_TO_LEVEL) {
+    const row = block.match(
+      new RegExp(
+        `${tier.pattern.source}[^\\d%]{0,120}?(\\d{1,2}(?:\\.\\d{1,2})?)\\s*%`,
+        'i',
+      ),
+    );
+    if (row?.[1]) {
+      tiers.push({
+        level: tier.level,
+        percent: String(row[1]).trim(),
+      });
+    }
+  }
+
+  if (!tiers.length) {
+    const percents = [...block.matchAll(/(\d{1,2}(?:\.\d{1,2})?)\s*%/g)].map((m) => m[1]);
+    if (percents.length >= 3) {
+      tiers.push(
+        { level: 'Level 1', percent: percents[0] },
+        { level: 'Level 2', percent: percents[1] },
+        { level: 'Level 3', percent: percents[2] },
+      );
+    }
+  }
+
+  if (!tiers.length) return { agreementLevel: '', agreementServiceChargePercent: '' };
+
+  const preferred =
+    tiers.find((t) => t.level === 'Level 2') ||
+    tiers.find((t) => t.level === 'Level 3') ||
+    tiers[0];
+
+  return {
+    agreementLevel: preferred.level,
+    agreementServiceChargePercent: preferred.percent,
+  };
+}
+
 function pickLevel(text) {
+  const tier = pickFeeTierLevelAndCharge(text);
+  if (tier.agreementLevel) return tier.agreementLevel;
+
   for (const level of LEVEL_OPTIONS) {
     const re = new RegExp(`\\b${level.replace(/\s+/g, '\\s+')}\\b`, 'i');
     if (re.test(text)) return level;
   }
-  const generic = text.match(/\blevel\s*([1-4]|one|two|three|four|executive)\b/i);
+
+  const generic = text.match(/\blevel\s*([1-4]|one|two|three|four)\b/i);
   if (generic) {
     const token = String(generic[1]).toLowerCase();
     const map = {
@@ -28,22 +93,27 @@ function pickLevel(text) {
       three: 'Level 3',
       '4': 'Level 4',
       four: 'Level 4',
-      executive: 'Executive',
     };
     return map[token] || '';
   }
+
   return '';
 }
 
 function pickServiceChargePercent(text) {
+  const tier = pickFeeTierLevelAndCharge(text);
+  if (tier.agreementServiceChargePercent) return tier.agreementServiceChargePercent;
+
+  const block = professionalFeesSection(text);
   const patterns = [
+    /service\s*charges?\s*(?:will\s*be\s*)?(?:as\s*)?(?:below\s*)?[^%]{0,40}?(\d{1,2}(?:\.\d{1,2})?)\s*%/i,
     /service\s*charge\s*[:\-]?\s*(\d{1,2}(?:\.\d{1,2})?)\s*%/i,
     /service\s*fee\s*[:\-]?\s*(\d{1,2}(?:\.\d{1,2})?)\s*%/i,
     /commission\s*[:\-]?\s*(\d{1,2}(?:\.\d{1,2})?)\s*%/i,
     /(\d{1,2}(?:\.\d{1,2})?)\s*%\s*(?:service\s*charge|commission|fee)/i,
   ];
   for (const re of patterns) {
-    const m = text.match(re);
+    const m = block.match(re);
     if (m?.[1]) return String(m[1]).trim();
   }
   return '';
@@ -51,6 +121,10 @@ function pickServiceChargePercent(text) {
 
 function pickFreeReplacement(text) {
   const patterns = [
+    /(?:leaving|left)\s*within\s*(\d{1,3})\s*(months?|days?)\s*(?:from|of)\s*(?:the\s*)?date\s*of\s*joining/i,
+    /within\s*(\d{1,3})\s*(months?|days?)\s*(?:from|of)\s*(?:the\s*)?date\s*of\s*joining/i,
+    /free\s*(?:of\s*)?cost[^.]{0,80}?within\s*(\d{1,3})\s*(months?|days?)/i,
+    /re-?\s*conduct\s*the\s*search[^.]{0,120}?within\s*(\d{1,3})\s*(months?|days?)/i,
     /free\s*replacement\s*[:\-]?\s*(\d{1,3})\s*(months?|days?)/i,
     /replacement\s*period\s*[:\-]?\s*(\d{1,3})\s*(months?|days?)/i,
     /(\d{1,3})\s*(months?|days?)\s*free\s*replacement/i,
@@ -70,21 +144,23 @@ function pickFreeReplacement(text) {
 
 function pickPaymentTerms(text) {
   const patterns = [
-    /payment\s*terms?\s*[:\-]?\s*([^\n.;]{5,120})/i,
-    /(?:pay(?:ment)?|fee)\s*(?:due|payable)\s*(?:after|upon|on)\s*([^\n.;]{5,120})/i,
-    /after\s*(?:the\s*)?candidate\s*(?:has\s*)?join(?:ed|s)\s*([^\n.;]{0,80})/i,
-    /upon\s*(?:successful\s*)?joining\s*([^\n.;]{0,80})/i,
-    /client\s*(?:shall|will)\s*pay\s*([^\n.;]{5,120})/i,
+    /professional\s*fee\s*is\s*payable[^.\n]{5,200}/i,
+    /payment\s*terms?\s*[:\-]?\s*([^\n.;]{5,200})/i,
+    /(?:pay(?:ment)?|fee)\s*(?:is\s*)?(?:due|payable)\s*within\s*[^.\n]{5,200}/i,
+    /within\s*\d{1,3}\s*days?\s*(?:from|of)\s*(?:the\s*)?(?:date\s*of\s*)?(?:candidate\s*)?joining[^.\n]{0,100}/i,
+    /(?:pay(?:ment)?|fee)\s*(?:due|payable)\s*(?:after|upon|on)\s*[^.\n]{5,120}/i,
+    /after\s*(?:the\s*)?candidate\s*(?:has\s*)?join(?:ed|s)/i,
   ];
   for (const re of patterns) {
     const m = text.match(re);
-    if (m?.[1]) {
-      const chunk = String(m[0]).trim();
-      if (chunk.length >= 5 && chunk.length <= 120) return chunk;
+    if (m) {
+      let chunk = String(m[1] != null ? m[0].replace(/^payment\s*terms?\s*[:\-]?\s*/i, '') : m[0]).trim();
+      chunk = chunk.replace(/\s+/g, ' ').replace(/[.;]+$/, '').trim();
+      if (chunk.length >= 10 && chunk.length <= 220) return chunk;
     }
   }
-  if (/after\s*(?:the\s*)?candidate\s*join/i.test(text)) {
-    return 'Payment to be made by the client after the candidate has joined';
+  if (/payable\s*within\s*\d{1,3}\s*days?\s*from\s*(?:the\s*)?date\s*of\s*joining/i.test(text)) {
+    return 'Professional fee is payable within 30 days from the date of joining by the candidate';
   }
   return '';
 }
@@ -103,16 +179,123 @@ function pickAdvancePaymentPercent(text) {
   return '';
 }
 
+function pickContractValiditySummary(text) {
+  const patterns = [
+    /valid\s*for\s*(?:a\s*)?period\s*of\s*(\d{1,3})\s*(months?|years?)/i,
+    /contract\s*will\s*be\s*valid\s*for\s*(?:a\s*)?period\s*of\s*(\d{1,3})\s*(months?|years?)/i,
+    /validity\s*[:\-]?\s*[^.]{0,120}?(\d{1,3})\s*(months?|years?)/i,
+  ];
+  for (const re of patterns) {
+    const m = text.match(re);
+    if (m?.[1] && m?.[2]) {
+      const count = m[1];
+      const unit = String(m[2]).toLowerCase().startsWith('year') ? 'years' : 'months';
+      return `${count} ${unit} from contract signing date`;
+    }
+  }
+  return '';
+}
+
+function toIsoDate(token) {
+  const raw = String(token || '').trim();
+  if (!raw) return '';
+  const normalized = raw.replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
+
+  const directIso = normalized.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (directIso) {
+    const y = Number(directIso[1]);
+    const m = Number(directIso[2]);
+    const d = Number(directIso[3]);
+    if (y >= 1900 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+      return `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    }
+  }
+
+  const dmy = normalized.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  if (dmy) {
+    const d = Number(dmy[1]);
+    const m = Number(dmy[2]);
+    const y = Number(dmy[3]);
+    if (y >= 1900 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+      return `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    }
+  }
+
+  return '';
+}
+
+function pickAgreementDates(text) {
+  const dateToken =
+    '(?:\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}|\\d{1,2}[./-]\\d{1,2}[./-]\\d{4})';
+
+  let start = '';
+  let end = '';
+
+  const startPatterns = [
+    new RegExp(`(?:start\\s*date|effective\\s*date|entering\\s*the\\s*contract)\\s*[:\\-]?\\s*(${dateToken})`, 'i'),
+    new RegExp(`valid\\s*from\\s*[:\\-]?\\s*(${dateToken})`, 'i'),
+    new RegExp(`date\\s*of\\s*entering\\s*the\\s*contract\\s*[:\\-]?\\s*(${dateToken})`, 'i'),
+  ];
+  const endPatterns = [
+    new RegExp(`(?:end\\s*date|expiry\\s*date|expiration\\s*date)\\s*[:\\-]?\\s*(${dateToken})`, 'i'),
+    new RegExp(`valid\\s*(?:till|until|to)\\s*[:\\-]?\\s*(${dateToken})`, 'i'),
+  ];
+
+  for (const re of startPatterns) {
+    const m = text.match(re);
+    if (m?.[1]) {
+      const parsed = toIsoDate(m[1]);
+      if (parsed) {
+        start = parsed;
+        break;
+      }
+    }
+  }
+  for (const re of endPatterns) {
+    const m = text.match(re);
+    if (m?.[1]) {
+      const parsed = toIsoDate(m[1]);
+      if (parsed) {
+        end = parsed;
+        break;
+      }
+    }
+  }
+
+  const validityMonths = text.match(/valid\s*for\s*(?:a\s*)?period\s*of\s*(\d{1,3})\s*months?/i);
+  if (validityMonths && start && !end) {
+    const months = Number(validityMonths[1]);
+    if (Number.isFinite(months) && months > 0) {
+      const startDate = new Date(`${start}T00:00:00`);
+      if (!Number.isNaN(startDate.getTime())) {
+        const endDate = new Date(startDate);
+        endDate.setMonth(endDate.getMonth() + months);
+        end = endDate.toISOString().slice(0, 10);
+      }
+    }
+  }
+
+  return { start, end };
+}
+
 /**
  * Parse commercial terms from agreement document text (regex/heuristics).
  */
 export function parseAgreementTermsFromText(rawText = '') {
   const text = normalizeText(rawText);
+  const tier = pickFeeTierLevelAndCharge(text);
   const replacement = pickFreeReplacement(text);
+  const dates = pickAgreementDates(text);
+  const validitySummary = pickContractValiditySummary(text);
 
   const terms = {
-    agreementLevel: pickLevel(text),
-    agreementServiceChargePercent: pickServiceChargePercent(text),
+    agreementLevel: tier.agreementLevel || pickLevel(text),
+    agreementServiceChargePercent: tier.agreementServiceChargePercent || pickServiceChargePercent(text),
+    agreementContractValidity:
+      validitySummary ||
+      (dates.start || dates.end ? [dates.start, dates.end].filter(Boolean).join(' to ') : ''),
+    agreementContractStartDate: dates.start,
+    agreementContractEndDate: dates.end,
     agreementTimePeriod: pickPaymentTerms(text),
     agreementAdvancePaymentPercent: pickAdvancePaymentPercent(text),
     agreementFreeReplacementValue: replacement.value,

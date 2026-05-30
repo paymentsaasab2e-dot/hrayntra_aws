@@ -35,6 +35,19 @@ function isLoopbackIp(ip) {
  * Best-effort client IP from proxy headers, socket, or browser-reported public IP.
  * On localhost, prefers `clientPublicIp` from the frontend (ipify) over 127.0.0.1.
  */
+/** Client device identifier (MAC id surrogate from browser storage). */
+export function resolveMacAddress(body = {}) {
+  return String(body.macAddress || body.macId || body.deviceId || '').trim();
+}
+
+/** Short display label for device MAC id in session UI and emails. */
+export function formatMacDisplay(macAddress) {
+  const mac = String(macAddress || '').trim();
+  if (!mac) return null;
+  if (mac.length <= 16) return mac;
+  return `${mac.slice(0, 6)}…${mac.slice(-8)}`;
+}
+
 export function resolveClientIp(req, body = {}) {
   const bodyIp = formatDisplayIp(body.clientPublicIp || body.ipAddress);
   const forwarded = formatDisplayIp(
@@ -78,8 +91,9 @@ export function formatDeviceLabel(session) {
   const browser = session?.browserInfo || 'Unknown browser';
   const os = session?.operatingSystem || 'Unknown OS';
   const location = session?.location ? `\n${session.location}` : '';
-  const ip = session?.ipAddress ? `\nIP: ${session.ipAddress}` : '';
-  return `${browser} on ${os}${location}${ip}`;
+  const mac = formatMacDisplay(session?.macAddress || session?.deviceId);
+  const macLine = mac ? `\nDevice ID: ${mac}` : '';
+  return `${browser} on ${os}${location}${macLine}`;
 }
 
 /** Normalize IPv4-mapped IPv6 (::ffff:127.0.0.1 → 127.0.0.1). */

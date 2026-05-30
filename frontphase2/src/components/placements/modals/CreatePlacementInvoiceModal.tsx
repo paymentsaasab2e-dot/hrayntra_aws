@@ -24,7 +24,18 @@ import {
   apiGetNextInvoiceNumber,
   apiGetUsers,
   apiSendBillingInvoice,
+  type BackendClient,
 } from '../../../lib/api';
+import { PlacementInvoiceEditableSidePanel } from '../PlacementInvoiceEditableSidePanel';
+// Replaced PlacementInvoiceLegalDetailsPanel — use PlacementInvoiceEditableSidePanel only.
+import {
+  applyClientContextToInvoice,
+  migrateLegacyInvoiceNotesToTerms,
+  parseAgreementPercent,
+  resolveAgencySignatory,
+  resolveSellerBankDetails,
+} from '../../../lib/placementInvoiceClientContext';
+import type { InvoiceBankDetails } from '../../../types/recruitmentInvoice';
 import { invoiceFromBillingRecord } from '../../../lib/invoiceFromBillingRecord';
 import { MY_JOBS_LIST_PARAMS } from '../../../lib/myJobsListParams';
 import { addDaysIso, recalcInvoiceTotals, recalcLineItem } from '../../../lib/invoiceCalculations';
@@ -35,7 +46,6 @@ import {
 } from '../../../lib/invoiceCurrency';
 import { calculatePlacementFee } from '../../../utils/placements';
 import { formatCurrencyAmount, SUPPORTED_CURRENCIES } from '../../../utils/currency';
-import { BillingCurrencyAmount } from '../../billing/BillingCurrencyAmount';
 import {
   generateInvoicePdfBlobFromComponent,
   generateInvoicePdfFromElement,
@@ -112,6 +122,8 @@ function buildInitialInvoice(
       offerDate: placement.offerDate,
       joiningDate: placement.joiningDate,
     },
+    sellerBank: resolveSellerBankDetails(settings),
+    agencySignatory: resolveAgencySignatory(settings),
     ...totals,
   };
 }
@@ -174,6 +186,8 @@ function buildInvoiceFromManual(
       offerDate: offerDate || today,
       joiningDate: null,
     },
+    sellerBank: resolveSellerBankDetails(settings),
+    agencySignatory: resolveAgencySignatory(settings),
     ...totals,
   };
 }
@@ -204,6 +218,8 @@ function buildBlankInvoice(settings: BillingSettingsSnapshot, invoiceNo: string)
     additionalCharges: [],
     taxRate,
     notes: '',
+    sellerBank: resolveSellerBankDetails(settings),
+    agencySignatory: resolveAgencySignatory(settings),
     ...totals,
   };
 }
@@ -293,6 +309,11 @@ export function CreatePlacementInvoiceModal({
   const [billingClientSnapshot, setBillingClientSnapshot] = useState<Parameters<
     typeof resolveClientEmail
   >[0]>(null);
+  const [loadedClient, setLoadedClient] = useState<BackendClient | null>(null);
+  const [loadingClientContext, setLoadingClientContext] = useState(false);
+  const agreementCommissionKeyRef = useRef('');
+  const clientContextKeyRef = useRef('');
+  const termsEditedRef = useRef(false);
   const previewRef = useRef<HTMLDivElement>(null);
 
   const placementRow = useMemo(
@@ -303,6 +324,22 @@ export function CreatePlacementInvoiceModal({
   const selectedJob = jobOptions.find((j) => j.id === manual.jobId) || null;
   const selectedCandidate =
     candidateOptions.find((c) => c.id === manual.candidateId) || null;
+
+  const resolvedClientId = useMemo(() => {
+    return (
+      placementRow?.clientId ||
+      placementRow?.client?.id ||
+      selected?.client?.id ||
+      billingClientId ||
+      selectedJob?.clientId ||
+      ''
+    );
+  }, [
+    placementRow,
+    selected?.client?.id,
+    billingClientId,
+    selectedJob?.clientId,
+  ]);
   const showManualMode = canCreatePlacement && !initialBillingRecordId;
   const editingDraft = Boolean(initialBillingRecordId);
   const canSubmit = editingDraft
@@ -334,6 +371,7 @@ export function CreatePlacementInvoiceModal({
     setSettings(null);
     setBillingClientId(undefined);
     setBillingClientSnapshot(null);
+    setLoadedClient(null);
     setSourceMode('existing');
     setActiveTab('edit');
     setSendingEmail(false);
@@ -404,6 +442,10 @@ export function CreatePlacementInvoiceModal({
     setSettings(null);
     setBillingClientId(undefined);
     setBillingClientSnapshot(null);
+    setLoadedClient(null);
+    agreementCommissionKeyRef.current = '';
+    clientContextKeyRef.current = '';
+    termsEditedRef.current = false;
 
     let cancelled = false;
     (async () => {
@@ -515,16 +557,25 @@ export function CreatePlacementInvoiceModal({
     });
   }, [placementId, eligible, settings, isOpen, invoice?.placementId, sourceMode]);
 
+  const agreementCommissionPct = useMemo(
+    () => parseAgreementPercent(loadedClient?.agreementServiceChargePercent),
+    [loadedClient?.agreementServiceChargePercent],
+  );
+
   useEffect(() => {
     const salary = Number(manual.offerSalary || 0);
-    const pct = Number(manual.commissionPercentage || 0);
+    const pct = agreementCommissionPct ?? (Number(manual.commissionPercentage) || 0);
     if (salary > 0 && pct > 0 && !feeEditedManually) {
       setManual((current) => ({
         ...current,
         placementFee: String(Math.round(calculatePlacementFee(salary, pct))),
       }));
     }
-  }, [manual.offerSalary, manual.commissionPercentage, feeEditedManually]);
+  }, [manual.offerSalary, manual.commissionPercentage, agreementCommissionPct, feeEditedManually]);
+
+  useEffect(() => {
+    termsEditedRef.current = false;
+  }, [resolvedClientId, manual.jobId, placementId]);
 
   useEffect(() => {
     if (!isOpen || !settings || sourceMode !== 'manual') return;
@@ -540,11 +591,20 @@ export function CreatePlacementInvoiceModal({
         no,
         manual.offerDate,
       );
-      if (prev && prev.invoiceNo === next.invoiceNo && prev.notes !== next.notes && prev.notes.trim()) {
-        next.notes = prev.notes;
+      if (prev) {
+        const migrated = migrateLegacyInvoiceNotesToTerms(prev);
+        next.termsAndConditions =
+          prev.termsAndConditions || migrated.termsAndConditions || next.termsAndConditions;
+        next.notes = migrated.notes || prev.notes || next.notes;
+        if (prev.legalTerms) next.legalTerms = prev.legalTerms;
+        if (prev.sellerBank) next.sellerBank = prev.sellerBank;
+        if (prev.buyerBank) next.buyerBank = prev.buyerBank;
+        if (prev.clientSignatory) next.clientSignatory = prev.clientSignatory;
+        if (prev.agencySignatory) next.agencySignatory = prev.agencySignatory;
+        if (prev.buyer.address) next.buyer.address = prev.buyer.address;
+        if (prev.buyer.email) next.buyer.email = prev.buyer.email;
+        if (prev.seller.address) next.seller.address = prev.seller.address;
       }
-      if (prev?.buyer.address) next.buyer.address = prev.buyer.address;
-      if (prev?.seller.address) next.seller.address = prev.seller.address;
       return next;
     });
   }, [
@@ -576,64 +636,143 @@ export function CreatePlacementInvoiceModal({
     }
   }, [invoice?.currency]);
 
-  /** Load billing email from client record + contacts when not already on the invoice. */
+  const clientDisplayName =
+    selectedJob?.clientName ||
+    selected?.client?.companyName ||
+    placementRow?.client?.companyName ||
+    loadedClient?.companyName ||
+    '';
+
+  /** Fetch full client record (agreement + KYC) when job or placement is selected. */
   useEffect(() => {
-    if (!isOpen || !invoice) return;
-
-    const clientId =
-      placementRow?.clientId ||
-      placementRow?.client?.id ||
-      billingClientId ||
-      selectedJob?.clientId;
-
-    if (!clientId) return;
-
-    const existingEmail = String(invoice.buyer.email || '').trim();
-    const fromKnownClient = resolveClientEmail(
-      placementRow?.client || billingClientSnapshot || null,
-    );
-    const fromJobOption =
-      sourceMode === 'manual' && selectedJob?.clientEmail
-        ? String(selectedJob.clientEmail).trim()
-        : '';
-
-    const resolvedLocal = fromKnownClient || fromJobOption;
-    if (existingEmail) return;
-    if (resolvedLocal) {
-      setInvoice((prev) =>
-        prev ? { ...prev, buyer: { ...prev.buyer, email: resolvedLocal } } : prev,
-      );
+    if (!isOpen || !resolvedClientId) {
+      setLoadedClient(null);
+      setLoadingClientContext(false);
       return;
     }
 
     let cancelled = false;
+    setLoadingClientContext(true);
+    setLoadedClient(null);
+
     (async () => {
       try {
-        const res = await apiGetClient(clientId);
-        const email = resolveClientEmail(res.data as Parameters<typeof resolveClientEmail>[0]);
-        if (!cancelled && email) {
-          setInvoice((prev) =>
-            prev ? { ...prev, buyer: { ...prev.buyer, email } } : prev,
-          );
+        const res = await apiGetClient(resolvedClientId);
+        if (!cancelled) {
+          const client = res.data as BackendClient;
+          setLoadedClient(client);
+          setBillingClientSnapshot(client);
         }
       } catch {
-        /* keep manual entry */
+        if (!cancelled) setLoadedClient(null);
+      } finally {
+        if (!cancelled) setLoadingClientContext(false);
       }
     })();
 
     return () => {
       cancelled = true;
     };
+  }, [isOpen, resolvedClientId]);
+
+  /** Apply client agreement metadata once per client/job (does not overwrite user edits). */
+  useEffect(() => {
+    if (!isOpen || !settings || !invoice || !resolvedClientId || loadingClientContext) return;
+
+    const contextKey = `${resolvedClientId}-${manual.jobId || placementId}`;
+    const isSameClientContext = clientContextKeyRef.current === contextKey;
+    if (!isSameClientContext) {
+      clientContextKeyRef.current = contextKey;
+      termsEditedRef.current = false;
+    }
+    const preserveUserEdits = isSameClientContext;
+    const preserveTermsEdits = termsEditedRef.current;
+
+    const offerSalary =
+      sourceMode === 'manual'
+        ? Number(manual.offerSalary || 0)
+        : Number(placementRow?.salaryOffered ?? selected?.salaryOffered ?? 0);
+    const placementFee =
+      sourceMode === 'manual'
+        ? Number(manual.placementFee || 0)
+        : Number(placementRow?.placementFee ?? selected?.placementFee ?? 0);
+    const candidateName =
+      sourceMode === 'manual'
+        ? selectedCandidate?.name || ''
+        : selected
+          ? `${selected.candidate.firstName} ${selected.candidate.lastName}`.trim()
+          : '';
+    const jobTitle =
+      sourceMode === 'manual'
+        ? selectedJob?.title || ''
+        : selected?.job.title || '';
+
+    const agreementPct = agreementCommissionPct;
+    const commissionPercent = agreementPct ?? undefined;
+
+    if (sourceMode === 'manual' && agreementPct != null) {
+      setManual((m) =>
+        m.commissionPercentage === String(agreementPct)
+          ? m
+          : { ...m, commissionPercentage: String(agreementPct) },
+      );
+      if (!isSameClientContext) {
+        setFeeEditedManually(false);
+      }
+    }
+
+    setInvoice((prev) => {
+      if (!prev) return prev;
+      const next = applyClientContextToInvoice(prev, loadedClient, settings, {
+        offerSalary,
+        placementFee,
+        candidateName,
+        jobTitle,
+        clientName: loadedClient?.companyName || clientDisplayName,
+        commissionPercent,
+        feeEditedManually,
+        preserveUserEdits,
+        preserveTermsEdits,
+      });
+      const email = String(prev.buyer.email || '').trim();
+      if (email) next.buyer = { ...next.buyer, email };
+      if (!next.sellerBank) {
+        next.sellerBank = resolveSellerBankDetails(settings);
+      }
+      return next;
+    });
+
+    if (
+      sourceMode === 'manual' &&
+      !feeEditedManually &&
+      offerSalary > 0 &&
+      commissionPercent != null &&
+      commissionPercent > 0
+    ) {
+      const computedFee = String(Math.round(calculatePlacementFee(offerSalary, commissionPercent)));
+      setManual((m) =>
+        m.placementFee === computedFee ? m : { ...m, placementFee: computedFee },
+      );
+    }
   }, [
     isOpen,
+    settings,
+    loadingClientContext,
+    loadedClient,
+    resolvedClientId,
     sourceMode,
+    manual.jobId,
+    manual.offerSalary,
+    manual.placementFee,
+    manual.commissionPercentage,
+    feeEditedManually,
     placementId,
-    placementRow,
-    billingClientId,
-    billingClientSnapshot,
-    selectedJob?.clientId,
-    selectedJob?.clientEmail,
-    invoice?.invoiceNo,
+    selectedCandidate?.name,
+    selectedJob?.title,
+    selected?.id,
+    clientDisplayName,
+    placementRow?.salaryOffered,
+    placementRow?.placementFee,
   ]);
 
   const updateLineItem = (index: number, patch: Partial<RecruitmentInvoiceData['lineItems'][0]>) => {
@@ -712,7 +851,45 @@ export function CreatePlacementInvoiceModal({
       total: invoice.total,
       buyer: invoice.buyer,
       seller: invoice.seller,
+      placementSummary: invoice.placementSummary,
+      termsAndConditions: invoice.termsAndConditions,
+      legalTerms: invoice.legalTerms,
+      sellerBank: invoice.sellerBank,
+      buyerBank: invoice.buyerBank,
+      clientSignatory: invoice.clientSignatory,
+      agencySignatory: invoice.agencySignatory,
     };
+  };
+
+  const updateSellerBank = (patch: Partial<InvoiceBankDetails>) => {
+    setInvoice((prev) => {
+      if (!prev) return prev;
+      const sellerBank = {
+        bankName: '',
+        accountNumber: '',
+        swiftCode: '',
+        ...(prev.sellerBank || {}),
+        ...patch,
+      };
+      return { ...prev, sellerBank };
+    });
+  };
+
+  const updateAgencySignatory = (patch: {
+    name?: string;
+    designation?: string;
+    signatureImageUrl?: string;
+  }) => {
+    setInvoice((prev) => {
+      if (!prev) return prev;
+      const agencySignatory = {
+        label: 'Agency',
+        name: prev.agencySignatory?.name || 'Authorized Signatory',
+        ...prev.agencySignatory,
+        ...patch,
+      };
+      return { ...prev, agencySignatory };
+    });
   };
 
   const buildManualPlacementPayload = (): CreatePlacementPayload => {
@@ -726,7 +903,10 @@ export function CreatePlacementInvoiceModal({
       recruiterId: manual.recruiterId || undefined,
       offerSalary: manual.offerSalary,
       placementFee: manual.placementFee,
-      commissionPercentage: manual.commissionPercentage,
+      commissionPercentage:
+        agreementCommissionPct != null
+          ? String(agreementCommissionPct)
+          : manual.commissionPercentage,
       currency: invoice?.currency || resolveOrgDefaultCurrency(settings),
       offerDate: manual.offerDate,
       employmentType: manual.employmentType,
@@ -1058,19 +1238,21 @@ export function CreatePlacementInvoiceModal({
                           ) : null}
                         </div>
                       ) : editingDraft && invoice ? (
-                        <div>
-                          <label className={labelClass}>Invoice currency</label>
-                          <select
-                            className={inputClass}
-                            value={invoice.currency}
-                            onChange={(e) => updateInvoice({ currency: e.target.value.toUpperCase() })}
-                          >
-                            {SUPPORTED_CURRENCIES.map((c) => (
-                              <option key={c} value={c}>
-                                {c}
-                              </option>
-                            ))}
-                          </select>
+                        <div className="space-y-3">
+                          <div>
+                            <label className={labelClass}>Invoice currency</label>
+                            <select
+                              className={inputClass}
+                              value={invoice.currency}
+                              onChange={(e) => updateInvoice({ currency: e.target.value.toUpperCase() })}
+                            >
+                              {SUPPORTED_CURRENCIES.map((c) => (
+                                <option key={c} value={c}>
+                                  {c}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
                         </div>
                       ) : (
                         <div className="space-y-3 rounded-xl border border-indigo-100 bg-indigo-50/30 p-4">
@@ -1166,13 +1348,30 @@ export function CreatePlacementInvoiceModal({
                               </div>
                             ) : null}
                             <div>
-                              <label className={labelClass}>Commission %</label>
+                              <label className={labelClass}>
+                                Commission %{' '}
+                                {agreementCommissionPct != null ? (
+                                  <span className="font-normal normal-case text-slate-500">
+                                    (from client agreement)
+                                  </span>
+                                ) : null}
+                              </label>
                               <input
                                 type="number"
                                 min={0}
-                                className={inputClass}
-                                value={manual.commissionPercentage}
+                                readOnly={agreementCommissionPct != null}
+                                className={
+                                  agreementCommissionPct != null
+                                    ? `${inputClass} bg-slate-50 text-slate-700`
+                                    : inputClass
+                                }
+                                value={
+                                  agreementCommissionPct != null
+                                    ? String(agreementCommissionPct)
+                                    : manual.commissionPercentage
+                                }
                                 onChange={(e) => {
+                                  if (agreementCommissionPct != null) return;
                                   setFeeEditedManually(false);
                                   setManual((m) => ({
                                     ...m,
@@ -1389,54 +1588,21 @@ export function CreatePlacementInvoiceModal({
                         />
                       </div>
 
-                      <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                            Amount summary
-                          </p>
-                          <BillingCurrencyAmount
-                            amount={invoice.total}
-                            baseCurrency={invoice.currency}
-                            displayCurrency={previewCurrency}
-                            onDisplayCurrencyChange={setPreviewCurrency}
-                          />
-                        </div>
-                        <div className="space-y-2 text-sm">
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-slate-600">Subtotal</span>
-                            <BillingCurrencyAmount
-                              amount={invoice.subtotal}
-                              baseCurrency={invoice.currency}
-                              displayCurrency={previewCurrency}
-                              showSelector={false}
-                            />
-                          </div>
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-slate-600">
-                              {settings?.taxLabel || 'Tax'} ({invoice.taxRate}%)
-                            </span>
-                            <BillingCurrencyAmount
-                              amount={invoice.taxAmount}
-                              baseCurrency={invoice.currency}
-                              displayCurrency={previewCurrency}
-                              showSelector={false}
-                            />
-                          </div>
-                          <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-2">
-                            <span className="font-semibold text-slate-900">Total due</span>
-                            <BillingCurrencyAmount
-                              amount={invoice.total}
-                              baseCurrency={invoice.currency}
-                              displayCurrency={previewCurrency}
-                              showSelector={false}
-                              className="font-semibold"
-                            />
-                          </div>
-                        </div>
-                        <p className="text-[10px] text-slate-500">
-                          Line total = quantity × rate. Subtotal + tax = total (matches Billing calculations).
-                        </p>
-                      </div>
+                      <PlacementInvoiceEditableSidePanel
+                        invoice={invoice}
+                        settings={settings}
+                        loadingClient={loadingClientContext}
+                        hasClient={Boolean(resolvedClientId)}
+                        clientName={clientDisplayName}
+                        previewCurrency={previewCurrency}
+                        onPreviewCurrencyChange={setPreviewCurrency}
+                        onUpdate={updateInvoice}
+                        onTermsUserEdit={() => {
+                          termsEditedRef.current = true;
+                        }}
+                        onUpdateSellerBank={updateSellerBank}
+                        onUpdateAgencySignatory={updateAgencySignatory}
+                      />
 
                       <div>
                         <label className={labelClass}>Bill to (client)</label>
@@ -1491,11 +1657,16 @@ export function CreatePlacementInvoiceModal({
                       </div>
 
                       <div>
-                        <label className={labelClass}>Notes</label>
+                        <label className={labelClass}>Notes (optional)</label>
+                        <p className="text-[10px] text-slate-500 mb-1">
+                          Short internal note on page 1 only. Agreement terms belong in Terms &amp;
+                          conditions above.
+                        </p>
                         <textarea
-                          className={`${inputClass} min-h-[72px]`}
+                          className={`${inputClass} min-h-[56px]`}
                           value={invoice.notes}
                           onChange={(e) => updateInvoice({ notes: e.target.value })}
+                          placeholder="Placement invoice for candidate name…"
                         />
                       </div>
 
@@ -1520,7 +1691,12 @@ export function CreatePlacementInvoiceModal({
                     } min-h-0 flex-1 flex-col bg-slate-50`}
                   >
                     <div className="shrink-0 border-b border-slate-200 bg-white px-5 py-3 flex flex-wrap items-center justify-between gap-3">
-                      <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Live preview</p>
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Live preview</p>
+                        <p className="text-[10px] text-slate-500 mt-0.5">
+                          Scroll for page 2 — terms, banks &amp; signatures
+                        </p>
+                      </div>
                       <button
                         type="button"
                         onClick={() => void downloadPdf()}
@@ -1532,9 +1708,11 @@ export function CreatePlacementInvoiceModal({
                     </div>
                     <div className="flex-1 overflow-y-auto p-5">
                       <RecruitmentInvoicePreview
+                        key={`${invoice.subtotal}-${invoice.taxAmount}-${invoice.total}-${previewCurrency}-${invoice.lineItems.map((l) => l.total).join('-')}`}
                         ref={previewRef}
                         invoice={invoice}
                         settings={settings}
+                        displayCurrency={previewCurrency}
                       />
                     </div>
                   </div>

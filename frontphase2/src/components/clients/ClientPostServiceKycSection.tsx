@@ -24,6 +24,7 @@ type FormProps = {
   pendingFilesByField: Record<PostServiceKycAttachmentFieldKey, File[]>;
   onPendingFilesChange: (field: PostServiceKycAttachmentFieldKey, files: File[]) => void;
   onRemoveStoredFile?: (field: PostServiceKycAttachmentFieldKey, fileId: string) => void | Promise<void>;
+  onFormExtracted?: (values: PostServiceKycFormValues) => void;
 };
 
 const inputClassName =
@@ -324,6 +325,7 @@ export function ClientPostServiceKycFormSection({
   pendingFilesByField,
   onPendingFilesChange,
   onRemoveStoredFile,
+  onFormExtracted,
 }: FormProps) {
   const update = <K extends keyof PostServiceKycFormValues>(
     key: K,
@@ -463,6 +465,8 @@ export function ClientPostServiceKycFormSection({
                 onRemoveStoredFile={onRemoveStoredFile ? (fileId) => onRemoveStoredFile('shareholderPassportCopyFiles', fileId) : undefined}
                 disabled={disabled}
                 uploadsBase={uploadsBase}
+                onFormExtracted={onFormExtracted}
+                currentForm={values}
               />
             )}
           </div>
@@ -489,6 +493,8 @@ export function ClientPostServiceKycFormSection({
                 onRemoveStoredFile={onRemoveStoredFile ? (fileId) => onRemoveStoredFile('generalManagerIdCardFiles', fileId) : undefined}
                 disabled={disabled}
                 uploadsBase={uploadsBase}
+                onFormExtracted={onFormExtracted}
+                currentForm={values}
               />
             )}
           </div>
@@ -515,6 +521,8 @@ export function ClientPostServiceKycFormSection({
                 onRemoveStoredFile={onRemoveStoredFile ? (fileId) => onRemoveStoredFile('companyDocumentFiles', fileId) : undefined}
                 disabled={disabled}
                 uploadsBase={uploadsBase}
+                onFormExtracted={onFormExtracted}
+                currentForm={values}
               />
             )}
           </div>
@@ -541,6 +549,8 @@ export function ClientPostServiceKycFormSection({
                 onRemoveStoredFile={onRemoveStoredFile ? (fileId) => onRemoveStoredFile('bankAccountProofFiles', fileId) : undefined}
                 disabled={disabled}
                 uploadsBase={uploadsBase}
+                onFormExtracted={onFormExtracted}
+                currentForm={values}
               />
             )}
           </div>
@@ -567,6 +577,8 @@ export function ClientPostServiceKycFormSection({
               onRemoveStoredFile={onRemoveStoredFile ? (fileId) => onRemoveStoredFile('signatureFiles', fileId) : undefined}
               disabled={disabled}
               uploadsBase={uploadsBase}
+              onFormExtracted={onFormExtracted}
+              currentForm={values}
             />
             <AttachmentUploadField
               label="Company Stamp"
@@ -577,6 +589,8 @@ export function ClientPostServiceKycFormSection({
               onRemoveStoredFile={onRemoveStoredFile ? (fileId) => onRemoveStoredFile('companyStampFiles', fileId) : undefined}
               disabled={disabled}
               uploadsBase={uploadsBase}
+              onFormExtracted={onFormExtracted}
+              currentForm={values}
             />
           </div>
         </div>

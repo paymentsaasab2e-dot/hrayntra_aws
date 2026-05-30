@@ -9,6 +9,7 @@ const router = express.Router();
 router.use(authMiddleware);
 
 router.get('/stats', requireAnyPermission(['tasks_read']), taskController.getStats);
+router.get('/assignable-members', requireAnyPermission(['tasks_create', 'tasks_update']), taskController.getAssignableMembers);
 router.get('/', requireAnyPermission(['tasks_read']), taskController.getAll);
 router.get('/:id/activities', requireAnyPermission(['tasks_read']), taskController.getActivities);
 router.get('/:id', requireAnyPermission(['tasks_read']), taskController.getById);

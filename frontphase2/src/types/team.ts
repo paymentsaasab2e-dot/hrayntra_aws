@@ -24,12 +24,31 @@ export enum LoginOutcome {
   LOCKED = 'LOCKED',
 }
 
+export interface DepartmentRoleLink {
+  id: string;
+  departmentId: string;
+  roleId: string;
+  rank: number;
+  role?: Role;
+}
+
 export interface Department {
   id: string;
   name: string;
   description?: string;
   createdAt: string;
   updatedAt: string;
+  departmentRoles?: DepartmentRoleLink[];
+}
+
+/** Role assignment when creating or updating a department */
+export interface DepartmentRoleInput {
+  roleId?: string;
+  roleName?: string;
+  description?: string;
+  color?: string;
+  permissionIds?: string[];
+  rank: number;
 }
 
 export interface Permission {

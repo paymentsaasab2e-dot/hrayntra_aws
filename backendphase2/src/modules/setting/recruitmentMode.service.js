@@ -102,14 +102,10 @@ export async function getRecruitmentMode() {
 export async function setRecruitmentMode(mode) {
   const normalized = normalizeMode(mode);
   await upsertOrgSettingJson(KEY_RECRUITMENT_MODE, { mode: normalized });
-  // When flipping to standalone, backfill any jobs that don't yet have a pipeline
-  // so the org template is the visible default everywhere — agency stays untouched.
-  if (normalized === 'standalone') {
-    try {
-      await applyOrgPipelineTemplateToEmptyJobs();
-    } catch (err) {
-      console.warn('[recruitmentMode] template backfill failed:', err?.message || err);
-    }
+  try {
+    await applyOrgPipelineTemplateToEmptyJobs();
+  } catch (err) {
+    console.warn('[recruitmentMode] template backfill failed:', err?.message || err);
   }
   return normalized;
 }
@@ -127,13 +123,8 @@ export async function setDefaultPipelineTemplate(stages) {
     throw new Error('Pipeline template must be a non-empty array');
   }
   await upsertOrgSettingJson(KEY_PIPELINE_TEMPLATE, { stages });
-  // If the org is in standalone mode, also backfill jobs without any pipeline
-  // so the freshly saved template becomes the default everywhere immediately.
   try {
-    const mode = await getRecruitmentMode();
-    if (mode === 'standalone') {
-      await applyOrgPipelineTemplateToEmptyJobs();
-    }
+    await applyOrgPipelineTemplateToEmptyJobs();
   } catch (err) {
     console.warn('[recruitmentMode] template backfill failed:', err?.message || err);
   }
@@ -143,10 +134,12 @@ export async function setDefaultPipelineTemplate(stages) {
 /** Used after HQ provisions a tenant — same Prisma helpers inside tenant context. */
 export async function seedOrgRecruitmentFromOrganizationType(organizationType) {
   const mode = normalizeMode(organizationType);
-  await setRecruitmentMode(mode);
+  await upsertOrgSettingJson(KEY_RECRUITMENT_MODE, { mode });
   await setDefaultPipelineTemplate(getBuiltinDefaultPipelineTemplate());
-  if (mode === 'standalone') {
+  try {
     await applyOrgPipelineTemplateToEmptyJobs();
+  } catch (err) {
+    console.warn('[recruitmentMode] initial template backfill failed:', err?.message || err);
   }
   return mode;
 }
@@ -450,9 +443,6 @@ function isLegacyFourStagePipeline(stageDocs) {
  * APPLIED bucket (fixes UI showing APP twice after legacy drawer saves).
  */
 export async function repairStandaloneDuplicateApplyStages() {
-  const mode = await getRecruitmentMode();
-  if (mode !== 'standalone') return { removedStages: 0 };
-
   const jobs = await prisma.job.findMany({ select: { id: true } });
   let removed = 0;
   for (const { id: jobId } of jobs) {
@@ -482,15 +472,12 @@ export async function repairStandaloneDuplicateApplyStages() {
  * Also runs `repairStandaloneDuplicateApplyStages` for standalone tenants.
  */
 export async function applyOrgPipelineTemplateToEmptyJobs() {
-  const mode = await getRecruitmentMode();
   const template = await getDefaultPipelineTemplate();
   if (!Array.isArray(template) || template.length === 0) return { updatedJobs: 0, legacyReseeded: 0, removedStages: 0 };
 
   let removedStages = 0;
-  if (mode === 'standalone') {
-    const dup = await repairStandaloneDuplicateApplyStages();
-    removedStages = dup.removedStages || 0;
-  }
+  const dup = await repairStandaloneDuplicateApplyStages();
+  removedStages = dup.removedStages || 0;
 
   const allStages = await prisma.pipelineStage.findMany({
     select: { id: true, jobId: true, name: true },
@@ -509,7 +496,7 @@ export async function applyOrgPipelineTemplateToEmptyJobs() {
     const list = byJob.get(j.id);
     if (!list || list.length === 0) {
       emptyJobIds.push(j.id);
-    } else if (mode === 'standalone' && isLegacyFourStagePipeline(list)) {
+    } else if (isLegacyFourStagePipeline(list)) {
       legacyJobIds.push(j.id);
     }
   }

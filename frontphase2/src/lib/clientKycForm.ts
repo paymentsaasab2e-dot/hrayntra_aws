@@ -412,3 +412,193 @@ export function formatPostServiceKycReviewStatus(value: PostServiceKycReviewStat
   if (value === 'NA') return 'N/A';
   return '';
 }
+
+function mergeStringField(current: string, extracted: string | undefined) {
+  const next = extracted != null ? String(extracted).trim() : '';
+  return current.trim() ? current : next;
+}
+
+function mergeShareholders(
+  current: PostServiceKycShareholder[],
+  extracted: Partial<PostServiceKycShareholder>[] | undefined,
+): PostServiceKycShareholder[] {
+  if (!extracted?.length) return current;
+  const max = Math.max(current.length, extracted.length, 2);
+  const rows: PostServiceKycShareholder[] = [];
+
+  for (let index = 0; index < max; index += 1) {
+    const base = current[index] || createEmptyPostServiceKycShareholder();
+    const patch = extracted[index];
+    if (!patch) {
+      rows.push(base);
+      continue;
+    }
+    rows.push({
+      id: base.id,
+      fullName: mergeStringField(base.fullName, patch.fullName),
+      nationality: mergeStringField(base.nationality, patch.nationality),
+      ownershipPercentage: mergeStringField(base.ownershipPercentage, patch.ownershipPercentage),
+      passportNumber: mergeStringField(base.passportNumber, patch.passportNumber),
+      passportExpiryDate: mergeStringField(base.passportExpiryDate, patch.passportExpiryDate),
+    });
+  }
+
+  return rows.length >= 2 ? rows : normalizePostServiceKycShareholders(rows);
+}
+
+/** Apply non-empty values parsed from an uploaded KYC document into the form. */
+export function mergeExtractedPostServiceKycForm(
+  current: PostServiceKycFormValues,
+  extracted: Partial<PostServiceKycFormValues>,
+): PostServiceKycFormValues {
+  const client = extracted.clientInformation;
+  const signatory = extracted.authorizedSignatory;
+  const bank = extracted.bankAccountDetails;
+  const declaration = extracted.declaration;
+
+  return {
+    ...current,
+    clientInformation: {
+      companyName: mergeStringField(current.clientInformation.companyName, client?.companyName),
+      tradeName: mergeStringField(current.clientInformation.tradeName, client?.tradeName),
+      entityType: current.clientInformation.entityType || client?.entityType || '',
+      incorporationDate: mergeStringField(
+        current.clientInformation.incorporationDate,
+        client?.incorporationDate,
+      ),
+      countryOfIncorporation: mergeStringField(
+        current.clientInformation.countryOfIncorporation,
+        client?.countryOfIncorporation,
+      ),
+      legalRegistrationNumber: mergeStringField(
+        current.clientInformation.legalRegistrationNumber,
+        client?.legalRegistrationNumber,
+      ),
+      taxIdVatNumber: mergeStringField(current.clientInformation.taxIdVatNumber, client?.taxIdVatNumber),
+      businessAddress: mergeStringField(current.clientInformation.businessAddress, client?.businessAddress),
+      website: mergeStringField(current.clientInformation.website, client?.website),
+      primaryContactPerson: mergeStringField(
+        current.clientInformation.primaryContactPerson,
+        client?.primaryContactPerson,
+      ),
+      contactDesignation: mergeStringField(
+        current.clientInformation.contactDesignation,
+        client?.contactDesignation,
+      ),
+      officialEmail: mergeStringField(current.clientInformation.officialEmail, client?.officialEmail),
+      phoneNumber: mergeStringField(current.clientInformation.phoneNumber, client?.phoneNumber),
+    },
+    authorizedSignatory: {
+      fullName: mergeStringField(current.authorizedSignatory.fullName, signatory?.fullName),
+      designation: mergeStringField(current.authorizedSignatory.designation, signatory?.designation),
+      nationality: mergeStringField(current.authorizedSignatory.nationality, signatory?.nationality),
+      dateOfBirth: mergeStringField(current.authorizedSignatory.dateOfBirth, signatory?.dateOfBirth),
+      idType: current.authorizedSignatory.idType || signatory?.idType || '',
+      idNumber: mergeStringField(current.authorizedSignatory.idNumber, signatory?.idNumber),
+      issueDate: mergeStringField(current.authorizedSignatory.issueDate, signatory?.issueDate),
+      expiryDate: mergeStringField(current.authorizedSignatory.expiryDate, signatory?.expiryDate),
+      email: mergeStringField(current.authorizedSignatory.email, signatory?.email),
+      phone: mergeStringField(current.authorizedSignatory.phone, signatory?.phone),
+    },
+    shareholders: mergeShareholders(current.shareholders, extracted.shareholders),
+    bankAccountDetails: {
+      bankName: mergeStringField(current.bankAccountDetails.bankName, bank?.bankName),
+      accountHolderName: mergeStringField(
+        current.bankAccountDetails.accountHolderName,
+        bank?.accountHolderName,
+      ),
+      accountNumber: mergeStringField(current.bankAccountDetails.accountNumber, bank?.accountNumber),
+      iban: mergeStringField(current.bankAccountDetails.iban, bank?.iban),
+      swiftBicCode: mergeStringField(current.bankAccountDetails.swiftBicCode, bank?.swiftBicCode),
+      bankAddress: mergeStringField(current.bankAccountDetails.bankAddress, bank?.bankAddress),
+      currency: mergeStringField(current.bankAccountDetails.currency, bank?.currency),
+    },
+    attachmentsChecklist: {
+      ...current.attachmentsChecklist,
+      shareholderPassportCopy:
+        current.attachmentsChecklist.shareholderPassportCopy ||
+        extracted.attachmentsChecklist?.shareholderPassportCopy ||
+        false,
+      generalManagerIdCard:
+        current.attachmentsChecklist.generalManagerIdCard ||
+        extracted.attachmentsChecklist?.generalManagerIdCard ||
+        false,
+      companyDocument:
+        current.attachmentsChecklist.companyDocument ||
+        extracted.attachmentsChecklist?.companyDocument ||
+        false,
+      bankAccountProof:
+        current.attachmentsChecklist.bankAccountProof ||
+        extracted.attachmentsChecklist?.bankAccountProof ||
+        false,
+    },
+    declaration: {
+      ...current.declaration,
+      authorizedSignatoryName: mergeStringField(
+        current.declaration.authorizedSignatoryName,
+        declaration?.authorizedSignatoryName,
+      ),
+      date: mergeStringField(current.declaration.date, declaration?.date),
+    },
+    internalUseOnly: extracted.internalUseOnly
+      ? {
+          kycFormFilledCompletelyStatus:
+            current.internalUseOnly.kycFormFilledCompletelyStatus ||
+            extracted.internalUseOnly.kycFormFilledCompletelyStatus ||
+            '',
+          kycFormFilledCompletelyRemarks: mergeStringField(
+            current.internalUseOnly.kycFormFilledCompletelyRemarks,
+            extracted.internalUseOnly.kycFormFilledCompletelyRemarks,
+          ),
+          shareholderPassportAttachedStatus:
+            current.internalUseOnly.shareholderPassportAttachedStatus ||
+            extracted.internalUseOnly.shareholderPassportAttachedStatus ||
+            '',
+          shareholderPassportAttachedRemarks: mergeStringField(
+            current.internalUseOnly.shareholderPassportAttachedRemarks,
+            extracted.internalUseOnly.shareholderPassportAttachedRemarks,
+          ),
+          gmIdCardAttachedStatus:
+            current.internalUseOnly.gmIdCardAttachedStatus ||
+            extracted.internalUseOnly.gmIdCardAttachedStatus ||
+            '',
+          gmIdCardAttachedRemarks: mergeStringField(
+            current.internalUseOnly.gmIdCardAttachedRemarks,
+            extracted.internalUseOnly.gmIdCardAttachedRemarks,
+          ),
+          companyDocumentVerifiedStatus:
+            current.internalUseOnly.companyDocumentVerifiedStatus ||
+            extracted.internalUseOnly.companyDocumentVerifiedStatus ||
+            '',
+          companyDocumentVerifiedRemarks: mergeStringField(
+            current.internalUseOnly.companyDocumentVerifiedRemarks,
+            extracted.internalUseOnly.companyDocumentVerifiedRemarks,
+          ),
+          bankAccountProofAttachedStatus:
+            current.internalUseOnly.bankAccountProofAttachedStatus ||
+            extracted.internalUseOnly.bankAccountProofAttachedStatus ||
+            '',
+          bankAccountProofAttachedRemarks: mergeStringField(
+            current.internalUseOnly.bankAccountProofAttachedRemarks,
+            extracted.internalUseOnly.bankAccountProofAttachedRemarks,
+          ),
+          kycApprovedBy: mergeStringField(
+            current.internalUseOnly.kycApprovedBy,
+            extracted.internalUseOnly.kycApprovedBy,
+          ),
+          approvalDate: mergeStringField(
+            current.internalUseOnly.approvalDate,
+            extracted.internalUseOnly.approvalDate,
+          ),
+        }
+      : current.internalUseOnly,
+  };
+}
+
+export function postServiceKycFormFromParseResponse(
+  form?: Partial<PostServiceKycFormValues> | null,
+): Partial<PostServiceKycFormValues> {
+  if (!form) return {};
+  const empty = emptyPostServiceKycForm();
+  return mergeExtractedPostServiceKycForm(empty, form);
+}

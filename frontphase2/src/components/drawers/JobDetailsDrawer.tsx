@@ -266,7 +266,7 @@ function normalizePipelineStages(stages?: JobPipelineStage[] | null): JobPipelin
 
   if (normalizedInput.length === 0) {
     // Last-resort fallback for jobs that have no configured pipeline yet.
-    // For agency the org has no template, so we keep the historical four-stage UX.
+    // Rare fallback when a job has no pipeline rows yet (repair runs on next jobs list load).
     return DEFAULT_PIPELINE_STAGE_NAMES.map((defaultName) => ({
       id: DEFAULT_PIPELINE_STAGE_IDS[defaultName],
       name: defaultName,
@@ -630,7 +630,7 @@ export function JobDetailsDrawer({
   const [orgRecruitmentMode, setOrgRecruitmentMode] = useState<'agency' | 'standalone'>(() =>
     typeof window !== 'undefined' ? getCachedOrgRecruitmentMode() : 'agency'
   );
-  const [standaloneCustomizePipeline, setStandaloneCustomizePipeline] = useState(false);
+  const [jobPipelineCustomized, setJobPipelineCustomized] = useState(false);
   const isOwnPipelineEditRef = useRef(false);
 
   useEffect(() => {
@@ -640,7 +640,7 @@ export function JobDetailsDrawer({
   }, []);
 
   useEffect(() => {
-    setStandaloneCustomizePipeline(false);
+    setJobPipelineCustomized(false);
   }, [job?.id]);
 
   useEffect(() => {
@@ -668,7 +668,7 @@ export function JobDetailsDrawer({
     onPipelineStagesChange?.(stages);
   };
 
-  const pipelineConfigLocked = orgRecruitmentMode === 'standalone' && !standaloneCustomizePipeline;
+  const pipelineConfigLocked = !jobPipelineCustomized;
 
   const [activeTab, setActiveTab] = useState<(typeof TAB_CONFIG)[number]['id']>('overview');
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([]);
@@ -1598,13 +1598,13 @@ export function JobDetailsDrawer({
                           <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Pipeline configuration</h4>
                           <p className="text-xs text-slate-500 mt-0.5">
                             {pipelineConfigLocked
-                              ? 'Standalone org: this job uses the organization default pipeline. Use “Customize pipeline” to change stages, order, or system roles for this job only.'
+                              ? 'This job uses your organization default pipeline from Settings. Use “Customize pipeline” to define stages for this job only.'
                               : 'Custom hiring pipeline for this job. Drag to reorder, add or remove stages.'}
                           </p>
                           <p className="text-[11px] text-amber-600 mt-1">Note: SLA values are currently display-only and are not persisted yet.</p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2 shrink-0">
-                          {orgRecruitmentMode === 'standalone' && job?.id && (
+                          {job?.id && (
                             <button
                               type="button"
                               onClick={async () => {
@@ -1624,7 +1624,7 @@ export function JobDetailsDrawer({
                                   setPipelineStages(mapped);
                                   notifyPipelineChange(mapped);
                                   setPipelineDirty(false);
-                                  setStandaloneCustomizePipeline(false);
+                                  setJobPipelineCustomized(false);
                                   void requestInfo('Pipeline reset to org default');
                                 } catch (err: any) {
                                   void requestError(err?.message || 'Failed to reset pipeline');
@@ -1636,27 +1636,26 @@ export function JobDetailsDrawer({
                               Reset to org default
                             </button>
                           )}
-                          {orgRecruitmentMode === 'standalone' &&
-                            (pipelineConfigLocked ? (
-                              <button
-                                type="button"
-                                onClick={() => setStandaloneCustomizePipeline(true)}
-                                className="px-3 py-2 rounded-lg text-xs font-bold border border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors"
-                              >
-                                Customize pipeline
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setStandaloneCustomizePipeline(false);
-                                  setPipelineDirty(false);
-                                }}
-                                className="px-3 py-2 rounded-lg text-xs font-bold border border-slate-200 text-slate-600 bg-white hover:bg-slate-50 transition-colors"
-                              >
-                                Lock to org view
-                              </button>
-                            ))}
+                          {pipelineConfigLocked ? (
+                            <button
+                              type="button"
+                              onClick={() => setJobPipelineCustomized(true)}
+                              className="px-3 py-2 rounded-lg text-xs font-bold border border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors"
+                            >
+                              Customize pipeline
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setJobPipelineCustomized(false);
+                                setPipelineDirty(false);
+                              }}
+                              className="px-3 py-2 rounded-lg text-xs font-bold border border-slate-200 text-slate-600 bg-white hover:bg-slate-50 transition-colors"
+                            >
+                              Use org default
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => {

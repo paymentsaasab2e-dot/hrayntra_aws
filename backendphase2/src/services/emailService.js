@@ -1207,7 +1207,7 @@ export async function sendSessionTransferRequestEmail(payload) {
       toEmail,
       recipientName,
       challengerDeviceLabel,
-      challengerIp,
+      challengerMacAddress,
       approveUrl,
       rejectUrl,
       expiresMinutes = 5,
@@ -1218,9 +1218,9 @@ export async function sendSessionTransferRequestEmail(payload) {
     }
 
     const deviceLine = challengerDeviceLabel || 'Unknown device';
-    const ipLine =
-      challengerIp && !String(deviceLine).includes(challengerIp)
-        ? `<p style="margin:8px 0 0;font-size:14px;color:#4b5563;"><strong>IP:</strong> ${challengerIp}</p>`
+    const macLine =
+      challengerMacAddress && !String(deviceLine).includes(challengerMacAddress)
+        ? `<p style="margin:8px 0 0;font-size:14px;color:#4b5563;"><strong>Device ID:</strong> ${challengerMacAddress}</p>`
         : '';
     const isLocalLink = /^https?:\/\/(localhost|127\.0\.0\.1)/i.test(approveUrl);
 
@@ -1242,7 +1242,7 @@ export async function sendSessionTransferRequestEmail(payload) {
     <div style="background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 16px; margin: 20px 0;">
       <p style="margin: 0; font-size: 14px; font-weight: 600; color: #92400e;">New login attempt</p>
       <p style="margin: 8px 0 0; font-size: 14px; color: #374151; white-space: pre-line;">${deviceLine}</p>
-      ${ipLine && !deviceLine.includes(challengerIp || '') ? ipLine : ''}
+      ${macLine && !deviceLine.includes(challengerMacAddress || '') ? macLine : ''}
     </div>
     <p style="font-size: 15px; margin: 0 0 20px;">
       If this was you, you can <strong>allow</strong> the new login (your current session will be logged out).
