@@ -9,6 +9,12 @@ import { DATASET_REGISTRY, DASHBOARD_MODULE_ORDER } from './dashboard.registry.j
 
 const LIST_TAKE = 800;
 
+function formatPersonName(person) {
+  if (!person) return '';
+  if (person.name) return String(person.name).trim();
+  return [person.firstName, person.lastName].filter(Boolean).join(' ').trim();
+}
+
 const LEGACY_DATASET_IDS = {
   tasks: 'tasks_and_activity',
   activities: 'tasks_and_activity',
@@ -127,45 +133,89 @@ async function fetchJobsList() {
   });
 }
 
-async function fetchClientsList() {
-  const clients = await prisma.client.findMany({
-    take: LIST_TAKE,
-    orderBy: { updatedAt: 'desc' },
-    select: {
-      id: true,
-      companyName: true,
-      status: true,
-      industry: true,
-      location: true,
-      createdAt: true,
-      updatedAt: true,
+const CLIENT_STAGE_BY_STATUS = {
+  ACTIVE: 'Active',
+  PROSPECT: 'Active',
+  ON_HOLD: 'On Hold',
+  INACTIVE: 'Inactive',
+};
+
+/** Same list scope as GET /api/v1/clients (excludes deleted/system, respects RBAC). */
+async function fetchClientsList(req) {
+  const query = { ...(req.query || {}) };
+  // Dashboard sends status=all for KPI filters; Prisma expects ClientStatus enum only.
+  delete query.status;
+
+  const listReq = {
+    ...req,
+    query: {
+      ...query,
+      page: '1',
+      limit: String(LIST_TAKE),
+      includeLeadFields: 'true',
     },
-  });
+  };
+  const paginated = await clientService.getAll(listReq);
+  const clients = Array.isArray(paginated?.data) ? paginated.data : [];
+
   return clients.map((c) => ({
     id: c.id,
     name: c.companyName,
     companyName: c.companyName,
     status: c.status || 'UNKNOWN',
+    leadStatus: c.leadStatus || '',
+    stage: CLIENT_STAGE_BY_STATUS[c.status] || 'Active',
+    priority: c.priority || '',
     industry: c.industry || '',
-    location: c.location || '',
+    location: c.location || c.hiringLocations || '',
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
   }));
 }
 
 async function fetchLeadsList() {
-  return prisma.lead.findMany({
+  const leads = await prisma.lead.findMany({
+    where: { isDeleted: { not: true } },
     take: LIST_TAKE,
     orderBy: { updatedAt: 'desc' },
     select: {
       id: true,
       companyName: true,
+      contactPerson: true,
       status: true,
       source: true,
       location: true,
+      lastFollowUp: true,
+      nextFollowUp: true,
       createdAt: true,
       updatedAt: true,
+      assignedTo: { select: { id: true, firstName: true, lastName: true, name: true, email: true } },
     },
+  });
+  return leads.map((lead) => {
+    const assigneeName =
+      [lead.assignedTo?.firstName, lead.assignedTo?.lastName].filter(Boolean).join(' ').trim() ||
+      lead.assignedTo?.name ||
+      lead.assignedTo?.email ||
+      'Unassigned';
+
+    return {
+      id: lead.id,
+      leadName: lead.companyName || lead.contactPerson || 'Unnamed lead',
+      companyName: lead.companyName,
+      contactPerson: lead.contactPerson,
+      status: lead.status,
+      source: lead.source,
+      location: lead.location,
+      assignedTo: assigneeName,
+      lastFollowUp: lead.lastFollowUp,
+      nextFollowUp: lead.nextFollowUp,
+      lastActivity: lead.updatedAt,
+      alert:
+        lead.nextFollowUp && new Date(lead.nextFollowUp) < new Date() ? 'Follow-up overdue' : '',
+      createdAt: lead.createdAt,
+      updatedAt: lead.updatedAt,
+    };
   });
 }
 
@@ -205,7 +255,7 @@ async function fetchInterviewsList() {
       round: true,
       scheduledAt: true,
       createdAt: true,
-      candidate: { select: { name: true } },
+      candidate: { select: { firstName: true, lastName: true } },
       job: { select: { title: true } },
     },
   });
@@ -215,7 +265,7 @@ async function fetchInterviewsList() {
     round: i.round,
     scheduledAt: i.scheduledAt,
     createdAt: i.createdAt,
-    candidate: i.candidate?.name,
+    candidate: formatPersonName(i.candidate) || 'Unnamed',
     job: i.job?.title,
   }));
 }
@@ -233,7 +283,7 @@ async function fetchPlacementsList() {
       joiningDate: true,
       createdAt: true,
       updatedAt: true,
-      candidate: { select: { name: true } },
+      candidate: { select: { firstName: true, lastName: true } },
       client: { select: { companyName: true } },
     },
   });
@@ -245,7 +295,7 @@ async function fetchPlacementsList() {
     joiningDate: p.joiningDate,
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
-    candidate: p.candidate?.name,
+    candidate: formatPersonName(p.candidate) || 'Unnamed',
     client: p.client?.companyName,
   }));
 }
@@ -419,7 +469,7 @@ function getFilterOptions(datasetId, filters, rows) {
     if (def.key !== 'status' || def.options?.length > 1) return def;
     const statuses = new Set();
     for (const row of rows) {
-      const val = row.status || row.stage;
+      const val = row.leadStatus || row.status || row.stage;
       if (val) statuses.add(String(val));
     }
     return {
@@ -454,6 +504,53 @@ function sanitizeWidgetsToSinglePerModule(widgets = []) {
   return next;
 }
 
+const LEGACY_MODULE_KEYS = {
+  leads: 'leads',
+  clients: 'clients',
+  jobs: 'jobs',
+  candidates: 'candidates',
+  interviews: 'interviews',
+  placements: 'placements',
+  pipeline: 'pipeline',
+  matches: 'matches',
+  tasks: 'tasks',
+  'task and activity': 'tasks',
+  team: 'team',
+  departments: 'departments',
+};
+
+function legacyWidgetsToModules(widgets) {
+  const modules = {};
+  for (const widget of sanitizeWidgetsToSinglePerModule(widgets)) {
+    const key = LEGACY_MODULE_KEYS[String(widget.module || '').trim().toLowerCase()];
+    if (!key) continue;
+    modules[key] = { widgets: [widget], hiddenDefaultIds: [], dismissed: false };
+  }
+  return modules;
+}
+
+/** Accept legacy widget array or v2 `{ version: 2, modules }` command-center layout. */
+function normalizeDashboardLayoutPayload(raw) {
+  if (Array.isArray(raw)) {
+    return { version: 2, modules: legacyWidgetsToModules(raw) };
+  }
+  if (raw && typeof raw === 'object' && raw.version === 2) {
+    const modules = raw.modules && typeof raw.modules === 'object' ? raw.modules : {};
+    const safe = {};
+    for (const [key, mod] of Object.entries(modules)) {
+      if (!mod || typeof mod !== 'object') continue;
+      safe[key] = {
+        widgets: Array.isArray(mod.widgets) ? mod.widgets : [],
+        hiddenDefaultIds: Array.isArray(mod.hiddenDefaultIds) ? mod.hiddenDefaultIds : [],
+        dismissed: Boolean(mod.dismissed),
+        customized: Boolean(mod.customized),
+      };
+    }
+    return { version: 2, modules: safe };
+  }
+  return { version: 2, modules: {} };
+}
+
 async function fetchDatasetRows(datasetId, req, filters) {
   let rows;
   switch (datasetId) {
@@ -472,7 +569,7 @@ async function fetchDatasetRows(datasetId, req, filters) {
       rows = await fetchCandidatePipeline(req);
       return rows;
     case 'clients':
-      rows = await fetchClientsList();
+      rows = await fetchClientsList(req);
       break;
     case 'clients_metrics': {
       const metrics = await clientService.getMetrics(req);
@@ -520,7 +617,44 @@ async function fetchDatasetRows(datasetId, req, filters) {
   });
 }
 
+/**
+ * Executive KPI strip — thin wrapper on reports summary (last 30 days default).
+ */
+async function getOverview(req) {
+  const { reportService } = await import('../report/report.service.js');
+  const summary = await reportService.getSummary(
+    { dateRange: 'last_30_days', entities: 'leads,clients,jobs,candidates,interviews,placements,tasks,activities' },
+    req.user,
+  );
+
+  const entityCounts = summary?.entityCounts || {};
+  const rp = summary?.recruitmentPerformance?.kpis || {};
+  const ap = summary?.activityProductivity?.kpis || {};
+  const pr = summary?.placementsRevenue?.kpis || {};
+
+  return {
+    kpis: {
+      leads: Number(entityCounts.leads ?? 0),
+      clients: Number(entityCounts.clients ?? 0),
+      activeJobs: Number(rp.totalOpenJobs ?? 0),
+      candidates: Number(entityCounts.candidates ?? rp.activeCandidates ?? 0),
+      interviews: Number(rp.interviews ?? entityCounts.interviews ?? 0),
+      placements: Number(rp.placements ?? entityCounts.placements ?? 0),
+      revenue: Number(pr.totalRevenue ?? 0),
+      tasksDueToday: Number(ap.overdueTasks ?? 0),
+      tasksCompleted: Number(ap.tasksCompleted ?? 0),
+      callsMade: Number(ap.callsMade ?? 0),
+      emailsSent: Number(ap.emailsSent ?? 0),
+    },
+    pipelineFunnel: summary?.pipelineFunnel?.funnel || [],
+    teamLeaderboard: summary?.teamPerformance?.leaderboard || [],
+    recruitmentTrend: summary?.recruitmentPerformance?.trend || [],
+  };
+}
+
 export const dashboardService = {
+  getOverview,
+
   listCatalog(req) {
     const datasets = DATASET_REGISTRY.filter((d) => canAccessDataset(req, d)).map(
       ({ permissions, ...rest }) => rest
@@ -565,24 +699,27 @@ export const dashboardService = {
 
   async getLayout(userId) {
     const layout = await prisma.userDashboardLayout.findUnique({ where: { userId } });
-    const widgets = sanitizeWidgetsToSinglePerModule(layout?.widgets);
+    const stored = normalizeDashboardLayoutPayload(layout?.widgets);
     return {
-      widgets,
-      version: layout?.version ?? 1,
+      layout: stored,
+      widgets: stored,
+      version: stored.version ?? 2,
       updatedAt: layout?.updatedAt ?? null,
     };
   },
 
-  async saveLayout(userId, widgets = []) {
-    const safeWidgets = sanitizeWidgetsToSinglePerModule(widgets);
+  async saveLayout(userId, body = {}) {
+    const stored = normalizeDashboardLayoutPayload(body.layout ?? body.widgets ?? body);
     const layout = await prisma.userDashboardLayout.upsert({
       where: { userId },
-      create: { userId, widgets: safeWidgets, version: 1 },
-      update: { widgets: safeWidgets, version: 1 },
+      create: { userId, widgets: stored, version: 2 },
+      update: { widgets: stored, version: 2 },
     });
+    const normalized = normalizeDashboardLayoutPayload(layout.widgets);
     return {
-      widgets: layout.widgets,
-      version: layout.version,
+      layout: normalized,
+      widgets: normalized,
+      version: 2,
       updatedAt: layout.updatedAt,
     };
   },

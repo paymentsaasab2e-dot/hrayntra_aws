@@ -14,6 +14,7 @@ export const MODULE_ACCESS_MAP: Record<string, string[]> = {
   Tasks: ['tasks_create', 'tasks_read', 'tasks_update', 'tasks_delete'],
   Pipeline: ['pipeline_read', 'pipeline_manage', 'move_pipeline'],
   Matches: ['matches_read', 'matches_manage'],
+  Departments: ['add_team_member', 'manage_settings', 'view_team'],
   Agreements: ['agreements_read', 'agreements_manage'],
   Inbox: ['inbox_read', 'inbox_manage'],
   Calendar: ['calendar_read', 'calendar_manage'],

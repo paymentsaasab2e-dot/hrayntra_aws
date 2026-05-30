@@ -35,6 +35,8 @@ interface ScheduleInterviewModalProps {
   prefillJobId?: string | null;
   /** When true, job cannot be changed (single-job context). */
   lockJob?: boolean;
+  /** Hide candidate picker; parent schedules the same details for every listed id. */
+  bulkScheduleForCandidateIds?: string[];
 }
 
 const rounds: InterviewRound[] = ['Screening', 'Technical', 'HR', 'Managerial', 'Client', 'Final'];
@@ -69,8 +71,13 @@ export function ScheduleInterviewModal({
   prefillCandidateId = null,
   prefillJobId = null,
   lockJob = false,
+  bulkScheduleForCandidateIds,
 }: ScheduleInterviewModalProps) {
   const isEditMode = Boolean(editInterview && onUpdate);
+  const isBulkSchedule = Boolean(
+    !isEditMode && bulkScheduleForCandidateIds && bulkScheduleForCandidateIds.length > 1,
+  );
+  const bulkScheduleCount = bulkScheduleForCandidateIds?.length ?? 0;
   const [showPanelModal, setShowPanelModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   /** New schedules start fully empty so the recruiter doesn't think a previous interview leaked through. */
@@ -133,14 +140,28 @@ export function ScheduleInterviewModal({
       return;
     }
     const base = buildDefaultForm();
-    if (prefillCandidateId) base.candidateId = prefillCandidateId;
+    if (isBulkSchedule && bulkScheduleForCandidateIds?.[0]) {
+      base.candidateId = bulkScheduleForCandidateIds[0];
+    } else if (prefillCandidateId) {
+      base.candidateId = prefillCandidateId;
+    }
     if (prefillJobId) {
       base.jobId = prefillJobId;
       const job = jobs.find((j) => j.id === prefillJobId);
       if (job?.clientId) base.clientId = job.clientId;
     }
     setForm(base);
-  }, [isOpen, editInterview, prefillCandidateId, prefillJobId, jobs, candidates, interviewers]);
+  }, [
+    isOpen,
+    editInterview,
+    prefillCandidateId,
+    prefillJobId,
+    jobs,
+    candidates,
+    interviewers,
+    isBulkSchedule,
+    bulkScheduleForCandidateIds,
+  ]);
 
   const selectedJob = jobs.find((job) => job.id === form.jobId);
   const selectedTimezoneLabel =
@@ -170,7 +191,7 @@ export function ScheduleInterviewModal({
 
   /** Block submission until the recruiter has filled the minimum required fields. */
   const isFormValid = Boolean(
-    form.candidateId &&
+    (isBulkSchedule || form.candidateId) &&
       form.jobId &&
       form.round &&
       form.type &&
@@ -206,7 +227,11 @@ export function ScheduleInterviewModal({
               <div>
                 <h3 className="text-xl font-semibold text-[#111827]">{isEditMode ? 'Edit Interview' : 'Schedule Interview'}</h3>
                 <p className="text-sm text-[#6B7280]">
-                  {isEditMode ? 'Update the interview details and save the changes.' : 'Create and notify the interview panel in one flow.'}
+                  {isEditMode
+                    ? 'Update the interview details and save the changes.'
+                    : isBulkSchedule
+                      ? `Same interview details will be applied to ${bulkScheduleCount} selected candidates.`
+                      : 'Create and notify the interview panel in one flow.'}
                 </p>
               </div>
               <button type="button" onClick={onClose} className="rounded-lg p-2 text-[#6B7280] hover:bg-[#F3F4F6]">
@@ -215,27 +240,38 @@ export function ScheduleInterviewModal({
             </div>
 
             <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-[#111827]">Candidate</label>
-                <select
-                  value={form.candidateId}
-                  onChange={(event) => {
-                    const candidate = candidates.find((item) => item.id === event.target.value);
-                    if (!candidate) return;
-                    setForm((current) => ({ ...current, candidateId: candidate.id }));
-                  }}
-                  className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
-                >
-                  <option value="" disabled>
-                    Select candidate
-                  </option>
-                  {candidates.map((candidate) => (
-                    <option key={candidate.id} value={candidate.id}>
-                      {candidate.name} • {candidate.email}
+              {isBulkSchedule ? (
+                <div className="rounded-xl border border-indigo-100 bg-indigo-50/80 px-4 py-3 text-sm text-indigo-900">
+                  <p className="font-semibold">
+                    {bulkScheduleCount} candidate{bulkScheduleCount === 1 ? '' : 's'} selected
+                  </p>
+                  <p className="mt-1 text-indigo-800/90">
+                    One interview slot will be created for each selected candidate with the details below.
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-[#111827]">Candidate</label>
+                  <select
+                    value={form.candidateId}
+                    onChange={(event) => {
+                      const candidate = candidates.find((item) => item.id === event.target.value);
+                      if (!candidate) return;
+                      setForm((current) => ({ ...current, candidateId: candidate.id }));
+                    }}
+                    className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-sm text-[#111827] outline-none focus:border-[#2563EB]"
+                  >
+                    <option value="" disabled>
+                      Select candidate
                     </option>
-                  ))}
-                </select>
-              </div>
+                    {candidates.map((candidate) => (
+                      <option key={candidate.id} value={candidate.id}>
+                        {candidate.name} • {candidate.email}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
@@ -537,7 +573,15 @@ export function ScheduleInterviewModal({
                 disabled={isSubmitting || !isFormValid}
                 className="rounded-xl bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isSubmitting ? (isEditMode ? 'Saving...' : 'Scheduling...') : isEditMode ? 'Save Changes' : 'Schedule Interview'}
+                {isSubmitting
+                  ? isEditMode
+                    ? 'Saving...'
+                    : 'Scheduling...'
+                  : isEditMode
+                    ? 'Save Changes'
+                    : isBulkSchedule
+                      ? `Schedule for ${bulkScheduleCount} candidates`
+                      : 'Schedule Interview'}
               </button>
             </div>
           </motion.div>

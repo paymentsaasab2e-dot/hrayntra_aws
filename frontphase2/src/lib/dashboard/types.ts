@@ -78,6 +78,17 @@ export type WidgetConfig = {
   sort?: 'asc' | 'desc';
   showLegend?: boolean;
   filters?: WidgetFilters;
+  /** Single KPI card label / color (SummaryCard style). */
+  kpiLabel?: string;
+  kpiColor?: string;
+  /** Stable key to match live KPI data (e.g. total-leads, new). */
+  kpiSlug?: string;
+  /** Clients tab filter — same as /client StatusCards. */
+  clientTab?: 'all' | 'active' | 'on-hold' | 'inactive' | 'hot';
+  /** How to derive the number from filtered dataset rows. */
+  kpiMetric?: 'count' | 'overdue_followups' | 'metric_value';
+  /** For metric_value: match dashboard metrics row `metric` field. */
+  metricKey?: string;
 };
 
 export type DashboardWidget = {

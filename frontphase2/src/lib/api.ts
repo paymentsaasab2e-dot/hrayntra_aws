@@ -3321,6 +3321,11 @@ export interface BackendMatch {
   } | null;
   createdBy?: { name: string };
   createdAt?: string;
+  /** CRM candidate owner (assigned recruiter). */
+  candidateOwner?: string | null;
+  city?: string | null;
+  country?: string | null;
+  experienceYears?: number | null;
 }
 
 export async function apiGetMatches(params: {

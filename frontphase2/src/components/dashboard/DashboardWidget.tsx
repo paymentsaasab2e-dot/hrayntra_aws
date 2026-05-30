@@ -15,8 +15,27 @@ function datasetKindFromId(datasetId: string, kind?: 'list' | 'metrics') {
   if (kind) return kind;
   return isMetricsDatasetId(datasetId) ? 'metrics' : 'list';
 }
+import type { KpiDef, ModuleTabKey } from '@/lib/dashboard/moduleCommandConfig';
+import {
+  kpiCardFilterKey,
+  kpiCardMatchesTableFilter,
+  normalizeCommandCenterStatus,
+} from '@/lib/dashboard/commandCenterTableFilter';
+import {
+  clientCommandCenterKpiPresentation,
+  resolveCommandCenterKpiPresentation,
+} from '@/lib/dashboard/commandCenterKpiPresentation';
+import { clientTabFromWidget, type ClientCommandCenterTab } from '@/lib/dashboard/commandCenterTableFilter';
+import { KpiCardClientTabSelect } from './KpiCardClientTabSelect';
+import { SummaryCard, type SummaryCardColor } from '@/components/ui/SummaryCard';
+import { BarChart3 } from 'lucide-react';
+import {
+  computeKpiValue,
+  kpiWidgetFilters,
+} from '@/lib/dashboard/kpiCardMetrics';
 import type { DashboardFilterDef, DashboardWidget, WidgetConfig, WidgetFilters } from '../../lib/dashboard/types';
 import { DashboardFilterFields } from './DashboardFilterFields';
+import { KpiCardStatusSelect } from './KpiCardStatusSelect';
 import { WidgetChart } from './WidgetChart';
 
 const LEGACY_DATASET_IDS: Record<string, string> = {
@@ -34,9 +53,264 @@ type Props = {
   onUpdate: (widget: DashboardWidget) => void;
   onRemove: (id: string) => void;
   onDuplicate: (widget: DashboardWidget) => void;
+  /** Live KPI values for command-center `kpi` card widgets. */
+  moduleKpis?: KpiDef[];
+  moduleKey?: ModuleTabKey;
+  tableStatusFilter?: string;
+  onTableStatusSelect?: (status: string) => void;
 };
 
-export function DashboardWidgetCard({ widget, editMode, onUpdate, onRemove, onDuplicate }: Props) {
+function isCommandCenterKpiCard(widget: DashboardWidget) {
+  return widget.chartType === 'kpi';
+}
+
+function KpiCardWidgetPanel({
+  widget,
+  moduleKey,
+  editMode,
+  tableStatusFilter,
+  onTableStatusSelect,
+  onUpdate,
+  onRemove,
+}: {
+  widget: DashboardWidget;
+  moduleKey: ModuleTabKey;
+  editMode: boolean;
+  tableStatusFilter: string;
+  onTableStatusSelect: (status: string) => void;
+  onUpdate: (widget: DashboardWidget) => void;
+  onRemove: (id: string) => void;
+}) {
+  const [configOpen, setConfigOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [value, setValue] = useState<number | string>('—');
+  const [filterDefinitions, setFilterDefinitions] = useState<DashboardFilterDef[]>([]);
+
+  const datasetId = resolveDatasetId(widget.datasetId);
+  const widgetFilters = kpiWidgetFilters(widget);
+  const fetchFilters =
+    datasetId === 'clients'
+      ? { dateRange: widgetFilters.dateRange || 'all', status: 'all' }
+      : widgetFilters;
+  const filtersKey = JSON.stringify(fetchFilters);
+  const presentation = resolveCommandCenterKpiPresentation(moduleKey, widget);
+  const label = presentation?.label ?? widget.config?.kpiLabel ?? widget.title;
+  const color = (presentation?.color ?? widget.config?.kpiColor ?? 'blue') as SummaryCardColor;
+  const cardIcon = presentation?.icon ?? <BarChart3 size={16} strokeWidth={2.25} />;
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const payload = await apiDashboardDataset(datasetId, fetchFilters);
+      setFilterDefinitions(payload.filters || []);
+      const rows = (payload.rows as Record<string, unknown>[]) || [];
+      setValue(computeKpiValue(rows, widget));
+    } catch {
+      setValue('—');
+    } finally {
+      setLoading(false);
+    }
+  }, [datasetId, filtersKey, widget.config?.kpiMetric, widget.config?.clientTab, widget.id]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const updateFilters = (filters: WidgetFilters) => {
+    onUpdate({ ...widget, config: { ...widget.config, filters } });
+  };
+
+  const statusLabel =
+    moduleKey === 'leads' && widgetFilters.status && widgetFilters.status !== 'all'
+      ? widgetFilters.status
+      : null;
+
+  const showClientTabInPanel = editMode && moduleKey === 'clients';
+  const showLeadStatusInPanel =
+    editMode && moduleKey === 'leads' && (widget.config?.kpiMetric || 'count') === 'count';
+
+  const updateClientTab = (tab: ClientCommandCenterTab) => {
+    const pres = clientCommandCenterKpiPresentation(tab);
+    onUpdate({
+      ...widget,
+      title: pres.label,
+      config: {
+        ...widget.config,
+        clientTab: tab,
+        kpiSlug: tab,
+        kpiLabel: pres.label,
+        kpiColor: pres.color,
+        kpiMetric: 'count',
+      },
+    });
+  };
+
+  const cardFilterKey = kpiCardFilterKey(moduleKey, widget);
+  const isTableFilterActive =
+    !editMode && kpiCardMatchesTableFilter(moduleKey, widget, tableStatusFilter);
+
+  const handleCardClick = () => {
+    if (editMode) return;
+    if (cardFilterKey === 'all') {
+      onTableStatusSelect('all');
+      return;
+    }
+    onTableStatusSelect(isTableFilterActive ? 'all' : cardFilterKey);
+  };
+
+  return (
+    <div
+      className={`relative flex h-full flex-col ${editMode ? 'rounded-xl ring-1 ring-indigo-200/80 ring-offset-1' : ''}`}
+    >
+      {editMode ? (
+        <div className="absolute -right-1 -top-1 z-10 flex gap-0.5">
+          <button
+            type="button"
+            onClick={() => setConfigOpen((v) => !v)}
+            className="rounded-full border border-slate-200 bg-white p-1 text-slate-600 shadow-sm hover:bg-slate-50"
+            title="Edit KPI filters"
+          >
+            <Settings2 size={12} />
+          </button>
+          <button
+            type="button"
+            onClick={() => onRemove(widget.id)}
+            className="rounded-full border border-red-200 bg-white p-1 text-red-500 shadow-sm hover:bg-red-50"
+            title="Remove KPI card"
+          >
+            <Trash2 size={12} />
+          </button>
+        </div>
+      ) : null}
+      <SummaryCard
+        label={label}
+        count={loading ? '…' : value}
+        color={color}
+        icon={cardIcon}
+        active={isTableFilterActive}
+        onClick={!editMode ? handleCardClick : undefined}
+        hint={
+          !editMode && statusLabel && !isTableFilterActive ? (
+            <span className="text-[10px] font-bold opacity-80">{statusLabel}</span>
+          ) : undefined
+        }
+      />
+      {configOpen && editMode ? (
+        <div className="absolute left-0 right-0 top-full z-[30] mt-2 min-w-[14rem] space-y-2 rounded-lg border border-slate-200 bg-white p-3 text-xs shadow-lg">
+          <p className="font-semibold text-slate-700">Filters</p>
+          {showClientTabInPanel ? (
+            <KpiCardClientTabSelect
+              value={clientTabFromWidget(widget)}
+              onChange={updateClientTab}
+              disabled={loading}
+            />
+          ) : null}
+          {showLeadStatusInPanel ? (
+            <KpiCardStatusSelect
+              definitions={filterDefinitions}
+              values={widgetFilters}
+              onChange={updateFilters}
+              disabled={loading}
+            />
+          ) : null}
+          {filterDefinitions.length > 0 ? (
+            <DashboardFilterFields
+              compact
+              definitions={filterDefinitions.filter((d) => d.key !== 'status')}
+              values={widgetFilters}
+              onChange={updateFilters}
+            />
+          ) : moduleKey === 'clients' || moduleKey === 'leads' ? null : (
+            <p className="text-slate-500">Loading filter options…</p>
+          )}
+          {moduleKey !== 'clients' ? (
+            <label className="block space-y-0.5">
+              <span className="text-slate-500">Card label</span>
+              <input
+                value={label}
+                onChange={(e) =>
+                  onUpdate({
+                    ...widget,
+                    title: e.target.value,
+                    config: { ...widget.config, kpiLabel: e.target.value },
+                  })
+                }
+                className="w-full rounded border border-slate-200 px-2 py-1"
+              />
+            </label>
+          ) : null}
+          {moduleKey === 'leads' ? (
+            <label className="block space-y-0.5">
+              <span className="text-slate-500">Metric</span>
+              <select
+                value={widget.config?.kpiMetric || 'count'}
+                onChange={(e) =>
+                  onUpdate({
+                    ...widget,
+                    config: {
+                      ...widget.config,
+                      kpiMetric: e.target.value as
+                        | 'count'
+                        | 'overdue_followups'
+                        | 'metric_value',
+                    },
+                  })
+                }
+                className="w-full rounded border border-slate-200 px-2 py-1"
+              >
+                <option value="count">Count records (uses status filter)</option>
+                <option value="overdue_followups">Overdue follow-ups</option>
+                <option value="metric_value">Single metric value (metrics dataset)</option>
+              </select>
+            </label>
+          ) : null}
+          {widget.config?.kpiMetric === 'metric_value' ? (
+            <label className="block space-y-0.5">
+              <span className="text-slate-500">Metric key</span>
+              <input
+                value={widget.config?.metricKey || ''}
+                onChange={(e) =>
+                  onUpdate({
+                    ...widget,
+                    config: { ...widget.config, metricKey: e.target.value },
+                  })
+                }
+                placeholder="e.g. openJobs, revenue"
+                className="w-full rounded border border-slate-200 px-2 py-1"
+              />
+            </label>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export function DashboardWidgetCard({
+  widget,
+  editMode,
+  onUpdate,
+  onRemove,
+  onDuplicate,
+  moduleKpis = [],
+  moduleKey = 'leads',
+  tableStatusFilter = 'all',
+  onTableStatusSelect = () => {},
+}: Props) {
+  if (isCommandCenterKpiCard(widget)) {
+    return (
+      <KpiCardWidgetPanel
+        widget={widget}
+        moduleKey={moduleKey}
+        editMode={editMode}
+        tableStatusFilter={tableStatusFilter}
+        onTableStatusSelect={onTableStatusSelect}
+        onUpdate={onUpdate}
+        onRemove={onRemove}
+      />
+    );
+  }
+
   const [data, setData] = useState<Awaited<ReturnType<typeof apiDashboardDataset>> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');

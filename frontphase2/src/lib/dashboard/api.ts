@@ -6,6 +6,7 @@ import type {
   DatasetPayload,
   WidgetFilters,
 } from './types';
+import type { DashboardLayoutV2 } from './layoutV2';
 
 function filtersToQuery(filters?: WidgetFilters) {
   if (!filters) return '';
@@ -17,6 +18,30 @@ function filtersToQuery(filters?: WidgetFilters) {
   }
   const qs = params.toString();
   return qs ? `?${qs}` : '';
+}
+
+export type DashboardOverview = {
+  kpis: {
+    leads: number;
+    clients: number;
+    activeJobs: number;
+    candidates: number;
+    interviews: number;
+    placements: number;
+    revenue: number;
+    tasksDueToday: number;
+    tasksCompleted?: number;
+    callsMade?: number;
+    emailsSent?: number;
+  };
+  pipelineFunnel?: Array<{ name: string; value: number }>;
+  teamLeaderboard?: Array<Record<string, unknown>>;
+  recruitmentTrend?: Array<Record<string, unknown>>;
+};
+
+export async function apiDashboardOverview() {
+  const res = await apiFetch<DashboardOverview>('/dashboard/overview', { auth: true });
+  return res.data;
 }
 
 export async function apiDashboardCatalog(): Promise<DashboardCatalog> {
@@ -44,16 +69,23 @@ export async function apiDashboardAnalyze(rows: Record<string, unknown>[]) {
   return res.data;
 }
 
-export async function apiDashboardGetLayout() {
-  const res = await apiFetch<{ widgets: DashboardWidget[] }>('/dashboard/layout', { auth: true });
-  return res.data.widgets || [];
+export async function apiDashboardGetLayout(): Promise<DashboardLayoutV2 | DashboardWidget[]> {
+  const res = await apiFetch<{ layout?: unknown; widgets?: unknown }>('/dashboard/layout', {
+    auth: true,
+  });
+  return (res.data.layout ?? res.data.widgets ?? { version: 2, modules: {} }) as
+    | DashboardLayoutV2
+    | DashboardWidget[];
 }
 
-export async function apiDashboardSaveLayout(widgets: DashboardWidget[]) {
-  const res = await apiFetch<{ widgets: DashboardWidget[] }>('/dashboard/layout', {
-    method: 'PUT',
-    auth: true,
-    body: { widgets },
-  });
-  return res.data.widgets || [];
+export async function apiDashboardSaveLayout(layout: DashboardLayoutV2) {
+  const res = await apiFetch<{ layout?: DashboardLayoutV2; widgets?: DashboardLayoutV2 }>(
+    '/dashboard/layout',
+    {
+      method: 'PUT',
+      auth: true,
+      body: { layout },
+    },
+  );
+  return (res.data.layout ?? res.data.widgets ?? layout) as DashboardLayoutV2;
 }

@@ -102,6 +102,11 @@ import {
 } from '../../lib/mapCandidateProfile';
 import { candidateTableRowToProfileStub } from '../../lib/candidateTableToProfileStub';
 import {
+  pickCandidateOwnerLabel,
+  resolveCandidateExperienceYears,
+  resolveCandidateLocationLabel,
+} from '../../lib/candidateListMapping';
+import {
   extractPipelineJobCandidateItems,
   extractApplicationsJobCandidateItems,
   isJobLinkedBackendMatch,
@@ -818,42 +823,42 @@ async function enrichJobExportRow(baseJob: Job): Promise<Job> {
   }
 }
 
-function toJobCandidateItemFromApplied(match: any, fallbackRecruiter = '-'): JobCandidateItem {
+function toJobCandidateItemFromApplied(match: any, fallbackRecruiter = 'Unassigned'): JobCandidateItem {
   const emailFromMatch =
     (match.candidate?.email && String(match.candidate.email).trim()) ||
     (match.email && String(match.email).trim()) ||
     undefined;
   const cand = match.candidate;
+  const resolvedStage = resolveJobCandidateStageFromMatchRow(
+    {
+      status: match.status,
+      candidateStage: match.candidateStage ?? cand?.stage,
+      candidate: cand,
+    },
+  );
   return {
     id: match.candidateId || cand?.id || match.id,
     candidateName: cand
-      ? `${cand.firstName || ''} ${cand.lastName || ''}`.trim() || '-'
-      : '-',
+      ? `${cand.firstName || ''} ${cand.lastName || ''}`.trim() || '—'
+      : match.name?.trim() || '—',
     email: emailFromMatch,
-    avatar: cand?.avatar ? String(cand.avatar).trim() : null,
-    designation: cand?.currentTitle ? String(cand.currentTitle).trim() : '',
-    company: cand?.currentCompany ? String(cand.currentCompany).trim() : '',
-    experience: typeof cand?.experience === 'number' ? cand.experience : 0,
-    location: cand?.location ? String(cand.location).trim() : '—',
-    phone: cand?.phone ? String(cand.phone).trim() : '',
-    currentStage: resolveJobCandidateStageFromMatchRow(
-      {
-        status: match.status,
-        candidateStage: match.candidateStage ?? cand?.stage,
-        candidate: cand,
-      },
-    ),
-    isJobAppliedCandidate: isJobAppliedDisplayStage(
-      resolveJobCandidateStageFromMatchRow({
-        status: match.status,
-        candidateStage: match.candidateStage ?? cand?.stage,
-        candidate: cand,
-      }),
-    ),
+    avatar: cand?.avatar ? String(cand.avatar).trim() : match.photo?.trim() || null,
+    designation: cand?.currentTitle ? String(cand.currentTitle).trim() : match.currentTitle?.trim() || '',
+    company: cand?.currentCompany ? String(cand.currentCompany).trim() : match.currentCompany?.trim() || '',
+    experience: resolveCandidateExperienceYears(cand || match),
+    location: resolveCandidateLocationLabel(cand || match),
+    phone: cand?.phone ? String(cand.phone).trim() : match.phone?.trim() || '',
+    currentStage: resolvedStage,
+    isJobAppliedCandidate: isJobAppliedDisplayStage(resolvedStage),
     score: typeof match.score === 'number' ? `${Math.round(match.score)}%` : '-',
-    recruiter: match.createdBy?.name || fallbackRecruiter,
+    recruiter: pickCandidateOwnerLabel(
+      cand?.assignedTo?.name,
+      match.candidateOwner,
+      match.createdBy?.name,
+      fallbackRecruiter,
+    ),
     interviewStatus: 'Not scheduled',
-    lastActivity: match.createdAt ? formatDateTimeDMY(match.createdAt) : '-',
+    lastActivity: match.createdAt ? formatDateTimeDMY(match.createdAt) : '—',
   };
 }
 
@@ -1402,7 +1407,7 @@ export default function JobsPage() {
   };
 
   const fetchJobCandidates = useCallback(async (jobId: string, backendJob?: any) => {
-    const recruiterFallback = backendJob?.assignedTo?.name || '-';
+    const recruiterFallback = backendJob?.assignedTo?.name || 'Unassigned';
     const pipelineSeed = extractPipelineJobCandidateItems(backendJob, recruiterFallback);
     const applicationSeed = extractApplicationsJobCandidateItems(
       backendJob?.applications,

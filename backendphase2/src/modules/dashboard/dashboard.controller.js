@@ -11,6 +11,15 @@ export const dashboardController = {
     }
   },
 
+  async getOverview(req, res) {
+    try {
+      const overview = await dashboardService.getOverview(req);
+      sendResponse(res, 200, 'OK', overview);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
   async getDataset(req, res) {
     try {
       const result = await dashboardService.fetchDataset(req.params.datasetId, req);
@@ -42,7 +51,7 @@ export const dashboardController = {
 
   async saveLayout(req, res) {
     try {
-      const layout = await dashboardService.saveLayout(req.user.id, req.body?.widgets);
+      const layout = await dashboardService.saveLayout(req.user.id, req.body);
       sendResponse(res, 200, 'Layout saved', layout);
     } catch (error) {
       sendError(res, 400, error.message, error);

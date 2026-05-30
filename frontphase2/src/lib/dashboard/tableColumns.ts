@@ -1,5 +1,5 @@
-/** Keys hidden from dashboard widget tables (internal ids). */
-const HIDDEN_KEYS = new Set(['id', '_id', '__v']);
+/** Keys hidden from dashboard widget tables (internal ids / raw relations). */
+const HIDDEN_KEYS = new Set(['id', '_id', '__v', 'assignedToId', 'createdById', 'departmentId']);
 
 export function isHiddenTableColumn(key: string): boolean {
   const k = key.trim();
@@ -15,9 +15,12 @@ export function getVisibleTableColumns(rows: Record<string, unknown>[], maxColum
   const seen = new Set<string>();
 
   const prefer = [
+    'leadName',
     'companyName',
     'name',
     'title',
+    'assignedTo',
+    'assignedUser',
     'status',
     'stage',
     'source',
@@ -93,6 +96,8 @@ export function formatTableCellValue(key: string, value: unknown): string {
     return String(value);
   }
   if (typeof value === 'object') {
+    const userLabel = formatUserLikeValue(value);
+    if (userLabel) return userLabel;
     try {
       return JSON.stringify(value);
     } catch {

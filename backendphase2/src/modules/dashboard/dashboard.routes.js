@@ -8,6 +8,7 @@ const router = express.Router();
 router.use(authMiddleware, attachUserPermissions);
 
 router.get('/catalog', dashboardController.getCatalog);
+router.get('/overview', dashboardController.getOverview);
 router.get('/data/:datasetId', dashboardController.getDataset);
 router.post('/analyze', dashboardController.analyze);
 router.get('/layout', dashboardController.getLayout);

@@ -156,17 +156,41 @@ function scopeCandidateJobLinksToTenant(candidate, tenantJobIdSet) {
   };
 }
 
+/** When tenantJobIdSet is provided (including empty), drop links outside this tenant. */
+function scopeCandidateForActiveTenant(candidate, tenantJobIdSet) {
+  if (tenantJobIdSet == null) return candidate;
+  return scopeCandidateJobLinksToTenant(candidate, tenantJobIdSet);
+}
+
+/** True if candidate row carries any job/application/pipeline/match/interview link (unscoped). */
+function candidateHasAnyJobLink(candidate) {
+  if (!candidate) return false;
+  return candidateHasRealJobLink(candidate, null);
+}
+
+/**
+ * After tenant scoping, drop rows that only belonged to another tenant's pipeline.
+ * Pure Phase 1 discovery (no job links anywhere) stays on All candidates via includeCommonPool.
+ */
+function shouldIncludeCandidateAfterTenantScope(original, scoped, options = {}) {
+  const { includeCommonPool = false, inTenantDb = false } = options;
+  if (inTenantDb) return true;
+  if (candidateHasRealJobLink(scoped, null)) return true;
+  if (candidateHasAnyJobLink(original)) return false;
+  return includeCommonPool;
+}
+
 function candidateHasRealJobLink(candidate, tenantJobIdSet = null) {
   if (!candidate) return false;
-  const row =
-    tenantJobIdSet && tenantJobIdSet.size > 0
-      ? scopeCandidateJobLinksToTenant(candidate, tenantJobIdSet)
-      : candidate;
+  const row = scopeCandidateForActiveTenant(candidate, tenantJobIdSet);
   const assigned = Array.isArray(row.assignedJobs) ? row.assignedJobs : [];
   if (assigned.some((id) => String(id || '').trim())) return true;
   if (Array.isArray(row.applications) && row.applications.length > 0) return true;
   if (Array.isArray(row.pipelineEntries) && row.pipelineEntries.length > 0) return true;
   if (Array.isArray(row.matches) && row.matches.length > 0) return true;
+  if (Array.isArray(row.interviews) && row.interviews.length > 0) return true;
+  const titles = Array.isArray(row.assignedJobTitles) ? row.assignedJobTitles : [];
+  if (titles.some((title) => String(title || '').trim())) return true;
   return false;
 }
 
@@ -213,10 +237,7 @@ function mergeCandidateWorkflowStages(...stages) {
 }
 
 function candidateHasActiveInterviewLink(candidate, tenantJobIdSet = null) {
-  const scoped =
-    tenantJobIdSet && tenantJobIdSet.size > 0
-      ? scopeCandidateJobLinksToTenant(candidate, tenantJobIdSet)
-      : candidate;
+  const scoped = scopeCandidateForActiveTenant(candidate, tenantJobIdSet);
   const interviews = Array.isArray(scoped?.interviews) ? scoped.interviews : [];
   return interviews.some((row) => {
     const status = String(row?.status || 'SCHEDULED').toUpperCase();
@@ -226,18 +247,12 @@ function candidateHasActiveInterviewLink(candidate, tenantJobIdSet = null) {
 }
 
 function candidateHasTenantApplicationLink(candidate, tenantJobIdSet = null) {
-  const scoped =
-    tenantJobIdSet && tenantJobIdSet.size > 0
-      ? scopeCandidateJobLinksToTenant(candidate, tenantJobIdSet)
-      : candidate;
+  const scoped = scopeCandidateForActiveTenant(candidate, tenantJobIdSet);
   return Array.isArray(scoped?.applications) && scoped.applications.length > 0;
 }
 
 function candidateHasFreshSubmittedApplication(candidate, tenantJobIdSet = null) {
-  const scoped =
-    tenantJobIdSet && tenantJobIdSet.size > 0
-      ? scopeCandidateJobLinksToTenant(candidate, tenantJobIdSet)
-      : candidate;
+  const scoped = scopeCandidateForActiveTenant(candidate, tenantJobIdSet);
   const apps = Array.isArray(scoped?.applications) ? scoped.applications : [];
   return apps.some((row) => {
     const status = String(row?.status || '').toUpperCase();
@@ -245,34 +260,36 @@ function candidateHasFreshSubmittedApplication(candidate, tenantJobIdSet = null)
   });
 }
 
-/** CRM list/drawer stage: job-linked candidates default to Applied unless a later stage is set. */
+/** CRM list/drawer stage: tenant job links use pipeline/applied; ignore global merged stage from other tenants. */
 function resolveCandidateStageForList(candidate, tenantJobIdSet = null) {
   const hasTenantJob = candidateHasRealJobLink(candidate, tenantJobIdSet);
   const hasInterview = candidateHasActiveInterviewLink(candidate, tenantJobIdSet);
-  const explicit = String(candidate?.stage || '').trim();
-  const explicitLower = explicit.toLowerCase();
+  const scoped = scopeCandidateForActiveTenant(candidate, tenantJobIdSet);
+  const tenantPipelineStage = mergeCandidateWorkflowStages(
+    ...(Array.isArray(scoped.pipelineEntries) ? scoped.pipelineEntries : [])
+      .map((row) => String(row?.stage?.name || row?.stageName || row?.stage || '').trim())
+      .filter(Boolean)
+  );
 
   if (hasInterview) {
-    const merged = mergeCandidateWorkflowStages(explicit, 'Interviewing');
-    if (hasTenantJob || explicitLower !== 'new') {
+    const merged = mergeCandidateWorkflowStages(tenantPipelineStage, 'Interviewing');
+    if (hasTenantJob || tenantPipelineStage) {
       return merged || 'Interviewing';
     }
   }
 
-  if (explicit && explicitLower !== 'new') {
-    if (!hasTenantJob) {
-      return 'New';
-    }
-    if (
-      candidateHasFreshSubmittedApplication(candidate, tenantJobIdSet) &&
-      isTerminalCandidateStage(explicit)
-    ) {
-      return 'Applied';
-    }
-    return explicit;
+  if (tenantPipelineStage) {
+    return tenantPipelineStage;
   }
+
   if (candidateHasTenantApplicationLink(candidate, tenantJobIdSet) || hasTenantJob) {
     return 'Applied';
+  }
+
+  const explicit = String(candidate?.stage || '').trim();
+  const explicitLower = explicit.toLowerCase();
+  if (explicit && explicitLower !== 'new') {
+    return 'New';
   }
   const status = String(candidate?.status || '').toUpperCase();
   if (status === 'NEW' || status === 'ACTIVE') return 'New';
@@ -349,7 +366,7 @@ function annotateCandidateListFlags(candidate, tenantJobIdSet = null) {
   return {
     ...candidate,
     stage: resolvedStage,
-    isPhase1Candidate: phase1,
+    isPhase1Candidate: discoveryOnly,
     isNewCandidate: discoveryOnly || (phase1 && stageNew && !hasJob),
     isJobAppliedCandidate: hasJob && resolvedStage === 'Applied',
     poolOrigin: discoveryOnly ? 'phase1_common' : phase1 ? 'phase1' : 'tenant',
@@ -425,10 +442,7 @@ const candidateDetailInclude = {
 
 async function enrichCandidateDetailJobTitles(candidate, tenantJobIdSet = null) {
   if (!candidate) return candidate;
-  const scoped =
-    tenantJobIdSet && tenantJobIdSet.size > 0
-      ? scopeCandidateJobLinksToTenant(candidate, tenantJobIdSet)
-      : candidate;
+  const scoped = scopeCandidateForActiveTenant(candidate, tenantJobIdSet);
   const jobIds = collectCandidateLinkedJobIds(scoped);
   const jobsById = new Map();
   if (jobIds.length) {
@@ -461,7 +475,7 @@ const candidateListInclude = {
     take: 30,
   },
   pipelineEntries: {
-    select: { id: true, jobId: true },
+    select: { id: true, jobId: true, stage: { select: { name: true } } },
     take: 30,
   },
   matches: {
@@ -1581,11 +1595,16 @@ async function loadAppliedMatchCandidatePool(req, jobId) {
     ...matchCandidateIds,
   ]);
 
+  const appliedPoolCandidateInclude = {
+    assignedTo: { select: { id: true, name: true } },
+  };
+
   const assignedCandidates = await prisma.candidate.findMany({
     where: {
       isDeleted: { not: true },
       assignedJobs: { has: jobIdStr },
     },
+    include: appliedPoolCandidateInclude,
   });
   assignedCandidates.forEach((row) => linkedIdSet.add(row.id));
 
@@ -1597,6 +1616,7 @@ async function loadAppliedMatchCandidatePool(req, jobId) {
         isDeleted: { not: true },
         id: { in: extraIds },
       },
+      include: appliedPoolCandidateInclude,
     });
   }
 
@@ -2074,7 +2094,8 @@ function isTenantScopedRequest() {
 
 async function getVisibleTenantJobIds(req, mine) {
   const userId = req?.user?.id;
-  const jobWhere = userId ? buildMyJobsWhereClause(userId) : { isDeleted: { not: true } };
+  const jobWhere =
+    mine && userId ? buildMyJobsWhereClause(userId) : { isDeleted: { not: true } };
 
   const jobs = await prisma.job.findMany({
     where: jobWhere,
@@ -2261,9 +2282,9 @@ function appendCandidateListFilterAndParts(andParts, filters) {
   }
 }
 
-function candidateMatchesListFilters(candidate, filters) {
+function candidateMatchesListFilters(candidate, filters, tenantJobIdSet = null) {
   const { company, location, jobId, stage, minExperience, maxExperience, minExperienceOpen } = filters;
-  if (stage && !stageMatchesFilter(resolveCandidateStageForList(candidate), stage)) {
+  if (stage && !stageMatchesFilter(resolveCandidateStageForList(candidate, tenantJobIdSet), stage)) {
     return false;
   }
   if (company) {
@@ -2314,10 +2335,7 @@ async function fetchPortalCandidatesForTenant(req, { status, assignedToId, searc
 
   const portalPrisma = getJobPortalPrismaClient();
   const tenantJobIds = await getVisibleTenantJobIds(req, mine);
-  const canViewAllPortal =
-    isSuperAdminUser(req) ||
-    canViewAllAssignments(req) ||
-    hasAnyPermissionScope(req, ['view_all_candidates']);
+  if (!tenantJobIds.length) return [];
 
   const where = {};
   if (assignedToId === 'unassigned') {
@@ -2327,19 +2345,15 @@ async function fetchPortalCandidatesForTenant(req, { status, assignedToId, searc
   }
 
   const andParts = [];
-  // Super admin / view-all with mine=false: show all portal rows (no CRM job link gate).
-  // Regular users or explicit mine=true: require link to an allowed CRM job.
-  if (!canViewAllPortal || mine) {
-    if (!tenantJobIds.length) return [];
-    andParts.push({
-      OR: [
-        { matches: { some: { jobId: { in: tenantJobIds } } } },
-        { assignedJobs: { hasSome: tenantJobIds } },
-        { applications: { some: { jobId: { in: tenantJobIds } } } },
-        { pipelineEntries: { some: { jobId: { in: tenantJobIds } } } },
-      ],
-    });
-  }
+  // Shared job-portal DB is cross-tenant — always gate on this tenant's CRM job ids.
+  andParts.push({
+    OR: [
+      { matches: { some: { jobId: { in: tenantJobIds } } } },
+      { assignedJobs: { hasSome: tenantJobIds } },
+      { applications: { some: { jobId: { in: tenantJobIds } } } },
+      { pipelineEntries: { some: { jobId: { in: tenantJobIds } } } },
+    ],
+  });
 
   if (status) {
     andParts.push({
@@ -2393,8 +2407,9 @@ export const candidateService = {
       req.query?.includeCommonPool === 'true' || req.query?.includeCommonPool === '1';
     const mine =
       req.query?.mine === 'true' || req.query?.mine === '1' || req.query?.mine === true;
-    const loadCommonPool = includeCommonPool || mine;
+    const loadCommonPool = includeCommonPool;
     const myJobIds = mine && req.user?.id ? await getMyJobIds(req.user.id) : [];
+    const tenantJobIdSet = isTenantScopedRequest() ? await getTenantJobIdSet() : null;
 
     if (mine && !req.user?.id) {
       return formatPaginationResponse([], page, limit, 0);
@@ -2495,10 +2510,20 @@ export const candidateService = {
         );
       }
 
+      const tenantCandidateIds = new Set(tenantCandidates.map((candidate) => candidate.id));
+
       let merged = Array.from(mergedById.values())
+        .filter((original) =>
+          shouldIncludeCandidateAfterTenantScope(
+            original,
+            scopeCandidateForActiveTenant(original, tenantJobIdSet),
+            { includeCommonPool: loadCommonPool, inTenantDb: tenantCandidateIds.has(original.id) }
+          )
+        )
+        .map((candidate) => scopeCandidateForActiveTenant(candidate, tenantJobIdSet))
         .filter((candidate) => shouldShowOnCrmCandidatesList(candidate, { includeCommonPool: loadCommonPool }))
         .filter((candidate) => candidateMatchesSearch(candidate, search))
-        .filter((candidate) => candidateMatchesListFilters(candidate, listFilters));
+        .filter((candidate) => candidateMatchesListFilters(candidate, listFilters, tenantJobIdSet));
 
       if (mine && req.user?.id) {
         merged = merged.filter((candidate) =>
@@ -2534,10 +2559,20 @@ export const candidateService = {
             prior ? mergePortalAndTenantCandidateRow(prior, candidate) : candidate
           );
         }
+        const tenantCandidateIds = new Set(tenantRows.map((candidate) => candidate.id));
+
         let merged = Array.from(mergedById.values())
+          .filter((original) =>
+            shouldIncludeCandidateAfterTenantScope(
+              original,
+              scopeCandidateForActiveTenant(original, tenantJobIdSet),
+              { includeCommonPool: loadCommonPool, inTenantDb: tenantCandidateIds.has(original.id) }
+            )
+          )
+          .map((candidate) => scopeCandidateForActiveTenant(candidate, tenantJobIdSet))
           .filter((candidate) => shouldShowOnCrmCandidatesList(candidate, { includeCommonPool: loadCommonPool }))
           .filter((candidate) => candidateMatchesSearch(candidate, search))
-          .filter((candidate) => candidateMatchesListFilters(candidate, listFilters));
+          .filter((candidate) => candidateMatchesListFilters(candidate, listFilters, tenantJobIdSet));
 
         if (mine && req.user?.id) {
           merged = merged.filter((candidate) =>
@@ -2555,16 +2590,11 @@ export const candidateService = {
       }
     }
 
-    const tenantJobIdSet = isTenantScopedRequest() ? await getTenantJobIdSet() : null;
-
     // Resolve linked job ids (assign, apply, pipeline, match) into titles for list UI.
     const assignedJobIds = Array.from(
       new Set(
         candidates.flatMap((candidate) => {
-          const scoped =
-            tenantJobIdSet && tenantJobIdSet.size > 0
-              ? scopeCandidateJobLinksToTenant(candidate, tenantJobIdSet)
-              : candidate;
+          const scoped = scopeCandidateForActiveTenant(candidate, tenantJobIdSet);
           return collectCandidateLinkedJobIds(scoped);
         })
       )
@@ -2589,31 +2619,37 @@ export const candidateService = {
     const enriched = candidates.map((candidate) => {
       const careerPrefs = careerPrefsByCandidate.get(String(candidate.id));
       if (careerPrefs) mergeCareerPreferencesIntoCandidate(candidate, careerPrefs);
-      const scopedCandidate =
-        tenantJobIdSet && tenantJobIdSet.size > 0
-          ? scopeCandidateJobLinksToTenant(candidate, tenantJobIdSet)
-          : candidate;
-      const titles = resolveCandidateAssignedJobTitlesForList(scopedCandidate, jobsById);
+      const scopedCandidate = scopeCandidateForActiveTenant(candidate, tenantJobIdSet);
+      const linkedJobIds = collectCandidateLinkedJobIds(scopedCandidate);
+      const scopedWithJobs = {
+        ...scopedCandidate,
+        assignedJobs: linkedJobIds.length
+          ? linkedJobIds
+          : Array.isArray(scopedCandidate.assignedJobs)
+            ? scopedCandidate.assignedJobs
+            : [],
+      };
+      const titles = resolveCandidateAssignedJobTitlesForList(scopedWithJobs, jobsById);
       return annotateCandidateListFlags(
         {
-          ...scopedCandidate,
-          resume: scopedCandidate.resume || scopedCandidate.resumeUrl || null,
+          ...scopedWithJobs,
+          resume: scopedWithJobs.resume || scopedWithJobs.resumeUrl || null,
           skills:
-            Array.isArray(scopedCandidate.skills) && scopedCandidate.skills.length
-              ? scopedCandidate.skills
-              : Array.isArray(scopedCandidate.recruiterSkills)
-                ? scopedCandidate.recruiterSkills
+            Array.isArray(scopedWithJobs.skills) && scopedWithJobs.skills.length
+              ? scopedWithJobs.skills
+              : Array.isArray(scopedWithJobs.recruiterSkills)
+                ? scopedWithJobs.recruiterSkills
                 : [],
-          experience: scopedCandidate.experience ?? scopedCandidate.experienceYears ?? null,
-          status: scopedCandidate.status || scopedCandidate.recruiterStatus || 'NEW',
-          education: scopedCandidate.education || scopedCandidate.recruiterEducation || null,
+          experience: scopedWithJobs.experience ?? scopedWithJobs.experienceYears ?? null,
+          status: scopedWithJobs.status || scopedWithJobs.recruiterStatus || 'NEW',
+          education: scopedWithJobs.education || scopedWithJobs.recruiterEducation || null,
           languages:
-            Array.isArray(scopedCandidate.languages) && scopedCandidate.languages.length
-              ? scopedCandidate.languages
-              : Array.isArray(scopedCandidate.recruiterLanguages)
-                ? scopedCandidate.recruiterLanguages
+            Array.isArray(scopedWithJobs.languages) && scopedWithJobs.languages.length
+              ? scopedWithJobs.languages
+              : Array.isArray(scopedWithJobs.recruiterLanguages)
+                ? scopedWithJobs.recruiterLanguages
                 : [],
-          notes: scopedCandidate.notes || scopedCandidate.recruiterNotes || null,
+          notes: scopedWithJobs.notes || scopedWithJobs.recruiterNotes || null,
           assignedJobTitles: titles,
         },
         tenantJobIdSet
@@ -2627,12 +2663,7 @@ export const candidateService = {
   async getById(id, req = null) {
     const tenantJobIdSet = isTenantScopedRequest() ? await getTenantJobIdSet() : null;
     const annotateForTenant = (row) =>
-      annotateCandidateListFlags(
-        tenantJobIdSet && tenantJobIdSet.size > 0
-          ? scopeCandidateJobLinksToTenant(row, tenantJobIdSet)
-          : row,
-        tenantJobIdSet
-      );
+      annotateCandidateListFlags(scopeCandidateForActiveTenant(row, tenantJobIdSet), tenantJobIdSet);
 
     // Super admins should be able to open ANY candidate in their tenant by default.
     // buildSuperAdminOwnerScope already returns null unless mineOnly=true is explicitly
@@ -4282,9 +4313,10 @@ export const candidateService = {
       req.query?.includeCommonPool === 'true' || req.query?.includeCommonPool === '1';
     const mine =
       req.query?.mine === 'true' || req.query?.mine === '1' || req.query?.mine === true;
-    const loadCommonPool = includeCommonPool || mine;
+    const loadCommonPool = includeCommonPool;
     const userId = req.user?.id;
     const myJobIds = mine && userId ? await getMyJobIds(userId) : [];
+    const tenantJobIdSet = isTenantScopedRequest() ? await getTenantJobIdSet() : null;
 
     const emptyStats = {
       all: 0,
@@ -4341,6 +4373,7 @@ export const candidateService = {
         matches: { select: { jobId: true }, take: 30 },
       },
     });
+    const tenantCandidateIds = new Set(scopedCandidates.map((candidate) => candidate.id));
 
     if (isTenantScopedRequest()) {
       const portalCandidates = await fetchPortalCandidatesForTenant(req, {
@@ -4383,19 +4416,25 @@ export const candidateService = {
     }
 
     scopedCandidates = scopedCandidates
+      .filter((original) =>
+        shouldIncludeCandidateAfterTenantScope(
+          original,
+          scopeCandidateForActiveTenant(original, tenantJobIdSet),
+          {
+            includeCommonPool: loadCommonPool,
+            inTenantDb: tenantCandidateIds.has(original.id),
+          }
+        )
+      )
+      .map((candidate) => scopeCandidateForActiveTenant(candidate, tenantJobIdSet))
       .filter((candidate) => shouldShowOnCrmCandidatesList(candidate, { includeCommonPool: loadCommonPool }))
       .filter((candidate) =>
         mine && userId ? candidateMatchesMineScope(candidate, userId, myJobIds) : true
       );
 
-    const tenantJobIdSet = isTenantScopedRequest() ? await getTenantJobIdSet() : null;
-    const resolvedForStats = scopedCandidates.map((candidate) => {
-      const scoped =
-        tenantJobIdSet && tenantJobIdSet.size > 0
-          ? scopeCandidateJobLinksToTenant(candidate, tenantJobIdSet)
-          : candidate;
-      return annotateCandidateListFlags(scoped, tenantJobIdSet);
-    });
+    const resolvedForStats = scopedCandidates.map((candidate) =>
+      annotateCandidateListFlags(candidate, tenantJobIdSet)
+    );
 
     const stageCounts = stages.map((stageName) => ({
       stage: stageName,

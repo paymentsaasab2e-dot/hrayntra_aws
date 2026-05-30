@@ -1,6 +1,7 @@
 'use client';
 
-import { XCircle } from 'lucide-react';
+import { ChevronDown, ChevronUp, XCircle } from 'lucide-react';
+import { useState } from 'react';
 import { PH2_TOOLBAR_SELECT_CLASS } from '../../components/layout/Ph2ModulePageLayout';
 import { ALL_STATUS_LABEL } from '../../constants/filterLabels';
 
@@ -102,6 +103,177 @@ export const FILTER_QUERY_KEYS: (keyof FiltersState)[] = [
 
 const DATE_INPUT_CLASS = `${PH2_TOOLBAR_SELECT_CLASS} min-w-[9.5rem]`;
 
+export type RawEntityKey =
+  | 'candidates'
+  | 'jobs'
+  | 'clients'
+  | 'interviews'
+  | 'placements'
+  | 'leads'
+  | 'activities'
+  | 'tasks'
+  | 'team'
+  | 'ai_matches'
+  | 'ai_applied_matches';
+
+export const RAW_ENTITY_OPTIONS: Array<{ value: RawEntityKey; label: string }> = [
+  { value: 'candidates', label: 'Candidates' },
+  { value: 'jobs', label: 'Jobs' },
+  { value: 'clients', label: 'Clients' },
+  { value: 'interviews', label: 'Interviews' },
+  { value: 'placements', label: 'Placements' },
+  { value: 'leads', label: 'Leads' },
+  { value: 'activities', label: 'Activities' },
+  { value: 'tasks', label: 'Tasks' },
+  { value: 'team', label: 'Team' },
+  { value: 'ai_matches', label: 'AI Matches' },
+  { value: 'ai_applied_matches', label: 'AI Applied Matches' },
+];
+
+/** Entity-specific filters for Raw Data — only show relevant controls per entity. */
+export const ENTITY_RAW_FILTER_KEYS: Record<RawEntityKey, (keyof FiltersState)[]> = {
+  candidates: ['candidateStatus', 'candidateSource', 'recruiterId', 'jobLocation'],
+  jobs: ['jobStatus', 'jobType', 'jobLocation', 'jobDepartment', 'clientId'],
+  clients: ['clientStatus', 'clientIndustry', 'recruiterId'],
+  interviews: ['interviewStatus', 'clientId', 'jobId', 'recruiterId'],
+  placements: ['placementStatus', 'clientId', 'jobId', 'recruiterId'],
+  leads: ['leadStatus', 'leadSource', 'recruiterId'],
+  activities: ['recruiterId'],
+  tasks: ['recruiterId'],
+  team: ['recruiterId', 'jobLocation'],
+  ai_matches: ['jobId', 'recruiterId'],
+  ai_applied_matches: ['jobId'],
+};
+
+const DATE_PRESETS = [
+  { value: 'last_7_days', label: 'Last 7 Days' },
+  { value: 'last_30_days', label: 'Last 30 Days' },
+  { value: 'last_90_days', label: 'Last 90 Days' },
+  { value: 'this_month', label: 'This Month' },
+  { value: 'this_quarter', label: 'This Quarter' },
+  { value: 'this_year', label: 'This Year' },
+];
+
+function applyDatePreset(value: string): Pick<FiltersState, 'dateRange' | 'startDate' | 'endDate'> {
+  if (value === 'last_90_days') {
+    const end = new Date();
+    const start = new Date(end.getTime() - 90 * 24 * 60 * 60 * 1000);
+    return {
+      dateRange: 'custom',
+      startDate: start.toISOString().slice(0, 10),
+      endDate: end.toISOString().slice(0, 10),
+    };
+  }
+  return { dateRange: value, startDate: '', endDate: '' };
+}
+
+export function ReportsTopBar({
+  draftFilters,
+  options,
+  onPatch,
+  onApply,
+  onReset,
+}: {
+  draftFilters: FiltersState;
+  options: ReportFilterOptions | null;
+  onPatch: <K extends keyof FiltersState>(key: K, value: FiltersState[K]) => void;
+  onApply: () => void;
+  onReset: () => void;
+}) {
+  const [moreOpen, setMoreOpen] = useState(false);
+  const dateOptions = options?.dateRanges?.length
+    ? [...DATE_PRESETS.filter((p) => p.value !== 'last_90_days'), ...DATE_PRESETS.filter((p) => p.value === 'last_90_days')]
+    : DATE_PRESETS;
+
+  const handleDateChange = (value: string) => {
+    if (value === 'last_90_days') {
+      const preset = applyDatePreset(value);
+      onPatch('dateRange', preset.dateRange);
+      onPatch('startDate', preset.startDate);
+      onPatch('endDate', preset.endDate);
+      return;
+    }
+    onPatch('dateRange', value);
+    onPatch('startDate', '');
+    onPatch('endDate', '');
+  };
+
+  return (
+    <div className="border-b border-indigo-100/50 bg-gradient-to-br from-white via-indigo-50/20 to-violet-50/15 px-4 py-3 sm:px-5">
+      <div className="flex flex-wrap items-end gap-2">
+        <select
+          value={draftFilters.startDate && draftFilters.endDate ? 'custom' : draftFilters.dateRange}
+          onChange={(event) => handleDateChange(event.target.value)}
+          className={PH2_TOOLBAR_SELECT_CLASS}
+          aria-label="Date range"
+        >
+          {dateOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <select
+          value={draftFilters.clientId}
+          onChange={(event) => onPatch('clientId', event.target.value)}
+          className={PH2_TOOLBAR_SELECT_CLASS}
+          aria-label="Client"
+        >
+          <option value="">All Clients</option>
+          {(options?.clients || []).map((client) => (
+            <option key={client.id} value={client.id}>
+              {client.name}
+            </option>
+          ))}
+        </select>
+        <select
+          value={draftFilters.recruiterId}
+          onChange={(event) => onPatch('recruiterId', event.target.value)}
+          className={PH2_TOOLBAR_SELECT_CLASS}
+          aria-label="Recruiter"
+        >
+          <option value="">All Recruiters</option>
+          {(options?.recruiters || []).map((recruiter) => (
+            <option key={recruiter.id} value={recruiter.id}>
+              {recruiter.name}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={() => setMoreOpen((open) => !open)}
+          className="inline-flex items-center gap-1 rounded-lg border border-indigo-200/70 bg-white px-3 py-1.5 text-xs font-semibold text-indigo-800 shadow-sm hover:bg-indigo-50/80"
+        >
+          More Filters
+          {moreOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        </button>
+        <button
+          type="button"
+          onClick={onApply}
+          className="rounded-lg bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-md shadow-indigo-500/25"
+        >
+          Apply
+        </button>
+        <button type="button" onClick={onReset} className="text-xs font-semibold text-rose-600 hover:text-rose-700">
+          Reset
+        </button>
+      </div>
+      {moreOpen ? (
+        <div className="mt-3 rounded-lg border border-indigo-100/70 bg-white/80 p-3">
+          <ReportsFiltersToolbar
+            draftFilters={draftFilters}
+            options={options}
+            onPatch={onPatch}
+            onApply={onApply}
+            onReset={onReset}
+            embedded
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function buildReportQueryString(filters: FiltersState, extra: Record<string, string> = {}) {
   const params = new URLSearchParams();
   const useCustomRange = Boolean(filters.startDate && filters.endDate);
@@ -163,12 +335,14 @@ export function ReportsFiltersToolbar({
   onPatch,
   onApply,
   onReset,
+  embedded = false,
 }: {
   draftFilters: FiltersState;
   options: ReportFilterOptions | null;
   onPatch: <K extends keyof FiltersState>(key: K, value: FiltersState[K]) => void;
   onApply: () => void;
   onReset: () => void;
+  embedded?: boolean;
 }) {
   const entitySet = parseEntitySet(draftFilters.entities);
   const entityOptions = options?.reportEntities || [];
@@ -298,23 +472,25 @@ export function ReportsFiltersToolbar({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-        <button
-          type="button"
-          onClick={onApply}
-          className="rounded-lg bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-3.5 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/30 transition-all hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 active:scale-[0.98]"
-        >
-          Apply filters
-        </button>
-        <button
-          type="button"
-          onClick={onReset}
-          className="inline-flex items-center gap-1 rounded-lg px-2.5 py-2 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
-        >
-          <XCircle size={15} className="shrink-0 text-rose-500" strokeWidth={2.35} />
-          Reset
-        </button>
-      </div>
+      {embedded ? null : (
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+          <button
+            type="button"
+            onClick={onApply}
+            className="rounded-lg bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-3.5 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/30 transition-all hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 active:scale-[0.98]"
+          >
+            Apply filters
+          </button>
+          <button
+            type="button"
+            onClick={onReset}
+            className="inline-flex items-center gap-1 rounded-lg px-2.5 py-2 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
+          >
+            <XCircle size={15} className="shrink-0 text-rose-500" strokeWidth={2.35} />
+            Reset
+          </button>
+        </div>
+      )}
     </div>
   );
 }

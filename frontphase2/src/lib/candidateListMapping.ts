@@ -3,7 +3,6 @@ import { mapBackendStage } from './mapCandidateProfile';
 
 export function candidateHasRealJobAssignment(c: BackendCandidate): boolean {
   if (c.isJobAppliedCandidate === true) return true;
-  if (c.isJobAppliedCandidate === false) return false;
   if (resolveCandidateAssignedJobTitles(c).length > 0) return true;
   if (Array.isArray(c.assignedJobs) && c.assignedJobs.some((id) => String(id || '').trim())) {
     return true;
@@ -81,14 +80,21 @@ function explicitStageLooksJobLinked(stage: string): boolean {
 
 /** CRM stage for list/drawer — job-linked candidates show Applied unless a later stage is set. */
 export function resolveCandidateListStage(c: BackendCandidate): string {
-  const explicit = String(c.stage || '').trim();
-  const explicitLower = explicit.toLowerCase();
+  const backendStage = String(c.stage || '').trim();
   const hasTenantJob = candidateHasRealJobAssignment(c);
+
+  if (backendStage && backendStage.toLowerCase() !== 'new') {
+    if (hasTenantJob || !explicitStageLooksJobLinked(backendStage)) {
+      return backendStage;
+    }
+  }
+
+  const explicit = backendStage;
+  const explicitLower = explicit.toLowerCase();
   const interviewing = hasActiveInterview(c);
 
   if (c.isJobAppliedCandidate === true) {
-    if (explicit && explicitLower !== 'new') return explicit;
-    return 'Applied';
+    return explicit && explicitLower !== 'new' ? explicit : 'Applied';
   }
 
   if (interviewing) {
@@ -100,7 +106,6 @@ export function resolveCandidateListStage(c: BackendCandidate): string {
 
   if (explicit && explicitLower !== 'new') {
     if (!hasTenantJob) {
-      if (explicitStageLooksJobLinked(explicit)) return explicit;
       return 'New';
     }
     if (hasFreshSubmittedApplication(c) && stageLooksTerminalHire(explicit)) {
@@ -147,6 +152,52 @@ export function resolveCandidateAssignedJobTitles(c: BackendCandidate): string[]
 
 export function candidateShowsAppliedTag(c: BackendCandidate): boolean {
   if (c.isJobAppliedCandidate === true) return true;
-  if (c.isJobAppliedCandidate === false) return false;
-  return candidateHasRealJobAssignment(c) && resolveCandidateListStage(c) === 'Applied';
+  return candidateHasRealJobAssignment(c) && resolveCandidateListStage(c) !== 'New';
+}
+
+/** Experience years for list / job drawer (matches candidate page). */
+export function resolveCandidateExperienceYears(c: {
+  experience?: number | null;
+  experienceYears?: number | null;
+}): number {
+  for (const raw of [c.experience, c.experienceYears]) {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  return 0;
+}
+
+/** Location label for list / job drawer — uses city/country when location is empty. */
+export function resolveCandidateLocationLabel(c: {
+  location?: string | null;
+  city?: string | null;
+  country?: string | null;
+}): string {
+  const direct = String(c.location || '').trim();
+  if (
+    direct &&
+    direct !== '—' &&
+    direct !== '-' &&
+    direct.toLowerCase() !== 'location unavailable' &&
+    direct.toLowerCase() !== 'not shared'
+  ) {
+    return direct;
+  }
+  const parts = [c.city, c.country].map((part) => String(part || '').trim()).filter(Boolean);
+  if (parts.length) return parts.join(', ');
+  return '—';
+}
+
+function isBlankOwnerLabel(value?: string | null): boolean {
+  const label = String(value || '').trim();
+  return !label || label === '—' || label === '-' || label === 'Unassigned';
+}
+
+/** Owner / recruiter label — prefer candidate assignee over job fallback. */
+export function pickCandidateOwnerLabel(...values: Array<string | null | undefined>): string {
+  for (const value of values) {
+    const label = String(value || '').trim();
+    if (!isBlankOwnerLabel(label)) return label;
+  }
+  return 'Unassigned';
 }

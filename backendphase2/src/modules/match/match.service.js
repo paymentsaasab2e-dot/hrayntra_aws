@@ -58,6 +58,87 @@ function buildInitials(firstName = '', lastName = '') {
   return `${String(firstName || '').trim()[0] || ''}${String(lastName || '').trim()[0] || ''}`.toUpperCase() || 'NA';
 }
 
+function normalizeCandidateExperienceYears(candidate) {
+  if (!candidate) return 0;
+  for (const raw of [candidate.experience, candidate.experienceYears]) {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  return 0;
+}
+
+function normalizeCandidateLocationLabel(candidate) {
+  if (!candidate) return 'Location unavailable';
+  const direct = String(candidate.location || '').trim();
+  if (direct) return direct;
+  const parts = [candidate.city, candidate.country]
+    .map((part) => String(part || '').trim())
+    .filter(Boolean);
+  return parts.length ? parts.join(', ') : 'Location unavailable';
+}
+
+function enrichSparseCandidateFromPool(candidate, poolRow) {
+  if (!candidate || !poolRow) return candidate;
+  const experience = (() => {
+    const fromMatch = normalizeCandidateExperienceYears(candidate);
+    if (fromMatch > 0) return fromMatch;
+    return normalizeCandidateExperienceYears(poolRow);
+  })();
+  const location =
+    normalizeCandidateLocationLabel(candidate) ||
+    normalizeCandidateLocationLabel(poolRow) ||
+    'Location unavailable';
+  return {
+    ...poolRow,
+    ...candidate,
+    experience,
+    experienceYears: experience,
+    location,
+    city: candidate.city || poolRow.city || null,
+    country: candidate.country || poolRow.country || null,
+    currentTitle:
+      candidate.currentTitle ||
+      poolRow.currentTitle ||
+      candidate.designation ||
+      poolRow.designation ||
+      null,
+    currentCompany: candidate.currentCompany || poolRow.currentCompany || null,
+    avatar: candidate.avatar || poolRow.avatar || null,
+    phone: candidate.phone || poolRow.phone || null,
+    assignedTo: candidate.assignedTo || poolRow.assignedTo || null,
+    assignedToId: candidate.assignedToId ?? poolRow.assignedToId ?? null,
+  };
+}
+
+const MATCH_CANDIDATE_SELECT = {
+  id: true,
+  firstName: true,
+  lastName: true,
+  email: true,
+  skills: true,
+  experience: true,
+  experienceYears: true,
+  phone: true,
+  location: true,
+  city: true,
+  country: true,
+  currentTitle: true,
+  currentCompany: true,
+  noticePeriod: true,
+  avatar: true,
+  resume: true,
+  linkedIn: true,
+  salary: true,
+  hotlist: true,
+  assignedJobs: true,
+  stage: true,
+  designation: true,
+  updatedAt: true,
+  source: true,
+  assignedToId: true,
+  assignedTo: { select: { id: true, name: true } },
+};
+
 /** Matches visible when tied to the user's jobs/candidates or created by them (unless tenant-wide access). */
 function buildMatchListScope(req) {
   if (!req?.user?.id) return null;
@@ -344,8 +425,11 @@ function mapMatchRecord(match, activitiesByCandidateId) {
     initials: buildInitials(candidate.firstName, candidate.lastName),
     score,
     skills: candidate.skills || [],
-    experience: candidate.experience || 0,
-    location: candidate.location || 'Location unavailable',
+    experience: normalizeCandidateExperienceYears(candidate),
+    experienceYears: normalizeCandidateExperienceYears(candidate),
+    location: normalizeCandidateLocationLabel(candidate),
+    city: candidate.city || null,
+    country: candidate.country || null,
     salary,
     noticePeriod: candidate.noticePeriod || 'Not shared',
     status: displayStatus,
@@ -359,6 +443,7 @@ function mapMatchRecord(match, activitiesByCandidateId) {
     candidate: { stage: candidate.stage || null },
     matchSource: match.createdById ? 'manual' : 'ai',
     createdBy: match.createdBy ? { name: match.createdBy.name } : { name: '—' },
+    candidateOwner: candidate.assignedTo?.name || null,
     createdAt: match.createdAt,
     explanation,
     currentTitle: candidate.currentTitle || candidate.designation || 'Candidate',
@@ -502,28 +587,7 @@ export const matchService = {
         take: limit,
         include: {
           candidate: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              email: true,
-              skills: true,
-              experience: true,
-              phone: true,
-              location: true,
-              currentTitle: true,
-              currentCompany: true,
-              noticePeriod: true,
-              avatar: true,
-              resume: true,
-              linkedIn: true,
-              salary: true,
-              hotlist: true,
-              assignedJobs: true,
-              stage: true,
-              designation: true,
-              updatedAt: true,
-            },
+            select: MATCH_CANDIDATE_SELECT,
           },
           job: {
             select: {
@@ -579,9 +643,18 @@ export const matchService = {
 
     if (source === 'applied' && jobId) {
       const pool = await loadAppliedMatchCandidatePool(req, String(jobId));
+      const poolById = new Map(pool.candidates.map((candidate) => [candidate.id, candidate]));
       const poolIdSet = new Set(pool.candidates.map((candidate) => candidate.id));
       // Anyone linked to this job (applied, assigned, pipeline, portal) — keep AI/manual match scores too.
-      matches = matches.filter((match) => poolIdSet.has(match.candidateId));
+      matches = matches
+        .filter((match) => poolIdSet.has(match.candidateId))
+        .map((match) => {
+          const poolRow = poolById.get(match.candidateId);
+          if (poolRow) {
+            match.candidate = enrichSparseCandidateFromPool(match.candidate, poolRow);
+          }
+          return match;
+        });
       const jobRow = await prisma.job.findFirst({
         where: { id: String(jobId), isDeleted: { not: true } },
         include: { client: { select: { companyName: true, logo: true } } },
@@ -590,13 +663,14 @@ export const matchService = {
       for (const candidate of pool.candidates) {
         if (scoredIds.has(candidate.id)) continue;
         if (!jobRow) continue;
+        const enrichedCandidate = enrichSparseCandidateFromPool(candidate, poolById.get(candidate.id));
         matches.push({
           id: `applied-pending-${candidate.id}`,
           candidateId: candidate.id,
           jobId: String(jobId),
           score: 0,
           status: 'NEW',
-          candidate,
+          candidate: enrichedCandidate,
           job: jobRow,
           createdById: null,
           evaluation: {

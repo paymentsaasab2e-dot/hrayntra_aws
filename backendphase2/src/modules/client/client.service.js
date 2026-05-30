@@ -300,7 +300,7 @@ export const clientService = {
     const includeSystemClients = req.query.includeSystem === 'true';
 
     let where = {};
-    if (status) where.status = status;
+    if (status && String(status).toLowerCase() !== 'all') where.status = status;
     if (assignedToId) where.assignedToId = assignedToId;
     if (search) {
       where.OR = [

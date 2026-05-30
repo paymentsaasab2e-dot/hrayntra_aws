@@ -28,6 +28,8 @@ const DATASET_LIST_ROUTES: Record<string, string> = {
   activities: '/Task&Activites',
   team: '/team',
   departments: '/team?tab=departments',
+  pipeline: '/job',
+  matches: '/matches',
 };
 
 export function getModuleListRoute(moduleOrDataset: string | undefined | null): string | null {

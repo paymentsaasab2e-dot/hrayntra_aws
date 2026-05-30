@@ -1,5 +1,10 @@
 import { apiCreateMatch, apiGetMatches, type BackendMatch } from './api';
 import type { JobCandidateItem } from '../components/drawers/JobDetailsDrawer';
+import {
+  pickCandidateOwnerLabel,
+  resolveCandidateExperienceYears,
+  resolveCandidateLocationLabel,
+} from './candidateListMapping';
 
 /** Map portal/CRM application enum to pipeline stage label. */
 export function mapApplicationStatusToCrmStage(status?: string | null): string {
@@ -148,6 +153,11 @@ export function backendMatchToJobCandidateItem(
     typeof match.score === 'number' && match.score > 0
       ? `${Math.round(match.score)}%`
       : '-';
+  const resolvedStage = resolveJobCandidateStageFromMatchRow({
+    status: match.status,
+    candidateStage: match.candidateStage,
+    candidate: match.candidate,
+  });
   return {
     id: match.candidateId || match.id,
     candidateName: match.name?.trim() || '—',
@@ -155,21 +165,17 @@ export function backendMatchToJobCandidateItem(
     avatar: match.photo?.trim() || null,
     designation: match.currentTitle?.trim() || '',
     company: match.currentCompany?.trim() || '',
-    experience: typeof match.experience === 'number' ? match.experience : 0,
-    location: match.location?.trim() || '—',
+    experience: resolveCandidateExperienceYears(match),
+    location: resolveCandidateLocationLabel(match),
     phone: match.phone?.trim() || '',
-    currentStage: resolveJobCandidateStageFromMatchRow({
-      status: match.status,
-      candidateStage: match.candidateStage,
-    }),
-    isJobAppliedCandidate: isJobAppliedDisplayStage(
-      resolveJobCandidateStageFromMatchRow({
-        status: match.status,
-        candidateStage: match.candidateStage,
-      }),
-    ),
+    currentStage: resolvedStage,
+    isJobAppliedCandidate: isJobAppliedDisplayStage(resolvedStage),
     score,
-    recruiter: match.createdBy?.name || fallbackRecruiter,
+    recruiter: pickCandidateOwnerLabel(
+      match.candidateOwner,
+      match.createdBy?.name,
+      fallbackRecruiter,
+    ),
     interviewStatus: 'Not scheduled',
     lastActivity: match.createdAt ? String(match.createdAt) : '—',
   };
@@ -203,11 +209,23 @@ export function mergeJobCandidatesWithAppliedMatches(
       candidateName: candidate.candidateName || match.name || '—',
       designation: candidate.designation || match.currentTitle || '',
       company: candidate.company || match.currentCompany || '',
-      experience:
-        candidate.experience ??
-        (typeof match.experience === 'number' ? match.experience : 0),
-      location: candidate.location || match.location || '—',
+      experience: (() => {
+        const fromRow = resolveCandidateExperienceYears({ experience: candidate.experience });
+        const fromMatch = resolveCandidateExperienceYears(match);
+        return fromRow > 0 ? fromRow : fromMatch;
+      })(),
+      location: (() => {
+        const fromRow = resolveCandidateLocationLabel({ location: candidate.location });
+        const fromMatch = resolveCandidateLocationLabel(match);
+        return fromRow !== '—' ? fromRow : fromMatch;
+      })(),
       phone: candidate.phone || match.phone || '',
+      recruiter: pickCandidateOwnerLabel(
+        candidate.recruiter,
+        match.candidateOwner,
+        match.createdBy?.name,
+        fallbackRecruiter,
+      ),
       currentStage: resolveJobCandidateStageFromMatchRow(match, candidate.currentStage),
       isJobAppliedCandidate:
         candidate.isJobAppliedCandidate ??
@@ -284,8 +302,8 @@ export function extractApplicationsJobCandidateItems(
       avatar: c?.avatar ? String(c.avatar).trim() : null,
       designation: c?.currentTitle ? String(c.currentTitle).trim() : '',
       company: c?.currentCompany ? String(c.currentCompany).trim() : '',
-      experience: typeof c?.experience === 'number' ? c.experience : 0,
-      location: c?.location ? String(c.location).trim() : '—',
+      experience: resolveCandidateExperienceYears(c || {}),
+      location: resolveCandidateLocationLabel(c || {}),
       phone: c?.phone ? String(c.phone).trim() : '',
       currentStage: resolveJobCandidateDisplayStage(
         String(app.status || c?.stage || 'Applied').trim() || 'Applied',
@@ -347,6 +365,17 @@ export function mergeJobCandidateSeeds(
         email: prev.email || row.email,
         designation: prev.designation || row.designation,
         company: prev.company || row.company,
+        experience: (() => {
+          const a = resolveCandidateExperienceYears({ experience: prev.experience });
+          const b = resolveCandidateExperienceYears({ experience: row.experience });
+          return a > 0 ? a : b;
+        })(),
+        location: (() => {
+          const a = resolveCandidateLocationLabel({ location: prev.location });
+          const b = resolveCandidateLocationLabel({ location: row.location });
+          return a !== '—' ? a : b;
+        })(),
+        recruiter: pickCandidateOwnerLabel(prev.recruiter, row.recruiter),
         currentStage: mergedStage,
         isJobAppliedCandidate: Boolean(
           prev.isJobAppliedCandidate ||
@@ -383,8 +412,8 @@ export function extractPipelineJobCandidateItems(
         avatar: c?.avatar ? String(c.avatar).trim() : null,
         designation: c?.currentTitle ? String(c.currentTitle).trim() : '',
         company: c?.currentCompany ? String(c.currentCompany).trim() : '',
-        experience: typeof c?.experience === 'number' ? c.experience : 0,
-        location: c?.location ? String(c.location).trim() : '—',
+        experience: resolveCandidateExperienceYears(c || {}),
+        location: resolveCandidateLocationLabel(c || {}),
         phone: c?.phone ? String(c.phone).trim() : '',
         currentStage: resolveJobCandidateDisplayStage(stageName),
         isJobAppliedCandidate: isJobAppliedDisplayStage(stageName),

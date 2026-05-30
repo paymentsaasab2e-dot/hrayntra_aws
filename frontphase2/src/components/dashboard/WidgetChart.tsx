@@ -27,6 +27,8 @@ import { CHART_TOOLTIP_STYLE } from '../../lib/dashboard/chartTheme';
 import { getModuleListRoute } from '../../lib/dashboard/moduleRoutes';
 import { moduleForDatasetId } from '../../lib/dashboard/moduleGroups';
 import type { WidgetConfig } from '../../lib/dashboard/types';
+import { SummaryCard, type SummaryCardColor } from '@/components/ui/SummaryCard';
+import { BarChart3 } from 'lucide-react';
 import { DashboardDataTable } from './DashboardDataTable';
 
 function ChartShell({ height, children }: { height: number; children: React.ReactNode }) {
@@ -120,24 +122,36 @@ export function WidgetChart({
     partitionMetricsBlocked?: boolean;
   };
 
-  if (chartType === 'kpi' || chartType === 'counter' || chartType === 'gauge') {
+  if (chartType === 'kpi' || chartType === 'counter') {
     const display = chartType === 'counter' ? kpiValue : kpiValue;
+    const label = String(config.kpiLabel || module || 'Key metric');
+    const color = (config.kpiColor as SummaryCardColor) || 'blue';
+    return (
+      <div className="flex h-full min-h-[100px] items-stretch p-1">
+        <SummaryCard
+          label={label}
+          count={display}
+          color={color}
+          icon={<BarChart3 size={16} strokeWidth={2.25} />}
+        />
+      </div>
+    );
+  }
+
+  if (chartType === 'gauge') {
+    const display = kpiValue;
     return (
       <div className="flex h-full min-h-[120px] flex-col items-center justify-center">
         <p className="text-4xl font-bold tracking-tight text-slate-900">
           {new Intl.NumberFormat().format(display)}
         </p>
-        <p className="mt-1 text-xs font-medium uppercase tracking-wider text-slate-500">
-          {chartType === 'gauge' ? 'Performance' : chartType === 'counter' ? 'Total count' : 'Key metric'}
-        </p>
-        {chartType === 'gauge' ? (
-          <div className="mt-4 h-2 w-full max-w-xs overflow-hidden rounded-full bg-slate-100">
-            <div
-              className="h-full rounded-full bg-indigo-600 transition-all"
-              style={{ width: `${Math.min(100, Math.max(8, (display % 100) + 10))}%` }}
-            />
-          </div>
-        ) : null}
+        <p className="mt-1 text-xs font-medium uppercase tracking-wider text-slate-500">Performance</p>
+        <div className="mt-4 h-2 w-full max-w-xs overflow-hidden rounded-full bg-slate-100">
+          <div
+            className="h-full rounded-full bg-indigo-600 transition-all"
+            style={{ width: `${Math.min(100, Math.max(8, (display % 100) + 10))}%` }}
+          />
+        </div>
       </div>
     );
   }
