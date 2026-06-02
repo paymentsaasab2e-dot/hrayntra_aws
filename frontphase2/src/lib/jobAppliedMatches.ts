@@ -1,10 +1,11 @@
-import { apiCreateMatch, apiGetMatches, type BackendMatch } from './api';
+import { apiCreateMatch, apiGetMatches, apiResolveMatchForSubmit, type BackendMatch } from './api';
 import type { JobCandidateItem } from '../components/drawers/JobDetailsDrawer';
 import {
   pickCandidateOwnerLabel,
   resolveCandidateExperienceYears,
   resolveCandidateLocationLabel,
 } from './candidateListMapping';
+import { extractApiData, isValidObjectId } from './mapCandidateProfile';
 
 /** Map portal/CRM application enum to pipeline stage label. */
 export function mapApplicationStatusToCrmStage(status?: string | null): string {
@@ -143,6 +144,13 @@ export function unwrapMatchRows(response: unknown): BackendMatch[] {
     if (Array.isArray(nested.items)) return nested.items as BackendMatch[];
   }
   return [];
+}
+
+function pickRealMatchId(rows: BackendMatch[], candidateId: string): string | null {
+  const existing = rows.find((row) => String(row.candidateId || '') === candidateId);
+  const rawId = String(existing?.id || '');
+  if (rawId && !rawId.startsWith('applied-pending-')) return rawId;
+  return null;
 }
 
 export function backendMatchToJobCandidateItem(
@@ -450,34 +458,77 @@ export async function loadJobAppliedCandidates(
   return mergeJobCandidatesWithAppliedMatches(seed, matchRows, options?.fallbackRecruiter ?? 'Unassigned');
 }
 
+export type ResolveMatchForSubmitResult = {
+  matchId: string | null;
+  error?: string;
+};
+
 /** Find or create a match row so submit-to-client can post to /matches/:id/submit */
 export async function resolveMatchIdForSubmit(
   candidateId: string,
   jobId: string,
   score = 0,
   existingMatchId?: string,
-): Promise<string | null> {
-  if (existingMatchId) return existingMatchId;
+): Promise<ResolveMatchForSubmitResult> {
+  if (existingMatchId && isValidObjectId(existingMatchId)) {
+    return { matchId: existingMatchId };
+  }
+  if (!isValidObjectId(candidateId) || !isValidObjectId(jobId)) {
+    return { matchId: null, error: 'Candidate must be linked to a valid job before submitting to the client' };
+  }
+
+  try {
+    const resolved = await apiResolveMatchForSubmit({
+      candidateId,
+      jobId,
+      score: score > 0 ? score : 0,
+    });
+    const payload = extractApiData<{ id?: string }>(resolved);
+    if (payload?.id) return { matchId: String(payload.id) };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : '';
+    if (message) return { matchId: null, error: message };
+  }
 
   try {
     const matchesResponse = await apiGetMatches({ jobId, candidateId, limit: 20 });
     const rows = unwrapMatchRows(matchesResponse) as BackendMatch[];
-    const existing = rows.find((row) => String(row.candidateId || '') === candidateId);
-    const rawId = String(existing?.id || '');
-    if (rawId && !rawId.startsWith('applied-pending-')) return rawId;
+    const found = pickRealMatchId(rows, candidateId);
+    if (found) return { matchId: found };
   } catch {
-    // fall through to create
+    // fall through
+  }
+
+  try {
+    const appliedResponse = await apiGetMatches({
+      jobId,
+      candidateId,
+      limit: 20,
+      source: 'applied',
+    });
+    const appliedRows = unwrapMatchRows(appliedResponse) as BackendMatch[];
+    const found = pickRealMatchId(appliedRows, candidateId);
+    if (found) return { matchId: found };
+  } catch {
+    // fall through
   }
 
   try {
     const created = await apiCreateMatch({
       candidateId,
       jobId,
-      score: score > 0 ? score : undefined,
+      score: score > 0 ? score : 0,
       status: 'SUGGESTED',
     });
-    return created?.data?.id || null;
-  } catch {
-    return null;
+    const match = extractApiData<{ id?: string }>(created);
+    if (match?.id) return { matchId: String(match.id) };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : '';
+    return {
+      matchId: null,
+      error: message || 'Unable to create match record for this candidate and job',
+    };
   }
+
+  return { matchId: null, error: 'Unable to create match record for this candidate and job' };
 }

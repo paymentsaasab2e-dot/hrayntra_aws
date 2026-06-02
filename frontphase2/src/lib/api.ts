@@ -3368,6 +3368,19 @@ export const apiCreateMatch = async (payload: {
   });
 };
 
+/** Find or create the Match row used by Submit to Client (handles applied-pool candidates). */
+export const apiResolveMatchForSubmit = async (payload: {
+  candidateId: string;
+  jobId: string;
+  score?: number;
+}) => {
+  return apiFetch<{ id: string }>('/matches/resolve-for-submit', {
+    method: 'POST',
+    body: payload,
+    auth: true,
+  });
+};
+
 export const apiToggleSavedMatch = async (matchId: string, saved: boolean) => {
   return apiFetch<BackendMatch>(`/matches/${matchId}/save`, {
     method: 'POST',
@@ -3384,6 +3397,7 @@ export const apiSubmitMatch = async (
     submissionType?: string;
     cvShareMode?: 'edited' | 'original';
     additionalClients?: Array<{ clientId: string; toEmail?: string }>;
+    batchMatchIds?: string[];
   }
 ) => {
   return apiFetch<BackendMatch>(`/matches/${matchId}/submit`, {

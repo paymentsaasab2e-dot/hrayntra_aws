@@ -1257,7 +1257,7 @@ export const addCandidateController = {
         return res.status(400).json({ success: false, message: stage1.message });
       }
 
-      const stage4 = await runCvPipelineThroughStage4(file);
+      const stage4 = await runCvPipelineThroughStage4(file, { verboseLogs: false });
       const fb = stage4.fallbackData || {};
       const dup = await findExistingCandidateDuplicate({
         email: fb.email,
@@ -1289,7 +1289,8 @@ export const addCandidateController = {
           candidateIdForUpload,
           stage4,
           null,
-          tenantDbName
+          tenantDbName,
+          { compactPrompt: true, verboseLogs: false },
         );
 
         emitBulkCvDuplicateFound(userId, sessionId, {
@@ -1374,7 +1375,8 @@ export const addCandidateController = {
           candidateIdForUpload,
           stage4,
           null,
-          tenantDbName
+          tenantDbName,
+          { compactPrompt: true, verboseLogs: false },
         );
       }
 

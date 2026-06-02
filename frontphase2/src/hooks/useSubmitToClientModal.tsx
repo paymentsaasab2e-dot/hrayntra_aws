@@ -3,6 +3,7 @@
 import { useCallback, useState } from 'react';
 import {
   SubmitToClientDrawer,
+  type BulkSubmitCandidateEntry,
   type SubmitToClientSource,
 } from '../components/interviews/SubmitToClientDrawer';
 import type { Candidate } from '../app/candidate/components/CandidateTable';
@@ -82,6 +83,22 @@ export function useSubmitToClientModal(options?: { onClosed?: () => void }) {
     [openSubmit],
   );
 
+  const openBulkSubmit = useCallback((candidates: BulkSubmitCandidateEntry[]) => {
+    if (!candidates.length) {
+      void requestError('Select at least one candidate to submit to the client.');
+      return;
+    }
+    const missingJob = candidates.find((entry) => !entry.jobId);
+    if (missingJob) {
+      void requestError(
+        `${missingJob.candidateName || 'A selected candidate'} has no linked job. Assign them to a job first.`,
+      );
+      return;
+    }
+    setSource({ kind: 'bulkMatch', candidates });
+    setIsOpen(true);
+  }, []);
+
   const handleToast = useCallback((message: string) => {
     void requestInfo(message);
   }, []);
@@ -97,6 +114,7 @@ export function useSubmitToClientModal(options?: { onClosed?: () => void }) {
 
   return {
     openSubmit,
+    openBulkSubmit,
     openFromCandidateRow,
     openFromJobDrawerRow,
     submitModalElement,

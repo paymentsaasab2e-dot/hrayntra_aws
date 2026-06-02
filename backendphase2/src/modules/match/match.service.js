@@ -29,7 +29,15 @@ const MATCH_SUBMISSION_PURPOSES = {
   GENERAL: 'Please review this candidate.',
 };
 
-const buildClientReviewUrl = (match, submissionType, cvShareMode = null) => {
+function normalizeMatchScore(score) {
+  const n = Number(score);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+const buildClientReviewUrl = (match, submissionType, cvShareMode = null, batchMatchIds = null) => {
+  const normalizedBatch = Array.isArray(batchMatchIds)
+    ? Array.from(new Set(batchMatchIds.map((id) => String(id || '').trim()).filter(Boolean)))
+    : [];
   const token = createClientReviewToken({
     matchId: match.id,
     candidateId: match.candidateId,
@@ -37,6 +45,7 @@ const buildClientReviewUrl = (match, submissionType, cvShareMode = null) => {
     clientId: match.job?.clientId || match.job?.client?.id || null,
     submissionType,
     cvShareMode,
+    batchMatchIds: normalizedBatch.length > 1 ? normalizedBatch : undefined,
   });
   return `${env.FRONTEND_URL}/client-review/${encodeURIComponent(token)}`;
 };
@@ -754,12 +763,62 @@ export const matchService = {
       data: {
         candidateId: data.candidateId,
         jobId: data.jobId,
-        score: data.score,
+        score: normalizeMatchScore(data.score),
         status: data.status || 'SUGGESTED',
         notes: data.notes,
         createdById: data.createdById,
       },
     });
+  },
+
+  /** Submit-to-client: ensure a real Match row exists for candidate + job (handles applied-pool / duplicate). */
+  async findOrCreateForSubmit({ candidateId, jobId, score, createdById }) {
+    const cid = String(candidateId || '').trim();
+    const jid = String(jobId || '').trim();
+    if (!cid || !jid) {
+      throw new Error('Candidate and job are required to submit to the client');
+    }
+
+    const candidate = await prisma.candidate.findFirst({
+      where: { id: cid, isDeleted: { not: true } },
+      select: { id: true },
+    });
+    if (!candidate) {
+      throw new Error('Candidate not found');
+    }
+
+    const job = await prisma.job.findFirst({
+      where: { id: jid, isDeleted: { not: true } },
+      select: { id: true },
+    });
+    if (!job) {
+      throw new Error('Job not found for this candidate');
+    }
+
+    const existing = await prisma.match.findFirst({
+      where: { candidateId: cid, jobId: jid },
+    });
+    if (existing) return existing;
+
+    try {
+      return await prisma.match.create({
+        data: {
+          candidateId: cid,
+          jobId: jid,
+          score: normalizeMatchScore(score),
+          status: 'SUGGESTED',
+          createdById: createdById || null,
+        },
+      });
+    } catch (err) {
+      if (err?.code === 'P2002') {
+        const again = await prisma.match.findFirst({
+          where: { candidateId: cid, jobId: jid },
+        });
+        if (again) return again;
+      }
+      throw err;
+    }
   },
 
   async update(id, data) {
@@ -905,8 +964,18 @@ export const matchService = {
       });
     }
 
+    const batchMatchIds = Array.isArray(data?.batchMatchIds)
+      ? data.batchMatchIds.map((id) => String(id || '').trim()).filter(Boolean)
+      : [];
+    const normalizedBatchMatchIds = Array.from(new Set(batchMatchIds));
+
     const reviewUrl = notifyClient
-      ? buildClientReviewUrl(match, submissionType, cvShareMode || 'edited')
+      ? buildClientReviewUrl(
+          match,
+          submissionType,
+          cvShareMode || 'edited',
+          normalizedBatchMatchIds.length > 1 ? normalizedBatchMatchIds : null,
+        )
       : null;
 
     await prisma.$transaction(async (tx) => {
@@ -955,6 +1024,9 @@ export const matchService = {
       const finalMessage = [
         message,
         message ? '' : null,
+        normalizedBatchMatchIds.length > 1
+          ? `Review ${normalizedBatchMatchIds.length} submitted candidates using the link below.`
+          : null,
         purposeLine,
         reviewUrl ? `Review link: ${reviewUrl}` : null,
       ]
@@ -962,13 +1034,25 @@ export const matchService = {
         .join('\n')
         .trim();
 
+      let emailCandidates = [mapEmailCandidate(match.candidate)];
+      if (normalizedBatchMatchIds.length > 1) {
+        const batchMatches = await prisma.match.findMany({
+          where: { id: { in: normalizedBatchMatchIds } },
+          include: { candidate: true },
+        });
+        emailCandidates = normalizedBatchMatchIds
+          .map((id) => batchMatches.find((row) => row.id === id))
+          .filter(Boolean)
+          .map((row) => mapEmailCandidate(row.candidate));
+      }
+
       const emailResult = await sendMatchSubmissionEmail({
         to: recipients,
         clientName: match.job.client?.companyName || 'Team',
         jobTitle: match.job.title,
         recruiterName: match.createdBy?.name || 'Recruitment Team',
         message: finalMessage,
-        candidates: [mapEmailCandidate(match.candidate)],
+        candidates: emailCandidates,
         portalUrl: reviewUrl || `${env.FRONTEND_URL}/matches`,
       });
 

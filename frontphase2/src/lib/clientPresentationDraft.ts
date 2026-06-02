@@ -14,6 +14,13 @@ import {
   type ClientReviewSection,
   type ClientSectionVisibility,
 } from './clientPresentationSections';
+import type { Phase1ProfileSnapshot } from './phase1ProfileSnapshot';
+import {
+  buildPhase1ClientReviewSections,
+  DEFAULT_PHASE1_CLIENT_SECTION_VISIBILITY,
+  normalizePhase1ClientSectionVisibility,
+  type Phase1ClientSectionVisibility,
+} from './phase1ClientPresentationSections';
 
 export const CLIENT_PRESENTATION_KEY = 'clientPresentation';
 
@@ -27,6 +34,9 @@ export type ClientPresentationStored = {
   cvEditorLayout?: Record<string, unknown> | null;
   visibleSections?: ClientSectionVisibility;
   clientReviewSections?: ClientReviewSection[];
+  /** Full Phase 1 portal profile copy for client submit (editable sections). */
+  phase1Snapshot?: Phase1ProfileSnapshot | null;
+  phase1VisibleSections?: Phase1ClientSectionVisibility;
 };
 
 function parseExtra(extraData: unknown): Record<string, unknown> {
@@ -47,9 +57,18 @@ export function readClientPresentation(
   const visibleSections = normalizeClientSectionVisibility(
     row.visibleSections as Partial<ClientSectionVisibility> | undefined
   );
-  const clientReviewSections = Array.isArray(row.clientReviewSections)
-    ? (row.clientReviewSections as ClientReviewSection[])
-    : buildClientReviewSections(editForm, visibleSections);
+  const phase1Snapshot =
+    row.phase1Snapshot && typeof row.phase1Snapshot === 'object' && !Array.isArray(row.phase1Snapshot)
+      ? (row.phase1Snapshot as Phase1ProfileSnapshot)
+      : null;
+  const phase1VisibleSections = normalizePhase1ClientSectionVisibility(
+    row.phase1VisibleSections as Partial<Phase1ClientSectionVisibility> | undefined,
+  );
+  const clientReviewSections: ClientReviewSection[] = phase1Snapshot
+    ? buildPhase1ClientReviewSections(phase1Snapshot, phase1VisibleSections)
+    : Array.isArray(row.clientReviewSections)
+      ? (row.clientReviewSections as ClientReviewSection[])
+      : buildClientReviewSections(editForm, visibleSections);
   return {
     updatedAt: String(row.updatedAt || ''),
     editForm,
@@ -60,6 +79,8 @@ export function readClientPresentation(
         : null,
     visibleSections,
     clientReviewSections,
+    phase1Snapshot,
+    phase1VisibleSections: phase1Snapshot ? phase1VisibleSections : undefined,
   };
 }
 
@@ -89,6 +110,23 @@ export function buildClientPresentationExtraData(
     ...prev,
     [CLIENT_PRESENTATION_KEY]: stored,
   };
+}
+
+/** Live preview for Submit to Client — same sections as the profile Client tab. */
+export function buildSubmitPreviewProfile(
+  editForm: CandidateEditFormState,
+  baseProfile: CandidateProfileDrawerData,
+  visibleSections?: Partial<ClientSectionVisibility> | null,
+): CandidateProfileDrawerData {
+  const extraData = buildClientPresentationExtraData(editForm, baseProfile.extraData ?? null, {
+    visibleSections,
+  });
+  return (
+    mergeProfileWithClientPresentation({
+      ...baseProfile,
+      extraData,
+    }) ?? baseProfile
+  );
 }
 
 /** Submit drawer: use saved client copy, or seed once from the live profile. */

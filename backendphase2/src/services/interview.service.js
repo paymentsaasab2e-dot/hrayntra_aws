@@ -368,6 +368,18 @@ async function persistCvSubmissionForCandidate(candidateId, cvShareMode, jobTitl
   });
 }
 
+function normalizeBatchMatchIds(decoded) {
+  const raw = decoded?.batchMatchIds;
+  const ids = Array.isArray(raw)
+    ? raw.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  if (decoded?.matchId) {
+    const primary = String(decoded.matchId).trim();
+    if (primary && !ids.includes(primary)) ids.unshift(primary);
+  }
+  return Array.from(new Set(ids));
+}
+
 export const createClientReviewToken = ({
   interviewId = null,
   matchId = null,
@@ -376,8 +388,15 @@ export const createClientReviewToken = ({
   clientId = null,
   submissionType = 'GENERAL',
   cvShareMode = null,
-} = {}) =>
-  jwt.sign(
+  batchMatchIds = null,
+} = {}) => {
+  const normalizedBatch = Array.isArray(batchMatchIds)
+    ? Array.from(new Set(batchMatchIds.map((id) => String(id || '').trim()).filter(Boolean)))
+    : [];
+  const batchPayload =
+    normalizedBatch.length > 1 ? normalizedBatch : undefined;
+
+  return jwt.sign(
     {
       interviewId,
       matchId,
@@ -387,11 +406,13 @@ export const createClientReviewToken = ({
       tenantDbName: getActiveTenantDbName() || undefined,
       submissionType: submissionType || 'GENERAL',
       cvShareMode: normalizeCvShareMode(cvShareMode) || undefined,
+      batchMatchIds: batchPayload,
       type: 'INTERVIEW_CLIENT_REVIEW',
     },
     env.JWT_SECRET,
     { expiresIn: '14d' }
   );
+};
 
 const verifyClientReviewToken = (token) => {
   try {
@@ -494,6 +515,166 @@ const resolveReviewTenant = async (decoded) => {
     matchId: decoded.matchId || null,
   });
 };
+
+const matchClientReviewInclude = {
+  candidate: { select: interviewInclude.candidate.select },
+  job: {
+    select: {
+      ...interviewInclude.job.select,
+      client: { select: interviewInclude.client.select },
+    },
+  },
+};
+
+async function loadPriorFeedbackForMatchRow(match) {
+  const jobIdForFeedback = match.jobId || match.job?.id || null;
+  if (!jobIdForFeedback) return [];
+  return prisma.interviewFeedback.findMany({
+    where: {
+      interview: {
+        candidateId: match.candidateId,
+        jobId: jobIdForFeedback,
+      },
+    },
+    include: {
+      interviewer: { select: { id: true, name: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 5,
+  });
+}
+
+async function buildSyntheticInterviewFromMatch(match) {
+  const priorFeedback = await loadPriorFeedbackForMatchRow(match);
+  const jobRow = match.job;
+  const clientRow = jobRow?.client || {
+    id: '',
+    companyName: '',
+    website: '',
+    location: '',
+    industry: '',
+  };
+  return {
+    id: match.id,
+    candidateId: match.candidateId,
+    candidate: match.candidate,
+    job: jobRow
+      ? {
+          id: jobRow.id,
+          title: jobRow.title,
+          department: jobRow.department,
+          location: jobRow.location,
+          clientId: jobRow.clientId,
+        }
+      : { id: '', title: '', department: null, location: null, clientId: null },
+    client: clientRow,
+    feedbackEntries: priorFeedback,
+    notes: '',
+  };
+}
+
+function serializeInterviewForClientReview(
+  interview,
+  { submissionType, cvShareMode, offerLetterFile = null, matchId = null } = {},
+) {
+  const c = interview.candidate;
+  const submissionSnapshot = readCandidateCvSubmissionSnapshot(c);
+  const jobTitle = interview.job?.title || '';
+
+  const baseCandidate = {
+    name: `${c.firstName || ''} ${c.lastName || ''}`.trim(),
+    email: c.email || '',
+    phone: c.phone || '',
+    currentCompany: c.currentCompany || '',
+    designation: c.designation || c.currentTitle || '',
+    experience: c.experience ?? null,
+    skills: c.skills || [],
+    languages: c.languages || [],
+    education: c.education || '',
+    certifications: c.certifications || [],
+    cvSummary: c.cvSummary || '',
+    cvEducationEntries: Array.isArray(c.cvEducationEntries) ? c.cvEducationEntries : [],
+    cvWorkExperienceEntries: Array.isArray(c.cvWorkExperienceEntries) ? c.cvWorkExperienceEntries : [],
+    address: c.address || '',
+    city: c.city || '',
+    country: c.country || '',
+    linkedIn: c.linkedIn || '',
+    resume: c.resume || c.resumeUrl || '',
+  };
+
+  const editedFromSnapshot = mapSnapshotToClientCandidateFields(submissionSnapshot);
+  const presentationFromProfile = buildClientReviewSectionsFromPresentation(
+    readClientPresentation(c?.extraData),
+  );
+  const presentationSections =
+    presentationFromProfile.length > 0
+      ? presentationFromProfile
+      : Array.isArray(submissionSnapshot?.clientReviewSections) &&
+          submissionSnapshot.clientReviewSections.length > 0
+        ? submissionSnapshot.clientReviewSections
+        : [];
+
+  const hasPresentationSections = presentationSections.length > 0;
+  const candidateForClient = hasPresentationSections
+    ? {
+        ...baseCandidate,
+        ...(cvShareMode !== 'original' && editedFromSnapshot ? editedFromSnapshot : {}),
+        resume: cvShareMode === 'original' ? baseCandidate.resume : '',
+      }
+    : cvShareMode === 'original'
+      ? {
+          ...baseCandidate,
+          cvSummary: '',
+          cvEducationEntries: [],
+          cvWorkExperienceEntries: [],
+          skills: [],
+          languages: [],
+          education: '',
+          certifications: [],
+        }
+      : editedFromSnapshot
+        ? { ...baseCandidate, ...editedFromSnapshot, resume: '' }
+        : { ...baseCandidate, resume: '' };
+
+  const cvEditorPreview =
+    cvShareMode === 'edited'
+      ? submissionSnapshot
+        ? buildCvEditorPreviewFromSnapshot(submissionSnapshot, jobTitle)
+        : buildCvEditorPreviewFromCandidate(c, jobTitle)
+      : null;
+
+  const sharedResumeUrl = String(
+    submissionSnapshot?.resume || c.resume || c.resumeUrl || '',
+  ).trim();
+
+  return {
+    matchId: matchId || interview.id,
+    interviewId: interview.id,
+    submissionType,
+    cvShareMode,
+    offerLetterUrl: offerLetterFile?.fileUrl || null,
+    candidate: candidateForClient,
+    presentationSections,
+    cvEditorPreview,
+    sharedResumeUrl: sharedResumeUrl.startsWith('http') ? sharedResumeUrl : null,
+    job: {
+      title: interview.job?.title || '',
+    },
+    client: {
+      companyName: interview.client?.companyName || '',
+    },
+    interviewFeedback: (interview.feedbackEntries || []).map((entry) => ({
+      id: entry.id,
+      interviewerName: entry.interviewer?.name || 'Interviewer',
+      submittedAt: entry.createdAt,
+      recommendation: entry.recommendation || '',
+      comments: entry.comments || '',
+      strengths: entry.strengths || '',
+      weakness: entry.weakness || '',
+      overallScore: entry.overallScore ?? null,
+    })),
+  };
+}
 
 const attachMeetingLink = async (interview, platformOverride) => {
   const platform = platformOverride || interview.platform;
@@ -1337,9 +1518,57 @@ export const interviewService = {
     const tenantDbName = await resolveReviewTenant(decoded);
     const submissionType = normalizeSubmissionType(decoded?.submissionType) || 'GENERAL';
     const cvShareMode = normalizeCvShareMode(decoded?.cvShareMode) || 'edited';
+    const batchMatchIds = normalizeBatchMatchIds(decoded);
+    const isBatchReview = !decoded.interviewId && batchMatchIds.length > 1;
 
-    // The two entry points (interview / match) share a response shape so the
-    // public review page doesn't need to know which one it came from.
+    if (isBatchReview) {
+      const payloads = await runWithTenantContext(tenantDbName, async () => {
+        const matches = await prisma.match.findMany({
+          where: { id: { in: batchMatchIds } },
+          include: matchClientReviewInclude,
+        });
+        const ordered = batchMatchIds
+          .map((id) => matches.find((row) => row.id === id))
+          .filter(Boolean);
+        if (!ordered.length) {
+          throw new Error('No candidates found for this review link');
+        }
+
+        return Promise.all(
+          ordered.map(async (match) => {
+            const interview = await buildSyntheticInterviewFromMatch(match);
+            const offerFile = await prisma.candidateFile.findFirst({
+              where: { candidateId: match.candidateId, fileType: 'Offer' },
+              orderBy: { uploadDate: 'desc' },
+            });
+            return serializeInterviewForClientReview(interview, {
+              submissionType,
+              cvShareMode,
+              offerLetterFile: offerFile,
+              matchId: match.id,
+            });
+          }),
+        );
+      });
+
+      const primaryMatchId = decoded.matchId || payloads[0]?.matchId;
+      const active =
+        payloads.find((row) => row.matchId === primaryMatchId) || payloads[0];
+
+      return {
+        ...active,
+        activeMatchId: active.matchId,
+        batchCandidates: payloads.map((detail) => ({
+          matchId: detail.matchId,
+          candidateName: detail.candidate?.name || 'Candidate',
+          designation: detail.candidate?.designation || '',
+          experience: detail.candidate?.experience ?? null,
+          jobTitle: detail.job?.title || '',
+          detail,
+        })),
+      };
+    }
+
     const { interview, offerLetterFile } = await runWithTenantContext(
       tenantDbName,
       async () => {
@@ -1347,65 +1576,12 @@ export const interviewService = {
         if (decoded.interviewId) {
           iv = await getInterviewOrThrow(decoded.interviewId);
         } else {
-          // Match-only path: build a synthetic "interview" that the rest of
-          // this method can serialize without changing the wire format. We
-          // attach any interviews that already exist for the same candidate
-          // + job so the client still sees prior feedback on the link.
           const match = await prisma.match.findUnique({
             where: { id: decoded.matchId },
-            include: {
-              candidate: { select: interviewInclude.candidate.select },
-              // Match has no `client` relation — client hangs off `Job`.
-              job: {
-                select: {
-                  ...interviewInclude.job.select,
-                  client: { select: interviewInclude.client.select },
-                },
-              },
-            },
+            include: matchClientReviewInclude,
           });
           if (!match) throw new Error('Match not found');
-          const jobIdForFeedback = match.jobId || match.job?.id || null;
-          const priorFeedback = jobIdForFeedback
-            ? await prisma.interviewFeedback.findMany({
-                where: {
-                  interview: {
-                    candidateId: match.candidateId,
-                    jobId: jobIdForFeedback,
-                  },
-                },
-                include: {
-                  interviewer: { select: { id: true, name: true } },
-                },
-                orderBy: { createdAt: 'desc' },
-                take: 5,
-              })
-            : [];
-          const jobRow = match.job;
-          const clientRow = jobRow?.client || {
-            id: '',
-            companyName: '',
-            website: '',
-            location: '',
-            industry: '',
-          };
-          iv = {
-            id: match.id,
-            candidateId: match.candidateId,
-            candidate: match.candidate,
-            job: jobRow
-              ? {
-                  id: jobRow.id,
-                  title: jobRow.title,
-                  department: jobRow.department,
-                  location: jobRow.location,
-                  clientId: jobRow.clientId,
-                }
-              : { id: '', title: '', department: null, location: null, clientId: null },
-            client: clientRow,
-            feedbackEntries: priorFeedback,
-            notes: '',
-          };
+          iv = await buildSyntheticInterviewFromMatch(match);
         }
 
         const offerFile = await prisma.candidateFile.findFirst({
@@ -1413,101 +1589,15 @@ export const interviewService = {
           orderBy: { uploadDate: 'desc' },
         });
         return { interview: iv, offerLetterFile: offerFile };
-      }
+      },
     );
-    const c = interview.candidate;
-    const submissionSnapshot = readCandidateCvSubmissionSnapshot(c);
-    const jobTitle = interview.job?.title || '';
 
-    const baseCandidate = {
-      name: `${c.firstName || ''} ${c.lastName || ''}`.trim(),
-      email: c.email || '',
-      phone: c.phone || '',
-      currentCompany: c.currentCompany || '',
-      designation: c.designation || c.currentTitle || '',
-      experience: c.experience ?? null,
-      skills: c.skills || [],
-      languages: c.languages || [],
-      education: c.education || '',
-      certifications: c.certifications || [],
-      cvSummary: c.cvSummary || '',
-      cvEducationEntries: Array.isArray(c.cvEducationEntries) ? c.cvEducationEntries : [],
-      cvWorkExperienceEntries: Array.isArray(c.cvWorkExperienceEntries) ? c.cvWorkExperienceEntries : [],
-      address: c.address || '',
-      city: c.city || '',
-      country: c.country || '',
-      linkedIn: c.linkedIn || '',
-      resume: c.resume || c.resumeUrl || '',
-    };
-
-    const editedFromSnapshot = mapSnapshotToClientCandidateFields(submissionSnapshot);
-    const presentationSections =
-      (Array.isArray(submissionSnapshot?.clientReviewSections) &&
-        submissionSnapshot.clientReviewSections.length > 0 &&
-        submissionSnapshot.clientReviewSections) ||
-      buildClientReviewSectionsFromPresentation(readClientPresentation(c?.extraData)) ||
-      [];
-
-    const hasPresentationSections = presentationSections.length > 0;
-    const candidateForClient =
-      hasPresentationSections
-        ? {
-            ...baseCandidate,
-            ...(cvShareMode !== 'original' && editedFromSnapshot ? editedFromSnapshot : {}),
-            resume: cvShareMode === 'original' ? baseCandidate.resume : '',
-          }
-        : cvShareMode === 'original'
-          ? {
-              ...baseCandidate,
-              cvSummary: '',
-              cvEducationEntries: [],
-              cvWorkExperienceEntries: [],
-              skills: [],
-              languages: [],
-              education: '',
-              certifications: [],
-            }
-          : editedFromSnapshot
-            ? { ...baseCandidate, ...editedFromSnapshot, resume: '' }
-            : { ...baseCandidate, resume: '' };
-
-    const cvEditorPreview =
-      cvShareMode === 'edited'
-        ? submissionSnapshot
-          ? buildCvEditorPreviewFromSnapshot(submissionSnapshot, jobTitle)
-          : buildCvEditorPreviewFromCandidate(c, jobTitle)
-        : null;
-
-    const sharedResumeUrl = String(
-      submissionSnapshot?.resume || c.resume || c.resumeUrl || '',
-    ).trim();
-
-    return {
-      interviewId: interview.id,
+    return serializeInterviewForClientReview(interview, {
       submissionType,
       cvShareMode,
-      offerLetterUrl: offerLetterFile?.fileUrl || null,
-      candidate: candidateForClient,
-      presentationSections,
-      cvEditorPreview,
-      sharedResumeUrl: sharedResumeUrl.startsWith('http') ? sharedResumeUrl : null,
-      job: {
-        title: interview.job.title || '',
-      },
-      client: {
-        companyName: interview.client.companyName || '',
-      },
-      interviewFeedback: (interview.feedbackEntries || []).map((entry) => ({
-        id: entry.id,
-        interviewerName: entry.interviewer?.name || 'Interviewer',
-        submittedAt: entry.createdAt,
-        recommendation: entry.recommendation || '',
-        comments: entry.comments || '',
-        strengths: entry.strengths || '',
-        weakness: entry.weakness || '',
-        overallScore: entry.overallScore ?? null,
-      })),
-    };
+      offerLetterFile,
+      matchId: decoded.matchId || interview.id,
+    });
   },
 
   async submitPublicClientTag(token, payload, file = null) {
@@ -1542,6 +1632,13 @@ export const interviewService = {
       let candidateId;
       let jobId;
       let uploaderId = null;
+      const batchMatchIds = normalizeBatchMatchIds(decoded);
+      const requestedMatchId = String(payload?.matchId || '').trim();
+      const effectiveMatchId =
+        requestedMatchId && batchMatchIds.includes(requestedMatchId)
+          ? requestedMatchId
+          : decoded.matchId;
+
       if (decoded.interviewId) {
         interview = await getInterviewOrThrow(decoded.interviewId);
         candidateId = interview.candidateId;
@@ -1549,7 +1646,7 @@ export const interviewService = {
         uploaderId = interview.createdById || interview.interviewerId || null;
       } else {
         match = await prisma.match.findUnique({
-          where: { id: decoded.matchId },
+          where: { id: effectiveMatchId },
           select: { id: true, candidateId: true, jobId: true, createdById: true },
         });
         if (!match) throw new Error('Match not found');

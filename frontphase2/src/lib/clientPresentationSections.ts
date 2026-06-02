@@ -1,8 +1,10 @@
 import type { CandidateEditFormState } from '../components/candidates/CandidateEditAtsSections';
+import { parseWorkEntriesFromUnknown } from './candidateExperience';
 
 export type ClientPresentationSectionId =
   | 'personal'
   | 'education'
+  | 'work'
   | 'professional'
   | 'social'
   | 'summary';
@@ -10,6 +12,7 @@ export type ClientPresentationSectionId =
 export const CLIENT_PRESENTATION_SECTION_IDS: ClientPresentationSectionId[] = [
   'personal',
   'education',
+  'work',
   'professional',
   'social',
   'summary',
@@ -18,16 +21,19 @@ export const CLIENT_PRESENTATION_SECTION_IDS: ClientPresentationSectionId[] = [
 export const CLIENT_PRESENTATION_SECTION_LABELS: Record<ClientPresentationSectionId, string> = {
   personal: 'Personal Information',
   education: 'Education',
-  professional: 'Professional Information',
+  work: 'Work Experience',
+  professional: 'Career Preferences',
   social: 'Social Network Information',
   summary: 'Summary & Additional',
 };
 
 export type ClientReviewField = { label: string; value: string };
 export type ClientReviewSection = {
-  id: ClientPresentationSectionId;
+  id: string;
   title: string;
   fields: ClientReviewField[];
+  /** Structured rows (work, education, etc.) — rendered as entry cards on the client review page */
+  entries?: Array<Record<string, unknown>>;
 };
 
 export type ClientSectionVisibility = Record<ClientPresentationSectionId, boolean>;
@@ -35,6 +41,7 @@ export type ClientSectionVisibility = Record<ClientPresentationSectionId, boolea
 export const DEFAULT_CLIENT_SECTION_VISIBILITY: ClientSectionVisibility = {
   personal: true,
   education: true,
+  work: true,
   professional: true,
   social: true,
   summary: true,
@@ -42,29 +49,30 @@ export const DEFAULT_CLIENT_SECTION_VISIBILITY: ClientSectionVisibility = {
 
 function str(value: unknown): string {
   if (value === undefined || value === null) return '';
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return '';
+    }
+  }
   return String(value).trim();
 }
 
-function field(label: string, value: unknown): ClientReviewField | null {
-  const v = str(value);
-  if (!v) return null;
-  return { label, value: v };
-}
-
-function fieldsFromPairs(pairs: Array<[string, unknown]>): ClientReviewField[] {
-  return pairs.map(([label, value]) => field(label, value)).filter(Boolean) as ClientReviewField[];
+function reviewField(label: string, value: unknown): ClientReviewField {
+  return { label, value: str(value) };
 }
 
 function isSectionVisible(
   id: ClientPresentationSectionId,
-  visibility?: Partial<ClientSectionVisibility> | null
+  visibility?: Partial<ClientSectionVisibility> | null,
 ): boolean {
   if (!visibility) return true;
   return visibility[id] !== false;
 }
 
 export function normalizeClientSectionVisibility(
-  raw?: Partial<ClientSectionVisibility> | null
+  raw?: Partial<ClientSectionVisibility> | null,
 ): ClientSectionVisibility {
   const next = { ...DEFAULT_CLIENT_SECTION_VISIBILITY };
   if (!raw || typeof raw !== 'object') return next;
@@ -74,27 +82,47 @@ export function normalizeClientSectionVisibility(
   return next;
 }
 
+function pushVisibleSection(
+  sections: ClientReviewSection[],
+  id: ClientPresentationSectionId,
+  pairs: Array<[string, unknown]>,
+  options?: { entries?: Array<Record<string, unknown>> },
+) {
+  const entries = options?.entries?.length ? options.entries : undefined;
+  sections.push({
+    id,
+    title: CLIENT_PRESENTATION_SECTION_LABELS[id],
+    fields: entries
+      ? pairs.map(([label, value]) => reviewField(label, value))
+      : pairs.map(([label, value]) => reviewField(label, value)),
+    entries,
+  });
+}
+
 export function buildClientReviewSections(
   form: CandidateEditFormState,
-  visibility?: Partial<ClientSectionVisibility> | null
+  visibility?: Partial<ClientSectionVisibility> | null,
 ): ClientReviewSection[] {
   const visible = normalizeClientSectionVisibility(visibility);
   const sections: ClientReviewSection[] = [];
 
   if (isSectionVisible('personal', visible)) {
-    const fields = fieldsFromPairs([
+    pushVisibleSection(sections, 'personal', [
+      ['Name', [form.firstName, form.lastName].filter(Boolean).join(' ')],
       ['First Name', form.firstName],
       ['Last Name', form.lastName],
       ['E-mail', form.email],
       ['Mobile No', form.phone],
       ['Age', form.age],
       ['Candidate Score', form.candidateScore],
+      ['City & State', [form.city, form.state].filter(Boolean).join(', ')],
       ['City', form.city],
       ['State', form.state],
       ['Country', form.country],
       ['Location (display)', form.location],
       ['Current Address', form.address],
       ['Zip', form.zip],
+      ['Candidate Image', form.avatar ? 'On file' : ''],
       ['Nationality', form.nationality],
       ['Current Company Website', form.currentCompanyWebsite],
       ['Marital Status', form.maritalStatus],
@@ -102,24 +130,39 @@ export function buildClientReviewSections(
       ['Passport Number', form.passportNumber],
       ['Preferred Location', form.preferredLocation],
     ]);
-    if (fields.length) {
-      sections.push({ id: 'personal', title: CLIENT_PRESENTATION_SECTION_LABELS.personal, fields });
-    }
   }
 
   if (isSectionVisible('education', visible)) {
-    const fields = fieldsFromPairs([
-      ['Education entries', form.cvEducationEntries],
-      ['Education summary', form.educationSummary || form.education],
-      ['Courses', form.educationCourses],
-    ]);
-    if (fields.length) {
-      sections.push({ id: 'education', title: CLIENT_PRESENTATION_SECTION_LABELS.education, fields });
-    }
+    const eduEntries = parseWorkEntriesFromUnknown(form.cvEducationEntries);
+    pushVisibleSection(
+      sections,
+      'education',
+      eduEntries.length
+        ? [
+            ['Education summary', form.educationSummary || form.education],
+            ['Courses', form.educationCourses],
+          ]
+        : [
+            ['Education entries', form.cvEducationEntries],
+            ['Education summary', form.educationSummary || form.education],
+            ['Courses', form.educationCourses],
+          ],
+      eduEntries.length
+        ? {
+            entries: eduEntries.map((entry) => ({
+              degreeProgram: entry.degree ?? entry.qualification,
+              institutionName: entry.institution ?? entry.instituteName,
+              startYear: entry.startYear,
+              endYear: entry.endYear,
+              grade: entry.grade,
+            })),
+          }
+        : undefined,
+    );
   }
 
   if (isSectionVisible('professional', visible)) {
-    const fields = fieldsFromPairs([
+    pushVisibleSection(sections, 'professional', [
       ['Remarks', form.remarks],
       ['Experience (years)', form.experience],
       ['Current Designation', form.currentTitle],
@@ -132,22 +175,24 @@ export function buildClientReviewSections(
       ['Expected Benefits', form.expectedBenefits],
       ['Notice Period', form.noticePeriod],
       ['Resume URL', form.resumeUrl],
-      ['Work experience', form.cvWorkExperienceEntries],
       ['Work history (narrative)', form.workHistoryText],
       ['Extracurricular activities', form.extracurricular],
       ['Volunteers', form.volunteers],
     ]);
-    if (fields.length) {
-      sections.push({
-        id: 'professional',
-        title: CLIENT_PRESENTATION_SECTION_LABELS.professional,
-        fields,
-      });
-    }
+  }
+
+  if (isSectionVisible('work', visible)) {
+    const workEntries = parseWorkEntriesFromUnknown(form.cvWorkExperienceEntries);
+    pushVisibleSection(
+      sections,
+      'work',
+      workEntries.length ? [] : [['Work experience', form.cvWorkExperienceEntries]],
+      workEntries.length ? { entries: workEntries } : undefined,
+    );
   }
 
   if (isSectionVisible('social', visible)) {
-    const fields = fieldsFromPairs([
+    pushVisibleSection(sections, 'social', [
       ['LinkedIn', form.linkedIn],
       ['Twitter', form.twitter],
       ['Xing', form.xing],
@@ -158,13 +203,10 @@ export function buildClientReviewSections(
       ['Portfolio URL', form.portfolio],
       ['Portfolio / project links', form.cvPortfolioLinks],
     ]);
-    if (fields.length) {
-      sections.push({ id: 'social', title: CLIENT_PRESENTATION_SECTION_LABELS.social, fields });
-    }
   }
 
   if (isSectionVisible('summary', visible)) {
-    const fields = fieldsFromPairs([
+    pushVisibleSection(sections, 'summary', [
       ['Summary', form.cvSummary],
       ['Skills', form.skills],
       ['Language & proficiency', form.languageProficiency || form.languages],
@@ -174,9 +216,6 @@ export function buildClientReviewSections(
       ['Hackathons (extra)', form.hackathons],
       ['Internal notes', form.notes],
     ]);
-    if (fields.length) {
-      sections.push({ id: 'summary', title: CLIENT_PRESENTATION_SECTION_LABELS.summary, fields });
-    }
   }
 
   return sections;

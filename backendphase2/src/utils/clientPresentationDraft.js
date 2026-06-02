@@ -26,6 +26,8 @@ export function readClientPresentation(extraData) {
         : null,
     visibleSections: raw.visibleSections,
     clientReviewSections: raw.clientReviewSections,
+    phase1Snapshot: raw.phase1Snapshot,
+    phase1VisibleSections: raw.phase1VisibleSections,
   };
 }
 

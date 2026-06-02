@@ -213,6 +213,11 @@ function logNarrative(lines) {
   for (const line of lines) console.log(line);
 }
 
+function isCvVerboseLoggingEnabled(override) {
+  if (typeof override === 'boolean') return override;
+  return env.CV_PARSE_VERBOSE_LOGS !== false;
+}
+
 function safeJsonForLog(obj, maxLen = 45000) {
   try {
     const s = JSON.stringify(obj, null, 2);
@@ -1886,8 +1891,15 @@ function mergeAiWithFallback(ai, fallback) {
   return out;
 }
 
-async function extractStructuredResumeDataWithOpenAI(cleanedText, file) {
+async function extractStructuredResumeDataWithOpenAI(cleanedText, file, options = {}) {
   const circuitBefore = getCvLlmCircuitSnapshot();
+  const compactPrompt = Boolean(options?.compactPrompt);
+  const preferredProvider =
+    env.CV_PARSE_PROVIDER_PREFERENCE === 'mistral'
+      ? 'mistral'
+      : env.CV_PARSE_PROVIDER_PREFERENCE === 'openai'
+        ? 'openai'
+        : 'auto';
   if (!cleanedText) {
     return {
       parsed: null,
@@ -1920,7 +1932,32 @@ async function extractStructuredResumeDataWithOpenAI(cleanedText, file) {
   }
 
   const capped = cleanedText.slice(0, 22000);
-  const prompt = `Extract structured candidate data from the resume text below for a recruitment ATS import.
+  const prompt = compactPrompt
+    ? `Extract structured candidate data from this resume for ATS import.
+
+Rules:
+- Use only resume facts. Never invent. Use null for missing scalars.
+- Return one valid JSON object only (no markdown).
+- Include all emails in rawEmailsFound and all phones in rawPhonesFound.
+- Keep score.* fields as integers 0..100.
+
+${buildCvLanguagePreservePromptBlock()}
+
+Fields:
+- educationEntries: qualification, instituteName, degree, institution, startYear, endYear, grade.
+- workExperienceEntries: title, company, location, startDate, endDate, durationText, responsibilities[].
+- portfolioLinks: classify each URL by type.
+- extraFields: include only real non-empty supplemental data.
+
+JSON schema:
+${buildCvExtractionJsonSchemaBlock()}
+
+Resume file name: ${file?.originalname || 'resume'}
+
+Resume text:
+${capped}
+`
+    : `Extract structured candidate data from the resume text below for a recruitment ATS import.
 
 Rules:
 - Extract all supported fields from localized section headers, sidebars, and tables.
@@ -1975,7 +2012,7 @@ ${capped}
         ],
       },
       'cv-parse',
-      { quiet: true }
+      { quiet: true, preferredProvider }
     );
     const ms = Date.now() - t0;
     const modelName = String(completion?.model || '').toLowerCase();
@@ -1995,10 +2032,12 @@ ${capped}
     const tokenUsage = extractCompletionTokenUsage(completion, usedMistral);
     const content = completion.choices?.[0]?.message?.content || '{}';
     const parsed = safeJsonParse(content);
-    logNarrative([
-      `Billable tokens (${tokenUsage.provider}) — input: ${tokenUsage.inputTokens}, output: ${tokenUsage.outputTokens}, total: ${tokenUsage.totalTokens}`,
-      `API key used: ${apiUsedLabel}`,
-    ]);
+    if (env.CV_PARSE_VERBOSE_LOGS !== false) {
+      logNarrative([
+        `Billable tokens (${tokenUsage.provider}) — input: ${tokenUsage.inputTokens}, output: ${tokenUsage.outputTokens}, total: ${tokenUsage.totalTokens}`,
+        `API key used: ${apiUsedLabel}`,
+      ]);
+    }
     return {
       parsed: parsed || null,
       meta: {
@@ -2019,14 +2058,16 @@ ${capped}
   } catch (llmErr) {
     const ms = Date.now() - t0;
     const mistralAttempted = Boolean(llmErr?.mistralError);
-    logNarrative([
-      '',
-      `AI call failed: ${llmErr?.message || llmErr}`,
-      mistralAttempted
-        ? 'Parse chain: OpenAI (failed) → Mistral (failed) → System regex fallback ✓'
-        : `Parse chain: OpenAI ${env.OPENAI_CHAT_MODEL} (failed) → System regex fallback ✓`,
-      'Billable tokens: N/A (system regex only — not counted)',
-    ]);
+    if (env.CV_PARSE_VERBOSE_LOGS !== false) {
+      logNarrative([
+        '',
+        `AI call failed: ${llmErr?.message || llmErr}`,
+        mistralAttempted
+          ? 'Parse chain: OpenAI (failed) → Mistral (failed) → System regex fallback ✓'
+          : `Parse chain: OpenAI ${env.OPENAI_CHAT_MODEL} (failed) → System regex fallback ✓`,
+        'Billable tokens: N/A (system regex only — not counted)',
+      ]);
+    }
     return {
       parsed: null,
       meta: {
@@ -2352,7 +2393,14 @@ function normalizeResumeExtraction(merged = {}, fallback = {}, extras = {}) {
  *   skipCandidateRegex — stages 1–3 only (for jobcreation pipeline; no candidate email/name regex).
  */
 export async function runCvPipelineThroughStage4(file, options = {}) {
-  const { skipCandidateRegex = false, skipProfilePhoto = false, logTag = '' } = options;
+  const { skipCandidateRegex = false, skipProfilePhoto = false, logTag = '', verboseLogs } = options;
+  const shouldLog = isCvVerboseLoggingEnabled(verboseLogs);
+  const stageLog = (...args) => {
+    if (shouldLog) logStageBanner(...args);
+  };
+  const narrativeLog = (lines) => {
+    if (shouldLog) logNarrative(lines);
+  };
   const tag = logTag ? `[${logTag}] ` : '';
   const displayName = file.originalname || file.filename || 'upload';
   const sizeBytes =
@@ -2361,8 +2409,8 @@ export async function runCvPipelineThroughStage4(file, options = {}) {
   const mime = file.mimetype || 'unknown';
   const ext = path.extname(displayName).toLowerCase();
 
-  logStageBanner(1, `${tag}File Validation`);
-  logNarrative([
+  stageLog(1, `${tag}File Validation`);
+  narrativeLog([
     `File: ${displayName}`,
     `Size: ${sizeKb} KB`,
     `MIME: ${mime}`,
@@ -2370,10 +2418,10 @@ export async function runCvPipelineThroughStage4(file, options = {}) {
   ]);
   const v = validateCvUploadFile(file);
   if (!v.ok) {
-    logNarrative([`Status: ❌ REJECTED — ${v.message}`]);
+    narrativeLog([`Status: ❌ REJECTED — ${v.message}`]);
     throw new Error(v.message);
   }
-  logNarrative(['Status: ✅ ACCEPTED — proceeding to extraction']);
+  narrativeLog(['Status: ✅ ACCEPTED — proceeding to extraction']);
 
   /** Own copy of bytes — pdf-parse / pdfjs may detach underlying ArrayBuffer; avoid "detached ArrayBuffer" on later passes. */
   const buffer = Buffer.from(fs.readFileSync(file.path));
@@ -2383,7 +2431,7 @@ export async function runCvPipelineThroughStage4(file, options = {}) {
 
   let combinedRaw = '';
   if (mime === 'application/pdf' || ext === '.pdf') {
-    logStageBanner(2, `${tag}Text Extraction Engine (All 4 Passes)`);
+    stageLog(2, `${tag}Text Extraction Engine (All 4 Passes)`);
     async function settlePass(fn) {
       try {
         return { status: 'fulfilled', value: await fn() };
@@ -2405,7 +2453,7 @@ export async function runCvPipelineThroughStage4(file, options = {}) {
         if (!skipProfilePhoto) {
           try {
             extractedProfilePhoto = await extractCvProfilePhotoFromPdfBuffer(buffer);
-            logNarrative([
+            narrativeLog([
               '',
               extractedProfilePhoto?.buffer?.length
                 ? `Embedded profile image: ✅ extracted (${extractedProfilePhoto.filename}, ${(
@@ -2415,7 +2463,7 @@ export async function runCvPipelineThroughStage4(file, options = {}) {
             ]);
           } catch (photoErr) {
             extractedProfilePhoto = null;
-            logNarrative(['', `Embedded profile image: ❌ failed — ${photoErr?.message || photoErr}`]);
+            narrativeLog(['', `Embedded profile image: ❌ failed — ${photoErr?.message || photoErr}`]);
           }
         }
         return { s2, s3 };
@@ -2436,22 +2484,22 @@ export async function runCvPipelineThroughStage4(file, options = {}) {
     ];
     const texts = [text1, text2, text3, text4];
     for (let i = 0; i < 4; i += 1) {
-      logNarrative(linesForPdfPassNarrative(i + 1, passTitles[i], texts[i], settled[i], skipCandidateRegex));
-      logNarrative(['']);
+      narrativeLog(linesForPdfPassNarrative(i + 1, passTitles[i], texts[i], settled[i], skipCandidateRegex));
+      narrativeLog(['']);
     }
 
     const { combined, sorted } = buildPdfCombineResult(text1, text2, text3, text4);
     combinedRaw = combined;
 
     const sortHints = ['← listed FIRST (winner)', '← listed second', '← listed third', '← listed last'];
-    logNarrative(['Scoring summary:']);
+    narrativeLog(['Scoring summary:']);
     sorted.forEach((p, idx) => {
       const hint = sortHints[idx] || '';
-      logNarrative([`Pass ${p.order}: len=${String(p.text || '').length}  score=${p.score}  ${hint}`]);
+      narrativeLog([`Pass ${p.order}: len=${String(p.text || '').length}  score=${p.score}  ${hint}`]);
     });
-    logNarrative(['']);
+    narrativeLog(['']);
     if (skipCandidateRegex) {
-      logNarrative([
+      narrativeLog([
         `Combined text block length: ~${combinedRaw.length} chars`,
         `Role/Job title line: ${/\b(role|job title|position)\s*:/i.test(combinedRaw) ? '✅ YES' : '❌ NO'}`,
         `Company line: ${/\b(company|client|employer)\s*:/i.test(combinedRaw) ? '✅ YES' : '❌ NO'}`,
@@ -2460,25 +2508,25 @@ export async function runCvPipelineThroughStage4(file, options = {}) {
     } else {
       const emailInCombined = RX_EMAIL_IN_TEXT.test(combinedRaw);
       const phoneInCombined = RX_PHONE_LOOSE.test(combinedRaw);
-      logNarrative([
+      narrativeLog([
         `Combined text block length: ~${combinedRaw.length} chars`,
         `Email found in combined text: ${emailInCombined ? '✅ YES' : '❌ NO'}`,
         `Phone found in combined text: ${phoneInCombined ? '✅ YES' : '❌ NO'}`,
       ]);
     }
   } else {
-    logStageBanner(2, `${tag}Text Extraction Engine`);
+    stageLog(2, `${tag}Text Extraction Engine`);
     if (
       mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
       ext === '.docx'
     ) {
-      logNarrative(['Engine: DOCX — mammoth.extractRawText({ buffer })']);
+      narrativeLog(['Engine: DOCX — mammoth.extractRawText({ buffer })']);
       const mammothModule = await import('mammoth');
       const mammoth = mammothModule.default || mammothModule;
       const result = await mammoth.extractRawText({ buffer });
       combinedRaw = result?.value || '';
     } else if (mime === 'application/msword' || ext === '.doc') {
-      logNarrative(['Engine: DOC (legacy Word) — word-extractor']);
+      narrativeLog(['Engine: DOC (legacy Word) — word-extractor']);
       try {
         combinedRaw = await extractLegacyDocText(file.path);
       } catch (docErr) {
@@ -2486,10 +2534,10 @@ export async function runCvPipelineThroughStage4(file, options = {}) {
         throw new Error(`Could not read Word .doc file: ${msg}`);
       }
     } else {
-      logNarrative(['Engine: Plain text — UTF-8 decode of buffer']);
+      narrativeLog(['Engine: Plain text — UTF-8 decode of buffer']);
       combinedRaw = buffer.toString('utf8');
     }
-    logNarrative([`Extracted text length: ${combinedRaw.length} chars`]);
+    narrativeLog([`Extracted text length: ${combinedRaw.length} chars`]);
   }
 
   const nulCount = (combinedRaw.match(/\u0000/g) || []).length;
@@ -2497,8 +2545,8 @@ export async function runCvPipelineThroughStage4(file, options = {}) {
   const dupStats = dedupeConsecutiveLinesMaxTwiceWithStats(afterCleanOnly);
   const cleaned = preprocessResumeTextForParsing(dupStats.text);
 
-  logStageBanner(3, `${tag}Clean + Deduplicate`);
-  logNarrative([
+  stageLog(3, `${tag}Clean + Deduplicate`);
+  narrativeLog([
     `Input length:  ${combinedRaw.length} chars`,
     `After cleaning: ${cleaned.length} chars`,
     `Duplicate lines removed: ${dupStats.removed}`,
@@ -2512,12 +2560,12 @@ export async function runCvPipelineThroughStage4(file, options = {}) {
   let fallbackData = null;
   let fullName = '';
   if (!skipCandidateRegex) {
-    logStageBanner(4, `${tag}Regex Safety Net (candidate fields)`);
+    stageLog(4, `${tag}Regex Safety Net (candidate fields)`);
     fallbackData = extractRegexFallbackData(cleaned, displayName);
     const hints = regexHintsForLogs(cleaned, fallbackData);
     fullName = `${fallbackData.firstName} ${fallbackData.lastName}`.trim();
     const skillSample = (fallbackData.skills || []).slice(0, 12).join(', ');
-    logNarrative([
+    narrativeLog([
       fallbackData.email
         ? `✅ Email found:    ${fallbackData.email}`
         : '❌ Email:       not found',
@@ -2576,7 +2624,8 @@ export async function finalizeCvPipelineFromStage5(
   candidateId,
   stage4,
   identityPatch,
-  tenantDbNameOpt
+  tenantDbNameOpt,
+  options = {},
 ) {
   let { displayName, buffer, extractedProfilePhoto, cleaned, fallbackData, fullName } = stage4;
   if (identityPatch && typeof identityPatch === 'object') {
@@ -2586,9 +2635,16 @@ export async function finalizeCvPipelineFromStage5(
   const tenantDbName =
     String(tenantDbNameOpt || getActiveTenantDbName() || 'default').trim() || 'default';
   const tPipeline = Date.now();
+  const shouldLog = isCvVerboseLoggingEnabled(options?.verboseLogs);
+  const stageLog = (...args) => {
+    if (shouldLog) logStageBanner(...args);
+  };
+  const narrativeLog = (lines) => {
+    if (shouldLog) logNarrative(lines);
+  };
 
-  logStageBanner(5, 'AI Structured Extraction (ATS field pipeline)');
-  logNarrative([
+  stageLog(5, 'AI Structured Extraction (ATS field pipeline)');
+  narrativeLog([
     'Pipeline sections:',
     `  Personal: ${CV_PIPELINE_SECTIONS.personal.join(', ')}`,
     `  Education: ${CV_PIPELINE_SECTIONS.education.join(', ')}`,
@@ -2598,7 +2654,7 @@ export async function finalizeCvPipelineFromStage5(
     '',
   ]);
   const circuitSnap = getCvLlmCircuitSnapshot();
-  logNarrative([
+  narrativeLog([
     'Circuit breaker check:',
     `  OpenAI last failed at: ${
       circuitSnap.lastFailureIso
@@ -2644,7 +2700,9 @@ export async function finalizeCvPipelineFromStage5(
         })
       : Promise.resolve(null);
 
-  const aiPromise = extractStructuredResumeDataWithOpenAI(cleaned, file);
+  const aiPromise = extractStructuredResumeDataWithOpenAI(cleaned, file, {
+    compactPrompt: Boolean(options?.compactPrompt),
+  });
   const [uploadSettled, profilePhotoSettled, aiSettled] = await Promise.allSettled([
     uploadPromise,
     profilePhotoPromise,
@@ -2678,7 +2736,7 @@ export async function finalizeCvPipelineFromStage5(
       outputTokens: 0,
       totalTokens: 0,
     };
-    logNarrative([
+    narrativeLog([
       '',
       `AI extraction threw: ${aiSettled.reason?.message || aiSettled.reason}`,
       mistralAttempted
@@ -2706,7 +2764,7 @@ export async function finalizeCvPipelineFromStage5(
 
   const apiSummary = buildCvParseApiSummary(aiMeta);
 
-  logNarrative([
+  narrativeLog([
     '',
     `AI processing time: ~${aiMeta.ms}ms`,
     `Parse chain:    ${apiSummary.parseChain}`,
@@ -2729,15 +2787,15 @@ export async function finalizeCvPipelineFromStage5(
       ? 'AI returned valid JSON ✅'
       : 'AI returned valid JSON ❌ (using Stage 4 regex fallback where needed)',
   ]);
-  if (aiParsed && aiMeta.validJson) {
-  console.log('');
+  if (shouldLog && aiParsed && aiMeta.validJson) {
+    console.log('');
     console.log('AI result:');
     console.log(safeJsonForLog(aiParsed));
   }
 
-  logStageBanner(6, 'Validate + Merge');
+  stageLog(6, 'Validate + Merge');
   const chk = validateAiShapeForLogs(aiParsed);
-  logNarrative([
+  narrativeLog([
     `JSON valid:                  ${chk.jsonValid ? '✅' : '❌'}`,
     `educationEntries is array:   ${chk.eduArr ? '✅' : '❌'} (${chk.eduLen} entries)`,
     `workExperienceEntries array: ${chk.workArr ? '✅' : '❌'} (${chk.workLen} entries)`,
@@ -2801,7 +2859,7 @@ export async function finalizeCvPipelineFromStage5(
       : 'enriched'
     : 'fallback';
 
-  logNarrative([
+  narrativeLog([
     '',
     'Merge result:',
     `  email  → ${pickSrc('email', 'email')}:  ${normalizedData.email || 'N/A'}  ${normalizedData.email ? '✅' : '❌'}`,
@@ -2820,7 +2878,7 @@ export async function finalizeCvPipelineFromStage5(
   ]);
 
   const pipelineCoverage = countPipelineFieldCoverage(normalizedData);
-  logNarrative([
+  narrativeLog([
     '',
     `Pipeline field coverage: ${pipelineCoverage.count}/${pipelineCoverage.total} core groups`,
     pipelineCoverage.filled.length
@@ -2828,10 +2886,10 @@ export async function finalizeCvPipelineFromStage5(
       : '  Captured: (minimal — mostly regex fallback)',
   ]);
 
-  logNarrative(['', 'Section-wise extraction (all ATS fields):']);
-  logPipelineSectionsExtraction(normalizedData);
+  narrativeLog(['', 'Section-wise extraction (all ATS fields):']);
+  if (shouldLog) logPipelineSectionsExtraction(normalizedData);
 
-  logStageBanner(7, 'Three Storage Destinations');
+  stageLog(7, 'Three Storage Destinations');
   const extraKeys =
     normalizedData.extraData && typeof normalizedData.extraData === 'object'
       ? Object.keys(normalizedData.extraData)
@@ -2839,7 +2897,7 @@ export async function finalizeCvPipelineFromStage5(
   const softSkills = Array.isArray(normalizedData.extraData?.softSkills)
     ? normalizedData.extraData.softSkills
     : [];
-  logNarrative([
+  narrativeLog([
     'Candidate DB record:    ⚪ not persisted (parse-resume returns JSON only)',
     '  name, email, phone, designation, company,',
     '  location, skills, education, experience,',
@@ -2865,11 +2923,13 @@ export async function finalizeCvPipelineFromStage5(
 
   const totalMs = Date.now() - tPipeline;
   const finalApiSummary = buildCvParseApiSummary(aiMeta);
-  logCvParseRouteRecord(displayName, finalApiSummary);
-  logStage8FinalResponse(normalizedData, {
-    totalMs,
-    apiSummary: finalApiSummary,
-  });
+  if (shouldLog) {
+    logCvParseRouteRecord(displayName, finalApiSummary);
+    logStage8FinalResponse(normalizedData, {
+      totalMs,
+      apiSummary: finalApiSummary,
+    });
+  }
 
   const cvParseMeta = buildCvParseMeta(aiMeta);
   return cvParseMeta ? { ...normalizedData, cvParseMeta } : normalizedData;

@@ -97,17 +97,17 @@ export default function ReportsPage() {
 
   const loadSummary = useCallback(
     async (nextFilters: FiltersState, opts?: { silent?: boolean }) => {
-      if (!opts?.silent) setLoading(true);
-      setError(null);
-      try {
+    if (!opts?.silent) setLoading(true);
+    setError(null);
+    try {
         const query = buildReportQueryString(nextFilters);
         const response = await apiFetch<ReportsSummary>(`/reports/summary?${query}`, { auth: true });
-        setSummary(response.data);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load reports');
-      } finally {
-        if (!opts?.silent) setLoading(false);
-      }
+      setSummary(response.data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load reports');
+    } finally {
+      if (!opts?.silent) setLoading(false);
+    }
     },
     [],
   );
@@ -257,12 +257,12 @@ export default function ReportsPage() {
           <div className="flex items-center gap-2.5">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/30 lg:hidden">
               <BarChart3 className="h-5 w-5" />
-            </div>
+          </div>
             <div>
               <h1 className="text-lg font-bold tracking-tight text-slate-900 sm:text-xl">{SECTION_LABELS[section]}</h1>
               <p className="text-[11px] text-slate-500">Power BI-style insights, simplified for recruiting</p>
-            </div>
-          </div>
+        </div>
+      </div>
           <div className="flex flex-wrap items-center gap-2">
             {canSaveReports ? (
               <button
@@ -274,7 +274,7 @@ export default function ReportsPage() {
                 Save
               </button>
             ) : null}
-            <button
+          <button
               type="button"
               onClick={() => void handleRefresh()}
               disabled={pullRefreshing || loading}
@@ -282,27 +282,27 @@ export default function ReportsPage() {
               title="Refresh"
             >
               <RefreshCcw size={16} className={pullRefreshing ? 'animate-spin' : ''} />
-            </button>
+          </button>
             {canExportData && section !== 'raw' && SECTION_EXPORT_TABS[section] ? (
               <>
-                <button
-                  type="button"
-                  onClick={() => void handleExport('csv')}
-                  disabled={!!exporting}
+              <button
+                type="button"
+                onClick={() => void handleExport('csv')}
+                disabled={!!exporting}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900 disabled:opacity-60"
-                >
+              >
                   <Download size={15} />
                   {exporting === 'csv' ? 'Exporting…' : 'CSV'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleExport('pdf')}
-                  disabled={!!exporting}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleExport('pdf')}
+                disabled={!!exporting}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900 disabled:opacity-60"
-                >
+              >
                   <FileText size={15} />
                   {exporting === 'pdf' ? 'Exporting…' : 'PDF'}
-                </button>
+              </button>
               </>
             ) : null}
           </div>
@@ -319,9 +319,9 @@ export default function ReportsPage() {
 
         <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-5">
           <div className="mx-auto max-w-[1600px]">
-            {error ? (
-              <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
-            ) : null}
+        {error ? (
+                  <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+                ) : null}
 
             {savePromptOpen ? (
               <div className="mb-4 flex flex-wrap items-end gap-2 rounded-xl border border-indigo-100 bg-indigo-50/40 p-3">
@@ -340,8 +340,8 @@ export default function ReportsPage() {
                 <button type="button" onClick={() => setSavePromptOpen(false)} className="text-xs font-semibold text-slate-500">
                   Cancel
                 </button>
-              </div>
-            ) : null}
+                  </div>
+        ) : null}
 
             <div className={PH2_TABLE_CARD_CLASS}>
               <div className="p-4 sm:p-5 lg:p-6">
@@ -360,8 +360,8 @@ export default function ReportsPage() {
                   renderSection()
                 ) : (
                   <div className="py-12 text-center text-sm text-slate-500">No report data available.</div>
-                )}
-              </div>
+        )}
+      </div>
             </div>
           </div>
         </div>

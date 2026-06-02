@@ -161,6 +161,9 @@ async function runMistralChat(requestBody, logLabel, quiet) {
  */
 export async function chatCompletionWithFallback(body, logLabel = 'llm', options = {}) {
   const quiet = Boolean(options?.quiet);
+  const preferredProvider = String(options?.preferredProvider || 'auto')
+    .trim()
+    .toLowerCase();
 
   if (!openaiClient && !mistralClient) {
     throw new Error(
@@ -171,8 +174,33 @@ export async function chatCompletionWithFallback(body, logLabel = 'llm', options
   const requestBody = { ...body };
   let openAiErr = null;
 
+  const shouldPreferMistral = preferredProvider === 'mistral';
+  const shouldPreferOpenAi = preferredProvider === 'openai' || preferredProvider === 'auto';
+
+  if (shouldPreferMistral && mistralClient) {
+    try {
+      const result = await runMistralChat(requestBody, logLabel, quiet);
+      return tagProviderResult(result, {
+        provider: 'mistral',
+        providerModel: MISTRAL_CHAT_MODEL,
+      });
+    } catch (mistralErr) {
+      const st = httpStatus(mistralErr);
+      const msg = mistralErr?.message ?? String(mistralErr);
+      if (logLabel === 'cv-parse' || !quiet) {
+        console.error(
+          `[${logLabel}] Preferred Mistral error (${MISTRAL_CHAT_MODEL}): status=${st ?? 'n/a'} message=${msg}`
+        );
+      }
+      // Continue to OpenAI fallback when available.
+      openAiErr = mistralErr;
+    }
+  }
+
   const tryOpenAi =
-    openaiClient && !shouldSkipOpenAiForQuotaCooldown();
+    shouldPreferOpenAi &&
+    openaiClient &&
+    !shouldSkipOpenAiForQuotaCooldown();
 
   if (shouldSkipOpenAiForQuotaCooldown() && mistralClient) {
     if (logLabel === 'cv-parse' || !quiet) {
