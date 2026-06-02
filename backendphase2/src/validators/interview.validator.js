@@ -219,4 +219,5 @@ export const reviewTokenParamSchema = z.object({
 export const publicClientTagSchema = z.object({
   tag: z.string().optional(),
   comments: z.string().optional(),
+  matchId: z.string().optional(),
 });

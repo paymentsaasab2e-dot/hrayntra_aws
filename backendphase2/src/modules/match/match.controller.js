@@ -106,4 +106,19 @@ export const matchController = {
       sendError(res, 400, error.message, error);
     }
   },
+
+  async resolveForSubmit(req, res) {
+    try {
+      const { candidateId, jobId, score } = req.body || {};
+      const match = await matchService.findOrCreateForSubmit({
+        candidateId,
+        jobId,
+        score,
+        createdById: req.user.id,
+      });
+      sendResponse(res, 200, 'Match ready for client submit', { id: match.id });
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
 };

@@ -22,6 +22,7 @@ import {
   type CvWorkEntryLike,
 } from '@/lib/candidateExperience';
 import { getPhase1ProfileSnapshot, type Phase1ProfileSnapshot } from '@/lib/phase1ProfileSnapshot';
+import type { Phase1ClientSectionId, Phase1ClientSectionVisibility } from '@/lib/phase1ClientPresentationSections';
 
 type SectionId =
   | 'personal'
@@ -164,9 +165,11 @@ function RecordCard({
 
 type Props = {
   candidate: CandidateProfileDrawerData;
+  /** When set (Client tab saved copy), sections marked false are omitted. */
+  sectionVisibility?: Partial<Phase1ClientSectionVisibility> | null;
 };
 
-export function CandidatePhase1DetailSections({ candidate }: Props) {
+export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: Props) {
   const snap = useMemo(
     () => getPhase1ProfileSnapshot(candidate.extraData),
     [candidate.extraData]
@@ -189,6 +192,8 @@ export function CandidatePhase1DetailSections({ candidate }: Props) {
   const toggle = (key: SectionId) => {
     setOpen((prev) => ({ ...prev, [key]: !prev[key] }));
   };
+
+  const sectionVisible = (id: Phase1ClientSectionId) => sectionVisibility?.[id] !== false;
 
   const workEntries = useMemo(() => {
     const fromSnap = mapWorkFromSnapshot(snap?.workExperience);
@@ -264,6 +269,7 @@ export function CandidatePhase1DetailSections({ candidate }: Props) {
         </p>
       </div>
 
+      {sectionVisible('personal') ? (
       <Phase1Section
         id="personal"
         title="Person information"
@@ -281,8 +287,9 @@ export function CandidatePhase1DetailSections({ candidate }: Props) {
           <p className="text-sm italic text-slate-400">Not provided</p>
         )}
       </Phase1Section>
+      ) : null}
 
-      {summaryText ? (
+      {summaryText && sectionVisible('summary') ? (
         <Phase1Section
           id="summary"
           title="Professional summary"
@@ -296,6 +303,7 @@ export function CandidatePhase1DetailSections({ candidate }: Props) {
         </Phase1Section>
       ) : null}
 
+      {sectionVisible('education') ? (
       <Phase1Section
         id="education"
         title="Education"
@@ -326,7 +334,9 @@ export function CandidatePhase1DetailSections({ candidate }: Props) {
           <p className="text-sm italic text-slate-400">Not provided</p>
         )}
       </Phase1Section>
+      ) : null}
 
+      {sectionVisible('work') ? (
       <Phase1Section
         id="work"
         title="Work experience"
@@ -341,7 +351,9 @@ export function CandidatePhase1DetailSections({ candidate }: Props) {
           <p className="text-sm italic text-slate-400">Not provided</p>
         )}
       </Phase1Section>
+      ) : null}
 
+      {sectionVisible('certifications') ? (
       <Phase1Section
         id="certifications"
         title="Certifications"
@@ -366,7 +378,9 @@ export function CandidatePhase1DetailSections({ candidate }: Props) {
           <p className="text-sm italic text-slate-400">Not provided</p>
         )}
       </Phase1Section>
+      ) : null}
 
+      {sectionVisible('gap') ? (
       <Phase1Section
         id="gap"
         title="Gap explanation"
@@ -392,7 +406,9 @@ export function CandidatePhase1DetailSections({ candidate }: Props) {
           <p className="text-sm italic text-slate-400">Not provided</p>
         )}
       </Phase1Section>
+      ) : null}
 
+      {sectionVisible('academic') ? (
       <Phase1Section
         id="academic"
         title="Academic achievements"
@@ -418,7 +434,9 @@ export function CandidatePhase1DetailSections({ candidate }: Props) {
           <p className="text-sm italic text-slate-400">Not provided</p>
         )}
       </Phase1Section>
+      ) : null}
 
+      {sectionVisible('exams') ? (
       <Phase1Section
         id="exams"
         title="Competitive exams"
@@ -446,7 +464,9 @@ export function CandidatePhase1DetailSections({ candidate }: Props) {
           <p className="text-sm italic text-slate-400">Not provided</p>
         )}
       </Phase1Section>
+      ) : null}
 
+      {sectionVisible('projects') ? (
       <Phase1Section
         id="projects"
         title="Projects"
@@ -480,7 +500,9 @@ export function CandidatePhase1DetailSections({ candidate }: Props) {
           <p className="text-sm italic text-slate-400">Not provided</p>
         )}
       </Phase1Section>
+      ) : null}
 
+      {sectionVisible('visa') ? (
       <Phase1Section
         id="visa"
         title="Visa & work authorization"
@@ -522,7 +544,9 @@ export function CandidatePhase1DetailSections({ candidate }: Props) {
           <p className="text-sm italic text-slate-400">Not provided</p>
         )}
       </Phase1Section>
+      ) : null}
 
+      {sectionVisible('vaccination') ? (
       <Phase1Section
         id="vaccination"
         title="Vaccination"
@@ -550,6 +574,7 @@ export function CandidatePhase1DetailSections({ candidate }: Props) {
           <p className="text-sm italic text-slate-400">Not provided</p>
         )}
       </Phase1Section>
+      ) : null}
     </div>
   );
 }

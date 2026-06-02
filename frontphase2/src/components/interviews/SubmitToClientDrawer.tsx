@@ -35,12 +35,29 @@ import {
   type BackendClient,
   type BackendJob,
 } from '../../lib/api';
+import { CandidatePhase1SubmitEditSections } from '../candidates/CandidatePhase1SubmitEditSections';
 import {
   buildCandidateEditForm,
   CandidateEditAtsSections,
   validateEditFormStructured,
   type CandidateEditFormState,
 } from '../candidates/CandidateEditAtsSections';
+import {
+  enrichBackendCandidateFromPhase1Snapshot,
+  isPhase1PortalCandidate,
+  type Phase1ProfileSnapshot,
+} from '../../lib/phase1ProfileSnapshot';
+import {
+  buildClientPresentationExtraDataForPhase1,
+  resolveSubmitPhase1SectionVisibility,
+  resolveSubmitPhase1Snapshot,
+} from '../../lib/phase1ClientPresentation';
+import {
+  DEFAULT_PHASE1_CLIENT_SECTION_VISIBILITY,
+  type Phase1ClientSectionId,
+  type Phase1ClientSectionVisibility,
+} from '../../lib/phase1ClientPresentationSections';
+import { mapCandidateProfile } from '../../lib/mapCandidateProfile';
 import {
   buildClientPresentationExtraData,
   mergeBackendCandidateWithClientPresentation,
@@ -57,8 +74,19 @@ import { ClientOfferLetterCard } from '../candidates/ClientOfferLetterCard';
 import { useFiles } from '../../hooks/useFiles';
 import type { CandidateProfileDrawerData } from '../drawers/CandidateProfileDrawer';
 import { resolveMatchIdForSubmit } from '../../lib/jobAppliedMatches';
-import { extractApiData } from '../../lib/mapCandidateProfile';
+import { resolveSubmitJobIdFromBackend } from '../../lib/candidateSubmitToClient';
+import { extractApiData, isValidObjectId } from '../../lib/mapCandidateProfile';
 import { parseClientsListFromResponse, parseJobsListFromResponse } from '../../lib/parseApiList';
+
+export type BulkSubmitCandidateEntry = {
+  candidateId: string;
+  jobId: string;
+  matchId?: string;
+  candidateName?: string;
+  jobTitle?: string;
+  clientId?: string;
+  matchScore?: number;
+};
 
 export type SubmitToClientSource =
   | { kind: 'interview'; interview: Interview }
@@ -71,6 +99,10 @@ export type SubmitToClientSource =
       jobTitle?: string;
       clientId?: string;
       matchScore?: number;
+    }
+  | {
+      kind: 'bulkMatch';
+      candidates: BulkSubmitCandidateEntry[];
     };
 
 interface SubmitToClientDrawerProps {
@@ -289,19 +321,73 @@ export function SubmitToClientDrawer({
     return null;
   }, [source, interview]);
 
+  const bulkCandidates = useMemo(
+    () => (activeSource?.kind === 'bulkMatch' ? activeSource.candidates : []),
+    [activeSource],
+  );
+  const isBulkMode = bulkCandidates.length > 0;
+  const [activeBulkIndex, setActiveBulkIndex] = useState(0);
+  const [bulkSavedMap, setBulkSavedMap] = useState<Record<string, boolean>>({});
+  const bulkCandidateCacheRef = useRef<
+    Map<
+      string,
+      {
+        candidate: BackendCandidate | null;
+        editForm: CandidateEditFormState | null;
+        phase1Snapshot: Phase1ProfileSnapshot | null;
+        clientSectionVisibility: ClientSectionVisibility;
+        phase1ClientSectionVisibility: Phase1ClientSectionVisibility;
+        cvShareMode: CvShareMode | null;
+        candidateStepSaved: boolean;
+      }
+    >
+  >(new Map());
+
+  const activeBulkEntry = isBulkMode ? (bulkCandidates[activeBulkIndex] ?? null) : null;
+
   const candidateId =
     activeSource?.kind === 'interview'
       ? activeSource.interview.candidate.id
       : activeSource?.kind === 'match'
         ? activeSource.candidateId
-        : '';
+        : activeBulkEntry?.candidateId ?? '';
 
-  const matchJobId = activeSource?.kind === 'match' ? activeSource.jobId : '';
-  const matchClientId = activeSource?.kind === 'match' ? activeSource.clientId : undefined;
-  const matchRecordId = activeSource?.kind === 'match' ? activeSource.matchId : undefined;
-  const matchScore = activeSource?.kind === 'match' ? activeSource.matchScore : undefined;
-  const matchCandidateName = activeSource?.kind === 'match' ? activeSource.candidateName : '';
-  const matchJobTitleSeed = activeSource?.kind === 'match' ? activeSource.jobTitle : '';
+  const matchJobId =
+    activeSource?.kind === 'match'
+      ? activeSource.jobId
+      : activeSource?.kind === 'bulkMatch'
+        ? activeBulkEntry?.jobId ?? ''
+        : '';
+  const matchClientId =
+    activeSource?.kind === 'match'
+      ? activeSource.clientId
+      : activeSource?.kind === 'bulkMatch'
+        ? activeBulkEntry?.clientId
+        : undefined;
+  const matchRecordId =
+    activeSource?.kind === 'match'
+      ? activeSource.matchId
+      : activeSource?.kind === 'bulkMatch'
+        ? activeBulkEntry?.matchId
+        : undefined;
+  const matchScore =
+    activeSource?.kind === 'match'
+      ? activeSource.matchScore
+      : activeSource?.kind === 'bulkMatch'
+        ? activeBulkEntry?.matchScore
+        : undefined;
+  const matchCandidateName =
+    activeSource?.kind === 'match'
+      ? activeSource.candidateName
+      : activeSource?.kind === 'bulkMatch'
+        ? activeBulkEntry?.candidateName
+        : '';
+  const matchJobTitleSeed =
+    activeSource?.kind === 'match'
+      ? activeSource.jobTitle
+      : activeSource?.kind === 'bulkMatch'
+        ? activeBulkEntry?.jobTitle
+        : '';
 
   const loadedCandidateIdRef = useRef<string | null>(null);
   const candidateSetupIdRef = useRef<string | null>(null);
@@ -326,6 +412,7 @@ export function SubmitToClientDrawer({
   const [selectedClients, setSelectedClients] = useState<ClientSlotState[]>([]);
   const [clientCatalog, setClientCatalog] = useState<Array<{ id: string; companyName: string }>>([]);
   const [clientPickerOpen, setClientPickerOpen] = useState(false);
+  const [phase1Snapshot, setPhase1Snapshot] = useState<Phase1ProfileSnapshot | null>(null);
   const [editForm, setEditForm] = useState<CandidateEditFormState | null>(null);
   const [editError, setEditError] = useState('');
   const [pipelineJobs, setPipelineJobs] = useState<Array<{ id: string; title: string; department?: string | null }>>(
@@ -337,6 +424,10 @@ export function SubmitToClientDrawer({
   const [clientSectionVisibility, setClientSectionVisibility] = useState<ClientSectionVisibility>(
     DEFAULT_CLIENT_SECTION_VISIBILITY,
   );
+  const [phase1ClientSectionVisibility, setPhase1ClientSectionVisibility] =
+    useState<Phase1ClientSectionVisibility>(DEFAULT_PHASE1_CLIENT_SECTION_VISIBILITY);
+  const [cvShareMode, setCvShareMode] = useState<CvShareMode | null>(null);
+  const [cvShareSaving, setCvShareSaving] = useState(false);
 
   const uploadsBase = useMemo(() => {
     const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1';
@@ -348,6 +439,16 @@ export function SubmitToClientDrawer({
     isOpen ? candidateId : null,
   );
 
+  const isPhase1Candidate = useMemo(
+    () => (candidate ? isPhase1PortalCandidate(candidate) : false),
+    [candidate],
+  );
+
+  const phase1ProfileStub = useMemo((): CandidateProfileDrawerData | null => {
+    if (!candidate) return null;
+    return mapCandidateProfile(enrichBackendCandidateFromPhase1Snapshot(candidate));
+  }, [candidate]);
+
   const activeClientSlot = useMemo(
     () => selectedClients.find((slot) => slot.clientId === activeClientId) ?? null,
     [selectedClients, activeClientId],
@@ -355,6 +456,65 @@ export function SubmitToClientDrawer({
 
   const allClientsSaved =
     selectedClients.length > 0 && selectedClients.every((slot) => slot.saved);
+
+  const allBulkCandidatesSaved =
+    !isBulkMode || bulkCandidates.every((entry) => bulkSavedMap[entry.candidateId]);
+
+  const bulkSavedCount = useMemo(
+    () => bulkCandidates.filter((entry) => bulkSavedMap[entry.candidateId]).length,
+    [bulkCandidates, bulkSavedMap],
+  );
+
+  const stashCurrentBulkCandidate = useCallback(() => {
+    if (!isBulkMode || !candidateId) return;
+    bulkCandidateCacheRef.current.set(candidateId, {
+      candidate,
+      editForm,
+      phase1Snapshot,
+      clientSectionVisibility,
+      phase1ClientSectionVisibility,
+      cvShareMode,
+      candidateStepSaved: bulkSavedMap[candidateId] ?? candidateStepSaved,
+    });
+  }, [
+    isBulkMode,
+    candidateId,
+    candidate,
+    editForm,
+    phase1Snapshot,
+    clientSectionVisibility,
+    phase1ClientSectionVisibility,
+    cvShareMode,
+    bulkSavedMap,
+    candidateStepSaved,
+  ]);
+
+  const goToBulkCandidate = useCallback(
+    (index: number) => {
+      if (!isBulkMode || index < 0 || index >= bulkCandidates.length) return;
+      if (index === activeBulkIndex) return;
+      stashCurrentBulkCandidate();
+      loadedCandidateIdRef.current = null;
+      candidateSetupIdRef.current = null;
+      setActiveBulkIndex(index);
+      const nextId = bulkCandidates[index]?.candidateId;
+      if (!nextId) return;
+      const cached = bulkCandidateCacheRef.current.get(nextId);
+      if (cached) {
+        loadedCandidateIdRef.current = nextId;
+        candidateSetupIdRef.current = nextId;
+        setCandidate(cached.candidate);
+        setEditForm(cached.editForm);
+        setPhase1Snapshot(cached.phase1Snapshot);
+        setClientSectionVisibility(cached.clientSectionVisibility);
+        setPhase1ClientSectionVisibility(cached.phase1ClientSectionVisibility);
+        setCvShareMode(cached.cvShareMode);
+        setCandidateStepSaved(cached.candidateStepSaved || Boolean(bulkSavedMap[nextId]));
+        setLoading(false);
+      }
+    },
+    [activeBulkIndex, bulkCandidates, isBulkMode, stashCurrentBulkCandidate],
+  );
 
   const loadClientSlot = async (clientId: string) => {
     setSelectedClients((prev) =>
@@ -445,17 +605,26 @@ export function SubmitToClientDrawer({
   const fallbackCandidateName =
     activeSource?.kind === 'interview'
       ? activeSource.interview.candidate.name
-      : activeSource?.kind === 'match'
-        ? activeSource.candidateName || ''
+      : activeSource?.kind === 'match' || activeSource?.kind === 'bulkMatch'
+        ? matchCandidateName || ''
         : '';
 
   const fullName = useMemo(() => {
+    if (phase1Snapshot?.personalInfo) {
+      const fromPhase1 = `${phase1Snapshot.personalInfo.firstName || ''} ${phase1Snapshot.personalInfo.lastName || ''}`.trim();
+      if (fromPhase1) return fromPhase1;
+    }
     if (editForm) {
       const fromForm = `${editForm.firstName} ${editForm.lastName}`.trim();
       if (fromForm) return fromForm;
     }
     return fallbackCandidateName || 'Candidate';
-  }, [editForm, fallbackCandidateName]);
+  }, [editForm, fallbackCandidateName, phase1Snapshot]);
+
+  const updatePhase1Snapshot = (next: Phase1ProfileSnapshot) => {
+    setPhase1Snapshot(next);
+    setCandidateStepSaved(false);
+  };
 
   const updateEditField = <K extends keyof CandidateEditFormState>(
     field: K,
@@ -473,8 +642,21 @@ export function SubmitToClientDrawer({
     setCandidateStepSaved(false);
   };
 
+  const togglePhase1ClientSectionVisibility = (sectionId: Phase1ClientSectionId) => {
+    setPhase1ClientSectionVisibility((prev) => ({
+      ...prev,
+      [sectionId]: !prev[sectionId],
+    }));
+    setCandidateStepSaved(false);
+  };
+
   useEffect(() => {
-    if (!isOpen || activeSource?.kind !== 'match' || !matchJobId || !candidateId) {
+    if (
+      !isOpen ||
+      (activeSource?.kind !== 'match' && activeSource?.kind !== 'bulkMatch') ||
+      !matchJobId ||
+      !candidateId
+    ) {
       setMatchSubmitId(null);
       return;
     }
@@ -486,7 +668,7 @@ export function SubmitToClientDrawer({
         if (cancelled) return;
         setResolvedClientId((prev) => matchClientId || job.client?.id || prev);
         setResolvedJobTitle(matchJobTitleSeed || job.title || '');
-        const id = await resolveMatchIdForSubmit(
+        const { matchId: id } = await resolveMatchIdForSubmit(
           candidateId,
           matchJobId,
           matchScore ?? 0,
@@ -527,7 +709,7 @@ export function SubmitToClientDrawer({
     if (candidateSetupIdRef.current !== candidateId) {
       candidateSetupIdRef.current = candidateId;
     setActiveTab('candidate');
-    setCandidateStepSaved(false);
+    setCandidateStepSaved(bulkSavedMap[candidateId] ?? false);
     setSubmissionTypeError(null);
       if (activeSource?.kind === 'interview') {
         setSubmissionType(inferSubmissionType(activeSource.interview));
@@ -535,8 +717,12 @@ export function SubmitToClientDrawer({
         setResolvedClientId(activeSource.interview.job.clientId);
         setEditForm(editFormFromInterview(activeSource.interview));
       } else {
-        setSubmissionType('INITIAL_REVIEW');
-        if (activeSource?.kind === 'match') {
+        if (activeSource?.kind === 'bulkMatch' && !submissionType) {
+          setSubmissionType('INITIAL_REVIEW');
+        } else if (activeSource?.kind === 'match') {
+          setSubmissionType('INITIAL_REVIEW');
+        }
+        if (activeSource?.kind === 'match' || activeSource?.kind === 'bulkMatch') {
           setEditForm(editFormFromDisplayName(matchCandidateName || '', undefined));
         }
       }
@@ -554,12 +740,24 @@ export function SubmitToClientDrawer({
         const data = extractApiData<BackendCandidate>(raw);
         if (cancelled) return;
         loadedCandidateIdRef.current = candidateId;
-        setCandidate(data);
-        setEditForm((current) => resolveSubmitToClientEditForm(data, current));
-        const savedPresentation = readClientPresentation(data.extraData);
+        const enriched = enrichBackendCandidateFromPhase1Snapshot(data);
+        setCandidate(enriched);
+        if (isPhase1PortalCandidate(enriched)) {
+          setPhase1Snapshot(resolveSubmitPhase1Snapshot(enriched));
+          setPhase1ClientSectionVisibility(resolveSubmitPhase1SectionVisibility(enriched));
+          setEditForm(null);
+        } else {
+          setPhase1Snapshot(null);
+          setPhase1ClientSectionVisibility(DEFAULT_PHASE1_CLIENT_SECTION_VISIBILITY);
+          setEditForm((current) => resolveSubmitToClientEditForm(enriched, current));
+        }
+        const savedPresentation = readClientPresentation(enriched.extraData);
         setClientSectionVisibility(
           normalizeClientSectionVisibility(savedPresentation?.visibleSections),
         );
+        if (savedPresentation) {
+          setCandidateStepSaved(true);
+        }
       } catch (error: unknown) {
         if (cancelled) return;
         toast(error instanceof Error ? error.message : 'Unable to load candidate details');
@@ -606,6 +804,11 @@ export function SubmitToClientDrawer({
       setCvEditorData(null);
       setClientCatalog([]);
       setEditForm(null);
+      setPhase1Snapshot(null);
+      setPhase1ClientSectionVisibility(DEFAULT_PHASE1_CLIENT_SECTION_VISIBILITY);
+      setActiveBulkIndex(0);
+      setBulkSavedMap({});
+      bulkCandidateCacheRef.current.clear();
       setEditError('');
       setPipelineJobs([]);
       primaryClientLoadedRef.current = null;
@@ -657,8 +860,6 @@ export function SubmitToClientDrawer({
   const [cvEditorData, setCvEditorData] = useState<CVEditorData | null>(null);
   const [cvViewData, setCvViewData] = useState<CVEditorData | null>(null);
   const [cvEditorLoading, setCvEditorLoading] = useState(false);
-  const [cvShareMode, setCvShareMode] = useState<CvShareMode | null>(null);
-  const [cvShareSaving, setCvShareSaving] = useState(false);
   const resumeValue = String(candidate?.resume || '').trim();
   const resumeHref = resumeValue && isResumeHttpUrl(resumeValue) ? normalizeResumeHref(resumeValue) : '';
   const presentationCandidate = useMemo(
@@ -669,6 +870,18 @@ export function SubmitToClientDrawer({
   const hasOriginalCv = Boolean(resumeHref);
 
   const cvFormOverrides = () => {
+    if (isPhase1Candidate && phase1Snapshot) {
+      const pi = phase1Snapshot.personalInfo || {};
+      return {
+        firstName: pi.firstName || '',
+        lastName: pi.lastName || '',
+        email: pi.email || '',
+        phone: pi.phone || '',
+        linkedIn: pi.linkedinUrl || '',
+        location: [pi.city, pi.country].filter(Boolean).join(', '),
+        cvSummary: phase1Snapshot.summaryText || '',
+      };
+    }
     if (!editForm) return {};
     return {
       firstName: editForm.firstName,
@@ -757,7 +970,9 @@ export function SubmitToClientDrawer({
   };
 
   const handleCvEditorSave = async (data: CVEditorData) => {
-    if (!candidate?.id || !editForm) return;
+    if (!candidate?.id) return;
+    if (!isPhase1Candidate && !editForm) return;
+    if (isPhase1Candidate && !phase1Snapshot) return;
     setSaving(true);
     try {
       const presentationExtra = readClientPresentation(candidate.extraData)?.fields?.extraData ?? {};
@@ -766,57 +981,85 @@ export function SubmitToClientDrawer({
         candidate.id,
         presentationExtra as Record<string, unknown>
       );
-      const cvPatch = cvEditorDataToCandidatePatch(data);
-      const mergedForm: CandidateEditFormState = {
-        ...editForm,
-        cvSummary: cvPatch.cvSummary ?? editForm.cvSummary,
-        cvEducationEntries: Array.isArray(cvPatch.cvEducationEntries)
-          ? cvPatch.cvEducationEntries
-              .map((entry) =>
-                [
-                  entry.degree || entry.qualification,
-                  entry.institution || entry.instituteName,
-                  entry.startYear,
-                  entry.endYear,
-                ]
-                  .filter(Boolean)
-                  .join(' | ')
-              )
-              .join('\n')
-          : editForm.cvEducationEntries,
-        cvWorkExperienceEntries: Array.isArray(cvPatch.cvWorkExperienceEntries)
-          ? cvPatch.cvWorkExperienceEntries
-              .map((entry) => {
-                const header = [
-                  entry.title,
-                  entry.company,
-                  entry.location,
-                  entry.startDate,
-                  entry.endDate,
-                ]
-                  .filter(Boolean)
-                  .join(' | ');
-                const responsibilities = (entry.responsibilities || []).join('; ');
-                return [header, responsibilities].filter(Boolean).join('\n');
-              })
-              .join('\n\n')
-          : editForm.cvWorkExperienceEntries,
-        skills: Array.isArray(cvPatch.skills) ? cvPatch.skills.join(', ') : editForm.skills,
-      };
       const layout =
         persist.extraData?.cvEditorLayout &&
         typeof persist.extraData.cvEditorLayout === 'object'
           ? (persist.extraData.cvEditorLayout as Record<string, unknown>)
           : null;
-      const extraData = buildClientPresentationExtraData(mergedForm, candidate.extraData ?? null, {
-        cvEditorLayout: layout,
-        visibleSections: clientSectionVisibility,
-      });
+
+      let extraData: Record<string, unknown>;
+      if (isPhase1Candidate && phase1Snapshot) {
+        extraData = buildClientPresentationExtraDataForPhase1(
+          phase1Snapshot,
+          candidate,
+          candidate.extraData ?? null,
+          {
+            cvEditorLayout: layout,
+            phase1VisibleSections: phase1ClientSectionVisibility,
+          },
+        );
+        if (persist.extraData) {
+          extraData = { ...extraData, ...persist.extraData };
+        }
+      } else if (editForm) {
+        const cvPatch = cvEditorDataToCandidatePatch(data);
+        const mergedForm: CandidateEditFormState = {
+          ...editForm,
+          cvSummary: cvPatch.cvSummary ?? editForm.cvSummary,
+          cvEducationEntries: Array.isArray(cvPatch.cvEducationEntries)
+            ? cvPatch.cvEducationEntries
+                .map((entry) =>
+                  [
+                    entry.degree || entry.qualification,
+                    entry.institution || entry.instituteName,
+                    entry.startYear,
+                    entry.endYear,
+                  ]
+                    .filter(Boolean)
+                    .join(' | ')
+                )
+                .join('\n')
+            : editForm.cvEducationEntries,
+          cvWorkExperienceEntries: Array.isArray(cvPatch.cvWorkExperienceEntries)
+            ? cvPatch.cvWorkExperienceEntries
+                .map((entry) => {
+                  const header = [
+                    entry.title,
+                    entry.company,
+                    entry.location,
+                    entry.startDate,
+                    entry.endDate,
+                  ]
+                    .filter(Boolean)
+                    .join(' | ');
+                  const responsibilities = (entry.responsibilities || []).join('; ');
+                  return [header, responsibilities].filter(Boolean).join('\n');
+                })
+                .join('\n\n')
+            : editForm.cvWorkExperienceEntries,
+          skills: Array.isArray(cvPatch.skills) ? cvPatch.skills.join(', ') : editForm.skills,
+        };
+        extraData = buildClientPresentationExtraData(mergedForm, candidate.extraData ?? null, {
+          cvEditorLayout: layout,
+          visibleSections: clientSectionVisibility,
+        });
+      } else {
+        return;
+      }
+
       const updatedRaw = await apiUpdateCandidate(candidate.id, { extraData });
       const updated = extractApiData<BackendCandidate>(updatedRaw);
       setCandidate(updated);
-      const savedForm = readClientPresentation(updated.extraData)?.editForm ?? mergedForm;
-      setEditForm(savedForm);
+      const saved = readClientPresentation(updated.extraData);
+      if (isPhase1Candidate) {
+        if (saved?.phase1Snapshot) setPhase1Snapshot(saved.phase1Snapshot);
+        if (saved?.phase1VisibleSections) {
+          setPhase1ClientSectionVisibility(saved.phase1VisibleSections);
+        }
+      } else {
+        const savedForm = saved?.editForm ?? editForm;
+        if (savedForm) setEditForm(savedForm);
+      }
       const forClient = mergeBackendCandidateWithClientPresentation(updated);
       setCvEditorData(candidateToCvEditorData(forClient, cvFormOverrides()));
       setCvViewData(candidateToCvEditorData(forClient, cvFormOverrides()));
@@ -833,35 +1076,68 @@ export function SubmitToClientDrawer({
   };
 
   const saveDetails = async () => {
-    if (!candidate || !editForm) return;
+    if (!candidate) return;
     setSaving(true);
     setEditError('');
     try {
-      validateEditFormStructured(editForm);
-      const extraData = buildClientPresentationExtraData(editForm, candidate.extraData ?? null, {
-        visibleSections: clientSectionVisibility,
-      });
+      let extraData: Record<string, unknown>;
+      if (isPhase1Candidate) {
+        if (!phase1Snapshot) return;
+        extraData = buildClientPresentationExtraDataForPhase1(
+          phase1Snapshot,
+          candidate,
+          candidate.extraData ?? null,
+          { phase1VisibleSections: phase1ClientSectionVisibility },
+        );
+      } else {
+        if (!editForm) return;
+        validateEditFormStructured(editForm);
+        extraData = buildClientPresentationExtraData(editForm, candidate.extraData ?? null, {
+          visibleSections: clientSectionVisibility,
+        });
+      }
       const updatedRaw = await apiUpdateCandidate(candidate.id, { extraData });
       const updated = extractApiData<BackendCandidate>(updatedRaw);
       setCandidate(updated);
       const saved = readClientPresentation(updated.extraData);
-      setEditForm(saved?.editForm ?? editForm);
-      if (saved?.visibleSections) {
-        setClientSectionVisibility(saved.visibleSections);
+      if (isPhase1Candidate) {
+        if (saved?.phase1Snapshot) setPhase1Snapshot(saved.phase1Snapshot);
+        if (saved?.phase1VisibleSections) {
+          setPhase1ClientSectionVisibility(saved.phase1VisibleSections);
+        }
+      } else if (editForm) {
+        setEditForm(saved?.editForm ?? editForm);
+        if (saved?.visibleSections) {
+          setClientSectionVisibility(saved.visibleSections);
+        }
       }
+      setBulkSavedMap((prev) => ({ ...prev, [candidate.id]: true }));
       setCandidateStepSaved(true);
+      stashCurrentBulkCandidate();
       onToast('Client presentation saved (overview unchanged)');
-      setActiveTab('client');
-      const clientTabId =
-        activeClientId ??
-        selectedClients.find((slot) => slot.isPrimary)?.clientId ??
-        selectedClients[0]?.clientId ??
-        resolvedClientId ??
-        null;
-      if (clientTabId) {
-        setActiveClientId(clientTabId);
-        const slot = selectedClients.find((item) => item.clientId === clientTabId);
-        if (slot && !slot.client) void loadClientSlot(clientTabId);
+      const allSavedNow = bulkCandidates.every(
+        (entry) => entry.candidateId === candidate.id || bulkSavedMap[entry.candidateId],
+      );
+      if (isBulkMode && !allSavedNow) {
+        const nextIndex = bulkCandidates.findIndex(
+          (entry) => entry.candidateId !== candidate.id && !bulkSavedMap[entry.candidateId],
+        );
+        if (nextIndex >= 0) {
+          goToBulkCandidate(nextIndex);
+        }
+      } else {
+        setActiveTab('client');
+        const clientTabId =
+          activeClientId ??
+          selectedClients.find((slot) => slot.isPrimary)?.clientId ??
+          selectedClients[0]?.clientId ??
+          resolvedClientId ??
+          null;
+        if (clientTabId) {
+          setActiveClientId(clientTabId);
+          const slot = selectedClients.find((item) => item.clientId === clientTabId);
+          if (slot && !slot.client) void loadClientSlot(clientTabId);
+        }
       }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Unable to update candidate details';
@@ -874,8 +1150,12 @@ export function SubmitToClientDrawer({
 
   const saveClientDetails = async () => {
     if (!activeClientSlot?.client) return;
-    if (!candidateStepSaved) {
-      onToast('Please save candidate details first');
+    if (isBulkMode ? !allBulkCandidatesSaved : !candidateStepSaved) {
+      onToast(
+        isBulkMode
+          ? 'Please save presentation for every candidate before saving client details'
+          : 'Please save candidate details first',
+      );
       return;
     }
     const slotId = activeClientSlot.clientId;
@@ -937,7 +1217,13 @@ export function SubmitToClientDrawer({
 
   const submitToClient = async () => {
     if (!activeSource) return;
-    if (!candidateStepSaved) {
+    stashCurrentBulkCandidate();
+    if (isBulkMode) {
+      if (!allBulkCandidatesSaved) {
+        onToast('Please save presentation for every candidate first');
+        return;
+      }
+    } else if (!candidateStepSaved) {
       onToast('Please save candidate details first');
       return;
     }
@@ -951,7 +1237,7 @@ export function SubmitToClientDrawer({
       return;
     }
 
-    if ((hasEditedCv || hasOriginalCv) && !cvShareMode) {
+    if (!isBulkMode && (hasEditedCv || hasOriginalCv) && !cvShareMode) {
       onToast('Select which CV to send to the client');
       return;
     }
@@ -966,12 +1252,149 @@ export function SubmitToClientDrawer({
       return;
     }
 
+    const primaryRecipient =
+      clientRecipients.find((item) =>
+        selectedClients.find((slot) => slot.clientId === item.clientId)?.isPrimary,
+      ) ?? clientRecipients[0];
+    const additionalClients = clientRecipients
+      .filter((item) => item.clientId !== primaryRecipient?.clientId)
+      .map((item) => ({ clientId: item.clientId, toEmail: item.toEmail }));
+
+    const purpose = SUBMISSION_TYPES.find((entry) => entry.value === submissionType)?.label || 'review';
+
     setSubmitting(true);
     try {
-      if (candidate?.id && cvShareMode && editForm) {
-        let presentationExtra = buildClientPresentationExtraData(editForm, candidate.extraData ?? null, {
-          visibleSections: clientSectionVisibility,
-        });
+      if (activeSource.kind === 'bulkMatch') {
+        const prepared: Array<{
+          entry: (typeof activeSource.candidates)[number];
+          matchId: string;
+          message: string;
+          entryCvShareMode: CvShareMode | '';
+          resolvedJobId: string;
+        }> = [];
+
+        for (const entry of activeSource.candidates) {
+          const cached = bulkCandidateCacheRef.current.get(entry.candidateId);
+          const raw = await apiGetCandidate(entry.candidateId);
+          const data = extractApiData<BackendCandidate>(raw);
+          const forClient = mergeBackendCandidateWithClientPresentation(data);
+          const entryHasEditedCv = hasEditedCvAvailable(forClient);
+          const entryResume = String(data.resume || '').trim();
+          const entryHasOriginalCv = Boolean(
+            entryResume && isResumeHttpUrl(entryResume),
+          );
+          const entryCvShareMode =
+            cached?.cvShareMode ?? resolveDefaultCvShareMode(data, entryHasOriginalCv);
+          if ((entryHasEditedCv || entryHasOriginalCv) && !entryCvShareMode) {
+            onToast(`Select which CV to send for ${entry.candidateName || 'each candidate'}`);
+            return;
+          }
+
+          let mergedExtra: Record<string, unknown> =
+            data.extraData && typeof data.extraData === 'object' && !Array.isArray(data.extraData)
+              ? { ...(data.extraData as Record<string, unknown>) }
+              : {};
+
+          if (cached?.phase1Snapshot) {
+            mergedExtra = buildClientPresentationExtraDataForPhase1(
+              cached.phase1Snapshot,
+              data,
+              mergedExtra,
+              { phase1VisibleSections: cached.phase1ClientSectionVisibility },
+            );
+          } else if (cached?.editForm) {
+            mergedExtra = buildClientPresentationExtraData(cached.editForm, mergedExtra, {
+              visibleSections: cached.clientSectionVisibility,
+            });
+          }
+
+          if (entryCvShareMode) {
+            mergedExtra = buildCvSubmissionExtra(mergedExtra, {
+              shareMode: entryCvShareMode,
+              updatedAt: new Date().toISOString(),
+            });
+          }
+
+          if (cached?.phase1Snapshot || cached?.editForm || entryCvShareMode) {
+            await apiUpdateCandidate(entry.candidateId, { extraData: mergedExtra });
+          }
+
+          let jobTitle = entry.jobTitle || '';
+          const resolvedJobId =
+            entry.jobId && isValidObjectId(entry.jobId)
+              ? entry.jobId
+              : resolveSubmitJobIdFromBackend(data);
+          if (!resolvedJobId) {
+            onToast(
+              `Unable to resolve job for ${entry.candidateName || 'a candidate'}. Assign them to a job first.`,
+            );
+            return;
+          }
+          if (!jobTitle && resolvedJobId) {
+            try {
+              const jobRaw = await apiGetJob(resolvedJobId);
+              jobTitle = extractApiData<BackendJob>(jobRaw).title || '';
+            } catch {
+              jobTitle = '';
+            }
+          }
+          const message = `Please review the submitted candidate details for ${jobTitle || 'this role'}. Purpose: ${purpose}.`;
+          const { matchId, error: matchError } = await resolveMatchIdForSubmit(
+            entry.candidateId,
+            resolvedJobId,
+            entry.matchScore ?? 0,
+            entry.matchId,
+          );
+          if (!matchId) {
+            onToast(
+              matchError ||
+                `Unable to create match record for ${entry.candidateName || 'a candidate'}`,
+            );
+            return;
+          }
+          prepared.push({
+            entry,
+            matchId,
+            message,
+            entryCvShareMode: entryCvShareMode || '',
+            resolvedJobId,
+          });
+        }
+
+        const batchMatchIds = prepared.map((item) => item.matchId);
+
+        for (let index = 0; index < prepared.length; index += 1) {
+          const item = prepared[index]!;
+          await apiSubmitMatch(item.matchId, {
+            message: item.message,
+            notifyClient: index === 0,
+            submissionType,
+            cvShareMode: item.entryCvShareMode || undefined,
+            additionalClients: index === 0 ? additionalClients : undefined,
+            batchMatchIds: batchMatchIds.length > 1 ? batchMatchIds : undefined,
+          });
+        }
+        onToast(
+          activeSource.candidates.length > 1
+            ? `Submitted ${activeSource.candidates.length} candidates to client`
+            : 'Submitted and email sent to client',
+        );
+        onClose();
+        return;
+      }
+
+      if (candidate?.id && cvShareMode && (editForm || phase1Snapshot)) {
+        let presentationExtra =
+          isPhase1Candidate && phase1Snapshot
+            ? buildClientPresentationExtraDataForPhase1(
+                phase1Snapshot,
+                candidate,
+                candidate.extraData ?? null,
+                { phase1VisibleSections: phase1ClientSectionVisibility },
+              )
+            : buildClientPresentationExtraData(editForm!, candidate.extraData ?? null, {
+                visibleSections: clientSectionVisibility,
+              });
         if (cvShareMode === 'edited' && cvEditorData) {
           const presentationPipeline = readClientPresentation(candidate.extraData)?.fields?.extraData ?? {};
           const persist = await buildCvEditorPersistPatch(
@@ -984,9 +1407,24 @@ export function SubmitToClientDrawer({
             typeof persist.extraData.cvEditorLayout === 'object'
               ? (persist.extraData.cvEditorLayout as Record<string, unknown>)
               : null;
-          presentationExtra = buildClientPresentationExtraData(editForm, presentationExtra, {
-            cvEditorLayout: layout,
-          });
+          if (isPhase1Candidate && phase1Snapshot) {
+            presentationExtra = buildClientPresentationExtraDataForPhase1(
+              phase1Snapshot,
+              candidate,
+              presentationExtra,
+              {
+                cvEditorLayout: layout,
+                phase1VisibleSections: phase1ClientSectionVisibility,
+              },
+            );
+            if (persist.extraData) {
+              presentationExtra = { ...presentationExtra, ...persist.extraData };
+            }
+          } else if (editForm) {
+            presentationExtra = buildClientPresentationExtraData(editForm, presentationExtra, {
+              cvEditorLayout: layout,
+            });
+          }
         }
         const extraData = buildCvSubmissionExtra(presentationExtra, {
           shareMode: cvShareMode,
@@ -996,7 +1434,6 @@ export function SubmitToClientDrawer({
         setCandidate(extractApiData<BackendCandidate>(updatedRaw));
       }
 
-      const purpose = SUBMISSION_TYPES.find((entry) => entry.value === submissionType)?.label || 'review';
       const title =
         resolvedJobTitle ||
         (activeSource.kind === 'interview' ? activeSource.interview.job.title : '') ||
@@ -1017,27 +1454,23 @@ export function SubmitToClientDrawer({
             ? `Submitted and emailed ${clientRecipients.length} clients`
             : 'Submitted and email sent to client',
         );
-      } else {
+      } else if (activeSource.kind === 'match') {
         let matchId = matchSubmitId;
+        let matchResolveError: string | undefined;
         if (!matchId) {
-          matchId = await resolveMatchIdForSubmit(
+          const resolved = await resolveMatchIdForSubmit(
             activeSource.candidateId,
             activeSource.jobId,
             activeSource.matchScore ?? 0,
             activeSource.matchId,
           );
+          matchId = resolved.matchId;
+          matchResolveError = resolved.error;
         }
         if (!matchId) {
-          onToast('Unable to create match record for this candidate');
+          onToast(matchResolveError || 'Unable to create match record for this candidate');
           return;
         }
-        const primary =
-          clientRecipients.find((item) =>
-            selectedClients.find((slot) => slot.clientId === item.clientId)?.isPrimary,
-          ) ?? clientRecipients[0];
-        const additionalClients = clientRecipients
-          .filter((item) => item.clientId !== primary?.clientId)
-          .map((item) => ({ clientId: item.clientId, toEmail: item.toEmail }));
 
         await apiSubmitMatch(matchId, {
           message,
@@ -1082,7 +1515,14 @@ export function SubmitToClientDrawer({
             <div className="flex items-center justify-between border-b border-[#E5E7EB] px-6 py-4">
               <div>
                 <h2 className="text-lg font-semibold text-[#111827]">Submit to Client</h2>
-                <p className="text-sm text-[#6B7280]">{fullName}</p>
+                {isBulkMode ? (
+                  <p className="text-sm text-[#6B7280]">
+                    {bulkCandidates.length} candidate{bulkCandidates.length === 1 ? '' : 's'} ·{' '}
+                    {bulkSavedCount}/{bulkCandidates.length} saved · reviewing {fullName}
+                  </p>
+                ) : (
+                  <p className="text-sm text-[#6B7280]">{fullName}</p>
+                )}
               </div>
               <button
                 type="button"
@@ -1134,6 +1574,69 @@ export function SubmitToClientDrawer({
               </section>
 
               <div className="mb-4 space-y-2 border-b border-[#E5E7EB] pb-3">
+                {isBulkMode ? (
+                  <div className="mb-3 rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-[#6B7280]">
+                        Candidates in this submission
+                      </p>
+                      <p className="text-xs text-[#6B7280]">
+                        Save each profile before submitting to the client
+                      </p>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {bulkCandidates.map((entry, index) => {
+                        const saved = bulkSavedMap[entry.candidateId];
+                        const isActive = index === activeBulkIndex;
+                        return (
+                          <button
+                            key={entry.candidateId}
+                            type="button"
+                            onClick={() => goToBulkCandidate(index)}
+                            className={`inline-flex max-w-full items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                              isActive
+                                ? 'border-[#BFDBFE] bg-[#EFF6FF] text-[#2563EB]'
+                                : saved
+                                  ? 'border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                                  : 'border-[#E5E7EB] bg-white text-[#374151] hover:bg-[#F9FAFB]'
+                            }`}
+                            title={entry.candidateName || entry.candidateId}
+                          >
+                            <span className="truncate">{entry.candidateName || `Candidate ${index + 1}`}</span>
+                            <span
+                              className={`rounded-full px-1.5 py-0.5 text-[10px] ${
+                                saved ? 'bg-emerald-600 text-white' : 'bg-amber-100 text-amber-800'
+                              }`}
+                            >
+                              {saved ? 'Saved' : 'Pending'}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="mt-3 flex items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        disabled={activeBulkIndex <= 0}
+                        onClick={() => goToBulkCandidate(activeBulkIndex - 1)}
+                        className="rounded-lg border border-[#D1D5DB] px-3 py-1.5 text-xs font-semibold text-[#374151] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Previous
+                      </button>
+                      <p className="text-xs text-[#6B7280]">
+                        Candidate {activeBulkIndex + 1} of {bulkCandidates.length}
+                      </p>
+                      <button
+                        type="button"
+                        disabled={activeBulkIndex >= bulkCandidates.length - 1}
+                        onClick={() => goToBulkCandidate(activeBulkIndex + 1)}
+                        className="rounded-lg border border-[#D1D5DB] px-3 py-1.5 text-xs font-semibold text-[#374151] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
                 <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
@@ -1234,18 +1737,55 @@ export function SubmitToClientDrawer({
                 </div>
               ) : null}
 
-              {activeTab === 'candidate' && !loading && !editForm ? (
+              {activeTab === 'candidate' && !loading && !editForm && !phase1Snapshot ? (
                 <div className="rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] px-4 py-3 text-sm text-[#6B7280]">
                   Candidate details could not be loaded. Close and try again.
                 </div>
               ) : null}
 
-              {activeTab === 'candidate' && !loading && editForm ? (
+              {activeTab === 'candidate' && !loading && isPhase1Candidate && phase1Snapshot && phase1ProfileStub ? (
                 <div className="space-y-6">
                   <p className="text-sm text-[#6B7280]">
-                    Edit the client-facing copy only. Saving here does not change the candidate Overview tab —
-                    it is stored under the profile&apos;s Client tab. Use Visible / Hidden on each section to
-                    control what appears on the client review link.
+                    Same sections and fields as the Phase 1 candidate profile drawer. Edit what the client will see,
+                    then save. Use Visible / Hidden on each section header to control the client review link.
+                  </p>
+                  {editError ? (
+                    <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                      {editError}
+                    </div>
+                  ) : null}
+                  <CandidatePhase1SubmitEditSections
+                    candidate={phase1ProfileStub}
+                    snapshot={phase1Snapshot}
+                    onChange={updatePhase1Snapshot}
+                    showClientSectionVisibility
+                    clientSectionVisibility={phase1ClientSectionVisibility}
+                    onToggleClientSectionVisibility={togglePhase1ClientSectionVisibility}
+                  />
+
+                  <ClientCvSelectionPanel
+                    candidate={candidate}
+                    cvShareMode={cvShareMode}
+                    cvShareSaving={cvShareSaving}
+                    hasEditedCv={hasEditedCv}
+                    hasOriginalCv={hasOriginalCv}
+                    resumeHref={resumeHref}
+                    cvEditorLoading={cvEditorLoading}
+                    loading={loading}
+                    onSelectMode={(mode) => void persistCvShareMode(mode)}
+                    onExcludeVersion={excludeCvVersion}
+                    onEditCv={() => void openCvEditor()}
+                    onPreviewEdited={openCvView}
+                    onPreviewOriginal={() => setResumePreviewOpen(true)}
+                  />
+                </div>
+              ) : null}
+
+              {activeTab === 'candidate' && !loading && !isPhase1Candidate && editForm ? (
+                <div className="space-y-6">
+                  <p className="text-sm text-[#6B7280]">
+                    Same sections and fields as the candidate profile drawer. Edit what the client will see,
+                    then save. Use Visible / Hidden on each section header to control the client review link.
                   </p>
                   {editError ? (
                     <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -1257,6 +1797,7 @@ export function SubmitToClientDrawer({
                     onChange={updateEditField}
                     recruiters={[]}
                     jobs={pipelineJobs}
+                    variant="clientSubmit"
                     showClientSectionVisibility
                     clientSectionVisibility={clientSectionVisibility}
                     onToggleClientSectionVisibility={toggleClientSectionVisibility}
@@ -1349,14 +1890,20 @@ export function SubmitToClientDrawer({
                 disabled={
                   activeTab === 'client'
                     ? activeClientSlot?.loading || saving || !activeClientSlot?.client
-                    : loading || saving || submitting || !candidate || !editForm
+                    : loading ||
+                      saving ||
+                      submitting ||
+                      !candidate ||
+                      (isPhase1Candidate ? !phase1Snapshot : !editForm)
                 }
                 className="inline-flex items-center gap-2 rounded-lg border border-[#D1D5DB] px-4 py-2 text-sm font-semibold text-[#111827] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Save className="size-4" />
                 {saving ? 'Saving...' : activeTab === 'client' ? 'Save Client Details' : 'Save Details'}
               </button>
-              {activeTab === 'client' && candidateStepSaved && allClientsSaved ? (
+              {activeTab === 'client' &&
+              (isBulkMode ? allBulkCandidatesSaved : candidateStepSaved) &&
+              allClientsSaved ? (
                 <button
                   type="button"
                   onClick={submitToClient}

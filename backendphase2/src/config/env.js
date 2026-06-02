@@ -232,6 +232,25 @@ export const env = {
   MISTRAL_API_KEY: process.env.MISTRAL_API_KEY,
   MISTRAL_CHAT_MODEL: process.env.MISTRAL_CHAT_MODEL || 'mistral-small-latest',
   MISTRAL_API_BASE_URL: process.env.MISTRAL_API_BASE_URL || 'https://api.mistral.ai/v1',
+  /**
+   * CV parse provider preference:
+   * - auto (default): try OpenAI first, fallback to Mistral
+   * - openai: force OpenAI-first behavior
+   * - mistral: prefer Mistral first (useful for high-throughput bulk parsing)
+   */
+  CV_PARSE_PROVIDER_PREFERENCE: String(process.env.CV_PARSE_PROVIDER_PREFERENCE || 'auto')
+    .trim()
+    .toLowerCase(),
+  /**
+   * Verbose per-file CV pipeline logs (stage banners, full AI JSON dump, section logs).
+   * Disable for high-throughput bulk runs to reduce console I/O overhead.
+   */
+  CV_PARSE_VERBOSE_LOGS: (() => {
+    const raw = process.env.CV_PARSE_VERBOSE_LOGS;
+    if (raw == null || String(raw).trim() === '') return true;
+    const v = String(raw).trim().toLowerCase();
+    return v !== 'false' && v !== '0' && v !== 'no';
+  })(),
   /** If "true", assistant DB tools ignore role scoping (single-tenant / demo only). */
   ASSISTANT_FULL_DB_ACCESS: process.env.ASSISTANT_FULL_DB_ACCESS,
 

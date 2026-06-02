@@ -1683,9 +1683,16 @@ export default function AddCandidateDrawer({
     const rawConc = Number(
       typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_BULK_CV_CONCURRENCY : NaN
     );
+    const rawMaxConc = Number(
+      typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_BULK_CV_MAX_CONCURRENCY : NaN
+    );
+    const BULK_CV_MAX_CONCURRENCY = Math.min(
+      12,
+      Math.max(1, Number.isFinite(rawMaxConc) && rawMaxConc > 0 ? Math.floor(rawMaxConc) : 12)
+    );
     const BULK_CV_CONCURRENCY = Math.min(
-      6,
-      Math.max(1, Number.isFinite(rawConc) && rawConc > 0 ? Math.floor(rawConc) : 3)
+      BULK_CV_MAX_CONCURRENCY,
+      Math.max(1, Number.isFinite(rawConc) && rawConc > 0 ? Math.floor(rawConc) : 8)
     );
 
     const sessionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 11)}`;

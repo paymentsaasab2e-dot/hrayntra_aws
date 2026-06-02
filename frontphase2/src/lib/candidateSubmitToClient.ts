@@ -13,8 +13,7 @@ export function resolveSubmitJobIdForRow(row: Candidate): string | null {
 
 /** True when candidate is assigned, applied, or in a job pipeline (list row). */
 export function candidateRowCanSubmitToClient(row: Candidate): boolean {
-  if (resolveSubmitJobIdForRow(row)) return true;
-  return (row.assignedJobs?.length ?? 0) > 0;
+  return Boolean(resolveSubmitJobIdForRow(row));
 }
 
 /** Resolve job id from loaded profile drawer data. */

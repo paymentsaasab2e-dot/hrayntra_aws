@@ -346,7 +346,7 @@ function CandidatesPageContent() {
   const companyFilterOptionsRef = useRef<string[]>([]);
   const locationFilterOptionsRef = useRef<string[]>([]);
   const [submitClientRowId, setSubmitClientRowId] = useState<string | null>(null);
-  const { openSubmit, submitModalElement } = useSubmitToClientModal({
+  const { openSubmit, openBulkSubmit, submitModalElement } = useSubmitToClientModal({
     onClosed: () => setSubmitClientRowId(null),
   });
   /** Canonical job filter list from /jobs — not rebuilt from paginated candidate rows. */
@@ -1167,6 +1167,40 @@ function CandidatesPageContent() {
     [interviewPanelMembers],
   );
 
+  const openBulkSubmitToClient = useCallback(
+    (ids: string[]) => {
+      if (!ids.length) return;
+      const rows = candidates.filter((row) => ids.includes(row.id));
+      const eligible = rows.filter((row) => Boolean(resolveSubmitJobIdForRow(row)));
+      const skipped = rows.length - eligible.length;
+      if (skipped > 0) {
+        toast.warning(
+          `${skipped} selected candidate${skipped === 1 ? '' : 's'} skipped — assign to a job first.`,
+        );
+      }
+      if (!eligible.length) {
+        void requestError(
+          'None of the selected candidates can be submitted. Assign them to a job first.',
+        );
+        return;
+      }
+      openBulkSubmit(
+        eligible.map((row) => {
+          const jobId = resolveSubmitJobIdForRow(row)!;
+          return {
+            candidateId: row.id,
+            jobId,
+            candidateName: row.name,
+            matchScore: row.matchScore,
+            matchId: row.matchId,
+          };
+        }),
+      );
+      setSelectedIds([]);
+    },
+    [candidates, openBulkSubmit],
+  );
+
   const openBulkScheduleInterview = useCallback(
     async (ids: string[]) => {
       if (!ids.length) return;
@@ -1771,6 +1805,9 @@ function CandidatesPageContent() {
                   } : undefined}
                   onScheduleInterview={
                     canScheduleInterview ? openBulkScheduleInterview : undefined
+                  }
+                  onSubmitToClient={
+                    canSubmitToClient ? openBulkSubmitToClient : undefined
                   }
                   onAssignRecruiter={canAssignCandidate ? openBulkAssignModal : undefined}
                   onSendEmail={async (ids) => {

@@ -23,8 +23,17 @@ import {
   type CvWorkEntryLike,
 } from '@/lib/candidateExperience';
 import { getPhase1ProfileSnapshot } from '@/lib/phase1ProfileSnapshot';
+import type { ClientSectionVisibility } from '@/lib/clientPresentationSections';
 
-type SectionKey = 'personal' | 'education' | 'professional' | 'social' | 'summary';
+type SectionKey = 'personal' | 'education' | 'work' | 'professional' | 'social' | 'summary';
+
+function isOverviewSectionVisible(
+  id: SectionKey,
+  visibility?: Partial<ClientSectionVisibility> | null,
+): boolean {
+  if (!visibility) return true;
+  return visibility[id] !== false;
+}
 
 function display(value: unknown): string {
   if (value === undefined || value === null) return '';
@@ -557,13 +566,16 @@ function countFilled(values: string[]) {
 
 type Props = {
   candidate: CandidateProfileDrawerData;
+  /** When set, sections marked false are omitted (client review preview). */
+  sectionVisibility?: Partial<ClientSectionVisibility> | null;
 };
 
-export function CandidateAtsExtractedOverview({ candidate }: Props) {
+export function CandidateAtsExtractedOverview({ candidate, sectionVisibility }: Props) {
   const model = useMemo(() => buildOverviewModel(candidate), [candidate]);
   const [open, setOpen] = useState<Record<SectionKey, boolean>>({
     personal: true,
     education: true,
+    work: true,
     professional: true,
     social: true,
     summary: true,
@@ -626,7 +638,15 @@ export function CandidateAtsExtractedOverview({ candidate }: Props) {
     prof.resume,
   ]);
   const profTotal = 21;
-  const workCount = prof.workEntries.length;
+  const workEntries = prof.workEntries;
+  const workCount = workEntries.length;
+  const workEntryFilled = workEntries.filter(
+    (job) =>
+      display(job.title) ||
+      display(job.company) ||
+      display(job.startDate) ||
+      display(job.endDate),
+  ).length;
 
   const s = model.social;
   const socialFilled =
@@ -676,6 +696,7 @@ export function CandidateAtsExtractedOverview({ candidate }: Props) {
 
   return (
     <div className="space-y-4">
+      {isOverviewSectionVisible('personal', sectionVisibility) ? (
       <SectionBlock
         id="personal"
         title="Personal Information"
@@ -703,7 +724,9 @@ export function CandidateAtsExtractedOverview({ candidate }: Props) {
           <FieldRow label="Passport Number" value={p.passport} />
         </div>
       </SectionBlock>
+      ) : null}
 
+      {isOverviewSectionVisible('education', sectionVisibility) ? (
       <SectionBlock
         id="education"
         title="Education"
@@ -728,7 +751,9 @@ export function CandidateAtsExtractedOverview({ candidate }: Props) {
         <FieldRow label="Education (summary text)" value={edu.summaryText} />
         <FieldRow label="Courses" value={edu.courses} />
       </SectionBlock>
+      ) : null}
 
+      {isOverviewSectionVisible('professional', sectionVisibility) ? (
       <SectionBlock
         id="professional"
         title="Career Preferences"
@@ -737,11 +762,6 @@ export function CandidateAtsExtractedOverview({ candidate }: Props) {
         onToggle={toggle}
         filled={profScalarFilled}
         total={profTotal}
-        extraHint={
-          workCount > 0
-            ? `${workCount} work ${workCount === 1 ? 'entry' : 'entries'}`
-            : undefined
-        }
       >
         <div className="grid gap-3 lg:grid-cols-2">
           <PreferenceCard title="Current Package">
@@ -782,27 +802,35 @@ export function CandidateAtsExtractedOverview({ candidate }: Props) {
           </PreferenceCard>
         </div>
 
+      </SectionBlock>
+      ) : null}
+
+      {isOverviewSectionVisible('work', sectionVisibility) ? (
+      <SectionBlock
+        id="work"
+        title="Work Experience"
+        icon={Briefcase}
+        open={open.work}
+        onToggle={toggle}
+        filled={workEntryFilled}
+        total={Math.max(workCount, 1)}
+        extraHint={
+          workCount > 0 ? `${workCount} ${workCount === 1 ? 'entry' : 'entries'}` : undefined
+        }
+      >
         {workCount > 0 ? (
           <div className="space-y-2">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
-              Work experience entries
-            </p>
-            {prof.workEntries.map((job, index) => (
+            {workEntries.map((job, index) => (
               <WorkExperienceEntryCard key={`work-${index}`} entry={job} index={index} />
             ))}
           </div>
-        ) : null}
-
-        {!workCount ? (
-          <div className="rounded-xl border border-slate-200/80 bg-white px-3 py-2.5">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
-              Work experience entries
-            </p>
-            <p className="mt-1 text-sm italic text-slate-400">Not in resume</p>
-          </div>
-        ) : null}
+        ) : (
+          <p className="text-sm italic text-slate-400">Not in resume</p>
+        )}
       </SectionBlock>
+      ) : null}
 
+      {isOverviewSectionVisible('social', sectionVisibility) ? (
       <SectionBlock
         id="social"
         title="Social Network Information"
@@ -844,7 +872,9 @@ export function CandidateAtsExtractedOverview({ candidate }: Props) {
           </div>
         ) : null}
       </SectionBlock>
+      ) : null}
 
+      {isOverviewSectionVisible('summary', sectionVisibility) ? (
       <SectionBlock
         id="summary"
         title="Summary & Additional"
@@ -889,6 +919,7 @@ export function CandidateAtsExtractedOverview({ candidate }: Props) {
         {sum.projects ? <FieldRow label="Projects (extra)" value={sum.projects} /> : null}
         {sum.hackathons ? <FieldRow label="Hackathons (extra)" value={sum.hackathons} /> : null}
       </SectionBlock>
+      ) : null}
     </div>
   );
 }

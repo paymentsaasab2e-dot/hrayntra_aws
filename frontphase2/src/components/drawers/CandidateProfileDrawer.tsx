@@ -69,7 +69,8 @@ import {
 import { profileCanSubmitToClient } from '../../lib/candidateSubmitToClient';
 import { CandidateAtsExtractedOverview } from '../candidates/CandidateAtsExtractedOverview';
 import { CandidatePhase1DetailSections } from '../candidates/CandidatePhase1DetailSections';
-import { mergeProfileWithClientPresentation } from '../../lib/clientPresentationDraft';
+import { mergeProfileWithClientPresentation, readClientPresentation } from '../../lib/clientPresentationDraft';
+import { mergeProfileWithPhase1ClientPresentation } from '../../lib/phase1ClientPresentation';
 import { isPhase1PortalCandidate } from '../../lib/phase1ProfileSnapshot';
 
 const MAX_EDIT_AVATAR_FILE_BYTES = 5 * 1024 * 1024;
@@ -3819,6 +3820,11 @@ export function CandidateProfileDrawer({
     [candidate]
   );
 
+  const phase1ClientPresentationProfile = useMemo(
+    () => (candidate ? mergeProfileWithPhase1ClientPresentation(candidate) : null),
+    [candidate]
+  );
+
   useEffect(() => {
     if (isOpen && activeTab === 'Activity' && activityContainerRef.current) {
       activityContainerRef.current.scrollTop = activityContainerRef.current.scrollHeight;
@@ -4267,13 +4273,27 @@ export function CandidateProfileDrawer({
 
                 {activeTab === 'Client' && (
                   <div className="space-y-5">
-                    {clientPresentationProfile ? (
+                    {phase1ClientPresentationProfile ? (
                       <>
                         <p className="rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-sm text-slate-700">
                           Copy prepared for client submission. Edits here do not change the Overview tab — update
                           them from Submit to Client.
                         </p>
-                        <CandidateAtsExtractedOverview candidate={clientPresentationProfile} />
+                        <CandidatePhase1DetailSections
+                          candidate={phase1ClientPresentationProfile}
+                          sectionVisibility={readClientPresentation(candidate.extraData)?.phase1VisibleSections}
+                        />
+                      </>
+                    ) : clientPresentationProfile ? (
+                      <>
+                        <p className="rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-sm text-slate-700">
+                          Copy prepared for client submission. Edits here do not change the Overview tab — update
+                          them from Submit to Client.
+                        </p>
+                        <CandidateAtsExtractedOverview
+                          candidate={clientPresentationProfile}
+                          sectionVisibility={readClientPresentation(candidate.extraData)?.visibleSections}
+                        />
                       </>
                     ) : (
                       <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-6 py-10 text-center">

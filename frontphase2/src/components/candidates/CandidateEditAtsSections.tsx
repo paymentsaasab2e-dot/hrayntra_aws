@@ -9,6 +9,7 @@ import {
   buildEducationSummaryFromCvEntries,
   isGarbageEducationSummary,
 } from '@/lib/candidateEducation';
+import { parseWorkExperienceEditorValue } from '@/lib/candidateExperience';
 import type { CandidateProfileDrawerData } from '../drawers/CandidateProfileDrawer';
 import { CandidatePhotoUpload } from './AddCandidateFormSections';
 
@@ -356,28 +357,6 @@ export function parseEducationEntriesEditorValue(value: string) {
         endYear,
         grade: grade || undefined,
       };
-    });
-}
-
-function parseWorkExperienceEditorValue(value: string) {
-  return String(value || '')
-    .split(/\r?\n\r?\n/)
-    .map((block) => block.trim())
-    .filter(Boolean)
-    .map((block) => {
-      const lines = block.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-      const headerLine = lines[0] || '';
-      const responsibilitiesLine = lines.slice(1).join(' ');
-      const [title = '', company = '', location = '', startDate = '', endDate = ''] = headerLine
-        .split('|')
-        .map((part) => part.trim());
-      const responsibilities = responsibilitiesLine
-        ? responsibilitiesLine
-            .split(';')
-            .map((item) => item.trim())
-            .filter(Boolean)
-        : [];
-      return { title, company, location, startDate, endDate, responsibilities };
     });
 }
 
@@ -753,6 +732,8 @@ type Props = {
   showClientSectionVisibility?: boolean;
   clientSectionVisibility?: Partial<Record<ClientPresentationSectionId, boolean>>;
   onToggleClientSectionVisibility?: (sectionId: ClientPresentationSectionId) => void;
+  /** profile = full CRM edit; clientSubmit = client-facing sections only (Submit to Client drawer). */
+  variant?: 'profile' | 'clientSubmit';
 };
 
 export function CandidateEditAtsSections({
@@ -766,7 +747,9 @@ export function CandidateEditAtsSections({
   showClientSectionVisibility = false,
   clientSectionVisibility,
   onToggleClientSectionVisibility,
+  variant = 'profile',
 }: Props) {
+  const isClientSubmit = variant === 'clientSubmit';
   const sectionVisible = (id: ClientPresentationSectionId) => clientSectionVisibility?.[id] !== false;
   return (
     <div className="space-y-5">
@@ -864,7 +847,14 @@ export function CandidateEditAtsSections({
         </div>
       </EditSection>
 
-      <EditSection title="Professional Information" icon={Briefcase}>
+      <EditSection
+        sectionId="professional"
+        title="Career Preferences"
+        icon={Briefcase}
+        showClientVisibilityToggle={showClientSectionVisibility}
+        clientVisible={sectionVisible('professional')}
+        onToggleClientVisibility={onToggleClientSectionVisibility}
+      >
         <div className="md:col-span-2">
           <EditTextarea label="Remarks" value={form.remarks} onChange={(v) => onChange('remarks', v)} rows={3} />
         </div>
@@ -914,15 +904,6 @@ export function CandidateEditAtsSections({
         </div>
         <div className="md:col-span-2">
           <EditTextarea
-            label="Work experience"
-            value={form.cvWorkExperienceEntries}
-            onChange={(v) => onChange('cvWorkExperienceEntries', v)}
-            rows={8}
-            helper="Blank line between roles. Line 1: Title | Company | Location | Start | End. Line 2+: responsibilities (; separated)"
-          />
-        </div>
-        <div className="md:col-span-2">
-          <EditTextarea
             label="Work history (narrative)"
             value={form.workHistoryText}
             onChange={(v) => onChange('workHistoryText', v)}
@@ -945,6 +926,25 @@ export function CandidateEditAtsSections({
             onChange={(v) => onChange('volunteers', v)}
             rows={2}
             helper="Semicolon-separated"
+          />
+        </div>
+      </EditSection>
+
+      <EditSection
+        sectionId="work"
+        title="Work Experience"
+        icon={Briefcase}
+        showClientVisibilityToggle={showClientSectionVisibility}
+        clientVisible={sectionVisible('work')}
+        onToggleClientVisibility={onToggleClientSectionVisibility}
+      >
+        <div className="md:col-span-2">
+          <EditTextarea
+            label="Work experience entries"
+            value={form.cvWorkExperienceEntries}
+            onChange={(v) => onChange('cvWorkExperienceEntries', v)}
+            rows={8}
+            helper="Blank line between roles. Line 1: Title | Company | Location | Start | End. Line 2+: responsibilities (; separated)"
           />
         </div>
       </EditSection>
@@ -1040,48 +1040,50 @@ export function CandidateEditAtsSections({
         </div>
       </EditSection>
 
-      <EditSection title="Hiring & assignment" icon={Briefcase}>
-        <EditField label="Source" value={form.source} onChange={(v) => onChange('source', v)} />
-        <EditSelect
-          label="Stage"
-          value={form.stage}
-          options={CANDIDATE_STAGE_OPTIONS.map((value) => ({ label: value, value }))}
-          onChange={(v) => onChange('stage', v)}
-        />
-        <EditSelect
-          label="Status"
-          value={form.status}
-          options={CANDIDATE_STATUS_OPTIONS.map((value) => ({ label: value, value }))}
-          onChange={(v) => onChange('status', v)}
-        />
-        <EditSelect
-          label="Assigned recruiter"
-          value={form.recruiterId}
-          options={recruiters.map((r) => ({ label: r.name, value: r.id }))}
-          onChange={(v) => onChange('recruiterId', v)}
-        />
-        <EditSelect
-          label="Assigned job"
-          value={form.assignedJobId}
-          options={jobs.map((job) => ({
-            label: `${job.title}${job.department ? ` · ${job.department}` : ''}`,
-            value: job.id,
-          }))}
-          onChange={(v) => onChange('assignedJobId', v)}
-        />
-        <EditSelect
-          label="Availability"
-          value={form.availability}
-          options={CANDIDATE_AVAILABILITY_OPTIONS.map((value) => ({ label: value, value }))}
-          onChange={(v) => onChange('availability', v)}
-        />
-        <EditSelect
-          label="Salary currency (default)"
-          value={form.salaryCurrency}
-          options={SALARY_CURRENCY_OPTIONS.map((value) => ({ label: value, value }))}
-          onChange={(v) => onChange('salaryCurrency', v)}
-        />
-      </EditSection>
+      {!isClientSubmit ? (
+        <EditSection title="Hiring & assignment" icon={Briefcase}>
+          <EditField label="Source" value={form.source} onChange={(v) => onChange('source', v)} />
+          <EditSelect
+            label="Stage"
+            value={form.stage}
+            options={CANDIDATE_STAGE_OPTIONS.map((value) => ({ label: value, value }))}
+            onChange={(v) => onChange('stage', v)}
+          />
+          <EditSelect
+            label="Status"
+            value={form.status}
+            options={CANDIDATE_STATUS_OPTIONS.map((value) => ({ label: value, value }))}
+            onChange={(v) => onChange('status', v)}
+          />
+          <EditSelect
+            label="Assigned recruiter"
+            value={form.recruiterId}
+            options={recruiters.map((r) => ({ label: r.name, value: r.id }))}
+            onChange={(v) => onChange('recruiterId', v)}
+          />
+          <EditSelect
+            label="Assigned job"
+            value={form.assignedJobId}
+            options={jobs.map((job) => ({
+              label: `${job.title}${job.department ? ` · ${job.department}` : ''}`,
+              value: job.id,
+            }))}
+            onChange={(v) => onChange('assignedJobId', v)}
+          />
+          <EditSelect
+            label="Availability"
+            value={form.availability}
+            options={CANDIDATE_AVAILABILITY_OPTIONS.map((value) => ({ label: value, value }))}
+            onChange={(v) => onChange('availability', v)}
+          />
+          <EditSelect
+            label="Salary currency (default)"
+            value={form.salaryCurrency}
+            options={SALARY_CURRENCY_OPTIONS.map((value) => ({ label: value, value }))}
+            onChange={(v) => onChange('salaryCurrency', v)}
+          />
+        </EditSection>
+      ) : null}
     </div>
   );
 }

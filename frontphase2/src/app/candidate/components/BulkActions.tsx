@@ -6,6 +6,7 @@ import {
   ChevronDown,
   Download,
   Mail,
+  Send,
   Tag,
   Trash2,
   User,
@@ -24,6 +25,7 @@ interface BulkActionsProps {
   onExport?: (ids: string[]) => void;
   onReject?: (ids: string[]) => void;
   onScheduleInterview?: (ids: string[]) => void;
+  onSubmitToClient?: (ids: string[]) => void;
   onDeselect: () => void;
 }
 
@@ -45,6 +47,7 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
   onExport,
   onReject,
   onScheduleInterview,
+  onSubmitToClient,
   onDeselect,
 }) => {
   const mobileMenuRef = useRef<HTMLDivElement | null>(null);
@@ -65,6 +68,9 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
     onMoveStage ? { key: 'move-stage', label: 'Move Stage', icon: ArrowRightLeft, onClick: onMoveStage } : null,
     onScheduleInterview
       ? { key: 'schedule-interview', label: 'Schedule Interview', icon: CalendarPlus, onClick: onScheduleInterview }
+      : null,
+    onSubmitToClient
+      ? { key: 'submit-to-client', label: 'Submit to Client', icon: Send, onClick: onSubmitToClient }
       : null,
     onAssignRecruiter ? { key: 'assign', label: 'Assign Recruiter', icon: User, onClick: onAssignRecruiter } : null,
     onSendEmail ? { key: 'email', label: 'Send Email', icon: Mail, onClick: onSendEmail } : null,
