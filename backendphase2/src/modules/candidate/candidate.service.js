@@ -11,6 +11,12 @@ import {
   updateCandidateStage,
 } from '../stage/candidateStage.service.js';
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
+import { resolveCandidateListExperienceYears } from '../../utils/candidateExperienceYears.util.js';
+import {
+  applyResumeJsonToCandidate,
+  batchHydrateCandidatesResumeFromPortal,
+} from '../../utils/candidateResumeHydrate.util.js';
+import { persistCandidateCvProfileToTenant } from '../../utils/candidateCvPersist.util.js';
 import {
   USER_BRIEF_SELECT,
   prepareListWithAuditMeta,
@@ -658,6 +664,8 @@ function mergePortalAndTenantCandidateRow(portalRow, tenantRow) {
     ...portalExtra,
     ...tenantExtra,
     ...(phase1Snap ? { phase1ProfileSnapshot: phase1Snap } : {}),
+    workHistory: pickFirstNonEmpty(portalExtra.workHistory, tenantExtra.workHistory),
+    workHistoryText: pickFirstNonEmpty(portalExtra.workHistoryText, tenantExtra.workHistoryText),
   };
   merged.avatar = pickFirstNonEmpty(portalRow.avatar, tenantRow.avatar);
 
@@ -1072,55 +1080,45 @@ async function materializePortalCandidateIntoTenant(portalRow) {
   const languages = Array.isArray(portalRow.languages) ? portalRow.languages : [];
   const recruiterLanguages = Array.isArray(portalRow.recruiterLanguages) ? portalRow.recruiterLanguages : [];
 
-  const baseData = {
-    firstName: portalRow.firstName ?? null,
-    lastName: portalRow.lastName ?? null,
-    email: portalRow.email ?? null,
-    phone: portalRow.phone ?? null,
-    linkedIn: portalRow.linkedIn ?? null,
-    resume: portalRow.resume ?? portalRow.resumeUrl ?? null,
-    resumeUrl: portalRow.resumeUrl ?? null,
+  const profileFields = buildMatchMaterializeProfileFields(
+    portalRow,
     skills,
-    recruiterSkills: Array.isArray(portalRow.recruiterSkills) ? portalRow.recruiterSkills : [],
-    experience: portalRow.experience ?? portalRow.experienceYears ?? null,
-    experienceYears: portalRow.experienceYears ?? null,
-    currentTitle: portalRow.currentTitle ?? null,
-    currentCompany: portalRow.currentCompany ?? null,
-    location: portalRow.location ?? null,
-    address: portalRow.address ?? portalRow.addressLine ?? null,
-    addressLine: portalRow.addressLine ?? null,
-    city: portalRow.city ?? null,
-    country: portalRow.country ?? null,
-    status: 'ACTIVE',
-    recruiterStatus: portalRow.recruiterStatus ?? null,
-    source: portalRow.source ?? 'Job portal',
-    assignedJobs,
-    stage: portalRow.stage ?? 'Applied',
-    lastActivity: portalRow.lastActivity ?? new Date(),
     languages,
     recruiterLanguages,
-    notes: portalRow.notes ?? portalRow.recruiterNotes ?? null,
-    recruiterNotes: portalRow.recruiterNotes ?? null,
-    education: portalRow.education ?? portalRow.recruiterEducation ?? null,
-    recruiterEducation: portalRow.recruiterEducation ?? null,
-    certifications: Array.isArray(portalRow.certifications) ? portalRow.certifications : [],
-    certificationsList: Array.isArray(portalRow.certificationsList) ? portalRow.certificationsList : [],
-    portfolio: portalRow.portfolio ?? null,
-    website: portalRow.website ?? null,
-    preferredLocation: portalRow.preferredLocation ?? null,
-  };
+  );
+  const portalExtra =
+    portalRow?.extraData && typeof portalRow.extraData === 'object' && !Array.isArray(portalRow.extraData)
+      ? portalRow.extraData
+      : {};
+  profileFields.extraData = portalExtra;
+
+  const computedExp = resolveCandidateListExperienceYears({ ...portalRow, ...profileFields });
+  if (computedExp != null) {
+    profileFields.experience = Math.max(0, Math.round(computedExp));
+    profileFields.experienceYears = computedExp;
+  }
+
+  const phase1 = isPhase1CandidateSource(portalRow?.source);
+  const stageForCreate =
+    portalRow.stage && String(portalRow.stage).trim() ? String(portalRow.stage).trim() : phase1 ? 'New' : 'Applied';
 
   return prisma.candidate.upsert({
     where: { id: portalRow.id },
     create: {
       id: portalRow.id,
-      ...baseData,
+      ...profileFields,
+      status: 'ACTIVE',
+      recruiterStatus: portalRow.recruiterStatus ?? null,
+      source: phase1 ? 'phase1' : portalRow.source ?? 'Job portal',
+      assignedJobs,
+      stage: stageForCreate,
+      education: portalRow.education ?? portalRow.recruiterEducation ?? null,
+      recruiterEducation: portalRow.recruiterEducation ?? null,
+      portfolio: portalRow.portfolio ?? null,
+      website: portalRow.website ?? null,
+      preferredLocation: portalRow.preferredLocation ?? null,
     },
-    update: {
-      stage: baseData.stage,
-      assignedJobs: baseData.assignedJobs,
-      lastActivity: baseData.lastActivity,
-    },
+    update: profileFields,
   });
 }
 
@@ -1882,6 +1880,42 @@ async function hydrateCandidateResumeFromPortal(candidate, portalClient) {
     candidate.resume = resumeUrl;
     candidate.resumeUrl = resumeUrl;
   }
+
+  if (portalClient?.resume?.findFirst) {
+    try {
+      const resumeRow = await portalClient.resume.findFirst({
+        where: { candidateId: candidate.id },
+        select: { resumeJson: true },
+        orderBy: { updatedAt: 'desc' },
+      });
+      const resumeJson = resumeRow?.resumeJson;
+      if (resumeJson && typeof resumeJson === 'object' && !Array.isArray(resumeJson)) {
+        applyResumeJsonToCandidate(candidate, resumeJson);
+      }
+    } catch (err) {
+      console.warn('[candidate.service] portal resumeJson hydrate failed:', err?.message || err);
+    }
+  }
+
+  if (candidate.experience == null && candidate.experienceYears == null) {
+    const computedExp = resolveCandidateListExperienceYears(candidate);
+    if (computedExp != null) {
+      candidate.experience = computedExp;
+      candidate.experienceYears = computedExp;
+    }
+  }
+
+  return candidate;
+}
+
+async function hydrateAndPersistCandidateCvProfile(candidate, portalClient) {
+  if (!candidate) return candidate;
+  await hydrateCandidateResumeFromPortal(candidate, portalClient);
+  try {
+    await persistCandidateCvProfileToTenant(candidate);
+  } catch (err) {
+    console.warn('[candidate.service] CV persist to tenant failed:', candidate.id, err?.message || err);
+  }
   return candidate;
 }
 
@@ -1974,7 +2008,11 @@ async function buildCandidateResponse(candidate, activityClient = prisma) {
         : Array.isArray(candidate.recruiterSkills)
           ? candidate.recruiterSkills
           : [],
-    experience: candidate.experience ?? candidate.experienceYears ?? null,
+    experience:
+      resolveCandidateListExperienceYears(candidate) ??
+      candidate.experience ??
+      candidate.experienceYears ??
+      null,
     address: candidate.address || candidate.addressLine || null,
     status: candidate.status || candidate.recruiterStatus || 'NEW',
     education: candidate.education || candidate.recruiterEducation || null,
@@ -2590,6 +2628,29 @@ export const candidateService = {
       }
     }
 
+    if (candidates.length) {
+      let portalClientForList = null;
+      try {
+        portalClientForList = getJobPortalPrismaClient();
+      } catch {
+        portalClientForList = null;
+      }
+      if (portalClientForList) {
+        await batchHydrateCandidatesResumeFromPortal(candidates, portalClientForList);
+        await Promise.all(
+          candidates.map((row) =>
+            persistCandidateCvProfileToTenant(row).catch((err) => {
+              console.warn(
+                '[candidate.service] list CV persist failed:',
+                row?.id,
+                err?.message || err,
+              );
+            }),
+          ),
+        );
+      }
+    }
+
     // Resolve linked job ids (assign, apply, pipeline, match) into titles for list UI.
     const assignedJobIds = Array.from(
       new Set(
@@ -2640,7 +2701,11 @@ export const candidateService = {
               : Array.isArray(scopedWithJobs.recruiterSkills)
                 ? scopedWithJobs.recruiterSkills
                 : [],
-          experience: scopedWithJobs.experience ?? scopedWithJobs.experienceYears ?? null,
+          experience:
+            resolveCandidateListExperienceYears(scopedWithJobs) ??
+            scopedWithJobs.experience ??
+            scopedWithJobs.experienceYears ??
+            null,
           status: scopedWithJobs.status || scopedWithJobs.recruiterStatus || 'NEW',
           education: scopedWithJobs.education || scopedWithJobs.recruiterEducation || null,
           languages:
@@ -2709,7 +2774,7 @@ export const candidateService = {
       if (commonCandidate && (tombstone || purgedRef)) {
         const careerPrefs = await fetchPortalCareerPreferencesRaw(portalPrisma, id);
         mergeCareerPreferencesIntoCandidate(commonCandidate, careerPrefs);
-        await hydrateCandidateResumeFromPortal(commonCandidate, portalPrisma);
+        await hydrateAndPersistCandidateCvProfile(commonCandidate, portalPrisma);
         return buildCandidateResponse(
           await enrichCandidateDetailJobTitles(annotateForTenant(commonCandidate), tenantJobIdSet),
           portalPrisma
@@ -2731,7 +2796,7 @@ export const candidateService = {
           }
           const careerPrefs = await fetchPortalCareerPreferencesRaw(portalPrisma, candidate.id);
           mergeCareerPreferencesIntoCandidate(candidate, careerPrefs);
-          await hydrateCandidateResumeFromPortal(candidate, portalPrisma);
+          await hydrateAndPersistCandidateCvProfile(candidate, portalPrisma);
           return buildCandidateResponse(
             await enrichCandidateDetailJobTitles(annotateForTenant(candidate), tenantJobIdSet),
             portalPrisma
@@ -2742,7 +2807,7 @@ export const candidateService = {
       if (commonCandidate) {
         const careerPrefs = await fetchPortalCareerPreferencesRaw(portalPrisma, id);
         mergeCareerPreferencesIntoCandidate(commonCandidate, careerPrefs);
-        await hydrateCandidateResumeFromPortal(commonCandidate, portalPrisma);
+        await hydrateAndPersistCandidateCvProfile(commonCandidate, portalPrisma);
         return buildCandidateResponse(
           await enrichCandidateDetailJobTitles(annotateForTenant(commonCandidate), tenantJobIdSet),
           portalPrisma
@@ -2763,7 +2828,7 @@ export const candidateService = {
     try { portalClientForPrefs = getJobPortalPrismaClient(); } catch { portalClientForPrefs = null; }
     const careerPrefs = await fetchPortalCareerPreferencesRaw(portalClientForPrefs, candidate.id);
     mergeCareerPreferencesIntoCandidate(candidate, careerPrefs);
-    await hydrateCandidateResumeFromPortal(candidate, portalClientForPrefs);
+    await hydrateAndPersistCandidateCvProfile(candidate, portalClientForPrefs);
 
     return buildCandidateResponse(
       await enrichCandidateDetailJobTitles(annotateForTenant(candidate), tenantJobIdSet),

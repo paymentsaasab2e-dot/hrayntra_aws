@@ -64,6 +64,12 @@ import {
 } from 'lucide-react';
 import { downloadCsv } from '../../utils/csv';
 import { extractAuditMeta } from '../../utils/auditMeta';
+import { displayCandidateEmail, parseBulkCopyLabel } from '../../lib/bulkCvEmail';
+import {
+  collectCandidateWorkEntries,
+  formatCandidateExperienceForTable,
+  resolveCandidateExperienceYears,
+} from '../../lib/candidateExperience';
 import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
 import { buildCandidatesCsvColumns, CANDIDATES_EXPORT_COLUMNS } from '../../lib/export/candidatesExportColumns';
 import { fetchAllPaginated, totalPagesFromPagination } from '../../lib/export/fetchAllPaginated';
@@ -237,7 +243,7 @@ function mergeCompanyFilterOptions(existing: string[], next: string[]): string[]
 
 function mapBackendCandidate(c: BackendCandidate): Candidate {
   const fullName = `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim();
-  const email = c.email?.trim() || '';
+  const email = displayCandidateEmail(c.email?.trim() || '');
   const phone = c.phone?.trim() || '';
   const shortId = c.id && c.id.length >= 6 ? c.id.slice(-6) : c.id;
   const name =
@@ -246,6 +252,8 @@ function mapBackendCandidate(c: BackendCandidate): Candidate {
     phone ||
     (shortId ? `Candidate …${shortId}` : 'Candidate');
   const assignedJobsFromAssignedTitles = resolveCandidateAssignedJobTitles(c);
+  const workEntries = collectCandidateWorkEntries(c);
+  const experienceYears = resolveCandidateExperienceYears(c) ?? c.experience ?? 0;
 
   return {
     id: c.id,
@@ -253,7 +261,8 @@ function mapBackendCandidate(c: BackendCandidate): Candidate {
     avatar: (c.avatar && String(c.avatar).trim()) || '',
     designation: c.currentTitle || '',
     company: c.currentCompany || '',
-    experience: c.experience ?? 0,
+    experience: experienceYears,
+    experienceLabel: formatCandidateExperienceForTable(experienceYears, workEntries.length),
     location: c.location || '—',
     assignedJobs: assignedJobsFromAssignedTitles,
     stage: String(c.stage || '').trim() || resolveCandidateListStage(c),
@@ -273,6 +282,7 @@ function mapBackendCandidate(c: BackendCandidate): Candidate {
     isPhase1Candidate: c.isPhase1Candidate === true,
     isNewCandidate: Boolean(c.isNewCandidate),
     isJobAppliedCandidate: c.isJobAppliedCandidate === true || candidateShowsAppliedTag(c),
+    bulkCopyLabel: parseBulkCopyLabel(c.lastName || fullName),
     auditMeta: extractAuditMeta(c as Record<string, unknown>),
   };
 }
@@ -498,6 +508,10 @@ function CandidatesPageContent() {
               designation: profile.designation || candidate.designation,
               company: profile.currentCompany || candidate.company,
               experience: profile.experience ?? candidate.experience,
+              experienceLabel: formatCandidateExperienceForTable(
+                profile.experience ?? candidate.experience,
+                profile.cvWorkExperienceEntries?.length ?? 0,
+              ),
               location: profile.location || candidate.location,
               phone: profile.phone || candidate.phone,
               email: profile.email || candidate.email,

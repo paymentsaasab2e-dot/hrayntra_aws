@@ -4,6 +4,7 @@ const {
   PROFILE_SYNC_INCLUDE,
   buildProfileSnapshot,
 } = require('../utils/profileSnapshotForCommon.util');
+const { applyResumeJsonToCommonPayload } = require('../utils/resumeWorkNarrative.util');
 
 function isPlaceholderProfileEmail(email) {
   const value = String(email || '').trim().toLowerCase();
@@ -185,7 +186,10 @@ function buildCommonPayload(candidate, { lastLogin = false, forceVerified = fals
     payload.lastLoginAt = new Date();
   }
 
-  return payload;
+  const enriched = applyResumeJsonToCommonPayload(candidate, payload, snapshot);
+  enriched.payload.profileSnapshot = enriched.snapshot || snapshot;
+
+  return enriched.payload;
 }
 
 async function loadCandidateForCommonSync(candidateId) {

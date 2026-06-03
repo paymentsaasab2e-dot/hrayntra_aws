@@ -1,7 +1,8 @@
-import type { BackendCandidate } from './api';
+import type { BackendCandidate, UpdateCandidatePayload } from './api';
 import {
   buildCandidateEditForm,
   buildClientPresentationFieldsPatch,
+  buildUpdatePayloadFromEditForm,
   type CandidateEditFormState,
 } from '../components/candidates/CandidateEditAtsSections';
 import type { CandidateProfileDrawerData } from '../components/drawers/CandidateProfileDrawer';
@@ -143,4 +144,140 @@ export function mergeProfileWithPhase1ClientPresentation(
       phase1ClientSectionVisibility: saved.phase1VisibleSections,
     },
   };
+}
+
+/** Seed overview edit form from live Phase 1 snapshot or drawer profile fields. */
+export function initPhase1EditSnapshotFromProfile(
+  profile: CandidateProfileDrawerData,
+): Phase1ProfileSnapshot {
+  const live = getPhase1ProfileSnapshot(profile.extraData);
+  if (live) return cloneSnapshot(live);
+
+  const nameParts = String(profile.name || '').trim().split(/\s+/).filter(Boolean);
+  return {
+    personalInfo: {
+      firstName: profile.firstName || nameParts[0] || undefined,
+      lastName: profile.lastName || nameParts.slice(1).join(' ') || undefined,
+      email: profile.email || undefined,
+      phone: profile.phone || undefined,
+      linkedinUrl: profile.linkedIn || undefined,
+      city: profile.cvCity || undefined,
+      country: profile.cvCountry || undefined,
+      address: profile.cvAddress || undefined,
+    },
+    summaryText: profile.cvSummary || profile.summary || undefined,
+    workExperience: Array.isArray(profile.cvWorkExperienceEntries)
+      ? profile.cvWorkExperienceEntries.map((w) => ({
+          jobTitle: w.title,
+          company: w.company,
+          workLocation: w.location,
+          startDate: w.startDate,
+          endDate: w.endDate,
+          responsibilities: w.responsibilities,
+        }))
+      : [],
+    education: Array.isArray(profile.cvEducationEntries)
+      ? profile.cvEducationEntries.map((e) => ({
+          degreeProgram: e.degree,
+          institutionName: e.institution,
+          startYear: e.startYear,
+          endYear: e.endYear,
+        }))
+      : [],
+    certifications: Array.isArray(profile.cvCertifications)
+      ? profile.cvCertifications.map((name) => ({ certificationName: name }))
+      : [],
+    gapExplanations: Array.isArray(profile.extraData?.phase1GapExplanations)
+      ? (profile.extraData.phase1GapExplanations as Array<Record<string, unknown>>)
+      : [],
+    internships: Array.isArray(profile.extraData?.phase1Internships)
+      ? (profile.extraData.phase1Internships as Array<Record<string, unknown>>)
+      : [],
+    accomplishments: Array.isArray(profile.extraData?.phase1Accomplishments)
+      ? (profile.extraData.phase1Accomplishments as Array<Record<string, unknown>>)
+      : [],
+    projects: Array.isArray(profile.extraData?.phase1Projects)
+      ? (profile.extraData.phase1Projects as Array<Record<string, unknown>>)
+      : [],
+    academicAchievements: Array.isArray(profile.extraData?.phase1AcademicAchievements)
+      ? (profile.extraData.phase1AcademicAchievements as Array<Record<string, unknown>>)
+      : [],
+    competitiveExams: Array.isArray(profile.extraData?.phase1CompetitiveExams)
+      ? (profile.extraData.phase1CompetitiveExams as Array<Record<string, unknown>>)
+      : [],
+    visaWorkAuthorization:
+      profile.extraData?.phase1VisaWorkAuthorization &&
+      typeof profile.extraData.phase1VisaWorkAuthorization === 'object'
+        ? (profile.extraData.phase1VisaWorkAuthorization as Record<string, unknown>)
+        : null,
+    vaccination:
+      profile.extraData?.phase1Vaccination &&
+      typeof profile.extraData.phase1Vaccination === 'object'
+        ? (profile.extraData.phase1Vaccination as Record<string, unknown>)
+        : null,
+    skills: (profile.cvSkills || []).map((name) => ({
+      name: String(name),
+      proficiency: '',
+      category: 'Hard Skills',
+    })),
+    languages: (profile.cvLanguages || []).map((raw) => {
+      const text = String(raw).trim();
+      const dash = text.match(/^(.+?)\s*[-–]\s*(.+)$/);
+      return dash
+        ? { name: dash[1].trim(), proficiency: dash[2].trim() }
+        : { name: text, proficiency: '' };
+    }),
+    portfolioLinks: profile.cvPortfolioLinks?.length
+      ? profile.cvPortfolioLinks.map((link) => ({
+          type: link.type || link.label || 'Portfolio',
+          url: link.url || '',
+        }))
+      : [],
+    careerPreferences: (profile.careerPreferences as Record<string, unknown> | null | undefined) || null,
+    resume: (() => {
+      const fileUrl = profile.resumeUrl || profile.files?.[0]?.url || '';
+      return {
+        fileName: profile.files?.[0]?.name || (fileUrl ? 'Resume' : ''),
+        fileUrl: fileUrl || undefined,
+        atsScore:
+          profile.aiScore?.source === 'resume_ats' ? profile.aiScore.overall : undefined,
+      };
+    })(),
+  };
+}
+
+/** Persist Phase 1 overview edits to CRM candidate + phase1ProfileSnapshot. */
+export function buildUpdatePayloadFromPhase1EditSnapshot(
+  profile: CandidateProfileDrawerData,
+  snapshot: Phase1ProfileSnapshot,
+): UpdateCandidatePayload {
+  const prev = parseExtra(profile.extraData);
+  const mergedExtra: Record<string, unknown> = {
+    ...prev,
+    phase1ProfileSnapshot: cloneSnapshot(snapshot),
+    phase1GapExplanations: snapshot.gapExplanations || [],
+    phase1Internships: snapshot.internships || [],
+    phase1Accomplishments: snapshot.accomplishments || [],
+  };
+
+  const backendSeed = {
+    id: profile.id,
+    firstName: profile.firstName ?? null,
+    lastName: profile.lastName ?? null,
+    email: profile.email ?? null,
+    phone: profile.phone ?? null,
+    linkedIn: profile.linkedIn ?? null,
+    currentTitle: profile.currentTitle ?? null,
+    currentCompany: profile.currentCompany ?? null,
+    location: profile.location ?? null,
+    stage: profile.stage ?? null,
+    status: profile.status ?? null,
+    source: profile.source ?? null,
+    resume: profile.resumeUrl ?? null,
+    extraData: mergedExtra,
+  } as BackendCandidate;
+
+  const enriched = enrichBackendCandidateFromPhase1Snapshot(backendSeed);
+  const form = buildCandidateEditForm(mapCandidateProfile(enriched));
+  return buildUpdatePayloadFromEditForm(form, mergedExtra);
 }

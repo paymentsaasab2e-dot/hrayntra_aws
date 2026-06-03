@@ -5,6 +5,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Trash2, RefreshCcw, Loader2, AlertTriangle } from 'lucide-react';
 import {
   apiGetLeadsTrash,
@@ -157,6 +158,11 @@ type Props = {
 };
 
 export default function ModuleRecycleBinDrawer({ isOpen, onClose, kind, onRestored }: Props) {
+  const [portalMounted, setPortalMounted] = useState(false);
+
+  useEffect(() => {
+    setPortalMounted(true);
+  }, []);
   const cfg = KIND_CONFIG[kind];
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -369,10 +375,10 @@ export default function ModuleRecycleBinDrawer({ isOpen, onClose, kind, onRestor
 
   const title = useMemo(() => `Deleted ${cfg.label}`, [cfg.label]);
 
-  if (!isOpen) return null;
+  if (!isOpen || !portalMounted) return null;
 
-  return (
-    <div className="fixed inset-0 z-[110] flex justify-end">
+  return createPortal(
+    <div className="fixed inset-0 z-[110] flex justify-end" dir="ltr">
       <button type="button" className="absolute inset-0 bg-slate-900/40" aria-label="Close" onClick={onClose} />
       <div className="relative flex h-full w-full max-w-lg flex-col border-l border-slate-200 bg-white shadow-2xl">
         <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
@@ -528,6 +534,7 @@ export default function ModuleRecycleBinDrawer({ isOpen, onClose, kind, onRestor
           </a>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

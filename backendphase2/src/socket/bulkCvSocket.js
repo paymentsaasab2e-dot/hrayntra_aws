@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import { verifyToken } from '../utils/jwt.js';
 import { prisma, runWithTenantContext } from '../config/prisma.js';
+import { clearBulkCopyOrdinalSession } from '../services/bulkCvDuplicate.service.js';
 import { completeBulkCvDuplicateDecision } from './bulkCvDuplicateWait.registry.js';
 
 let ioSingleton = null;
@@ -74,6 +75,7 @@ export function attachBulkCvSocket(io) {
   io.on('connection', (socket) => {
     socket.on('bulk_cv_join', ({ sessionId } = {}) => {
       if (!sessionId || typeof sessionId !== 'string') return;
+      clearBulkCopyOrdinalSession(socket.userId, sessionId);
       const room = `bulk_cv:${socket.userId}:${sessionId}`;
       socket.join(room);
       socket.data.bulkCvSessionId = sessionId;

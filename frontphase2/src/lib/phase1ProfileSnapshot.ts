@@ -161,6 +161,8 @@ export function enrichBackendCandidateFromPhase1Snapshot(c: BackendCandidate): B
   const resumeUrl = snap.resume?.fileUrl || c.resume || c.resumeUrl || null;
   const latestWork = Array.isArray(snap.workExperience) ? snap.workExperience[0] : null;
 
+  const snapNarrative = (snap as Phase1ProfileSnapshot & { cvWorkHistoryNarrative?: string })
+    .cvWorkHistoryNarrative;
   const mergedExtra: Record<string, unknown> = {
     ...(c.extraData && typeof c.extraData === 'object' && !Array.isArray(c.extraData)
       ? (c.extraData as Record<string, unknown>)
@@ -169,6 +171,9 @@ export function enrichBackendCandidateFromPhase1Snapshot(c: BackendCandidate): B
     phase1GapExplanations: snap.gapExplanations || [],
     phase1Internships: snap.internships || [],
     phase1Accomplishments: snap.accomplishments || [],
+    ...(typeof snapNarrative === 'string' && snapNarrative.trim()
+      ? { workHistory: snapNarrative.trim() }
+      : {}),
   };
 
   return {
