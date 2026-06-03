@@ -86,6 +86,8 @@ async function parseDocument(buffer, extension) {
   }
 }
 
+const { isJunkPortfolioUrl } = require('../utils/portfolioLinkFilter.util');
+
 /**
  * Extract portfolio URLs (GitHub, LinkedIn, Behance, Dribbble, etc.) from text
  */
@@ -118,8 +120,12 @@ function extractPortfolioUrls(text) {
           url = `https://${url}`;
         }
         
-        // Avoid duplicates and exclude email addresses
-        if (!urls.find(u => u.url === url) && !url.includes('@')) {
+        // Avoid duplicates, email addresses, and junk hosts (e.g. b.com)
+        if (
+          !urls.find((u) => u.url === url) &&
+          !url.includes('@') &&
+          !isJunkPortfolioUrl(url)
+        ) {
           urls.push({
             url: url,
             linkType: type,

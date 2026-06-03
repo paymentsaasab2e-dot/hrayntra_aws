@@ -881,8 +881,15 @@ function findSection(text = '', sectionName = '', nextSections = []) {
 function isPlausiblePortfolioUrl(url = '') {
   try {
     const u = new URL(String(url).startsWith('http') ? url : `https://${url}`);
-    const host = u.hostname.toLowerCase();
+    const host = u.hostname.toLowerCase().replace(/^www\./, '');
     if (!host.includes('.')) return false;
+    if (/^(https?:\/\/)?(www\.)?b\.com\/?$/i.test(String(url).trim())) return false;
+    const blockedHosts = new Set(['b.com', 'b.net', 'b.org', 'b.io', 'b.co']);
+    if (blockedHosts.has(host)) return false;
+    const parts = host.split('.').filter(Boolean);
+    const registrable = parts.length === 2 ? parts[0] : parts[parts.length - 2] || '';
+    if (!registrable || registrable.length < 2) return false;
+    if (/^[a-z]$/i.test(registrable)) return false;
     const base = host.split('.')[0] || '';
     const tld = host.split('.').pop() || '';
     const techTlds = new Set(['js', 'jsx', 'ts', 'tsx', 'css', 'php', 'py', 'java', 'net', 'edu', 'gov']);

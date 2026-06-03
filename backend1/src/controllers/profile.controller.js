@@ -13,6 +13,7 @@ const {
   scheduleCandidateCommonSyncDebounced,
   syncCandidateCommonFromDashboard,
 } = require('../services/candidateCommonSync.service');
+const { filterPortfolioLinks } = require('../utils/portfolioLinkFilter.util');
 
 function isPlaceholderProfileEmail(email) {
   const value = String(email || '').trim().toLowerCase();
@@ -320,9 +321,13 @@ async function getProfileData(req, res) {
       gapExplanations,
       internship: latestInternship,
       internships,
-      portfolioLinks: candidate.portfolioLinks ? {
-        links: Array.isArray(candidate.portfolioLinks.links) ? candidate.portfolioLinks.links : [],
-      } : null,
+      portfolioLinks: candidate.portfolioLinks
+        ? {
+            links: filterPortfolioLinks(
+              Array.isArray(candidate.portfolioLinks.links) ? candidate.portfolioLinks.links : [],
+            ),
+          }
+        : null,
       education: candidate.educations.map(edu => ({
         id: edu.id,
         educationLevel: edu.educationLevel || '',
@@ -366,14 +371,41 @@ async function getProfileData(req, res) {
         preferredIndustry: candidate.careerPreferences.preferredIndustry || '',
         functionalArea: candidate.careerPreferences.functionalArea || '',
         jobTypes: candidate.careerPreferences.jobTypes || [],
-        // Work Mode
-        workModes: candidate.careerPreferences.preferredWorkMode ? 
-          [candidate.careerPreferences.preferredWorkMode === 'REMOTE' ? 'Remote' :
-           candidate.careerPreferences.preferredWorkMode === 'ON_SITE' ? 'On-site' :
-           candidate.careerPreferences.preferredWorkMode === 'HYBRID' ? 'Hybrid' : ''] : [],
-        preferredWorkMode: candidate.careerPreferences.preferredWorkMode === 'REMOTE' ? 'Remote' :
-                          candidate.careerPreferences.preferredWorkMode === 'ON_SITE' ? 'On-site' :
-                          candidate.careerPreferences.preferredWorkMode === 'HYBRID' ? 'Hybrid' : '',
+        // Work Mode (multi-select stored in passportNumbersByLocation.__workModes for backward compatibility)
+        workModes: (() => {
+          const fallbackMode =
+            candidate.careerPreferences.preferredWorkMode === 'REMOTE'
+              ? 'Remote'
+              : candidate.careerPreferences.preferredWorkMode === 'ON_SITE'
+                ? 'On-site'
+                : candidate.careerPreferences.preferredWorkMode === 'HYBRID'
+                  ? 'Hybrid'
+                  : '';
+          const rawMeta = candidate.careerPreferences.passportNumbersByLocation;
+          const rawModes =
+            rawMeta && typeof rawMeta === 'object' && Array.isArray(rawMeta.__workModes)
+              ? rawMeta.__workModes
+              : [];
+          const normalized = [...new Set(rawModes.map((m) => String(m || '').trim()).filter(Boolean))];
+          if (normalized.length > 0) return normalized;
+          return fallbackMode ? [fallbackMode] : [];
+        })(),
+        preferredWorkMode: (() => {
+          const rawMeta = candidate.careerPreferences.passportNumbersByLocation;
+          const rawModes =
+            rawMeta && typeof rawMeta === 'object' && Array.isArray(rawMeta.__workModes)
+              ? rawMeta.__workModes
+              : [];
+          const normalized = [...new Set(rawModes.map((m) => String(m || '').trim()).filter(Boolean))];
+          if (normalized.length > 0) return normalized[0];
+          return candidate.careerPreferences.preferredWorkMode === 'REMOTE'
+            ? 'Remote'
+            : candidate.careerPreferences.preferredWorkMode === 'ON_SITE'
+              ? 'On-site'
+              : candidate.careerPreferences.preferredWorkMode === 'HYBRID'
+                ? 'Hybrid'
+                : '';
+        })(),
         // Location
         preferredLocations: candidate.careerPreferences.preferredLocations || [],
         relocationPreference: candidate.careerPreferences.relocationPreference || 
@@ -405,8 +437,16 @@ async function getProfileData(req, res) {
         availabilityToStart: candidate.careerPreferences.availabilityToStart || '',
         noticePeriod: candidate.careerPreferences.noticePeriod || 
           (candidate.careerPreferences.noticePeriodDays ? `${candidate.careerPreferences.noticePeriodDays} days` : ''),
-        // Passport Numbers
-        passportNumbersByLocation: candidate.careerPreferences.passportNumbersByLocation || null,
+        // Passport Numbers (hide internal __workModes metadata from clients)
+        passportNumbersByLocation:
+          candidate.careerPreferences.passportNumbersByLocation &&
+          typeof candidate.careerPreferences.passportNumbersByLocation === 'object'
+            ? Object.fromEntries(
+                Object.entries(candidate.careerPreferences.passportNumbersByLocation).filter(
+                  ([key]) => key !== '__workModes',
+                ),
+              )
+            : null,
       } : null,
       resume: candidate.resume ? {
         fileName: candidate.resume.fileName || '',
@@ -1611,13 +1651,21 @@ async function updateCareerPreferences(req, res) {
         ? preferences.functionalAreas.join('; ')
         : null);
 
-    const preferredWorkModeInput = preferences.preferredWorkMode
-      || (Array.isArray(preferences.workModes) && preferences.workModes.length > 0
-        ? preferences.workModes[0]
-        : null);
+    const selectedWorkModes = normalizeStringArray(
+      Array.isArray(preferences.workModes) && preferences.workModes.length > 0
+        ? preferences.workModes
+        : preferences.preferredWorkMode
+          ? [preferences.preferredWorkMode]
+          : [],
+    );
+    const preferredWorkModeInput = selectedWorkModes[0] || null;
     const preferredWorkMode = preferredWorkModeInput
       ? workModeMap[String(preferredWorkModeInput).trim()] || null
       : null;
+    const workModesForMeta = selectedWorkModes
+      .map((mode) => String(mode || '').trim())
+      .filter(Boolean)
+      .map((mode) => (mode === 'On Site' ? 'On-site' : mode));
 
     const currentSalaryTypeInput = preferences.currentSalaryType;
     const currentSalaryType = currentSalaryTypeInput
@@ -1648,6 +1696,25 @@ async function updateCareerPreferences(req, res) {
         noticePeriodDays = null; // Keep as null for negotiable
       }
     }
+
+    const existingCareerPreferences = await prisma.careerPreferences.findUnique({
+      where: { candidateId },
+      select: { passportNumbersByLocation: true },
+    });
+    const existingPassportMeta =
+      existingCareerPreferences?.passportNumbersByLocation &&
+      typeof existingCareerPreferences.passportNumbersByLocation === 'object'
+        ? existingCareerPreferences.passportNumbersByLocation
+        : {};
+    const incomingPassportMap =
+      preferences.passportNumbersByLocation && typeof preferences.passportNumbersByLocation === 'object'
+        ? preferences.passportNumbersByLocation
+        : {};
+    const passportNumbersByLocation = {
+      ...existingPassportMeta,
+      ...incomingPassportMap,
+      __workModes: workModesForMeta,
+    };
 
     await prisma.careerPreferences.upsert({
       where: { candidateId },
@@ -1684,8 +1751,8 @@ async function updateCareerPreferences(req, res) {
         noticePeriodDays: noticePeriodDays,
         openToRelocation: preferences.relocationPreference === 'Open to Relocate' || preferences.relocationPreference === 'Open to Remote Only',
         
-        // Passport numbers by location
-        ...(preferences.passportNumbersByLocation !== undefined && { passportNumbersByLocation: preferences.passportNumbersByLocation }),
+        // Passport numbers by location + internal work mode metadata
+        passportNumbersByLocation,
       },
       create: {
         candidateId,
@@ -1721,8 +1788,8 @@ async function updateCareerPreferences(req, res) {
         noticePeriodDays: noticePeriodDays,
         openToRelocation: preferences.relocationPreference === 'Open to Relocate' || preferences.relocationPreference === 'Open to Remote Only',
         
-        // Passport numbers by location
-        ...(preferences.passportNumbersByLocation !== undefined && { passportNumbersByLocation: preferences.passportNumbersByLocation }),
+        // Passport numbers by location + internal work mode metadata
+        passportNumbersByLocation,
       },
     });
 
@@ -1745,6 +1812,7 @@ async function updateCareerPreferences(req, res) {
       jobTypes,
       jobTypesCount: jobTypes.length,
       preferredWorkMode: preferredWorkMode || null,
+      workModes: workModesForMeta,
       
       // Location
       preferredLocations,
@@ -2438,7 +2506,7 @@ async function savePortfolioLinks(req, res) {
     }
 
     // Ensure links is an array
-    const linksArray = Array.isArray(links) ? links : [];
+    const linksArray = filterPortfolioLinks(Array.isArray(links) ? links : []);
 
     await prisma.candidatePortfolioLinks.upsert({
       where: { candidateId },
