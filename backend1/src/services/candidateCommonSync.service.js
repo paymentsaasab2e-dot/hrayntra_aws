@@ -38,6 +38,8 @@ function splitFullName(fullName) {
   return { firstName: parts[0], lastName: parts.slice(1).join(' ') };
 }
 
+const { isJunkPortfolioUrl } = require('../utils/portfolioLinkFilter.util');
+
 function normalizePortfolioLinksForCommon(links) {
   if (!Array.isArray(links)) return null;
   const cleaned = links
@@ -47,7 +49,12 @@ function normalizePortfolioLinksForCommon(links) {
       title: link?.title || null,
       description: link?.description || null,
     }))
-    .filter((link) => link.url && !/gmail\.com$/i.test(link.url.replace(/^https?:\/\//, '')));
+    .filter(
+      (link) =>
+        link.url &&
+        !isJunkPortfolioUrl(link.url) &&
+        !/gmail\.com$/i.test(link.url.replace(/^https?:\/\//, '')),
+    );
   return cleaned.length ? cleaned : null;
 }
 

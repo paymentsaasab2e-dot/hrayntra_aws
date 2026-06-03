@@ -629,6 +629,79 @@ async function suggestJobTitles(req, res) {
   }
 }
 
+async function suggestIndustryDomains(req, res) {
+  try {
+    const { query = '', selectedDomains = [] } = req.body || {};
+    const normalizedQuery = String(query || '').trim();
+
+    if (!normalizedQuery) {
+      return res.status(400).json({
+        success: false,
+        message: 'query is required',
+      });
+    }
+
+    const selectedSet = new Set(
+      Array.isArray(selectedDomains)
+        ? selectedDomains
+            .filter((domain) => typeof domain === 'string')
+            .map((domain) => domain.trim().toLowerCase())
+        : []
+    );
+
+    const systemPrompt = [
+      'You are an assistant that suggests industry/domain categories for a work experience form.',
+      'Given a user query, return only JSON.',
+      'The JSON must have this exact shape: {"suggestions":["Domain 1","Domain 2"]}.',
+      'Return 8 concise, realistic industry/domain names.',
+      'Do not include numbering, explanations, markdown, duplicates, or company names.',
+    ].join(' ');
+
+    const userPrompt = [
+      `User query: ${normalizedQuery}`,
+      `Already selected domains: ${Array.isArray(selectedDomains) ? selectedDomains.join(', ') : 'None'}`,
+      'Return relevant industry/domain options matching the typing intent.',
+    ].join('\n');
+
+    const responseText = await runOpenAIChat(
+      [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      {
+        model: OPENAI_CHAT_MODEL,
+        temperature: 0.3,
+        maxTokens: 220,
+      }
+    );
+
+    const parsed = extractJson(responseText);
+    const rawSuggestions = Array.isArray(parsed?.suggestions) ? parsed.suggestions : [];
+
+    const suggestions = Array.from(
+      new Set(
+        rawSuggestions
+          .filter((domain) => typeof domain === 'string')
+          .map((domain) => domain.trim())
+          .filter(Boolean)
+      )
+    )
+      .filter((domain) => !selectedSet.has(domain.toLowerCase()))
+      .slice(0, 8);
+
+    return res.json({
+      success: true,
+      data: { suggestions },
+    });
+  } catch (error) {
+    console.error('Error suggesting industry domains:', error);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || 'Failed to suggest industry domains',
+    });
+  }
+}
+
 async function extractProfileData(req, res) {
   try {
     const { currentSection, userMessage = '' } = req.body || {};
@@ -813,6 +886,7 @@ async function generalChat(req, res) {
 module.exports = {
   askProfileQuestions,
   suggestJobTitles,
+  suggestIndustryDomains,
   extractProfileData,
   generalChat,
 };
