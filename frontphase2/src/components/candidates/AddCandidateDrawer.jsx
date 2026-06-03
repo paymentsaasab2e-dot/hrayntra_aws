@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   AlertCircle,
   Check,
@@ -76,6 +77,33 @@ const MAX_BULK_CV_FILES_PER_SESSION = (() => {
   return 2000;
 })();
 const BULK_CV_PREVIEW_NAME_LIMIT = 40;
+const BULK_CV_DUPLICATE_POLICY_STORAGE_KEY = 'bulkCvDuplicatePolicy';
+
+/** Applied automatically to every duplicate email during bulk import (no per-file prompts). */
+const BULK_CV_DUPLICATE_POLICY_OPTIONS = [
+  {
+    id: 'create_anyway',
+    title: 'Create anyway',
+    description:
+      'When the email already exists, save a new candidate copy with the same email from the CV and a distinct last name.',
+  },
+  {
+    id: 'cancel',
+    title: 'Duplicate found — still continue',
+    description: 'Skip CVs that match an existing email and continue processing the rest of the batch.',
+  },
+  {
+    id: 'update_existing',
+    title: 'Update existing',
+    description: 'Merge parsed CV data into the candidate profile that already uses this email.',
+  },
+];
+
+function readStoredBulkCvDuplicatePolicy() {
+  if (typeof window === 'undefined') return 'update_existing';
+  const stored = String(window.localStorage.getItem(BULK_CV_DUPLICATE_POLICY_STORAGE_KEY) || '').trim();
+  return BULK_CV_DUPLICATE_POLICY_OPTIONS.some((opt) => opt.id === stored) ? stored : 'update_existing';
+}
 
 function bulkCvFileKey(file) {
   return `${file.name}::${file.size}::${file.lastModified ?? 0}`;
@@ -692,7 +720,13 @@ export default function AddCandidateDrawer({
   embeddedBulkCv = false,
 }) {
   const drawerActive = isOpen || embeddedBulkCv;
+  const [portalMounted, setPortalMounted] = useState(false);
   const [activeTab, setActiveTab] = useState(embeddedBulkCv ? 'bulkResume' : initialTab);
+
+  useEffect(() => {
+    setPortalMounted(true);
+  }, []);
+
   const [currentStep, setCurrentStep] = useState(1);
   const [avatarFile, setAvatarFile] = useState(null);
   const [avatarPreview, setAvatarPreview] = useState('');
@@ -749,12 +783,63 @@ export default function AddCandidateDrawer({
   const bulkCvFolderInputRef = useRef(null);
   const bulkCvZipInputRef = useRef(null);
   const [bulkDuplicateModal, setBulkDuplicateModal] = useState(null);
+  const [bulkCvDuplicatePolicy, setBulkCvDuplicatePolicy] = useState(readStoredBulkCvDuplicatePolicy);
+  const bulkCvDuplicatePolicyRef = useRef(bulkCvDuplicatePolicy);
   const fieldRefs = useRef({});
   const importProgressRef = useRef(null);
   /** Last chosen resume File (manual step or parse); survives edge cases around save. */
   const resumeFileRef = useRef(null);
   const formScrollRef = useRef(null);
   const normalizedDefaultJobId = String(defaultJobId || '').trim();
+
+  useEffect(() => {
+    bulkCvDuplicatePolicyRef.current = bulkCvDuplicatePolicy;
+  }, [bulkCvDuplicatePolicy]);
+
+  const setBulkCvDuplicatePolicyPersisted = (policyId) => {
+    if (!BULK_CV_DUPLICATE_POLICY_OPTIONS.some((opt) => opt.id === policyId)) return;
+    setBulkCvDuplicatePolicy(policyId);
+    try {
+      window.localStorage.setItem(BULK_CV_DUPLICATE_POLICY_STORAGE_KEY, policyId);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const autoRespondBulkDuplicate = (payload, decision) => {
+    const fileIndex = payload?.fileIndex;
+    if (fileIndex !== undefined && fileIndex !== null) {
+      bulkCvDupAwaitingIndicesRef.current.delete(fileIndex);
+    }
+    const sid = bulkCvSessionIdRef.current;
+    if (!sid || !bulkCvSocketRef.current) return;
+    try {
+      bulkCvSocketRef.current.emit('duplicate_decision', {
+        sessionId: sid,
+        fileIndex,
+        decision,
+      });
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const handleBulkCvDuplicateFound = (payload) => {
+    const policy = bulkCvDuplicatePolicyRef.current;
+    if (policy && policy !== 'ask') {
+      autoRespondBulkDuplicate(payload, policy);
+      return;
+    }
+    if (payload?.fileIndex !== undefined && payload?.fileIndex !== null) {
+      bulkCvDupAwaitingIndicesRef.current.add(payload.fileIndex);
+    }
+    if (!bulkCvDupShowingRef.current) {
+      bulkCvDupShowingRef.current = true;
+      setBulkDuplicateModal(payload);
+    } else {
+      bulkCvDupQueueRef.current.push(payload);
+    }
+  };
 
   // Reset the scroll position whenever the active wizard step changes.
   // Without this, navigating from a tall step (Step 2) to Step 3 leaves the
@@ -1727,17 +1812,7 @@ export default function AddCandidateDrawer({
       });
 
       socket.emit('bulk_cv_join', { sessionId });
-      socket.on('duplicate_found', (payload) => {
-        if (payload?.fileIndex !== undefined && payload?.fileIndex !== null) {
-          bulkCvDupAwaitingIndicesRef.current.add(payload.fileIndex);
-        }
-        if (!bulkCvDupShowingRef.current) {
-          bulkCvDupShowingRef.current = true;
-          setBulkDuplicateModal(payload);
-        } else {
-          bulkCvDupQueueRef.current.push(payload);
-        }
-      });
+      socket.on('duplicate_found', handleBulkCvDuplicateFound);
     } catch (socketErr) {
       console.error('[bulk-cv] Socket init failed', socketErr);
       setBulkResumePhase('preview');
@@ -1817,6 +1892,7 @@ export default function AddCandidateDrawer({
         const parsedCandidate = envelope.normalized || {};
         const tokenUsage = normalizeTokenUsageFromApi(envelope.tokenUsage);
         const duplicateResolution = envelope.duplicateResolution || null;
+        const updateExistingCandidateId = envelope.updateExistingCandidateId || null;
         const identity = deriveBulkResumeIdentity(
           parsedCandidate,
           item.kind === 'local' ? item.file : { name: displayName }
@@ -1829,11 +1905,12 @@ export default function AddCandidateDrawer({
         };
 
         let createResponse;
+        const bulkSavePayload = {
+          ...buildBulkResumePayload(enrichedCandidate),
+          ...(duplicateResolution === 'updated' ? { duplicateAction: 'updateExisting' } : {}),
+        };
         try {
-          createResponse = await apiCreateCandidateFromDrawer(
-            buildBulkResumePayload(enrichedCandidate),
-            { signal: abortSignal }
-          );
+          createResponse = await apiCreateCandidateFromDrawer(bulkSavePayload, { signal: abortSignal });
         } catch (createError) {
           const dupExisting =
             createError?.data?.existingCandidate || createError?.raw?.data?.existingCandidate;
@@ -1883,8 +1960,12 @@ export default function AddCandidateDrawer({
           : 'Candidate created successfully';
         if (duplicateResolution === 'replaced') {
           successMessage = 'Replaced — existing candidate removed; new profile saved';
+        } else if (duplicateResolution === 'updated') {
+          successMessage = updateExistingCandidateId
+            ? 'Updated — existing candidate profile merged with this CV'
+            : 'Updated — existing candidate profile merged with this CV';
         } else if (duplicateResolution === 'create_anyway') {
-          successMessage = 'Saved as copy — duplicate resolved with a new last name / email variant';
+          successMessage = 'Saved as copy — same email as CV, distinct last name';
         }
 
         createdCount += 1;
@@ -2397,6 +2478,182 @@ export default function AddCandidateDrawer({
     }
   };
 
+  const bulkDuplicateQueueSize =
+    (bulkDuplicateModal ? 1 : 0) + (bulkCvDupQueueRef.current?.length || 0);
+
+  const renderBulkCvDuplicatePolicySection = () => {
+    const active = BULK_CV_DUPLICATE_POLICY_OPTIONS.find((opt) => opt.id === bulkCvDuplicatePolicy);
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          When a duplicate email is found
+        </p>
+        <p className="mt-1 text-sm text-slate-600">
+          Choose once before you start — the same rule applies to every duplicate CV in this batch (no
+          pop-up per file).
+        </p>
+        <div className="mt-3 grid gap-2">
+          {BULK_CV_DUPLICATE_POLICY_OPTIONS.map((opt) => {
+            const selected = bulkCvDuplicatePolicy === opt.id;
+            const accent =
+              opt.id === 'create_anyway'
+                ? selected
+                  ? 'border-amber-400 bg-amber-50 ring-1 ring-amber-200'
+                  : 'border-slate-200 hover:border-amber-200 hover:bg-amber-50/40'
+                : opt.id === 'cancel'
+                  ? selected
+                    ? 'border-slate-400 bg-slate-50 ring-1 ring-slate-300'
+                    : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                  : selected
+                    ? 'border-slate-800 bg-slate-900/5 ring-1 ring-slate-400'
+                    : 'border-slate-200 hover:border-slate-400 hover:bg-slate-50';
+            return (
+              <label
+                key={opt.id}
+                className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 transition ${accent} ${
+                  isBulkResumeBusy ? 'pointer-events-none opacity-60' : ''
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="bulkCvDuplicatePolicy"
+                  value={opt.id}
+                  checked={selected}
+                  disabled={isBulkResumeBusy}
+                  onChange={() => setBulkCvDuplicatePolicyPersisted(opt.id)}
+                  className="mt-1 h-4 w-4 shrink-0 border-slate-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="min-w-0 text-left">
+                  <span className="text-sm font-semibold text-slate-900">{opt.title}</span>
+                  <span className="mt-0.5 block text-xs text-slate-500">{opt.description}</span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+        {active ? (
+          <p className="mt-3 text-xs font-medium text-blue-700">
+            Selected: {active.title} — used for all duplicates in this upload.
+          </p>
+        ) : null}
+      </div>
+    );
+  };
+
+  const renderBulkDuplicatePanel = () => {
+    if (!bulkDuplicateModal) return null;
+    const modal = bulkDuplicateModal;
+    const canCreateAnyway = modal.canCreateAnyway !== false;
+    const canUpdate = modal.canUpdate !== false;
+
+    return (
+      <div
+        className="absolute inset-0 z-30 flex items-center justify-center bg-slate-900/50 px-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bulk-dup-title"
+      >
+        <div className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl">
+          <div className="flex items-start gap-3">
+            <div className="rounded-full bg-amber-100 p-2 text-amber-700">
+              <AlertCircle size={18} />
+            </div>
+            <div className="flex-1">
+              <h3 id="bulk-dup-title" className="text-base font-semibold text-slate-900">
+                Duplicate candidate found
+              </h3>
+              <p className="mt-1 text-sm text-slate-600">
+                A candidate with this email already exists (exact match). Parsing is paused until you
+                choose.
+              </p>
+              {bulkDuplicateQueueSize > 1 ? (
+                <p className="mt-1 text-xs font-medium text-amber-700">
+                  {bulkDuplicateQueueSize} duplicate{bulkDuplicateQueueSize === 1 ? '' : 's'} waiting
+                  — resolve this file first.
+                </p>
+              ) : null}
+              <p className="mt-1 text-xs text-slate-500">
+                File: <span className="font-medium text-slate-700">{modal.fileName}</span>
+              </p>
+            </div>
+          </div>
+
+          {modal.existingCandidate ? (
+            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+              <p className="font-medium text-slate-900">
+                {(modal.existingCandidate.firstName || '').trim()}{' '}
+                {(modal.existingCandidate.lastName || '').trim()}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">{modal.existingCandidate.email || '—'}</p>
+              <p className="mt-1 text-xs text-slate-500">
+                {modal.existingCandidate.designation || modal.existingCandidate.currentTitle || 'Candidate'}{' '}
+                · Added {formatExistingCandidateDate(modal.existingCandidate.createdAt)}
+              </p>
+            </div>
+          ) : null}
+
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-blue-100 bg-blue-50/80 p-3 text-sm">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">From this CV</p>
+              <p className="mt-2 font-medium text-slate-900">
+                {(modal.newCandidate?.firstName || '').trim()}{' '}
+                {(modal.newCandidate?.lastName || '').trim()}
+              </p>
+              <p className="mt-1 text-xs text-slate-600">{modal.newCandidate?.email || '—'}</p>
+            </div>
+            <div className="rounded-xl border border-amber-100 bg-amber-50/80 p-3 text-sm">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">In database</p>
+              <p className="mt-2 font-medium text-slate-900">
+                {(modal.existingCandidate?.firstName || '').trim()}{' '}
+                {(modal.existingCandidate?.lastName || '').trim()}
+              </p>
+              <p className="mt-1 text-xs text-slate-600">{modal.existingCandidate?.email || '—'}</p>
+            </div>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-2">
+            <button
+              type="button"
+              disabled={!canCreateAnyway}
+              onClick={() => emitBulkDuplicateDecision('create_anyway')}
+              className={`rounded-xl px-4 py-2.5 text-sm font-semibold ${
+                canCreateAnyway
+                  ? 'bg-amber-500 text-white hover:bg-amber-600'
+                  : 'cursor-not-allowed bg-slate-100 text-slate-400'
+              }`}
+            >
+              Create anyway
+            </button>
+            <button
+              type="button"
+              onClick={() => emitBulkDuplicateDecision('cancel')}
+              className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Duplicate found — still continue
+            </button>
+            <button
+              type="button"
+              disabled={!canUpdate}
+              onClick={() => emitBulkDuplicateDecision('update_existing')}
+              className={`rounded-xl px-4 py-2.5 text-sm font-semibold ${
+                canUpdate
+                  ? 'bg-slate-900 text-white hover:bg-slate-800'
+                  : 'cursor-not-allowed bg-slate-100 text-slate-400'
+              }`}
+            >
+              Update existing
+            </button>
+          </div>
+
+          <p className="mt-3 text-xs text-slate-500">
+            Create anyway saves a copy with the same email from the CV. Still continue skips this CV. Update existing
+            merges parsed CV data into the profile already in your database.
+          </p>
+        </div>
+      </div>
+    );
+  };
+
   const emitBulkDuplicateDecision = (decision) => {
     const modal = bulkDuplicateModal;
     if (!modal) return;
@@ -2427,6 +2684,9 @@ export default function AddCandidateDrawer({
       if (result.duplicateResolution === 'replaced') {
         return 'border border-violet-200 bg-white text-violet-800';
       }
+      if (result.duplicateResolution === 'updated') {
+        return 'border border-indigo-200 bg-white text-indigo-800';
+      }
       if (result.duplicateResolution === 'create_anyway') {
         return 'border border-sky-200 bg-white text-sky-800';
       }
@@ -2444,6 +2704,7 @@ export default function AddCandidateDrawer({
   const bulkResumeCompleteCardClass = (result) => {
     if (result.status === 'created') {
       if (result.duplicateResolution === 'replaced') return 'border-violet-200 bg-violet-50';
+      if (result.duplicateResolution === 'updated') return 'border-indigo-200 bg-indigo-50';
       if (result.duplicateResolution === 'create_anyway') return 'border-sky-200 bg-sky-50';
       return 'border-emerald-200 bg-emerald-50';
     }
@@ -2458,6 +2719,9 @@ export default function AddCandidateDrawer({
     }
     if (result.status === 'created' && result.duplicateResolution === 'replaced') {
       return { label: 'replaced', className: 'bg-violet-100 text-violet-800' };
+    }
+    if (result.status === 'created' && result.duplicateResolution === 'updated') {
+      return { label: 'updated', className: 'bg-indigo-100 text-indigo-800' };
     }
     if (result.status === 'created' && result.duplicateResolution === 'create_anyway') {
       return { label: 'saved as copy', className: 'bg-sky-100 text-sky-800' };
@@ -2474,94 +2738,14 @@ export default function AddCandidateDrawer({
   if (!drawerActive) return null;
 
   const embeddedShellClass =
-    'mb-6 flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm';
-  const drawerShellClass = `absolute inset-x-0 bottom-0 h-[92vh] rounded-t-2xl bg-white shadow-2xl transition-transform duration-300 sm:inset-y-0 sm:right-0 sm:left-auto sm:h-full sm:w-[520px] sm:rounded-none ${
-    isOpen ? 'translate-y-0 sm:translate-x-0' : 'translate-y-full sm:translate-x-full'
-  } flex flex-col`;
+    'relative mb-6 flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm';
+  const drawerPanelClass = `relative z-10 flex w-full flex-col overflow-hidden bg-white shadow-2xl transition-transform duration-300 ease-out
+    h-[92vh] max-h-[92vh] rounded-t-2xl border-t border-slate-200
+    sm:h-full sm:max-h-none sm:w-[min(100vw,520px)] sm:shrink-0 sm:rounded-none sm:border-t-0 sm:border-l sm:border-slate-200
+    ${isOpen ? 'translate-y-0 sm:translate-x-0' : 'translate-y-full sm:translate-y-0 sm:translate-x-full'}`;
 
-  return (
-    <div className={embeddedBulkCv ? '' : 'fixed inset-0 z-[90]'}>
-      {bulkDuplicateModal ? (
-        <div
-          className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/70 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="bulk-dup-title"
-        >
-          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
-            <h3 id="bulk-dup-title" className="text-base font-semibold text-slate-900">
-              Duplicate email found
-            </h3>
-            <p className="mt-1 text-xs text-slate-500">
-              File: <span className="font-medium text-slate-700">{bulkDuplicateModal.fileName}</span>
-              {' · '}
-              Matched on email only (name is not used).
-            </p>
-
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <div className="rounded-xl border border-blue-100 bg-blue-50/80 p-3 text-sm">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">From this CV</p>
-                <p className="mt-2 font-medium text-slate-900">
-                  {(bulkDuplicateModal.newCandidate?.firstName || '').trim()}{' '}
-                  {(bulkDuplicateModal.newCandidate?.lastName || '').trim()}
-                </p>
-                <p className="mt-1 text-xs text-slate-600">{bulkDuplicateModal.newCandidate?.email || '—'}</p>
-              </div>
-              <div className="rounded-xl border border-amber-100 bg-amber-50/80 p-3 text-sm">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">Already in database</p>
-                <p className="mt-2 font-medium text-slate-900">
-                  {(bulkDuplicateModal.existingCandidate?.firstName || '').trim()}{' '}
-                  {(bulkDuplicateModal.existingCandidate?.lastName || '').trim()}
-                </p>
-                <p className="mt-1 text-xs text-slate-600">{bulkDuplicateModal.existingCandidate?.email || '—'}</p>
-                <p className="mt-1 text-xs text-slate-600">
-                  Role: {bulkDuplicateModal.existingCandidate?.designation || '—'}
-                </p>
-                <p className="mt-1 text-xs text-slate-500">
-                  Added: {formatExistingCandidateDate(bulkDuplicateModal.existingCandidate?.createdAt)}
-                </p>
-              </div>
-            </div>
-
-            <p className="mt-4 text-xs text-slate-600">
-              Parsing is paused until you choose. If you do nothing for ~5 minutes, this file is skipped.
-            </p>
-
-            <div className="mt-5 flex flex-col gap-2">
-              <button
-                type="button"
-                onClick={() => emitBulkDuplicateDecision('create_anyway')}
-                className="w-full rounded-xl border border-sky-200 bg-sky-50 px-4 py-2.5 text-center text-sm font-semibold text-sky-900 transition hover:bg-sky-100"
-              >
-                Create anyway
-              </button>
-              <button
-                type="button"
-                onClick={() => emitBulkDuplicateDecision('replace')}
-                className="w-full rounded-xl border border-violet-200 bg-violet-50 px-4 py-2.5 text-center text-sm font-semibold text-violet-900 transition hover:bg-violet-100"
-              >
-                Replace existing
-              </button>
-              <button
-                type="button"
-                onClick={() => emitBulkDuplicateDecision('cancel')}
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-center text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
-              >
-                Skip this CV
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {!embeddedBulkCv ? (
-        <div
-          className={`absolute inset-0 bg-slate-900/50 ${isBulkResumeBusy ? 'cursor-not-allowed' : ''}`}
-          onClick={handleDrawerClose}
-        />
-      ) : null}
-
-      <div className={embeddedBulkCv ? embeddedShellClass : drawerShellClass}>
+  const drawerBody = (
+    <div className={embeddedBulkCv ? embeddedShellClass : drawerPanelClass}>
         <div
           className={`flex items-center justify-between border-b border-slate-200 ${embeddedBulkCv ? 'px-5 py-4' : 'px-6 py-4'}`}
         >
@@ -3073,6 +3257,10 @@ export default function AddCandidateDrawer({
                     File picker alone is limited to ~{BROWSER_FILE_PICKER_SOFT_CAP} per click in some browsers.
                   </p>
                 </div>
+              ) : null}
+
+              {bulkResumePhase === 'upload' || bulkResumePhase === 'preview' ? (
+                renderBulkCvDuplicatePolicySection()
               ) : null}
 
               {bulkResumePhase === 'preview' ? (
@@ -3598,6 +3786,8 @@ export default function AddCandidateDrawer({
           )}
         </div>
 
+        {bulkCvDuplicatePolicy === 'ask' ? renderBulkDuplicatePanel() : null}
+
         {duplicateDecision ? (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-900/40 px-4">
             <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
@@ -3667,12 +3857,34 @@ export default function AddCandidateDrawer({
               </div>
 
               <p className="mt-3 text-xs text-slate-500">
-                Duplicates are detected by email only. Create Anyway saves a copy with a variant email.
+                Duplicates are detected by email only. Create Anyway saves a copy with the same email from the CV.
               </p>
             </div>
           </div>
         ) : null}
-      </div>
     </div>
+  );
+
+  if (embeddedBulkCv) {
+    return drawerBody;
+  }
+
+  if (!portalMounted) return null;
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[90] flex flex-col justify-end sm:flex-row sm:justify-end"
+      dir="ltr"
+      role="presentation"
+    >
+      <button
+        type="button"
+        className={`absolute inset-0 bg-slate-900/50 ${isBulkResumeBusy ? 'cursor-not-allowed' : ''}`}
+        aria-label="Close drawer"
+        onClick={handleDrawerClose}
+      />
+      {drawerBody}
+    </div>,
+    document.body
   );
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { CandidateResumeTabPanel } from '../candidates/CandidateResumeTabPanel';
 import {
@@ -69,9 +70,19 @@ import {
 import { profileCanSubmitToClient } from '../../lib/candidateSubmitToClient';
 import { CandidateAtsExtractedOverview } from '../candidates/CandidateAtsExtractedOverview';
 import { CandidatePhase1DetailSections } from '../candidates/CandidatePhase1DetailSections';
+import { CandidatePhase1SubmitEditSections } from '../candidates/CandidatePhase1SubmitEditSections';
 import { mergeProfileWithClientPresentation, readClientPresentation } from '../../lib/clientPresentationDraft';
-import { mergeProfileWithPhase1ClientPresentation } from '../../lib/phase1ClientPresentation';
-import { isPhase1PortalCandidate } from '../../lib/phase1ProfileSnapshot';
+import {
+  buildUpdatePayloadFromPhase1EditSnapshot,
+  initPhase1EditSnapshotFromProfile,
+  mergeProfileWithPhase1ClientPresentation,
+} from '../../lib/phase1ClientPresentation';
+import { isPhase1PortalCandidate, type Phase1ProfileSnapshot } from '../../lib/phase1ProfileSnapshot';
+import {
+  collectCandidateWorkEntries,
+  formatCandidateExperienceForTable,
+  resolveCandidateExperienceYears,
+} from '../../lib/candidateExperience';
 
 const MAX_EDIT_AVATAR_FILE_BYTES = 5 * 1024 * 1024;
 
@@ -3675,6 +3686,7 @@ export function CandidateProfileDrawer({
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectModalJobId, setRejectModalJobId] = useState<string | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [phase1EditSnapshot, setPhase1EditSnapshot] = useState<Phase1ProfileSnapshot | null>(null);
   const [editForm, setEditForm] = useState<CandidateEditFormState | null>(null);
   const [editAvatarFile, setEditAvatarFile] = useState<File | null>(null);
   const [editAvatarPreview, setEditAvatarPreview] = useState('');
@@ -3687,6 +3699,11 @@ export function CandidateProfileDrawer({
   const [editInterview, setEditInterview] = useState<CandidateScheduledInterview | null>(null);
   const candidateFileInputRef = useRef<HTMLInputElement>(null);
   const isDirectEditLaunch = openEditDirectly && Boolean(editModalOpenToken);
+  const [drawerPortalMounted, setDrawerPortalMounted] = useState(false);
+
+  useEffect(() => {
+    setDrawerPortalMounted(true);
+  }, []);
 
   const {
     files: candidateFiles,
@@ -3747,13 +3764,57 @@ export function CandidateProfileDrawer({
     return linkedJobCompany ? `${linkedJobTitle} · ${linkedJobCompany}` : linkedJobTitle;
   }, [linkedJobTitle, linkedJobCompany]);
 
+  const experienceDisplay = useMemo(() => {
+    if (!candidate) return '—';
+    const work = collectCandidateWorkEntries(candidate);
+    const years = resolveCandidateExperienceYears(candidate);
+    return formatCandidateExperienceForTable(years, work.length);
+  }, [candidate]);
+
   const titleLine = useMemo(() => {
     if (!candidate) return '—';
-    if (candidate.currentTitle && candidate.currentCompany) {
-      return `${candidate.currentTitle} · ${candidate.currentCompany}`;
+    const role =
+      candidate.currentTitle && candidate.currentCompany
+        ? `${candidate.currentTitle} · ${candidate.currentCompany}`
+        : candidate.currentTitle || candidate.currentCompany || '—';
+    const exp =
+      experienceDisplay && experienceDisplay !== '—' ? ` · ${experienceDisplay} exp (CV)` : '';
+    return `${role}${exp}`;
+  }, [candidate, experienceDisplay]);
+
+  const startOverviewEdit = useCallback(() => {
+    if (!candidate) return;
+    setActiveTab('Overview');
+    setEditError('');
+    setEditForm(buildCandidateEditForm(candidate));
+    if (isPhase1PortalCandidate(candidate)) {
+      setPhase1EditSnapshot(initPhase1EditSnapshotFromProfile(candidate));
+    } else {
+      setPhase1EditSnapshot(null);
     }
-    return candidate.currentTitle || candidate.currentCompany || '—';
+    setShowEditModal(true);
   }, [candidate]);
+
+  const cancelOverviewEdit = useCallback(() => {
+    setEditError('');
+    if (editAvatarPreviewRef.current) {
+      URL.revokeObjectURL(editAvatarPreviewRef.current);
+      editAvatarPreviewRef.current = '';
+    }
+    setEditAvatarFile(null);
+    setEditAvatarPreview('');
+    if (candidate) {
+      setEditForm(buildCandidateEditForm(candidate));
+      if (isPhase1PortalCandidate(candidate)) {
+        setPhase1EditSnapshot(initPhase1EditSnapshotFromProfile(candidate));
+      }
+    }
+    if (openEditDirectly) {
+      onClose();
+    } else {
+      setShowEditModal(false);
+    }
+  }, [candidate, onClose, openEditDirectly]);
 
   const handleAction = (
     action: 'move-stage' | 'schedule-interview' | 'send-email' | 'more' | 'edit'
@@ -3767,7 +3828,7 @@ export function CandidateProfileDrawer({
       return;
     }
     if (action === 'edit') {
-      setShowEditModal(true);
+      startOverviewEdit();
       return;
     }
     if (candidate) onAction?.(action, candidate);
@@ -3840,9 +3901,15 @@ export function CandidateProfileDrawer({
   useEffect(() => {
     if (!candidate) {
       setEditForm(null);
+      setPhase1EditSnapshot(null);
       return;
     }
     setEditForm(buildCandidateEditForm(candidate));
+    if (isPhase1PortalCandidate(candidate)) {
+      setPhase1EditSnapshot(initPhase1EditSnapshotFromProfile(candidate));
+    } else {
+      setPhase1EditSnapshot(null);
+    }
     setEditError('');
   }, [candidate]);
 
@@ -3850,8 +3917,8 @@ export function CandidateProfileDrawer({
     if (!candidate || !editModalOpenToken || loadingCandidateProfile) return;
     if (lastEditModalOpenTokenRef.current === editModalOpenToken) return;
     lastEditModalOpenTokenRef.current = editModalOpenToken;
-    setShowEditModal(true);
-  }, [candidate, editModalOpenToken, loadingCandidateProfile]);
+    startOverviewEdit();
+  }, [candidate, editModalOpenToken, loadingCandidateProfile, startOverviewEdit]);
 
   const updateEditField = <K extends keyof CandidateEditFormState>(
     field: K,
@@ -3890,14 +3957,20 @@ export function CandidateProfileDrawer({
   };
 
   const handleEditSave = async () => {
-    if (!candidate || !editForm || !onUpdateCandidate) return;
+    if (!candidate || !onUpdateCandidate) return;
+    const isPhase1Edit = isPhase1PortalCandidate(candidate) && phase1EditSnapshot;
+    if (!isPhase1Edit && !editForm) return;
 
     try {
       setIsSavingEdit(true);
       setEditError('');
-      validateEditFormStructured(editForm);
+      if (!isPhase1Edit && editForm) {
+        validateEditFormStructured(editForm);
+      }
 
-      const payload = buildUpdatePayloadFromEditForm(editForm, candidate.extraData);
+      const payload = isPhase1Edit
+        ? buildUpdatePayloadFromPhase1EditSnapshot(candidate, phase1EditSnapshot)
+        : buildUpdatePayloadFromEditForm(editForm!, candidate.extraData);
 
       if (editAvatarFile) {
         try {
@@ -3937,7 +4010,7 @@ export function CandidateProfileDrawer({
     }
   };
 
-  return (
+  const drawerTree = (
     <AnimatePresence>
       {isOpen && candidate ? (
         <React.Fragment key="candidate-profile-drawer">
@@ -3999,109 +4072,7 @@ export function CandidateProfileDrawer({
             onClose={() => setShowRejectModal(false)}
             onReject={onRejectCandidate}
           />
-          <AnimatePresence>
-            {showEditModal && editForm ? (
-              <React.Fragment key="candidate-edit-modal">
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className={`fixed inset-0 ${layer.editBackdrop} bg-slate-950/45`}
-                  onClick={() => {
-                    if (!isSavingEdit) {
-                      if (openEditDirectly) {
-                        onClose();
-                      } else {
-                        setShowEditModal(false);
-                      }
-                      setEditError('');
-                    }
-                  }}
-                />
-                <motion.div
-                  initial={{ x: '100%' }}
-                  animate={{ x: 0 }}
-                  exit={{ x: '100%' }}
-                  transition={{ type: 'tween', duration: 0.16 }}
-                  className={`fixed inset-y-0 right-0 ${layer.editPanel} flex h-full w-3/4 max-w-6xl flex-col`}
-                >
-                  <div className="flex h-full w-full flex-col bg-white shadow-2xl">
-                    <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 sm:px-6">
-                      <div>
-                        <h3 className="text-lg font-semibold text-slate-900">Edit Candidate</h3>
-                        <p className="mt-1 text-sm text-slate-500">
-                          Edit all ATS / parsed resume fields by section. Changes sync to the candidate profile and Overview.
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (openEditDirectly) {
-                            onClose();
-                          } else {
-                            setShowEditModal(false);
-                          }
-                          setEditError('');
-                        }}
-                        disabled={isSavingEdit}
-                        className="rounded-xl p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        <X size={18} />
-                      </button>
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-6">
-                      <CandidateEditAtsSections
-                        form={editForm}
-                        onChange={updateEditField}
-                        recruiters={recruiters}
-                        jobs={jobs}
-                        avatarPreview={editAvatarPreview}
-                        onAvatarFile={handleEditAvatarFile}
-                        onAvatarRemove={clearEditAvatarFile}
-                      />
-                    </div>
-
-                    <div className="border-t border-slate-200 px-5 py-4 sm:px-6">
-                      {editError ? (
-                        <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                          {editError}
-                        </div>
-                      ) : null}
-                      <div className="flex items-center justify-end gap-3">
-                        <button
-                          type="button"
-                        onClick={() => {
-                          if (openEditDirectly) {
-                            onClose();
-                          } else {
-                            setShowEditModal(false);
-                          }
-                          setEditError('');
-                        }}
-                          disabled={isSavingEdit}
-                          className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleEditSave}
-                          disabled={isSavingEdit}
-                          className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
-                        >
-                          <SquarePen size={16} />
-                          {isSavingEdit ? 'Saving...' : 'Save Candidate'}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
-              </React.Fragment>
-            ) : null}
-          </AnimatePresence>
-          {!openEditDirectly ? (
-            <>
+          <>
               <motion.div
                 className={`fixed inset-0 ${layer.backdrop} bg-slate-950/35`}
                 initial={{ opacity: 0 }}
@@ -4111,7 +4082,8 @@ export function CandidateProfileDrawer({
               />
 
               <motion.aside
-                className={`fixed inset-y-0 right-0 ${layer.panel} flex h-full w-3/4 max-w-6xl flex-col`}
+                dir="ltr"
+                className={`fixed inset-y-0 right-0 ${layer.panel} flex h-full w-3/4 max-w-6xl flex-col border-l border-slate-200`}
                 initial={{ x: '100%' }}
                 animate={{ x: 0 }}
                 exit={{ x: '100%' }}
@@ -4168,6 +4140,10 @@ export function CandidateProfileDrawer({
                             <span className="font-medium text-violet-600">Location</span>
                             <span className="font-semibold text-violet-900">{candidate.location || '—'}</span>
                           </span>
+                          <span className="inline-flex items-center gap-1 rounded-full bg-teal-50 px-2.5 py-1 text-xs">
+                            <span className="font-medium text-teal-600">Experience (CV)</span>
+                            <span className="font-semibold text-teal-900">{experienceDisplay}</span>
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -4187,11 +4163,15 @@ export function CandidateProfileDrawer({
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => setShowEditModal(true)}
-                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                      onClick={startOverviewEdit}
+                      className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium ${
+                        showEditModal
+                          ? 'border-blue-200 bg-blue-50 text-blue-800'
+                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                      }`}
                     >
                       <SquarePen size={15} />
-                      Edit Candidate
+                      {showEditModal ? 'Editing Overview' : 'Edit Candidate'}
                     </button>
                     {onUpdateCandidate ? (
                       <button
@@ -4263,7 +4243,65 @@ export function CandidateProfileDrawer({
               <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-6">
                 {activeTab === 'Overview' && (
                   <div className="space-y-5">
-                    {isPhase1PortalCandidate(candidate) ? (
+                    {showEditModal && onUpdateCandidate ? (
+                      <>
+                        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+                          <p className="font-semibold">Edit candidate — Overview</p>
+                          <p className="mt-1 text-blue-800/90">
+                            Update the same fields shown in Overview. Save applies changes to this
+                            candidate profile.
+                          </p>
+                        </div>
+                        {editError ? (
+                          <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                            {editError}
+                          </div>
+                        ) : null}
+                        {isPhase1PortalCandidate(candidate) && phase1EditSnapshot ? (
+                          <CandidatePhase1SubmitEditSections
+                            candidate={candidate}
+                            snapshot={phase1EditSnapshot}
+                            onChange={setPhase1EditSnapshot}
+                          />
+                        ) : editForm ? (
+                          <CandidateEditAtsSections
+                            form={editForm}
+                            onChange={updateEditField}
+                            recruiters={recruiters}
+                            jobs={jobs}
+                            avatarPreview={editAvatarPreview}
+                            onAvatarFile={handleEditAvatarFile}
+                            onAvatarRemove={clearEditAvatarFile}
+                          />
+                        ) : null}
+                        <div className="sticky bottom-0 z-10 -mx-5 border-t border-slate-200 bg-slate-50/95 px-5 py-4 backdrop-blur sm:-mx-6 sm:px-6">
+                          <div className="flex flex-wrap items-center justify-end gap-3">
+                            <button
+                              type="button"
+                              onClick={cancelOverviewEdit}
+                              disabled={isSavingEdit}
+                              className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleEditSave()}
+                              disabled={
+                                isSavingEdit ||
+                                (isPhase1PortalCandidate(candidate)
+                                  ? !phase1EditSnapshot
+                                  : !editForm)
+                              }
+                              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
+                            >
+                              <SquarePen size={16} />
+                              {isSavingEdit ? 'Saving...' : 'Save Candidate'}
+                            </button>
+                          </div>
+                        </div>
+                      </>
+                    ) : isPhase1PortalCandidate(candidate) ? (
                       <CandidatePhase1DetailSections candidate={candidate} />
                     ) : (
                       <CandidateAtsExtractedOverview candidate={candidate} />
@@ -4765,11 +4803,13 @@ export function CandidateProfileDrawer({
               </div>
                 </div>
               </motion.aside>
-            </>
-          ) : null}
+          </>
           {cvEditor.modals}
         </React.Fragment>
       ) : null}
     </AnimatePresence>
   );
+
+  if (!drawerPortalMounted) return null;
+  return createPortal(drawerTree, document.body);
 }

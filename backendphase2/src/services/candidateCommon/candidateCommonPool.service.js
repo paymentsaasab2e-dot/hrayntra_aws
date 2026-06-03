@@ -2,7 +2,10 @@ import {
   prisma,
   getActiveTenantDbName,
   getCandidateCommonPrismaClient,
+  getJobPortalPrismaClient,
 } from '../../config/prisma.js';
+import { resolveCandidateListExperienceYears } from '../../utils/candidateExperienceYears.util.js';
+import { batchHydrateCandidatesResumeFromPortal } from '../../utils/candidateResumeHydrate.util.js';
 import { buildSuperAdminOwnerScope, isSuperAdminUser } from '../../utils/superAdminScope.js';
 import { canViewAllAssignments, hasAnyPermission as hasAnyPermissionScope } from '../../utils/permissionScope.js';
 
@@ -99,7 +102,7 @@ function applyProfileSnapshotFields(mapped, row) {
     ? snapshot.certifications.map((c) => String(c.certificationName || '').trim()).filter(Boolean)
     : [];
 
-  return {
+  const withSnapshot = {
     ...mapped,
     firstName: mapped.firstName || pi.firstName || null,
     lastName: mapped.lastName || pi.lastName || null,
@@ -152,6 +155,9 @@ function applyProfileSnapshotFields(mapped, row) {
     extraData: {
       ...(mapped.extraData && typeof mapped.extraData === 'object' ? mapped.extraData : {}),
       phase1ProfileSnapshot: snapshot,
+      ...(typeof snapshot.cvWorkHistoryNarrative === 'string' && snapshot.cvWorkHistoryNarrative.trim()
+        ? { workHistory: snapshot.cvWorkHistoryNarrative.trim() }
+        : {}),
     },
     resumeAtsScore:
       typeof row.resumeAtsScore === 'number'
@@ -160,6 +166,14 @@ function applyProfileSnapshotFields(mapped, row) {
           ? snapshot.resume.atsScore
           : mapped.resumeAtsScore,
   };
+
+  const computedExperience = resolveCandidateListExperienceYears(withSnapshot);
+  if (computedExperience != null) {
+    withSnapshot.experience = computedExperience;
+    withSnapshot.experienceYears = computedExperience;
+  }
+
+  return withSnapshot;
 }
 
 /** Map candidatecommon row → CRM Candidate shape for match pipeline / materialize. */
@@ -228,7 +242,13 @@ export function mapCandidateCommonRowToCandidate(row) {
     lastActivity: row.syncedAt ?? row.updatedAt ?? new Date(),
   };
 
-  return applyProfileSnapshotFields(mapped, row);
+  const result = applyProfileSnapshotFields(mapped, row);
+  const computedExperience = resolveCandidateListExperienceYears(result);
+  if (computedExperience != null) {
+    result.experience = computedExperience;
+    result.experienceYears = computedExperience;
+  }
+  return result;
 }
 
 /**
@@ -359,7 +379,30 @@ export async function fetchCandidateCommonByCandidateId(candidateId, options = {
 
   const row = await commonPrisma.candidateCommon.findFirst({ where });
 
-  return row ? mapCandidateCommonRowToCandidate(row) : null;
+  if (!row) return null;
+
+  let mapped = mapCandidateCommonRowToCandidate(row);
+  if (!mapped) return null;
+
+  try {
+    const portalClient = getJobPortalPrismaClient();
+    if (portalClient) {
+      await batchHydrateCandidatesResumeFromPortal([mapped], portalClient);
+      const computed = resolveCandidateListExperienceYears(mapped);
+      if (computed != null) {
+        mapped.experience = computed;
+        mapped.experienceYears = computed;
+      }
+    }
+  } catch (err) {
+    console.warn(
+      '[candidateCommon] resume hydrate for drawer failed:',
+      id,
+      err?.message || err,
+    );
+  }
+
+  return mapped;
 }
 
 /**

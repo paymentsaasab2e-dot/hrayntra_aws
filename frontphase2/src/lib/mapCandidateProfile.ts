@@ -1,4 +1,5 @@
 import type { BackendCandidate } from './api';
+import { displayCandidateEmail } from './bulkCvEmail';
 import {
   buildEducationSummaryFromCvEntries,
   isGarbageEducationSummary,
@@ -8,7 +9,7 @@ import {
   getPhase1ProfileSnapshot,
   PHASE1_CANDIDATE_TAG_LABEL,
 } from './phase1ProfileSnapshot';
-import { computeTotalExperienceYears } from './candidateExperience';
+import { resolveCandidateExperienceYears } from './candidateExperience';
 import {
   resolveCandidateAssignedJobTitles,
   resolveCandidateListStage,
@@ -231,7 +232,7 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
         : null;
 
   const namePart = `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim();
-  const emailPart = c.email?.trim() || '';
+  const emailPart = displayCandidateEmail(c.email?.trim() || '');
   const phonePart = c.phone?.trim() || '';
   const shortId = c.id && c.id.length >= 6 ? c.id.slice(-6) : c.id;
   const fullName =
@@ -453,13 +454,9 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
     currentTitle: c.currentTitle || null,
     currentCompany: c.currentCompany || null,
     stage,
-    experience:
-      computeTotalExperienceYears(
-        Array.isArray(c.cvWorkExperienceEntries) ? c.cvWorkExperienceEntries : [],
-        c.experience ?? c.experienceYears ?? null,
-      ) ?? c.experience ?? c.experienceYears ?? 0,
+    experience: resolveCandidateExperienceYears(c) ?? c.experience ?? c.experienceYears ?? 0,
     location: c.location || '—',
-    email: c.email,
+    email: displayCandidateEmail(c.email) || c.email || '',
     phone: c.phone || '—',
     linkedIn: c.linkedIn || null,
     designation: c.currentTitle || null,

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Coins, Sparkles, Trash2 } from 'lucide-react';
 import {
   BULK_CV_TOKENS_CHANGED,
@@ -77,6 +78,7 @@ function StatusBadge({ status }: { status: BulkCvTokenRecord['status'] }) {
 }
 
 export default function BulkCvTokensDrawer({ isOpen, onClose }: Props) {
+  const [portalMounted, setPortalMounted] = useState(false);
   const [session, setSession] = useState(() => getBulkCvTokenSession());
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkRemoving, setBulkRemoving] = useState(false);
@@ -90,6 +92,10 @@ export default function BulkCvTokensDrawer({ isOpen, onClose }: Props) {
 
   const refresh = useCallback(() => {
     setSession(getBulkCvTokenSession());
+  }, []);
+
+  useEffect(() => {
+    setPortalMounted(true);
   }, []);
 
   useEffect(() => {
@@ -175,17 +181,17 @@ export default function BulkCvTokensDrawer({ isOpen, onClose }: Props) {
     refresh();
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || !portalMounted) return null;
 
-  return (
-    <div className="fixed inset-0 z-[1200] flex justify-end">
+  return createPortal(
+    <div className="fixed inset-0 z-[1200] flex justify-end" dir="ltr">
       <button
         type="button"
         className="absolute inset-0 bg-slate-900/40"
         aria-label="Close tokens drawer"
         onClick={onClose}
       />
-      <div className="relative flex h-full w-full max-w-lg flex-col bg-white shadow-2xl">
+      <div className="relative flex h-full w-full max-w-lg flex-col border-l border-slate-200 bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
           <div className="flex items-center gap-2">
             <Coins size={20} className="text-indigo-600" />
@@ -437,6 +443,7 @@ export default function BulkCvTokensDrawer({ isOpen, onClose }: Props) {
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

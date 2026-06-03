@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Upload, Trash2, FileText, AlertCircle } from 'lucide-react';
 import {
   FAILED_BULK_RESUMES_CHANGED,
@@ -19,6 +20,7 @@ type Props = {
 };
 
 export default function FailedBulkResumesDrawer({ isOpen, onClose, onReupload }: Props) {
+  const [portalMounted, setPortalMounted] = useState(false);
   const [rows, setRows] = useState<FailedBulkResumeRecord[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkDeleting, setBulkDeleting] = useState(false);
@@ -26,6 +28,10 @@ export default function FailedBulkResumesDrawer({ isOpen, onClose, onReupload }:
 
   const refresh = useCallback(() => {
     setRows(getActiveFailedBulkResumes());
+  }, []);
+
+  useEffect(() => {
+    setPortalMounted(true);
   }, []);
 
   useEffect(() => {
@@ -111,9 +117,9 @@ export default function FailedBulkResumesDrawer({ isOpen, onClose, onReupload }:
 
   const title = useMemo(() => `Failed resumes (${count})`, [count]);
 
-  if (!isOpen) return null;
+  if (!isOpen || !portalMounted) return null;
 
-  return (
+  return createPortal(
     <>
       <input
         ref={fileInputRef}
@@ -122,7 +128,7 @@ export default function FailedBulkResumesDrawer({ isOpen, onClose, onReupload }:
         accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         onChange={onFilePicked}
       />
-      <div className="fixed inset-0 z-[95] flex justify-end">
+      <div className="fixed inset-0 z-[95] flex justify-end" dir="ltr">
         <button
           type="button"
           className="absolute inset-0 bg-slate-900/40"
@@ -243,6 +249,7 @@ export default function FailedBulkResumesDrawer({ isOpen, onClose, onReupload }:
           </div>
         </div>
       </div>
-    </>
+    </>,
+    document.body
   );
 };

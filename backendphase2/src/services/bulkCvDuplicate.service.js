@@ -157,47 +157,119 @@ export async function findExistingCandidateDuplicate({ email, firstName: _firstN
   return null;
 }
 
-/**
- * Next "Lastname copy N" for create_anyway (N increments across existing rows with same first name + base last).
- */
-export async function nextCopyLastNameForBulk(firstName, currentLastName) {
-  const fn = String(firstName || '').trim();
-  const base = stripCopySuffix(currentLastName);
-  if (!fn || !base) return String(currentLastName || '').trim() || 'Candidate';
+/** In-memory ordinals per bulk session + email (parallel uploads). */
+const bulkCopyOrdinalBySession = new Map();
 
-  const rows = await prisma.candidate.findMany({
-    where: {
-      AND: [
-        activeCandidateClause,
-        { firstName: { equals: fn, mode: 'insensitive' } },
-        {
-          OR: [
-            { lastName: { equals: base, mode: 'insensitive' } },
-            { lastName: { startsWith: `${base} copy `, mode: 'insensitive' } },
-          ],
-        },
-      ],
-    },
-    select: { lastName: true },
-  });
+const COPY_SUFFIX_RE = /\bcopy\s+(\d+)\s*$/i;
 
+export function clearBulkCopyOrdinalSession(userId, sessionId) {
+  const prefix = `${String(userId || '').trim()}::${String(sessionId || '').trim()}::`;
+  if (!prefix || prefix === '::') return;
+  for (const key of [...bulkCopyOrdinalBySession.keys()]) {
+    if (key.startsWith(prefix)) bulkCopyOrdinalBySession.delete(key);
+  }
+}
+
+function reserveBulkCopyOrdinal({ userId, sessionId, normalizedEmail, dbMaxN }) {
+  const key = `${String(userId || '').trim()}::${String(sessionId || '').trim()}::${normalizedEmail}`;
+  const prev = bulkCopyOrdinalBySession.get(key);
+  const base = prev != null ? Math.max(prev, dbMaxN) : dbMaxN;
+  const next = base + 1;
+  bulkCopyOrdinalBySession.set(key, next);
+  return next;
+}
+
+function maxCopySuffixFromLastNames(rows) {
   let maxN = 0;
-  const reExact = new RegExp(`^${escapeReg(base)}$`, 'i');
-  const reCopy = new RegExp(`^${escapeReg(base)}\\s+copy\\s+(\\d+)$`, 'i');
   for (const r of rows) {
-    const ln = String(r.lastName || '');
-    if (reExact.test(ln)) maxN = Math.max(maxN, 0);
-    const m = ln.match(reCopy);
+    const m = String(r.lastName || '').match(COPY_SUFFIX_RE);
     if (m) maxN = Math.max(maxN, parseInt(m[1], 10));
   }
+  return maxN;
+}
 
-  const next = `${base} copy ${maxN + 1}`;
-  console.log('[bulk-cv] assign copy lastName', { firstName: fn, next });
+/**
+ * Next "Lastname copy N" for create_anyway.
+ * - Original profile keeps plain last name (no suffix).
+ * - First duplicate → copy 1, second → copy 2, … keyed by duplicate email.
+ * - Bulk session counter avoids parallel uploads reusing the same number.
+ */
+export async function nextCopyLastNameForBulk({
+  firstName = '',
+  lastName = '',
+  email = '',
+  userId = '',
+  sessionId = '',
+} = {}) {
+  const base = stripCopySuffix(lastName);
+  if (!base) return String(lastName || '').trim() || 'Candidate';
+
+  const normalizedEmail = normalizeCandidateEmailForDuplicate(email);
+  let dbMaxN = 0;
+
+  if (normalizedEmail) {
+    const rows = await prisma.candidate.findMany({
+      where: {
+        AND: [
+          activeCandidateClause,
+          { email: { equals: normalizedEmail, mode: 'insensitive' } },
+        ],
+      },
+      select: { lastName: true },
+    });
+    dbMaxN = maxCopySuffixFromLastNames(rows);
+  } else {
+    const fn = String(firstName || '').trim();
+    if (!fn) return `${base} copy 1`;
+    const rows = await prisma.candidate.findMany({
+      where: {
+        AND: [
+          activeCandidateClause,
+          { firstName: { equals: fn, mode: 'insensitive' } },
+          {
+            OR: [
+              { lastName: { equals: base, mode: 'insensitive' } },
+              { lastName: { startsWith: `${base} copy `, mode: 'insensitive' } },
+            ],
+          },
+        ],
+      },
+      select: { lastName: true },
+    });
+    dbMaxN = maxCopySuffixFromLastNames(rows);
+  }
+
+  const copyN =
+    userId && sessionId && normalizedEmail
+      ? reserveBulkCopyOrdinal({ userId, sessionId, normalizedEmail, dbMaxN })
+      : dbMaxN + 1;
+
+  const next = `${base} copy ${copyN}`;
+  console.log('[bulk-cv] assign copy lastName', {
+    email: normalizedEmail || '—',
+    copyN,
+    next,
+  });
   return next;
 }
 
 /**
- * When duplicate matched by email, ensure a unique mailbox so create can succeed.
+ * Strip legacy bulk "+bulkcv" mailbox suffix → plain address (e.g. jane@gmail.com+bulkcv@gmail.com → jane@gmail.com).
+ * @returns {string|null} Normalized plain email, or null if not a +bulkcv variant.
+ */
+export function stripBulkCvEmailSuffix(email) {
+  const raw = String(email || '').trim();
+  if (!raw || !/\+bulkcv/i.test(raw)) return null;
+  const lower = raw.toLowerCase();
+  const m = lower.match(/^([^+@]+)\+bulkcv[^@]*@(.+)$/i);
+  if (!m) return null;
+  const plain = `${m[1]}@${m[2]}`;
+  return normalizeCandidateEmailForDuplicate(plain) || plain;
+}
+
+/**
+ * @deprecated Bulk "create anyway" keeps the CV email; last name uses "copy N" only.
+ * Reserved for legacy callers — no longer used by bulk CV or create candidate flows.
  */
 export async function nextUniqueEmailVariant(email) {
   const norm = normalizeCandidateEmailForDuplicate(email);

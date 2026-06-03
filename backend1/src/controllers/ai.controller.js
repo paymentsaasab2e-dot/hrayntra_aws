@@ -394,6 +394,114 @@ function extractJson(text = '') {
   return JSON.parse(cleaned.slice(start, end + 1));
 }
 
+function hasConfiguredApiKey(value) {
+  const key = String(value || '').trim();
+  if (!key || key.length < 8) return false;
+  const lower = key.toLowerCase();
+  const placeholderHints = [
+    'your-key',
+    'your_key',
+    'your-api',
+    'api-key-here',
+    'changeme',
+    'placeholder',
+    'insert',
+    'example',
+    'todo',
+    'replace',
+  ];
+  return !placeholderHints.some((hint) => lower.includes(hint));
+}
+
+const INDUSTRY_DOMAIN_FALLBACK_OPTIONS = [
+  'Technology',
+  'Finance',
+  'Healthcare',
+  'Education',
+  'Consulting',
+  'Manufacturing',
+  'Retail',
+  'Real Estate',
+  'Media',
+  'Marketing',
+  'Advertising',
+  'Energy',
+  'Transportation',
+  'Hospitality',
+  'Legal',
+  'Government',
+  'Non-profit',
+  'Telecommunications',
+  'Automotive',
+  'Agriculture',
+  'Pharmaceuticals',
+  'Insurance',
+  'E-commerce',
+  'Human Resources',
+  'Construction',
+  'Entertainment',
+];
+
+function buildSelectedValueSet(values = []) {
+  return new Set(
+    Array.isArray(values)
+      ? values
+          .filter((value) => typeof value === 'string')
+          .map((value) => value.trim().toLowerCase())
+      : []
+  );
+}
+
+function normalizeSuggestionStrings(rawSuggestions = [], selectedSet, limit = 8) {
+  return Array.from(
+    new Set(
+      rawSuggestions
+        .filter((value) => typeof value === 'string')
+        .map((value) => value.trim())
+        .filter(Boolean)
+    )
+  )
+    .filter((value) => !selectedSet.has(value.toLowerCase()))
+    .slice(0, limit);
+}
+
+function filterFallbackSuggestions(options, query, selectedSet, limit = 8) {
+  const normalizedQuery = String(query || '').trim().toLowerCase();
+  const tokens = normalizedQuery.split(/\s+/).filter((token) => token.length >= 2);
+
+  return options
+    .filter((option) => !selectedSet.has(option.toLowerCase()))
+    .filter((option) => {
+      if (!normalizedQuery) return true;
+      const normalizedOption = option.toLowerCase();
+      if (normalizedOption.includes(normalizedQuery)) return true;
+      return tokens.some((token) => normalizedOption.includes(token));
+    })
+    .slice(0, limit);
+}
+
+async function runSuggestionLlm(messages, options = {}) {
+  let responseText = '';
+
+  if (hasConfiguredApiKey(process.env.OPENAI_API_KEY)) {
+    try {
+      responseText = await runOpenAIChat(messages, options);
+    } catch (openaiError) {
+      console.error('OpenAI suggestion failed:', openaiError.message || openaiError);
+    }
+  }
+
+  if (!responseText && hasConfiguredApiKey(process.env.MISTRAL_API_KEY)) {
+    try {
+      responseText = await runMistralChat(messages, options);
+    } catch (mistralError) {
+      console.error('Mistral suggestion failed:', mistralError.message || mistralError);
+    }
+  }
+
+  return responseText;
+}
+
 function applyDefaults(sectionKey, parsed) {
   switch (sectionKey) {
     case 'skills':
@@ -565,13 +673,7 @@ async function suggestJobTitles(req, res) {
       });
     }
 
-    const selectedSet = new Set(
-      Array.isArray(selectedTitles)
-        ? selectedTitles
-            .filter((title) => typeof title === 'string')
-            .map((title) => title.trim().toLowerCase())
-        : []
-    );
+    const selectedSet = buildSelectedValueSet(selectedTitles);
 
     const systemPrompt = [
       'You are a career assistant that suggests relevant professional job titles.',
@@ -588,31 +690,44 @@ async function suggestJobTitles(req, res) {
       'Return relevant alternative or closely matching job titles.',
     ].join('\n');
 
-    const responseText = await runOpenAIChat(
-      [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      {
-        model: OPENAI_CHAT_MODEL,
-        temperature: 0.4,
-        maxTokens: 220,
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ];
+
+    let suggestions = [];
+    const responseText = await runSuggestionLlm(messages, {
+      temperature: 0.4,
+      maxTokens: 220,
+    });
+
+    if (responseText) {
+      try {
+        const parsed = extractJson(responseText);
+        const rawSuggestions = Array.isArray(parsed?.suggestions) ? parsed.suggestions : [];
+        suggestions = normalizeSuggestionStrings(rawSuggestions, selectedSet, 6);
+      } catch (parseError) {
+        console.error('Error parsing job title suggestions:', parseError.message || parseError);
       }
-    );
+    }
 
-    const parsed = extractJson(responseText);
-    const rawSuggestions = Array.isArray(parsed?.suggestions) ? parsed.suggestions : [];
-
-    const suggestions = Array.from(
-      new Set(
-        rawSuggestions
-          .filter((title) => typeof title === 'string')
-          .map((title) => title.trim())
-          .filter(Boolean)
-      )
-    )
-      .filter((title) => !selectedSet.has(title.toLowerCase()))
-      .slice(0, 6);
+    if (!suggestions.length) {
+      suggestions = filterFallbackSuggestions(
+        [
+          'Software Engineer',
+          'Full Stack Developer',
+          'Product Manager',
+          'Data Analyst',
+          'Marketing Manager',
+          'Sales Executive',
+          'Business Analyst',
+          'Project Manager',
+        ],
+        normalizedQuery,
+        selectedSet,
+        6
+      );
+    }
 
     return res.json({
       success: true,
@@ -641,16 +756,10 @@ async function suggestIndustryDomains(req, res) {
       });
     }
 
-    const selectedSet = new Set(
-      Array.isArray(selectedDomains)
-        ? selectedDomains
-            .filter((domain) => typeof domain === 'string')
-            .map((domain) => domain.trim().toLowerCase())
-        : []
-    );
+    const selectedSet = buildSelectedValueSet(selectedDomains);
 
     const systemPrompt = [
-      'You are an assistant that suggests industry/domain categories for a work experience form.',
+      'You are an assistant that suggests industry categories for a work experience form.',
       'Given a user query, return only JSON.',
       'The JSON must have this exact shape: {"suggestions":["Domain 1","Domain 2"]}.',
       'Return 8 concise, realistic industry/domain names.',
@@ -663,31 +772,35 @@ async function suggestIndustryDomains(req, res) {
       'Return relevant industry/domain options matching the typing intent.',
     ].join('\n');
 
-    const responseText = await runOpenAIChat(
-      [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      {
-        model: OPENAI_CHAT_MODEL,
-        temperature: 0.3,
-        maxTokens: 220,
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ];
+
+    let suggestions = [];
+    const responseText = await runSuggestionLlm(messages, {
+      temperature: 0.3,
+      maxTokens: 220,
+    });
+
+    if (responseText) {
+      try {
+        const parsed = extractJson(responseText);
+        const rawSuggestions = Array.isArray(parsed?.suggestions) ? parsed.suggestions : [];
+        suggestions = normalizeSuggestionStrings(rawSuggestions, selectedSet, 8);
+      } catch (parseError) {
+        console.error('Error parsing industry suggestions:', parseError.message || parseError);
       }
-    );
+    }
 
-    const parsed = extractJson(responseText);
-    const rawSuggestions = Array.isArray(parsed?.suggestions) ? parsed.suggestions : [];
-
-    const suggestions = Array.from(
-      new Set(
-        rawSuggestions
-          .filter((domain) => typeof domain === 'string')
-          .map((domain) => domain.trim())
-          .filter(Boolean)
-      )
-    )
-      .filter((domain) => !selectedSet.has(domain.toLowerCase()))
-      .slice(0, 8);
+    if (!suggestions.length) {
+      suggestions = filterFallbackSuggestions(
+        INDUSTRY_DOMAIN_FALLBACK_OPTIONS,
+        normalizedQuery,
+        selectedSet,
+        8
+      );
+    }
 
     return res.json({
       success: true,
@@ -695,6 +808,19 @@ async function suggestIndustryDomains(req, res) {
     });
   } catch (error) {
     console.error('Error suggesting industry domains:', error);
+    const { query = '', selectedDomains = [] } = req.body || {};
+    const normalizedQuery = String(query || '').trim();
+    if (normalizedQuery) {
+      const suggestions = filterFallbackSuggestions(
+        INDUSTRY_DOMAIN_FALLBACK_OPTIONS,
+        normalizedQuery,
+        buildSelectedValueSet(selectedDomains),
+        8
+      );
+      if (suggestions.length) {
+        return res.json({ success: true, data: { suggestions } });
+      }
+    }
     return res.status(error.statusCode || 500).json({
       success: false,
       message: error.message || 'Failed to suggest industry domains',

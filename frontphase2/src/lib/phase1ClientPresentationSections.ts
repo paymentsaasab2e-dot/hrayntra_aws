@@ -3,41 +3,62 @@ import type { Phase1ProfileSnapshot } from './phase1ProfileSnapshot';
 
 export type Phase1ClientSectionId =
   | 'personal'
-  | 'education'
+  | 'resume'
+  | 'summary'
   | 'work'
-  | 'certifications'
+  | 'internships'
   | 'gap'
+  | 'education'
   | 'academic'
   | 'exams'
+  | 'skills'
+  | 'languages'
   | 'projects'
+  | 'portfolio'
+  | 'certifications'
+  | 'accomplishments'
+  | 'careerPreferences'
   | 'visa'
-  | 'vaccination'
-  | 'summary';
+  | 'vaccination';
 
 export const PHASE1_CLIENT_SECTION_IDS: Phase1ClientSectionId[] = [
   'personal',
+  'resume',
   'summary',
-  'education',
   'work',
-  'certifications',
+  'internships',
   'gap',
+  'education',
   'academic',
   'exams',
+  'skills',
+  'languages',
   'projects',
+  'portfolio',
+  'certifications',
+  'accomplishments',
+  'careerPreferences',
   'visa',
   'vaccination',
 ];
 
 export const PHASE1_CLIENT_SECTION_LABELS: Record<Phase1ClientSectionId, string> = {
-  personal: 'Person information',
+  personal: 'Basic information',
+  resume: 'Resume / CV',
   summary: 'Professional summary',
-  education: 'Education',
   work: 'Work experience',
-  certifications: 'Certifications',
+  internships: 'Internships',
   gap: 'Gap explanation',
+  education: 'Education',
   academic: 'Academic achievements',
   exams: 'Competitive exams',
+  skills: 'Skills',
+  languages: 'Languages',
   projects: 'Projects',
+  portfolio: 'Portfolio links',
+  certifications: 'Certifications',
+  accomplishments: 'Accomplishments',
+  careerPreferences: 'Career preferences',
   visa: 'Visa & work authorization',
   vaccination: 'Vaccination',
 };
@@ -46,14 +67,21 @@ export type Phase1ClientSectionVisibility = Record<Phase1ClientSectionId, boolea
 
 export const DEFAULT_PHASE1_CLIENT_SECTION_VISIBILITY: Phase1ClientSectionVisibility = {
   personal: true,
+  resume: true,
   summary: true,
-  education: true,
   work: true,
-  certifications: true,
+  internships: true,
   gap: true,
+  education: true,
   academic: true,
   exams: true,
+  skills: true,
+  languages: true,
   projects: true,
+  portfolio: true,
+  certifications: true,
+  accomplishments: true,
+  careerPreferences: true,
   visa: true,
   vaccination: true,
 };
@@ -175,8 +203,28 @@ export function buildPhase1ClientReviewSections(
     );
   }
 
+  if (isSectionVisible('resume', visible)) {
+    const resume = snapshot.resume || {};
+    appendVisibleSection(
+      sections,
+      'resume',
+      fieldsFromPairs([
+        ['File name', resume.fileName],
+        ['File URL', resume.fileUrl],
+        ['ATS readiness', resume.atsScore != null ? `${resume.atsScore}%` : ''],
+      ]),
+    );
+  }
+
   if (isSectionVisible('summary', visible)) {
     appendVisibleSection(sections, 'summary', fieldsFromPairs([['Summary', snapshot.summaryText]]));
+  }
+
+  if (isSectionVisible('internships', visible)) {
+    const entries = Array.isArray(snapshot.internships)
+      ? snapshot.internships.map((row) => ({ ...row }))
+      : [];
+    appendVisibleSection(sections, 'internships', [], { entries });
   }
 
   if (isSectionVisible('education', visible)) {
@@ -226,6 +274,73 @@ export function buildPhase1ClientReviewSections(
       ? snapshot.projects.map((project) => ({ ...project }))
       : [];
     appendVisibleSection(sections, 'projects', [], { entries });
+  }
+
+  if (isSectionVisible('skills', visible)) {
+    const skillLines = Array.isArray(snapshot.skills)
+      ? snapshot.skills
+          .map((s) =>
+            [s.name, s.proficiency, s.category].filter(Boolean).join(' · '),
+          )
+          .filter(Boolean)
+      : [];
+    appendVisibleSection(
+      sections,
+      'skills',
+      skillLines.length
+        ? skillLines.map((line, i) => ({ label: `Skill ${i + 1}`, value: line }))
+        : [],
+    );
+  }
+
+  if (isSectionVisible('languages', visible)) {
+    const langLines = Array.isArray(snapshot.languages)
+      ? snapshot.languages
+          .map((l) => [l.name, l.proficiency].filter(Boolean).join(' — '))
+          .filter(Boolean)
+      : [];
+    appendVisibleSection(
+      sections,
+      'languages',
+      langLines.length
+        ? langLines.map((line, i) => ({ label: `Language ${i + 1}`, value: line }))
+        : [],
+    );
+  }
+
+  if (isSectionVisible('portfolio', visible)) {
+    const entries = Array.isArray(snapshot.portfolioLinks)
+      ? snapshot.portfolioLinks.map((link) => ({ ...link }))
+      : [];
+    appendVisibleSection(sections, 'portfolio', [], { entries });
+  }
+
+  if (isSectionVisible('accomplishments', visible)) {
+    const entries = Array.isArray(snapshot.accomplishments)
+      ? snapshot.accomplishments.map((row) => ({ ...row }))
+      : [];
+    appendVisibleSection(sections, 'accomplishments', [], { entries });
+  }
+
+  if (isSectionVisible('careerPreferences', visible)) {
+    const prefs = snapshot.careerPreferences || {};
+    appendVisibleSection(
+      sections,
+      'careerPreferences',
+      fieldsFromPairs([
+        ['Current role', prefs.currentRole],
+        ['Preferred job titles', prefs.preferredJobTitles || prefs.preferredRoles],
+        ['Preferred industries', prefs.preferredIndustries || prefs.preferredIndustry],
+        ['Functional areas', prefs.functionalAreas || prefs.functionalArea],
+        ['Job types', prefs.jobTypes],
+        ['Work modes', prefs.workModes || prefs.preferredWorkMode],
+        ['Preferred locations', prefs.preferredLocations],
+        ['Relocation', prefs.relocationPreference],
+        ['Notice period', prefs.noticePeriod],
+        ['Availability to start', prefs.availabilityToStart],
+        ['Salary expectation', prefs.preferredSalary || prefs.salaryAmount],
+      ]),
+    );
   }
 
   if (isSectionVisible('visa', visible)) {

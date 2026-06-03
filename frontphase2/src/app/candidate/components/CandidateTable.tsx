@@ -34,6 +34,8 @@ export interface Candidate {
   designation: string;
   company: string;
   experience: number;
+  /** Pre-formatted for table (`7y`, `<1y`, `—`). */
+  experienceLabel?: string;
   location: string;
   assignedJobs: string[];
   stage: string;
@@ -60,6 +62,8 @@ export interface Candidate {
   isNewCandidate?: boolean;
   /** Linked to a job via apply or assign — stage Applied */
   isJobAppliedCandidate?: boolean;
+  /** Bulk duplicate copy badge, e.g. "Copy 1" */
+  bulkCopyLabel?: string | null;
 }
 
 interface CandidateTableProps {
@@ -198,6 +202,11 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                             Phase 1
                           </span>
                         ) : null}
+                        {candidate.bulkCopyLabel ? (
+                          <span className="rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-sky-800">
+                            {candidate.bulkCopyLabel}
+                          </span>
+                        ) : null}
                       </div>
                     </div>
                   </div>
@@ -228,7 +237,12 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                   </div>
                 </td>
                 <td className="px-3 py-2.5 text-center sm:px-4 sm:py-3">
-                  <span className="text-sm font-medium text-slate-600">{candidate.experience}y</span>
+                  <span className="text-sm font-medium text-slate-600">
+                    {candidate.experienceLabel ??
+                      (candidate.experience > 0
+                        ? `${Number.isInteger(candidate.experience) ? candidate.experience : candidate.experience.toFixed(1)}y`
+                        : '—')}
+                  </span>
                 </td>
                 <td className="px-3 py-2.5 sm:px-4 sm:py-3">
                   <div className="flex items-center gap-1.5 text-slate-500">

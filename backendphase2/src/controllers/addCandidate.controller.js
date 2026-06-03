@@ -15,7 +15,6 @@ import { chatCompletionWithFallback, hasLlmProvider } from '../services/llmChatF
 import {
   findExistingCandidateDuplicate,
   nextCopyLastNameForBulk,
-  nextUniqueEmailVariant,
   normalizeCandidateEmailForDuplicate,
   notDeletedClause,
 } from '../services/bulkCvDuplicate.service.js';
@@ -762,7 +761,9 @@ export const addCandidateController = {
             : null;
       const expectedSalary = parsePositiveNumber(req.body.expectedSalary);
       const currentSalary = parsePositiveNumber(req.body.currentSalary);
-      const duplicateAction = String(req.body.duplicateAction || 'create');
+      const duplicateActionRaw = String(req.body.duplicateAction || 'create');
+      const duplicateAction =
+        duplicateActionRaw === 'createAnyway' ? 'create_anyway' : duplicateActionRaw;
       const candidateData = {
         firstName: String(req.body.firstName).trim(),
         lastName: String(req.body.lastName).trim(),
@@ -854,11 +855,12 @@ export const addCandidateController = {
       if (existing && duplicateAction === 'create_anyway') {
         const fnForCopy = String(candidateData.firstName || '').trim();
         const lnForCopy = String(candidateData.lastName || '').trim();
-        candidateData.lastName = await nextCopyLastNameForBulk(fnForCopy, lnForCopy);
-        const variantEmail = await nextUniqueEmailVariant(email);
-        if (variantEmail) {
-          candidateData.email = variantEmail;
-        }
+        candidateData.lastName = await nextCopyLastNameForBulk({
+          firstName: fnForCopy,
+          lastName: lnForCopy,
+          email,
+        });
+        // Keep the extracted email — do not add +bulkcv or other mailbox variants.
         existing = null;
       }
 
@@ -1265,6 +1267,7 @@ export const addCandidateController = {
 
       let identityPatch = null;
       let duplicateResolution = null;
+      let updateExistingCandidateId = null;
       const tenantDbName =
         String(req.user?.tenantDbName || req.headers['x-tenant-db-name'] || '').trim() || undefined;
       const candidateIdForUpload = req.body?.candidateId || userId;
@@ -1310,6 +1313,8 @@ export const addCandidateController = {
             createdAt: existing.createdAt,
           },
           match: dup.match,
+          canUpdate: true,
+          canCreateAnyway: true,
         });
 
         let decisionRaw;
@@ -1344,14 +1349,24 @@ export const addCandidateController = {
           await hardDeleteCandidateById(existing.id);
           duplicateResolution = 'replaced';
           normalizedData = preNormalized;
+        } else if (decision === 'update_existing') {
+          duplicateResolution = 'updated';
+          updateExistingCandidateId = existing.id;
+          normalizedData = preNormalized;
         } else if (decision === 'create_anyway') {
           const fnForCopy = String(preNormalized?.firstName || fb.firstName || '').trim();
           const lnForCopy = String(preNormalized?.lastName || fb.lastName || '').trim();
-          const newLast = await nextCopyLastNameForBulk(fnForCopy, lnForCopy);
+          const dupEmail = normalizeCandidateEmailForDuplicate(
+            preNormalized?.email || fb.email || existing?.email
+          );
+          const newLast = await nextCopyLastNameForBulk({
+            firstName: fnForCopy,
+            lastName: lnForCopy,
+            email: dupEmail,
+            userId,
+            sessionId,
+          });
           identityPatch = { lastName: newLast };
-          if (dup.match === 'email') {
-            identityPatch.email = await nextUniqueEmailVariant(preNormalized?.email || fb.email);
-          }
           duplicateResolution = 'create_anyway';
           normalizedData = applyBulkCreateAnywayIdentityPatch(preNormalized, identityPatch);
         } else {
@@ -1414,6 +1429,8 @@ export const addCandidateController = {
               createdAt: existing.createdAt,
             },
             match: postDup.match,
+            canUpdate: true,
+            canCreateAnyway: true,
           });
           const decision = String((await decisionPromise) || 'cancel').trim();
           console.log('[bulk-cv] post-AI duplicate decision', {
@@ -1440,15 +1457,21 @@ export const addCandidateController = {
           if (decision === 'replace') {
             await hardDeleteCandidateById(existing.id);
             duplicateResolution = 'replaced';
+          } else if (decision === 'update_existing') {
+            duplicateResolution = 'updated';
+            updateExistingCandidateId = existing.id;
           } else if (decision === 'create_anyway') {
             const fnForCopy = String(normalizedData?.firstName || fb.firstName || '').trim();
             const lnForCopy = String(normalizedData?.lastName || fb.lastName || '').trim();
             identityPatch = {
-              lastName: await nextCopyLastNameForBulk(fnForCopy, lnForCopy),
+              lastName: await nextCopyLastNameForBulk({
+                firstName: fnForCopy,
+                lastName: lnForCopy,
+                email: postAiEmail,
+                userId,
+                sessionId,
+              }),
             };
-            if (postDup.match === 'email') {
-              identityPatch.email = await nextUniqueEmailVariant(postAiEmail);
-            }
             duplicateResolution = 'create_anyway';
             normalizedData = applyBulkCreateAnywayIdentityPatch(normalizedData, identityPatch);
           } else {
@@ -1478,6 +1501,7 @@ export const addCandidateController = {
         data: {
           normalized: normalizedPayload,
           duplicateResolution,
+          updateExistingCandidateId: updateExistingCandidateId || undefined,
           fileIndex,
           tokenUsage,
         },

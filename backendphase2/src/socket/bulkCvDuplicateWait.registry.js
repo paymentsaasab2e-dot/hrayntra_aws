@@ -7,7 +7,7 @@ export function bulkCvDuplicateWaitKey(userId, sessionId, fileIndex) {
 }
 
 /**
- * @param {string} decision - 'create_anyway' | 'replace' | 'cancel'
+ * @param {string} decision - 'create_anyway' | 'update_existing' | 'replace' | 'cancel'
  * @returns {Promise<string>}
  */
 export function waitBulkCvDuplicateDecision(userId, sessionId, fileIndex, timeoutMs = 300_000) {

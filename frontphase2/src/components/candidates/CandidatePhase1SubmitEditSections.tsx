@@ -10,12 +10,18 @@ import {
   FileText,
   GraduationCap,
   Globe2,
+  Languages,
   Layers,
+  Link2,
   Medal,
   Shield,
+  Sparkles,
+  Star,
   Syringe,
+  Target,
   Timer,
   User,
+  Wrench,
 } from 'lucide-react';
 import type { CandidateProfileDrawerData } from '../drawers/CandidateProfileDrawer';
 import type { Phase1ProfileSnapshot } from '@/lib/phase1ProfileSnapshot';
@@ -27,18 +33,7 @@ import {
   phase1SectionTitleClass,
 } from '@/lib/phase1Typography';
 
-type SectionId =
-  | 'personal'
-  | 'education'
-  | 'work'
-  | 'certifications'
-  | 'gap'
-  | 'academic'
-  | 'exams'
-  | 'projects'
-  | 'visa'
-  | 'vaccination'
-  | 'summary';
+type SectionId = Phase1ClientSectionId;
 
 function EditField({
   label,
@@ -190,14 +185,21 @@ export function CandidatePhase1SubmitEditSections({
 }: Props) {
   const [open, setOpen] = useState<Record<SectionId, boolean>>({
     personal: true,
+    resume: true,
     summary: true,
-    education: true,
     work: true,
-    certifications: true,
+    internships: true,
     gap: true,
+    education: true,
     academic: true,
     exams: true,
+    skills: true,
+    languages: true,
     projects: true,
+    portfolio: true,
+    certifications: true,
+    accomplishments: true,
+    careerPreferences: true,
     visa: true,
     vaccination: true,
   });
@@ -278,17 +280,26 @@ export function CandidatePhase1SubmitEditSections({
           </p>
         </div>
       ) : null}
-      <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3">
-        <p className="text-xs font-semibold uppercase tracking-wide text-violet-800">Phase 1 candidate</p>
-        <p className="mt-1 text-sm text-violet-950/80">
-          Same sections as the candidate profile drawer. Edit fields below — saved copy appears on the
-          profile Client tab without changing Overview.
-        </p>
-      </div>
+      {!showClientSectionVisibility ? (
+        <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-violet-800">Phase 1 candidate</p>
+          <p className="mt-1 text-sm text-violet-950/80">
+            Same sections as the Overview tab. Edit fields below and save to update this candidate profile.
+          </p>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-violet-800">Phase 1 candidate</p>
+          <p className="mt-1 text-sm text-violet-950/80">
+            Same sections as the candidate profile drawer. Edit fields below — saved copy appears on the
+            profile Client tab without changing Overview.
+          </p>
+        </div>
+      )}
 
       <Phase1EditSection
         id="personal"
-        title="Person information"
+        title="Basic information"
         icon={User}
         open={open.personal}
         onToggle={toggle}
@@ -319,9 +330,58 @@ export function CandidatePhase1SubmitEditSections({
       </Phase1EditSection>
 
       <Phase1EditSection
+        id="resume"
+        title="Resume / CV"
+        icon={FileText}
+        open={open.resume}
+        onToggle={toggle}
+        {...sectionToggleProps}
+        clientVisible={sectionVisible('resume')}
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          <EditField
+            label="File name"
+            value={str(snapshot.resume?.fileName || candidate.files?.[0]?.name)}
+            onChange={(v) =>
+              onChange({
+                ...snapshot,
+                resume: { ...(snapshot.resume || {}), fileName: v },
+              })
+            }
+          />
+          <EditField
+            label="ATS readiness (%)"
+            value={str(snapshot.resume?.atsScore ?? '')}
+            onChange={(v) => {
+              const n = Number(v);
+              onChange({
+                ...snapshot,
+                resume: {
+                  ...(snapshot.resume || {}),
+                  atsScore: Number.isFinite(n) ? n : null,
+                },
+              });
+            }}
+          />
+          <div className="sm:col-span-2">
+            <EditField
+              label="Resume URL"
+              value={str(snapshot.resume?.fileUrl || candidate.resumeUrl)}
+              onChange={(v) =>
+                onChange({
+                  ...snapshot,
+                  resume: { ...(snapshot.resume || {}), fileUrl: v },
+                })
+              }
+            />
+          </div>
+        </div>
+      </Phase1EditSection>
+
+      <Phase1EditSection
         id="summary"
         title="Professional summary"
-        icon={FileText}
+        icon={Sparkles}
         open={open.summary}
         onToggle={toggle}
         {...sectionToggleProps}
@@ -333,6 +393,31 @@ export function CandidatePhase1SubmitEditSections({
           onChange={(v) => onChange({ ...snapshot, summaryText: v })}
           multiline
         />
+      </Phase1EditSection>
+
+      <Phase1EditSection
+        id="internships"
+        title="Internships"
+        icon={Briefcase}
+        open={open.internships}
+        onToggle={toggle}
+        count={snapshot.internships?.length || 0}
+        {...sectionToggleProps}
+        clientVisible={sectionVisible('internships')}
+      >
+        {(snapshot.internships || []).map((row, index) => (
+          <div key={`intern-${index}`} className="rounded-xl border border-slate-200 bg-white p-3 grid gap-2 sm:grid-cols-2">
+            <EditField label="Title" value={str(row.internshipTitle)} onChange={(v) => patchArray('internships', index, 'internshipTitle', v)} />
+            <EditField label="Company" value={str(row.companyName)} onChange={(v) => patchArray('internships', index, 'companyName', v)} />
+            <EditField label="Type" value={str(row.internshipType)} onChange={(v) => patchArray('internships', index, 'internshipType', v)} />
+            <EditField label="Location" value={str(row.location)} onChange={(v) => patchArray('internships', index, 'location', v)} />
+            <EditField label="Start date" value={str(row.startDate)} onChange={(v) => patchArray('internships', index, 'startDate', v)} />
+            <EditField label="End date" value={str(row.endDate)} onChange={(v) => patchArray('internships', index, 'endDate', v)} />
+            <div className="sm:col-span-2">
+              <EditField label="Responsibilities" value={str(row.responsibilities)} onChange={(v) => patchArray('internships', index, 'responsibilities', v)} multiline />
+            </div>
+          </div>
+        ))}
       </Phase1EditSection>
 
       <Phase1EditSection
@@ -472,6 +557,52 @@ export function CandidatePhase1SubmitEditSections({
         ))}
       </Phase1EditSection>
 
+      <Phase1EditSection id="skills" title="Skills" icon={Wrench} open={open.skills} onToggle={toggle} count={snapshot.skills?.length || 0} {...sectionToggleProps} clientVisible={sectionVisible('skills')}>
+        <EditField
+          label="Skills (one per line: name | proficiency | category)"
+          value={(snapshot.skills || [])
+            .map((s) => [s.name, s.proficiency, s.category].filter(Boolean).join(' | '))
+            .join('\n')}
+          onChange={(v) => {
+            const skills = v
+              .split('\n')
+              .map((line) => line.trim())
+              .filter(Boolean)
+              .map((line) => {
+                const [name, proficiency, category] = line.split('|').map((p) => p.trim());
+                return {
+                  name: name || line,
+                  proficiency: proficiency || '',
+                  category: category || 'Hard Skills',
+                };
+              });
+            onChange({ ...snapshot, skills });
+          }}
+          multiline
+        />
+      </Phase1EditSection>
+
+      <Phase1EditSection id="languages" title="Languages" icon={Languages} open={open.languages} onToggle={toggle} count={snapshot.languages?.length || 0} {...sectionToggleProps} clientVisible={sectionVisible('languages')}>
+        <EditField
+          label="Languages (one per line: name | proficiency)"
+          value={(snapshot.languages || [])
+            .map((l) => [l.name, l.proficiency].filter(Boolean).join(' | '))
+            .join('\n')}
+          onChange={(v) => {
+            const languages = v
+              .split('\n')
+              .map((line) => line.trim())
+              .filter(Boolean)
+              .map((line) => {
+                const [name, proficiency] = line.split('|').map((p) => p.trim());
+                return { name: name || line, proficiency: proficiency || '' };
+              });
+            onChange({ ...snapshot, languages });
+          }}
+          multiline
+        />
+      </Phase1EditSection>
+
       <Phase1EditSection id="projects" title="Projects" icon={Globe2} open={open.projects} onToggle={toggle} count={snapshot.projects?.length || 0} {...sectionToggleProps} clientVisible={sectionVisible('projects')}>
         {(snapshot.projects || []).map((project, index) => (
           <div key={`proj-${index}`} className="rounded-xl border border-slate-200 bg-white p-3 grid gap-2 sm:grid-cols-2">
@@ -484,6 +615,92 @@ export function CandidatePhase1SubmitEditSections({
             </div>
           </div>
         ))}
+      </Phase1EditSection>
+
+      <Phase1EditSection id="portfolio" title="Portfolio links" icon={Link2} open={open.portfolio} onToggle={toggle} count={snapshot.portfolioLinks?.length || 0} {...sectionToggleProps} clientVisible={sectionVisible('portfolio')}>
+        <EditField
+          label="Links (one per line: label | url)"
+          value={(snapshot.portfolioLinks || [])
+            .map((l) => [l.type || 'Portfolio', l.url].filter(Boolean).join(' | '))
+            .join('\n')}
+          onChange={(v) => {
+            const portfolioLinks = v
+              .split('\n')
+              .map((line) => line.trim())
+              .filter(Boolean)
+              .map((line) => {
+                const [type, url] = line.split('|').map((p) => p.trim());
+                return { type: type || 'Portfolio', url: url || type || line };
+              });
+            onChange({ ...snapshot, portfolioLinks });
+          }}
+          multiline
+        />
+      </Phase1EditSection>
+
+      <Phase1EditSection id="accomplishments" title="Accomplishments" icon={Star} open={open.accomplishments} onToggle={toggle} count={snapshot.accomplishments?.length || 0} {...sectionToggleProps} clientVisible={sectionVisible('accomplishments')}>
+        {(snapshot.accomplishments || []).map((row, index) => (
+          <div key={`acc-${index}`} className="rounded-xl border border-slate-200 bg-white p-3 grid gap-2 sm:grid-cols-2">
+            <EditField label="Title" value={str(row.title || row.accomplishmentTitle)} onChange={(v) => patchArray('accomplishments', index, 'title', v)} />
+            <EditField label="Category" value={str(row.category)} onChange={(v) => patchArray('accomplishments', index, 'category', v)} />
+            <EditField label="Organization" value={str(row.organization)} onChange={(v) => patchArray('accomplishments', index, 'organization', v)} />
+            <EditField label="Date" value={str(row.achievementDate)} onChange={(v) => patchArray('accomplishments', index, 'achievementDate', v)} />
+            <div className="sm:col-span-2">
+              <EditField label="Description" value={str(row.description)} onChange={(v) => patchArray('accomplishments', index, 'description', v)} multiline />
+            </div>
+          </div>
+        ))}
+      </Phase1EditSection>
+
+      <Phase1EditSection id="careerPreferences" title="Career preferences" icon={Target} open={open.careerPreferences} onToggle={toggle} {...sectionToggleProps} clientVisible={sectionVisible('careerPreferences')}>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <EditField label="Current role" value={str(snapshot.careerPreferences?.currentRole)} onChange={(v) => patchNested('careerPreferences', 'currentRole', v)} />
+          <EditField label="Notice period" value={str(snapshot.careerPreferences?.noticePeriod)} onChange={(v) => patchNested('careerPreferences', 'noticePeriod', v)} />
+          <EditField label="Availability to start" value={str(snapshot.careerPreferences?.availabilityToStart)} onChange={(v) => patchNested('careerPreferences', 'availabilityToStart', v)} />
+          <EditField label="Relocation preference" value={str(snapshot.careerPreferences?.relocationPreference)} onChange={(v) => patchNested('careerPreferences', 'relocationPreference', v)} />
+          <EditField label="Preferred salary" value={str(snapshot.careerPreferences?.preferredSalary || snapshot.careerPreferences?.salaryAmount)} onChange={(v) => patchNested('careerPreferences', 'preferredSalary', v)} />
+          <EditField label="Preferred currency" value={str(snapshot.careerPreferences?.preferredCurrency || snapshot.careerPreferences?.salaryCurrency)} onChange={(v) => patchNested('careerPreferences', 'preferredCurrency', v)} />
+          <div className="sm:col-span-2">
+            <EditField
+              label="Preferred job titles (; separated)"
+              value={str(
+                Array.isArray(snapshot.careerPreferences?.preferredJobTitles)
+                  ? snapshot.careerPreferences.preferredJobTitles.join('; ')
+                  : snapshot.careerPreferences?.preferredRoles,
+              )}
+              onChange={(v) => {
+                const preferredJobTitles = v.split(';').map((s) => s.trim()).filter(Boolean);
+                onChange({
+                  ...snapshot,
+                  careerPreferences: {
+                    ...(snapshot.careerPreferences || {}),
+                    preferredJobTitles,
+                  },
+                });
+              }}
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <EditField
+              label="Preferred locations (; separated)"
+              value={str(
+                Array.isArray(snapshot.careerPreferences?.preferredLocations)
+                  ? snapshot.careerPreferences.preferredLocations.join('; ')
+                  : '',
+              )}
+              onChange={(v) => {
+                const preferredLocations = v.split(';').map((s) => s.trim()).filter(Boolean);
+                onChange({
+                  ...snapshot,
+                  careerPreferences: {
+                    ...(snapshot.careerPreferences || {}),
+                    preferredLocations,
+                  },
+                });
+              }}
+            />
+          </div>
+        </div>
       </Phase1EditSection>
 
       <Phase1EditSection id="visa" title="Visa & work authorization" icon={Shield} open={open.visa} onToggle={toggle} {...sectionToggleProps} clientVisible={sectionVisible('visa')}>

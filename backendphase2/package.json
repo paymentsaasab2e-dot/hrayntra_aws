@@ -22,7 +22,11 @@
     "create:role-users": "node scripts/create-role-users.js",
     "disable-password-reset": "node scripts/disable-password-reset.js",
     "seed:team": "pnpm db:seed",
-    "migrate:external-urls-to-s3": "node scripts/migrate-external-urls-to-s3.mjs"
+    "migrate:external-urls-to-s3": "node scripts/migrate-external-urls-to-s3.mjs",
+    "purge:bulkcv-emails": "node scripts/purge-bulkcv-email-candidates.js",
+    "purge:bulkcv-emails:execute": "node scripts/purge-bulkcv-email-candidates.js --execute",
+    "normalize:bulkcv-emails": "node scripts/normalize-bulkcv-emails.js",
+    "normalize:bulkcv-emails:execute": "node scripts/normalize-bulkcv-emails.js --execute"
   },
   "keywords": [
     "recruitment",

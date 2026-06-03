@@ -93,7 +93,12 @@ export const CandidateGrid: React.FC<CandidateGridProps> = ({
             <div className="w-full grid grid-cols-2 gap-3 mb-4">
               <div className="bg-slate-50 rounded-lg p-2 flex flex-col items-center justify-center">
                 <span className="text-[10px] uppercase font-bold text-slate-400 mb-1">Exp</span>
-                <span className="text-sm font-bold text-slate-700">{candidate.experience}y</span>
+                <span className="text-sm font-bold text-slate-700">
+                  {candidate.experienceLabel ??
+                    (candidate.experience > 0
+                      ? `${Number.isInteger(candidate.experience) ? candidate.experience : candidate.experience.toFixed(1)}y`
+                      : '—')}
+                </span>
               </div>
               <div className="bg-slate-50 rounded-lg p-2 flex flex-col items-center justify-center">
                 <span className="text-[10px] uppercase font-bold text-slate-400 mb-1">Rating</span>
