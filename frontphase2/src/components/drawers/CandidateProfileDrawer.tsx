@@ -29,7 +29,6 @@ import {
   FileText,
   Loader2,
   AlertTriangle,
-  Mail,
   MapPin,
   MessageSquareText,
   MoreVertical,
@@ -339,7 +338,7 @@ interface CandidateProfileDrawerProps {
   existingInterviews?: CandidateScheduledInterview[];
   editModalOpenToken?: number | null;
   onAction?: (
-    action: 'move-stage' | 'schedule-interview' | 'send-email' | 'more' | 'edit',
+    action: 'move-stage' | 'schedule-interview' | 'more' | 'edit',
     candidate: CandidateProfileDrawerData
   ) => void;
   onAddNote?: (candidateId: string, note: { text: string; tags: string[] }) => void | Promise<void>;
@@ -3817,7 +3816,7 @@ export function CandidateProfileDrawer({
   }, [candidate, onClose, openEditDirectly]);
 
   const handleAction = (
-    action: 'move-stage' | 'schedule-interview' | 'send-email' | 'more' | 'edit'
+    action: 'move-stage' | 'schedule-interview' | 'more' | 'edit'
   ) => {
     if (action === 'move-stage') {
       setShowAddToPipelineModal(true);
@@ -4212,13 +4211,6 @@ export function CandidateProfileDrawer({
                         Submit to Client
                       </button>
                     ) : null}
-                    <button
-                      type="button"
-                      onClick={() => handleAction('send-email')}
-                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                    >
-                      Send Email
-                    </button>
                   </div>
                 </div>
 
