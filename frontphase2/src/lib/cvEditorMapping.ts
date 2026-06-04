@@ -1,6 +1,8 @@
 import { filesApiUpload, type BackendCandidate } from './api';
+import { readSaasaCvAnnotations } from './saasaCvAnnotations';
 import { formatEducationDateLine } from './candidateEducation';
 import { extractApiData } from './mapCandidateProfile';
+import { normalizeCvTemplateId, type CvEditorTemplateId } from './cvEditorTemplates';
 
 export interface CVEditorExperience {
   id: number;
@@ -24,6 +26,11 @@ export interface CvEditorImagePlacement {
   y: number;
 }
 
+export interface CvEditorImageSize {
+  width: number;
+  height: number;
+}
+
 export interface CvEditorWatermark {
   text: string;
   opacity: number;
@@ -35,7 +42,7 @@ export interface CvEditorWatermark {
 export type CvShareMode = 'edited' | 'original';
 
 /** Resume tab viewer in candidate drawer */
-export type ResumeCvViewMode = 'original' | 'updated' | 'edited';
+export type ResumeCvViewMode = 'original' | 'saasa' | 'updated' | 'edited';
 
 export interface CvSubmissionStored {
   shareMode: CvShareMode;
@@ -48,10 +55,13 @@ export interface CvEditorLayoutStored {
   initialCompanyLogoUrl?: string | null;
   candidatePhotoPos?: CvEditorImagePlacement;
   companyLogoPos?: CvEditorImagePlacement;
+  candidatePhotoSize?: CvEditorImageSize;
+  companyLogoSize?: CvEditorImageSize;
   showCandidatePhotoSlot?: boolean;
   showCompanyLogoSlot?: boolean;
   sectionOrder?: CvEditorSectionId[];
   watermark?: CvEditorWatermark;
+  templateId?: CvEditorTemplateId;
   updatedAt?: string;
 }
 
@@ -72,15 +82,42 @@ export interface CVEditorData {
   initialCompanyLogoUrl?: string | null;
   candidatePhotoPos?: CvEditorImagePlacement;
   companyLogoPos?: CvEditorImagePlacement;
+  candidatePhotoSize?: CvEditorImageSize;
+  companyLogoSize?: CvEditorImageSize;
   showCandidatePhotoSlot?: boolean;
   showCompanyLogoSlot?: boolean;
   sectionOrder?: CvEditorSectionId[];
   watermark?: CvEditorWatermark;
+  templateId?: CvEditorTemplateId;
 }
 
 const DEFAULT_SECTION_ORDER: CvEditorSectionId[] = ['summary', 'experience', 'education', 'skills'];
 const DEFAULT_CANDIDATE_PHOTO_POS: CvEditorImagePlacement = { x: 430, y: 36 };
-const DEFAULT_COMPANY_LOGO_POS: CvEditorImagePlacement = { x: 430, y: 118 };
+const DEFAULT_COMPANY_LOGO_POS: CvEditorImagePlacement = { x: 332, y: 108 };
+export const DEFAULT_CANDIDATE_PHOTO_SIZE: CvEditorImageSize = { width: 72, height: 72 };
+export const DEFAULT_COMPANY_LOGO_SIZE: CvEditorImageSize = { width: 140, height: 64 };
+
+export function normalizeCandidatePhotoSize(
+  size?: Partial<CvEditorImageSize> | null
+): CvEditorImageSize {
+  const n = Math.round(
+    Math.min(132, Math.max(48, Number(size?.width ?? size?.height ?? DEFAULT_CANDIDATE_PHOTO_SIZE.width)))
+  );
+  return { width: n, height: n };
+}
+
+export function normalizeCompanyLogoSize(
+  size?: Partial<CvEditorImageSize> | null
+): CvEditorImageSize {
+  return {
+    width: Math.round(
+      Math.min(220, Math.max(72, Number(size?.width ?? DEFAULT_COMPANY_LOGO_SIZE.width)))
+    ),
+    height: Math.round(
+      Math.min(120, Math.max(32, Number(size?.height ?? DEFAULT_COMPANY_LOGO_SIZE.height)))
+    ),
+  };
+}
 const DEFAULT_WATERMARK: CvEditorWatermark = {
   text: 'CONFIDENTIAL',
   opacity: 8,
@@ -143,6 +180,14 @@ export function hasUpdatedCvFromEditor(candidate: BackendCandidate | null): bool
   return false;
 }
 
+/** Saved SAASA CV export (PNG/PDF in Files) is available for the Resume tab. */
+export function hasSaasaCvResumeTabMode(candidate: BackendCandidate | null): boolean {
+  const extra = candidate?.extraData;
+  if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return false;
+  const stored = readSaasaCvAnnotations(extra as Record<string, unknown>);
+  return Boolean(stored?.fileUrl?.trim() || stored?.fileId);
+}
+
 export function listAvailableResumeCvModes(
   candidate: BackendCandidate | null,
   resumeUrl?: string | null
@@ -150,6 +195,9 @@ export function listAvailableResumeCvModes(
   const modes: ResumeCvViewMode[] = [];
   if (String(resumeUrl || candidate?.resume || candidate?.resumeUrl || '').trim()) {
     modes.push('original');
+  }
+  if (hasSaasaCvResumeTabMode(candidate)) {
+    modes.push('saasa');
   }
   if (hasUpdatedCvFromEditor(candidate)) {
     modes.push('updated');
@@ -171,7 +219,7 @@ export function resolveDefaultResumeCvViewMode(
     extra && typeof extra === 'object' && !Array.isArray(extra)
       ? (extra as Record<string, unknown>).resumeCvViewMode
       : null;
-  if (stored === 'original' || stored === 'updated' || stored === 'edited') {
+  if (stored === 'original' || stored === 'saasa' || stored === 'updated' || stored === 'edited') {
     if (modes.includes(stored)) return stored;
   }
   if (modes.includes('edited')) return 'edited';
@@ -300,10 +348,13 @@ export function buildCvEditorLayoutStored(data: CVEditorData): CvEditorLayoutSto
     initialCompanyLogoUrl: companyLogoUrl,
     candidatePhotoPos: data.candidatePhotoPos ?? DEFAULT_CANDIDATE_PHOTO_POS,
     companyLogoPos: data.companyLogoPos ?? DEFAULT_COMPANY_LOGO_POS,
+    candidatePhotoSize: normalizeCandidatePhotoSize(data.candidatePhotoSize),
+    companyLogoSize: normalizeCompanyLogoSize(data.companyLogoSize),
     showCandidatePhotoSlot: data.showCandidatePhotoSlot !== false,
     showCompanyLogoSlot: data.showCompanyLogoSlot !== false,
     sectionOrder: data.sectionOrder?.length ? data.sectionOrder : DEFAULT_SECTION_ORDER,
     watermark: data.watermark ?? DEFAULT_WATERMARK,
+    templateId: normalizeCvTemplateId(data.templateId),
     updatedAt: new Date().toISOString(),
   };
 }
@@ -464,10 +515,13 @@ export function candidateToCvEditorData(
     initialCompanyLogoUrl: layout?.initialCompanyLogoUrl ?? companyLogoUrl,
     candidatePhotoPos: layout?.candidatePhotoPos ?? DEFAULT_CANDIDATE_PHOTO_POS,
     companyLogoPos: layout?.companyLogoPos ?? DEFAULT_COMPANY_LOGO_POS,
+    candidatePhotoSize: normalizeCandidatePhotoSize(layout?.candidatePhotoSize),
+    companyLogoSize: normalizeCompanyLogoSize(layout?.companyLogoSize),
     showCandidatePhotoSlot: layout?.showCandidatePhotoSlot !== false,
     showCompanyLogoSlot: layout?.showCompanyLogoSlot !== false,
     sectionOrder: layout?.sectionOrder?.length ? layout.sectionOrder : DEFAULT_SECTION_ORDER,
     watermark: layout?.watermark ?? DEFAULT_WATERMARK,
+    templateId: normalizeCvTemplateId(layout?.templateId),
   };
 }
 

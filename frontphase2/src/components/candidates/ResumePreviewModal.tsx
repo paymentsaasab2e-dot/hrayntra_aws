@@ -1,10 +1,12 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Download, Eye, FileText, X } from 'lucide-react';
+import { ResumeDocxPreview } from './ResumeDocxPreview';
+import { SaasaCvPdfViewer } from './SaasaCvPdfViewer';
+import { SaasaCvSavedPreview } from './SaasaCvSavedPreview';
 import {
-  buildResumeHtmlPreviewUrl,
   buildResumeViewerUrl,
   canPreviewResumeAsHtml,
   canPreviewResumeInline,
@@ -29,47 +31,7 @@ export function ResumePreviewModal({
   const canPdf = Boolean(href && canPreviewResumeInline(href));
   const canHtml = Boolean(href && canPreviewResumeAsHtml(href));
   const extension = getResumeExtension(href);
-
-  const [htmlPreview, setHtmlPreview] = useState<string | null>(null);
-  const [htmlLoading, setHtmlLoading] = useState(false);
-  const [htmlError, setHtmlError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!isOpen || !href || !canHtml) {
-      setHtmlPreview(null);
-      setHtmlLoading(false);
-      setHtmlError(null);
-      return;
-    }
-
-    let cancelled = false;
-    setHtmlLoading(true);
-    setHtmlError(null);
-    setHtmlPreview(null);
-
-    const loadPreview = async () => {
-      try {
-        const response = await fetch(buildResumeHtmlPreviewUrl(href), { cache: 'no-store' });
-        if (!response.ok) {
-          throw new Error(`Failed to load preview (${response.status})`);
-        }
-        const html = await response.text();
-        if (!cancelled) setHtmlPreview(html);
-      } catch (error: unknown) {
-        if (!cancelled) {
-          setHtmlError(error instanceof Error ? error.message : 'Preview unavailable');
-          setHtmlPreview(null);
-        }
-      } finally {
-        if (!cancelled) setHtmlLoading(false);
-      }
-    };
-
-    void loadPreview();
-    return () => {
-      cancelled = true;
-    };
-  }, [isOpen, href, canHtml]);
+  const isImage = ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(extension);
 
   return (
     <AnimatePresence>
@@ -133,60 +95,29 @@ export function ResumePreviewModal({
               </div>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-auto bg-slate-100 p-4">
+            <div className="min-h-0 flex-1 overflow-hidden bg-slate-100">
               {canPdf ? (
-                <iframe
-                  title={`${candidateName} resume`}
-                  src={buildResumeViewerUrl(href)}
-                  className="h-full min-h-[min(70vh,640px)] w-full rounded-xl border border-slate-200 bg-white"
-                />
+                <div className="h-full min-h-[min(70vh,640px)] overflow-auto p-4">
+                  <div className="mx-auto w-full max-w-5xl">
+                    <SaasaCvPdfViewer pdfUrl={buildResumeViewerUrl(href)} />
+                  </div>
+                </div>
               ) : canHtml ? (
-                htmlLoading ? (
-                  <div className="flex h-full min-h-[min(70vh,640px)] items-center justify-center rounded-xl border border-slate-200 bg-white">
-                    <div className="text-center">
-                      <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-blue-600" />
-                      <p className="text-sm text-slate-600">Loading document preview...</p>
-                    </div>
-                  </div>
-                ) : htmlError ? (
-                  <div className="flex h-full min-h-[320px] items-center justify-center">
-                    <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
-                      <h4 className="text-base font-semibold text-slate-900">Preview unavailable</h4>
-                      <p className="mt-2 text-sm text-slate-500">{htmlError}</p>
-                      <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
-                        <a
-                          href={href}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
-                        >
-                          Open Resume
-                        </a>
-                        <a
-                          href={href}
-                          target="_blank"
-                          rel="noreferrer"
-                          download
-                          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                        >
-                          <Download size={16} />
-                          Download
-                        </a>
-                      </div>
-                    </div>
-                  </div>
-                ) : htmlPreview ? (
-                  <iframe
-                    title={`${candidateName} resume`}
-                    srcDoc={htmlPreview}
-                    sandbox="allow-same-origin"
-                    className="h-full min-h-[min(70vh,640px)] w-full rounded-xl border border-slate-200 bg-white"
-                  />
-                ) : (
-                  <div className="flex h-full min-h-[320px] items-center justify-center rounded-xl border border-slate-200 bg-white">
-                    <p className="text-sm text-slate-500">No preview data available.</p>
-                  </div>
-                )
+                <ResumeDocxPreview
+                  resumeUrl={href}
+                  candidateName={candidateName}
+                  enabled={isOpen}
+                  minHeightClass="min-h-[min(70vh,640px)]"
+                  className="h-full"
+                />
+              ) : isImage ? (
+                <SaasaCvSavedPreview
+                  fileUrl={href}
+                  candidateName={candidateName}
+                  enabled={isOpen}
+                  minHeightClass="min-h-[min(70vh,640px)]"
+                  className="h-full"
+                />
               ) : (
                 <div className="flex h-full min-h-[320px] items-center justify-center">
                   <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">

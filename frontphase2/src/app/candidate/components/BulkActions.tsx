@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   BadgeCheck,
   ArrowRightLeft,
@@ -52,6 +53,11 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
 }) => {
   const mobileMenuRef = useRef<HTMLDivElement | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (!mobileMenuOpen) return undefined;
@@ -80,32 +86,34 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
     onDelete ? { key: 'delete', label: 'Delete', icon: Trash2, onClick: onDelete, destructive: true } : null,
   ].filter(Boolean) as ActionConfig[];
 
-  return (
-    <AnimatePresence initial={false}>
-      {selectedIds.length > 0 ? (
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 12 }}
-          transition={{ duration: 0.2 }}
-          className="fixed bottom-5 left-[14.5rem] right-10 z-40 rounded-xl border border-slate-800 bg-slate-950/95 px-3 py-2.5 text-white shadow-2xl shadow-slate-950/40 backdrop-blur"
-        >
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2.5">
-              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-blue-500/15 text-blue-300">
-                <BadgeCheck className="h-4 w-4" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs font-semibold text-white">
-                  {selectedIds.length} candidate{selectedIds.length === 1 ? '' : 's'} selected
-                </p>
-                <p className="truncate text-[11px] text-slate-400">
-                  Use bulk actions to manage the selected candidates.
-                </p>
-              </div>
-            </div>
+  if (!mounted || selectedIds.length === 0) {
+    return null;
+  }
 
-            <div className="hidden flex-shrink-0 items-center gap-1.5 xl:flex">
+  const bar = (
+    <AnimatePresence initial={false}>
+      <motion.div
+        role="toolbar"
+        aria-label="Bulk candidate actions"
+        initial={{ opacity: 0, x: -12 }}
+        animate={{ opacity: 1, x: 0 }}
+        exit={{ opacity: 0, x: -12 }}
+        transition={{ duration: 0.2 }}
+        className="pointer-events-auto fixed top-[calc(50%+15rem)] z-[80] -translate-y-1/2 rounded-xl border border-slate-800 bg-slate-950/95 px-4 py-2.5 text-white shadow-2xl shadow-slate-950/50 backdrop-blur-md left-3 right-3 w-auto sm:left-[15.5rem] sm:right-6"
+      >
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex flex-shrink-0 items-center gap-2 border-r border-slate-700/80 pr-3">
+            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-blue-500/15 text-blue-300">
+              <BadgeCheck className="h-4 w-4" />
+            </div>
+            <div className="min-w-0 shrink-0">
+              <p className="whitespace-nowrap text-sm font-semibold tabular-nums text-white">
+                {selectedIds.length} candidate{selectedIds.length === 1 ? '' : 's'} selected
+              </p>
+            </div>
+          </div>
+
+          <div className="hidden min-w-0 flex-1 flex-nowrap items-center justify-end gap-2 sm:flex">
               {actions.map((action) => (
                 <ActionButton
                   key={action.key}
@@ -118,14 +126,14 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
               <button
                 type="button"
                 onClick={onDeselect}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-200 transition-colors hover:bg-slate-800"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-slate-200 transition-colors hover:bg-slate-800"
               >
-                <X size={14} />
+                <X size={13} />
                 Clear
               </button>
             </div>
 
-            <div className="relative xl:hidden" ref={mobileMenuRef}>
+            <div className="relative shrink-0 sm:hidden" ref={mobileMenuRef}>
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen((prev) => !prev)}
@@ -171,9 +179,10 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
             </div>
           </div>
         </motion.div>
-      ) : null}
     </AnimatePresence>
   );
+
+  return createPortal(bar, document.body);
 };
 
 function ActionButton({
@@ -191,7 +200,7 @@ function ActionButton({
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium shadow-sm transition-colors ${
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium shadow-sm transition-colors ${
         destructive
           ? 'border-red-500/30 bg-red-600 text-white hover:bg-red-700'
           : 'border-slate-700 bg-slate-900 text-slate-100 hover:bg-slate-800'

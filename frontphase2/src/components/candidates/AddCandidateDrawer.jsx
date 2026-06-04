@@ -1,4 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  BulkCvLeaveGuardProvider,
+  useBulkCvLeaveGuard,
+  useBulkCvLeaveGuardRegistration,
+} from '../../contexts/BulkCvLeaveGuardContext';
 import { createPortal } from 'react-dom';
 import {
   AlertCircle,
@@ -46,6 +51,7 @@ import {
 import { MY_JOBS_LIST_PARAMS } from '@/lib/myJobsListParams';
 import { addFailedBulkResumeRecords, removeFailedBulkResumesByFileName } from '@/lib/failedBulkResumesStore';
 import { AddCandidateFormSections, CANDIDATE_FORM_STEPS, CandidatePhotoUpload } from './AddCandidateFormSections';
+import { ResumeUploadReadyCard } from './ResumeUploadReadyCard';
 import {
   appendBulkCvTokenRecord,
   beginBulkCvTokenSession,
@@ -55,6 +61,11 @@ import {
   logBulkCvSessionReport,
 } from '@/lib/bulkCvTokensStore';
 import { collectBulkCvFilesFromDataTransfer, filterBulkCvFiles } from '@/lib/bulkCvCollect';
+import { BULK_CV_ACCEPT_INPUT, BULK_CV_FORMAT_LABEL } from '@/lib/bulkCvFileTypes';
+import {
+  normalizeCandidateEmailInput,
+  validateCandidateEmail,
+} from '@/lib/candidateEmailValidation';
 
 /** Align with backend `RESUME_MAX_FILE_BYTES` (default 25MB). Optional: NEXT_PUBLIC_RESUME_MAX_FILE_BYTES (bytes). */
 const MAX_RESUME_FILE_BYTES = (() => {
@@ -188,17 +199,6 @@ const AVAILABILITY_OPTIONS = ['Available', 'Interviewing Elsewhere', 'Not Availa
 const CURRENCY_OPTIONS = ['INR', 'USD', 'GBP', 'AED', 'EUR'];
 const MARITAL_STATUS_OPTIONS = ['Single', 'Married', 'Divorced', 'Widowed', 'Prefer not to say'];
 const PROFICIENCY_OPTIONS = ['Basic', 'Conversational', 'Professional', 'Native'];
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const KNOWN_DOMAINS = [
-  'gmail.com',
-  'yahoo.com',
-  'outlook.com',
-  'hotmail.com',
-  'icloud.com',
-  'rediffmail.com',
-  'mail.com',
-  'live.com',
-];
 const LINKEDIN_REGEX = /^(https?:\/\/)?(www\.)?linkedin\.com\/in\/[A-Za-z0-9-_%]+\/?$/i;
 const NO_DIGITS_REGEX = /\d/;
 const CANDIDATES_CHANGED_EVENT = 'jobportal:candidates-changed';
@@ -346,53 +346,6 @@ function getInitials(name = '') {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join('');
-}
-
-function levenshtein(a, b) {
-  const m = a.length;
-  const n = b.length;
-  const dp = Array.from({ length: m + 1 }, (_, i) =>
-    Array(n + 1).fill(0).map((_, j) => (j === 0 ? i : 0))
-  );
-
-  for (let j = 0; j <= n; j += 1) dp[0][j] = j;
-  for (let i = 1; i <= m; i += 1) {
-    for (let j = 1; j <= n; j += 1) {
-      dp[i][j] = a[i - 1] === b[j - 1]
-        ? dp[i - 1][j - 1]
-        : 1 + Math.min(dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1]);
-    }
-  }
-
-  return dp[m][n];
-}
-
-function validateEmail(email) {
-  const value = String(email || '').trim();
-
-  if (!EMAIL_REGEX.test(value)) {
-    return { valid: false, message: 'Invalid email format' };
-  }
-
-  const domain = value.split('@')[1]?.toLowerCase() || '';
-  if (!KNOWN_DOMAINS.includes(domain)) {
-    let best = null;
-    let bestDist = Infinity;
-
-    for (const known of KNOWN_DOMAINS) {
-      const dist = levenshtein(domain, known);
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = known;
-      }
-    }
-
-    if (bestDist <= 3 && best) {
-      return { valid: false, message: `Did you mean @${best}?` };
-    }
-  }
-
-  return { valid: true, message: 'Valid email' };
 }
 
 function validateNoDigits(value, label) {
@@ -704,7 +657,7 @@ function StepProgress({ currentStep }) {
   );
 }
 
-export default function AddCandidateDrawer({
+function AddCandidateDrawerInner({
   isOpen,
   onClose,
   onSuccess,
@@ -732,6 +685,14 @@ export default function AddCandidateDrawer({
   const [avatarPreview, setAvatarPreview] = useState('');
   const avatarPreviewRef = useRef('');
   const [formData, setFormData] = useState(DEFAULT_FORM_DATA);
+  const validateEmail = useCallback(
+    (email) =>
+      validateCandidateEmail(email, {
+        firstName: formData.firstName,
+        lastName: formData.lastName,
+      }),
+    [formData.firstName, formData.lastName]
+  );
   const [errors, setErrors] = useState({});
   const [parsedResumeFile, setParsedResumeFile] = useState(null);
   const [manualResumeFile, setManualResumeFile] = useState(null);
@@ -771,6 +732,8 @@ export default function AddCandidateDrawer({
   // not have to wait for the current (potentially 8s) parse-resume call to finish.
   const [bulkResumeStopRequested, setBulkResumeStopRequested] = useState(false);
   const bulkResumeStopRequestedRef = useRef(false);
+  const leaveGuard = useBulkCvLeaveGuard();
+  const stopBulkParsingRef = useRef(() => {});
   const bulkResumeAbortRef = useRef(null);
   const bulkCvSocketRef = useRef(null);
   const bulkCvSessionIdRef = useRef('');
@@ -1020,20 +983,11 @@ export default function AddCandidateDrawer({
   // X / Cancel clicks; users have to use the explicit "Stop parsing" button instead.
   const isBulkResumeBusy = activeTab === 'bulkResume' && bulkResumePhase === 'importing';
 
-  const handleDrawerClose = () => {
-    if (isBulkResumeBusy) return;
-    resetForNext(embeddedBulkCv ? 'bulkResume' : activeTab);
-    if (embeddedBulkCv) {
-      onSuccess?.(null);
-      return;
+  const stopBulkResumeParsing = useCallback(() => {
+    if (!bulkResumeStopRequestedRef.current) {
+      bulkResumeStopRequestedRef.current = true;
+      setBulkResumeStopRequested(true);
     }
-    onClose();
-  };
-
-  const handleStopBulkResume = () => {
-    if (!isBulkResumeBusy || bulkResumeStopRequestedRef.current) return;
-    bulkResumeStopRequestedRef.current = true;
-    setBulkResumeStopRequested(true);
     const sid = bulkCvSessionIdRef.current;
     const socket = bulkCvSocketRef.current;
     if (sid && socket) {
@@ -1059,13 +1013,48 @@ export default function AddCandidateDrawer({
     bulkCvDupQueueRef.current = [];
     bulkCvDupShowingRef.current = false;
     setBulkDuplicateModal(null);
-    // Abort the in-flight HTTP request so the current parse/create call is killed
-    // immediately instead of waiting for it to resolve.
     try {
       bulkResumeAbortRef.current?.abort();
     } catch (_abortError) {
-      // ignore – the controller may already be aborted or garbage-collected
+      /* ignore */
     }
+  }, [bulkDuplicateModal?.fileIndex]);
+
+  stopBulkParsingRef.current = stopBulkResumeParsing;
+
+  useBulkCvLeaveGuardRegistration(
+    isBulkResumeBusy
+      ? {
+          active: true,
+          progress: bulkResumeProgress,
+          onStop: () => stopBulkParsingRef.current(),
+        }
+      : null
+  );
+
+  const completeDrawerClose = () => {
+    resetForNext(embeddedBulkCv ? 'bulkResume' : activeTab);
+    if (embeddedBulkCv) {
+      onSuccess?.(null);
+      return;
+    }
+    onClose();
+  };
+
+  const handleDrawerClose = () => {
+    if (isBulkResumeBusy) {
+      leaveGuard.requestLeave({
+        leaveActionLabel: 'close',
+        onConfirmed: completeDrawerClose,
+      });
+      return;
+    }
+    completeDrawerClose();
+  };
+
+  const handleStopBulkResume = () => {
+    if (!isBulkResumeBusy || bulkResumeStopRequestedRef.current) return;
+    stopBulkResumeParsing();
   };
 
   const handleTabChange = (nextTab) => {
@@ -1313,7 +1302,11 @@ export default function AddCandidateDrawer({
     const nextData = {
       firstName: data.firstName || '',
       lastName: data.lastName || '',
-      email: data.email || '',
+      email:
+        normalizeCandidateEmailInput(data.email, {
+          firstName: data.firstName,
+          lastName: data.lastName,
+        }) || '',
       phone: String(data.phone || '').replace(/[^\d]/g, ''),
       currentCompany: data.currentCompany || '',
       currentDesignation: data.currentDesignation || data.designation || '',
@@ -1479,10 +1472,12 @@ export default function AddCandidateDrawer({
   // the parser returns blanks so create validation (first/last name) can succeed.
   // ─────────────────────────────────────────────────────────────────────────
   const deriveBulkResumeIdentity = (parsed, file) => {
-    const trimmedEmail = String(parsed?.email || '').trim();
+    const firstName = String(parsed?.firstName || '').trim();
+    const lastName = String(parsed?.lastName || '').trim();
+    const trimmedEmail = normalizeCandidateEmailInput(parsed?.email, { firstName, lastName });
     const identity = {
-      firstName: String(parsed?.firstName || '').trim(),
-      lastName: String(parsed?.lastName || '').trim(),
+      firstName,
+      lastName,
       email: trimmedEmail || null,
       syntheticName: false,
     };
@@ -1513,7 +1508,12 @@ export default function AddCandidateDrawer({
 
     const rawEmail = candidate.email;
     const trimmedEmail =
-      rawEmail === undefined || rawEmail === null ? '' : String(rawEmail).trim();
+      rawEmail === undefined || rawEmail === null
+        ? ''
+        : normalizeCandidateEmailInput(rawEmail, {
+            firstName: candidate.firstName,
+            lastName: candidate.lastName,
+          });
 
     const pipelineExtra =
       candidate.extraData?.pipeline && typeof candidate.extraData.pipeline === 'object'
@@ -1614,7 +1614,7 @@ export default function AddCandidateDrawer({
       setEntryError(
         skippedLarge
           ? `All selected files exceed ${MAX_RESUME_FILE_LABEL} each.`
-          : 'No valid CV files selected (PDF, DOC, DOCX).'
+          : `No valid CV files selected (${BULK_CV_FORMAT_LABEL}).`
       );
       return;
     }
@@ -1679,7 +1679,7 @@ export default function AddCandidateDrawer({
   const handleBulkResumeZipSelected = async (fileList) => {
     const zip = Array.from(fileList || []).find((f) => /\.zip$/i.test(f?.name || ''));
     if (!zip) {
-      setEntryError('Please choose a .zip archive containing PDF, DOC, or DOCX files.');
+      setEntryError(`Please choose a .zip archive containing ${BULK_CV_FORMAT_LABEL} files.`);
       return;
     }
     setBulkZipExpanding(true);
@@ -1722,7 +1722,7 @@ export default function AddCandidateDrawer({
     try {
       const files = await collectBulkCvFilesFromDataTransfer(event.dataTransfer);
       if (!files.length) {
-        setEntryError('No PDF, DOC, or DOCX files found in drop.');
+        setEntryError(`No ${BULK_CV_FORMAT_LABEL} files found in drop.`);
         return;
       }
       applyBulkCvFileSelection(files, { append: bulkResumePhase === 'preview', clearZip: bulkResumePhase !== 'preview' });
@@ -2124,7 +2124,11 @@ export default function AddCandidateDrawer({
     return {
       firstName: formData.firstName,
       lastName: formData.lastName,
-      email: formData.email,
+      email:
+        normalizeCandidateEmailInput(formData.email, {
+          firstName: formData.firstName,
+          lastName: formData.lastName,
+        }) || formData.email,
       phone: formData.phone || undefined,
       currentCompany: formData.currentCompany || undefined,
       designation: formData.currentDesignation,
@@ -2761,7 +2765,7 @@ export default function AddCandidateDrawer({
             {inlineSuccess ? <p className="mt-1 text-xs font-medium text-emerald-600">{inlineSuccess}</p> : null}
             {isBulkResumeBusy ? (
               <p className="mt-1 text-xs font-medium text-blue-600">
-                Parsing in progress — close is disabled. Use “Stop parsing” to cancel.
+                Parsing in progress — leaving or closing will show a confirmation to stop parsing.
               </p>
             ) : null}
           </div>
@@ -2769,13 +2773,8 @@ export default function AddCandidateDrawer({
             <button
               type="button"
               onClick={handleDrawerClose}
-              disabled={isBulkResumeBusy}
-              title={isBulkResumeBusy ? 'Parsing in progress — stop parsing first' : 'Close'}
-              className={`rounded-full p-2 transition ${
-                isBulkResumeBusy
-                  ? 'cursor-not-allowed text-slate-300'
-                  : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700'
-              }`}
+              title={isBulkResumeBusy ? 'Stop parsing or confirm close' : 'Close'}
+              className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
             >
               <X size={18} />
             </button>
@@ -2865,40 +2864,39 @@ export default function AddCandidateDrawer({
                 onSelectFile={handleAvatarFile}
                 onRemove={clearAvatarFile}
               />
-              {!parsedResumeFile ? (
-                <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-6 py-8 text-center">
-                  <Upload size={24} className="mb-3 text-slate-400" />
-                  <p className="text-sm font-medium text-slate-700">Drag resume here or click to browse</p>
-                  <p className="mt-1 text-xs text-slate-500">PDF, DOC, DOCX · Max {MAX_RESUME_FILE_LABEL}</p>
-                  <input
-                    type="file"
-                    accept=".pdf,.doc,.docx"
-                    className="hidden"
-                    onChange={(event) => handleResumeFile(event.target.files?.[0])}
-                  />
-                </label>
-              ) : (
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="flex items-center gap-2">
-                      <Check size={16} />
-                      {parsedResumeFile.name} Parsed successfully
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setParsedResumeFile(null);
-                        setParsedData(null);
-                        setResumeAnalysis(null);
-                        setAutoFilledFields({});
-                      }}
-                      className="text-xs font-semibold text-emerald-700"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </div>
-              )}
+              <label
+                className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 text-center transition-colors ${
+                  parsedResumeFile
+                    ? 'border-slate-300 bg-slate-50 py-6 hover:border-blue-400 hover:bg-blue-50/80'
+                    : 'border-blue-200 bg-blue-50/40 py-8 hover:border-blue-400 hover:bg-blue-50'
+                }`}
+              >
+                <Upload size={24} className={`mb-3 ${parsedResumeFile ? 'text-slate-400' : 'text-blue-500'}`} />
+                <p className="text-sm font-medium text-slate-700">
+                  {parsedResumeFile ? 'Drag & drop to replace resume' : 'Drag resume here or click to browse'}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">{BULK_CV_FORMAT_LABEL} · Max {MAX_RESUME_FILE_LABEL}</p>
+                <input
+                  type="file"
+                  accept={BULK_CV_ACCEPT_INPUT}
+                  className="hidden"
+                  onChange={(event) => handleResumeFile(event.target.files?.[0])}
+                />
+              </label>
+              {parsedResumeFile ? (
+                <ResumeUploadReadyCard
+                  file={parsedResumeFile}
+                  badgeLabel="Resume ready to save"
+                  parsedNote="Parsed successfully — review auto-filled fields in the next steps."
+                  onRemove={() => {
+                    setParsedResumeFile(null);
+                    setParsedData(null);
+                    setResumeAnalysis(null);
+                    setAutoFilledFields({});
+                    resumeFileRef.current = null;
+                  }}
+                />
+              ) : null}
               {isLoading ? (
                 <div className="mt-3 flex items-center gap-2 text-sm text-blue-600">
                   <Loader2 size={16} className="animate-spin" />
@@ -3203,14 +3201,14 @@ export default function AddCandidateDrawer({
                     Upload up to {MAX_BULK_CV_FILES_PER_SESSION} CVs (e.g. 1500 in one ZIP)
                   </p>
                   <p className="mt-1 text-xs text-slate-500">
-                    PDF, DOC, DOCX · max {MAX_RESUME_FILE_LABEL} each · drag folder or ZIP here
+                    {BULK_CV_FORMAT_LABEL} · max {MAX_RESUME_FILE_LABEL} each · drag folder or ZIP here
                   </p>
                   <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
                     <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700">
                       Select files
                       <input
                         type="file"
-                        accept=".pdf,.doc,.docx"
+                        accept={BULK_CV_ACCEPT_INPUT}
                         multiple
                         className="hidden"
                         onChange={(event) => handleBulkResumeSelected(event.target.files)}
@@ -3221,7 +3219,7 @@ export default function AddCandidateDrawer({
                       <input
                         ref={bulkCvFolderInputRef}
                         type="file"
-                        accept=".pdf,.doc,.docx"
+                        accept={BULK_CV_ACCEPT_INPUT}
                         multiple
                         className="hidden"
                         webkitdirectory=""
@@ -3253,7 +3251,7 @@ export default function AddCandidateDrawer({
                     </label>
                   </div>
                   <p className="mt-3 text-xs text-amber-800">
-                    For 1500 CVs: zip all PDFs/DOCX into one <strong>.zip</strong> (up to 2GB) and use Upload ZIP.
+                    For 1500 CVs: zip all {BULK_CV_FORMAT_LABEL} files into one <strong>.zip</strong> (up to 2GB) and use Upload ZIP.
                     File picker alone is limited to ~{BROWSER_FILE_PICKER_SOFT_CAP} per click in some browsers.
                   </p>
                 </div>
@@ -3289,7 +3287,7 @@ export default function AddCandidateDrawer({
                         <input
                           ref={bulkCvAddMoreInputRef}
                           type="file"
-                          accept=".pdf,.doc,.docx"
+                          accept={BULK_CV_ACCEPT_INPUT}
                           multiple
                           className="hidden"
                           onChange={(event) => handleBulkResumeAddMore(event.target.files)}
@@ -3676,13 +3674,8 @@ export default function AddCandidateDrawer({
               <button
                 type="button"
                 onClick={handleDrawerClose}
-                disabled={isBulkResumeBusy}
-                title={isBulkResumeBusy ? 'Parsing in progress — stop parsing first' : ''}
-                className={`rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium ${
-                  isBulkResumeBusy
-                    ? 'cursor-not-allowed text-slate-400'
-                    : 'text-slate-700'
-                }`}
+                title={isBulkResumeBusy ? 'Stop parsing or confirm close' : ''}
+                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
                 {bulkResumePhase === 'complete'
                   ? embeddedBulkCv
@@ -3879,12 +3872,20 @@ export default function AddCandidateDrawer({
     >
       <button
         type="button"
-        className={`absolute inset-0 bg-slate-900/50 ${isBulkResumeBusy ? 'cursor-not-allowed' : ''}`}
+        className="absolute inset-0 bg-slate-900/50"
         aria-label="Close drawer"
         onClick={handleDrawerClose}
       />
       {drawerBody}
     </div>,
     document.body
+  );
+}
+
+export default function AddCandidateDrawer(props) {
+  return (
+    <BulkCvLeaveGuardProvider>
+      <AddCandidateDrawerInner {...props} />
+    </BulkCvLeaveGuardProvider>
   );
 }

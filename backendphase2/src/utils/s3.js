@@ -223,12 +223,28 @@ export function parseOurS3Url(urlString) {
   return null;
 }
 
+function isExtensionlessResumeStorageKey(keyOrPath) {
+  const lower = String(keyOrPath || '').toLowerCase();
+  return (
+    lower.includes('apply-resumes') ||
+    lower.includes('/resumes/') ||
+    lower.includes('/cv-files/') ||
+    lower.includes('jobportal/apply-resumes') ||
+    /\/candidates\/[^/]+\/resumes\//i.test(lower) ||
+    /\/candidates\/[^/]+\/jobportal\/cv-files\//i.test(lower) ||
+    /uploads\/phase1\/candidates\/[^/]+\//i.test(lower)
+  );
+}
+
 export function isOurS3PdfUrl(urlString) {
   try {
     const u = new URL(urlString);
     if (u.protocol !== 'https:') return false;
-    if (!parseOurS3Url(urlString)) return false;
-    return /\.pdf($|[?#])/i.test(u.pathname);
+    const parsed = parseOurS3Url(urlString);
+    if (!parsed) return false;
+    if (/\.pdf($|[?#])/i.test(u.pathname)) return true;
+    if (/\.(docx|doc)($|[?#])/i.test(u.pathname)) return false;
+    return isExtensionlessResumeStorageKey(parsed.key);
   } catch {
     return false;
   }

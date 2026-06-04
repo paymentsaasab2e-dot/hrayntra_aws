@@ -312,3 +312,15 @@
   color: rgb(37 99 235);
   text-decoration: underline;
 }
+
+/* Candidate drawer — docx-preview (Word layout fidelity) */
+.resume-docx-viewer .resume-docx-body {
+  min-height: min(720px, calc(100vh - 14rem));
+}
+
+.resume-docx-viewer .docx-preview-resume-wrapper {
+  margin-left: auto;
+  margin-right: auto;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 0.12);
+}

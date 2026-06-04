@@ -33,7 +33,29 @@ const MIME_TO_EXTENSIONS = {
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
   'application/msword': ['.doc'],
   'text/plain': ['.txt'],
+  'image/png': ['.png'],
 };
+
+/** When browsers send octet-stream, infer MIME from extension for bulk/folder uploads. */
+const EXT_TO_CANONICAL_MIME = {
+  '.pdf': 'application/pdf',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.doc': 'application/msword',
+  '.txt': 'text/plain',
+  '.png': 'image/png',
+};
+
+const ALLOWED_CV_EXTENSIONS = Object.keys(EXT_TO_CANONICAL_MIME);
+
+function resolveUploadMime(file) {
+  const name = file?.originalname || file?.filename || 'upload';
+  const ext = path.extname(name).toLowerCase();
+  let mime = String(file?.mimetype || '').trim().toLowerCase();
+  if ((!mime || mime === 'application/octet-stream') && EXT_TO_CANONICAL_MIME[ext]) {
+    return EXT_TO_CANONICAL_MIME[ext];
+  }
+  return mime;
+}
 
 const CV_PASS_DIVIDER = '--- CV_PASS_DIVIDER ---';
 
@@ -996,8 +1018,8 @@ function hasMeaningfulProvidedScore(providedScore = {}, providedBreakdown = {}) 
 /** Stage 1 — file validation before any parsing. */
 export function validateCvUploadFile(file) {
   const name = file?.originalname || file?.filename || 'upload';
-  const mime = String(file?.mimetype || '').trim();
   const ext = path.extname(name).toLowerCase();
+  const mime = resolveUploadMime(file);
   const statSize = file?.path && fs.existsSync(file.path) ? fs.statSync(file.path).size : Number(file?.size || 0);
 
   if (!statSize || statSize <= 0) {
@@ -1005,17 +1027,20 @@ export function validateCvUploadFile(file) {
   }
 
   if (!MIME_TO_EXTENSIONS[mime]) {
-  return {
-      ok: false,
-      message: `Unsupported MIME type "${mime}" for ${name}. Allowed: PDF, DOC, DOCX, TXT.`,
-    };
+    if (!ALLOWED_CV_EXTENSIONS.includes(ext)) {
+      return {
+        ok: false,
+        message: `Unsupported file type for ${name}. Allowed: PDF, DOC, DOCX, TXT, PNG.`,
+      };
+    }
+    return { ok: true };
   }
 
   const allowedExt = MIME_TO_EXTENSIONS[mime];
-  if (!allowedExt.includes(ext)) {
+  if (ext && !allowedExt.includes(ext)) {
     return {
       ok: false,
-      message: `Extension "${ext}" does not match declared MIME "${mime}" for ${name}.`,
+      message: `Extension "${ext}" does not match file type for ${name}.`,
     };
   }
 
@@ -1345,6 +1370,33 @@ async function pdfPass4OcrTesseract(filePath) {
     console.error(`[CV] Pass 4 (OCR) failed: ${e?.message || e}`);
     if (e?.stack) console.error(e.stack);
     return '';
+  }
+}
+
+/** Resume image (PNG scan/photo) — Tesseract OCR on the file path. */
+async function imageOcrTesseract(filePath) {
+  const { createWorker } = await import('tesseract.js');
+  let worker;
+  try {
+    worker = await createWorker('eng');
+    const {
+      data: { text },
+    } = await worker.recognize(filePath);
+    const out = String(text || '').trim();
+    console.log(`[CV] Image OCR text length: ${out.length}`);
+    return out;
+  } catch (e) {
+    console.error(`[CV] Image OCR failed: ${e?.message || e}`);
+    if (e?.stack) console.error(e.stack);
+    return '';
+  } finally {
+    if (worker && typeof worker.terminate === 'function') {
+      try {
+        await worker.terminate();
+      } catch {
+        /* ignore */
+      }
+    }
   }
 }
 
@@ -2413,7 +2465,7 @@ export async function runCvPipelineThroughStage4(file, options = {}) {
   const sizeBytes =
     file?.path && fs.existsSync(file.path) ? fs.statSync(file.path).size : Number(file?.size || 0);
   const sizeKb = (sizeBytes / 1024).toFixed(2);
-  const mime = file.mimetype || 'unknown';
+  const mime = resolveUploadMime(file) || file.mimetype || 'unknown';
   const ext = path.extname(displayName).toLowerCase();
 
   stageLog(1, `${tag}File Validation`);
@@ -2540,9 +2592,21 @@ export async function runCvPipelineThroughStage4(file, options = {}) {
         const msg = docErr?.message || String(docErr);
         throw new Error(`Could not read Word .doc file: ${msg}`);
       }
-    } else {
-      narrativeLog(['Engine: Plain text — UTF-8 decode of buffer']);
+    } else if (mime === 'text/plain' || ext === '.txt') {
+      narrativeLog(['Engine: Plain text — UTF-8 decode']);
       combinedRaw = buffer.toString('utf8');
+    } else if (mime === 'image/png' || ext === '.png') {
+      narrativeLog(['Engine: PNG — Tesseract OCR']);
+      combinedRaw = await imageOcrTesseract(file.path);
+      if (!String(combinedRaw || '').trim()) {
+        throw new Error(
+          'Could not extract text from this PNG. Use a clearer scan or upload PDF/DOCX instead.'
+        );
+      }
+    } else {
+      throw new Error(
+        `Unsupported CV file type (${mime || 'unknown'}${ext ? `, ${ext}` : ''}). Use PDF, DOC, DOCX, TXT, or PNG.`
+      );
     }
     narrativeLog([`Extracted text length: ${combinedRaw.length} chars`]);
   }

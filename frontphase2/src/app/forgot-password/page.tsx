@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Eye, EyeOff, KeyRound, Lock, Mail } from 'lucide-react';
+import { ArrowLeft, Eye, EyeOff, KeyRound, Lock, User } from 'lucide-react';
 import {
   apiForgotPassword,
   apiResetPasswordWithOtp,
@@ -51,7 +51,7 @@ export default function ForgotPasswordPage() {
     setMessage('');
 
     if (!resetIdentifier) {
-      setError('Email or Admin ID is required.');
+      setError('User ID is required.');
       return;
     }
 
@@ -119,7 +119,7 @@ export default function ForgotPasswordPage() {
             </h1>
             <p className="text-sm text-slate-500 text-center mt-1">
               {step === 'request'
-                ? 'Enter your email or Admin ID to receive a verification code'
+                ? 'Enter your user ID to receive a verification code'
                 : resolvedEmail
                   ? `Enter the code sent to ${resolvedEmail}`
                   : 'Enter the verification code from your email'}
@@ -142,15 +142,16 @@ export default function ForgotPasswordPage() {
               <form onSubmit={handleRequestOtp} className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
-                    Email / Admin ID
+                    User ID
                   </label>
                   <div className="relative">
-                    <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input
                       type="text"
                       value={identifier}
                       onChange={(e) => setIdentifier(e.target.value)}
-                      placeholder="you@example.com or admin_id@saasa"
+                      placeholder="Enter your user ID"
+                      autoComplete="username"
                       className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                     />
                   </div>
