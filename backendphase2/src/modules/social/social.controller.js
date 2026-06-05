@@ -1,6 +1,7 @@
 import { sendResponse, sendError } from '../../utils/response.js';
 import { socialService } from './social.service.js';
-import { env } from '../../config/env.js';
+import { integrationService } from '../integration/integration.service.js';
+import { linkedinService } from '../linkedin/linkedin.service.js';
 
 export const socialController = {
   /**
@@ -19,10 +20,12 @@ export const socialController = {
         description,
         applyUrl,
         location,
-        platforms, // { linkedin: bool, twitter: bool, facebook: bool }
+        platforms,
         linkedinPostText,
         twitterPostText,
-        facebookPostText
+        facebookPostText,
+        linkedinTargets,
+        twitterTargets,
       } = req.body;
 
       if (!jobId || !title || !companyName || !applyUrl) {
@@ -37,7 +40,9 @@ export const socialController = {
         location,
         linkedinPostText,
         twitterPostText,
-        facebookPostText
+        facebookPostText,
+        linkedinTargets: Array.isArray(linkedinTargets) ? linkedinTargets : [],
+        twitterTargets: Array.isArray(twitterTargets) ? twitterTargets : [],
       };
 
       const result = await socialService.publishJob(req.user.id, jobId, platforms, postData);
@@ -57,16 +62,33 @@ export const socialController = {
         return sendError(res, 401, 'Authentication required');
       }
 
-      // LinkedIn status is handled by LinkedIn controller for now
-      // Placeholder for other platform statuses
+      const integrationStatuses = await integrationService.getStatuses(req.user.id);
+      const linkedinStatus = await linkedinService.getStatus(req.user.id);
+      const linkedinAccounts = linkedinStatus.accounts || (await linkedinService.listAccounts(req.user.id));
+
       const status = {
-        twitter: { connected: !!env.TWITTER_API_KEY && !!env.TWITTER_API_SECRET },
-        facebook: { connected: !!env.FACEBOOK_APP_ID && !!env.FACEBOOK_APP_SECRET }
+        linkedin: {
+          connected: !!linkedinStatus.connected,
+          accountName: linkedinStatus.name,
+          accounts: linkedinAccounts,
+        },
+        twitter: {
+          connected: !!integrationStatuses.twitter?.connected,
+          accountName: integrationStatuses.twitter?.accountName,
+          accountEmail: integrationStatuses.twitter?.accountEmail,
+          accounts: integrationStatuses.twitter?.accounts || [],
+        },
+        facebook: {
+          connected: !!integrationStatuses.facebook?.connected,
+          accountName: integrationStatuses.facebook?.accountName,
+          accountEmail: integrationStatuses.facebook?.accountEmail,
+          accounts: integrationStatuses.facebook?.accounts || [],
+        },
       };
 
       sendResponse(res, 200, 'Social connections status', status);
     } catch (error) {
       sendError(res, 500, error.message, error);
     }
-  }
+  },
 };

@@ -2296,21 +2296,32 @@ async function saveInternship(req, res) {
     const incomingEntry = buildInternshipEntryFromPayload(data, requestedId || randomUUID());
 
     let updatedEntries;
+    let savedEntry = incomingEntry;
     if (requestedId) {
       const existingIndex = existingEntries.findIndex((entry) => entry.id === requestedId);
       if (existingIndex >= 0) {
+        const priorEntry = existingEntries[existingIndex];
+        const incomingDocs = Array.isArray(incomingEntry.documents) ? incomingEntry.documents : [];
+        const priorDocs = Array.isArray(priorEntry.documents) ? priorEntry.documents : [];
+        const mergedDocuments = incomingDocs.length > 0 ? incomingDocs : priorDocs;
+        savedEntry = {
+          ...incomingEntry,
+          documents: mergedDocuments,
+        };
         updatedEntries = existingEntries.map((entry, index) =>
-          index === existingIndex ? incomingEntry : entry
+          index === existingIndex ? savedEntry : entry
         );
       } else {
         updatedEntries = [...existingEntries, incomingEntry];
+        savedEntry = incomingEntry;
       }
     } else {
       updatedEntries = [...existingEntries, incomingEntry];
+      savedEntry = incomingEntry;
     }
 
     const latestEntry = updatedEntries[updatedEntries.length - 1];
-    const documentsToStore = buildInternshipDocumentsForStorage(latestEntry.documents, updatedEntries);
+    const documentsToStore = buildInternshipDocumentsForStorage(savedEntry.documents, updatedEntries);
 
     await prisma.candidateInternship.upsert({
       where: { candidateId },
@@ -2373,7 +2384,7 @@ async function saveInternship(req, res) {
       success: true,
       message: requestedId ? 'Internship updated successfully' : 'Internship added successfully',
       data: {
-        internship: latestEntry,
+        internship: savedEntry,
         internships: updatedEntries,
       },
     });

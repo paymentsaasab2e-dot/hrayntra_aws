@@ -46,13 +46,12 @@ const dec = (value) => {
 async function getConnectedZoomAccessToken(userId) {
   if (!userId) return null;
 
-  const row = await prisma.integrationConnection.findUnique({
+  const row = await prisma.integrationConnection.findFirst({
     where: {
-      userId_provider: {
-        userId,
-        provider: 'zoom',
-      },
+      userId,
+      provider: 'zoom',
     },
+    orderBy: { connectedAt: 'desc' },
   });
 
   if (!row) return null;

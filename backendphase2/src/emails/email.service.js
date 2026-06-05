@@ -1,12 +1,9 @@
 import { resend, getEmailFrom } from '../config/email.js';
 import { env } from '../config/env.js';
-import { otpTemplate } from './templates/otp.template.js';
-import { welcomeTemplate } from './templates/welcome.template.js';
 import { interviewTemplate } from './templates/interview.template.js';
 import { placementTemplate } from './templates/placement.template.js';
-import { leadFollowUpTemplate } from './templates/lead-followup.template.js';
-import { matchSubmissionTemplate } from './templates/match-submission.template.js';
 import { isNotificationTriggerEnabled } from '../modules/setting/notification-trigger-settings.js';
+import { renderNotificationTriggerEmail } from '../modules/setting/notification-trigger-template-settings.js';
 import logger from '../utils/logger.js';
 
 export const sendEmail = async (to, subject, html) => {
@@ -36,7 +33,11 @@ export const sendOtpEmail = async (to, otp, name) => {
     aliases: ['otp verification'],
   });
   if (!triggerEnabled) return { success: true, skipped: true };
-  return sendEmail(to, 'OTP Verification', otpTemplate(otp, name));
+  const { subject, html } = await renderNotificationTriggerEmail('auth.otp_verification', null, {
+    recipientName: name,
+    otp,
+  });
+  return sendEmail(to, subject, html);
 };
 
 export const sendWelcomeEmail = async (to, name) => {
@@ -44,14 +45,36 @@ export const sendWelcomeEmail = async (to, name) => {
     aliases: ['welcome email'],
   });
   if (!triggerEnabled) return { success: true, skipped: true };
-  return sendEmail(to, 'Welcome to SAASA Recruitment', welcomeTemplate(name, to));
+
+  const loginUrl = `${env.FRONTEND_URL || ''}/login`;
+  const { subject, html } = await renderNotificationTriggerEmail('auth.welcome_email', null, {
+    recipientName: name,
+    recipientEmail: to,
+    loginUrl,
+  });
+
+  return sendEmail(to, subject, html);
 };
 
-export const sendInterviewEmail = async (to, candidateName, jobTitle, scheduledAt, location, meetingLink) => {
+export const sendInterviewEmail = async (to, candidateName, jobTitle, scheduledAt, location, meetingLink, companyName = '') => {
   const triggerEnabled = await isNotificationTriggerEnabled('interview.candidate_scheduled', {
     aliases: ['interview scheduled'],
   });
   if (!triggerEnabled) return { success: true, skipped: true };
+
+  const rendered = await renderNotificationTriggerEmail('interview.candidate_scheduled', null, {
+    candidateName,
+    jobTitle,
+    companyName: companyName || 'N/A',
+    scheduledAt: scheduledAt || 'TBD',
+    location: location || 'N/A',
+    meetingLink: meetingLink || 'N/A',
+  });
+
+  if (rendered.effective?.customized) {
+    return sendEmail(to, rendered.subject, rendered.html);
+  }
+
   return sendEmail(
     to,
     'Interview Scheduled',
@@ -64,6 +87,19 @@ export const sendPlacementEmail = async (to, candidateName, jobTitle, startDate,
     aliases: ['placement confirmed', 'placement confirmation'],
   });
   if (!triggerEnabled) return { success: true, skipped: true };
+
+  const rendered = await renderNotificationTriggerEmail('placement.confirmed_email', null, {
+    recipientName: candidateName,
+    candidateName,
+    jobTitle,
+    startDate: startDate || 'To be confirmed',
+    companyName: companyName || '',
+  });
+
+  if (rendered.effective?.customized) {
+    return sendEmail(to, rendered.subject, rendered.html);
+  }
+
   return sendEmail(
     to,
     'Placement Confirmed',
@@ -76,11 +112,19 @@ export const sendLeadFollowUpEmail = async (to, leadCompanyName, followUpDate, f
     aliases: ['lead follow up', 'lead followup'],
   });
   if (!triggerEnabled) return { success: true, skipped: true };
-  return sendEmail(
-    to,
-    'Follow-up Scheduled',
-    leadFollowUpTemplate(leadCompanyName, followUpDate, followUpType, notes)
-  );
+
+  const local = String(to || '').split('@')[0] || 'there';
+  const recipientName = local ? local.replace(/[._-]+/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase()) : 'There';
+
+  const { subject, html } = await renderNotificationTriggerEmail('lead.followup_email', null, {
+    recipientName,
+    leadCompanyName,
+    followUpDate,
+    followUpType,
+    notes,
+  });
+
+  return sendEmail(to, subject, html);
 };
 
 export const sendMatchSubmissionEmail = async ({
@@ -97,18 +141,43 @@ export const sendMatchSubmissionEmail = async ({
     aliases: ['match submission', 'submission email'],
   });
   if (!triggerEnabled) return { success: true, skipped: true };
-  return sendEmail(
-    to,
-    subject || `Candidate Submission: ${jobTitle}`,
-    matchSubmissionTemplate({
+
+  const candidatesHtml = (Array.isArray(candidates) ? candidates : [])
+    .map(
+      (candidate) => `
+        <div style="background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; margin-bottom: 12px;">
+          <div style="font-size: 16px; font-weight: 700; color: #111827;">${candidate.name || 'Candidate'}</div>
+          <div style="margin-top: 6px; font-size: 14px; color: #4b5563;">
+            ${candidate.currentTitle || 'Candidate'}${candidate.currentCompany ? ` • ${candidate.currentCompany}` : ''}
+          </div>
+          <div style="margin-top: 10px; font-size: 14px; color: #374151;">
+            <div><strong>Experience:</strong> ${candidate.experience || 0} years</div>
+            <div><strong>Location:</strong> ${candidate.location || 'Not shared'}</div>
+            <div><strong>Skills:</strong> ${(candidate.skills || []).slice(0, 6).join(', ') || 'Not shared'}</div>
+            <div><strong>Email:</strong> ${candidate.email || 'Not shared'}</div>
+            <div><strong>Phone:</strong> ${candidate.phone || 'Not shared'}</div>
+          </div>
+        </div>
+      `,
+    )
+    .join('');
+
+  const { subject: templateSubject, html, effective } = await renderNotificationTriggerEmail(
+    'match.submission_email',
+    null,
+    {
       clientName,
       jobTitle,
       recruiterName,
       message,
-      candidates,
+      candidatesHtml,
       portalUrl,
-    })
+    }
   );
+
+  const finalSubject = effective?.customized ? templateSubject : subject || templateSubject;
+
+  return sendEmail(to, finalSubject, html);
 };
 
 /**

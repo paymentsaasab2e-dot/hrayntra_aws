@@ -112,6 +112,9 @@ export default function ActiveSessionManager() {
     if (isAuthRoute || typeof window === 'undefined') return;
 
     const sendBrowserCloseBeacon = () => {
+      // OAuth redirects leave the app temporarily — do not mark the session as closed.
+      if (sessionStorage.getItem('oauth_navigation') === '1') return;
+
       const token = getAccessToken();
       const sessionId = getStoredSessionId();
       if (!token || !sessionId) return;

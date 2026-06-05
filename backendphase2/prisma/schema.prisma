@@ -108,7 +108,7 @@ model User {
   settings               Setting[]
   createdClientNotes     ClientNote[]
   createdClientFiles     ClientFile[]
-  linkedinToken          LinkedInToken?
+  linkedinTokens         LinkedInToken[]
   createdJobNotes        JobNote[]
   createdJobFiles        JobFile[]
   createdLeadNotes       LeadNote[]
@@ -1805,8 +1805,9 @@ model IntegrationConnection {
   connectedAt  DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  @@unique([userId, provider])
+  @@unique([userId, provider, accountId])
   @@index([userId])
+  @@index([userId, provider])
   @@map("integration_connections")
 }
 
@@ -1853,19 +1854,21 @@ model JobBoardIntegration {
 // ── LINKEDIN INTEGRATION ──
 
 model LinkedInToken {
-  id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId      String   @unique @db.ObjectId
-  linkedinSub String // LinkedIn user ID (sub from userinfo)
-  accessToken String // Encrypted access token
-  expiresAt   DateTime // Token expiration (60 days from LinkedIn)
-  name        String? // LinkedIn display name
-  email       String? // From userinfo when available
-  picture     String? // LinkedIn profile picture URL
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String   @db.ObjectId
+  linkedinSub   String // LinkedIn user ID (sub from userinfo)
+  accessToken   String // Encrypted access token
+  expiresAt     DateTime // Token expiration (60 days from LinkedIn)
+  name          String? // LinkedIn display name
+  email         String? // From userinfo when available
+  picture       String? // LinkedIn profile picture URL
+  organizations Json? // Cached LinkedIn company pages the user can post as
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, linkedinSub])
   @@index([linkedinSub])
   @@map("linkedin_tokens")
 }

@@ -3,6 +3,7 @@ import { prisma, runWithTenantContext, getActiveTenantDbName } from '../../confi
 import { env } from '../../config/env.js';
 import { encryption } from '../../utils/encryption.js';
 import { createOAuthState, verifyOAuthState } from '../../utils/oauth-state.js';
+import { consumeOAuthPkce, storeOAuthPkce } from '../../utils/oauth-pkce-store.js';
 
 const PROVIDERS = {
   gmail: {
@@ -70,7 +71,10 @@ const PROVIDERS = {
   twitter: {
     label: 'Twitter/X',
     family: 'twitter',
-    scopes: ['tweet.read', 'tweet.write', 'users.read', 'offline.access'],
+    scopes:
+      Array.isArray(env.TWITTER_OAUTH_SCOPES) && env.TWITTER_OAUTH_SCOPES.length
+        ? env.TWITTER_OAUTH_SCOPES
+        : ['tweet.read', 'tweet.write', 'users.read', 'offline.access'],
   },
   facebook: {
     label: 'Facebook',
@@ -106,6 +110,14 @@ function getCallbackUrl(provider) {
     return env.LINKEDIN_OAUTH_REDIRECT_URI || `${env.BACKEND_PUBLIC_URL}/api/v1/oauth/linkedin/callback`;
   }
 
+  if (provider === 'twitter') {
+    return env.TWITTER_REDIRECT_URI || `${env.BACKEND_PUBLIC_URL}/api/v1/auth/twitter/callback`;
+  }
+
+  if (provider === 'facebook') {
+    return env.FACEBOOK_REDIRECT_URI || `${env.BACKEND_PUBLIC_URL}/api/v1/auth/facebook/callback`;
+  }
+
   return `${env.BACKEND_PUBLIC_URL}/api/v1/auth/${provider}/callback`;
 }
 
@@ -120,19 +132,32 @@ function sha256base64Url(value) {
   return crypto.createHash('sha256').update(value).digest('base64url');
 }
 
+function resolveAccountId(payload = {}) {
+  return (
+    payload.accountId ||
+    payload.metadata?.id ||
+    payload.metadata?.sub ||
+    payload.accountEmail ||
+    `account_${Date.now()}`
+  );
+}
+
 async function upsertIntegrationConnection(userId, provider, payload = {}) {
+  const accountId = resolveAccountId(payload);
   return prisma.integrationConnection.upsert({
-    where: { userId_provider: { userId, provider } },
+    where: {
+      userId_provider_accountId: { userId, provider, accountId },
+    },
     create: {
       userId,
       provider,
+      accountId,
       accessToken: payload.accessToken ? enc(payload.accessToken) : null,
       refreshToken: payload.refreshToken ? enc(payload.refreshToken) : null,
       expiryDate: payload.expiryDate || null,
       scope: payload.scope || [],
       accountEmail: payload.accountEmail || null,
       accountName: payload.accountName || null,
-      accountId: payload.accountId || null,
       metadata: payload.metadata || null,
       connectedAt: new Date(),
     },
@@ -143,7 +168,6 @@ async function upsertIntegrationConnection(userId, provider, payload = {}) {
       scope: payload.scope || undefined,
       accountEmail: payload.accountEmail !== undefined ? payload.accountEmail || null : undefined,
       accountName: payload.accountName !== undefined ? payload.accountName || null : undefined,
-      accountId: payload.accountId !== undefined ? payload.accountId || null : undefined,
       metadata: payload.metadata !== undefined ? payload.metadata : undefined,
       connectedAt: new Date(),
     },
@@ -183,12 +207,24 @@ async function fetchZoomProfile(accessToken) {
 }
 
 async function fetchTwitterProfile(accessToken) {
-  const response = await fetch('https://api.twitter.com/2/users/me?user.fields=profile_image_url', {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!response.ok) return {};
+  const response = await fetch(
+    'https://api.twitter.com/2/users/me?user.fields=profile_image_url,name,username',
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    },
+  );
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => '');
+    console.warn('[integration] Twitter profile fetch failed:', response.status, errorBody);
+    return {};
+  }
   const payload = await response.json();
-  return payload?.data || {};
+  const data = payload?.data || {};
+  return {
+    ...data,
+    name: data.name || data.username || '',
+    username: data.username || '',
+  };
 }
 
 async function fetchFacebookProfile(accessToken) {
@@ -237,13 +273,15 @@ export const integrationService = {
     }));
   },
 
-  async getAuthorizationUrl(userId, provider) {
+  async getAuthorizationUrl(userId, provider, options = {}) {
     const config = ensureProvider(provider);
     const callbackUrl = getCallbackUrl(provider);
     const tenantDbName = String(getActiveTenantDbName() || '').trim();
+    const returnUrl = String(options.returnUrl || '').trim();
+    const statePayload = { userId, service: provider, tenantDbName, returnUrl };
 
     if (config.family === 'google') {
-      const state = createOAuthState({ userId, service: provider, tenantDbName });
+      const state = createOAuthState(statePayload);
       const params = new URLSearchParams({
         client_id: env.GOOGLE_CLIENT_ID,
         redirect_uri: callbackUrl,
@@ -257,7 +295,7 @@ export const integrationService = {
     }
 
     if (config.family === 'microsoft') {
-      const state = createOAuthState({ userId, service: provider, tenantDbName });
+      const state = createOAuthState(statePayload);
       const params = new URLSearchParams({
         client_id: env.MICROSOFT_CLIENT_ID,
         response_type: 'code',
@@ -271,7 +309,7 @@ export const integrationService = {
     }
 
     if (config.family === 'linkedin') {
-      const state = createOAuthState({ userId, service: provider, tenantDbName });
+      const state = createOAuthState(statePayload);
       const params = new URLSearchParams({
         response_type: 'code',
         client_id: env.LINKEDIN_CLIENT_ID,
@@ -283,7 +321,7 @@ export const integrationService = {
     }
 
     if (config.family === 'zoom') {
-      const state = createOAuthState({ userId, service: provider, tenantDbName });
+      const state = createOAuthState(statePayload);
       const params = new URLSearchParams({
         response_type: 'code',
         client_id: env.ZOOM_CLIENT_ID,
@@ -294,28 +332,48 @@ export const integrationService = {
     }
 
     if (config.family === 'twitter') {
-      const state = createOAuthState({
-        userId,
-        service: provider,
-        tenantDbName,
-        extraScopes: [crypto.randomBytes(32).toString('base64url')],
-      });
-      const { extraScopes } = verifyOAuthState(state);
-      const codeVerifier = extraScopes[0];
+      if (!env.TWITTER_CLIENT_ID?.trim() || !env.TWITTER_CLIENT_SECRET?.trim()) {
+        throw new Error(
+          'Twitter OAuth is not configured. Set TWITTER_CLIENT_ID and TWITTER_CLIENT_SECRET from X Developer Portal → User authentication settings → OAuth 2.0 Client ID and Client Secret (not the legacy API Key).',
+        );
+      }
+
+      const codeVerifier = crypto.randomBytes(32).toString('base64url');
+      const stateId = crypto.randomBytes(16).toString('base64url');
+
+      await storeOAuthPkce(
+        stateId,
+        {
+          provider: 'twitter',
+          userId,
+          tenantDbName,
+          returnUrl,
+          codeVerifier,
+        },
+        600,
+      );
+
       const params = new URLSearchParams({
         response_type: 'code',
-        client_id: env.TWITTER_CLIENT_ID,
+        client_id: env.TWITTER_CLIENT_ID.trim(),
         redirect_uri: callbackUrl,
         scope: config.scopes.join(' '),
-        state,
+        state: stateId,
         code_challenge: sha256base64Url(codeVerifier),
         code_challenge_method: 'S256',
       });
-      return `https://twitter.com/i/oauth2/authorize?${params.toString()}`;
+
+      const authorizeUrl = `https://x.com/i/oauth2/authorize?${params.toString()}`;
+      console.log('[integration] Twitter OAuth authorize URL ready', {
+        redirect_uri: callbackUrl,
+        scopes: config.scopes.join(' '),
+        state_length: stateId.length,
+      });
+      return authorizeUrl;
     }
 
     if (config.family === 'facebook') {
-      const state = createOAuthState({ userId, service: provider, tenantDbName });
+      const state = createOAuthState(statePayload);
       const params = new URLSearchParams({
         client_id: env.FACEBOOK_CLIENT_ID,
         redirect_uri: callbackUrl,
@@ -332,7 +390,23 @@ export const integrationService = {
   async handleCallback(provider, code, state) {
     const config = ensureProvider(provider);
     const callbackUrl = getCallbackUrl(provider);
-    const parsedState = verifyOAuthState(state);
+
+    let parsedState;
+    if (provider === 'twitter') {
+      const stored = await consumeOAuthPkce(state);
+      if (!stored?.userId || !stored?.codeVerifier) {
+        throw new Error('Invalid or expired Twitter OAuth state');
+      }
+      parsedState = {
+        userId: String(stored.userId),
+        tenantDbName: String(stored.tenantDbName || ''),
+        extraScopes: [String(stored.codeVerifier)],
+        returnUrl: String(stored.returnUrl || ''),
+      };
+    } else {
+      parsedState = verifyOAuthState(state);
+    }
+
     const userId = parsedState.userId;
     const tenantDbName = parsedState.tenantDbName;
     let tokens = null;
@@ -427,7 +501,11 @@ export const integrationService = {
           code_verifier: codeVerifier,
         }),
       });
-      if (!response.ok) throw new Error('Twitter OAuth failed');
+      if (!response.ok) {
+        const errorBody = await response.text().catch(() => '');
+        console.error('[integration] Twitter token exchange failed:', response.status, errorBody);
+        throw new Error(`Twitter OAuth failed (${response.status})`);
+      }
       tokens = await response.json();
       scope = String(tokens.scope || config.scopes.join(' ')).split(/\s+/).filter(Boolean);
       profile = await fetchTwitterProfile(tokens.access_token);
@@ -450,6 +528,15 @@ export const integrationService = {
         ? new Date(Date.now() + Number(tokens.expires_in) * 1000)
         : null;
 
+    const resolvedAccountName =
+      provider === 'twitter'
+        ? profile?.username || profile?.name || null
+        : profile?.name ||
+          profile?.username ||
+          profile?.display_name ||
+          profile?.displayName ||
+          null;
+
     const write = async () => {
       await upsertIntegrationConnection(userId, provider, {
         accessToken: tokens?.access_token || null,
@@ -457,7 +544,7 @@ export const integrationService = {
         expiryDate,
         scope,
         accountEmail: profile?.email || profile?.mail || profile?.userPrincipalName || null,
-        accountName: profile?.name || profile?.display_name || profile?.displayName || null,
+        accountName: resolvedAccountName,
         accountId: profile?.id || profile?.sub || profile?.userPrincipalName || null,
         metadata: profile || null,
       });
@@ -479,11 +566,17 @@ export const integrationService = {
     };
   },
 
-  async disconnect(userId, provider) {
+  async disconnect(userId, provider, connectionId = null) {
     ensureProvider(provider);
-    await prisma.integrationConnection.deleteMany({
-      where: { userId, provider },
-    });
+    if (connectionId) {
+      await prisma.integrationConnection.deleteMany({
+        where: { id: connectionId, userId, provider },
+      });
+    } else {
+      await prisma.integrationConnection.deleteMany({
+        where: { userId, provider },
+      });
+    }
 
     if (provider === 'gmail' || provider === 'google-calendar' || provider === 'google-meet') {
       const { googleOAuthController } = await import('../oauth/google-oauth.controller.js');
@@ -511,38 +604,58 @@ export const integrationService = {
     return { provider, connected: false };
   },
 
+  async getProviderAccounts(userId, provider) {
+    ensureProvider(provider);
+    const rows = await prisma.integrationConnection.findMany({
+      where: { userId, provider },
+      orderBy: { connectedAt: 'desc' },
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      key: row.id,
+      provider: row.provider,
+      accountId: row.accountId || row.id,
+      accountEmail: row.accountEmail || undefined,
+      accountName: row.accountName || undefined,
+      connected: true,
+      expiresAt: row.expiryDate?.toISOString() || null,
+    }));
+  },
+
   async getStatuses(userId) {
     const rows = await prisma.integrationConnection.findMany({
       where: { userId, provider: { in: STATUS_PROVIDERS } },
+      orderBy: { connectedAt: 'desc' },
     });
 
-    const map = Object.fromEntries(
-      rows.map((row) => [
-        row.provider,
-        {
-          connected: true,
-          provider: row.provider,
-          label: PROVIDERS[row.provider]?.label || row.provider,
+    const grouped = {};
+    for (const row of rows) {
+      if (!grouped[row.provider]) grouped[row.provider] = [];
+      grouped[row.provider].push(row);
+    }
+
+    const map = {};
+    for (const provider of STATUS_PROVIDERS) {
+      const providerRows = grouped[provider] || [];
+      const primary = providerRows[0];
+      map[provider] = {
+        connected: providerRows.length > 0,
+        provider,
+        label: PROVIDERS[provider].label,
+        accountEmail: primary?.accountEmail || undefined,
+        accountName: primary?.accountName || undefined,
+        scope: Array.isArray(primary?.scope) ? primary.scope : [],
+        expiresAt: primary?.expiryDate?.toISOString() || null,
+        accounts: providerRows.map((row) => ({
+          id: row.id,
+          key: row.id,
+          accountId: row.accountId || row.id,
           accountEmail: row.accountEmail || undefined,
           accountName: row.accountName || undefined,
-          scope: Array.isArray(row.scope) ? row.scope : [],
+          connected: true,
           expiresAt: row.expiryDate?.toISOString() || null,
-        },
-      ])
-    );
-
-    for (const provider of STATUS_PROVIDERS) {
-      if (!map[provider]) {
-        map[provider] = {
-          connected: false,
-          provider,
-          label: PROVIDERS[provider].label,
-          accountEmail: undefined,
-          accountName: undefined,
-          scope: [],
-          expiresAt: null,
-        };
-      }
+        })),
+      };
     }
 
     return map;

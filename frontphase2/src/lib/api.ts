@@ -5292,11 +5292,25 @@ export const apiAddTaskChatMessage = async (threadId: string, body: string) => {
 
 // ── LINKEDIN INTEGRATION ──
 
+export type SocialPublishingAccount = {
+  id: string;
+  key: string;
+  name: string;
+  type?: 'personal' | 'page';
+  picture?: string | null;
+  accountEmail?: string | null;
+  connected?: boolean;
+  expired?: boolean;
+  organizationId?: string;
+  parentAccountId?: string;
+};
+
 export interface LinkedInStatus {
   connected: boolean;
   expired?: boolean;
   name?: string;
   picture?: string;
+  accounts?: SocialPublishingAccount[];
 }
 
 export interface LinkedInPostJobData {
@@ -5337,6 +5351,17 @@ export const apiDisconnectLinkedIn = async () => {
   });
 };
 
+export const apiGetLinkedInAccounts = async () => {
+  return apiFetch<{ accounts: SocialPublishingAccount[] }>('/linkedin/accounts', { auth: true });
+};
+
+export const apiDisconnectLinkedInAccount = async (accountId: string) => {
+  return apiFetch<{ message: string }>(`/linkedin/accounts/${accountId}`, {
+    method: 'DELETE',
+    auth: true,
+  });
+};
+
 // ── GENERAL SOCIAL PUBLISHING ──
 
 export interface SocialPublishData {
@@ -5354,6 +5379,8 @@ export interface SocialPublishData {
   linkedinPostText?: string;
   twitterPostText?: string;
   facebookPostText?: string;
+  linkedinTargets?: string[];
+  twitterTargets?: string[];
 }
 
 export const apiPublishSocialJob = async (data: SocialPublishData) => {
@@ -5366,8 +5393,14 @@ export const apiPublishSocialJob = async (data: SocialPublishData) => {
 
 export const apiGetSocialStatus = async () => {
   return apiFetch<{
-    twitter: { connected: boolean };
-    facebook: { connected: boolean };
+    linkedin: { connected: boolean; accountName?: string; accounts: SocialPublishingAccount[] };
+    twitter: {
+      connected: boolean;
+      accountName?: string;
+      accountEmail?: string;
+      accounts: SocialPublishingAccount[];
+    };
+    facebook: { connected: boolean; accountName?: string; accountEmail?: string; accounts?: SocialPublishingAccount[] };
   }>('/social/status', { auth: true });
 };
 
@@ -5462,6 +5495,19 @@ export type NotificationTriggerSettingsPayload = {
   additional: Array<{ id: string; label: string; enabled: boolean }>;
 };
 
+export type NotificationTriggerEffectiveTemplate = {
+  subject: string;
+  bodyHtml: string;
+  variables: string[];
+  customized: boolean;
+};
+
+export type NotificationTriggerTemplateOverride = {
+  subject?: string;
+  bodyHtml?: string;
+  customized?: boolean;
+};
+
 const NOTIFICATION_TRIGGER_SETTINGS_KEY = 'notification_email_trigger_points_v1';
 
 export const apiGetNotificationTriggerSettings = async () => {
@@ -5488,6 +5534,31 @@ export const apiUpdateNotificationTriggerSettings = async (
       scope: 'USER',
       value,
     },
+  });
+};
+
+// ── Notification trigger templates (subject + HTML) ──
+
+export const apiGetNotificationTriggerTemplatesEffective = async (
+  ids: string[],
+) => {
+  const qs = new URLSearchParams();
+  qs.set('ids', Array.isArray(ids) ? ids.filter(Boolean).join(',') : '');
+  return apiFetch<{
+    effective: Record<string, NotificationTriggerEffectiveTemplate>;
+  }>(`/settings/notification-trigger-templates/effective?${qs.toString()}`, { auth: true });
+};
+
+export const apiPatchNotificationTriggerTemplatesOverrides = async (
+  templates: Record<string, NotificationTriggerTemplateOverride>,
+) => {
+  return apiFetch<{
+    templates: Record<string, NotificationTriggerTemplateOverride>;
+    effective: Record<string, NotificationTriggerEffectiveTemplate>;
+  }>(`/settings/notification-trigger-templates`, {
+    method: 'PATCH',
+    auth: true,
+    body: { templates },
   });
 };
 
@@ -5719,16 +5790,38 @@ export async function apiGetIntegrationStatuses() {
   return apiFetch<IntegrationStatusResponse>('/integrations/status', { auth: true });
 }
 
-export async function apiConnectIntegration(provider: IntegrationProvider) {
-  const res = await apiFetch<{ url: string }>(`/auth/${provider}`, { auth: true });
+export async function apiConnectIntegration(
+  provider: IntegrationProvider,
+  returnUrl?: string,
+  options?: { reopenCreateJobDrawer?: boolean },
+) {
+  if (typeof window !== 'undefined') {
+    sessionStorage.setItem('oauth_navigation', '1');
+    sessionStorage.setItem('oauth_provider', provider);
+    if (options?.reopenCreateJobDrawer) {
+      sessionStorage.setItem('reopen_create_job_drawer', '1');
+    }
+  }
+  const qs = returnUrl ? `?returnUrl=${encodeURIComponent(returnUrl)}` : '';
+  const res = await apiFetch<{ url: string }>(`/auth/${provider}${qs}`, { auth: true });
   if (res.data?.url) {
     window.location.href = res.data.url;
+    return;
   }
+  if (typeof window !== 'undefined') {
+    sessionStorage.removeItem('oauth_navigation');
+    sessionStorage.removeItem('oauth_provider');
+  }
+  throw new Error(res.message || 'OAuth URL not available');
 }
 
-export async function apiDisconnectIntegration(provider: IntegrationProvider) {
+export async function apiDisconnectIntegration(
+  provider: IntegrationProvider,
+  connectionId?: string,
+) {
   return apiFetch<{ provider: string; connected: boolean }>(`/disconnect/${provider}`, {
     method: 'POST',
+    body: connectionId ? { connectionId } : undefined,
     auth: true,
   });
 }

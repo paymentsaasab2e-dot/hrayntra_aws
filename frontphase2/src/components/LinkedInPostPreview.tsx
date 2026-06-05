@@ -11,6 +11,8 @@ interface LinkedInPostPreviewProps {
   description?: string;
   applyUrl: string;
   location?: string;
+  /** When set, renders this text instead of auto-generating from fields. */
+  postText?: string;
 }
 
 export function LinkedInPostPreview({
@@ -21,9 +23,13 @@ export function LinkedInPostPreview({
   description,
   applyUrl,
   location,
+  postText: postTextOverride,
 }: LinkedInPostPreviewProps) {
-  // Generate post text
-  const postText = `We're hiring a ${jobTitle} at ${company}!\n\n${description ? description.substring(0, 200) + (description.length > 200 ? '...' : '') : ''}\n\n${location ? `Location: ${location}\n\n` : ''}Apply here: ${applyUrl}\n\n#hiring #jobs #careers`;
+  const postText =
+    postTextOverride?.trim() ||
+    `We're hiring a ${jobTitle || '…'} at ${company || '…'}!\n\n${
+      description ? description.substring(0, 200) + (description.length > 200 ? '...' : '') : ''
+    }\n\n${location ? `Location: ${location}\n\n` : ''}Apply here: ${applyUrl}\n\n#hiring #jobs #careers`;
 
   return (
     <div className="border border-slate-200 rounded-xl bg-white shadow-sm overflow-hidden">

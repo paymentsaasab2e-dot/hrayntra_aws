@@ -162,6 +162,12 @@ export const env = {
   FACEBOOK_CLIENT_SECRET: process.env.FACEBOOK_CLIENT_SECRET || process.env.FACEBOOK_APP_SECRET,
   TWITTER_CLIENT_ID: process.env.TWITTER_CLIENT_ID || process.env.TWITTER_API_KEY,
   TWITTER_CLIENT_SECRET: process.env.TWITTER_CLIENT_SECRET || process.env.TWITTER_API_SECRET,
+  TWITTER_OAUTH_SCOPES: (
+    process.env.TWITTER_OAUTH_SCOPES || 'tweet.read tweet.write users.read offline.access'
+  )
+    .split(/[\s,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean),
   
   // Encryption
   ENCRYPTION_KEY: process.env.ENCRYPTION_KEY,

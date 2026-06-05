@@ -6,8 +6,12 @@ import { toast } from 'sonner';
 import {
   apiGetNotificationTriggerSettings,
   apiUpdateNotificationTriggerSettings,
+  apiGetNotificationTriggerTemplatesEffective,
+  apiPatchNotificationTriggerTemplatesOverrides,
+  type NotificationTriggerEffectiveTemplate,
   type NotificationTriggerSettingsPayload,
 } from '@/lib/api';
+import { NotificationTriggerTemplatePanel } from './NotificationTriggerTemplatePanel';
 
 type TriggerDefinition = {
   id: string;
@@ -159,6 +163,11 @@ export function NotificationTriggerSettings() {
   const [saving, setSaving] = useState(false);
   const [activeStates, setActiveStates] = useState<Record<string, boolean>>(DEFAULT_ACTIVE_STATE);
   const [additional, setAdditional] = useState<Array<{ id: string; label: string; enabled: boolean }>>([]);
+  const [templateEffective, setTemplateEffective] = useState<
+    Record<string, NotificationTriggerEffectiveTemplate>
+  >({});
+  const [templateExpanded, setTemplateExpanded] = useState<Record<string, boolean>>({});
+  const [templateSaving, setTemplateSaving] = useState(false);
 
   const enabledAdditional = useMemo(
     () => additional.filter((item) => item.enabled),
@@ -216,6 +225,64 @@ export function NotificationTriggerSettings() {
       mounted = false;
     };
   }, []);
+
+  const templateIdsToFetch = useMemo(() => {
+    const ids = [
+      ...ACTIVE_TRIGGERS.map((t) => t.id),
+      ...additional
+        .filter((t) => t.enabled)
+        .map((t) => t.id)
+        .filter(Boolean),
+    ];
+    return Array.from(new Set(ids.map((id) => String(id || '').trim()).filter(Boolean)));
+  }, [additional]);
+
+  const refreshTemplates = async (ids: string[]) => {
+    if (!ids.length) return;
+    try {
+      const res = await apiGetNotificationTriggerTemplatesEffective(ids);
+      setTemplateEffective(res.data?.effective || {});
+    } catch (e) {
+      // Templates can always fall back to system defaults in the editor.
+      console.error('Failed to load notification trigger templates:', e);
+    }
+  };
+
+  useEffect(() => {
+    if (!templateIdsToFetch.length) return;
+    void refreshTemplates(templateIdsToFetch);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templateIdsToFetch.join('|')]);
+
+  const handleSaveTemplate = async (triggerId: string, subject: string, bodyHtml: string) => {
+    try {
+      setTemplateSaving(true);
+      const res = await apiPatchNotificationTriggerTemplatesOverrides({
+        [triggerId]: { subject, bodyHtml, customized: true },
+      });
+      setTemplateEffective(res.data?.effective || {});
+      toast.success('Template saved.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save template');
+    } finally {
+      setTemplateSaving(false);
+    }
+  };
+
+  const handleResetTemplate = async (triggerId: string) => {
+    try {
+      setTemplateSaving(true);
+      const res = await apiPatchNotificationTriggerTemplatesOverrides({
+        [triggerId]: { customized: false },
+      });
+      setTemplateEffective(res.data?.effective || {});
+      toast.success('Template reset to system default.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to reset template');
+    } finally {
+      setTemplateSaving(false);
+    }
+  };
 
   const persist = async (next: NotificationTriggerSettingsPayload) => {
     try {
@@ -281,35 +348,73 @@ export function NotificationTriggerSettings() {
         </div>
         <div className="space-y-3">
           {ACTIVE_TRIGGERS.map((trigger) => (
-            <TriggerToggleRow
-              key={trigger.id}
-              trigger={trigger}
-              checked={Boolean(activeStates[trigger.id])}
-              onChange={(next) => updateActive(trigger.id, next)}
-            />
+            <div key={trigger.id}>
+              <TriggerToggleRow
+                trigger={trigger}
+                checked={Boolean(activeStates[trigger.id])}
+                onChange={(next) => updateActive(trigger.id, next)}
+              />
+              <NotificationTriggerTemplatePanel
+                triggerId={trigger.id}
+                expanded={Boolean(templateExpanded[trigger.id])}
+                onToggle={() =>
+                  setTemplateExpanded((prev) => ({
+                    ...prev,
+                    [trigger.id]: !prev[trigger.id],
+                  }))
+                }
+                effective={templateEffective[trigger.id]}
+                onSave={(subject, bodyHtml) => {
+                  void handleSaveTemplate(trigger.id, subject, bodyHtml);
+                }}
+                onReset={() => {
+                  void handleResetTemplate(trigger.id);
+                }}
+                saving={templateSaving}
+              />
+            </div>
           ))}
           {enabledAdditional.map((item) => (
-            <TriggerToggleRow
-              key={item.id}
-              trigger={{
-                id: item.id,
-                label: item.label,
-                description: 'Enabled additional trigger selected from suggestions/custom list.',
-              }}
-              checked={item.enabled}
-              onChange={(next) =>
-                updateAdditional(
-                  additional.map((current) =>
-                    current.id === item.id ? { ...current, enabled: next } : current,
-                  ),
-                )
-              }
-              rightSlot={
-                <span className="rounded-full bg-indigo-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-indigo-600">
-                  Additional
-                </span>
-              }
-            />
+            <div key={item.id}>
+              <TriggerToggleRow
+                trigger={{
+                  id: item.id,
+                  label: item.label,
+                  description: 'Enabled additional trigger selected from suggestions/custom list.',
+                }}
+                checked={item.enabled}
+                onChange={(next) =>
+                  updateAdditional(
+                    additional.map((current) =>
+                      current.id === item.id ? { ...current, enabled: next } : current,
+                    ),
+                  )
+                }
+                rightSlot={
+                  <span className="rounded-full bg-indigo-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-indigo-600">
+                    Additional
+                  </span>
+                }
+              />
+              <NotificationTriggerTemplatePanel
+                triggerId={item.id}
+                expanded={Boolean(templateExpanded[item.id])}
+                onToggle={() =>
+                  setTemplateExpanded((prev) => ({
+                    ...prev,
+                    [item.id]: !prev[item.id],
+                  }))
+                }
+                effective={templateEffective[item.id]}
+                onSave={(subject, bodyHtml) => {
+                  void handleSaveTemplate(item.id, subject, bodyHtml);
+                }}
+                onReset={() => {
+                  void handleResetTemplate(item.id);
+                }}
+                saving={templateSaving}
+              />
+            </div>
           ))}
         </div>
       </section>
