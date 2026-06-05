@@ -1,21 +1,29 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Download, Eye, FileText, Loader2 } from 'lucide-react';
+import { Download, Eye, FileText, Loader2, Pencil } from 'lucide-react';
 import { ResumeInlinePreview } from './ResumeInlinePreview';
 import { ResumePreviewModal } from './ResumePreviewModal';
+import { SaasaCvSavedPreview } from './SaasaCvSavedPreview';
 import type { CandidateProfileDrawerData } from '../drawers/CandidateProfileDrawer';
-import { apiUpdateCandidate, type BackendCandidate } from '../../lib/api';
+import { filesApiGet, type BackendCandidate } from '../../lib/api';
 import { extractApiData } from '../../lib/mapCandidateProfile';
 import {
-  buildResumeCvViewExtra,
   hasCustomCvEditorLayout,
   hasUpdatedCvFromEditor,
   listAvailableResumeCvModes,
   resolveDefaultResumeCvViewMode,
   type ResumeCvViewMode,
 } from '../../lib/cvEditorMapping';
-import { resolveCandidateResumeUrlFromSources } from '../../lib/phase1ProfileSnapshot';
+import {
+  pickLatestResumeFileUrl,
+  resolveCandidateResumeUrlFromSources,
+} from '../../lib/phase1ProfileSnapshot';
+import {
+  readSaasaCvAnnotations,
+  resolveSaasaCvPreviewUrl,
+  type SaasaCvFileRef,
+} from '../../lib/saasaCvAnnotations';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { isResumeHttpUrl, normalizeResumeHref } from '../../lib/resumePreview';
 
@@ -33,20 +41,18 @@ interface CandidateResumeTabPanelProps {
   candidate: CandidateProfileDrawerData;
   enabled?: boolean;
   cvEditor: CandidateResumeCvEditorApi;
+  /** Latest saved SAASA file URL (from hook after save) */
+  saasaSavedFileUrl?: string | null;
   onCandidateUpdated?: () => void | Promise<void>;
   onToast?: (message: string) => void;
+  onOpenSaasaCv?: () => void;
 }
 
 const MODE_LABELS: Record<ResumeCvViewMode, string> = {
   original: 'Original CV',
+  saasa: 'SAASA CV',
   updated: 'Updated CV',
   edited: 'Edited CV',
-};
-
-const MODE_HINTS: Record<ResumeCvViewMode, string> = {
-  original: 'Uploaded resume file (PDF / Word)',
-  updated: 'Structured CV saved from the editor',
-  edited: 'Branded layout — logos, watermark, custom sections',
 };
 
 export function CandidateResumeTabPanel({
@@ -55,162 +61,286 @@ export function CandidateResumeTabPanel({
   cvEditor,
   onCandidateUpdated,
   onToast,
+  onOpenSaasaCv,
+  saasaSavedFileUrl = null,
 }: CandidateResumeTabPanelProps) {
   const { backendCandidate, resumeHref, canEdit, busy, openEditor, openStructuredPreview, refreshBackend } =
     cvEditor;
 
   const [loading, setLoading] = useState(false);
   const [resumePreviewOpen, setResumePreviewOpen] = useState(false);
+  const [saasaPreviewOpen, setSaasaPreviewOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ResumeCvViewMode | null>(null);
-  const [viewModeSaving, setViewModeSaving] = useState(false);
+  const [filesResumeUrl, setFilesResumeUrl] = useState<string | null>(null);
+  const [candidateFiles, setCandidateFiles] = useState<SaasaCvFileRef[]>([]);
 
   const uploadsBase = useMemo(() => {
     const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1';
     return apiBase.replace(/\/api\/v1\/?$/, '');
   }, []);
 
-  const resumeRaw =
-    candidate.resumeUrl ||
-    resolveCandidateResumeUrlFromSources(backendCandidate) ||
-    resolveCandidateResumeUrlFromSources({
-      resumeUrl: candidate.resumeUrl,
-      resume: candidate.resumeUrl,
-      extraData: candidate.extraData ?? null,
-    }) ||
-    resumeHref ||
-    '';
+  const saasaStored = useMemo(
+    () => readSaasaCvAnnotations(backendCandidate?.extraData ?? candidate.extraData ?? null),
+    [backendCandidate?.extraData, candidate.extraData]
+  );
+
+  const originalResumeRaw = useMemo(() => {
+    const fromRow = String(
+      backendCandidate?.resumeUrl ||
+        backendCandidate?.resume ||
+        candidate.resumeUrl ||
+        ''
+    ).trim();
+    if (fromRow) return fromRow;
+
+    const fromSaasaSource = String(saasaStored?.resumeUrl || '').trim();
+    if (fromSaasaSource) return fromSaasaSource;
+
+    return (
+      resolveCandidateResumeUrlFromSources(backendCandidate, { filesResumeUrl }) ||
+      resolveCandidateResumeUrlFromSources(
+        {
+          resumeUrl: candidate.resumeUrl,
+          resume: candidate.resumeUrl,
+          extraData: candidate.extraData ?? null,
+        },
+        { filesResumeUrl }
+      ) ||
+      resumeHref ||
+      ''
+    );
+  }, [
+    backendCandidate,
+    candidate.resumeUrl,
+    candidate.extraData,
+    saasaStored?.resumeUrl,
+    filesResumeUrl,
+    resumeHref,
+  ]);
+
   const effectiveResumeHref = useMemo(() => {
-    const raw = String(resumeRaw || resumeHref || '').trim();
+    const raw = String(originalResumeRaw || '').trim();
     if (!raw) return '';
     if (isResumeHttpUrl(raw)) return normalizeResumeHref(raw);
     return buildFileHref(raw, uploadsBase);
-  }, [resumeRaw, resumeHref, uploadsBase]);
+  }, [originalResumeRaw, uploadsBase]);
+
+  const saasaPreviewRaw = useMemo(() => {
+    const fromExtra = resolveSaasaCvPreviewUrl(
+      backendCandidate?.extraData ?? candidate.extraData ?? null,
+      candidateFiles
+    );
+    const fromStored = saasaStored?.fileUrl ?? null;
+    const fromProp = saasaSavedFileUrl ?? null;
+    return fromExtra || fromStored || fromProp || null;
+  }, [
+    backendCandidate?.extraData,
+    candidate.extraData,
+    candidateFiles,
+    saasaStored?.fileUrl,
+    saasaSavedFileUrl,
+  ]);
+
+  const effectiveSaasaPreviewHref = useMemo(() => {
+    const raw = String(saasaPreviewRaw || saasaStored?.fileUrl || saasaSavedFileUrl || '').trim();
+    if (!raw) return '';
+    if (isResumeHttpUrl(raw)) return normalizeResumeHref(raw);
+    return buildFileHref(raw, uploadsBase);
+  }, [saasaPreviewRaw, saasaStored?.fileUrl, saasaSavedFileUrl, uploadsBase]);
+
+  const saasaBaseResumeHref = useMemo(() => {
+    const raw = String(saasaStored?.resumeUrl || effectiveResumeHref || '').trim();
+    if (!raw) return '';
+    if (isResumeHttpUrl(raw)) return normalizeResumeHref(raw);
+    return buildFileHref(raw, uploadsBase);
+  }, [saasaStored?.resumeUrl, effectiveResumeHref, uploadsBase]);
 
   useEffect(() => {
     if (!enabled || !candidate.id) return;
     setLoading(true);
-    void refreshBackend().finally(() => setLoading(false));
+    setFilesResumeUrl(null);
+    setCandidateFiles([]);
+
+    const load = async () => {
+      try {
+        const [filesRaw] = await Promise.all([
+          filesApiGet('candidate', candidate.id).catch(() => null),
+          refreshBackend(),
+        ]);
+        const files = extractApiData(filesRaw) ?? [];
+        setCandidateFiles(
+          files.map((f) => ({
+            id: f.id,
+            fileUrl: f.fileUrl ?? null,
+            fileType: f.fileType,
+            fileName: f.fileName,
+          }))
+        );
+        const latest = pickLatestResumeFileUrl(files);
+        if (latest) setFilesResumeUrl(latest);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void load();
   }, [enabled, candidate.id, refreshBackend]);
 
+  useEffect(() => {
+    if (!enabled || viewMode !== 'saasa' || !candidate.id) return;
+    void (async () => {
+      try {
+        const filesRaw = await filesApiGet('candidate', candidate.id).catch(() => null);
+        const files = extractApiData(filesRaw) ?? [];
+        setCandidateFiles(
+          files.map((f) => ({
+            id: f.id,
+            fileUrl: f.fileUrl ?? null,
+            fileType: f.fileType,
+            fileName: f.fileName,
+          }))
+        );
+        await refreshBackend();
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, [enabled, viewMode, candidate.id, refreshBackend]);
+
   const availableModes = useMemo(
-    () => listAvailableResumeCvModes(backendCandidate, resumeHref || resumeRaw),
-    [backendCandidate, resumeHref, resumeRaw]
+    () => listAvailableResumeCvModes(backendCandidate, originalResumeRaw || resumeHref),
+    [backendCandidate, originalResumeRaw, resumeHref]
   );
 
   useEffect(() => {
-    setViewMode(resolveDefaultResumeCvViewMode(backendCandidate, resumeHref || resumeRaw));
-  }, [backendCandidate, resumeHref, resumeRaw, availableModes.join(',')]);
+    setViewMode(resolveDefaultResumeCvViewMode(backendCandidate, originalResumeRaw || resumeHref));
+  }, [backendCandidate, originalResumeRaw, resumeHref, availableModes.join(',')]);
 
-  const persistViewMode = async (mode: ResumeCvViewMode) => {
+  const selectViewMode = (mode: ResumeCvViewMode) => {
     setViewMode(mode);
-    if (!backendCandidate?.id) return;
-    setViewModeSaving(true);
-    try {
-      const extraData = buildResumeCvViewExtra(backendCandidate.extraData ?? null, mode);
-      const updatedRaw = await apiUpdateCandidate(backendCandidate.id, { extraData });
-      extractApiData<BackendCandidate>(updatedRaw);
-      await refreshBackend();
-      await onCandidateUpdated?.();
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Unable to save CV view preference';
-      if (!/candidate not found/i.test(message)) {
-        onToast?.(message);
-      }
-    } finally {
-      setViewModeSaving(false);
-    }
   };
 
   const showOriginalPreview = viewMode === 'original' && Boolean(effectiveResumeHref);
+  /** Resume tab SAASA mode: only the saved export (never live annotation overlay). */
+  const showSaasaSavedFile = viewMode === 'saasa' && Boolean(effectiveSaasaPreviewHref);
+  const showSaasaEmpty =
+    viewMode === 'saasa' && !effectiveSaasaPreviewHref && Boolean(onOpenSaasaCv);
   const showStructuredPreview =
     (viewMode === 'updated' && hasUpdatedCvFromEditor(backendCandidate)) ||
     (viewMode === 'edited' && hasCustomCvEditorLayout(backendCandidate));
 
+  const showOriginalToolbar = viewMode === 'original' && Boolean(effectiveResumeHref);
+  const showSaasaToolbar = viewMode === 'saasa' && Boolean(saasaBaseResumeHref || effectiveSaasaPreviewHref);
+  const showStructuredToolbar =
+    (viewMode === 'updated' || viewMode === 'edited') && showStructuredPreview;
+  const showResumeToolbar =
+    availableModes.length > 0 || showOriginalToolbar || showSaasaToolbar || showStructuredToolbar;
+
   return (
     <>
-      <div className="flex h-[calc(100vh-18rem)] min-h-[560px] flex-col gap-4">
-        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-          <h3 className="text-sm font-semibold text-slate-900">Resume versions</h3>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Switch between uploaded and editor-saved CVs. Use Edit CV in the drawer header to update.
-          </p>
-          {viewModeSaving ? (
-            <span className="mt-2 inline-flex items-center gap-1 text-xs text-slate-500">
-              <Loader2 size={14} className="animate-spin" />
-              Saving preference…
-            </span>
-          ) : null}
-        </div>
-
-        {availableModes.length > 0 ? (
-          <div className="flex flex-wrap gap-2" role="tablist" aria-label="Resume version">
-            {availableModes.map((mode) => {
-              const active = viewMode === mode;
-              return (
-                <button
-                  key={mode}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => void persistViewMode(mode)}
-                  disabled={busy}
-                  className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-60 ${
-                    active
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                  }`}
+      <div className="flex h-[calc(100vh-18rem)] min-h-[560px] flex-col">
+        <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+          {showResumeToolbar ? (
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-3 py-2">
+              {availableModes.length > 0 ? (
+                <div
+                  className="flex min-w-0 flex-wrap items-center gap-2"
+                  role="tablist"
+                  aria-label="Resume version"
                 >
-                  {MODE_LABELS[mode]}
-                </button>
-              );
-            })}
-          </div>
-        ) : null}
+                  {availableModes.map((mode) => {
+                    const active = viewMode === mode;
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        onClick={() => selectViewMode(mode)}
+                        disabled={busy}
+                        className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-60 ${
+                          active
+                            ? 'bg-blue-600 text-white shadow-sm'
+                            : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        {MODE_LABELS[mode]}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="min-w-0 flex-1" />
+              )}
 
-        {viewMode ? <p className="text-xs text-slate-500">{MODE_HINTS[viewMode]}</p> : null}
-
-        <section className="flex min-h-0 flex-1 flex-col rounded-2xl border border-slate-200 bg-white">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
-            <h3 className="text-sm font-semibold text-slate-900">
-              {viewMode ? MODE_LABELS[viewMode] : 'Resume Viewer'}
-            </h3>
-            <div className="flex flex-wrap gap-2">
-              {viewMode === 'original' && effectiveResumeHref ? (
-                <>
+              <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                {showOriginalToolbar ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setResumePreviewOpen(true)}
+                      className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      <Eye size={16} />
+                      Preview
+                    </button>
+                    <a
+                      href={effectiveResumeHref}
+                      target="_blank"
+                      rel="noreferrer"
+                      download
+                      className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      <Download size={16} />
+                      Download
+                    </a>
+                  </>
+                ) : showSaasaToolbar ? (
+                  <>
+                    {onOpenSaasaCv ? (
+                      <button
+                        type="button"
+                        onClick={onOpenSaasaCv}
+                        className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                      >
+                        <Pencil size={16} />
+                        Edit SAASA CV
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => setSaasaPreviewOpen(true)}
+                      className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      <Eye size={16} />
+                      Preview
+                    </button>
+                    <a
+                      href={effectiveSaasaPreviewHref}
+                      target="_blank"
+                      rel="noreferrer"
+                      download
+                      className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      <Download size={16} />
+                      Download
+                    </a>
+                  </>
+                ) : showStructuredToolbar ? (
                   <button
                     type="button"
-                    onClick={() => setResumePreviewOpen(true)}
-                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    onClick={openStructuredPreview}
+                    className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700"
                   >
                     <Eye size={16} />
-                    Preview
+                    Full preview
                   </button>
-                  <a
-                    href={effectiveResumeHref}
-                    target="_blank"
-                    rel="noreferrer"
-                    download
-                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    <Download size={16} />
-                    Download
-                  </a>
-                </>
-              ) : null}
-              {(viewMode === 'updated' || viewMode === 'edited') && showStructuredPreview ? (
-                <button
-                  type="button"
-                  onClick={openStructuredPreview}
-                  className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-                >
-                  <Eye size={16} />
-                  Full preview
-                </button>
-              ) : null}
+                ) : null}
+              </div>
             </div>
-          </div>
+          ) : null}
 
-          <div className="relative min-h-0 flex-1 overflow-auto bg-slate-100 p-4">
+          <div className="relative min-h-0 flex-1 overflow-hidden">
             {loading && !backendCandidate ? (
               <div className="flex h-full min-h-[320px] items-center justify-center">
                 <Loader2 className="size-8 animate-spin text-blue-600" />
@@ -220,8 +350,31 @@ export function CandidateResumeTabPanel({
                 resumeUrl={effectiveResumeHref}
                 candidateName={candidate.name}
                 enabled={enabled && viewMode === 'original'}
-                minHeightClass="h-full min-h-[520px]"
+                minHeightClass="h-full min-h-0"
+                className="h-full"
               />
+            ) : showSaasaSavedFile ? (
+              <SaasaCvSavedPreview
+                fileUrl={effectiveSaasaPreviewHref}
+                cacheKey={saasaStored?.updatedAt ?? saasaStored?.fileId ?? null}
+                candidateName={candidate.name}
+                enabled={enabled && viewMode === 'saasa'}
+                minHeightClass="h-full min-h-0"
+                className="h-full"
+                preferNativePdfEmbed
+              />
+            ) : showSaasaEmpty ? (
+              <div className="flex h-full min-h-[320px] flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center">
+                <p className="text-sm text-slate-600">No SAASA CV saved yet.</p>
+                <button
+                  type="button"
+                  onClick={onOpenSaasaCv}
+                  className="mt-4 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+                >
+                  <Pencil size={16} />
+                  Create SAASA CV
+                </button>
+              </div>
             ) : showStructuredPreview ? (
               <div className="flex h-full min-h-[520px] flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center">
                 <FileText className="size-10 text-blue-500" />
@@ -263,6 +416,35 @@ export function CandidateResumeTabPanel({
         resumeUrl={effectiveResumeHref || null}
         candidateName={candidate.name}
       />
+
+      {saasaPreviewOpen && (effectiveSaasaPreviewHref || saasaBaseResumeHref) ? (
+        <div className="fixed inset-0 z-[120] flex flex-col bg-slate-950/60 p-2 sm:p-4">
+          <div className="mx-auto flex h-full w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-4 py-3">
+              <h3 className="text-base font-semibold text-slate-900">{candidate.name} — SAASA CV</h3>
+              <button
+                type="button"
+                onClick={() => setSaasaPreviewOpen(false)}
+                className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
+              >
+                Close
+              </button>
+            </div>
+            <div className="min-h-0 flex-1">
+              {effectiveSaasaPreviewHref ? (
+                <SaasaCvSavedPreview
+                  fileUrl={effectiveSaasaPreviewHref}
+                  cacheKey={saasaStored?.updatedAt ?? saasaStored?.fileId ?? null}
+                  candidateName={candidate.name}
+                  enabled={saasaPreviewOpen}
+                  minHeightClass="h-full min-h-0"
+                  className="h-full"
+                />
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }

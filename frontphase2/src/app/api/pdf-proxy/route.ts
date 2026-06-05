@@ -4,17 +4,64 @@ import crypto from 'crypto';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+const DEFAULT_BACKEND_BASE = 'http://localhost:5001/api/v1';
+
+function getBackendPdfProxyUrl(search: string): string {
+  const apiBase = (
+    process.env.BACKEND_INTERNAL_URL ||
+    process.env.NEXT_PUBLIC_API_URL ||
+    DEFAULT_BACKEND_BASE
+  ).replace(/\/+$/, '');
+  return `${apiBase}/pdf-proxy${search}`;
+}
+
+async function fetchPdfFromBackend(search: string): Promise<Response | null> {
+  const target = getBackendPdfProxyUrl(search);
+  try {
+    return await fetch(target, {
+      cache: 'no-store',
+      headers: { Accept: 'application/pdf,*/*' },
+    });
+  } catch (error) {
+    console.error('[api/pdf-proxy] backend proxy failed', {
+      target,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+function pdfProxyResponse(upstream: Response): NextResponse {
+  return new NextResponse(upstream.body, {
+    status: upstream.status,
+    headers: {
+      'Content-Type': upstream.headers.get('content-type') || 'application/pdf',
+      'Content-Disposition': 'inline',
+      'Cache-Control': 'private, max-age=300',
+    },
+  });
+}
+
 function isExtensionlessResumeStoragePath(pathname: string): boolean {
   const lower = String(pathname || '').toLowerCase();
   return (
     lower.includes('apply-resumes') ||
     lower.includes('/resumes/') ||
-    lower.includes('jobportal/apply-resumes')
+    lower.includes('jobportal/apply-resumes') ||
+    /\/candidates\/[^/]+\/resumes\//i.test(lower)
   );
 }
 
+function getAwsBucketName(): string {
+  return (
+    process.env.AWS_BUCKET_NAME ||
+    process.env.NEXT_PUBLIC_AWS_BUCKET_NAME ||
+    ''
+  ).trim();
+}
+
 function isAllowedS3PdfUrl(url: string): boolean {
-  const bucket = process.env.NEXT_PUBLIC_AWS_BUCKET_NAME || '';
+  const bucket = getAwsBucketName();
   if (!bucket) return false;
   try {
     const u = new URL(url);
@@ -137,6 +184,23 @@ export async function GET(req: NextRequest) {
   const raw = req.nextUrl.searchParams.get('url');
   if (!raw) {
     return new NextResponse('Missing url', { status: 400 });
+  }
+
+  const search = req.nextUrl.search || '';
+
+  // Backend has S3 credentials — always try first (no client env vars required).
+  const backendUpstream = await fetchPdfFromBackend(search);
+  if (backendUpstream?.ok) {
+    return pdfProxyResponse(backendUpstream);
+  }
+  if (backendUpstream) {
+    const body = await backendUpstream.text();
+    return new NextResponse(body || 'PDF unavailable', {
+      status: backendUpstream.status,
+      headers: {
+        'Content-Type': backendUpstream.headers.get('content-type') || 'text/plain',
+      },
+    });
   }
 
   let decoded: string;

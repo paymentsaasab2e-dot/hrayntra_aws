@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Check, ChevronDown, FileText, Plus, UserRound, X } from 'lucide-react';
+import { Check, ChevronDown, FileText, Plus, Upload, UserRound, X } from 'lucide-react';
+import { ResumeUploadReadyCard } from './ResumeUploadReadyCard';
+import { normalizeCandidateEmailInput } from '../../lib/candidateEmailValidation';
 import {
   EMPTY_EDUCATION_ENTRY,
   EDUCATION_LEVEL_OPTIONS,
@@ -432,7 +434,14 @@ export function AddCandidateFormSections({
               value={formData.email}
               onChange={(e) => updateFormData('email', e.target.value)}
               onBlur={() => {
-                const value = formData.email.trim();
+                const normalized = normalizeCandidateEmailInput(formData.email, {
+                  firstName: formData.firstName,
+                  lastName: formData.lastName,
+                });
+                if (normalized && normalized !== formData.email) {
+                  updateFormData('email', normalized);
+                }
+                const value = (normalized || formData.email).trim();
                 if (!value) return;
                 const result = validateEmail(value);
                 if (!result.valid) return;
@@ -833,44 +842,48 @@ export function AddCandidateFormSections({
           </div>
 
           {activeTab !== 'resume' ? (
-            <div className="space-y-2">
+            <div className="space-y-3">
               <label className={labelClass}>Resume</label>
-              {!manualResumeFile ? (
-                <label className="flex cursor-pointer items-center justify-between rounded-2xl border border-dashed border-slate-300 px-4 py-4">
+              <label
+                className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-4 py-5 text-center transition-colors sm:flex-row sm:justify-between sm:text-left ${
+                  manualResumeFile
+                    ? 'border-slate-300 bg-slate-50 hover:border-blue-400 hover:bg-blue-50/80'
+                    : 'border-blue-200 bg-blue-50/40 hover:border-blue-400 hover:bg-blue-50'
+                }`}
+              >
+                <div className="flex flex-col items-center gap-2 sm:flex-row sm:items-center">
+                  <Upload size={22} className={manualResumeFile ? 'text-slate-400' : 'text-blue-500'} />
                   <div>
-                    <p className="text-sm font-medium text-slate-700">Upload Resume</p>
-                    <p className="text-xs text-slate-500">PDF, DOC, DOCX · {maxResumeFileLabel}</p>
+                    <p className="text-sm font-medium text-slate-700">
+                      {manualResumeFile ? 'Replace resume file' : 'Upload Resume'}
+                    </p>
+                    <p className="text-xs text-slate-500">PDF, DOC, DOCX, TXT, PNG · {maxResumeFileLabel}</p>
                   </div>
-                  <span className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white">Choose File</span>
-                  <input
-                    type="file"
-                    accept=".pdf,.doc,.docx"
-                    className="hidden"
-                    onChange={(event) => {
-                      const f = event.target.files?.[0] || null;
-                      resumeFileRef.current = f;
-                      setManualResumeFile(f);
-                    }}
-                  />
-                </label>
-              ) : (
-                <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                  <span className="flex items-center gap-2">
-                    <FileText size={16} />
-                    {manualResumeFile.name}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      resumeFileRef.current = parsedResumeFile;
-                      setManualResumeFile(null);
-                    }}
-                    className="text-xs font-semibold text-blue-600"
-                  >
-                    Remove
-                  </button>
                 </div>
-              )}
+                <span className="mt-3 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white sm:mt-0">
+                  Choose File
+                </span>
+                <input
+                  type="file"
+                  accept=".pdf,.doc,.docx,.txt,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,image/png"
+                  className="hidden"
+                  onChange={(event) => {
+                    const f = event.target.files?.[0] || null;
+                    resumeFileRef.current = f;
+                    setManualResumeFile(f);
+                  }}
+                />
+              </label>
+              {manualResumeFile ? (
+                <ResumeUploadReadyCard
+                  file={manualResumeFile}
+                  badgeLabel="Resume ready to save"
+                  onRemove={() => {
+                    resumeFileRef.current = parsedResumeFile;
+                    setManualResumeFile(null);
+                  }}
+                />
+              ) : null}
             </div>
           ) : null}
 

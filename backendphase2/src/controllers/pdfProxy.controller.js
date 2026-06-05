@@ -1,4 +1,5 @@
-import { getS3ObjectBodyBuffer, isOurS3PdfUrl, parseOurS3Url } from '../utils/s3.js';
+import { fetchS3ResumePdfBuffer } from '../utils/s3PdfFetch.js';
+import { isOurS3PdfUrl } from '../utils/s3.js';
 
 const PDF_MAGIC = Buffer.from('%PDF', 'ascii');
 
@@ -42,26 +43,10 @@ export async function getPdfProxy(req, res) {
   let buf;
 
   if (isOurS3PdfUrl(decoded)) {
-    const parsed = parseOurS3Url(decoded);
-    if (!parsed) {
-      return res.status(400).send('Invalid S3 URL');
-    }
     try {
-      const upstream = await fetch(decoded, {
-        redirect: 'follow',
-        headers: { Accept: 'application/pdf,*/*' },
-      });
-      if (upstream.ok) {
-        buf = Buffer.from(await upstream.arrayBuffer());
-      } else {
-        buf = await getS3ObjectBodyBuffer(parsed.key);
-      }
-    } catch {
-      try {
-        buf = await getS3ObjectBodyBuffer(parsed.key);
-      } catch (e2) {
-        return res.status(502).send(`S3 fetch failed: ${e2?.message || e2}`);
-      }
+      buf = await fetchS3ResumePdfBuffer(decoded);
+    } catch (e2) {
+      return res.status(502).send(`S3 fetch failed: ${e2?.message || e2}`);
     }
   } else {
     const upstream = await fetch(decoded, {

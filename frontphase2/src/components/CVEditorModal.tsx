@@ -1,5 +1,15 @@
-import { useState, useRef, useCallback, useEffect } from "react";
-import type { CVEditorData, CvEditorSectionId } from "../lib/cvEditorMapping";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import type { CVEditorData, CvEditorImageSize, CvEditorSectionId } from "../lib/cvEditorMapping";
+import { normalizeCandidatePhotoSize, normalizeCompanyLogoSize } from "../lib/cvEditorMapping";
+import {
+  buildCvTemplateStyles,
+  CV_EDITOR_TEMPLATES,
+  getCvEditorTemplate,
+  MAIN_SECTIONS,
+  normalizeCvTemplateId,
+  SIDEBAR_SECTIONS,
+  type CvEditorTemplateId,
+} from "../lib/cvEditorTemplates";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -154,7 +164,16 @@ interface DraggableCvImageProps {
   width: number;
   height: number;
   borderRadius: number | string;
+  /** cover for photos; contain keeps full logos visible without cropping */
+  imageFit?: "cover" | "contain";
+  resizable?: boolean;
+  keepSquare?: boolean;
+  minWidth?: number;
+  minHeight?: number;
+  maxWidth?: number;
+  maxHeight?: number;
   onPlacementChange: (placement: ImagePlacement) => void;
+  onSizeChange?: (width: number, height: number) => void;
   onUploadClick: () => void;
   onRemove?: () => void;
   readOnly?: boolean;
@@ -167,16 +186,41 @@ function DraggableCvImage({
   width,
   height,
   borderRadius,
+  imageFit = "cover",
+  resizable = false,
+  keepSquare = false,
+  minWidth = 48,
+  minHeight = 32,
+  maxWidth = 220,
+  maxHeight = 132,
   onPlacementChange,
+  onSizeChange,
   onUploadClick,
   onRemove,
   readOnly = false,
 }: DraggableCvImageProps) {
   const dragRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
+  const resizeRef = useRef<{
+    startX: number;
+    startY: number;
+    startW: number;
+    startH: number;
+  } | null>(null);
+
+  const clampSize = (w: number, h: number) => {
+    let nextW = Math.round(Math.min(maxWidth, Math.max(minWidth, w)));
+    let nextH = Math.round(Math.min(maxHeight, Math.max(minHeight, h)));
+    if (keepSquare) {
+      const side = Math.round(Math.min(maxWidth, Math.max(minWidth, (nextW + nextH) / 2)));
+      nextW = side;
+      nextH = side;
+    }
+    return { width: nextW, height: nextH };
+  };
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (readOnly) return;
-    if ((e.target as HTMLElement).closest("button")) return;
+    if ((e.target as HTMLElement).closest("button, [data-resize-handle]")) return;
     e.preventDefault();
     dragRef.current = {
       startX: e.clientX,
@@ -199,7 +243,37 @@ function DraggableCvImage({
 
   const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     dragRef.current = null;
+    resizeRef.current = null;
     e.currentTarget.releasePointerCapture(e.pointerId);
+  };
+
+  const onResizePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (readOnly || !resizable || !onSizeChange) return;
+    e.stopPropagation();
+    e.preventDefault();
+    resizeRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startW: width,
+      startH: height,
+    };
+    (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+  };
+
+  const onResizePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!resizeRef.current || !onSizeChange) return;
+    const dx = e.clientX - resizeRef.current.startX;
+    const dy = e.clientY - resizeRef.current.startY;
+    const next = clampSize(
+      resizeRef.current.startW + dx,
+      resizeRef.current.startH + dy
+    );
+    onSizeChange(next.width, next.height);
+  };
+
+  const onResizePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    resizeRef.current = null;
+    (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
   };
 
   return (
@@ -214,7 +288,7 @@ function DraggableCvImage({
       title={
         readOnly
           ? label
-          : `Drag to move · Double-click to upload ${label}`
+          : `Drag to move${resizable ? " · Drag corner to resize" : ""} · Double-click to upload ${label}`
       }
       style={{
         position: "absolute",
@@ -233,10 +307,22 @@ function DraggableCvImage({
         zIndex: 20,
         boxShadow: "0 2px 8px rgba(0,0,0,0.12)",
         touchAction: "none",
+        padding: imageFit === "contain" ? 4 : 0,
+        boxSizing: "border-box",
       }}
     >
       {src ? (
-        <img src={src} alt={label} style={{ width: "100%", height: "100%", objectFit: "cover", pointerEvents: "none" }} />
+        <img
+          src={src}
+          alt={label}
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: imageFit,
+            objectPosition: "center",
+            pointerEvents: "none",
+          }}
+        />
       ) : (
         <span style={{ fontSize: 22, color: "#ccc", pointerEvents: "none" }}>{label === "Candidate" ? "👤" : "🏢"}</span>
       )}
@@ -245,6 +331,42 @@ function DraggableCvImage({
           title={src ? `Remove ${label.toLowerCase()}` : `Hide ${label.toLowerCase()} placeholder`}
           onClick={onRemove}
         />
+      ) : null}
+      {!readOnly && resizable && onSizeChange ? (
+        <div
+          data-resize-handle
+          role="presentation"
+          onPointerDown={onResizePointerDown}
+          onPointerMove={onResizePointerMove}
+          onPointerUp={onResizePointerUp}
+          onPointerCancel={onResizePointerUp}
+          title="Drag to resize"
+          style={{
+            position: "absolute",
+            right: 0,
+            bottom: 0,
+            width: 16,
+            height: 16,
+            cursor: "nwse-resize",
+            zIndex: 31,
+            display: "flex",
+            alignItems: "flex-end",
+            justifyContent: "flex-end",
+            padding: 2,
+            touchAction: "none",
+          }}
+        >
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRight: "2px solid #185FA5",
+              borderBottom: "2px solid #185FA5",
+              borderRadius: 1,
+              background: "rgba(255,255,255,0.85)",
+            }}
+          />
+        </div>
       ) : null}
     </div>
   );
@@ -257,9 +379,18 @@ interface SectionHeadProps {
   onMoveUp: () => void;
   onMoveDown: () => void;
   readOnly?: boolean;
+  headStyle?: React.CSSProperties;
 }
 
-function SectionHead({ title, canMoveUp, canMoveDown, onMoveUp, onMoveDown, readOnly = false }: SectionHeadProps) {
+function SectionHead({
+  title,
+  canMoveUp,
+  canMoveDown,
+  onMoveUp,
+  onMoveDown,
+  readOnly = false,
+  headStyle,
+}: SectionHeadProps) {
   const btnStyle: React.CSSProperties = {
     width: 24,
     height: 24,
@@ -285,6 +416,7 @@ function SectionHead({ title, canMoveUp, canMoveDown, onMoveUp, onMoveDown, read
           borderBottom: "0.5px solid #ccc",
           paddingBottom: 3,
           userSelect: "none",
+          ...headStyle,
         }}
       >
         {title}
@@ -366,7 +498,7 @@ interface EditableProps {
 }
 
 function Editable({ value, onChange, style, placeholder, multiline, readOnly = false }: EditableProps) {
-  const ref = useRef<HTMLSpanElement>(null);
+  const ref = useRef<HTMLElement>(null);
   const isComposing = useRef(false);
 
   useEffect(() => {
@@ -376,19 +508,30 @@ function Editable({ value, onChange, style, placeholder, multiline, readOnly = f
   }, [value]);
 
   if (readOnly) {
+    const lines = (value || placeholder || "").split("\n");
     return (
       <span style={{ display: "block", whiteSpace: multiline ? "pre-wrap" : "normal", ...style }}>
-        {value || placeholder || ""}
+        {multiline
+          ? lines.map((line, i) => (
+              <span key={i} style={{ display: "block", paddingLeft: /^(\s*)(?:[•\-*]|\d+\.)\s/.test(line) ? 12 : 0 }}>
+                {line || "\u00a0"}
+              </span>
+            ))
+          : value || placeholder || ""}
       </span>
     );
   }
 
+  const Tag = multiline ? "div" : "span";
+
   return (
-    <span
-      ref={ref}
+    <Tag
+      ref={ref as React.RefObject<HTMLDivElement>}
       contentEditable
       suppressContentEditableWarning
       spellCheck={false}
+      data-cv-editable="true"
+      data-multiline={multiline ? "true" : undefined}
       data-placeholder={placeholder}
       onCompositionStart={() => { isComposing.current = true; }}
       onCompositionEnd={(e) => {
@@ -402,6 +545,27 @@ function Editable({ value, onChange, style, placeholder, multiline, readOnly = f
       }}
       onKeyDown={(e) => {
         if (!multiline && e.key === "Enter") e.preventDefault();
+        if (multiline && e.key === "Enter" && !e.shiftKey) {
+          const el = e.currentTarget as HTMLElement;
+          const text = el.innerText.replace(/\r\n/g, "\n");
+          const lines = text.split("\n");
+          const last = lines[lines.length - 1] ?? "";
+          const bulletMatch = last.match(/^(\s*)([•\-*])\s/);
+          if (bulletMatch) {
+            e.preventDefault();
+            const indent = bulletMatch[1] ?? "";
+            el.innerText = `${text}\n${indent}• `;
+            onChange(el.innerText);
+            const sel = window.getSelection();
+            if (sel && el.firstChild) {
+              const range = document.createRange();
+              range.selectNodeContents(el);
+              range.collapse(false);
+              sel.removeAllRanges();
+              sel.addRange(range);
+            }
+          }
+        }
       }}
       style={{
         outline: "none",
@@ -409,6 +573,7 @@ function Editable({ value, onChange, style, placeholder, multiline, readOnly = f
         borderRadius: 2,
         display: "block",
         minWidth: 30,
+        whiteSpace: multiline ? "pre-wrap" : undefined,
         transition: "background 0.1s",
         ...style,
       }}
@@ -431,6 +596,16 @@ function Editable({ value, onChange, style, placeholder, multiline, readOnly = f
   );
 }
 
+const LINE_PREFIX_RE = /^(\s*)(?:[•\-*]|\d+\.)\s*/;
+
+function stripLinePrefix(line: string): string {
+  return line.replace(LINE_PREFIX_RE, "$1");
+}
+
+function lineHasListPrefix(line: string): boolean {
+  return LINE_PREFIX_RE.test(line);
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 function buildEditorSnapshot(
@@ -450,10 +625,13 @@ function buildEditorSnapshot(
   initialCompanyLogoUrl: string | null,
   candidatePhotoPos: ImagePlacement,
   companyLogoPos: ImagePlacement,
+  candidatePhotoSize: CvEditorImageSize,
+  companyLogoSize: CvEditorImageSize,
   showCandidatePhotoSlot: boolean,
   showCompanyLogoSlot: boolean,
   sectionOrder: CvEditorSectionId[],
-  watermark: WatermarkConfig
+  watermark: WatermarkConfig,
+  templateId: CvEditorTemplateId
 ): CVEditorData {
   return {
     name,
@@ -472,10 +650,13 @@ function buildEditorSnapshot(
     initialCompanyLogoUrl,
     candidatePhotoPos: { ...candidatePhotoPos },
     companyLogoPos: { ...companyLogoPos },
+    candidatePhotoSize: { ...candidatePhotoSize },
+    companyLogoSize: { ...companyLogoSize },
     showCandidatePhotoSlot,
     showCompanyLogoSlot,
     sectionOrder: [...sectionOrder],
     watermark: { ...watermark },
+    templateId,
   };
 }
 
@@ -527,7 +708,13 @@ export default function CVEditorModal({
     initialData?.candidatePhotoPos ?? { x: 430, y: 36 }
   );
   const [companyLogoPos, setCompanyLogoPos] = useState<ImagePlacement>(
-    initialData?.companyLogoPos ?? { x: 430, y: 118 }
+    initialData?.companyLogoPos ?? { x: 332, y: 108 }
+  );
+  const [candidatePhotoSize, setCandidatePhotoSize] = useState<CvEditorImageSize>(
+    () => normalizeCandidatePhotoSize(initialData?.candidatePhotoSize)
+  );
+  const [companyLogoSize, setCompanyLogoSize] = useState<CvEditorImageSize>(() =>
+    normalizeCompanyLogoSize(initialData?.companyLogoSize)
   );
   const [showCandidatePhotoSlot, setShowCandidatePhotoSlot] = useState(
     initialData?.showCandidatePhotoSlot !== false
@@ -544,6 +731,9 @@ export default function CVEditorModal({
     initialData?.watermark ?? {
       text: "CONFIDENTIAL", opacity: 8, color: "#000000", active: false,
     }
+  );
+  const [templateId, setTemplateId] = useState<CvEditorTemplateId>(() =>
+    normalizeCvTemplateId(initialData?.templateId)
   );
   const [showWmPanel, setShowWmPanel] = useState(false);
 
@@ -577,7 +767,9 @@ export default function CVEditorModal({
     initialCompanyLogoRef.current =
       initialData.initialCompanyLogoUrl?.trim() || logoUrl;
     setCandidatePhotoPos(initialData.candidatePhotoPos ?? { x: 430, y: 36 });
-    setCompanyLogoPos(initialData.companyLogoPos ?? { x: 430, y: 118 });
+    setCompanyLogoPos(initialData.companyLogoPos ?? { x: 332, y: 108 });
+    setCandidatePhotoSize(normalizeCandidatePhotoSize(initialData.candidatePhotoSize));
+    setCompanyLogoSize(normalizeCompanyLogoSize(initialData.companyLogoSize));
     setShowCandidatePhotoSlot(initialData.showCandidatePhotoSlot !== false);
     setShowCompanyLogoSlot(initialData.showCompanyLogoSlot !== false);
     setSectionOrder(
@@ -588,6 +780,7 @@ export default function CVEditorModal({
         text: "CONFIDENTIAL", opacity: 8, color: "#000000", active: false,
       }
     );
+    setTemplateId(normalizeCvTemplateId(initialData.templateId));
   }, [initialData]);
 
   const showStatus = useCallback((msg: string) => {
@@ -597,6 +790,17 @@ export default function CVEditorModal({
       setStatus("Click any text on the CV to edit it directly");
     }, 2500);
   }, []);
+
+  const applyTemplate = useCallback(
+    (id: CvEditorTemplateId) => {
+      const next = getCvEditorTemplate(id);
+      setTemplateId(id);
+      setCandidatePhotoPos({ ...next.candidatePhotoPos });
+      setCompanyLogoPos({ ...next.companyLogoPos });
+      showStatus(`Layout: ${next.label}`);
+    },
+    [showStatus]
+  );
 
   const removeCandidatePhoto = useCallback(() => {
     setCandidatePhoto(null);
@@ -608,6 +812,27 @@ export default function CVEditorModal({
     setCompanyLogo(null);
     setShowCompanyLogoSlot(false);
     showStatus("Company logo removed");
+  }, [showStatus]);
+
+  const bumpCandidatePhotoSize = useCallback((delta: number) => {
+    setCandidatePhotoSize((prev) => {
+      const next = normalizeCandidatePhotoSize({
+        width: prev.width + delta,
+        height: prev.height + delta,
+      });
+      return next;
+    });
+    showStatus(delta > 0 ? "Candidate photo enlarged" : "Candidate photo reduced");
+  }, [showStatus]);
+
+  const bumpCompanyLogoSize = useCallback((deltaW: number, deltaH: number) => {
+    setCompanyLogoSize((prev) =>
+      normalizeCompanyLogoSize({
+        width: prev.width + deltaW,
+        height: prev.height + deltaH,
+      })
+    );
+    showStatus(deltaW > 0 || deltaH > 0 ? "Company logo enlarged" : "Company logo reduced");
   }, [showStatus]);
 
   // ── Photo handlers ──────────────────────────────────────────────────────────
@@ -635,6 +860,65 @@ export default function CVEditorModal({
   const fmt = (cmd: string, value?: string) => {
     document.execCommand(cmd, false, value);
   };
+
+  const getActiveCvEditable = useCallback((): HTMLElement | null => {
+    const root = cvPageRef.current;
+    if (!root) return null;
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLElement &&
+      active.isContentEditable &&
+      active.dataset.cvEditable === "true" &&
+      root.contains(active)
+    ) {
+      return active;
+    }
+    const anchor = window.getSelection()?.anchorNode;
+    if (!anchor) return null;
+    const host =
+      anchor.nodeType === Node.TEXT_NODE
+        ? anchor.parentElement
+        : (anchor as HTMLElement);
+    const el = host?.closest<HTMLElement>('[data-cv-editable="true"]');
+    return el && root.contains(el) ? el : null;
+  }, []);
+
+  const applyListFormat = useCallback(
+    (mode: "bullet" | "number" | "clear") => {
+      const el = getActiveCvEditable();
+      if (!el) {
+        showStatus("Click in summary or experience text first");
+        return;
+      }
+      const lines = el.innerText.replace(/\r\n/g, "\n").split("\n");
+      let next: string[];
+      if (mode === "clear") {
+        next = lines.map(stripLinePrefix);
+        showStatus("List markers removed");
+      } else if (mode === "bullet") {
+        const allBulleted =
+          lines.length > 0 &&
+          lines.every((line) => !line.trim() || lineHasListPrefix(line));
+        next = allBulleted
+          ? lines.map(stripLinePrefix)
+          : lines.map((line) =>
+              line.trim() ? `• ${stripLinePrefix(line).trimStart()}` : line
+            );
+        showStatus(allBulleted ? "Bullets removed" : "Bullet list applied");
+      } else {
+        let index = 1;
+        next = lines.map((line) => {
+          if (!line.trim()) return line;
+          const body = stripLinePrefix(line).trimStart();
+          return `${index++}. ${body}`;
+        });
+        showStatus("Numbered list applied");
+      }
+      el.innerText = next.join("\n");
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    },
+    [getActiveCvEditable, showStatus]
+  );
 
   const changeFontSize = (dir: number) => {
     const sel = window.getSelection();
@@ -754,10 +1038,13 @@ export default function CVEditorModal({
       initialCompanyLogoRef.current,
       candidatePhotoPos,
       companyLogoPos,
+      candidatePhotoSize,
+      companyLogoSize,
       showCandidatePhotoSlot,
       showCompanyLogoSlot,
       sectionOrder,
-      wm
+      wm,
+      templateId
     );
     if (onSave) {
       setSaving(true);
@@ -776,6 +1063,8 @@ export default function CVEditorModal({
   };
 
   // ── Styles (inline, no external deps) ──────────────────────────────────────
+
+  const cvStyles = useMemo(() => buildCvTemplateStyles(templateId), [templateId]);
 
   const S = {
     overlay: {
@@ -854,49 +1143,18 @@ export default function CVEditorModal({
       alignItems: "flex-start",
       padding: "24px 16px 32px",
     },
-    cvPage: {
-      background: "#fff",
-      width: 580,
-      minHeight: 720,
-      padding: "42px 48px 64px",
-      fontFamily: "Georgia, serif",
-      color: "#1a1a1a",
-      fontSize: 11,
-      lineHeight: 1.6,
-      position: "relative" as const,
-      flexShrink: 0,
-      boxShadow: "0 4px 24px rgba(15, 23, 42, 0.12)",
-    },
-    cvName: {
-      fontSize: 22, fontWeight: 700, color: "#1a1a1a",
-      letterSpacing: -0.4, display: "block",
-    },
-    cvJobTitle: { fontSize: 12, color: "#555", display: "block", marginTop: 2 },
-    cvContactLine: {
-      fontSize: 10, color: "#777",
-      display: "flex", flexWrap: "wrap" as const, marginTop: 5,
-    },
-    cvSep: { fontSize: 10, color: "#ccc", padding: "0 4px", userSelect: "none" as const },
-    cvDivider: { border: "none", borderTop: "1.5px solid #1a1a1a", margin: "12px 0" },
-    cvSectionHead: {
-      fontSize: 9.5, fontWeight: 700, textTransform: "uppercase" as const,
-      letterSpacing: "0.1em", color: "#1a1a1a",
-      borderBottom: "0.5px solid #ccc", paddingBottom: 3,
-      margin: "14px 0 7px", userSelect: "none" as const,
-    },
-    cvRole: { fontSize: 11.5, fontWeight: 700, display: "block" },
-    cvDate: { fontSize: 10, color: "#777", display: "block", textAlign: "right" as const },
-    cvCompany: {
-      fontSize: 10.5, color: "#444", fontStyle: "italic" as const,
-      display: "block", marginTop: 1,
-    },
-    cvDesc: { fontSize: 10, color: "#555", display: "block", marginTop: 3 },
-    cvSummary: { fontSize: 10.5, color: "#444", display: "block" },
-    cvSkill: {
-      fontSize: 10, padding: "2px 8px",
-      border: "0.5px solid #ccc", borderRadius: 3,
-      color: "#444", cursor: "text", outline: "none",
-    },
+    cvPage: cvStyles.cvPage,
+    cvName: cvStyles.cvName,
+    cvJobTitle: cvStyles.cvJobTitle,
+    cvContactLine: cvStyles.cvContactLine,
+    cvSep: cvStyles.cvSep,
+    cvDivider: cvStyles.cvDivider,
+    cvRole: cvStyles.cvRole,
+    cvDate: cvStyles.cvDate,
+    cvCompany: cvStyles.cvCompany,
+    cvDesc: cvStyles.cvDesc,
+    cvSummary: cvStyles.cvSummary,
+    cvSkill: { ...cvStyles.cvSkill, cursor: "text", outline: "none" },
     addBtnCv: {
       fontSize: 10, padding: "2px 8px",
       border: "0.5px dashed #bbb", borderRadius: 3,
@@ -921,7 +1179,7 @@ export default function CVEditorModal({
       display: "flex", alignItems: "center", justifyContent: "space-between",
       fontSize: 11, color: "#888", background: "#f7f7f7",
     },
-    skillsRow: { display: "flex", flexWrap: "wrap" as const, gap: 5, marginTop: 2 },
+    skillsRow: cvStyles.skillsRow,
     skillInput: {
       fontSize: 10, padding: "2px 6px",
       border: "0.5px solid #ccc", borderRadius: 3,
@@ -950,10 +1208,24 @@ export default function CVEditorModal({
     },
   };
 
+  const sectionHeadStyle = (sectionId: CvEditorSectionId) =>
+    cvStyles.layout === "sidebar" && SIDEBAR_SECTIONS.includes(sectionId)
+      ? cvStyles.sectionHeadSidebar
+      : cvStyles.sectionHead;
+
+  const inSidebarSection = (sectionId: CvEditorSectionId) =>
+    cvStyles.layout === "sidebar" && SIDEBAR_SECTIONS.includes(sectionId);
+
   const renderSection = (sectionId: CvEditorSectionId) => {
     const index = sectionOrder.indexOf(sectionId);
     const canMoveUp = index > 0;
     const canMoveDown = index >= 0 && index < sectionOrder.length - 1;
+    const sidebar = inSidebarSection(sectionId);
+    const roleStyle = sidebar ? { ...S.cvRole, color: "#f8fafc" } : S.cvRole;
+    const dateStyle = sidebar ? { ...S.cvDate, color: "#94a3b8" } : S.cvDate;
+    const companyStyle = sidebar ? { ...S.cvCompany, color: "#cbd5e1", fontStyle: "normal" as const } : S.cvCompany;
+    const descStyle = sidebar ? { ...S.cvDesc, color: "#e2e8f0" } : S.cvDesc;
+    const summaryStyle = sidebar ? { ...S.cvSummary, color: "#e2e8f0" } : S.cvSummary;
 
     if (sectionId === "summary") {
       return (
@@ -965,8 +1237,9 @@ export default function CVEditorModal({
             onMoveUp={() => moveSection("summary", -1)}
             onMoveDown={() => moveSection("summary", 1)}
             readOnly={readOnly}
+            headStyle={sectionHeadStyle("summary")}
           />
-          <Editable readOnly={readOnly} value={summary} onChange={setSummary} style={S.cvSummary} multiline placeholder="Write a summary…" />
+          <Editable readOnly={readOnly} value={summary} onChange={setSummary} style={summaryStyle} multiline placeholder="Write a summary…" />
         </div>
       );
     }
@@ -980,13 +1253,14 @@ export default function CVEditorModal({
             canMoveDown={canMoveDown}
             onMoveUp={() => moveSection("experience", -1)}
             onMoveDown={() => moveSection("experience", 1)}
+            headStyle={sectionHeadStyle("experience")}
           />
           {experiences.map((exp, expIndex) => (
             <div key={exp.id} style={{ marginBottom: 11 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                <Editable readOnly={readOnly} value={exp.role} onChange={(v) => updateExp(exp.id, "role", v)} style={S.cvRole} />
+                <Editable readOnly={readOnly} value={exp.role} onChange={(v) => updateExp(exp.id, "role", v)} style={roleStyle} />
                 <div style={{ display: "flex", alignItems: "center" }}>
-                  <Editable readOnly={readOnly} value={exp.period} onChange={(v) => updateExp(exp.id, "period", v)} style={S.cvDate} />
+                  <Editable readOnly={readOnly} value={exp.period} onChange={(v) => updateExp(exp.id, "period", v)} style={dateStyle} />
                   {!readOnly ? (
                     <>
                       <button type="button" style={S.itemMoveBtn} disabled={expIndex === 0} onClick={() => moveExp(exp.id, -1)} title="Move up">↑</button>
@@ -996,8 +1270,8 @@ export default function CVEditorModal({
                   ) : null}
                 </div>
               </div>
-              <Editable readOnly={readOnly} value={exp.company} onChange={(v) => updateExp(exp.id, "company", v)} style={S.cvCompany} />
-              <Editable readOnly={readOnly} value={exp.desc} onChange={(v) => updateExp(exp.id, "desc", v)} style={S.cvDesc} multiline />
+              <Editable readOnly={readOnly} value={exp.company} onChange={(v) => updateExp(exp.id, "company", v)} style={companyStyle} />
+              <Editable readOnly={readOnly} value={exp.desc} onChange={(v) => updateExp(exp.id, "desc", v)} style={descStyle} multiline />
             </div>
           ))}
           {!readOnly ? <button style={S.addBtnCv} onClick={addExp}>+ Add position</button> : null}
@@ -1015,13 +1289,14 @@ export default function CVEditorModal({
             onMoveUp={() => moveSection("education", -1)}
             onMoveDown={() => moveSection("education", 1)}
             readOnly={readOnly}
+            headStyle={sectionHeadStyle("education")}
           />
           {education.map((edu, eduIndex) => (
             <div key={edu.id} style={{ marginBottom: 11 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                <Editable readOnly={readOnly} value={edu.degree} onChange={(v) => updateEdu(edu.id, "degree", v)} style={S.cvRole} />
+                <Editable readOnly={readOnly} value={edu.degree} onChange={(v) => updateEdu(edu.id, "degree", v)} style={roleStyle} />
                 <div style={{ display: "flex", alignItems: "center" }}>
-                  <Editable readOnly={readOnly} value={edu.period} onChange={(v) => updateEdu(edu.id, "period", v)} style={S.cvDate} />
+                  <Editable readOnly={readOnly} value={edu.period} onChange={(v) => updateEdu(edu.id, "period", v)} style={dateStyle} />
                   {!readOnly ? (
                     <>
                       <button type="button" style={S.itemMoveBtn} disabled={eduIndex === 0} onClick={() => moveEdu(edu.id, -1)} title="Move up">↑</button>
@@ -1031,7 +1306,7 @@ export default function CVEditorModal({
                   ) : null}
                 </div>
               </div>
-              <Editable readOnly={readOnly} value={edu.school} onChange={(v) => updateEdu(edu.id, "school", v)} style={S.cvCompany} />
+              <Editable readOnly={readOnly} value={edu.school} onChange={(v) => updateEdu(edu.id, "school", v)} style={companyStyle} />
             </div>
           ))}
           {!readOnly ? <button style={S.addBtnCv} onClick={addEdu}>+ Add education</button> : null}
@@ -1046,9 +1321,10 @@ export default function CVEditorModal({
           canMoveUp={canMoveUp}
           canMoveDown={canMoveDown}
           onMoveUp={() => moveSection("skills", -1)}
-            onMoveDown={() => moveSection("skills", 1)}
-            readOnly={readOnly}
-          />
+          onMoveDown={() => moveSection("skills", 1)}
+          readOnly={readOnly}
+          headStyle={sectionHeadStyle("skills")}
+        />
         <div style={S.skillsRow}>
           {skills.map((skill, i) => (
             <span key={i} style={{ ...S.cvSkill, display: "inline-flex", alignItems: "center", gap: 2 }}>
@@ -1075,6 +1351,35 @@ export default function CVEditorModal({
       </div>
     );
   };
+
+  const renderContactLine = () => (
+    <div style={S.cvContactLine}>
+      <Editable readOnly={readOnly} value={email} onChange={setEmail} style={{ display: "inline", minWidth: 20, padding: "0 2px" }} />
+      <span style={S.cvSep}>·</span>
+      <Editable readOnly={readOnly} value={phone} onChange={setPhone} style={{ display: "inline", minWidth: 20, padding: "0 2px" }} />
+      <span style={S.cvSep}>·</span>
+      <Editable readOnly={readOnly} value={location} onChange={setLocation} style={{ display: "inline", minWidth: 20, padding: "0 2px" }} />
+      <span style={S.cvSep}>·</span>
+      <Editable readOnly={readOnly} value={linkedin} onChange={setLinkedin} style={{ display: "inline", minWidth: 20, padding: "0 2px" }} />
+    </div>
+  );
+
+  const renderCvHeader = () => {
+    const inner = (
+      <>
+        <Editable readOnly={readOnly} value={name} onChange={setName} style={S.cvName} placeholder="Full Name" />
+        <Editable readOnly={readOnly} value={jobTitle} onChange={setJobTitle} style={S.cvJobTitle} placeholder="Job Title" />
+        {renderContactLine()}
+      </>
+    );
+    if (cvStyles.headerVariant === "band") {
+      return <div style={cvStyles.headerBand}>{inner}</div>;
+    }
+    return <div style={cvStyles.headerWrap}>{inner}</div>;
+  };
+
+  const sidebarSectionOrder = sectionOrder.filter((id) => SIDEBAR_SECTIONS.includes(id));
+  const mainSectionOrder = sectionOrder.filter((id) => MAIN_SECTIONS.includes(id));
 
   const shellStyle: React.CSSProperties = embedded
     ? { width: '100%', display: 'flex', justifyContent: 'center' }
@@ -1127,12 +1432,49 @@ export default function CVEditorModal({
         <>
         {/* ── Toolbar ── */}
         <div style={S.toolbar}>
+          {/* Resume template */}
+          <div style={S.tgroup}>
+            <span style={S.tgLabel}>Template</span>
+            {CV_EDITOR_TEMPLATES.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                style={S.tbtn(templateId === t.id)}
+                onClick={() => applyTemplate(t.id)}
+                title={t.description}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
           {/* Format */}
           <div style={S.tgroup}>
             <span style={S.tgLabel}>Format</span>
             <button style={S.tbtn()} onClick={() => fmt("bold")} title="Bold"><b>B</b></button>
             <button style={S.tbtn()} onClick={() => fmt("italic")} title="Italic"><i>I</i></button>
             <button style={S.tbtn()} onClick={() => fmt("underline")} title="Underline"><u>U</u></button>
+            <button
+              style={S.tbtn()}
+              onClick={() => applyListFormat("bullet")}
+              title="Bullet list (click in text first)"
+            >
+              • List
+            </button>
+            <button
+              style={S.tbtn()}
+              onClick={() => applyListFormat("number")}
+              title="Numbered list (click in text first)"
+            >
+              1. List
+            </button>
+            <button
+              style={S.tbtn()}
+              onClick={() => applyListFormat("clear")}
+              title="Remove bullet/number markers"
+            >
+              ✕ List
+            </button>
             <button style={S.tbtn()} onClick={() => changeFontSize(1)} title="Bigger">A↑</button>
             <button style={S.tbtn()} onClick={() => changeFontSize(-1)} title="Smaller">A↓</button>
             <label style={{ ...S.tbtn(), position: "relative", cursor: "pointer" }} title="Text colour">
@@ -1158,9 +1500,25 @@ export default function CVEditorModal({
               👤 Upload
             </button>
             {(candidatePhoto || showCandidatePhotoSlot) && (
-              <button style={S.tbtn(false, true)} onClick={removeCandidatePhoto} title="Remove candidate photo">
-                ✕ Remove
-              </button>
+              <>
+                <button
+                  style={S.tbtn()}
+                  onClick={() => bumpCandidatePhotoSize(-8)}
+                  title="Make candidate photo smaller"
+                >
+                  − Size
+                </button>
+                <button
+                  style={S.tbtn()}
+                  onClick={() => bumpCandidatePhotoSize(8)}
+                  title="Make candidate photo larger"
+                >
+                  + Size
+                </button>
+                <button style={S.tbtn(false, true)} onClick={removeCandidatePhoto} title="Remove candidate photo">
+                  ✕ Remove
+                </button>
+              </>
             )}
           </div>
 
@@ -1178,9 +1536,25 @@ export default function CVEditorModal({
               🏢 Upload
             </button>
             {(companyLogo || showCompanyLogoSlot) && (
-              <button style={S.tbtn(false, true)} onClick={removeCompanyLogo} title="Remove company logo">
-                ✕ Remove
-              </button>
+              <>
+                <button
+                  style={S.tbtn()}
+                  onClick={() => bumpCompanyLogoSize(-12, -6)}
+                  title="Make company logo smaller"
+                >
+                  − Size
+                </button>
+                <button
+                  style={S.tbtn()}
+                  onClick={() => bumpCompanyLogoSize(12, 6)}
+                  title="Make company logo larger"
+                >
+                  + Size
+                </button>
+                <button style={S.tbtn(false, true)} onClick={removeCompanyLogo} title="Remove company logo">
+                  ✕ Remove
+                </button>
+              </>
             )}
           </div>
 
@@ -1257,10 +1631,19 @@ export default function CVEditorModal({
                 src={candidatePhoto}
                 label="Candidate"
                 placement={candidatePhotoPos}
-                width={72}
-                height={72}
+                width={candidatePhotoSize.width}
+                height={candidatePhotoSize.height}
                 borderRadius="50%"
+                resizable
+                keepSquare
+                minWidth={48}
+                minHeight={48}
+                maxWidth={132}
+                maxHeight={132}
                 onPlacementChange={setCandidatePhotoPos}
+                onSizeChange={(w, h) =>
+                  setCandidatePhotoSize(normalizeCandidatePhotoSize({ width: w, height: h }))
+                }
                 onUploadClick={() => {
                   setShowCandidatePhotoSlot(true);
                   candidateInputRef.current?.click();
@@ -1274,10 +1657,19 @@ export default function CVEditorModal({
                 src={companyLogo}
                 label="Company"
                 placement={companyLogoPos}
-                width={88}
-                height={48}
+                width={companyLogoSize.width}
+                height={companyLogoSize.height}
                 borderRadius={4}
+                imageFit="contain"
+                resizable
+                minWidth={72}
+                minHeight={32}
+                maxWidth={220}
+                maxHeight={120}
                 onPlacementChange={setCompanyLogoPos}
+                onSizeChange={(w, h) =>
+                  setCompanyLogoSize(normalizeCompanyLogoSize({ width: w, height: h }))
+                }
                 onUploadClick={() => {
                   setShowCompanyLogoSlot(true);
                   companyInputRef.current?.click();
@@ -1287,30 +1679,31 @@ export default function CVEditorModal({
               />
             ) : null}
 
-            <div style={{ paddingRight: 100, position: "relative", zIndex: 1 }}>
-              <Editable readOnly={readOnly} value={name} onChange={setName} style={S.cvName} placeholder="Full Name" />
-              <Editable readOnly={readOnly} value={jobTitle} onChange={setJobTitle} style={S.cvJobTitle} placeholder="Job Title" />
-              <div style={S.cvContactLine}>
-                <Editable readOnly={readOnly} value={email} onChange={setEmail} style={{ display: "inline", minWidth: 20, padding: "0 2px" }} />
-                <span style={S.cvSep}>·</span>
-                <Editable readOnly={readOnly} value={phone} onChange={setPhone} style={{ display: "inline", minWidth: 20, padding: "0 2px" }} />
-                <span style={S.cvSep}>·</span>
-                <Editable readOnly={readOnly} value={location} onChange={setLocation} style={{ display: "inline", minWidth: 20, padding: "0 2px" }} />
-                <span style={S.cvSep}>·</span>
-                <Editable readOnly={readOnly} value={linkedin} onChange={setLinkedin} style={{ display: "inline", minWidth: 20, padding: "0 2px" }} />
+            {renderCvHeader()}
+
+            {cvStyles.cvDivider.display !== "none" ? <hr style={S.cvDivider} /> : null}
+
+            {cvStyles.layout === "sidebar" ? (
+              <div style={cvStyles.bodyGrid}>
+                <aside style={cvStyles.sidebar}>
+                  {sidebarSectionOrder.map((sectionId) => renderSection(sectionId))}
+                </aside>
+                <div style={cvStyles.main}>
+                  {mainSectionOrder.map((sectionId) => renderSection(sectionId))}
+                </div>
               </div>
-            </div>
-
-            <hr style={S.cvDivider} />
-
-            {sectionOrder.map((sectionId) => renderSection(sectionId))}
+            ) : (
+              <div style={cvStyles.main}>
+                {sectionOrder.map((sectionId) => renderSection(sectionId))}
+              </div>
+            )}
           </div>
         </div>
 
         {/* ── Status Bar ── */}
         <div style={S.statusBar}>
           <span>✏️ {status}</span>
-          <span>Drag photos to reposition · ↑↓ reorder sections &amp; entries</span>
+          <span>Pick a template · edit text · bullets · drag/resize photos</span>
         </div>
       </div>
     </div>

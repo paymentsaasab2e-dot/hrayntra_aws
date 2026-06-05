@@ -12,6 +12,7 @@ import {
 } from '@/lib/failedBulkResumesStore';
 import { RECYCLE_BIN_SYNC_EVENT } from '@/constants/recycleBin';
 import { requestConfirm } from '@/lib/appDialog';
+import { BULK_CV_ACCEPT_INPUT } from '@/lib/bulkCvFileTypes';
 
 type Props = {
   isOpen: boolean;
@@ -125,7 +126,7 @@ export default function FailedBulkResumesDrawer({ isOpen, onClose, onReupload }:
         ref={fileInputRef}
         type="file"
         className="hidden"
-        accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        accept={BULK_CV_ACCEPT_INPUT}
         onChange={onFilePicked}
       />
       <div className="fixed inset-0 z-[95] flex justify-end" dir="ltr">

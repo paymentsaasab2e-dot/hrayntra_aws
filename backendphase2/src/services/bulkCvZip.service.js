@@ -8,12 +8,14 @@ const __dirname = path.dirname(__filename);
 const uploadsRoot = path.resolve(__dirname, '../../uploads');
 const zipExtractRoot = path.join(uploadsRoot, 'bulk-zip');
 
-const CV_EXT = new Set(['.pdf', '.doc', '.docx']);
+const CV_EXT = new Set(['.pdf', '.doc', '.docx', '.txt', '.png']);
 
 const MIME_BY_EXT = {
   '.pdf': 'application/pdf',
   '.doc': 'application/msword',
   '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.txt': 'text/plain',
+  '.png': 'image/png',
 };
 
 function shouldSkipZipEntry(entryName) {
@@ -105,7 +107,7 @@ export function expandBulkCvZipArchive(zipPath, options = {}) {
     } catch {
       /* ignore */
     }
-    throw new Error('No PDF, DOC, or DOCX files found inside the ZIP');
+    throw new Error('No PDF, DOC, DOCX, TXT, or PNG files found inside the ZIP');
   }
 
   return { targetDir, fileEntries, skipped, total: fileEntries.length };

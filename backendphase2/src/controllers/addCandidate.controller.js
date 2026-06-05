@@ -1012,12 +1012,15 @@ export const addCandidateController = {
         'application/msword',
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'text/plain',
+        'image/png',
       ];
+      const cvExt = path.extname(file.originalname || '').toLowerCase();
+      const cvExtOk = ['.pdf', '.doc', '.docx', '.txt', '.png'].includes(cvExt);
 
-      if (!allowedMimeTypes.includes(file.mimetype)) {
+      if (!allowedMimeTypes.includes(file.mimetype) && !cvExtOk) {
         return res.status(400).json({
           success: false,
-          message: 'Only PDF, DOC, and DOCX files are allowed',
+          message: 'Only PDF, DOC, DOCX, TXT, and PNG files are allowed',
         });
       }
 
@@ -1244,12 +1247,15 @@ export const addCandidateController = {
         'application/msword',
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'text/plain',
+        'image/png',
       ];
-      if (!allowedMimeTypes.includes(file.mimetype)) {
+      const cvExt = path.extname(file.originalname || '').toLowerCase();
+      const cvExtOk = ['.pdf', '.doc', '.docx', '.txt', '.png'].includes(cvExt);
+      if (!allowedMimeTypes.includes(file.mimetype) && !cvExtOk) {
         safeUnlink();
         return res.status(400).json({
           success: false,
-          message: 'Only PDF, DOC, and DOCX files are allowed',
+          message: 'Only PDF, DOC, DOCX, TXT, and PNG files are allowed',
         });
       }
 

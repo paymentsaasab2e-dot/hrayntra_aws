@@ -73,10 +73,46 @@ type ResumeSourceLike = {
   extraData?: Record<string, unknown> | null;
 };
 
+function isSaasaCvExportFile(
+  file: { fileType?: string; fileUrl?: string | null; fileName?: string }
+): boolean {
+  const type = String(file.fileType || '').trim();
+  if (/^SAASA_CV$/i.test(type)) return true;
+  const name = String(file.fileName || file.fileUrl || '').trim();
+  return /SAASA[\s_-]*CV/i.test(name);
+}
+
+/** Prefer newest Files-tab resume over stale snapshot URLs (never the SAASA CV export). */
+export function pickLatestResumeFileUrl(
+  files: Array<{ fileType?: string; fileUrl?: string | null; fileName?: string; uploadDate?: string }>
+): string {
+  const resumeFiles = files.filter((f) => {
+    if (isSaasaCvExportFile(f)) return false;
+    const url = String(f.fileUrl || '').trim();
+    if (!url) return false;
+    if (/^resume$/i.test(String(f.fileType || '').trim())) return true;
+    return (
+      /\.pdf($|[?#])/i.test(url) ||
+      /\.docx?($|[?#])/i.test(url) ||
+      /\/resumes\/|\/cv-files\//i.test(url)
+    );
+  });
+  resumeFiles.sort((a, b) => {
+    const ta = Date.parse(String(a.uploadDate || '')) || 0;
+    const tb = Date.parse(String(b.uploadDate || '')) || 0;
+    return tb - ta;
+  });
+  return String(resumeFiles[0]?.fileUrl || '').trim();
+}
+
 /** Best resume URL from API row + Phase 1 snapshot (used by drawer resume tab). */
 export function resolveCandidateResumeUrlFromSources(
-  candidate?: ResumeSourceLike | null
+  candidate?: ResumeSourceLike | null,
+  options?: { filesResumeUrl?: string | null }
 ): string {
+  const fromFiles = String(options?.filesResumeUrl || '').trim();
+  if (fromFiles) return fromFiles;
+
   if (!candidate) return '';
   const snap = getPhase1ProfileSnapshot(
     candidate.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)

@@ -12,6 +12,8 @@ import {
   type CandidateEditFormState,
 } from '../candidates/CandidateEditAtsSections';
 import { useCandidateCvEditor } from '../../hooks/useCandidateCvEditor';
+import { useSaasaCvAnnotations } from '../../hooks/useSaasaCvAnnotations';
+import { hasSaasaCvSaved, readSaasaCvAnnotations, SAASA_CV_FILE_TYPE } from '../../lib/saasaCvAnnotations';
 import { formatDateDMY, formatDateTimeDMY } from '../../utils/dateDisplay';
 import type { AuditMeta } from '../../types/audit';
 import { EntityAuditSummary } from '../table/TableAuditCell';
@@ -30,6 +32,7 @@ import {
   Loader2,
   AlertTriangle,
   MapPin,
+  MessageSquare,
   MessageSquareText,
   MoreVertical,
   Pin,
@@ -428,71 +431,6 @@ function normalizeStringList(value: unknown): string[] {
       .filter(Boolean);
   }
   return [];
-}
-
-function CircularScore({ value }: { value: number }) {
-  const size = 120;
-  const stroke = 10;
-  const radius = (size - stroke) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const safeValue = Math.max(0, Math.min(100, value));
-  const offset = circumference - (safeValue / 100) * circumference;
-
-  return (
-    <div className="relative flex h-[120px] w-[120px] items-center justify-center">
-      <svg width={size} height={size} className="-rotate-90">
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          stroke="currentColor"
-          strokeWidth={stroke}
-          fill="transparent"
-          className="text-slate-200"
-        />
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          stroke="currentColor"
-          strokeWidth={stroke}
-          fill="transparent"
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          strokeDashoffset={offset}
-          className="text-blue-600 transition-all duration-300"
-        />
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-3xl font-bold text-slate-900">{safeValue}%</span>
-        <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Match</span>
-      </div>
-    </div>
-  );
-}
-
-function ScoreBar({
-  label,
-  value,
-  colorClass,
-}: {
-  label: string;
-  value: number;
-  colorClass: string;
-}) {
-  const safeValue = Math.max(0, Math.min(100, value));
-
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between text-sm">
-        <span className="font-medium text-slate-700">{label}</span>
-        <span className="text-slate-500">{safeValue}%</span>
-      </div>
-      <div className="h-2.5 overflow-hidden rounded-full bg-slate-200">
-        <div className={`h-full rounded-full ${colorClass}`} style={{ width: `${safeValue}%` }} />
-      </div>
-    </div>
-  );
 }
 
 function formatTimelineDateLabel(value: string) {
@@ -3713,6 +3651,7 @@ export function CandidateProfileDrawer({
     error: candidateFilesError,
     uploadFile: uploadCandidateFile,
     deleteFile: deleteCandidateFile,
+    refresh: refreshCandidateFiles,
   } = useFiles('candidate', candidate?.id);
 
   const handleCvToast = useCallback((message: string) => {
@@ -3732,6 +3671,48 @@ export function CandidateProfileDrawer({
     onCandidateUpdated: onRefreshCandidate ? handleCvCandidateUpdated : undefined,
     onToast: handleCvToast,
   });
+
+  const saasaCv = useSaasaCvAnnotations({
+    candidateId: candidate?.id,
+    candidateName: candidate?.name,
+    resumeUrl: candidate?.resumeUrl,
+    extraData: candidate?.extraData ?? null,
+    enabled: isOpen && Boolean(candidate?.id),
+    canEdit: Boolean(onUpdateCandidate),
+    onCandidateUpdated: onRefreshCandidate ? handleCvCandidateUpdated : undefined,
+    onFilesRefresh: refreshCandidateFiles,
+    onToast: handleCvToast,
+  });
+
+  const saasaCvStored = useMemo(
+    () => readSaasaCvAnnotations(candidate?.extraData ?? null),
+    [candidate?.extraData]
+  );
+
+  const saasaCvFileEntry = useMemo(() => {
+    if (!saasaCvStored || !hasSaasaCvSaved(saasaCvStored)) return null;
+    const fromList = saasaCvStored.fileId
+      ? candidateFiles.find((f) => f.id === saasaCvStored.fileId)
+      : candidateFiles.find((f) => f.fileType === SAASA_CV_FILE_TYPE);
+    return {
+      id: fromList?.id ?? saasaCvStored.fileId,
+      fileName:
+        fromList?.fileName ?? saasaCvStored.fileName ?? `SAASA CV - ${candidate?.name || 'Candidate'}`,
+      fileUrl: fromList?.fileUrl ?? saasaCvStored.fileUrl ?? null,
+      markCount: saasaCvStored.items.length,
+      updatedAt: saasaCvStored.updatedAt,
+    };
+  }, [saasaCvStored, candidateFiles, candidate?.name]);
+
+  const candidateFilesWithoutSaasa = useMemo(
+    () =>
+      candidateFiles.filter(
+        (f) =>
+          f.fileType !== SAASA_CV_FILE_TYPE &&
+          f.id !== saasaCvStored?.fileId
+      ),
+    [candidateFiles, saasaCvStored?.fileId]
+  );
 
   const uploadsBase = useMemo(() => {
     const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1';
@@ -3831,19 +3812,6 @@ export function CandidateProfileDrawer({
       return;
     }
     if (candidate) onAction?.(action, candidate);
-  };
-
-  const aiScore = candidate?.aiScore || {
-    overall: 0,
-    source: 'estimated' as const,
-    jobTitle: null,
-    breakdown: {
-      skillsMatch: 0,
-      experienceFit: 0,
-      educationFit: 0,
-      keywordMatch: 0,
-    },
-    insights: [],
   };
 
   const fallbackCurrentUser = currentUser || {
@@ -4187,6 +4155,22 @@ export function CandidateProfileDrawer({
                         Edit CV
                       </button>
                     ) : null}
+                    {candidate?.resumeUrl?.trim() ? (
+                      <button
+                        type="button"
+                        onClick={() => saasaCv.openModal()}
+                        disabled={saasaCv.busy}
+                        className="inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <MessageSquare size={15} />
+                        SAASA CV
+                        {saasaCv.annotationCount > 0 ? (
+                          <span className="rounded-full bg-amber-200 px-1.5 py-0.5 text-[10px] font-bold tabular-nums">
+                            {saasaCv.annotationCount}
+                          </span>
+                        ) : null}
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => handleAction('move-stage')}
@@ -4338,89 +4322,20 @@ export function CandidateProfileDrawer({
                 )}
 
                 {activeTab === 'Resume' && (
-                  <div className="flex h-[calc(100vh-18rem)] min-h-[560px] flex-col gap-5 xl:flex-row">
-                    <div className="flex h-full min-h-0 w-full flex-col xl:w-[60%]">
-                      <CandidateResumeTabPanel
-                        candidate={candidate}
-                        enabled={activeTab === 'Resume'}
-                        cvEditor={cvEditor}
-                        onToast={(message) => setToastMessage(message)}
-                        onCandidateUpdated={
-                          onRefreshCandidate
-                            ? () => onRefreshCandidate(candidate.id)
-                            : undefined
-                        }
-                      />
-                    </div>
-
-                    <section className="flex h-full min-h-0 w-full flex-col rounded-2xl border border-slate-200 bg-white xl:w-[40%]">
-                      <div className="border-b border-slate-200 px-5 py-4">
-                        <h3 className="text-base font-semibold text-slate-900">AI Candidate Analysis</h3>
-                        {aiScore.jobTitle ? (
-                          <p className="mt-1 text-xs text-slate-500">
-                            Based on applied job:{' '}
-                            <span className="font-medium text-slate-700">{aiScore.jobTitle}</span>
-                          </p>
-                        ) : aiScore.source !== 'match' ? (
-                          <p className="mt-1 text-xs text-slate-500">
-                            No applied-job match score available yet. This is an estimated profile-fit
-                            score.
-                          </p>
-                        ) : null}
-                      </div>
-
-                      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-                        <div className="flex justify-center">
-                          <CircularScore value={aiScore.overall} />
-                        </div>
-
-                        <div className="mt-6 space-y-4">
-                          <ScoreBar
-                            label="Skills Match"
-                            value={aiScore.breakdown.skillsMatch}
-                            colorClass="bg-blue-600"
-                          />
-                          <ScoreBar
-                            label="Experience Fit"
-                            value={aiScore.breakdown.experienceFit}
-                            colorClass="bg-amber-500"
-                          />
-                          <ScoreBar
-                            label="Education Fit"
-                            value={aiScore.breakdown.educationFit}
-                            colorClass="bg-emerald-500"
-                          />
-                          <ScoreBar
-                            label="Keyword Match"
-                            value={aiScore.breakdown.keywordMatch}
-                            colorClass="bg-violet-500"
-                          />
-                        </div>
-
-                        <div className="mt-8">
-                          <h4 className="mb-3 text-sm font-semibold text-slate-900">AI Insights</h4>
-                          <div className="space-y-3">
-                            {aiScore.insights.length > 0 ? (
-                              aiScore.insights.map((insight, index) => (
-                                <div
-                                  key={`${insight.type}-${index}`}
-                                  className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3"
-                                >
-                                  <span
-                                    className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${
-                                      insight.type === 'strength' ? 'bg-emerald-500' : 'bg-red-500'
-                                    }`}
-                                  />
-                                  <p className="text-sm leading-6 text-slate-700">{insight.text}</p>
-                                </div>
-                              ))
-                            ) : (
-                              <p className="text-sm text-slate-500">No AI insights available yet.</p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </section>
+                  <div className="flex h-[calc(100vh-18rem)] min-h-[560px] flex-col">
+                    <CandidateResumeTabPanel
+                      candidate={candidate}
+                      enabled={activeTab === 'Resume'}
+                      cvEditor={cvEditor}
+                      saasaSavedFileUrl={saasaCv.stored?.fileUrl ?? null}
+                      onOpenSaasaCv={() => saasaCv.openModal()}
+                      onToast={(message) => setToastMessage(message)}
+                      onCandidateUpdated={
+                        onRefreshCandidate
+                          ? () => onRefreshCandidate(candidate.id)
+                          : undefined
+                      }
+                    />
                   </div>
                 )}
 
@@ -4753,10 +4668,55 @@ export function CandidateProfileDrawer({
                         </div>
                       ) : null}
 
+                      {saasaCvFileEntry ? (
+                        <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+                          <button
+                            type="button"
+                            onClick={() => saasaCv.openModal()}
+                            className="min-w-0 flex-1 text-left"
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium text-slate-900">
+                                  {saasaCvFileEntry.fileName}
+                                </p>
+                                <p className="mt-0.5 text-xs text-slate-500">
+                                  SAASA CV · annotated
+                                  {saasaCvFileEntry.markCount > 0
+                                    ? ` · ${saasaCvFileEntry.markCount} mark${saasaCvFileEntry.markCount === 1 ? '' : 's'}`
+                                    : ''}
+                                </p>
+                              </div>
+                              <FileText size={16} className="shrink-0 text-amber-600" />
+                            </div>
+                          </button>
+                          {saasaCvFileEntry.fileUrl ? (
+                            <a
+                              href={toFileHref(saasaCvFileEntry.fileUrl)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                            >
+                              Open
+                            </a>
+                          ) : null}
+                          {onUpdateCandidate ? (
+                            <button
+                              type="button"
+                              disabled={saasaCv.busy}
+                              onClick={() => void saasaCv.deleteSavedCv()}
+                              className="shrink-0 rounded-xl border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+                            >
+                              Delete
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
+
                       {candidateFilesLoading ? (
                         <p className="text-sm text-slate-500">Loading attached files…</p>
-                      ) : candidateFiles.length > 0 ? (
-                        candidateFiles.map((file) => (
+                      ) : candidateFilesWithoutSaasa.length > 0 ? (
+                        candidateFilesWithoutSaasa.map((file) => (
                           <div
                             key={file.id}
                             className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3"
@@ -4786,7 +4746,7 @@ export function CandidateProfileDrawer({
                             </button>
                           </div>
                         ))
-                      ) : !candidate.resumeUrl?.trim() ? (
+                      ) : !candidate.resumeUrl?.trim() && !saasaCvFileEntry ? (
                         <p className="text-sm text-slate-500">No files uploaded.</p>
                       ) : null}
                     </div>
@@ -4797,6 +4757,7 @@ export function CandidateProfileDrawer({
               </motion.aside>
           </>
           {cvEditor.modals}
+          {saasaCv.modals}
         </React.Fragment>
       ) : null}
     </AnimatePresence>

@@ -22,7 +22,11 @@ import {
   type ResumeCvViewMode,
 } from '../lib/cvEditorMapping';
 import { buildFileHref } from '../utils/cloudinaryUrls';
-import { isResumeHttpUrl, normalizeResumeHref } from '../lib/resumePreview';
+import {
+  buildResumePdfProxyUrl,
+  isResumeHttpUrl,
+  normalizeResumeHref,
+} from '../lib/resumePreview';
 
 interface UseCandidateCvEditorOptions {
   candidateId: string | undefined;
@@ -65,7 +69,10 @@ export function useCandidateCvEditor({
   const resumeHref = (() => {
     const raw = String(resumeRaw || '').trim();
     if (!raw) return '';
-    if (isResumeHttpUrl(raw)) return normalizeResumeHref(raw);
+    if (isResumeHttpUrl(raw)) {
+      const normalized = normalizeResumeHref(raw);
+      return buildResumePdfProxyUrl(normalized) || normalized;
+    }
     return uploadsBase ? buildFileHref(raw, uploadsBase) : raw;
   })();
 

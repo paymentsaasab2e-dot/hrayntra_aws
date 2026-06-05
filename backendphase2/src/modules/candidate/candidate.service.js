@@ -348,19 +348,40 @@ function candidateListSortTimestamp(candidate) {
   return Number.isFinite(t) ? t : 0;
 }
 
+function buildCandidateSearchWhereClause(search) {
+  const term = String(search || '').trim();
+  if (!term) return null;
+  return {
+    OR: [
+      { firstName: { contains: term, mode: 'insensitive' } },
+      { lastName: { contains: term, mode: 'insensitive' } },
+      { email: { contains: term, mode: 'insensitive' } },
+      { phone: { contains: term, mode: 'insensitive' } },
+    ],
+  };
+}
+
+/** Case-insensitive match for name, email, phone (used after merge / common pool). */
 function candidateMatchesSearch(candidate, search) {
   if (!search) return true;
   const needle = String(search).trim().toLowerCase();
   if (!needle) return true;
-  const hay = [
-    candidate?.firstName,
-    candidate?.lastName,
-    candidate?.email,
-    candidate?.phone,
-  ]
+
+  const firstName = String(candidate?.firstName || '').toLowerCase();
+  const lastName = String(candidate?.lastName || '').toLowerCase();
+  const fullName = `${firstName} ${lastName}`.trim();
+  const hay = [firstName, lastName, fullName, candidate?.email, candidate?.phone]
     .map((value) => String(value || '').toLowerCase())
     .join(' ');
-  return hay.includes(needle);
+
+  if (hay.includes(needle)) return true;
+
+  const tokens = needle.split(/\s+/).filter(Boolean);
+  if (tokens.length > 1) {
+    return tokens.every((token) => hay.includes(token));
+  }
+
+  return false;
 }
 
 function annotateCandidateListFlags(candidate, tenantJobIdSet = null) {
@@ -856,12 +877,7 @@ function buildAiCandidateAnalysis(candidate) {
       educationFit,
       keywordMatch,
     },
-    insights: [
-      {
-        type: 'gap',
-        text: 'No applied-job match score available yet. This is an estimated profile-fit score.',
-      },
-    ],
+    insights: [],
   };
 }
 
@@ -2411,15 +2427,8 @@ async function fetchPortalCandidatesForTenant(req, { status, assignedToId, searc
     andParts.push(await buildCandidateListVisibilityScope(req));
   }
 
-  if (search) {
-    andParts.push({
-      OR: [
-        { firstName: { contains: search } },
-        { lastName: { contains: search } },
-        { email: { contains: search } },
-      ],
-    });
-  }
+  const searchClause = buildCandidateSearchWhereClause(search);
+  if (searchClause) andParts.push(searchClause);
 
   if (listFilters) {
     appendCandidateListFilterAndParts(andParts, listFilters);
@@ -2486,16 +2495,8 @@ export const candidateService = {
     } else if (!canViewAllCandidates && req.user?.id) {
       andParts.push(await buildCandidateListVisibilityScope(req));
     }
-    if (search) {
-      // MongoDB doesn't support mode: 'insensitive' - use contains for case-sensitive search
-      andParts.push({
-        OR: [
-          { firstName: { contains: search } },
-          { lastName: { contains: search } },
-          { email: { contains: search } },
-        ],
-      });
-    }
+    const searchClause = buildCandidateSearchWhereClause(search);
+    if (searchClause) andParts.push(searchClause);
     appendCandidateListFilterAndParts(andParts, listFilters);
     if (andParts.length) {
       where.AND = andParts;
@@ -2623,8 +2624,12 @@ export const candidateService = {
         total = merged.length;
         candidates = merged.slice(skip, skip + limit);
       } else {
-        total = await prisma.candidate.count({ where });
-        candidates = tenantRows.slice(skip, skip + limit);
+        let rows = tenantRows;
+        if (search) {
+          rows = rows.filter((candidate) => candidateMatchesSearch(candidate, search));
+        }
+        total = rows.length;
+        candidates = rows.slice(skip, skip + limit);
       }
     }
 

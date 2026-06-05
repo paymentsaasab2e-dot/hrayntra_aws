@@ -1,5 +1,7 @@
+import { BULK_CV_EXTENSIONS } from './bulkCvFileTypes';
+
 /** Accepted CV extensions for bulk upload (lowercase). */
-const BULK_CV_EXT = new Set(['.pdf', '.doc', '.docx']);
+const BULK_CV_EXT = new Set<string>(BULK_CV_EXTENSIONS);
 
 export function isBulkCvFileName(name: string): boolean {
   const lower = String(name || '').toLowerCase();
