@@ -66,7 +66,7 @@ function isAllowedS3PdfUrl(url: string): boolean {
   try {
     const u = new URL(url);
     if (u.protocol !== 'https:') return false;
-    const hasResumeExt = /\.(pdf|png|jpe?g|gif|webp)($|[?#])/i.test(u.pathname);
+    const hasResumeExt = /\.(pdf|png|jpe?g|gif|webp|txt)($|[?#])/i.test(u.pathname);
     const extensionlessResume =
       !/\.(docx|doc)($|[?#])/i.test(u.pathname) && isExtensionlessResumeStoragePath(u.pathname);
     if (!hasResumeExt && !extensionlessResume) return false;
@@ -94,7 +94,7 @@ function isAllowedCloudinaryPdfUrl(url: string): boolean {
     if (u.protocol !== 'https:') return false;
     if (u.hostname !== 'res.cloudinary.com') return false;
     if (!/^\/[^/]+\/(raw|image)\/upload\//.test(u.pathname)) return false;
-    if (!/\.(pdf|png|jpe?g|gif|webp)($|[?#])/i.test(u.pathname)) return false;
+    if (!/\.(pdf|png|jpe?g|gif|webp|txt)($|[?#])/i.test(u.pathname)) return false;
     return true;
   } catch {
     return false;
@@ -224,7 +224,7 @@ export async function GET(req: NextRequest) {
     }
     const contentType = upstream.headers.get('content-type') || 'application/octet-stream';
     const lower = contentType.toLowerCase();
-    if (!lower.includes('pdf') && !lower.startsWith('image/')) {
+    if (!lower.includes('pdf') && !lower.startsWith('image/') && !lower.startsWith('text/')) {
       return new NextResponse('Unsupported resume file type', { status: 400 });
     }
     return new NextResponse(upstream.body, {
@@ -271,7 +271,7 @@ export async function GET(req: NextRequest) {
 
   const contentType = upstream.headers.get('content-type') || 'application/octet-stream';
   const lower = contentType.toLowerCase();
-  if (!lower.includes('pdf') && !lower.startsWith('image/')) {
+  if (!lower.includes('pdf') && !lower.startsWith('image/') && !lower.startsWith('text/')) {
     return new NextResponse('Unsupported resume file type', { status: 400 });
   }
 

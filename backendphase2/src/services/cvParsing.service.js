@@ -34,6 +34,8 @@ const MIME_TO_EXTENSIONS = {
   'application/msword': ['.doc'],
   'text/plain': ['.txt'],
   'image/png': ['.png'],
+  'image/jpeg': ['.jpg', '.jpeg'],
+  'image/jpg': ['.jpg', '.jpeg'],
 };
 
 /** When browsers send octet-stream, infer MIME from extension for bulk/folder uploads. */
@@ -43,6 +45,8 @@ const EXT_TO_CANONICAL_MIME = {
   '.doc': 'application/msword',
   '.txt': 'text/plain',
   '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
 };
 
 const ALLOWED_CV_EXTENSIONS = Object.keys(EXT_TO_CANONICAL_MIME);
@@ -1030,7 +1034,7 @@ export function validateCvUploadFile(file) {
     if (!ALLOWED_CV_EXTENSIONS.includes(ext)) {
       return {
         ok: false,
-        message: `Unsupported file type for ${name}. Allowed: PDF, DOC, DOCX, TXT, PNG.`,
+        message: `Unsupported file type for ${name}. Allowed: PDF, DOC, DOCX, TXT, PNG, JPG, JPEG.`,
       };
     }
     return { ok: true };
@@ -1373,7 +1377,7 @@ async function pdfPass4OcrTesseract(filePath) {
   }
 }
 
-/** Resume image (PNG scan/photo) — Tesseract OCR on the file path. */
+/** Resume image (PNG/JPG/JPEG scan/photo) — Tesseract OCR on the file path. */
 async function imageOcrTesseract(filePath) {
   const { createWorker } = await import('tesseract.js');
   let worker;
@@ -2595,17 +2599,24 @@ export async function runCvPipelineThroughStage4(file, options = {}) {
     } else if (mime === 'text/plain' || ext === '.txt') {
       narrativeLog(['Engine: Plain text — UTF-8 decode']);
       combinedRaw = buffer.toString('utf8');
-    } else if (mime === 'image/png' || ext === '.png') {
-      narrativeLog(['Engine: PNG — Tesseract OCR']);
+    } else if (
+      mime === 'image/png' ||
+      ext === '.png' ||
+      mime === 'image/jpeg' ||
+      mime === 'image/jpg' ||
+      ext === '.jpg' ||
+      ext === '.jpeg'
+    ) {
+      narrativeLog(['Engine: Image (PNG/JPG/JPEG) — Tesseract OCR']);
       combinedRaw = await imageOcrTesseract(file.path);
       if (!String(combinedRaw || '').trim()) {
         throw new Error(
-          'Could not extract text from this PNG. Use a clearer scan or upload PDF/DOCX instead.'
+          'Could not extract text from this image. Use a clearer scan or upload PDF/DOCX instead.'
         );
       }
     } else {
       throw new Error(
-        `Unsupported CV file type (${mime || 'unknown'}${ext ? `, ${ext}` : ''}). Use PDF, DOC, DOCX, TXT, or PNG.`
+        `Unsupported CV file type (${mime || 'unknown'}${ext ? `, ${ext}` : ''}). Use PDF, DOC, DOCX, TXT, PNG, JPG, or JPEG.`
       );
     }
     narrativeLog([`Extracted text length: ${combinedRaw.length} chars`]);

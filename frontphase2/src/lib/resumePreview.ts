@@ -37,6 +37,10 @@ export function isImageResume(resumeUrl?: string | null): boolean {
   return RESUME_IMAGE_EXTENSIONS.includes(ext as (typeof RESUME_IMAGE_EXTENSIONS)[number]);
 }
 
+export function isTextResume(resumeUrl?: string | null): boolean {
+  return getResumeExtension(resumeUrl) === 'txt';
+}
+
 /** Path clearly references Word (even when the key also contains ".pdf" as text). */
 export function urlIndicatesWordResume(resumeUrl?: string | null): boolean {
   const path = String(resumeUrl || '').split('?')[0].split('#')[0].toLowerCase();
@@ -56,7 +60,7 @@ export function canPreviewResumeAsHtml(resumeUrl?: string | null): boolean {
 export function canPreviewResumeInline(resumeUrl?: string | null): boolean {
   if (!resumeUrl || isWordResume(resumeUrl)) return false;
   const ext = getResumeExtension(resumeUrl);
-  if (ext === 'pdf' || isImageResume(resumeUrl)) return true;
+  if (ext === 'pdf' || ext === 'txt' || isImageResume(resumeUrl)) return true;
   return isExtensionlessResumeStoragePath(String(resumeUrl).trim());
 }
 
@@ -65,6 +69,7 @@ export function resolveResumePreviewKind(resumeUrl?: string | null): ResumePrevi
   if (!String(resumeUrl || '').trim()) return 'none';
   if (canPreviewResumeAsHtml(resumeUrl)) return 'html';
   if (isImageResume(resumeUrl)) return 'image';
+  if (isTextResume(resumeUrl)) return 'text';
   if (canPreviewResumeInline(resumeUrl)) return 'pdf';
   return 'none';
 }
@@ -148,7 +153,7 @@ export function canEmbedOfficeOnlineForResume(resumeUrl?: string | null): boolea
   return Boolean(origin && /^https:\/\//i.test(origin));
 }
 
-export type ResumePreviewMode = 'pdf' | 'image' | 'html' | 'none';
+export type ResumePreviewMode = 'pdf' | 'image' | 'html' | 'text' | 'none';
 
 export function getResumePreviewMode(resumeUrl?: string | null): ResumePreviewMode {
   return resolveResumePreviewKind(resumeUrl);

@@ -10,7 +10,7 @@ function isAllowedCloudinaryPdfUrl(urlString) {
     if (u.protocol !== 'https:') return false;
     if (u.hostname !== 'res.cloudinary.com') return false;
     if (!/^\/[^/]+\/(raw|image)\/upload\//.test(u.pathname)) return false;
-    if (!/\.(pdf|png|jpe?g|gif|webp)($|[?#])/i.test(u.pathname)) return false;
+    if (!/\.(pdf|png|jpe?g|gif|webp|txt)($|[?#])/i.test(u.pathname)) return false;
     return true;
   } catch {
     return false;
@@ -65,7 +65,9 @@ export async function getPdfProxy(req, res) {
 
   const contentType = detectResumeContentType(buf, objectKey);
   const allowed =
-    contentType === 'application/pdf' || String(contentType || '').startsWith('image/');
+    contentType === 'application/pdf' ||
+    contentType === 'text/plain' ||
+    String(contentType || '').startsWith('image/');
 
   if (!allowed) {
     return res.status(502).send('Unsupported resume file type');

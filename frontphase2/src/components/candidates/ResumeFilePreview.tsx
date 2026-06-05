@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { SaasaCvPdfViewer } from './SaasaCvPdfViewer';
 import { buildResumeViewerUrl } from '../../lib/resumePreview';
 
-type PreviewMode = 'loading' | 'image' | 'pdf';
+type PreviewMode = 'loading' | 'image' | 'pdf' | 'text';
 
 interface ResumeFilePreviewProps {
   resumeUrl: string;
@@ -20,11 +20,13 @@ export function ResumeFilePreview({
   const viewerUrl = buildResumeViewerUrl(resumeUrl);
   const [mode, setMode] = useState<PreviewMode>('loading');
   const [error, setError] = useState<string | null>(null);
+  const [textContent, setTextContent] = useState('');
 
   useEffect(() => {
     let cancelled = false;
     setMode('loading');
     setError(null);
+    setTextContent('');
 
     const detect = async () => {
       try {
@@ -37,6 +39,11 @@ export function ResumeFilePreview({
         if (cancelled) return;
         if (contentType.startsWith('image/')) {
           setMode('image');
+          return;
+        }
+        if (contentType.startsWith('text/')) {
+          setTextContent(await response.text());
+          setMode('text');
           return;
         }
         setMode('pdf');
@@ -77,6 +84,19 @@ export function ResumeFilePreview({
       <div className={imageShellClass}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={viewerUrl} alt={`${candidateName} resume`} className={imageClass} />
+      </div>
+    );
+  }
+
+  if (mode === 'text') {
+    const textShellClass = isModal
+      ? 'min-h-[min(70vh,720px)] w-full overflow-auto rounded-xl border border-slate-200 bg-white p-4 sm:p-6'
+      : 'max-h-[min(82dvh,960px)] overflow-auto rounded-xl border border-slate-200 bg-white p-4 sm:p-6';
+    return (
+      <div className={textShellClass}>
+        <pre className="whitespace-pre-wrap break-words font-mono text-sm leading-relaxed text-slate-800">
+          {textContent || 'Empty file'}
+        </pre>
       </div>
     );
   }

@@ -12,7 +12,7 @@ import {
 
 const PDF_MAGIC = Buffer.from('%PDF', 'ascii');
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-const RESUME_FILE_PATTERN = /\.(pdf|png|jpe?g|gif|webp)$/i;
+const RESUME_FILE_PATTERN = /\.(pdf|png|jpe?g|gif|webp|txt)$/i;
 
 const TENANT_SEGMENTS_TO_TRY = ['gho01', 'default'];
 
@@ -125,7 +125,24 @@ export function detectResumeContentType(buf, key = '') {
   ) {
     return 'image/webp';
   }
-  return uploadContentTypeForFile('', basenameFromKey(key));
+  const fromKey = uploadContentTypeForFile('', basenameFromKey(key));
+  if (fromKey === 'text/plain') return fromKey;
+  if (looksLikePlainText(buf)) return 'text/plain';
+  return fromKey;
+}
+
+function looksLikePlainText(buf) {
+  if (!buf?.length) return false;
+  const sample = buf.subarray(0, Math.min(buf.length, 8192));
+  let nonText = 0;
+  for (let i = 0; i < sample.length; i += 1) {
+    const b = sample[i];
+    if (b === 9 || b === 10 || b === 13) continue;
+    if (b >= 32 && b <= 126) continue;
+    if (b >= 128) continue;
+    nonText += 1;
+  }
+  return nonText / sample.length < 0.05;
 }
 
 async function readS3ObjectByKey(key) {
