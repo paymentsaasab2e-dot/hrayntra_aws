@@ -1,16 +1,17 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { Download, Eye, FileText, X } from 'lucide-react';
 import { ResumeDocxPreview } from './ResumeDocxPreview';
-import { SaasaCvPdfViewer } from './SaasaCvPdfViewer';
+import { ResumeFilePreview } from './ResumeFilePreview';
 import { SaasaCvSavedPreview } from './SaasaCvSavedPreview';
 import {
-  buildResumeViewerUrl,
   canPreviewResumeAsHtml,
   canPreviewResumeInline,
   getResumeExtension,
+  isImageResume,
   normalizeResumeHref,
 } from '../../lib/resumePreview';
 
@@ -27,13 +28,29 @@ export function ResumePreviewModal({
   resumeUrl,
   candidateName = 'Candidate',
 }: ResumePreviewModalProps) {
+  const [portalReady, setPortalReady] = useState(false);
   const href = resumeUrl ? normalizeResumeHref(resumeUrl) : '';
   const canPdf = Boolean(href && canPreviewResumeInline(href));
   const canHtml = Boolean(href && canPreviewResumeAsHtml(href));
   const extension = getResumeExtension(href);
-  const isImage = ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(extension);
+  const isImage = isImageResume(href);
 
-  return (
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [isOpen]);
+
+  if (!portalReady) return null;
+
+  const modal = (
     <AnimatePresence>
       {isOpen && href ? (
         <>
@@ -41,7 +58,7 @@ export function ResumePreviewModal({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[120] bg-slate-950/55"
+            className="fixed inset-0 z-[220] bg-slate-950/60"
             onClick={onClose}
           />
           <motion.div
@@ -49,12 +66,12 @@ export function ResumePreviewModal({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.98, y: 12 }}
             transition={{ type: 'tween', duration: 0.2 }}
-            className="fixed inset-4 z-[121] mx-auto flex max-h-[calc(100vh-2rem)] max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl sm:inset-8"
+            className="fixed inset-3 z-[221] mx-auto flex h-[calc(100vh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-[min(96vw,1400px)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl sm:inset-6 sm:h-[calc(100vh-3rem)] sm:w-[calc(100vw-3rem)]"
             role="dialog"
             aria-modal="true"
             aria-label={`${candidateName} resume preview`}
           >
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 sm:px-5">
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 sm:px-5">
               <div className="flex min-w-0 items-center gap-3">
                 <div className="rounded-xl bg-blue-50 p-2 text-blue-600">
                   <FileText size={18} />
@@ -97,17 +114,19 @@ export function ResumePreviewModal({
 
             <div className="min-h-0 flex-1 overflow-hidden bg-slate-100">
               {canPdf ? (
-                <div className="h-full min-h-[min(70vh,640px)] overflow-auto p-4">
-                  <div className="mx-auto w-full max-w-5xl">
-                    <SaasaCvPdfViewer pdfUrl={buildResumeViewerUrl(href)} />
-                  </div>
+                <div className="h-full overflow-auto p-3 sm:p-5">
+                  <ResumeFilePreview
+                    resumeUrl={href}
+                    candidateName={candidateName}
+                    layout="modal"
+                  />
                 </div>
               ) : canHtml ? (
                 <ResumeDocxPreview
                   resumeUrl={href}
                   candidateName={candidateName}
                   enabled={isOpen}
-                  minHeightClass="min-h-[min(70vh,640px)]"
+                  minHeightClass="min-h-full h-full"
                   className="h-full"
                 />
               ) : isImage ? (
@@ -115,7 +134,7 @@ export function ResumePreviewModal({
                   fileUrl={href}
                   candidateName={candidateName}
                   enabled={isOpen}
-                  minHeightClass="min-h-[min(70vh,640px)]"
+                  minHeightClass="min-h-full h-full"
                   className="h-full"
                 />
               ) : (
@@ -156,4 +175,6 @@ export function ResumePreviewModal({
       ) : null}
     </AnimatePresence>
   );
+
+  return createPortal(modal, document.body);
 }

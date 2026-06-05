@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Download, Eye, FileText, Loader2, Pencil } from 'lucide-react';
 import { ResumeInlinePreview } from './ResumeInlinePreview';
 import { ResumePreviewModal } from './ResumePreviewModal';
@@ -73,6 +74,11 @@ export function CandidateResumeTabPanel({
   const [viewMode, setViewMode] = useState<ResumeCvViewMode | null>(null);
   const [filesResumeUrl, setFilesResumeUrl] = useState<string | null>(null);
   const [candidateFiles, setCandidateFiles] = useState<SaasaCvFileRef[]>([]);
+  const [portalReady, setPortalReady] = useState(false);
+
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
 
   const uploadsBase = useMemo(() => {
     const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1';
@@ -417,34 +423,37 @@ export function CandidateResumeTabPanel({
         candidateName={candidate.name}
       />
 
-      {saasaPreviewOpen && (effectiveSaasaPreviewHref || saasaBaseResumeHref) ? (
-        <div className="fixed inset-0 z-[120] flex flex-col bg-slate-950/60 p-2 sm:p-4">
-          <div className="mx-auto flex h-full w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
-            <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-4 py-3">
-              <h3 className="text-base font-semibold text-slate-900">{candidate.name} — SAASA CV</h3>
-              <button
-                type="button"
-                onClick={() => setSaasaPreviewOpen(false)}
-                className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
-              >
-                Close
-              </button>
-            </div>
-            <div className="min-h-0 flex-1">
-              {effectiveSaasaPreviewHref ? (
-                <SaasaCvSavedPreview
-                  fileUrl={effectiveSaasaPreviewHref}
-                  cacheKey={saasaStored?.updatedAt ?? saasaStored?.fileId ?? null}
-                  candidateName={candidate.name}
-                  enabled={saasaPreviewOpen}
-                  minHeightClass="h-full min-h-0"
-                  className="h-full"
-                />
-              ) : null}
-            </div>
-          </div>
-        </div>
-      ) : null}
+      {portalReady && saasaPreviewOpen && (effectiveSaasaPreviewHref || saasaBaseResumeHref)
+        ? createPortal(
+            <div className="fixed inset-0 z-[220] flex flex-col bg-slate-950/60 p-2 sm:p-4">
+              <div className="mx-auto flex h-[calc(100vh-1rem)] w-[calc(100vw-1rem)] max-w-[min(96vw,1400px)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl sm:h-[calc(100vh-2rem)] sm:w-[calc(100vw-2rem)]">
+                <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-4 py-3">
+                  <h3 className="text-base font-semibold text-slate-900">{candidate.name} — SAASA CV</h3>
+                  <button
+                    type="button"
+                    onClick={() => setSaasaPreviewOpen(false)}
+                    className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
+                  >
+                    Close
+                  </button>
+                </div>
+                <div className="min-h-0 flex-1">
+                  {effectiveSaasaPreviewHref ? (
+                    <SaasaCvSavedPreview
+                      fileUrl={effectiveSaasaPreviewHref}
+                      cacheKey={saasaStored?.updatedAt ?? saasaStored?.fileId ?? null}
+                      candidateName={candidate.name}
+                      enabled={saasaPreviewOpen}
+                      minHeightClass="h-full min-h-0"
+                      className="h-full"
+                    />
+                  ) : null}
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </>
   );
 }
