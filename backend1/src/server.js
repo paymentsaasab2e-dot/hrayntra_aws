@@ -104,6 +104,7 @@ app.use('/api/contacts/import', contactImportRoutes);
 app.use('/api/v1/contacts/import', contactImportRoutes);
 app.use('/api/resume-preview', resumePreviewRoutes);
 app.use('/api/document-download', require('./routes/documentDownload.routes'));
+app.use('/api/document-view', require('./routes/documentView.routes'));
 
 // Error handling middleware
 app.use((err, req, res, next) => {

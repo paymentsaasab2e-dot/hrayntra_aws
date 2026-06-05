@@ -7,9 +7,12 @@ import {
   getS3ObjectBodyBuffer,
   isOurS3PdfUrl,
   parseOurS3Url,
+  uploadContentTypeForFile,
 } from './s3.js';
 
 const PDF_MAGIC = Buffer.from('%PDF', 'ascii');
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const RESUME_FILE_PATTERN = /\.(pdf|png|jpe?g|gif|webp)$/i;
 
 const TENANT_SEGMENTS_TO_TRY = ['gho01', 'default'];
 
@@ -98,27 +101,48 @@ export function buildAlternateS3ObjectKeys(key) {
   return [...keys];
 }
 
-async function readS3PdfByKey(key) {
-  const buf = await getS3ObjectBodyBuffer(key);
-  if (buf.length < 4 || !buf.subarray(0, 4).equals(PDF_MAGIC)) {
-    throw new Error('Not a valid PDF');
+export function detectResumeContentType(buf, key = '') {
+  if (buf.length >= 4 && buf.subarray(0, 4).equals(PDF_MAGIC)) {
+    return 'application/pdf';
   }
-  return buf;
+  if (buf.length >= 8 && buf.subarray(0, 8).equals(PNG_MAGIC)) {
+    return 'image/png';
+  }
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+    return 'image/jpeg';
+  }
+  if (
+    buf.length >= 6 &&
+    (buf.subarray(0, 6).toString('ascii') === 'GIF87a' ||
+      buf.subarray(0, 6).toString('ascii') === 'GIF89a')
+  ) {
+    return 'image/gif';
+  }
+  if (
+    buf.length >= 12 &&
+    buf.subarray(0, 4).toString('ascii') === 'RIFF' &&
+    buf.subarray(8, 12).toString('ascii') === 'WEBP'
+  ) {
+    return 'image/webp';
+  }
+  return uploadContentTypeForFile('', basenameFromKey(key));
 }
 
-async function tryFetchPublicPdfUrl(url) {
+async function readS3ObjectByKey(key) {
+  return getS3ObjectBodyBuffer(key);
+}
+
+async function tryFetchPublicDocumentUrl(url) {
   const upstream = await fetch(url, {
     redirect: 'follow',
-    headers: { Accept: 'application/pdf,*/*' },
+    headers: { Accept: '*/*' },
   });
   if (!upstream.ok) return null;
-  const buf = Buffer.from(await upstream.arrayBuffer());
-  if (buf.length < 4 || !buf.subarray(0, 4).equals(PDF_MAGIC)) return null;
-  return buf;
+  return Buffer.from(await upstream.arrayBuffer());
 }
 
-/** Discover a resume PDF in S3 when the stored URL points at a removed phase1 key. */
-async function discoverResumePdfKeyForCandidate(candidateId) {
+/** Discover a resume file in S3 when the stored URL points at a removed phase1 key. */
+async function discoverResumeFileKeyForCandidate(candidateId) {
   const id = String(candidateId || '').trim();
   if (!id) return null;
 
@@ -145,7 +169,7 @@ async function discoverResumePdfKeyForCandidate(candidateId) {
         })
       );
       const objects = (out.Contents || [])
-        .filter((o) => o.Key && /\.pdf$/i.test(o.Key))
+        .filter((o) => o.Key && RESUME_FILE_PATTERN.test(o.Key))
         .sort((a, b) => {
           const ta = b.LastModified?.getTime() || 0;
           const tb = a.LastModified?.getTime() || 0;
@@ -161,9 +185,9 @@ async function discoverResumePdfKeyForCandidate(candidateId) {
 }
 
 /**
- * Load PDF bytes for an allowed S3 resume URL, with key variants + DB/S3 discovery fallback.
+ * Load resume document bytes for an allowed S3 resume URL, with key variants + DB/S3 discovery fallback.
  */
-export async function fetchS3ResumePdfBuffer(decodedUrl, options = {}) {
+export async function fetchS3ResumeDocumentBuffer(decodedUrl, options = {}) {
   const retried = Boolean(options._retried);
   const parsed = parseOurS3Url(decodedUrl);
   if (!parsed?.key) {
@@ -171,8 +195,8 @@ export async function fetchS3ResumePdfBuffer(decodedUrl, options = {}) {
   }
 
   try {
-    const publicBuf = await tryFetchPublicPdfUrl(decodedUrl);
-    if (publicBuf) return publicBuf;
+    const publicBuf = await tryFetchPublicDocumentUrl(decodedUrl);
+    if (publicBuf) return { buffer: publicBuf, key: parsed.key };
   } catch {
     /* fall through to signed S3 */
   }
@@ -180,7 +204,8 @@ export async function fetchS3ResumePdfBuffer(decodedUrl, options = {}) {
   let lastErr = null;
   for (const key of buildAlternateS3ObjectKeys(parsed.key)) {
     try {
-      return await readS3PdfByKey(key);
+      const buffer = await readS3ObjectByKey(key);
+      return { buffer, key };
     } catch (err) {
       lastErr = err;
       if (!isNoSuchKeyError(err)) throw err;
@@ -190,10 +215,11 @@ export async function fetchS3ResumePdfBuffer(decodedUrl, options = {}) {
   if (!retried) {
     const candidateId = extractCandidateIdFromResumeStorageUrl(decodedUrl);
     if (candidateId) {
-      const discoveredKey = await discoverResumePdfKeyForCandidate(candidateId);
+      const discoveredKey = await discoverResumeFileKeyForCandidate(candidateId);
       if (discoveredKey && discoveredKey !== parsed.key) {
         try {
-          return await readS3PdfByKey(discoveredKey);
+          const buffer = await readS3ObjectByKey(discoveredKey);
+          return { buffer, key: discoveredKey };
         } catch (err) {
           lastErr = err;
           if (!isNoSuchKeyError(err)) throw err;
@@ -202,10 +228,19 @@ export async function fetchS3ResumePdfBuffer(decodedUrl, options = {}) {
 
       const altUrl = await getLatestCandidateResumeFileUrl(candidateId, { skipUrl: decodedUrl });
       if (altUrl && altUrl !== decodedUrl && isOurS3PdfUrl(altUrl)) {
-        return fetchS3ResumePdfBuffer(altUrl, { _retried: true });
+        return fetchS3ResumeDocumentBuffer(altUrl, { _retried: true });
       }
     }
   }
 
   throw lastErr || new Error('The specified key does not exist.');
+}
+
+/** @deprecated use fetchS3ResumeDocumentBuffer */
+export async function fetchS3ResumePdfBuffer(decodedUrl, options = {}) {
+  const { buffer } = await fetchS3ResumeDocumentBuffer(decodedUrl, options);
+  if (buffer.length < 4 || !buffer.subarray(0, 4).equals(PDF_MAGIC)) {
+    throw new Error('Not a valid PDF');
+  }
+  return buffer;
 }

@@ -59,11 +59,7 @@ async function fetchDocumentBuffer(decoded) {
   return Buffer.from(await upstream.arrayBuffer());
 }
 
-/**
- * GET /api/document-download?url=...&filename=...
- * Streams profile documents as attachment (S3 or legacy Cloudinary).
- */
-async function getDocumentDownload(req, res) {
+async function streamDocument(req, res, disposition) {
   const raw = req.query.url;
   if (!raw || typeof raw !== 'string') {
     return res.status(400).send('Missing url');
@@ -87,15 +83,41 @@ async function getDocumentDownload(req, res) {
     const contentType = guessContentType(filename || path.basename(new URL(decoded).pathname), buf);
 
     res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader(
+      'Content-Disposition',
+      disposition === 'inline'
+        ? `inline; filename="${filename}"`
+        : `attachment; filename="${filename}"`,
+    );
     res.setHeader('Content-Length', String(buf.length));
     res.setHeader('Cache-Control', 'private, max-age=300');
     return res.status(200).send(buf);
   } catch (error) {
-    return res.status(502).send(error?.message || 'Failed to download document');
+    const message =
+      disposition === 'inline'
+        ? error?.message || 'Failed to view document'
+        : error?.message || 'Failed to download document';
+    return res.status(502).send(message);
   }
+}
+
+/**
+ * GET /api/document-download?url=...&filename=...
+ * Streams profile documents as attachment (S3 or legacy Cloudinary).
+ */
+async function getDocumentDownload(req, res) {
+  return streamDocument(req, res, 'attachment');
+}
+
+/**
+ * GET /api/document-view?url=...&filename=...
+ * Streams profile documents inline for browser preview (new tab).
+ */
+async function getDocumentView(req, res) {
+  return streamDocument(req, res, 'inline');
 }
 
 module.exports = {
   getDocumentDownload,
+  getDocumentView,
 };

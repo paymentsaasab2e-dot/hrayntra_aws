@@ -70,15 +70,17 @@ export function SaasaCvSavedPreview({
     );
   }
 
+  const imageUrl = viewerUrl || href;
+
   return (
     <div className={shellClass} aria-label={`${candidateName} SAASA CV`}>
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-4 sm:p-6">
         <div className="mx-auto w-full max-w-[52rem]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={href}
+            src={imageUrl}
             alt={`${candidateName} SAASA CV`}
-            className="mx-auto block w-full rounded-lg border border-slate-200 bg-white shadow-sm"
+            className="mx-auto block max-h-[min(82dvh,960px)] w-full rounded-lg border border-slate-200 bg-white object-contain shadow-sm"
           />
         </div>
       </div>

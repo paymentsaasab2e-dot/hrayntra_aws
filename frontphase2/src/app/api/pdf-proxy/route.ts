@@ -66,10 +66,10 @@ function isAllowedS3PdfUrl(url: string): boolean {
   try {
     const u = new URL(url);
     if (u.protocol !== 'https:') return false;
-    const hasPdfExt = /\.pdf($|[?#])/i.test(u.pathname);
+    const hasResumeExt = /\.(pdf|png|jpe?g|gif|webp)($|[?#])/i.test(u.pathname);
     const extensionlessResume =
       !/\.(docx|doc)($|[?#])/i.test(u.pathname) && isExtensionlessResumeStoragePath(u.pathname);
-    if (!hasPdfExt && !extensionlessResume) return false;
+    if (!hasResumeExt && !extensionlessResume) return false;
     if (u.hostname === `${bucket}.s3.amazonaws.com`) return true;
     if (u.hostname.startsWith(`${bucket}.s3.`)) return true;
     if (u.hostname.startsWith('s3.') && u.pathname.startsWith(`/${bucket}/`)) return true;
@@ -94,7 +94,7 @@ function isAllowedCloudinaryPdfUrl(url: string): boolean {
     if (u.protocol !== 'https:') return false;
     if (u.hostname !== 'res.cloudinary.com') return false;
     if (!/^\/[^/]+\/(raw|image)\/upload\//.test(u.pathname)) return false;
-    if (!/\.pdf($|[?#])/i.test(u.pathname)) return false;
+    if (!/\.(pdf|png|jpe?g|gif|webp)($|[?#])/i.test(u.pathname)) return false;
     return true;
   } catch {
     return false;
@@ -222,14 +222,15 @@ export async function GET(req: NextRequest) {
     if (!upstream.ok) {
       return new NextResponse(`Failed to fetch PDF (upstream ${upstream.status})`, { status: 500 });
     }
-    const contentType = upstream.headers.get('content-type') || '';
-    if (!contentType.toLowerCase().includes('pdf')) {
-      return new NextResponse('Not a valid PDF', { status: 400 });
+    const contentType = upstream.headers.get('content-type') || 'application/octet-stream';
+    const lower = contentType.toLowerCase();
+    if (!lower.includes('pdf') && !lower.startsWith('image/')) {
+      return new NextResponse('Unsupported resume file type', { status: 400 });
     }
     return new NextResponse(upstream.body, {
       status: 200,
       headers: {
-        'Content-Type': 'application/pdf',
+        'Content-Type': contentType,
         'Content-Disposition': 'inline',
       },
     });
@@ -268,15 +269,16 @@ export async function GET(req: NextRequest) {
     return new NextResponse(message, { status: upstream.status === 401 ? 401 : 500 });
   }
 
-  const contentType = upstream.headers.get('content-type') || '';
-  if (!contentType.toLowerCase().includes('pdf')) {
-    return new NextResponse('Not a valid PDF', { status: 400 });
+  const contentType = upstream.headers.get('content-type') || 'application/octet-stream';
+  const lower = contentType.toLowerCase();
+  if (!lower.includes('pdf') && !lower.startsWith('image/')) {
+    return new NextResponse('Unsupported resume file type', { status: 400 });
   }
 
   return new NextResponse(upstream.body, {
     status: 200,
     headers: {
-      'Content-Type': 'application/pdf',
+      'Content-Type': contentType,
       'Content-Disposition': 'inline',
     },
   });
