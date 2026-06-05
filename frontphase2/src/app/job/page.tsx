@@ -1169,27 +1169,45 @@ export default function JobsPage() {
     };
   }, []);
 
-  // Handle LinkedIn OAuth callback
+  // Handle LinkedIn + X/Facebook OAuth return on the jobs page
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const linkedinParam = params.get('linkedin');
-    
-    if (linkedinParam === 'connected') {
-      // Open the create job drawer when LinkedIn connection succeeds
+    const integrationConnected = params.get('integration_connected');
+    const integrationError = params.get('integration_error');
+    const shouldReopenDrawer =
+      sessionStorage.getItem('reopen_create_job_drawer') === '1' ||
+      linkedinParam === 'connected' ||
+      linkedinParam === 'error' ||
+      integrationConnected === 'twitter' ||
+      integrationConnected === 'facebook' ||
+      integrationError === 'twitter' ||
+      integrationError === 'facebook';
+
+    if (shouldReopenDrawer) {
       setCreateJobDrawerOpen(true);
-      // Clean up URL
+      sessionStorage.removeItem('reopen_create_job_drawer');
+      sessionStorage.removeItem('oauth_navigation');
+      sessionStorage.removeItem('oauth_provider');
+    }
+
+    if (integrationConnected === 'twitter') {
+      toast.success('X account connected successfully.');
+    } else if (integrationConnected === 'facebook') {
+      toast.success('Facebook account connected successfully.');
+    } else if (integrationError === 'twitter') {
+      toast.error('Failed to connect X account. Please try again.');
+    } else if (integrationError === 'facebook') {
+      toast.error('Failed to connect Facebook account. Please try again.');
+    }
+
+    if (linkedinParam || integrationConnected || integrationError) {
       const url = new URL(window.location.href);
       url.searchParams.delete('linkedin');
       url.searchParams.delete('message');
-      window.history.replaceState({}, '', url.pathname + (url.search || ''));
-    } else if (linkedinParam === 'error') {
-      // Show error (will be handled by CreateJobDrawer's LinkedIn hook)
-      // Still open drawer so user can see the error
-      setCreateJobDrawerOpen(true);
-      // Clean up URL
-      const url = new URL(window.location.href);
-      url.searchParams.delete('linkedin');
-      url.searchParams.delete('message');
+      url.searchParams.delete('integration_connected');
+      url.searchParams.delete('integration_error');
+      url.searchParams.delete('email');
       window.history.replaceState({}, '', url.pathname + (url.search || ''));
     }
   }, []);

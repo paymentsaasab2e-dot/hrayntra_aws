@@ -3,6 +3,7 @@ import { prisma } from '../config/prisma.js';
 import { env } from '../config/env.js';
 import { oauthTokenService } from '../modules/oauth/oauth-token.service.js';
 import { isNotificationTriggerEnabled } from '../modules/setting/notification-trigger-settings.js';
+import { renderNotificationTriggerEmail } from '../modules/setting/notification-trigger-template-settings.js';
 import { interviewScheduledTemplate } from '../utils/emailTemplates.js';
 import { buildPlacementInvoiceEmailHtml } from '../utils/invoiceEmailHtml.js';
 import {
@@ -13,6 +14,71 @@ import {
 const resend = new Resend(process.env.RESEND_API_KEY);
 // Use the Resend configured from address; fallback to a generic placeholder.
 const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || process.env.FROM_EMAIL || 'noreply@saasa.com';
+
+function formatAssignedByClause(assignedByName) {
+  const name = String(assignedByName || '').trim();
+  return name ? ` by ${name}` : '';
+}
+
+function buildInterviewExtraDetails(payload, { includeCandidate = false } = {}) {
+  const {
+    candidateName,
+    interviewType,
+    roundLabel,
+    durationLabel,
+    modeLabel,
+    platformLabel,
+    location,
+    phoneNumber,
+    notes,
+  } = payload;
+
+  return [
+    includeCandidate && candidateName ? `<p><strong>Candidate:</strong> ${candidateName}</p>` : '',
+    interviewType ? `<p><strong>Interview Type:</strong> ${interviewType}</p>` : '',
+    roundLabel ? `<p><strong>Round:</strong> ${roundLabel}</p>` : '',
+    durationLabel ? `<p><strong>Duration:</strong> ${durationLabel}</p>` : '',
+    modeLabel
+      ? `<p><strong>Mode:</strong> ${modeLabel}${platformLabel ? ` (${platformLabel})` : ''}</p>`
+      : '',
+    location ? `<p><strong>Location:</strong> ${location}</p>` : '',
+    phoneNumber ? `<p><strong>Phone Number:</strong> ${phoneNumber}</p>` : '',
+    notes ? `<p><strong>Additional Notes:</strong> ${notes}</p>` : '',
+  ]
+    .filter(Boolean)
+    .join('');
+}
+
+function buildRichInterviewScheduledHtml(payload, { panelMember = false } = {}) {
+  const {
+    candidateName,
+    recipientName,
+    jobTitle,
+    companyName,
+    scheduledAt,
+    timezone,
+    meetingLink,
+    interviewerNames,
+  } = payload;
+
+  const extraDetails = buildInterviewExtraDetails(payload, { includeCandidate: panelMember });
+
+  return `
+      ${interviewScheduledTemplate({
+        candidateName: panelMember ? recipientName || 'Interviewer' : candidateName,
+        jobTitle,
+        companyName,
+        date: scheduledAt,
+        timezone,
+        meetingLink,
+        panelNames: interviewerNames || [],
+      })}
+      <div style="max-width:640px; margin:16px auto 0; background:#ffffff; border:1px solid #e5e7eb; border-radius:16px; padding:24px; font-family: Arial, sans-serif; color:#111827;">
+        <h2 style="margin-top:0; font-size:18px;">Interview Details</h2>
+        ${extraDetails}
+      </div>
+    `;
+}
 
 function warnIfInviteLinksPointToLocalhostInProduction() {
   if (env.NODE_ENV !== 'production') return;
@@ -229,69 +295,23 @@ export async function sendInviteEmail(payload) {
     const loginLink = `${base}/login?token=${inviteToken}${tenantQ}`;
     const resetPasswordLink = `${base}/reset-password`;
 
-    const html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Your SAASA portal login credentials</title>
-</head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
-  <div style="background: #ffffff; border-radius: 8px; padding: 40px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-    <h1 style="color: #2563eb; margin: 0 0 20px 0; font-size: 24px;">Welcome to SAASA</h1>
-    
-    <p style="font-size: 16px; margin-bottom: 20px;">Hello ${toName},</p>
-    
-    <p style="font-size: 16px; margin-bottom: 20px;">
-      Your account has been created with the role of <strong>${roleName}</strong>. 
-      Please use the credentials below to log in:
-    </p>
-    
-    <div style="background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 6px; padding: 20px; margin: 20px 0;">
-      <p style="margin: 0 0 10px 0; font-size: 14px; color: #6b7280; font-weight: 600;">Login ID:</p>
-      <div style="font-family: 'Courier New', monospace; font-size: 16px; color: #111827; background: white; padding: 12px; border-radius: 4px; border: 1px solid #d1d5db; letter-spacing: 0.5px;">${loginId}</div>
-      
-      <p style="margin: 20px 0 10px 0; font-size: 14px; color: #6b7280; font-weight: 600;">Temporary Password:</p>
-      <div style="font-family: 'Courier New', monospace; font-size: 16px; color: #111827; background: white; padding: 12px; border-radius: 4px; border: 1px solid #d1d5db; letter-spacing: 0.5px;">${tempPassword}</div>
-    </div>
-    
-    <div style="text-align: center; margin: 30px 0;">
-      <a href="${loginLink}" style="display: inline-block; background: #2563eb; color: white; text-decoration: none; padding: 14px 32px; border-radius: 6px; font-weight: 600; font-size: 16px;">Log in to portal</a>
-    </div>
-    
-    <p style="font-size: 14px; margin: 0 0 6px 0; color: #374151;">
-      Direct Login URL:
-      <a href="${loginLink}" style="color: #2563eb; text-decoration: none;"> ${loginLink}</a>
-    </p>
-    <p style="font-size: 14px; margin: 0 0 20px 0; color: #374151;">
-      Reset Password URL:
-      <a href="${resetPasswordLink}" style="color: #2563eb; text-decoration: none;"> ${resetPasswordLink}</a>
-    </p>
-    
-    <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; border-radius: 4px;">
-      <p style="margin: 0; font-size: 14px; color: #92400e;">
-        <strong>Note:</strong> This link expires in 48 hours. You will be asked to set a new password on first login.
-      </p>
-    </div>
-    
-    <p style="font-size: 14px; color: #6b7280; margin-top: 30px;">
-      If you have any questions, please contact your administrator.
-    </p>
-    
-    <p style="font-size: 14px; color: #6b7280; margin-top: 20px;">
-      Best regards,<br>
-      <strong>The SAASA Team</strong>
-    </p>
-  </div>
-</body>
-</html>
-    `;
+    const { subject, html } = await renderNotificationTriggerEmail(
+      'team.invite_email',
+      senderUserId || null,
+      {
+        recipientName: toName,
+        loginId,
+        tempPassword,
+        roleName,
+        loginLink,
+        resetPasswordLink,
+      },
+    );
 
     await sendEmail({
       senderUserId,
       toEmail,
-      subject: 'Your SAASA portal login credentials',
+      subject,
       html,
     });
 
@@ -398,50 +418,25 @@ export async function sendLeadAssignmentEmail(payload) {
       senderUserId,
     } = payload;
 
-    const html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>New Lead Assigned</title>
-</head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
-  <div style="background: #ffffff; border-radius: 8px; padding: 40px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-    <h1 style="color: #2563eb; margin: 0 0 20px 0; font-size: 24px;">New Lead Assigned</h1>
-
-    <p style="font-size: 16px; margin-bottom: 20px;">Hello ${assigneeName || 'Team Member'},</p>
-
-    <p style="font-size: 16px; margin-bottom: 20px;">
-      A lead has been assigned to you${assignedByName ? ` by <strong>${assignedByName}</strong>` : ''}.
-    </p>
-
-    <div style="background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 6px; padding: 20px; margin: 20px 0;">
-      <p style="margin: 0 0 12px 0;"><strong>Company:</strong> ${leadCompanyName || 'N/A'}</p>
-      <p style="margin: 0 0 12px 0;"><strong>Contact Person:</strong> ${contactPerson || 'N/A'}</p>
-      <p style="margin: 0 0 12px 0;"><strong>Email:</strong> ${leadEmail || 'N/A'}</p>
-      <p style="margin: 0 0 12px 0;"><strong>Phone:</strong> ${leadPhone || 'N/A'}</p>
-      <p style="margin: 0 0 12px 0;"><strong>Status:</strong> ${leadStatus || 'N/A'}</p>
-      <p style="margin: 0;"><strong>Priority:</strong> ${leadPriority || 'N/A'}</p>
-    </div>
-
-    <p style="font-size: 14px; color: #6b7280; margin-top: 30px;">
-      Please log in to the portal and follow up with this lead.
-    </p>
-
-    <p style="font-size: 14px; color: #6b7280; margin-top: 20px;">
-      Best regards,<br>
-      <strong>The SAASA Team</strong>
-    </p>
-  </div>
-</body>
-</html>
-    `;
+    const { subject, html } = await renderNotificationTriggerEmail(
+      'lead.assignment_email',
+      senderUserId || null,
+      {
+        assigneeName,
+        leadCompanyName,
+        contactPerson,
+        leadEmail,
+        leadPhone,
+        leadStatus,
+        leadPriority,
+        assignedByName: formatAssignedByClause(assignedByName),
+      },
+    );
 
     await sendEmail({
       senderUserId,
       toEmail,
-      subject: `New Lead Assigned: ${leadCompanyName || 'Lead'}`,
+      subject,
       html,
     });
 
@@ -476,50 +471,25 @@ export async function sendClientAssignmentEmail(payload) {
       senderUserId,
     } = payload;
 
-    const html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>New Client Assigned</title>
-</head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
-  <div style="background: #ffffff; border-radius: 8px; padding: 40px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-    <h1 style="color: #2563eb; margin: 0 0 20px 0; font-size: 24px;">New Client Assigned</h1>
-
-    <p style="font-size: 16px; margin-bottom: 20px;">Hello ${assigneeName || 'Team Member'},</p>
-
-    <p style="font-size: 16px; margin-bottom: 20px;">
-      A client has been assigned to you${assignedByName ? ` by <strong>${assignedByName}</strong>` : ''}.
-    </p>
-
-    <div style="background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 6px; padding: 20px; margin: 20px 0;">
-      <p style="margin: 0 0 12px 0;"><strong>Company:</strong> ${clientCompanyName || 'N/A'}</p>
-      <p style="margin: 0 0 12px 0;"><strong>Industry:</strong> ${clientIndustry || 'N/A'}</p>
-      <p style="margin: 0 0 12px 0;"><strong>Website:</strong> ${clientWebsite || 'N/A'}</p>
-      <p style="margin: 0 0 12px 0;"><strong>Location:</strong> ${clientLocation || 'N/A'}</p>
-      <p style="margin: 0 0 12px 0;"><strong>Status:</strong> ${clientStatus || 'N/A'}</p>
-      <p style="margin: 0;"><strong>Priority:</strong> ${clientPriority || 'N/A'}</p>
-    </div>
-
-    <p style="font-size: 14px; color: #6b7280; margin-top: 30px;">
-      Please log in to the portal and continue follow-up for this client.
-    </p>
-
-    <p style="font-size: 14px; color: #6b7280; margin-top: 20px;">
-      Best regards,<br>
-      <strong>The SAASA Team</strong>
-    </p>
-  </div>
-</body>
-</html>
-    `;
+    const { subject, html } = await renderNotificationTriggerEmail(
+      'client.assignment_email',
+      senderUserId || null,
+      {
+        assigneeName,
+        clientCompanyName,
+        clientIndustry,
+        clientWebsite,
+        clientLocation,
+        clientStatus,
+        clientPriority,
+        assignedByName: formatAssignedByClause(assignedByName),
+      },
+    );
 
     await sendEmail({
       senderUserId,
       toEmail,
-      subject: `New Client Assigned: ${clientCompanyName || 'Client'}`,
+      subject,
       html,
     });
 
@@ -551,50 +521,23 @@ export async function sendJobAssignmentEmail(payload) {
       senderUserId,
     } = payload;
 
-    const html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>New Job Assigned</title>
-</head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
-  <div style="background: #ffffff; border-radius: 8px; padding: 40px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-    <h1 style="color: #2563eb; margin: 0 0 20px 0; font-size: 24px;">New Job Assigned</h1>
-
-    <p style="font-size: 16px; margin-bottom: 20px;">Hello ${assigneeName || 'Team Member'},</p>
-
-    <p style="font-size: 16px; margin-bottom: 20px;">
-      A job has been assigned to you${assignedByName ? ` by <strong>${assignedByName}</strong>` : ''}.
-    </p>
-
-    <div style="background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 6px; padding: 20px; margin: 20px 0;">
-      <p style="margin: 0 0 12px 0;"><strong>Job Title:</strong> ${jobTitle || 'N/A'}</p>
-      <p style="margin: 0 0 12px 0;"><strong>Client:</strong> ${clientCompanyName || 'N/A'}</p>
-      <p style="margin: 0 0 12px 0;"><strong>Location:</strong> ${jobLocation || 'N/A'}</p>
-      <p style="margin: 0 0 12px 0;"><strong>Type:</strong> ${jobType || 'N/A'}</p>
-      <p style="margin: 0 0 12px 0;"><strong>Status:</strong> ${jobStatus || 'N/A'}</p>
-      <p style="margin: 0;"><strong>Openings:</strong> ${openings ?? 'N/A'}</p>
-    </div>
-
-    <p style="font-size: 14px; color: #6b7280; margin-top: 30px;">
-      Please log in to the portal and start working on this job.
-    </p>
-
-    <p style="font-size: 14px; color: #6b7280; margin-top: 20px;">
-      Best regards,<br>
-      <strong>The SAASA Team</strong>
-    </p>
-  </div>
-</body>
-</html>
-    `;
+    const { subject, html } = await renderNotificationTriggerEmail(
+      'job.assignment_email',
+      senderUserId || null,
+      {
+        assigneeName,
+        jobTitle,
+        companyName: clientCompanyName,
+        jobLocation,
+        jobStatus,
+        assignedByName: formatAssignedByClause(assignedByName),
+      },
+    );
 
     await sendEmail({
       senderUserId,
       toEmail,
-      subject: `New Job Assigned: ${jobTitle || 'Job'}`,
+      subject,
       html,
     });
 
@@ -643,45 +586,21 @@ export async function sendCandidateAssignmentEmail(payload) {
       })
       .join('');
 
-    const html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Candidate Assignment</title>
-</head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 720px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
-  <div style="background: #ffffff; border-radius: 8px; padding: 32px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-    <h1 style="color: #2563eb; margin: 0 0 20px 0; font-size: 24px;">New Candidate Assignment</h1>
-
-    <p style="font-size: 16px; margin-bottom: 20px;">Hello ${assigneeName || 'Recruiter'},</p>
-
-    <p style="font-size: 16px; margin-bottom: 20px;">
-      ${candidates.length} candidate${candidates.length === 1 ? '' : 's'} ${candidates.length === 1 ? 'has' : 'have'} been assigned to you${assignedByName ? ` by <strong>${assignedByName}</strong>` : ''}.
-    </p>
-
-    <div style="margin: 24px 0;">
-      ${candidateRows || '<p>No candidate details available.</p>'}
-    </div>
-
-    <p style="font-size: 14px; color: #6b7280; margin-top: 30px;">
-      Please log in to the portal to review the assigned candidates and take the next steps.
-    </p>
-
-    <p style="font-size: 14px; color: #6b7280; margin-top: 20px;">
-      Best regards,<br>
-      <strong>The SAASA Team</strong>
-    </p>
-  </div>
-</body>
-</html>
-    `;
+    const { subject, html } = await renderNotificationTriggerEmail(
+      'candidate.assignment_email',
+      senderUserId || null,
+      {
+        assigneeName,
+        candidateCount: String(candidates.length || 0),
+        candidateListHtml: candidateRows,
+        assignedByName: formatAssignedByClause(assignedByName),
+      },
+    );
 
     await sendEmail({
       senderUserId,
       toEmail,
-      subject: `New Candidate Assignment (${candidates.length})`,
+      subject,
       html,
     });
 
@@ -720,36 +639,32 @@ export async function sendCandidateInterviewScheduledEmail(payload) {
       senderUserId,
     } = payload;
 
-    const extraDetails = [
-      interviewType ? `<p><strong>Interview Type:</strong> ${interviewType}</p>` : '',
-      roundLabel ? `<p><strong>Round:</strong> ${roundLabel}</p>` : '',
-      durationLabel ? `<p><strong>Duration:</strong> ${durationLabel}</p>` : '',
-      modeLabel ? `<p><strong>Mode:</strong> ${modeLabel}${platformLabel ? ` (${platformLabel})` : ''}</p>` : '',
-      location ? `<p><strong>Location:</strong> ${location}</p>` : '',
-      phoneNumber ? `<p><strong>Phone Number:</strong> ${phoneNumber}</p>` : '',
-      notes ? `<p><strong>Additional Notes:</strong> ${notes}</p>` : '',
-    ].filter(Boolean).join('');
-
-    const html = `
-      ${interviewScheduledTemplate({
+    const rendered = await renderNotificationTriggerEmail(
+      'interview.candidate_scheduled',
+      senderUserId || null,
+      {
         candidateName,
         jobTitle,
-        companyName,
-        date: scheduledAt,
-        timezone,
-        meetingLink,
-        panelNames: interviewerNames || [],
-      })}
-      <div style="max-width:640px; margin:16px auto 0; background:#ffffff; border:1px solid #e5e7eb; border-radius:16px; padding:24px; font-family: Arial, sans-serif; color:#111827;">
-        <h2 style="margin-top:0; font-size:18px;">Interview Details</h2>
-        ${extraDetails}
-      </div>
-    `;
+        companyName: companyName || 'N/A',
+        scheduledAt: scheduledAt
+          ? `${scheduledAt}${timezone ? ` (${timezone})` : ''}`
+          : 'TBD',
+        location: location || 'N/A',
+        meetingLink: meetingLink || 'N/A',
+      },
+    );
+
+    const subject = rendered.effective?.customized
+      ? rendered.subject
+      : `Interview Scheduled: ${jobTitle} at ${companyName}`;
+    const html = rendered.effective?.customized
+      ? rendered.html
+      : buildRichInterviewScheduledHtml(payload);
 
     await sendEmail({
       senderUserId,
       toEmail,
-      subject: `Interview Scheduled: ${jobTitle} at ${companyName}`,
+      subject,
       html,
     });
 
@@ -789,37 +704,33 @@ export async function sendInterviewPanelScheduledEmail(payload) {
       senderUserId,
     } = payload;
 
-    const extraDetails = [
-      `<p><strong>Candidate:</strong> ${candidateName}</p>`,
-      interviewType ? `<p><strong>Interview Type:</strong> ${interviewType}</p>` : '',
-      roundLabel ? `<p><strong>Round:</strong> ${roundLabel}</p>` : '',
-      durationLabel ? `<p><strong>Duration:</strong> ${durationLabel}</p>` : '',
-      modeLabel ? `<p><strong>Mode:</strong> ${modeLabel}${platformLabel ? ` (${platformLabel})` : ''}</p>` : '',
-      location ? `<p><strong>Location:</strong> ${location}</p>` : '',
-      phoneNumber ? `<p><strong>Phone Number:</strong> ${phoneNumber}</p>` : '',
-      notes ? `<p><strong>Additional Notes:</strong> ${notes}</p>` : '',
-    ].filter(Boolean).join('');
-
-    const html = `
-      ${interviewScheduledTemplate({
-        candidateName: recipientName || 'Interviewer',
+    const rendered = await renderNotificationTriggerEmail(
+      'interview.panel_scheduled',
+      senderUserId || null,
+      {
+        panelMemberName: recipientName || 'Interviewer',
+        candidateName,
         jobTitle,
-        companyName,
-        date: scheduledAt,
-        timezone,
-        meetingLink,
-        panelNames: interviewerNames || [],
-      })}
-      <div style="max-width:640px; margin:16px auto 0; background:#ffffff; border:1px solid #e5e7eb; border-radius:16px; padding:24px; font-family: Arial, sans-serif; color:#111827;">
-        <h2 style="margin-top:0; font-size:18px;">Interview Details</h2>
-        ${extraDetails}
-      </div>
-    `;
+        companyName: companyName || 'N/A',
+        scheduledAt: scheduledAt
+          ? `${scheduledAt}${timezone ? ` (${timezone})` : ''}`
+          : 'TBD',
+        location: location || 'N/A',
+        meetingLink: meetingLink || 'N/A',
+      },
+    );
+
+    const subject = rendered.effective?.customized
+      ? rendered.subject
+      : `Interview Scheduled: ${candidateName} for ${jobTitle}`;
+    const html = rendered.effective?.customized
+      ? rendered.html
+      : buildRichInterviewScheduledHtml(payload, { panelMember: true });
 
     await sendEmail({
       senderUserId,
       toEmail,
-      subject: `Interview Scheduled: ${candidateName} for ${jobTitle}`,
+      subject,
       html,
     });
 
@@ -848,28 +759,55 @@ export async function sendPlacementInvoiceEmail(payload) {
 
     const invoiceNumber = String(payload?.invoiceNumber || 'Invoice').trim();
     const sellerName = String(payload?.seller?.name || 'Your agency').trim();
-    const subject =
-      String(payload?.subject || '').trim() ||
-      `Invoice ${invoiceNumber} from ${sellerName}`;
+    const buyer = payload?.buyer || {};
+    const currency = payload?.currency || 'INR';
+    const total = payload?.total;
+    const amountLabel =
+      total != null && total !== ''
+        ? `${currency} ${Number(total).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        : 'N/A';
+    const dueDateLabel = payload?.dueDate
+      ? new Date(payload.dueDate).toLocaleDateString()
+      : 'N/A';
 
-    const html = buildPlacementInvoiceEmailHtml({
-      invoiceNumber,
-      invoiceDate: payload?.invoiceDate,
-      dueDate: payload?.dueDate,
-      currency: payload?.currency,
-      status: payload?.status || 'SENT',
-      seller: payload?.seller || {},
-      buyer: payload?.buyer || {},
-      lineItems: payload?.lineItems || [],
-      additionalCharges: payload?.additionalCharges || [],
-      subtotal: payload?.subtotal,
-      taxRate: payload?.taxRate,
-      taxAmount: payload?.taxAmount,
-      total: payload?.total,
-      notes: payload?.notes,
-      placementSummary: payload?.placementSummary,
-      settings: payload?.settings || {},
-    });
+    const rendered = await renderNotificationTriggerEmail(
+      'billing.invoice_email',
+      payload?.senderUserId || null,
+      {
+        recipientName: buyer.contactName || buyer.name || 'there',
+        invoiceNumber,
+        amount: amountLabel,
+        dueDate: dueDateLabel,
+        companyName: buyer.companyName || sellerName,
+        invoiceNote: payload?.notes || 'Please find your placement invoice below.',
+      },
+    );
+
+    const subject = rendered.effective?.customized
+      ? rendered.subject
+      : String(payload?.subject || '').trim() ||
+        `Invoice ${invoiceNumber} from ${sellerName}`;
+
+    const html = rendered.effective?.customized
+      ? rendered.html
+      : buildPlacementInvoiceEmailHtml({
+          invoiceNumber,
+          invoiceDate: payload?.invoiceDate,
+          dueDate: payload?.dueDate,
+          currency: payload?.currency,
+          status: payload?.status || 'SENT',
+          seller: payload?.seller || {},
+          buyer,
+          lineItems: payload?.lineItems || [],
+          additionalCharges: payload?.additionalCharges || [],
+          subtotal: payload?.subtotal,
+          taxRate: payload?.taxRate,
+          taxAmount: payload?.taxAmount,
+          total: payload?.total,
+          notes: payload?.notes,
+          placementSummary: payload?.placementSummary,
+          settings: payload?.settings || {},
+        });
 
     const pdfBase64 = String(payload?.pdfBase64 || '').trim();
     const pdfFilename =
@@ -1027,23 +965,23 @@ export async function sendOfferReleasedEmail(payload) {
 
     const { toEmail, candidateName, jobTitle, companyName, offerDate, senderUserId } = payload;
     const formattedOfferDate = offerDate ? new Date(offerDate).toLocaleDateString() : 'soon';
-    const html = `
-<!DOCTYPE html>
-<html>
-<body style="font-family: Arial, sans-serif; line-height:1.6; color:#111827;">
-  <h2 style="color:#2563eb;">Offer Released</h2>
-  <p>Hello ${candidateName || 'Candidate'},</p>
-  <p>Your offer has been released for <strong>${jobTitle || 'the role'}</strong>${companyName ? ` at <strong>${companyName}</strong>` : ''}.</p>
-  <p><strong>Offer Date:</strong> ${formattedOfferDate}</p>
-  <p>Our team will guide you through the next steps.</p>
-</body>
-</html>
-    `;
+    const offerDetails = `<strong>Offer date:</strong> ${formattedOfferDate}. Our team will guide you through the next steps.`;
+
+    const { subject, html } = await renderNotificationTriggerEmail(
+      'offer.released_email',
+      senderUserId || null,
+      {
+        candidateName: candidateName || 'Candidate',
+        jobTitle: jobTitle || 'the role',
+        companyName: companyName || '',
+        offerDetails,
+      },
+    );
 
     await sendEmail({
       senderUserId,
       toEmail,
-      subject: `Offer Released${jobTitle ? `: ${jobTitle}` : ''}`,
+      subject,
       html,
     });
 
@@ -1062,25 +1000,29 @@ export async function sendCandidateRejectedEmail(payload) {
     });
     if (!triggerEnabled) return { success: true, skipped: true };
 
-    const { toEmail, candidateName, jobTitle, reason, feedback, senderUserId } = payload;
-    const html = `
-<!DOCTYPE html>
-<html>
-<body style="font-family: Arial, sans-serif; line-height:1.6; color:#111827;">
-  <h2 style="color:#dc2626;">Application Update</h2>
-  <p>Hello ${candidateName || 'Candidate'},</p>
-  <p>Thank you for your interest${jobTitle ? ` in <strong>${jobTitle}</strong>` : ''}. We will not be moving forward with this application.</p>
-  ${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ''}
-  ${feedback ? `<p><strong>Feedback:</strong> ${feedback}</p>` : ''}
-  <p>We appreciate your time and wish you the best.</p>
-</body>
-</html>
-    `;
+    const { toEmail, candidateName, jobTitle, companyName, reason, feedback, senderUserId } = payload;
+    const feedbackParts = [];
+    if (reason) feedbackParts.push(`<strong>Reason:</strong> ${reason}`);
+    if (feedback) feedbackParts.push(`<strong>Feedback:</strong> ${feedback}`);
+    if (!feedbackParts.length) {
+      feedbackParts.push('We will not be moving forward with this application. We appreciate your time and wish you the best.');
+    }
+
+    const { subject, html } = await renderNotificationTriggerEmail(
+      'candidate.rejected_email',
+      senderUserId || null,
+      {
+        candidateName: candidateName || 'Candidate',
+        jobTitle: jobTitle || 'the role',
+        companyName: companyName || '',
+        feedbackMessage: feedbackParts.join('<br>'),
+      },
+    );
 
     await sendEmail({
       senderUserId,
       toEmail,
-      subject: `Application Update${jobTitle ? `: ${jobTitle}` : ''}`,
+      subject,
       html,
     });
 
@@ -1099,23 +1041,24 @@ export async function sendCandidateHiredEmail(payload) {
     });
     if (!triggerEnabled) return { success: true, skipped: true };
 
-    const { toEmail, candidateName, jobTitle, companyName, senderUserId } = payload;
-    const html = `
-<!DOCTYPE html>
-<html>
-<body style="font-family: Arial, sans-serif; line-height:1.6; color:#111827;">
-  <h2 style="color:#16a34a;">Congratulations</h2>
-  <p>Hello ${candidateName || 'Candidate'},</p>
-  <p>You have been marked as hired${jobTitle ? ` for <strong>${jobTitle}</strong>` : ''}${companyName ? ` at <strong>${companyName}</strong>` : ''}.</p>
-  <p>Our team will contact you with onboarding details.</p>
-</body>
-</html>
-    `;
+    const { toEmail, candidateName, jobTitle, companyName, startDate, senderUserId } = payload;
+    const startDateLabel = startDate ? new Date(startDate).toLocaleDateString() : 'To be confirmed';
+
+    const { subject, html } = await renderNotificationTriggerEmail(
+      'candidate.hired_email',
+      senderUserId || null,
+      {
+        candidateName: candidateName || 'Candidate',
+        jobTitle: jobTitle || 'the role',
+        companyName: companyName || '',
+        startDate: startDateLabel,
+      },
+    );
 
     await sendEmail({
       senderUserId,
       toEmail,
-      subject: `Hiring Update${jobTitle ? `: ${jobTitle}` : ''}`,
+      subject,
       html,
     });
 
@@ -1134,23 +1077,24 @@ export async function sendJobClosedEmail(payload) {
     });
     if (!triggerEnabled) return { success: true, skipped: true };
 
-    const { toEmail, recipientName, jobTitle, status, senderUserId } = payload;
-    const html = `
-<!DOCTYPE html>
-<html>
-<body style="font-family: Arial, sans-serif; line-height:1.6; color:#111827;">
-  <h2 style="color:#6b7280;">Job Closed</h2>
-  <p>Hello ${recipientName || 'Team Member'},</p>
-  <p>The job requisition <strong>${jobTitle || 'Untitled Job'}</strong> has been marked as <strong>${status || 'CLOSED'}</strong>.</p>
-  <p>Please review pending pipeline actions if required.</p>
-</body>
-</html>
-    `;
+    const { toEmail, recipientName, jobTitle, companyName, status, senderUserId } = payload;
+    const closedReason = `The requisition has been marked as <strong>${status || 'CLOSED'}</strong>. Please review pending pipeline actions if required.`;
+
+    const { subject, html } = await renderNotificationTriggerEmail(
+      'job.closed_email',
+      senderUserId || null,
+      {
+        recipientName: recipientName || 'Team Member',
+        jobTitle: jobTitle || 'Untitled Job',
+        companyName: companyName || '',
+        closedReason,
+      },
+    );
 
     await sendEmail({
       senderUserId,
       toEmail,
-      subject: `Job Closed${jobTitle ? `: ${jobTitle}` : ''}`,
+      subject,
       html,
     });
 
@@ -1169,25 +1113,24 @@ export async function sendClientFollowUpReminderEmail(payload) {
     });
     if (!triggerEnabled) return { success: true, skipped: true };
 
-    const { toEmail, recipientName, clientCompanyName, followUpDueDate, senderUserId } = payload;
-    const due = followUpDueDate ? new Date(followUpDueDate).toLocaleString() : 'scheduled';
-    const html = `
-<!DOCTYPE html>
-<html>
-<body style="font-family: Arial, sans-serif; line-height:1.6; color:#111827;">
-  <h2 style="color:#2563eb;">Client Follow-up Reminder</h2>
-  <p>Hello ${recipientName || 'Team Member'},</p>
-  <p>A follow-up is due for <strong>${clientCompanyName || 'your client'}</strong>.</p>
-  <p><strong>Due:</strong> ${due}</p>
-  <p>Please connect with the client and update the CRM.</p>
-</body>
-</html>
-    `;
+    const { toEmail, recipientName, clientCompanyName, followUpDueDate, notes, senderUserId } = payload;
+    const followUpDate = followUpDueDate ? new Date(followUpDueDate).toLocaleString() : 'scheduled';
+
+    const { subject, html } = await renderNotificationTriggerEmail(
+      'client.followup_email',
+      senderUserId || null,
+      {
+        recipientName: recipientName || 'Team Member',
+        clientCompanyName: clientCompanyName || 'your client',
+        followUpDate,
+        notes: notes || 'Please connect with the client and update the CRM.',
+      },
+    );
 
     await sendEmail({
       senderUserId,
       toEmail,
-      subject: `Client Follow-up Reminder${clientCompanyName ? `: ${clientCompanyName}` : ''}`,
+      subject,
       html,
     });
 

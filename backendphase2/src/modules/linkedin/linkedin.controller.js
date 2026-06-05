@@ -19,7 +19,10 @@ export const linkedinController = {
       authUrl.searchParams.set('response_type', 'code');
       authUrl.searchParams.set('client_id', env.LINKEDIN_CLIENT_ID);
       authUrl.searchParams.set('redirect_uri', env.LINKEDIN_REDIRECT_URI);
-      authUrl.searchParams.set('scope', 'openid profile email w_member_social');
+      authUrl.searchParams.set(
+        'scope',
+        'openid profile email w_member_social r_organization_social w_organization_social'
+      );
       // Encode userId in state for callback
       const tenantDbName = String(getActiveTenantDbName() || '').trim();
       const stateWithUserId = `${state}:${req.user.id}:${tenantDbName}`;
@@ -203,13 +206,26 @@ export const linkedinController = {
     }
   },
 
+  async listAccounts(req, res) {
+    try {
+      if (!req.user) {
+        return sendError(res, 401, 'Authentication required');
+      }
+      const accounts = await linkedinService.listAccounts(req.user.id);
+      sendResponse(res, 200, 'LinkedIn accounts loaded', { accounts });
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
   async disconnect(req, res) {
     try {
       if (!req.user) {
         return sendError(res, 401, 'Authentication required');
       }
 
-      await linkedinService.deleteToken(req.user.id);
+      const tokenId = String(req.params.accountId || '').trim() || null;
+      await linkedinService.deleteToken(req.user.id, tokenId);
       
       // Log disconnection to terminal
       console.log('\n🔌 LinkedIn Account Disconnected');

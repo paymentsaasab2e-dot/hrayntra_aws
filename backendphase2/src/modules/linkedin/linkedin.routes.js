@@ -13,7 +13,9 @@ router.get('/auth/linkedin', authMiddleware, linkedinController.initiateAuth);
 
 // Protected API routes
 router.get('/status', authMiddleware, linkedinController.getStatus);
+router.get('/accounts', authMiddleware, linkedinController.listAccounts);
 router.post('/post-job', authMiddleware, rateLimitMiddleware(10, 60 * 60 * 1000), linkedinController.postJob); // Max 10 posts per hour
 router.delete('/disconnect', authMiddleware, linkedinController.disconnect);
+router.delete('/accounts/:accountId', authMiddleware, linkedinController.disconnect);
 
 export default router;

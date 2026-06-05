@@ -37,14 +37,26 @@ import {
   filesApiUpload,
   apiPublishSocialJob,
   apiGetSocialStatus,
+  apiConnectIntegration,
+  apiDisconnectIntegration,
+  apiGetJobApplyLink,
+  type SocialPublishingAccount,
+  getTenantDbName,
   type CreateJobData,
   type BackendClient,
   type BackendUser,
 } from '../../lib/api';
 import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { WhatsAppIcon } from '../icons/WhatsAppIcon';
-import { LinkedInConnect } from '../LinkedInConnect';
 import { LinkedInPostPreview } from '../LinkedInPostPreview';
+import { TwitterPostPreview } from '../TwitterPostPreview';
+import { SocialAccountPicker } from '../SocialAccountPicker';
+import {
+  buildCandidatePortalApplyUrlPreview,
+  buildLinkedInJobPost,
+  buildTwitterJobPost,
+  type JobSocialPostInput,
+} from '../../lib/jobSocialPost';
 import { useLinkedIn } from '../../hooks/useLinkedIn';
 import { requestError, requestInfo, requestWarning } from '../../lib/appDialog';
 import { clampDateTimeLocalToMin, getLocalDateTimeInputMinNow } from '../../utils/dateInputConstraints';
@@ -607,9 +619,21 @@ export function CreateJobDrawer({
     workMode: '',
   });
   const [linkedInPostText, setLinkedInPostText] = useState('');
+  const [linkedInPostTextTouched, setLinkedInPostTextTouched] = useState(false);
+  const [twitterPostTextTouched, setTwitterPostTextTouched] = useState(false);
+  const [applicationApplyUrl, setApplicationApplyUrl] = useState('');
+  const [applicationApplyUrlLoading, setApplicationApplyUrlLoading] = useState(false);
   const [showLinkedInSuccess, setShowLinkedInSuccess] = useState(false);
   const [linkedInPostUrl, setLinkedInPostUrl] = useState<string | null>(null);
   const [showFormBuilder, setShowFormBuilder] = useState(false);
+  const [linkedinAccounts, setLinkedinAccounts] = useState<SocialPublishingAccount[]>([]);
+  const [twitterAccounts, setTwitterAccounts] = useState<SocialPublishingAccount[]>([]);
+  const [selectedLinkedInTargets, setSelectedLinkedInTargets] = useState<string[]>([]);
+  const [selectedTwitterTargets, setSelectedTwitterTargets] = useState<string[]>([]);
+  const [socialStatusLoading, setSocialStatusLoading] = useState(false);
+  const [disconnectingLinkedInId, setDisconnectingLinkedInId] = useState<string | null>(null);
+  const [disconnectingTwitterId, setDisconnectingTwitterId] = useState<string | null>(null);
+  const [connectingLinkedIn, setConnectingLinkedIn] = useState(false);
 
   // LinkedIn integration hook
   const linkedIn = useLinkedIn();
@@ -695,6 +719,7 @@ export function CreateJobDrawer({
     
     twitterEnabled: false,
     twitterConnected: false,
+    twitterAccountName: '',
     twitterTweetText: '',
     twitterIncludeLogo: true,
     twitterScheduleDate: '',
@@ -710,6 +735,7 @@ export function CreateJobDrawer({
     whatsappRecipients: [] as string[],
   });
 
+  const [connectingSocialProvider, setConnectingSocialProvider] = useState<'twitter' | 'facebook' | null>(null);
   const [skillInput, setSkillInput] = useState('');
   // JD file upload state
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
@@ -807,6 +833,7 @@ export function CreateJobDrawer({
         linkedInExpiryDate: '',
         twitterEnabled: false,
         twitterConnected: false,
+        twitterAccountName: '',
         twitterTweetText: '',
         twitterIncludeLogo: true,
         twitterScheduleDate: '',
@@ -843,6 +870,19 @@ export function CreateJobDrawer({
         qualification: '',
         workMode: '',
       });
+      setLinkedInPostText('');
+      setLinkedInPostTextTouched(false);
+      setTwitterPostTextTouched(false);
+      setApplicationApplyUrl('');
+      setApplicationApplyUrlLoading(false);
+      setLinkedinAccounts([]);
+      setTwitterAccounts([]);
+      setSelectedLinkedInTargets([]);
+      setSelectedTwitterTargets([]);
+      setSocialStatusLoading(false);
+      setDisconnectingLinkedInId(null);
+      setDisconnectingTwitterId(null);
+      setConnectingLinkedIn(false);
     }
   }, [isOpen]);
 
@@ -907,51 +947,235 @@ export function CreateJobDrawer({
     }
   }, [isOpen, jobId, duplicateFromJobId]);
 
+  const mapIntegrationAccounts = useCallback(
+    (accounts: Array<Record<string, unknown>> = []): SocialPublishingAccount[] =>
+      accounts.map((account) => ({
+        id: String(account.id || ''),
+        key: String(account.key || account.id || ''),
+        name: String(account.name || account.accountName || 'Account'),
+        type: account.type === 'page' ? 'page' : 'personal',
+        picture: (account.picture as string | null | undefined) || null,
+        accountEmail: (account.accountEmail as string | null | undefined) || null,
+        connected: account.connected !== false,
+        expired: !!account.expired,
+        organizationId: account.organizationId ? String(account.organizationId) : undefined,
+        parentAccountId: account.parentAccountId ? String(account.parentAccountId) : undefined,
+      })),
+    [],
+  );
+
+  const getConnectedAccountKeys = useCallback(
+    (accounts: SocialPublishingAccount[]) =>
+      accounts.filter((account) => account.connected !== false).map((account) => account.key),
+    [],
+  );
+
   const loadSocialStatus = async () => {
     try {
+      setSocialStatusLoading(true);
+      await linkedIn.refreshStatus();
       const response = await apiGetSocialStatus();
-      setFormData(prev => ({
+      const nextLinkedinAccounts = mapIntegrationAccounts(response.data.linkedin.accounts || []);
+      const nextTwitterAccounts = mapIntegrationAccounts(response.data.twitter.accounts || []);
+      const twitterConnected = response.data.twitter.connected;
+      const linkedInConnected = response.data.linkedin.connected;
+      const linkedinKeys = getConnectedAccountKeys(nextLinkedinAccounts);
+      const twitterKeys = getConnectedAccountKeys(nextTwitterAccounts);
+
+      setLinkedinAccounts(nextLinkedinAccounts);
+      setTwitterAccounts(nextTwitterAccounts);
+      setSelectedLinkedInTargets(
+        !jobId ? linkedinKeys : (prev) => prev.filter((key) => linkedinKeys.includes(key)),
+      );
+      setSelectedTwitterTargets(
+        !jobId ? twitterKeys : (prev) => prev.filter((key) => twitterKeys.includes(key)),
+      );
+
+      setFormData((prev) => ({
         ...prev,
-        twitterConnected: response.data.twitter.connected,
+        twitterConnected,
+        twitterAccountName: response.data.twitter.accountName || '',
         facebookConnected: response.data.facebook.connected,
+        ...(!jobId && twitterConnected ? { twitterEnabled: true } : {}),
+        ...(!jobId && linkedInConnected ? { linkedInEnabled: true } : {}),
       }));
     } catch (err) {
       console.error('Failed to load social status:', err);
+    } finally {
+      setSocialStatusLoading(false);
     }
   };
 
-  // Auto-populate social fields when Job Title/Company changes
-  useEffect(() => {
-    if (formData.jobTitle && formData.companyId) {
-      const company = clients.find(c => c.id === formData.companyId);
-      const companyName = company?.companyName || '';
-      
-      // Auto-fill LinkedIn Job Title
-      if (!formData.linkedInJobTitle) {
-        setFormData(prev => ({ ...prev, linkedInJobTitle: prev.jobTitle }));
-      }
-      
-      // Generate LinkedIn post text
-      const applyUrl = formData.linkedInExternalUrl || `https://yourcompany.com/apply/${formData.jobTitle.replace(/\s+/g, '-').toLowerCase()}`;
-      const locationText = formData.city || formData.fullAddress || '';
-      const linkedInText = `We're hiring a ${formData.jobTitle} at ${companyName}!\n\n${formData.jobDescriptionHtml ? formData.jobDescriptionHtml.replace(/<[^>]*>/g, '').substring(0, 200) + '...' : ''}\n\n${locationText ? `Location: ${locationText}\n\n` : ''}Apply here: ${applyUrl}\n\n#hiring #jobs #careers`;
-      if (!linkedInPostText || linkedInPostText.length < linkedInText.length) {
-        setLinkedInPostText(linkedInText.substring(0, 700));
-      }
-      
-      // Generate tweet text
-      const tweetText = `We're hiring a ${formData.jobTitle} at ${companyName}! Apply here: [application URL] #hiring`;
-      if (!formData.twitterTweetText) {
-        setFormData(prev => ({ ...prev, twitterTweetText: tweetText.substring(0, 280) }));
-      }
-      
-      // Generate Facebook caption
-      const fbCaption = `Join our team! We're looking for a ${formData.jobTitle} at ${companyName}. ${formData.jobDescriptionHtml ? 'Learn more and apply today!' : ''}`;
-      if (!formData.facebookCaption) {
-        setFormData(prev => ({ ...prev, facebookCaption: fbCaption }));
-      }
+  const handleDisconnectLinkedInAccount = async (accountId: string) => {
+    try {
+      setDisconnectingLinkedInId(accountId);
+      await linkedIn.disconnect(accountId);
+      setSelectedLinkedInTargets((prev) =>
+        prev.filter((key) => !linkedinAccounts.some((account) => account.id === accountId && account.key === key)),
+      );
+      await loadSocialStatus();
+    } catch (err) {
+      console.error('Failed to disconnect LinkedIn account:', err);
+      requestError(err instanceof Error ? err.message : 'Could not disconnect LinkedIn account.');
+    } finally {
+      setDisconnectingLinkedInId(null);
     }
-  }, [formData.jobTitle, formData.companyId, formData.jobDescriptionHtml, formData.city, formData.fullAddress, clients]);
+  };
+
+  const handleDisconnectTwitterAccount = async (connectionId: string) => {
+    try {
+      setDisconnectingTwitterId(connectionId);
+      await apiDisconnectIntegration('twitter', connectionId);
+      setSelectedTwitterTargets((prev) => prev.filter((key) => key !== connectionId));
+      await loadSocialStatus();
+    } catch (err) {
+      console.error('Failed to disconnect X account:', err);
+      requestError(err instanceof Error ? err.message : 'Could not disconnect X account.');
+    } finally {
+      setDisconnectingTwitterId(null);
+    }
+  };
+
+  const handleConnectSocialAccount = async (provider: 'twitter' | 'facebook') => {
+    try {
+      setConnectingSocialProvider(provider);
+      const returnUrl = `${window.location.origin}${window.location.pathname}${window.location.search}`;
+      await apiConnectIntegration(provider, returnUrl, { reopenCreateJobDrawer: true });
+    } catch (err) {
+      console.error(`Failed to start ${provider} OAuth:`, err);
+      requestError(
+        err instanceof Error ? err.message : `Could not connect ${provider === 'twitter' ? 'X' : 'Facebook'} account.`,
+      );
+      setConnectingSocialProvider(null);
+    }
+  };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    void loadSocialStatus();
+  }, [isOpen]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get('integration_connected');
+    if (connected === 'twitter' || connected === 'facebook') {
+      void loadSocialStatus();
+    }
+  }, []);
+
+  const effectiveApplyUrl = useMemo(() => {
+    const manual = String(formData.linkedInExternalUrl || '').trim();
+    if (manual) return manual;
+    if (applicationApplyUrl) return applicationApplyUrl;
+    return buildCandidatePortalApplyUrlPreview(getTenantDbName());
+  }, [formData.linkedInExternalUrl, applicationApplyUrl]);
+
+  const selectedLinkedInPreviewAccount = useMemo(
+    () =>
+      linkedinAccounts.find((account) => selectedLinkedInTargets.includes(account.key)) ||
+      linkedinAccounts[0] ||
+      null,
+    [linkedinAccounts, selectedLinkedInTargets],
+  );
+
+  const selectedTwitterPreviewAccount = useMemo(
+    () =>
+      twitterAccounts.find((account) => selectedTwitterTargets.includes(account.key)) ||
+      twitterAccounts[0] ||
+      null,
+    [twitterAccounts, selectedTwitterTargets],
+  );
+
+  const socialPostInput = useMemo<JobSocialPostInput>(() => {
+    const company = clients.find((c) => c.id === formData.companyId);
+    return {
+      jobTitle: formData.jobTitle,
+      companyName: company?.companyName || '',
+      contactPersonName: formData.contactPersonName,
+      numberOfOpenings: formData.numberOfOpenings,
+      priority: formData.priority,
+      nationality: formData.nationality,
+      industryType: formData.industryType,
+      employmentType: formData.employmentType,
+      targetHireDate: formData.targetHireDate,
+      city: formData.city,
+      state: formData.state,
+      country: formData.country,
+      minExperience: formData.minExperience,
+      maxExperience: formData.maxExperience,
+      currency: formData.currency,
+      minSalary: formData.minSalary,
+      maxSalary: formData.maxSalary,
+      skills: formData.skills,
+      languages: formData.languages,
+      jobDescriptionHtml: formData.jobDescriptionHtml,
+      applyUrl: effectiveApplyUrl,
+    };
+  }, [clients, effectiveApplyUrl, formData]);
+
+  const generatedLinkedInPost = useMemo(
+    () => buildLinkedInJobPost(socialPostInput),
+    [socialPostInput],
+  );
+
+  const generatedTwitterPost = useMemo(
+    () => buildTwitterJobPost(socialPostInput),
+    [socialPostInput],
+  );
+
+  useEffect(() => {
+    if (!isOpen || !jobId) return;
+    let cancelled = false;
+    const loadApplyLink = async () => {
+      try {
+        setApplicationApplyUrlLoading(true);
+        const response = await apiGetJobApplyLink(jobId);
+        if (!cancelled && response.data?.applyUrl) {
+          setApplicationApplyUrl(response.data.applyUrl);
+        }
+      } catch (err) {
+        console.error('Failed to load job apply link:', err);
+      } finally {
+        if (!cancelled) setApplicationApplyUrlLoading(false);
+      }
+    };
+    void loadApplyLink();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, jobId]);
+
+  useEffect(() => {
+    if (!formData.jobTitle || !formData.companyId) return;
+    if (!formData.linkedInJobTitle) {
+      setFormData((prev) => ({ ...prev, linkedInJobTitle: prev.jobTitle }));
+    }
+    if (!linkedInPostTextTouched) {
+      setLinkedInPostText(generatedLinkedInPost);
+    }
+    if (!twitterPostTextTouched) {
+      setFormData((prev) => ({ ...prev, twitterTweetText: generatedTwitterPost }));
+    }
+    if (!formData.facebookCaption) {
+      const company = clients.find((c) => c.id === formData.companyId);
+      const companyName = company?.companyName || '';
+      setFormData((prev) => ({
+        ...prev,
+        facebookCaption: `Join our team! We're looking for a ${formData.jobTitle} at ${companyName}. Apply: ${effectiveApplyUrl}`,
+      }));
+    }
+  }, [
+    clients,
+    effectiveApplyUrl,
+    formData.companyId,
+    formData.jobTitle,
+    formData.linkedInJobTitle,
+    formData.facebookCaption,
+    generatedLinkedInPost,
+    generatedTwitterPost,
+    linkedInPostTextTouched,
+    twitterPostTextTouched,
+  ]);
 
   // Auto-populate LinkedIn Description from rich text editor
   useEffect(() => {
@@ -2238,9 +2462,11 @@ export function CreateJobDrawer({
 
   const handleConnectLinkedIn = async () => {
     try {
+      setConnectingLinkedIn(true);
       await linkedIn.connect();
     } catch (error) {
       console.error('Failed to connect LinkedIn:', error);
+      setConnectingLinkedIn(false);
     }
   };
 
@@ -2431,8 +2657,14 @@ export function CreateJobDrawer({
       // Post to social media if enabled
       const socialPosts: string[] = [];
       const platformsToPublish = {
-        linkedin: formData.linkedInEnabled && linkedIn.isConnected,
-        twitter: formData.twitterEnabled && formData.twitterConnected,
+        linkedin:
+          formData.linkedInEnabled &&
+          linkedIn.isConnected &&
+          selectedLinkedInTargets.length > 0,
+        twitter:
+          formData.twitterEnabled &&
+          formData.twitterConnected &&
+          selectedTwitterTargets.length > 0,
         facebook: formData.facebookEnabled && formData.facebookConnected,
       };
 
@@ -2440,7 +2672,18 @@ export function CreateJobDrawer({
         try {
           const company = clients.find(c => c.id === formData.companyId);
           const companyName = company?.companyName || '';
-          const applyUrl = formData.linkedInExternalUrl || `${window.location.origin}/jobs/${createdJobId}/apply`;
+          let applyUrl = String(formData.linkedInExternalUrl || '').trim();
+          if (!applyUrl) {
+            try {
+              const linkRes = await apiGetJobApplyLink(createdJobId);
+              applyUrl = linkRes.data?.applyUrl || '';
+            } catch {
+              applyUrl = '';
+            }
+          }
+          if (!applyUrl) {
+            applyUrl = effectiveApplyUrl;
+          }
           
           const result = await apiPublishSocialJob({
             jobId: createdJobId,
@@ -2453,6 +2696,8 @@ export function CreateJobDrawer({
             linkedinPostText: linkedInPostText,
             twitterPostText: formData.twitterTweetText,
             facebookPostText: formData.facebookCaption,
+            linkedinTargets: selectedLinkedInTargets,
+            twitterTargets: selectedTwitterTargets,
           });
 
           if (platformsToPublish.linkedin && (result as any).data?.linkedin?.success) {
@@ -3228,11 +3473,20 @@ export function CreateJobDrawer({
 
                       {formData.linkedInEnabled && (
                         <div className="mt-4 space-y-4 border-t border-slate-100 pt-4">
-                          {/* LinkedIn Connection Component */}
-                          <LinkedInConnect />
+                          <SocialAccountPicker
+                            provider="linkedin"
+                            accounts={linkedinAccounts}
+                            selectedKeys={selectedLinkedInTargets}
+                            onSelectionChange={setSelectedLinkedInTargets}
+                            onConnect={() => void handleConnectLinkedIn()}
+                            onDisconnect={(accountId) => void handleDisconnectLinkedInAccount(accountId)}
+                            connecting={connectingLinkedIn}
+                            disconnectingId={disconnectingLinkedInId}
+                            loading={socialStatusLoading || linkedIn.isLoading}
+                          />
 
-                          {/* Show LinkedIn post preview and options when connected */}
-                          {linkedIn.isConnected && linkedIn.linkedinUser && (
+                          {/* LinkedIn post preview — visible while composing; connection required to publish */}
+                          {formData.jobTitle && formData.companyId ? (
                             <>
                               {/* LinkedIn Post Preview */}
                               <div>
@@ -3241,13 +3495,14 @@ export function CreateJobDrawer({
                                   <span className="text-xs text-slate-500 ml-1">({linkedInPostText.length}/700 chars)</span>
                                 </label>
                                 <LinkedInPostPreview
-                                  userName={linkedIn.linkedinUser.name}
-                                  userPicture={linkedIn.linkedinUser.picture}
+                                  userName={selectedLinkedInPreviewAccount?.name || linkedIn.linkedinUser?.name || 'Your LinkedIn profile'}
+                                  userPicture={selectedLinkedInPreviewAccount?.picture || linkedIn.linkedinUser?.picture}
                                   jobTitle={formData.jobTitle}
                                   company={clients.find(c => c.id === formData.companyId)?.companyName || ''}
                                   description={formData.jobDescriptionHtml ? formData.jobDescriptionHtml.replace(/<[^>]*>/g, '') : undefined}
-                                  applyUrl={formData.linkedInExternalUrl || `${window.location.origin}/jobs/[jobId]/apply`}
-                                  location={formData.city || formData.fullAddress || undefined}
+                                  applyUrl={effectiveApplyUrl}
+                                  location={formData.city || formData.state || formData.country || formData.fullAddress || undefined}
+                                  postText={linkedInPostText}
                                 />
                               </div>
 
@@ -3260,6 +3515,7 @@ export function CreateJobDrawer({
                                 <textarea
                                   value={linkedInPostText}
                                   onChange={(e) => {
+                                    setLinkedInPostTextTouched(true);
                                     const text = e.target.value.substring(0, 700);
                                     setLinkedInPostText(text);
                                   }}
@@ -3267,6 +3523,16 @@ export function CreateJobDrawer({
                                   className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-y"
                                   placeholder="LinkedIn post text will be auto-generated..."
                                 />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setLinkedInPostTextTouched(false);
+                                    setLinkedInPostText(generatedLinkedInPost);
+                                  }}
+                                  className="mt-2 text-xs text-blue-600 hover:text-blue-700"
+                                >
+                                  Regenerate from job details
+                                </button>
                               </div>
 
                               {/* Apply URL */}
@@ -3274,12 +3540,18 @@ export function CreateJobDrawer({
                                 <label className="block text-sm font-medium text-slate-700 mb-2">Application URL</label>
                                 <input
                                   type="url"
-                                  value={formData.linkedInExternalUrl}
+                                  value={formData.linkedInExternalUrl || effectiveApplyUrl}
                                   onChange={(e) => setFormData(prev => ({ ...prev, linkedInExternalUrl: e.target.value }))}
-                                  placeholder="https://yourcompany.com/apply"
+                                  placeholder={buildCandidatePortalApplyUrlPreview(getTenantDbName())}
                                   className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                                 />
-                                <p className="text-xs text-slate-500 mt-1">This will be posted to your LinkedIn feed when you save the job</p>
+                                <p className="text-xs text-slate-500 mt-1">
+                                  {applicationApplyUrlLoading
+                                    ? 'Loading candidate apply link…'
+                                    : jobId
+                                      ? 'Public candidate apply link for this job (used in LinkedIn and X posts).'
+                                      : 'A unique apply link is generated when you save the job. Preview updates as you fill job details.'}
+                                </p>
                               </div>
 
                               {/* Success Toast */}
@@ -3301,6 +3573,16 @@ export function CreateJobDrawer({
                                 </div>
                               )}
 
+                              {!linkedIn.isConnected ? (
+                                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                                  Connect LinkedIn above to publish this post when you save the job.
+                                </p>
+                              ) : selectedLinkedInTargets.length === 0 ? (
+                                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                                  Select at least one LinkedIn account or company page to publish when you save the job.
+                                </p>
+                              ) : null}
+
                               {/* Error Display */}
                               {linkedIn.error && (
                                 <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
@@ -3320,6 +3602,10 @@ export function CreateJobDrawer({
                                 </div>
                               )}
                             </>
+                          ) : (
+                            <p className="text-xs text-slate-500">
+                              Fill in Job Title and Client in Job Details to generate the LinkedIn preview.
+                            </p>
                           )}
                         </div>
                       )}
@@ -3350,36 +3636,86 @@ export function CreateJobDrawer({
 
                       {formData.twitterEnabled && (
                         <div className="mt-4 space-y-4 border-t border-slate-100 pt-4">
-                          {!formData.twitterConnected ? (
-                            <button
-                              type="button"
-                              className="w-full px-4 py-2.5 bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition-colors text-sm font-medium"
-                            >
-                              Connect X Account
-                            </button>
-                          ) : (
+                          <SocialAccountPicker
+                            provider="twitter"
+                            accounts={twitterAccounts}
+                            selectedKeys={selectedTwitterTargets}
+                            onSelectionChange={setSelectedTwitterTargets}
+                            onConnect={() => void handleConnectSocialAccount('twitter')}
+                            onDisconnect={(connectionId) => void handleDisconnectTwitterAccount(connectionId)}
+                            connecting={connectingSocialProvider === 'twitter'}
+                            disconnectingId={disconnectingTwitterId}
+                            loading={socialStatusLoading}
+                          />
+
+                          {formData.jobTitle && formData.companyId ? (
                             <>
-                              <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
-                                <Check size={16} className="text-green-600" />
-                                <span className="text-sm text-green-700">Connected</span>
+                              <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-2">
+                                  X Post Preview
+                                  <span className="text-xs text-slate-500 ml-1">({formData.twitterTweetText.length}/280 chars)</span>
+                                </label>
+                                <TwitterPostPreview
+                                  accountName={selectedTwitterPreviewAccount?.name || formData.twitterAccountName}
+                                  postText={formData.twitterTweetText}
+                                />
                               </div>
 
                               <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-2">
-                                  Tweet text
+                                  Edit tweet text
                                   <span className="text-xs text-slate-500 ml-1">({formData.twitterTweetText.length}/280 chars)</span>
                                 </label>
                                 <textarea
                                   value={formData.twitterTweetText}
                                   onChange={(e) => {
+                                    setTwitterPostTextTouched(true);
                                     const text = e.target.value.substring(0, 280);
                                     setFormData(prev => ({ ...prev, twitterTweetText: text }));
                                   }}
-                                  rows={3}
+                                  rows={4}
                                   className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-y"
                                 />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setTwitterPostTextTouched(false);
+                                    setFormData((prev) => ({ ...prev, twitterTweetText: generatedTwitterPost }));
+                                  }}
+                                  className="mt-2 text-xs text-blue-600 hover:text-blue-700"
+                                >
+                                  Regenerate from job details
+                                </button>
                               </div>
 
+                              <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-2">Application URL</label>
+                                <input
+                                  type="url"
+                                  readOnly
+                                  value={effectiveApplyUrl}
+                                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-700"
+                                />
+                              </div>
+                            </>
+                          ) : (
+                            <p className="text-xs text-slate-500">
+                              Fill in Job Title and Client in Job Details to generate the X preview.
+                            </p>
+                          )}
+
+                          {!formData.twitterConnected ? (
+                            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                              Connect an X account above to publish this post when you save the job.
+                            </p>
+                          ) : selectedTwitterTargets.length === 0 ? (
+                            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                              Select at least one X account to publish when you save the job.
+                            </p>
+                          ) : null}
+
+                          {formData.twitterConnected ? (
+                            <>
                               <label className="flex items-center gap-2 cursor-pointer">
                                 <input
                                   type="checkbox"
@@ -3415,7 +3751,7 @@ export function CreateJobDrawer({
                                 Preview Tweet
                               </button>
                             </>
-                          )}
+                          ) : null}
                         </div>
                       )}
                     </div>
@@ -3448,9 +3784,18 @@ export function CreateJobDrawer({
                           {!formData.facebookConnected ? (
                             <button
                               type="button"
-                              className="w-full px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors text-sm font-medium"
+                              onClick={() => void handleConnectSocialAccount('facebook')}
+                              disabled={connectingSocialProvider === 'facebook'}
+                              className="w-full px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
                             >
-                              Connect Facebook Page
+                              {connectingSocialProvider === 'facebook' ? (
+                                <>
+                                  <Loader2 size={16} className="animate-spin" />
+                                  Connecting...
+                                </>
+                              ) : (
+                                'Connect Facebook Page'
+                              )}
                             </button>
                           ) : (
                             <>

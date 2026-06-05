@@ -1,5 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
-import { apiGetLinkedInStatus, apiInitiateLinkedInAuth, apiPostJobToLinkedIn, apiDisconnectLinkedIn, type LinkedInStatus, type LinkedInPostJobData } from '../lib/api';
+import {
+  apiGetLinkedInStatus,
+  apiInitiateLinkedInAuth,
+  apiPostJobToLinkedIn,
+  apiDisconnectLinkedIn,
+  apiDisconnectLinkedInAccount,
+  type LinkedInPostJobData,
+  type SocialPublishingAccount,
+} from '../lib/api';
 
 export interface LinkedInUser {
   name: string;
@@ -9,6 +17,7 @@ export interface LinkedInUser {
 export function useLinkedIn() {
   const [isConnected, setIsConnected] = useState(false);
   const [linkedinUser, setLinkedinUser] = useState<LinkedInUser | null>(null);
+  const [accounts, setAccounts] = useState<SocialPublishingAccount[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -19,6 +28,8 @@ export function useLinkedIn() {
       const response = await apiGetLinkedInStatus();
       const status = response.data;
 
+      const loadedAccounts = status.accounts || [];
+      setAccounts(loadedAccounts);
       setIsConnected(status.connected && !status.expired);
       if (status.connected && status.name) {
         setLinkedinUser({
@@ -36,6 +47,7 @@ export function useLinkedIn() {
       console.error('Failed to check LinkedIn status:', err);
       setIsConnected(false);
       setLinkedinUser(null);
+      setAccounts([]);
       setError(err.message || 'Failed to check LinkedIn connection');
     } finally {
       setIsLoading(false);
@@ -60,19 +72,22 @@ export function useLinkedIn() {
     }
   }, []);
 
-  const disconnect = useCallback(async () => {
+  const disconnect = useCallback(async (accountId?: string) => {
     try {
       setError(null);
-      await apiDisconnectLinkedIn();
-      setIsConnected(false);
-      setLinkedinUser(null);
+      if (accountId) {
+        await apiDisconnectLinkedInAccount(accountId);
+      } else {
+        await apiDisconnectLinkedIn();
+      }
+      await checkStatus();
       localStorage.removeItem('linkedin_oauth_state');
     } catch (err: any) {
       console.error('Failed to disconnect LinkedIn:', err);
       setError(err.message || 'Failed to disconnect LinkedIn');
       throw err;
     }
-  }, []);
+  }, [checkStatus]);
 
   const postJob = useCallback(async (jobData: LinkedInPostJobData) => {
     try {
@@ -128,6 +143,7 @@ export function useLinkedIn() {
   return {
     isConnected,
     linkedinUser,
+    accounts,
     isLoading,
     error,
     connect,

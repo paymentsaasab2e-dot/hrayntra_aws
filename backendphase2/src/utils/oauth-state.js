@@ -4,7 +4,7 @@ import { env } from '../config/env.js';
 const SECRET = () =>
   env.OAUTH_STATE_SECRET || env.JWT_ACCESS_SECRET || env.JWT_SECRET || 'dev-oauth-state-change-me';
 
-/** @param {{ userId: string, service: string, tenantDbName?: string, extraScopes?: string[] }} payload */
+/** @param {{ userId: string, service: string, tenantDbName?: string, extraScopes?: string[], returnUrl?: string }} payload */
 export function createOAuthState(payload) {
   return jwt.sign(
     {
@@ -12,6 +12,7 @@ export function createOAuthState(payload) {
       service: payload.service,
       tenantDbName: payload.tenantDbName || '',
       extraScopes: payload.extraScopes || [],
+      returnUrl: payload.returnUrl || '',
     },
     SECRET(),
     { expiresIn: '10m' }
@@ -31,5 +32,6 @@ export function verifyOAuthState(state) {
     service: String(decoded.service),
     tenantDbName: String(decoded.tenantDbName || ''),
     extraScopes: Array.isArray(decoded.extraScopes) ? decoded.extraScopes.map(String) : [],
+    returnUrl: String(decoded.returnUrl || ''),
   };
 }
