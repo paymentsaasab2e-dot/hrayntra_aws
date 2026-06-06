@@ -349,6 +349,8 @@ function mapBackendLeadToFrontend(backendLead: BackendLead): Lead {
         ? [backendLead.phone]
         : [],
     status: backendLead.status,
+    convertedToClientId: backendLead.convertedToClientId || backendLead.client?.id || undefined,
+    convertedClientName: backendLead.client?.companyName || undefined,
     assignedTo: backendLead.assignedTo ? {
       id: backendLead.assignedTo.id,
       name: backendLead.assignedTo.name,
@@ -1270,6 +1272,14 @@ export default function RecruitmentAgencyDashboard() {
     try {
       const lead = leads.find(l => l.id === id);
       if (!lead) return;
+
+      if (lead.status === 'Converted' || lead.convertedToClientId) {
+        const clientLabel = lead.convertedClientName ? ` (${lead.convertedClientName})` : '';
+        void requestError(
+          `This lead has already been converted to a client${clientLabel}. A duplicate client will not be created.`,
+        );
+        return;
+      }
       
       // Log the lead data being converted
       console.log('\n=== LEAD DATA BEING CONVERTED (Frontend) ===');
@@ -1314,8 +1324,14 @@ export default function RecruitmentAgencyDashboard() {
       console.log('\n=== CONVERSION RESPONSE (Frontend) ===');
       console.log(JSON.stringify(response, null, 2));
       
+      const convertedClient = response.data;
       // Update local state
-      setLeads(prev => prev.map(l => l.id === id ? { ...l, status: 'Converted' as LeadStatus } : l));
+      setLeads(prev => prev.map(l => l.id === id ? {
+        ...l,
+        status: 'Converted' as LeadStatus,
+        convertedToClientId: convertedClient?.id || l.convertedToClientId,
+        convertedClientName: convertedClient?.companyName || l.convertedClientName,
+      } : l));
       const previousStatus = lead.status;
       if (previousStatus !== 'Converted') {
         adjustLeadMetricCounts(previousStatus, 'Converted');
@@ -1343,8 +1359,19 @@ export default function RecruitmentAgencyDashboard() {
   });
 
   const handleInlineStatusChange = (id: string, newStatus: LeadStatus) => {
-    // Optimistically update UI
     const previousLead = leads.find((lead) => lead.id === id);
+    if (
+      newStatus === 'Converted' &&
+      previousLead &&
+      (previousLead.status === 'Converted' || previousLead.convertedToClientId)
+    ) {
+      const clientLabel = previousLead.convertedClientName ? ` (${previousLead.convertedClientName})` : '';
+      void requestError(
+        `This lead has already been converted to a client${clientLabel}. A duplicate client will not be created.`,
+      );
+      return;
+    }
+    // Optimistically update UI
     setLeads(prev => prev.map(l => (l.id === id ? { ...l, status: newStatus } : l)));
     if (previousLead && previousLead.status !== newStatus) {
       adjustLeadMetricCounts(previousLead.status, newStatus);
@@ -2203,7 +2230,7 @@ export default function RecruitmentAgencyDashboard() {
                                     <Pencil size={15} strokeWidth={2.35} />
                                   </button>
                                 ) : null}
-                                {canConvertLead && (
+                                {canConvertLead && lead.status !== 'Converted' && !lead.convertedToClientId && (
                                   <button
                                     type="button"
                                     className="flex h-7 w-7 items-center justify-center rounded-lg text-emerald-600 hover:bg-white hover:text-emerald-800 hover:shadow-sm transition-all"

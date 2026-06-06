@@ -10,6 +10,7 @@ import {
   PHASE1_CANDIDATE_TAG_LABEL,
 } from './phase1ProfileSnapshot';
 import { resolveCandidateExperienceYears } from './candidateExperience';
+import { normalizeCareerPreferencesRecord } from './normalizeCareerPreferencesRecord';
 import {
   resolveCandidateAssignedJobTitles,
   resolveCandidateListStage,
@@ -426,13 +427,17 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
   }));
 
   const careerPrefs = c.careerPreferences || null;
-  const mergedCareerPrefs =
+  const mergedCareerPrefsRaw =
     careerPrefs || phase1Snap?.careerPreferences
       ? {
           ...((phase1Snap?.careerPreferences as Record<string, unknown> | null) || {}),
           ...((careerPrefs as Record<string, unknown> | null) || {}),
         }
       : null;
+  const mergedCareerPrefs = normalizeCareerPreferencesRecord(
+    mergedCareerPrefsRaw,
+    c,
+  ) as CandidateProfileDrawerData['careerPreferences'] | null;
   const expectedSalaryFromPrefs = formatCandidateSalaryDisplay(
     c.expectedSalary ?? mergedCareerPrefs?.preferredSalary ?? null,
     mergedCareerPrefs?.preferredCurrency || c.salary?.currency || null,
@@ -465,7 +470,7 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
     currentSalaryValue: c.currentSalary ?? mergedCareerPrefs?.currentSalary ?? null,
     salaryCurrency: mergedCareerPrefs?.preferredCurrency || c.salary?.currency || 'INR',
     noticePeriod: c.noticePeriod || mergedCareerPrefs?.noticePeriod || '—',
-    careerPreferences: mergedCareerPrefs as CandidateProfileDrawerData['careerPreferences'],
+    careerPreferences: mergedCareerPrefs,
     // Prefer the explicitly-assigned job (set via the candidate edit modal) over
     // any pre-existing Match record so changing the assignment reflects in the
     // drawer + dropdown immediately after save. If the title can't be resolved

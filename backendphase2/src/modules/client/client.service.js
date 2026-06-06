@@ -619,7 +619,7 @@ export const clientService = {
       website: data.website,
       logo: data.logo,
       location: data.location,
-      status: data.status || 'PROSPECT',
+      status: data.status || 'ACTIVE',
       assignedToId: data.assignedToId || data.performedById || undefined,
       createdById: data.createdById || data.performedById || undefined,
       address: data.address,

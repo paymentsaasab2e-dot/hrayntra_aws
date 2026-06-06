@@ -186,6 +186,7 @@ export async function setDefaultCurrency(code) {
 const KEY_COMPANY_SERVICES = 'companyServices';
 const KEY_LEAD_STATUS_OPTIONS = 'leadStatusOptions';
 const KEY_CLIENT_LEAD_STATUS_OPTIONS = 'clientLeadStatusOptions';
+const KEY_CLIENT_PRIORITY_OPTIONS = 'clientPriorityOptions';
 
 /** Default recruitment services offered by the agency (org can extend via settings). */
 export const DEFAULT_COMPANY_SERVICES = [
@@ -218,14 +219,18 @@ export const DEFAULT_LEAD_STATUS_OPTIONS = [
   'Lost',
 ];
 
-export const DEFAULT_CLIENT_LEAD_STATUS_OPTIONS = [...DEFAULT_LEAD_STATUS_OPTIONS];
+export const DEFAULT_CLIENT_LEAD_STATUS_OPTIONS = ['Active', 'On Hold', 'Inactive'];
+
+export const DEFAULT_CLIENT_PRIORITY_OPTIONS = ['High', 'Medium', 'Low'];
 
 export function normalizeServiceLabel(raw) {
   return String(raw || '').trim().replace(/\s+/g, ' ');
 }
 
 function normalizeStatusLabel(raw) {
-  return String(raw || '').trim().replace(/\s+/g, ' ');
+  const label = String(raw || '').trim().replace(/\s+/g, ' ');
+  if (label.includes(',')) return '';
+  return label;
 }
 
 export function uniqueServicesCaseInsensitive(list) {
@@ -411,6 +416,36 @@ export async function removeClientLeadStatusOption(status) {
     DEFAULT_CLIENT_LEAD_STATUS_OPTIONS,
     status,
     'Client status',
+  );
+}
+
+export async function getOrgCustomClientPriorityOptions() {
+  return getOrgCustomStatusOptions(KEY_CLIENT_PRIORITY_OPTIONS);
+}
+
+export async function getClientPriorityOptions() {
+  return getMergedStatusOptions(KEY_CLIENT_PRIORITY_OPTIONS, DEFAULT_CLIENT_PRIORITY_OPTIONS);
+}
+
+export async function setClientPriorityOptions(priorities) {
+  return setOrgCustomStatusOptions(KEY_CLIENT_PRIORITY_OPTIONS, priorities);
+}
+
+export async function appendClientPriorityOption(priority) {
+  return appendOrgStatusOption(
+    KEY_CLIENT_PRIORITY_OPTIONS,
+    DEFAULT_CLIENT_PRIORITY_OPTIONS,
+    priority,
+    'Interest level',
+  );
+}
+
+export async function removeClientPriorityOption(priority) {
+  return removeOrgStatusOption(
+    KEY_CLIENT_PRIORITY_OPTIONS,
+    DEFAULT_CLIENT_PRIORITY_OPTIONS,
+    priority,
+    'Interest level',
   );
 }
 

@@ -98,6 +98,7 @@ import { getAllTeamMembersForAssign } from '../../lib/api/teamApi';
 import type { TeamMember } from '../../types/team';
 import { LeadAssigneesMultiSelect } from './LeadAssigneesMultiSelect';
 import { ServicesNeededSelect } from '../forms/ServicesNeededSelect';
+import { DirectorContactFields } from '../forms/DirectorContactFields';
 import { TeamMemberOptionalFields } from '../forms/TeamMemberOptionalFields';
 import {
   isTeamMemberDetailLabel,
@@ -252,7 +253,6 @@ function validateEmail(email: string) {
 
 type LeadRequiredFieldErrors = Partial<{
   companyName: string;
-  contactPerson: string;
   email: string;
 }>;
 
@@ -264,11 +264,9 @@ function validateLeadRequiredFields(form: {
 }): LeadRequiredFieldErrors {
   const errors: LeadRequiredFieldErrors = {};
   const companyName = String(form.companyName || '').trim();
-  const contactPerson = String(form.contactPerson || '').trim();
   const email = primaryContactValue(normalizeContactList(form.emails, form.email));
 
   if (!companyName) errors.companyName = 'Company is required';
-  if (!contactPerson) errors.contactPerson = 'Director name is required';
   if (!email) {
     errors.email = 'Email is required';
   } else {
@@ -399,6 +397,15 @@ interface LeadDetailsDrawerProps {
   onDeleteLead?: (id: string) => void;
   /** Optional: parent-level handler invoked after a successful duplicate. */
   onDuplicateLead?: (newLead: BackendLead) => void;
+}
+
+function isLeadAlreadyConverted(lead: Lead | null | undefined): boolean {
+  return Boolean(lead && (lead.status === 'Converted' || lead.convertedToClientId));
+}
+
+function leadConvertedAlertMessage(lead: Lead | null | undefined): string {
+  const clientLabel = lead?.convertedClientName ? ` (${lead.convertedClientName})` : '';
+  return `This lead has already been converted to a client${clientLabel}. A duplicate client will not be created.`;
 }
 
 const FieldRow = ({
@@ -629,12 +636,10 @@ export function LeadDetailsDrawer({
   /** Pending Agreements & Terms file selected in the Add Lead form (uploaded after the lead is created). */
   const [pendingAddLeadAgreementsFile, setPendingAddLeadAgreementsFile] = useState<File | null>(null);
   const [pendingAddLeadKycFiles, setPendingAddLeadKycFiles] = useState<File[]>([]);
-  const [pendingAddLeadTeamMemberKycFiles, setPendingAddLeadTeamMemberKycFiles] = useState<File[]>([]);
   const addLeadAgreementsInputRef = useRef<HTMLInputElement | null>(null);
   /** Pending Agreements & Terms file selected in the Overview edit form (uploaded immediately on save). */
   const [pendingOverviewAgreementsFile, setPendingOverviewAgreementsFile] = useState<File | null>(null);
   const [pendingOverviewKycFiles, setPendingOverviewKycFiles] = useState<File[]>([]);
-  const [pendingOverviewTeamMemberKycFiles, setPendingOverviewTeamMemberKycFiles] = useState<File[]>([]);
   const overviewAgreementsInputRef = useRef<HTMLInputElement | null>(null);
   const [uploadingAgreements, setUploadingAgreements] = useState(false);
   const [uploadingKyc, setUploadingKyc] = useState(false);
@@ -820,7 +825,6 @@ export function LeadDetailsDrawer({
     const missing: LeadAiRequiredField[] = [];
     const validation = validateLeadRequiredFields(form);
     if (validation.companyName) missing.push('companyName');
-    if (validation.contactPerson) missing.push('contactPerson');
     if (validation.email) missing.push('email');
     return missing;
   };
@@ -1391,6 +1395,10 @@ export function LeadDetailsDrawer({
   };
 
   const openConvertToClientForm = () => {
+    if (isLeadAlreadyConverted(lead)) {
+      void requestError(leadConvertedAlertMessage(lead));
+      return;
+    }
     setConvertToClientForm({
       companyName: lead?.companyName ?? '',
       primaryContact: formatDirectorDisplay(lead?.directorSalutation, lead?.contactPerson) || lead?.contactPerson || '',
@@ -1574,8 +1582,8 @@ export function LeadDetailsDrawer({
       // For now, we'll just update the fields we can
       const updateData: Partial<CreateLeadData> = {
         companyName: overviewEditForm.companyName,
-        contactPerson: overviewEditForm.contactPerson,
-        directorName: overviewEditForm.contactPerson.trim(),
+        contactPerson: overviewEditForm.contactPerson.trim() || undefined,
+        directorName: overviewEditForm.contactPerson.trim() || undefined,
         directorSalutation: overviewEditForm.directorSalutation?.trim() || null,
         ...buildContactChannelsFromForm(
           overviewEditForm.emails,
@@ -1584,7 +1592,7 @@ export function LeadDetailsDrawer({
           overviewEditForm.phone,
         ),
         industry: overviewEditForm.industry || undefined,
-        companySize: overviewEditForm.companySize || undefined,
+        companySize: undefined,
         website: overviewEditForm.website || undefined,
         linkedIn: overviewEditForm.linkedIn || undefined,
         location: overviewEditForm.location || undefined,
@@ -1603,7 +1611,6 @@ export function LeadDetailsDrawer({
         sourceEmail: overviewEditForm.sourceEmail || undefined,
         ...teamMemberPayloadFromForm(
           primaryTeamMemberFromList(overviewEditForm.teamMembers),
-          overviewEditForm.companySize,
         ),
         otherDetails: mergeTeamMemberIntoOtherDetails(
           overviewEditForm.dynamicOtherDetails
@@ -1612,7 +1619,6 @@ export function LeadDetailsDrawer({
               value: String(item.value || '').trim(),
             }))
             .filter((item) => item.label && item.value),
-          overviewEditForm.companySize,
           overviewEditForm.teamMembers,
         ),
         status: String(overviewEditForm.status || 'New').trim() || 'New',
@@ -1627,7 +1633,7 @@ export function LeadDetailsDrawer({
         nextFollowUp: overviewEditForm.nextFollowUp || undefined,
       };
 
-      const pendingOverviewLeadKyc = [...pendingOverviewTeamMemberKycFiles];
+      const pendingOverviewLeadKyc = [...pendingOverviewKycFiles];
       if (pendingOverviewLeadKyc.length > 0) {
         try {
           setUploadingKyc(true);
@@ -1648,7 +1654,7 @@ export function LeadDetailsDrawer({
       }
 
       const updatedLeadResponse = await apiUpdateLead(lead.id, updateData);
-      setPendingOverviewTeamMemberKycFiles([]);
+      setPendingOverviewKycFiles([]);
       setOverviewEditMode(false);
       setOverviewEditErrors({});
       onUpdateLead?.(updatedLeadResponse.data);
@@ -1691,8 +1697,6 @@ export function LeadDetailsDrawer({
         companyName: addLeadForm.companyName.trim(),
         sector: addLeadForm.industry?.trim() || undefined,
         industry: addLeadForm.industry?.trim() || undefined,
-        teamName: addLeadForm.companySize?.trim() || undefined,
-        companySize: addLeadForm.companySize?.trim() || undefined,
         website: addLeadForm.website?.trim() || undefined,
         companyLinks: companyLinks.length ? companyLinks : undefined,
         linkedIn: addLeadForm.linkedIn?.trim() || undefined,
@@ -1719,11 +1723,9 @@ export function LeadDetailsDrawer({
         sourceEmail: addLeadForm.sourceEmail?.trim() || undefined,
         ...teamMemberPayloadFromForm(
           primaryTeamMemberFromList(addLeadForm.teamMembers),
-          addLeadForm.companySize,
         ),
         otherDetails: mergeTeamMemberIntoOtherDetails(
           addLeadForm.otherDetails,
-          addLeadForm.companySize,
           addLeadForm.teamMembers,
         ),
         status: addLeadForm.status || 'New',
@@ -1773,7 +1775,7 @@ export function LeadDetailsDrawer({
         }
       }
 
-      const pendingLeadKyc = [...pendingAddLeadKycFiles, ...pendingAddLeadTeamMemberKycFiles];
+      const pendingLeadKyc = [...pendingAddLeadKycFiles];
       if (createdLead?.id && pendingLeadKyc.length > 0) {
         try {
           setUploadingKyc(true);
@@ -1803,7 +1805,6 @@ export function LeadDetailsDrawer({
     onAddLead,
     pendingAddLeadAgreementsFile,
     pendingAddLeadKycFiles,
-    pendingAddLeadTeamMemberKycFiles,
   ]);
 
   const tabs = addLeadMode
@@ -2655,6 +2656,10 @@ export function LeadDetailsDrawer({
                     <button
                       type="button"
                       onClick={() => {
+                        if (isLeadAlreadyConverted(lead)) {
+                          void requestError(leadConvertedAlertMessage(lead));
+                          return;
+                        }
                         if (lead) onConvert?.(lead.id);
                         setShowConvertToClientForm(false);
                         setActiveTab('overview');
@@ -2881,88 +2886,52 @@ export function LeadDetailsDrawer({
                             ))}
                           </div>
                         </div>
-                        <div>
-                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Director Name *</label>
-                          <div className="flex gap-2">
-                            <select
-                              value={addLeadForm.directorSalutation ?? ''}
-                              onChange={(e) =>
-                                setAddLeadForm((p) => ({ ...p, directorSalutation: e.target.value }))
-                              }
-                              className="w-[5.75rem] shrink-0 rounded-xl border border-slate-200 px-2 py-2.5 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                              aria-label="Director salutation"
-                            >
-                              {NAME_SALUTATION_OPTIONS.map((opt) => (
-                                <option key={opt.value || 'none'} value={opt.value}>
-                                  {opt.label}
-                                </option>
-                              ))}
-                            </select>
-                            <input
-                              value={addLeadForm.contactPerson}
-                              onChange={(e) => {
-                                const value = e.target.value;
-                                setAddLeadForm((p) => ({ ...p, contactPerson: value }));
-                                if (addLeadErrors.contactPerson) {
-                                  setAddLeadErrors((prev) => ({ ...prev, contactPerson: undefined }));
-                                }
-                              }}
-                              onBlur={() => {
-                                const nextErrors = validateLeadRequiredFields(addLeadForm);
-                                setAddLeadErrors((prev) => ({ ...prev, contactPerson: nextErrors.contactPerson }));
-                              }}
-                              className={`min-w-0 flex-1 rounded-xl border px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 ${
-                                addLeadErrors.contactPerson ? 'border-red-300' : 'border-slate-200'
-                              }`}
-                              placeholder="e.g. John Doe"
-                            />
-                          </div>
-                          {addLeadErrors.contactPerson && (
-                            <p className="mt-1 text-xs text-red-600">{addLeadErrors.contactPerson}</p>
-                          )}
-                        </div>
-                        <div>
-                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Team Name</label>
-                          <input value={addLeadForm.companySize ?? ''} onChange={(e) => setAddLeadForm((p) => ({ ...p, companySize: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" placeholder="e.g. Growth Team" />
-                        </div>
-                        <TeamMemberOptionalFields
-                          teamName={addLeadForm.companySize ?? ''}
-                          members={addLeadForm.teamMembers}
-                          onChange={(teamMembers) =>
-                            setAddLeadForm((p) => ({ ...p, ...syncLeadTeamMembers(teamMembers) }))
-                          }
-                          pendingKycFiles={pendingAddLeadTeamMemberKycFiles}
-                          onPendingKycFilesChange={setPendingAddLeadTeamMemberKycFiles}
-                          uploadingKyc={uploadingKyc}
-                          uploadSuccess={kycUploadFeedback.uploadSuccess}
-                          uploadPercent={kycUploadFeedback.uploadPercent}
-                          kycDisabled={uploadingKyc || uploadingAgreements}
-                        />
-                        <MultiContactFields
-                          label="Email"
-                          type="email"
-                          required
-                          values={addLeadForm.emails}
-                          onChange={(emails) => {
-                            const primary = primaryContactValue(normalizeContactList(emails, addLeadForm.email));
-                            setAddLeadForm((p) => ({ ...p, emails, email: primary }));
-                            if (addLeadErrors.email) {
-                              setAddLeadErrors((prev) => ({ ...prev, email: undefined }));
+                        <div className="sm:col-span-2">
+                          <DirectorContactFields
+                            directorSalutation={addLeadForm.directorSalutation}
+                            contactPerson={addLeadForm.contactPerson}
+                            emails={addLeadForm.emails}
+                            phones={addLeadForm.phones}
+                            email={addLeadForm.email}
+                            phone={addLeadForm.phone}
+                            onDirectorSalutationChange={(value) =>
+                              setAddLeadForm((p) => ({ ...p, directorSalutation: value }))
                             }
-                          }}
-                          placeholder="email@company.com"
-                          error={addLeadErrors.email}
-                        />
-                        <MultiContactFields
-                          label="Phone"
-                          type="tel"
-                          values={addLeadForm.phones}
-                          onChange={(phones) => {
-                            const primary = primaryContactValue(normalizeContactList(phones, addLeadForm.phone));
-                            setAddLeadForm((p) => ({ ...p, phones, phone: primary }));
-                          }}
-                          placeholder="+1 (555) 000-0000"
-                        />
+                            onContactPersonChange={(value) => {
+                              setAddLeadForm((p) => ({ ...p, contactPerson: value }));
+                              if (addLeadErrors.contactPerson) {
+                                setAddLeadErrors((prev) => ({ ...prev, contactPerson: undefined }));
+                              }
+                            }}
+                            onEmailsChange={(emails, primaryEmail) => {
+                              setAddLeadForm((p) => ({ ...p, emails, email: primaryEmail }));
+                              if (addLeadErrors.email) {
+                                setAddLeadErrors((prev) => ({ ...prev, email: undefined }));
+                              }
+                            }}
+                            onPhonesChange={(phones, primaryPhone) => {
+                              setAddLeadForm((p) => ({ ...p, phones, phone: primaryPhone }));
+                            }}
+                            contactPersonError={addLeadErrors.contactPerson}
+                            emailError={addLeadErrors.email}
+                            onContactPersonBlur={() => {
+                              const nextErrors = validateLeadRequiredFields(addLeadForm);
+                              setAddLeadErrors((prev) => ({
+                                ...prev,
+                                contactPerson: nextErrors.contactPerson,
+                              }));
+                            }}
+                          />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <TeamMemberOptionalFields
+                            requireTeamName={false}
+                            members={addLeadForm.teamMembers}
+                            onChange={(teamMembers) =>
+                              setAddLeadForm((p) => ({ ...p, ...syncLeadTeamMembers(teamMembers) }))
+                            }
+                          />
+                        </div>
                         <div className="sm:col-span-2">
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Location</label>
                           <LocationAutocomplete
@@ -2971,12 +2940,6 @@ export function LeadDetailsDrawer({
                             onSelect={(s) => setAddLeadForm((p) => mergeLocationFields(p, s))}
                             placeholder="Start typing a city, region, or address…"
                           />
-                          {(addLeadForm.city || addLeadForm.country || addLeadForm.state) && (
-                            <p className="mt-1 text-[11px] text-slate-500">
-                              <span className="font-semibold text-emerald-600">Detected</span>{' '}
-                              {[addLeadForm.city, addLeadForm.state, addLeadForm.country].filter(Boolean).join(', ')}
-                            </p>
-                          )}
                         </div>
                         <div>
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">City</label>
@@ -3155,15 +3118,6 @@ export function LeadDetailsDrawer({
                           />
                         </div>
                         <div>
-                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Team Name</label>
-                          <input
-                            value={addLeadForm.companySize ?? ''}
-                            onChange={(e) => setAddLeadForm((p) => ({ ...p, companySize: e.target.value }))}
-                            className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                            placeholder="e.g. Growth Team"
-                          />
-                        </div>
-                        <div>
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Company Links</label>
                           <input
                             value={addLeadForm.website ?? ''}
@@ -3222,52 +3176,47 @@ export function LeadDetailsDrawer({
                     </button>
                     {addLeadSectionsOpen.contact && (
                       <div className="px-5 pb-5 pt-0 border-t border-slate-100 space-y-4">
-                        <div>
-                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Director Name *</label>
-                          <div className="flex gap-2">
-                            <select
-                              value={addLeadForm.directorSalutation ?? ''}
-                              onChange={(e) =>
-                                setAddLeadForm((p) => ({ ...p, directorSalutation: e.target.value }))
-                              }
-                              className="w-[5.75rem] shrink-0 rounded-xl border border-slate-200 px-2 py-2.5 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                              aria-label="Director salutation"
-                            >
-                              {NAME_SALUTATION_OPTIONS.map((opt) => (
-                                <option key={opt.value || 'none'} value={opt.value}>
-                                  {opt.label}
-                                </option>
-                              ))}
-                            </select>
-                            <input
-                              value={addLeadForm.contactPerson}
-                              onChange={(e) => setAddLeadForm((p) => ({ ...p, contactPerson: e.target.value }))}
-                              className="min-w-0 flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                              placeholder="e.g. John Doe"
-                            />
-                          </div>
-                        </div>
-                        <MultiContactFields
-                          label="Email"
-                          type="email"
-                          required
-                          values={addLeadForm.emails}
-                          onChange={(emails) => {
-                            const primary = primaryContactValue(normalizeContactList(emails, addLeadForm.email));
-                            setAddLeadForm((p) => ({ ...p, emails, email: primary }));
+                        <DirectorContactFields
+                          directorSalutation={addLeadForm.directorSalutation}
+                          contactPerson={addLeadForm.contactPerson}
+                          emails={addLeadForm.emails}
+                          phones={addLeadForm.phones}
+                          email={addLeadForm.email}
+                          phone={addLeadForm.phone}
+                          onDirectorSalutationChange={(value) =>
+                            setAddLeadForm((p) => ({ ...p, directorSalutation: value }))
+                          }
+                          onContactPersonChange={(value) => {
+                            setAddLeadForm((p) => ({ ...p, contactPerson: value }));
+                            if (addLeadErrors.contactPerson) {
+                              setAddLeadErrors((prev) => ({ ...prev, contactPerson: undefined }));
+                            }
                           }}
-                          placeholder="email@company.com"
-                          error={addLeadErrors.email}
+                          onEmailsChange={(emails, primaryEmail) => {
+                            setAddLeadForm((p) => ({ ...p, emails, email: primaryEmail }));
+                            if (addLeadErrors.email) {
+                              setAddLeadErrors((prev) => ({ ...prev, email: undefined }));
+                            }
+                          }}
+                          onPhonesChange={(phones, primaryPhone) => {
+                            setAddLeadForm((p) => ({ ...p, phones, phone: primaryPhone }));
+                          }}
+                          contactPersonError={addLeadErrors.contactPerson}
+                          emailError={addLeadErrors.email}
+                          onContactPersonBlur={() => {
+                            const nextErrors = validateLeadRequiredFields(addLeadForm);
+                            setAddLeadErrors((prev) => ({
+                              ...prev,
+                              contactPerson: nextErrors.contactPerson,
+                            }));
+                          }}
                         />
-                        <MultiContactFields
-                          label="Phone"
-                          type="tel"
-                          values={addLeadForm.phones}
-                          onChange={(phones) => {
-                            const primary = primaryContactValue(normalizeContactList(phones, addLeadForm.phone));
-                            setAddLeadForm((p) => ({ ...p, phones, phone: primary }));
-                          }}
-                          placeholder="+1 (555) 000-0000"
+                        <TeamMemberOptionalFields
+                          requireTeamName={false}
+                          members={addLeadForm.teamMembers}
+                          onChange={(teamMembers) =>
+                            setAddLeadForm((p) => ({ ...p, ...syncLeadTeamMembers(teamMembers) }))
+                          }
                         />
                       </div>
                     )}
@@ -3421,55 +3370,54 @@ export function LeadDetailsDrawer({
                           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                             <div><FieldRow label="Company *" value={lead?.companyName ?? ''} /></div>
                             <div><FieldRow label="Company Links" value={lead?.website ?? ''} href={!!lead?.website} /></div>
-                            <div><FieldRow label="Director Name *" value={formatDirectorDisplay(lead?.directorSalutation, lead?.directorName || lead?.contactPerson)} /></div>
-                            <div><FieldRow label="Team Name" value={lead?.companySize ?? ''} /></div>
+                            <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                                <FieldRow
+                                  label="Director Name"
+                                  value={formatDirectorDisplay(lead?.directorSalutation, lead?.directorName || lead?.contactPerson)}
+                                />
+                                <FieldRow
+                                  label="Email *"
+                                  value={formatContactListMultiline(lead?.emails, lead?.email)}
+                                  href
+                                  multiline
+                                />
+                                <FieldRow
+                                  label="Mobile Number"
+                                  value={formatContactListMultiline(lead?.phones, lead?.phone)}
+                                  multiline
+                                />
+                              </div>
+                            </div>
                             {(() => {
                               const teamMembers = resolveTeamMemberList(lead).filter(teamMemberHasAnyValue);
-                              if (!lead?.companySize?.trim() || teamMembers.length === 0) return null;
+                              if (teamMembers.length === 0) return null;
                               return (
-                                <div className="sm:col-span-2 space-y-3">
+                                <div className="sm:col-span-2 space-y-2">
+                                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Team Member</p>
                                   {teamMembers.map((tm, index) => (
-                                    <div key={`lead-team-member-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                                      <div className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">
-                                        Team Member {index + 1}
-                                      </div>
-                                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                                        <FieldRow label="Designation" value={tm.teamMemberDesignation ?? ''} />
-                                        <FieldRow label="Email" value={tm.teamMemberEmail ?? ''} href={!!tm.teamMemberEmail} />
-                                        <FieldRow label="Phone" value={tm.teamMemberPhone ?? ''} />
-                                      </div>
+                                    <div
+                                      key={`lead-team-member-${index}`}
+                                      className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 sm:grid-cols-3"
+                                    >
+                                      <FieldRow
+                                        label="Name"
+                                        value={formatDirectorDisplay(
+                                          tm.teamMemberSalutation,
+                                          tm.teamMemberName || tm.teamMemberDesignation,
+                                        )}
+                                      />
+                                      <FieldRow label="Email" value={tm.teamMemberEmail ?? ''} href={!!tm.teamMemberEmail} />
+                                      <FieldRow label="Mobile Number" value={tm.teamMemberPhone ?? ''} />
                                     </div>
                                   ))}
                                 </div>
                               );
                             })()}
-                            <div>
-                              <FieldRow
-                                label="Email *"
-                                value={formatContactListMultiline(lead?.emails, lead?.email)}
-                                href
-                                multiline
-                              />
-                            </div>
-                            <div>
-                              <FieldRow
-                                label="Phone"
-                                value={formatContactListMultiline(lead?.phones, lead?.phone)}
-                                multiline
-                              />
-                            </div>
                             <div><FieldRow label="Location" value={lead?.location ?? ''} /></div>
                             <div><FieldRow label="City" value={lead?.city ?? ''} /></div>
                             <div><FieldRow label="State" value={lead?.state ?? ''} /></div>
                             <div><FieldRow label="Country" value={lead?.country ?? ''} /></div>
-                            {(typeof lead?.latitude === 'number' && typeof lead?.longitude === 'number') && (
-                              <div className="sm:col-span-2">
-                                <FieldRow
-                                  label="Coordinates"
-                                  value={`${lead.latitude.toFixed(5)}, ${lead.longitude.toFixed(5)}`}
-                                />
-                              </div>
-                            )}
                             <div><FieldRow label="Industry" value={lead?.industry ?? ''} /></div>
                             <div><FieldRow label="Status" value={lead?.status ?? ''} /></div>
                             <div><FieldRow label="Interest Level" value={lead?.priority ?? ''} /></div>
@@ -3535,87 +3483,45 @@ export function LeadDetailsDrawer({
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Company Links</label>
                               <input value={overviewEditForm.website} onChange={(e) => setOverviewEditForm((p) => ({ ...p, website: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
                             </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Director Name *</label>
-                              <div className="flex gap-2">
-                                <select
-                                  value={overviewEditForm.directorSalutation ?? ''}
-                                  onChange={(e) =>
-                                    setOverviewEditForm((p) => ({ ...p, directorSalutation: e.target.value }))
-                                  }
-                                  className="w-[5.75rem] shrink-0 rounded-xl border border-slate-200 px-2 py-2.5 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                  aria-label="Director salutation"
-                                >
-                                  {NAME_SALUTATION_OPTIONS.map((opt) => (
-                                    <option key={opt.value || 'none'} value={opt.value}>
-                                      {opt.label}
-                                    </option>
-                                  ))}
-                                </select>
-                                <input
-                                  value={overviewEditForm.contactPerson}
-                                  onChange={(e) => {
-                                    const value = e.target.value;
-                                    setOverviewEditForm((p) => ({ ...p, contactPerson: value }));
-                                    if (overviewEditErrors.contactPerson) {
-                                      setOverviewEditErrors((prev) => ({ ...prev, contactPerson: undefined }));
-                                    }
-                                  }}
-                                  className={`min-w-0 flex-1 rounded-xl border px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 ${
-                                    overviewEditErrors.contactPerson ? 'border-red-300' : 'border-slate-200'
-                                  }`}
-                                />
-                              </div>
-                              {overviewEditErrors.contactPerson && (
-                                <p className="mt-1 text-xs text-red-600">{overviewEditErrors.contactPerson}</p>
-                              )}
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Team Name</label>
-                              <input value={overviewEditForm.companySize} onChange={(e) => setOverviewEditForm((p) => ({ ...p, companySize: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
-                            </div>
-                            <TeamMemberOptionalFields
-                              teamName={overviewEditForm.companySize}
-                              members={overviewEditForm.teamMembers}
-                              onChange={(teamMembers) =>
-                                setOverviewEditForm((p) => ({ ...p, ...syncLeadTeamMembers(teamMembers) }))
-                              }
-                              pendingKycFiles={pendingOverviewTeamMemberKycFiles}
-                              onPendingKycFilesChange={setPendingOverviewTeamMemberKycFiles}
-                              uploadingKyc={uploadingKyc}
-                              uploadSuccess={kycUploadFeedback.uploadSuccess}
-                              uploadPercent={kycUploadFeedback.uploadPercent}
-                              kycDisabled={uploadingKyc || uploadingAgreements}
-                            />
-                            <MultiContactFields
-                              label="Email"
-                              type="email"
-                              required
-                              values={overviewEditForm.emails}
-                              onChange={(emails) => {
-                                const primary = primaryContactValue(
-                                  normalizeContactList(emails, overviewEditForm.email),
-                                );
-                                setOverviewEditForm((p) => ({ ...p, emails, email: primary }));
-                                if (overviewEditErrors.email) {
-                                  setOverviewEditErrors((prev) => ({ ...prev, email: undefined }));
+                            <div className="sm:col-span-2">
+                              <DirectorContactFields
+                                directorSalutation={overviewEditForm.directorSalutation}
+                                contactPerson={overviewEditForm.contactPerson}
+                                emails={overviewEditForm.emails}
+                                phones={overviewEditForm.phones}
+                                email={overviewEditForm.email}
+                                phone={overviewEditForm.phone}
+                                onDirectorSalutationChange={(value) =>
+                                  setOverviewEditForm((p) => ({ ...p, directorSalutation: value }))
                                 }
-                              }}
-                              placeholder="email@company.com"
-                              error={overviewEditErrors.email}
-                            />
-                            <MultiContactFields
-                              label="Phone"
-                              type="tel"
-                              values={overviewEditForm.phones}
-                              onChange={(phones) => {
-                                const primary = primaryContactValue(
-                                  normalizeContactList(phones, overviewEditForm.phone),
-                                );
-                                setOverviewEditForm((p) => ({ ...p, phones, phone: primary }));
-                              }}
-                              placeholder="+1 (555) 000-0000"
-                            />
+                                onContactPersonChange={(value) => {
+                                  setOverviewEditForm((p) => ({ ...p, contactPerson: value }));
+                                  if (overviewEditErrors.contactPerson) {
+                                    setOverviewEditErrors((prev) => ({ ...prev, contactPerson: undefined }));
+                                  }
+                                }}
+                                onEmailsChange={(emails, primaryEmail) => {
+                                  setOverviewEditForm((p) => ({ ...p, emails, email: primaryEmail }));
+                                  if (overviewEditErrors.email) {
+                                    setOverviewEditErrors((prev) => ({ ...prev, email: undefined }));
+                                  }
+                                }}
+                                onPhonesChange={(phones, primaryPhone) => {
+                                  setOverviewEditForm((p) => ({ ...p, phones, phone: primaryPhone }));
+                                }}
+                                contactPersonError={overviewEditErrors.contactPerson}
+                                emailError={overviewEditErrors.email}
+                              />
+                            </div>
+                            <div className="sm:col-span-2">
+                              <TeamMemberOptionalFields
+                                requireTeamName={false}
+                                members={overviewEditForm.teamMembers}
+                                onChange={(teamMembers) =>
+                                  setOverviewEditForm((p) => ({ ...p, ...syncLeadTeamMembers(teamMembers) }))
+                                }
+                              />
+                            </div>
                             <div className="sm:col-span-2">
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Location</label>
                               <LocationAutocomplete
@@ -3624,14 +3530,6 @@ export function LeadDetailsDrawer({
                                 onSelect={(s) => setOverviewEditForm((p) => mergeLocationFields(p, s))}
                                 placeholder="Start typing a city, region, or address…"
                               />
-                              {(overviewEditForm.city || overviewEditForm.country || overviewEditForm.state) && (
-                                <p className="mt-1 text-[11px] text-slate-500">
-                                  <span className="font-semibold text-emerald-600">Detected</span>{' '}
-                                  {[overviewEditForm.city, overviewEditForm.state, overviewEditForm.country]
-                                    .filter(Boolean)
-                                    .join(', ')}
-                                </p>
-                              )}
                             </div>
                             <div>
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">City</label>
@@ -3867,14 +3765,16 @@ export function LeadDetailsDrawer({
                           <CalendarPlus size={16} className="text-slate-600" />
                           Schedule Follow-up
                         </button>
-                        <button
-                          type="button"
-                          onClick={openConvertToClientForm}
-                          className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100 hover:border-slate-300 active:scale-[0.98] active:bg-slate-200 active:border-slate-300 transition-all duration-150"
-                        >
-                          <UserPlus size={16} className="text-slate-600" />
-                          Convert to Client
-                        </button>
+                        {!isLeadAlreadyConverted(lead) ? (
+                          <button
+                            type="button"
+                            onClick={openConvertToClientForm}
+                            className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100 hover:border-slate-300 active:scale-[0.98] active:bg-slate-200 active:border-slate-300 transition-all duration-150"
+                          >
+                            <UserPlus size={16} className="text-slate-600" />
+                            Convert to Client
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           onClick={openMarkLostForm}
@@ -3972,14 +3872,6 @@ export function LeadDetailsDrawer({
                                 onChange={(next) => setOverviewEditForm((p) => ({ ...p, location: next }))}
                                 onSelect={(s) => setOverviewEditForm((p) => mergeLocationFields(p, s))}
                               />
-                              {(overviewEditForm.city || overviewEditForm.country || overviewEditForm.state) && (
-                                <p className="mt-1 text-[11px] text-slate-500">
-                                  <span className="font-semibold text-emerald-600">Detected</span>{' '}
-                                  {[overviewEditForm.city, overviewEditForm.state, overviewEditForm.country]
-                                    .filter(Boolean)
-                                    .join(', ')}
-                                </p>
-                              )}
                             </div>
                           </div>
                         )}
@@ -4725,7 +4617,7 @@ export function LeadDetailsDrawer({
                         }
                       }}
                       rows={1}
-                      placeholder="Paste lead info — Company, Director Name, Team Name, Email, Phone, Location, City, State, Country, Industry, Source, Services Needed, Expected Business Value…"
+                      placeholder="Paste lead info — Company, Director Name, Team Member, Email, Phone, Location, City, State, Country, Industry, Source, Services Needed, Expected Business Value…"
                       className="max-h-32 min-h-[40px] flex-1 resize-none border-0 bg-transparent py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-0 disabled:opacity-60"
                       disabled={leadAiGenerating}
                     />

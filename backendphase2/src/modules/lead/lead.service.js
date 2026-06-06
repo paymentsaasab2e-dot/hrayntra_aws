@@ -197,6 +197,58 @@ function equalsNormalizedText(left, right) {
   return stripNbsp(left).trim().toLowerCase() === stripNbsp(right).trim().toLowerCase();
 }
 
+function normalizeCompanyMatchKey(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/\b(private|limited|ltd|inc|llc|corp|corporation|solutions|technologies|technology|services|group|company|co)\b/gi, '')
+    .replace(/[^a-z0-9]/g, '')
+    .trim();
+}
+
+function makeLeadConversionError(message, code, meta = {}) {
+  const err = new Error(message);
+  err.statusCode = 409;
+  err.code = code;
+  err.meta = meta;
+  return err;
+}
+
+async function findDuplicateClientByCompanyName(companyName, { excludeClientId } = {}) {
+  const raw = String(companyName || '').trim();
+  if (!raw) return null;
+
+  const baseWhere = {
+    isDeleted: { not: true },
+    ...(excludeClientId ? { id: { not: excludeClientId } } : {}),
+  };
+
+  const exact = await prisma.client.findFirst({
+    where: {
+      ...baseWhere,
+      companyName: { equals: raw, mode: 'insensitive' },
+    },
+    select: { id: true, companyName: true },
+  });
+  if (exact) return exact;
+
+  const compact = normalizeCompanyMatchKey(raw);
+  if (!compact || compact.length < 3) return null;
+
+  const firstWord = raw.split(/\s+/).find((part) => part.length >= 2);
+  if (!firstWord) return null;
+
+  const candidates = await prisma.client.findMany({
+    where: {
+      ...baseWhere,
+      companyName: { contains: firstWord, mode: 'insensitive' },
+    },
+    select: { id: true, companyName: true },
+    take: 50,
+  });
+
+  return candidates.find((client) => normalizeCompanyMatchKey(client.companyName) === compact) || null;
+}
+
 function buildLeadImportDuplicateChecks({ email, companyName, contactPerson }) {
   const duplicateChecks = [];
 
@@ -672,7 +724,7 @@ export const leadService = {
 
     const leadData = {
       companyName: normalizeRequiredLeadField(data.companyName),
-      contactPerson: normalizeRequiredLeadField(normalizedContactPerson),
+      contactPerson: normalizedContactPerson || null,
       directorName: normalizeNullableString(data.directorName) || null,
       directorSalutation: normalizedDirectorSalutation || null,
       email: normalizeRequiredLeadField(contactChannels.email),
@@ -1192,12 +1244,30 @@ export const leadService = {
     }
 
     if (lead.convertedToClientId) {
-      const existingClient = await prisma.client.findUnique({
-        where: { id: lead.convertedToClientId },
+      const linkedClient = await prisma.client.findFirst({
+        where: { id: lead.convertedToClientId, isDeleted: { not: true } },
+        select: { id: true, companyName: true },
       });
-      if (existingClient) {
-        return existingClient;
+      if (linkedClient) {
+        throw makeLeadConversionError(
+          `This lead was already converted to client "${linkedClient.companyName}".`,
+          'LEAD_ALREADY_CONVERTED',
+          { clientId: linkedClient.id, clientName: linkedClient.companyName },
+        );
       }
+    }
+
+    const targetCompanyName = String(
+      clientData.companyName || lead.companyName || lead.contactPerson || '',
+    ).trim();
+
+    const duplicateClient = await findDuplicateClientByCompanyName(targetCompanyName);
+    if (duplicateClient) {
+      throw makeLeadConversionError(
+        `A client named "${duplicateClient.companyName}" already exists. This lead cannot be converted again.`,
+        'CLIENT_ALREADY_EXISTS',
+        { clientId: duplicateClient.id, clientName: duplicateClient.companyName },
+      );
     }
 
     // Log the lead data to see what we're working with
@@ -1244,7 +1314,8 @@ export const leadService = {
       industry: clientData.industry || lead.industry,
       website: clientData.website || lead.website,
       logo: leadInferredLogo || null,
-      status: 'PROSPECT',
+      status: 'ACTIVE',
+      leadStatus: 'Active',
       assignedToId: resolvedAssignedToId,
       createdById: clientData.performedById || null,
       location: clientData.location || lead.location || lead.city || lead.country || null,

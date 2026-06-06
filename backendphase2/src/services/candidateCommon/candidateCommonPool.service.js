@@ -5,6 +5,7 @@ import {
   getJobPortalPrismaClient,
 } from '../../config/prisma.js';
 import { resolveCandidateListExperienceYears } from '../../utils/candidateExperienceYears.util.js';
+import { normalizePortalCareerPreferences } from '../../utils/normalizePortalCareerPreferences.js';
 import { batchHydrateCandidatesResumeFromPortal } from '../../utils/candidateResumeHydrate.util.js';
 import { buildSuperAdminOwnerScope, isSuperAdminUser } from '../../utils/superAdminScope.js';
 import { canViewAllAssignments, hasAnyPermission as hasAnyPermissionScope } from '../../utils/permissionScope.js';
@@ -30,25 +31,9 @@ function parseProfileSnapshot(row) {
   return snap && typeof snap === 'object' && !Array.isArray(snap) ? snap : null;
 }
 
-function normalizeCareerPreferences(preferences) {
+function normalizeCareerPreferences(preferences, candidate = {}) {
   if (!preferences || typeof preferences !== 'object' || Array.isArray(preferences)) return null;
-  const preferredIndustries =
-    Array.isArray(preferences.preferredIndustries) && preferences.preferredIndustries.length
-      ? preferences.preferredIndustries
-      : preferences.preferredIndustry
-        ? [String(preferences.preferredIndustry).trim()].filter(Boolean)
-        : [];
-  const functionalAreas =
-    Array.isArray(preferences.functionalAreas) && preferences.functionalAreas.length
-      ? preferences.functionalAreas
-      : preferences.functionalArea
-        ? [String(preferences.functionalArea).trim()].filter(Boolean)
-        : [];
-  return {
-    ...preferences,
-    preferredIndustries,
-    functionalAreas,
-  };
+  return normalizePortalCareerPreferences(preferences, candidate);
 }
 
 function applyProfileSnapshotFields(mapped, row) {

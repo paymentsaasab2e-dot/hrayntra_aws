@@ -4,7 +4,6 @@ export const NAME_SALUTATION_OPTIONS = [
   { value: 'Mr', label: 'Mr' },
   { value: 'Mrs', label: 'Mrs' },
   { value: 'Ms', label: 'Ms' },
-  { value: 'Miss', label: 'Miss' },
   { value: 'Dr', label: 'Dr' },
   { value: 'Prof', label: 'Prof' },
 ] as const;

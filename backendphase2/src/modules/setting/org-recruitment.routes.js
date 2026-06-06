@@ -27,6 +27,11 @@ import {
   appendClientLeadStatusOption,
   removeClientLeadStatusOption,
   DEFAULT_CLIENT_LEAD_STATUS_OPTIONS,
+  getOrgCustomClientPriorityOptions,
+  getClientPriorityOptions,
+  appendClientPriorityOption,
+  removeClientPriorityOption,
+  DEFAULT_CLIENT_PRIORITY_OPTIONS,
   DEFAULT_COMPANY_SERVICES,
   RECOMMENDED_COMPANY_SERVICES,
   SUBSCRIPTION_PLAN_OPTIONS,
@@ -34,6 +39,7 @@ import {
   DEFAULT_ORG_CURRENCY,
 } from './recruitmentMode.service.js';
 import { suggestCompanyServicesOptions } from './companyServicesSuggest.service.js';
+import { suggestIndustryOptions } from './industrySuggest.service.js';
 import { hasLlmProvider } from '../../services/llmChatFallback.service.js';
 
 const router = express.Router();
@@ -187,6 +193,29 @@ router.get('/company-services', async (req, res) => {
 });
 
 /** Typeahead: history + catalog match + AI (uses server OPENAI_API_KEY / MISTRAL_API_KEY). */
+router.get('/industries/suggest', async (req, res) => {
+  try {
+    const query = String(req.query?.q ?? req.query?.query ?? '').trim();
+    const companyName = String(req.query?.companyName ?? req.query?.company ?? '').trim();
+    const limit = Math.min(Math.max(parseInt(String(req.query?.limit || '8'), 10) || 8, 1), 12);
+    const selectedRaw = req.query?.selected ?? req.query?.exclude ?? '';
+    const selected = String(selectedRaw)
+      .split(/[;,]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const result = await suggestIndustryOptions({
+      query,
+      selected,
+      limit,
+      companyName,
+    });
+    sendResponse(res, 200, 'OK', result);
+  } catch (error) {
+    sendError(res, 500, error.message || 'Failed to suggest industries', error);
+  }
+});
+
 router.get('/company-services/suggest', async (req, res) => {
   try {
     const query = String(req.query?.q ?? req.query?.query ?? '').trim();
@@ -308,6 +337,46 @@ router.post('/client-lead-statuses/remove', async (req, res) => {
     });
   } catch (error) {
     sendError(res, 400, error.message || 'Failed to remove client status', error);
+  }
+});
+
+router.get('/client-priorities', async (req, res) => {
+  try {
+    const custom = await getOrgCustomClientPriorityOptions();
+    const priorities = await getClientPriorityOptions();
+    sendResponse(res, 200, 'OK', {
+      statuses: priorities,
+      custom,
+      defaults: DEFAULT_CLIENT_PRIORITY_OPTIONS,
+    });
+  } catch (error) {
+    sendError(res, 500, error.message || 'Failed to load client interest levels', error);
+  }
+});
+
+router.post('/client-priorities/append', async (req, res) => {
+  try {
+    const priority = req.body?.priority ?? req.body?.status ?? req.body?.name ?? req.body;
+    const priorities = await appendClientPriorityOption(priority);
+    sendResponse(res, 200, 'Interest level added', {
+      statuses: priorities,
+      defaults: DEFAULT_CLIENT_PRIORITY_OPTIONS,
+    });
+  } catch (error) {
+    sendError(res, 400, error.message || 'Failed to add interest level', error);
+  }
+});
+
+router.post('/client-priorities/remove', async (req, res) => {
+  try {
+    const priority = req.body?.priority ?? req.body?.status ?? req.body?.name ?? req.body;
+    const priorities = await removeClientPriorityOption(priority);
+    sendResponse(res, 200, 'Interest level removed', {
+      statuses: priorities,
+      defaults: DEFAULT_CLIENT_PRIORITY_OPTIONS,
+    });
+  } catch (error) {
+    sendError(res, 400, error.message || 'Failed to remove interest level', error);
   }
 });
 

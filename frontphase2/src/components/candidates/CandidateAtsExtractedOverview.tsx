@@ -26,6 +26,8 @@ import {
 } from '@/lib/candidateExperience';
 import { getPhase1ProfileSnapshot } from '@/lib/phase1ProfileSnapshot';
 import type { ClientSectionVisibility } from '@/lib/clientPresentationSections';
+import { CandidateCareerPreferencesOverview } from './CandidateCareerPreferencesOverview';
+import { buildCareerPreferencesViewModel, countCareerPreferencesFilled } from '@/lib/candidateCareerPreferencesModel';
 
 type SectionKey = 'personal' | 'education' | 'work' | 'professional' | 'social' | 'summary';
 
@@ -249,97 +251,6 @@ function normalizeWorkModeLabel(value: unknown): string {
   if (normalized === 'ON_SITE' || normalized === 'ONSITE') return 'On-site';
   if (normalized === 'HYBRID') return 'Hybrid';
   return text;
-}
-
-function PreferenceCard({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
-      <div className="mt-3 space-y-3">{children}</div>
-    </div>
-  );
-}
-
-function CompactField({
-  label,
-  value,
-}: {
-  label: string;
-  value?: string | null;
-}) {
-  const text = display(value);
-  return (
-    <div>
-      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
-      <p className={`mt-1 text-sm ${text ? 'font-medium text-slate-800' : 'italic text-slate-400'}`}>
-        {text || 'Not provided'}
-      </p>
-    </div>
-  );
-}
-
-function ChipField({
-  label,
-  items,
-}: {
-  label: string;
-  items: string[];
-}) {
-  return (
-    <div>
-      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
-      {items.length ? (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {items.map((item) => (
-            <span
-              key={`${label}-${item}`}
-              className="rounded-full border border-indigo-100 bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-800"
-            >
-              {item}
-            </span>
-          ))}
-        </div>
-      ) : (
-        <p className="mt-1 text-sm italic text-slate-400">Not provided</p>
-      )}
-    </div>
-  );
-}
-
-function PassportNumbersField({
-  values,
-}: {
-  values: Record<string, string>;
-}) {
-  const entries = Object.entries(values);
-  return (
-    <div>
-      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
-        Passport Numbers By Location
-      </p>
-      {entries.length ? (
-        <div className="mt-2 space-y-1.5">
-          {entries.map(([location, passport]) => (
-            <div
-              key={location}
-              className="flex flex-col gap-0.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between"
-            >
-              <span className="font-medium text-slate-700">{location}</span>
-              <span className="font-mono text-slate-900">{passport}</span>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="mt-1 text-sm italic text-slate-400">Not provided</p>
-      )}
-    </div>
-  );
 }
 
 function buildOverviewModel(candidate: CandidateProfileDrawerData) {
@@ -606,31 +517,9 @@ export function CandidateAtsExtractedOverview({ candidate, sectionVisibility }: 
   const eduTotal = Math.max(edu.entries.length, 1) + 2;
 
   const prof = model.professional;
-  const profScalarFilled = countFilled([
-    prof.experienceLabel,
-    prof.currentPackage.role,
-    prof.currentPackage.currency,
-    prof.currentPackage.salaryType,
-    prof.currentPackage.salary,
-    prof.currentPackage.location,
-    prof.currentPackage.benefits.join('; '),
-    prof.preferredPackage.roles.join('; '),
-    prof.preferredPackage.currency,
-    prof.preferredPackage.salaryType,
-    prof.preferredPackage.salary,
-    prof.preferredPackage.locations.join('; '),
-    Object.values(prof.preferredPackage.passportNumbersByLocation).join('; '),
-    prof.preferredPackage.workMode,
-    prof.preferredPackage.benefits.join('; '),
-    prof.roleDomain.industries.join('; '),
-    prof.roleDomain.functionalAreas.join('; '),
-    prof.roleDomain.jobTypes.join('; '),
-    prof.availability.relocation,
-    prof.availability.earliestStartDate,
-    prof.availability.noticePeriod,
-    prof.resume,
-  ]);
-  const profTotal = 21;
+  const careerModel = useMemo(() => buildCareerPreferencesViewModel(candidate), [candidate]);
+  const profScalarFilled = countCareerPreferencesFilled(careerModel);
+  const profTotal = 23;
   const workEntries = prof.workEntries;
   const workCount = workEntries.length;
   const workEntryFilled = workEntries.filter(
@@ -756,45 +645,7 @@ export function CandidateAtsExtractedOverview({ candidate, sectionVisibility }: 
         filled={profScalarFilled}
         total={profTotal}
       >
-        <div className="grid gap-3 lg:grid-cols-2">
-          <PreferenceCard title="Current Package">
-            <CompactField label="Current Role" value={prof.currentPackage.role} />
-            <CompactField label="Currency" value={prof.currentPackage.currency} />
-            <CompactField label="Salary Type" value={prof.currentPackage.salaryType} />
-            <CompactField label="Current Salary" value={prof.currentPackage.salary} />
-            <CompactField label="Current Location" value={prof.currentPackage.location} />
-            <ChipField label="Benefits" items={prof.currentPackage.benefits} />
-          </PreferenceCard>
-          <PreferenceCard title="Preferred Package">
-            <ChipField label="Preferred Role" items={prof.preferredPackage.roles} />
-            <CompactField label="Currency" value={prof.preferredPackage.currency} />
-            <CompactField label="Salary Type" value={prof.preferredPackage.salaryType} />
-            <CompactField label="Preferred Salary" value={prof.preferredPackage.salary} />
-            <ChipField label="Preferred Locations" items={prof.preferredPackage.locations} />
-            <PassportNumbersField values={prof.preferredPackage.passportNumbersByLocation} />
-            <CompactField label="Preferred Work Mode" value={prof.preferredPackage.workMode} />
-            <ChipField label="Benefits" items={prof.preferredPackage.benefits} />
-          </PreferenceCard>
-        </div>
-
-        <PreferenceCard title="Role & Domain">
-          <ChipField label="Preferred Industries" items={prof.roleDomain.industries} />
-          <ChipField label="Functional Areas" items={prof.roleDomain.functionalAreas} />
-          <ChipField label="Job Types" items={prof.roleDomain.jobTypes} />
-        </PreferenceCard>
-
-        <div className="grid gap-3 lg:grid-cols-2">
-          <PreferenceCard title="Availability">
-            <CompactField label="Experience" value={prof.experienceLabel} />
-            <CompactField label="Relocation Preference" value={prof.availability.relocation} />
-            <CompactField label="Earliest Start Date" value={prof.availability.earliestStartDate} />
-            <CompactField label="Notice Period" value={prof.availability.noticePeriod} />
-          </PreferenceCard>
-          <PreferenceCard title="Resume">
-            <FieldRow label="Resume" value={prof.resume ? 'Attached' : ''} href={prof.resume} />
-          </PreferenceCard>
-        </div>
-
+        <CandidateCareerPreferencesOverview candidate={candidate} showResume />
       </SectionBlock>
       ) : null}
 

@@ -99,15 +99,12 @@ export function AgreementDocumentUpload({
 
   return (
     <div>
-      <p className="text-xs text-slate-500 mb-2">{description}</p>
+      {description ? <p className="text-xs text-slate-500 mb-2">{description}</p> : null}
       {pendingFile ? (
         <div className="mb-2 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
           <CheckCircle size={14} className="shrink-0 text-emerald-600" />
           <Paperclip size={14} className="shrink-0 text-emerald-600" />
           <span className="min-w-0 flex-1 truncate">{pendingFile.name}</span>
-          <span className="shrink-0 text-xs text-emerald-700">
-            {isExtracting ? 'Reading document…' : 'Ready to upload'}
-          </span>
           <button
             type="button"
             onClick={() => handleFilesSelected([])}

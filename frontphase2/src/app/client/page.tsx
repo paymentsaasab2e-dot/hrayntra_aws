@@ -72,6 +72,13 @@ import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import type { CsvColumn } from '../../utils/csv';
+import { mergeCatalogOptions } from '../../components/forms/CatalogOptionDropdown';
+import {
+  backendStatusToStage,
+  clientStatusLabelToBackend,
+  DEFAULT_CLIENT_STATUS_LABELS,
+  resolveClientStatusLabel,
+} from '../../lib/clientLifecycleStatus';
 
 // Force client-side render so the page hydrates skeletons before the data fetch
 // resolves — every interactive bit on this tab is client-driven anyway.
@@ -81,34 +88,6 @@ export const dynamic = 'force-dynamic';
 const CLIENT_TOOLBAR_SELECT =
   'rounded-lg border border-indigo-100/90 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 cursor-pointer hover:border-indigo-200/90 hover:bg-indigo-50/40';
 const CLIENTS_DYNAMIC_COLUMNS_STORAGE_KEY = 'clients.dynamicColumns';
-
-const DEFAULT_CLIENT_LEAD_STATUSES = ['New', 'Contacted', 'Qualified', 'Converted', 'Lost'] as const;
-
-function deriveClientLifecycleStatus(leadStatusValue: string): UpdateClientData['status'] {
-  return String(leadStatusValue || '').trim() === 'Converted' ? 'ACTIVE' : 'PROSPECT';
-}
-
-function mergeClientLeadStatusOptions(
-  savedStatuses: string[] | null | undefined,
-  currentStatuses: Array<string | null | undefined> = [],
-) {
-  const seen = new Set<string>();
-  const merged: string[] = [];
-  const push = (value: string | null | undefined) => {
-    const normalized = String(value || '').trim();
-    if (!normalized) return;
-    const key = normalized.toLowerCase();
-    if (seen.has(key)) return;
-    seen.add(key);
-    merged.push(normalized);
-  };
-
-  DEFAULT_CLIENT_LEAD_STATUSES.forEach(push);
-  (savedStatuses || []).forEach(push);
-  currentStatuses.forEach(push);
-
-  return merged;
-}
 
 function getClientDynamicFieldValue(client: Client, label: string): string {
   if (!Array.isArray(client.otherDetails)) return '';
@@ -364,17 +343,6 @@ export default function App() {
   const [selectedClients, setSelectedClients] = useState<string[]>([]);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [selectedClientDrawerMode, setSelectedClientDrawerMode] = useState<'view' | 'edit'>('view');
-  const [statusEdit, setStatusEdit] = useState<{
-    clientId: string | null;
-    newStatus: string | null;
-    remark: string;
-    previousStatus: string | null;
-  }>({
-    clientId: null,
-    newStatus: null,
-    remark: '',
-    previousStatus: null,
-  });
   const [showAddClientDrawer, setShowAddClientDrawer] = useState(false);
   const [showCreateJobDrawer, setShowCreateJobDrawer] = useState(false);
   const [clientIdForJob, setClientIdForJob] = useState<string | null>(null);
@@ -395,10 +363,9 @@ export default function App() {
   const [bulkStatus, setBulkStatus] = useState('');
   const [bulkAssignedTo, setBulkAssignedTo] = useState('');
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
-  const [clientLeadStatusOptions, setClientLeadStatusOptions] = useState<string[]>([
-    ...DEFAULT_CLIENT_LEAD_STATUSES,
+  const [clientStatusOptions, setClientStatusOptions] = useState<string[]>([
+    ...DEFAULT_CLIENT_STATUS_LABELS,
   ]);
-
   const selectedClient = useMemo(
     () => (selectedClientId ? clients.find((client) => client.id === selectedClientId) ?? null : null),
     [clients, selectedClientId],
@@ -685,37 +652,45 @@ export default function App() {
     fetchClients();
   }, [fetchClients]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const fetchClientLeadStatusCatalog = async () => {
-      try {
-        const response = await apiGetClientLeadStatusCatalog();
-        if (cancelled) return;
-        setClientLeadStatusOptions(
-          mergeClientLeadStatusOptions(
-            response?.data?.statuses,
-            clients.map((client) => client.leadStatus),
-          ),
-        );
-      } catch (err) {
-        if (cancelled) return;
-        console.error('Failed to load client lead status catalog:', err);
-        setClientLeadStatusOptions(
-          mergeClientLeadStatusOptions(undefined, clients.map((client) => client.leadStatus)),
-        );
-      }
-    };
-
-    void fetchClientLeadStatusCatalog();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const fetchClientStatusCatalog = useCallback(async () => {
+    try {
+      const response = await apiGetClientLeadStatusCatalog();
+      setClientStatusOptions(
+        mergeCatalogOptions(
+          DEFAULT_CLIENT_STATUS_LABELS,
+          response?.data?.statuses,
+          clients.map((client) => resolveClientStatusLabel(client)),
+        ),
+      );
+    } catch (err) {
+      console.error('Failed to load client status catalog:', err);
+      setClientStatusOptions(
+        mergeCatalogOptions(
+          DEFAULT_CLIENT_STATUS_LABELS,
+          undefined,
+          clients.map((client) => resolveClientStatusLabel(client)),
+        ),
+      );
+    }
+  }, [clients]);
 
   useEffect(() => {
-    setClientLeadStatusOptions((current) =>
-      mergeClientLeadStatusOptions(current, clients.map((client) => client.leadStatus)),
+    void fetchClientStatusCatalog();
+  }, [fetchClientStatusCatalog]);
+
+  useEffect(() => {
+    const handler = () => {
+      void fetchClientStatusCatalog();
+    };
+    window.addEventListener('jobportal:client-catalog-changed', handler);
+    return () => window.removeEventListener('jobportal:client-catalog-changed', handler);
+  }, [fetchClientStatusCatalog]);
+
+  useEffect(() => {
+    setClientStatusOptions((current) =>
+      mergeCatalogOptions(DEFAULT_CLIENT_STATUS_LABELS, current, [
+        ...clients.map((client) => resolveClientStatusLabel(client)),
+      ]),
     );
   }, [clients]);
 
@@ -791,57 +766,41 @@ export default function App() {
     if (status) await handleBulkUpdate({ status: status as UpdateClientData['status'] });
   };
 
-  const handleInlineLeadStatusChange = useCallback(
-    (clientId: string, newStatus: string) => {
+  const handleInlineClientStatusChange = useCallback(
+    async (clientId: string, newStatusLabel: string) => {
       const previous = clients.find((client) => client.id === clientId);
-      const previousStatus = previous?.leadStatus ?? null;
-      if (previousStatus === newStatus) return;
+      const normalized = String(newStatusLabel || '').trim();
+      if (!normalized || resolveClientStatusLabel(previous || {}) === normalized) return;
 
-      patchClientInList(clientId, { leadStatus: newStatus, leadStatusValue: newStatus });
-      setStatusEdit({
-        clientId,
-        newStatus,
-        remark: '',
-        previousStatus,
+      const nextStage = backendStatusToStage(clientStatusLabelToBackend(normalized));
+      patchClientInList(clientId, {
+        stage: nextStage,
+        leadStatus: normalized,
+        leadStatusValue: normalized,
       });
+      try {
+        await apiUpdateClient(clientId, {
+          leadStatus: normalized,
+          status: clientStatusLabelToBackend(normalized),
+        });
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('jobportal:clients-changed'));
+        }
+        toast.success('Status updated');
+      } catch (err: unknown) {
+        console.error('Failed to update client status:', err);
+        if (previous) {
+          patchClientInList(clientId, {
+            stage: previous.stage,
+            leadStatus: previous.leadStatus,
+            leadStatusValue: previous.leadStatusValue,
+          });
+        }
+        void requestError(err instanceof Error ? err.message : 'Failed to update status');
+      }
     },
     [clients, patchClientInList],
   );
-
-  const handleSaveStatusEdit = useCallback(async () => {
-    if (!statusEdit.clientId || !statusEdit.newStatus) return;
-
-    try {
-      await apiUpdateClient(statusEdit.clientId, {
-        leadStatus: statusEdit.newStatus,
-        status: deriveClientLifecycleStatus(statusEdit.newStatus),
-      });
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('jobportal:clients-changed'));
-      }
-      await fetchClients();
-      toast.success('Lead status updated');
-    } catch (err: unknown) {
-      console.error('Failed to update client lead status:', err);
-      void requestError(err instanceof Error ? err.message : 'Failed to update lead status');
-      try {
-        await fetchClients();
-      } catch {
-        // ignore refresh failure
-      }
-    } finally {
-      setStatusEdit({ clientId: null, newStatus: null, remark: '', previousStatus: null });
-    }
-  }, [fetchClients, statusEdit.clientId, statusEdit.newStatus]);
-
-  const handleCancelStatusEdit = useCallback(async () => {
-    setStatusEdit({ clientId: null, newStatus: null, remark: '', previousStatus: null });
-    try {
-      await fetchClients();
-    } catch {
-      // ignore refresh failure
-    }
-  }, [fetchClients]);
 
   const handleBulkAssignChange = async (assignedToId: string) => {
     setBulkAssignedTo(assignedToId);
@@ -1287,19 +1246,10 @@ export default function App() {
                     onDeleteClient={handleDeleteClient}
                     onLogoUpdated={handleRefresh}
                     canCreateJob={canCreateJob}
-                    clientLeadStatusOptions={clientLeadStatusOptions}
-                    canUpdateLeadStatus={canUpdateClient}
-                    onLeadStatusChange={handleInlineLeadStatusChange}
-                    statusEditClientId={statusEdit.clientId}
-                    statusEditRemark={statusEdit.remark}
-                    onStatusEditRemarkChange={(remark) =>
-                      setStatusEdit((prev) => ({ ...prev, remark }))
-                    }
-                    onSaveStatusEdit={() => {
-                      void handleSaveStatusEdit();
-                    }}
-                    onCancelStatusEdit={() => {
-                      void handleCancelStatusEdit();
+                    clientStatusOptions={clientStatusOptions}
+                    canUpdateClientStatus={canUpdateClient}
+                    onClientStatusChange={(clientId, newStatus) => {
+                      void handleInlineClientStatusChange(clientId, newStatus);
                     }}
                     onCreateJob={(client) => {
                       if (!canCreateJob) {

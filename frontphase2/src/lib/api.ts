@@ -540,6 +540,32 @@ export async function apiGetCompanyServices() {
   }>('/settings/org/company-services', { auth: true });
 }
 
+export type IndustrySuggestionSource = 'history' | 'catalog' | 'ai';
+
+export interface IndustrySuggestion {
+  label: string;
+  source: IndustrySuggestionSource;
+}
+
+export async function apiSuggestIndustries(params: {
+  q?: string;
+  selected?: string[];
+  limit?: number;
+  companyName?: string;
+}) {
+  const sp = new URLSearchParams();
+  const q = String(params.q ?? '').trim();
+  if (q) sp.set('q', q);
+  if (params.companyName?.trim()) sp.set('companyName', params.companyName.trim());
+  if (params.limit) sp.set('limit', String(params.limit));
+  if (params.selected?.length) sp.set('selected', params.selected.join(';'));
+  const qs = sp.toString();
+  return apiFetch<{
+    suggestions: IndustrySuggestion[];
+    aiEnabled: boolean;
+  }>(`/settings/org/industries/suggest${qs ? `?${qs}` : ''}`, { auth: true });
+}
+
 export type CompanyServiceSuggestionSource = 'history' | 'catalog' | 'ai';
 
 export interface CompanyServiceSuggestion {
@@ -625,6 +651,26 @@ export async function apiRemoveClientLeadStatus(status: string) {
     method: 'POST',
     auth: true,
     body: { status },
+  });
+}
+
+export async function apiGetClientPriorityCatalog() {
+  return apiFetch<StatusCatalogResponse>('/settings/org/client-priorities', { auth: true });
+}
+
+export async function apiAppendClientPriority(priority: string) {
+  return apiFetch<StatusCatalogResponse>('/settings/org/client-priorities/append', {
+    method: 'POST',
+    auth: true,
+    body: { priority },
+  });
+}
+
+export async function apiRemoveClientPriority(priority: string) {
+  return apiFetch<StatusCatalogResponse>('/settings/org/client-priorities/remove', {
+    method: 'POST',
+    auth: true,
+    body: { priority },
   });
 }
 
@@ -3478,6 +3524,11 @@ export interface BackendLead {
   type: 'Company' | 'Individual' | 'Referral';
   source?: 'Website' | 'LinkedIn' | 'Email' | 'Referral' | 'Campaign' | null;
   status: 'New' | 'Contacted' | 'Qualified' | 'Converted' | 'Lost';
+  convertedToClientId?: string | null;
+  client?: {
+    id: string;
+    companyName: string;
+  } | null;
   priority: 'High' | 'Medium' | 'Low';
   interestedNeeds?: string | null;
   notes?: string | null;

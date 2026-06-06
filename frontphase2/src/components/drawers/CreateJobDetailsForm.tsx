@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, Plus, Search, User, X } from 'lucide-react';
 import { DocumentUploadDropzone } from '../import/documentUploadUi';
+import { IndustryMultiSelect } from '../forms/IndustryMultiSelect';
+import { JobLocationFields } from '../location/JobLocationFields';
 import type { BackendClient, BackendUser } from '../../lib/api';
 import { JOB_SALARY_CURRENCY_OPTIONS } from '../../constants/jobSalary';
 
@@ -378,49 +380,22 @@ export function CreateJobDetailsForm({
         />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div>
-          <label className={labelClass}>
-            Country <span className="text-red-500">*</span>
-          </label>
-          <input
-            type="text"
-            value={formData.country}
-            onChange={(e) => patchForm({ country: e.target.value })}
-            placeholder="India"
-            className={inputClass}
-          />
-        </div>
-        <div>
-          <label className={labelClass}>State (optional)</label>
-          <input
-            type="text"
-            value={formData.state}
-            onChange={(e) => patchForm({ state: e.target.value })}
-            placeholder="Karnataka"
-            className={inputClass}
-          />
-        </div>
-        <div>
-          <label className={labelClass}>City (optional)</label>
-          <input
-            type="text"
-            value={formData.city}
-            onChange={(e) => patchForm({ city: e.target.value })}
-            placeholder="Bengaluru"
-            className={inputClass}
-          />
-        </div>
-      </div>
+      <JobLocationFields
+        country={formData.country}
+        state={formData.state}
+        city={formData.city}
+        onChange={(patch) => patchForm(patch)}
+        labelClass={labelClass}
+        inputClass={inputClass}
+      />
 
       <div>
         <label className={labelClass}>Industry Type (optional)</label>
-        <input
-          type="text"
+        <IndustryMultiSelect
           value={formData.industryType}
-          onChange={(e) => setFormData((prev) => ({ ...prev, industryType: e.target.value }))}
-          placeholder="Information Technology"
-          className={inputClass}
+          onChange={(industryType) => patchForm({ industryType })}
+          companyName={selectedCompany?.companyName ?? ''}
+          placeholder="Type an industry (e.g. technology, healthcare)"
         />
       </div>
 

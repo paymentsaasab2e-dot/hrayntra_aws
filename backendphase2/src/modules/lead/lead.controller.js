@@ -213,7 +213,7 @@ export const leadController = {
       }, req);
       sendResponse(res, 200, 'Lead updated successfully', lead);
     } catch (error) {
-      sendError(res, 400, error.message, error);
+      sendError(res, error.statusCode || 400, error.message, error);
     }
   },
 
@@ -247,7 +247,7 @@ export const leadController = {
       
       sendResponse(res, 201, 'Lead converted to client successfully', client);
     } catch (error) {
-      sendError(res, 400, error.message, error);
+      sendError(res, error.statusCode || 400, error.message, error);
     }
   },
 
