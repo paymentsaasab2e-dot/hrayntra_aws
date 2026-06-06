@@ -41,6 +41,7 @@ import type {
   } from '../types/interview.types';
 import { ALL_STATUS_LABEL } from '../constants/filterLabels';
 import { fetchAllPaginated } from '../lib/export/fetchAllPaginated';
+import { buildInterviewsListApiParams } from '../lib/smart-search/entitySmartSearch';
 import { extractAuditMeta } from '../utils/auditMeta';
 import type { AuditMeta } from '../types/audit';
 
@@ -327,7 +328,8 @@ const readPersistedDeletedInterviewIds = (): string[] => {
   }
 };
 
-export function useInterviews() {
+export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) {
+  const smartSearchInterviewIds = options?.smartSearchInterviewIds ?? [];
   const [interviews, setInterviews] = useState<Interview[]>([]);
   const [deletedInterviewIds, setDeletedInterviewIds] = useState<string[]>(() => readPersistedDeletedInterviewIds());
   const [filters, setFilters] = useState<InterviewFiltersState>(defaultFilters);
@@ -387,22 +389,31 @@ export function useInterviews() {
     setLoading(true);
     setError(null);
     try {
-      const response = await apiGetInterviews({
-        page: pagination.page,
-        limit: pagination.pageSize,
-        status: filters.status !== ALL_STATUS_LABEL ? filters.status.toUpperCase().replace(/\s+/g, '_') : undefined,
-        round: filters.round !== 'All Rounds' ? filters.round.toUpperCase().replace(/\s+/g, '_') : undefined,
-        mode: filters.mode === 'Online' ? 'ONLINE' : filters.mode === 'Offline' ? 'OFFLINE' : undefined,
-        interviewerId:
-          filters.interviewer !== 'All Interviewers'
-            ? interviewerOptions.find((user) => user.name === filters.interviewer)?.id
-            : undefined,
-        jobId:
-          filters.clientJob !== 'All Clients'
-            ? jobOptions.find((job) => `${job.client} • ${job.title}` === filters.clientJob)?.id
-            : undefined,
-        search: searchQuery || undefined,
-      });
+      const response = await apiGetInterviews(
+        buildInterviewsListApiParams({
+          page: pagination.page,
+          limit: pagination.pageSize,
+          status:
+            filters.status !== ALL_STATUS_LABEL
+              ? filters.status.toUpperCase().replace(/\s+/g, '_')
+              : undefined,
+          round:
+            filters.round !== 'All Rounds'
+              ? filters.round.toUpperCase().replace(/\s+/g, '_')
+              : undefined,
+          mode: filters.mode === 'Online' ? 'ONLINE' : filters.mode === 'Offline' ? 'OFFLINE' : undefined,
+          interviewerId:
+            filters.interviewer !== 'All Interviewers'
+              ? interviewerOptions.find((user) => user.name === filters.interviewer)?.id
+              : undefined,
+          jobId:
+            filters.clientJob !== 'All Clients'
+              ? jobOptions.find((job) => `${job.client} • ${job.title}` === filters.clientJob)?.id
+              : undefined,
+          search: searchQuery || undefined,
+          matchingInterviewIds: smartSearchInterviewIds,
+        }),
+      );
 
       const snapshot = normalizeInterviewListResponse(response.data);
       setInterviews(snapshot.interviews);
@@ -414,7 +425,19 @@ export function useInterviews() {
     } finally {
       setLoading(false);
     }
-  }, [filters.clientJob, filters.interviewer, filters.mode, filters.round, filters.status, interviewerOptions, jobOptions, pagination.page, pagination.pageSize, searchQuery]);
+  }, [
+    filters.clientJob,
+    filters.interviewer,
+    filters.mode,
+    filters.round,
+    filters.status,
+    interviewerOptions,
+    jobOptions,
+    pagination.page,
+    pagination.pageSize,
+    searchQuery,
+    smartSearchInterviewIds,
+  ]);
 
   useEffect(() => {
     void fetchMeta();

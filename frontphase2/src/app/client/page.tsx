@@ -43,6 +43,8 @@ import {
   SmartSearchToggleButton,
 } from '../../components/smart-search/SmartSearchToolbar';
 import { useSmartSearch } from '../../hooks/useSmartSearch';
+import { mapAiToClientsResult, parseSmartSearchWithAi } from '../../lib/smart-search/aiParser';
+import { buildClientsListApiParams } from '../../lib/smart-search/entitySmartSearch';
 import {
   CLIENTS_SMART_SEARCH_EXAMPLES,
   clientMatchesSmartKeywordChips,
@@ -387,6 +389,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  const [smartSearchClientIds, setSmartSearchClientIds] = useState<string[]>([]);
   const [selectedDynamicColumnLabels, setSelectedDynamicColumnLabels] = useState<string[]>([]);
   const [teamMembers, setTeamMembers] = useState<BackendUser[]>([]);
   const [bulkStatus, setBulkStatus] = useState('');
@@ -472,6 +475,8 @@ export default function App() {
   );
   const clientSmartSearch = useSmartSearch({
     parsePrompt: parseClientsSmartSearchPrompt,
+    parsePromptWithAi: (text) =>
+      parseSmartSearchWithAi('clients', text, { useTenantDatabase: true }, mapAiToClientsResult),
     applyParsed: (parsed) => {
       setCurrentPage(1);
       if (parsed.activeTab) setActiveTab(parsed.activeTab);
@@ -483,6 +488,9 @@ export default function App() {
       }
       setSearchQuery(parsed.searchText);
       setDebouncedSearchQuery(parsed.searchText);
+      setSmartSearchClientIds(
+        parsed.matchingClientIds && parsed.matchingClientIds.length > 0 ? parsed.matchingClientIds : [],
+      );
     },
     onRemoveKeyword: (removed, remaining) => {
       setCurrentPage(1);
@@ -504,7 +512,7 @@ export default function App() {
 
   const sortedClients = useMemo(() => {
     let list = [...filteredClients];
-    if (clientSmartSearch.activeKeywords.length > 0) {
+    if (clientSmartSearch.activeKeywords.length > 0 && smartSearchClientIds.length === 0) {
       list = list.filter((client) =>
         clientMatchesSmartKeywordChips(client, clientSmartSearch.activeKeywords, currentUserName),
       );
@@ -514,7 +522,7 @@ export default function App() {
       return clientNameSortOrder === 'asc' ? comparison : -comparison;
     });
     return list;
-  }, [filteredClients, clientNameSortOrder, clientSmartSearch.activeKeywords, currentUserName]);
+  }, [filteredClients, clientNameSortOrder, clientSmartSearch.activeKeywords, currentUserName, smartSearchClientIds.length]);
   const pagedClients = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
     return sortedClients.slice(start, start + pageSize);
@@ -632,13 +640,16 @@ export default function App() {
 
       const effectiveSearch = overrides?.search ?? debouncedSearchQuery;
 
-      const response = await apiGetClients({
-        search: effectiveSearch || undefined,
-        page: 1,
-        limit: FETCH_LIMIT,
-        includeContacts: false,
-        includeLeadFields: false,
-      });
+      const response = await apiGetClients(
+        buildClientsListApiParams({
+          search: effectiveSearch,
+          page: 1,
+          limit: FETCH_LIMIT,
+          matchingClientIds: smartSearchClientIds,
+          includeContacts: false,
+          includeLeadFields: false,
+        }),
+      );
 
       const backendClients = response.data ? extractBackendClients(response.data) : [];
 
@@ -668,7 +679,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [debouncedSearchQuery]);
+  }, [debouncedSearchQuery, smartSearchClientIds]);
 
   useEffect(() => {
     fetchClients();
@@ -1045,6 +1056,7 @@ export default function App() {
     setCurrentPage(1);
     setSearchQuery('');
     setDebouncedSearchQuery('');
+    setSmartSearchClientIds([]);
     setAdvancedFilters(DEFAULT_CLIENT_FILTERS);
     setActiveTab('all');
     setSelectedDynamicColumnLabels([]);
@@ -1245,6 +1257,7 @@ export default function App() {
                   examples={clientSmartSearch.examples}
                   onExampleClick={clientSmartSearch.handleExample}
                   entityLabel="clients"
+                  applying={clientSmartSearch.applying}
                 />
               ) : null}
 

@@ -268,6 +268,16 @@ async function buildPlacementWhere(query) {
   const where = { deletedAt: null };
   const searchFilter = await buildSearchFilter(query.search);
 
+  if (query.ids) {
+    const idList = String(query.ids)
+      .split(',')
+      .map((value) => value.trim())
+      .filter((value) => /^[a-fA-F0-9]{24}$/.test(value));
+    if (idList.length) {
+      where.id = { in: idList };
+    }
+  }
+
   const companyId = query.companyId || query.clientId;
   if (query.status) where.status = String(query.status).trim().toUpperCase();
   if (companyId) {

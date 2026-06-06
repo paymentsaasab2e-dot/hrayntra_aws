@@ -280,22 +280,6 @@ export function CandidatePhase1SubmitEditSections({
           </p>
         </div>
       ) : null}
-      {!showClientSectionVisibility ? (
-        <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-violet-800">Phase 1 candidate</p>
-          <p className="mt-1 text-sm text-violet-950/80">
-            Same sections as the Overview tab. Edit fields below and save to update this candidate profile.
-          </p>
-        </div>
-      ) : (
-        <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-violet-800">Phase 1 candidate</p>
-          <p className="mt-1 text-sm text-violet-950/80">
-            Same sections as the candidate profile drawer. Edit fields below — saved copy appears on the
-            profile Client tab without changing Overview.
-          </p>
-        </div>
-      )}
 
       <Phase1EditSection
         id="personal"

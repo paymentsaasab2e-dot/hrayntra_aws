@@ -2448,7 +2448,7 @@ async function fetchPortalCandidatesForTenant(req, { status, assignedToId, searc
 export const candidateService = {
   async getAll(req) {
     const { page, limit, skip } = getPaginationParams(req);
-    const { status, assignedToId, search } = req.query;
+    const { status, assignedToId, search, ids } = req.query;
     const listFilters = parseCandidateListFilters(req.query);
     const includeCommonPool =
       req.query?.includeCommonPool === 'true' || req.query?.includeCommonPool === '1';
@@ -2471,6 +2471,15 @@ export const candidateService = {
     }
 
     const andParts = [];
+    if (ids) {
+      const idList = String(ids)
+        .split(',')
+        .map((value) => value.trim())
+        .filter((value) => /^[a-fA-F0-9]{24}$/.test(value));
+      if (idList.length) {
+        andParts.push({ id: { in: idList } });
+      }
+    }
     // Recycle Bin: hide soft-deleted rows from the normal Candidates page.
     // `not: true` matches false, null, and missing-field documents (legacy rows from before
     // the soft-delete column existed) without tripping Prisma's "Argument isDeleted is missing".

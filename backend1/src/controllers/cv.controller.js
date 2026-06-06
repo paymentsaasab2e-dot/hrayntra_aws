@@ -2,7 +2,8 @@ const { prisma } = require('../lib/prisma');
 const { isPortalPlaceholderFullName } = require('../utils/portal-profile-placeholder.util');
 const { parseResumeFromBuffer } = require('../services/resume-parser.service');
 const { convertToLaTeX } = require('../services/cv-parser.service');
-const { Proficiency } = require('@prisma/client');
+const { persistExtractedCvProfile } = require('../services/cv-profile-persist.service');
+const { generateProfileExtractPdf } = require('../services/profile-extract-pdf.service');
 const { uploadBufferToCloudinary } = require('../lib/s3');
 
 function normalizeGender(value) {
@@ -163,8 +164,18 @@ async function uploadCV(req, res) {
     
     // Import extractPortfolioUrls function
     const { extractPortfolioUrls } = require('../services/resume-parser.service');
-    const portfolioUrls = resumeText ? extractPortfolioUrls(resumeText) : [];
-    
+    const regexPortfolioUrls = resumeText ? extractPortfolioUrls(resumeText) : [];
+    const aiPortfolioLinks = Array.isArray(parsedData.portfolioLinks) ? parsedData.portfolioLinks : [];
+    const portfolioUrls = [
+      ...aiPortfolioLinks.map((link) => ({
+        url: link.url,
+        linkType: link.linkType || 'Portfolio Website',
+        title: link.title || link.linkType || 'Portfolio',
+        description: link.description || null,
+      })),
+      ...regexPortfolioUrls,
+    ].filter((link, index, arr) => link.url && arr.findIndex((x) => x.url === link.url) === index);
+
     if (portfolioUrls.length > 0) {
       console.log('\n🔗 PORTFOLIO LINKS FOUND (' + portfolioUrls.length + '):');
       console.log('-'.repeat(80));
@@ -253,36 +264,42 @@ async function uploadCV(req, res) {
       });
     }
     
-    // Skills
-    if (parsedData.skills && parsedData.skills.length > 0) {
-      const technicalSkills = parsedData.skills.filter(s => {
-        const langNames = ['English', 'Spanish', 'French', 'German', 'Hindi', 'Chinese', 'Japanese', 'Arabic'];
-        return !langNames.includes(s.languageName);
+    if (parsedData.summary) {
+      console.log('\n📝 PROFESSIONAL SUMMARY:');
+      console.log('-'.repeat(80));
+      console.log('  ' + String(parsedData.summary).substring(0, 300));
+    }
+
+    const technicalSkills = Array.isArray(parsedData.skills) ? parsedData.skills : [];
+    const languages = Array.isArray(parsedData.languages) ? parsedData.languages : [];
+
+    if (technicalSkills.length > 0) {
+      console.log('\n🛠️  TECHNICAL SKILLS (' + technicalSkills.length + '):');
+      console.log('-'.repeat(80));
+      console.log('  ' + technicalSkills.map((s) => s.name || s.languageName).join(', '));
+    }
+
+    if (languages.length > 0) {
+      console.log('\n🌐 LANGUAGES (' + languages.length + '):');
+      console.log('-'.repeat(80));
+      languages.forEach((lang, index) => {
+        console.log(`  ${index + 1}. ${lang.name || lang.languageName} - ${lang.proficiency}`);
+        const abilities = [];
+        if (lang.speak) abilities.push('Speak');
+        if (lang.read) abilities.push('Read');
+        if (lang.write) abilities.push('Write');
+        if (abilities.length > 0) console.log('     Abilities:', abilities.join(', '));
       });
-      const languages = parsedData.skills.filter(s => {
-        const langNames = ['English', 'Spanish', 'French', 'German', 'Hindi', 'Chinese', 'Japanese', 'Arabic'];
-        return langNames.includes(s.languageName);
-      });
-      
-      if (technicalSkills.length > 0) {
-        console.log('\n🛠️  TECHNICAL SKILLS (' + technicalSkills.length + '):');
-        console.log('-'.repeat(80));
-        const skillNames = technicalSkills.map(s => s.languageName).join(', ');
-        console.log('  ' + skillNames);
-      }
-      
-      if (languages.length > 0) {
-        console.log('\n🌐 LANGUAGES (' + languages.length + '):');
-        console.log('-'.repeat(80));
-        languages.forEach((lang, index) => {
-          console.log(`  ${index + 1}. ${lang.languageName} - ${lang.proficiency}`);
-          const abilities = [];
-          if (lang.speak) abilities.push('Speak');
-          if (lang.read) abilities.push('Read');
-          if (lang.write) abilities.push('Write');
-          if (abilities.length > 0) console.log('     Abilities:', abilities.join(', '));
-        });
-      }
+    }
+
+    if (parsedData.projects?.length) {
+      console.log('\n📁 PROJECTS:', parsedData.projects.length);
+    }
+    if (parsedData.certifications?.length) {
+      console.log('📜 CERTIFICATIONS:', parsedData.certifications.length);
+    }
+    if (parsedData.internships?.length) {
+      console.log('🎓 INTERNSHIPS:', parsedData.internships.length);
     }
     
     // Summary
@@ -292,29 +309,20 @@ async function uploadCV(req, res) {
     console.log('  Personal Info:', parsedData.personalInformation ? '✅ Found' : '❌ Not found');
     console.log('  Education Entries:', parsedData.education?.length || 0);
     console.log('  Work Experience Entries:', parsedData.workExperience?.length || 0);
-    console.log('  Total Skills:', parsedData.skills?.length || 0);
+    console.log('  Total Skills:', technicalSkills.length);
+    console.log('  Total Languages:', languages.length);
     console.log('='.repeat(80) + '\n');
-    
-    // Separate technical skills from languages (used for both LaTeX and database storage)
-    const langNames = ['English', 'Spanish', 'French', 'German', 'Hindi', 'Chinese', 'Japanese', 'Arabic', 'Portuguese', 'Russian'];
-    const technicalSkills = parsedData.skills ? parsedData.skills.filter(skill => {
-      return !langNames.includes(skill.languageName);
-    }) : [];
-    
-    const languages = parsedData.skills ? parsedData.skills.filter(skill => {
-      return langNames.includes(skill.languageName);
-    }) : [];
-    
+
     // Transform to cvData format for LaTeX conversion
     const cvData = {
       personalInfo: parsedData.personalInformation,
       education: parsedData.education,
       workExperience: parsedData.workExperience,
-      skills: technicalSkills.map(s => ({
-        name: s.languageName,
-        category: null,
+      skills: technicalSkills.map((s) => ({
+        name: s.name || s.languageName,
+        category: s.category || null,
         proficiency: s.proficiency,
-        yearsOfExp: null,
+        yearsOfExp: s.yearsOfExp || null,
       })),
       languages: languages,
       summary: parsedData.summary || null,
@@ -348,12 +356,9 @@ async function uploadCV(req, res) {
     // Store or update Resume record
     // Store the parsed data including actual email in resumeJson
     const resumeJsonData = {
-      personalInformation: parsedData.personalInformation || null,
-      education: parsedData.education || [],
-      workExperience: parsedData.workExperience || [],
-      skills: parsedData.skills || [],
-      languages: parsedData.languages || [],
+      ...parsedData,
       extractedAt: new Date().toISOString(),
+      extractionVersion: 'full-profile-v2',
     };
 
     const resume = await prisma.resume.upsert({
@@ -378,216 +383,35 @@ async function uploadCV(req, res) {
       },
     });
 
-    const { resolvePhoneNumberForCvSave } = require('../utils/phone.util');
+    const persistStats = await persistExtractedCvProfile(candidateId, parsedData, { candidate });
+    console.log('CV profile data stored successfully:', persistStats);
 
-    // Store or update Candidate Profile
-    if (parsedData.personalInformation) {
-      const personalInfo = parsedData.personalInformation;
-      const genderEnum = normalizeGender(personalInfo.gender);
-      const maritalStatusEnum = normalizeMaritalStatus(personalInfo.maritalStatus);
-      
-      try {
-        // Check if profile already exists for this candidate
-        const existingProfile = await prisma.candidateProfile.findUnique({
-          where: { candidateId: candidateId },
-        });
-
-        const resolvedPhoneNumber = resolvePhoneNumberForCvSave({
-          candidate,
-          cvPhone: personalInfo.phoneNumber,
-          existingPhone: existingProfile?.phoneNumber,
-        });
-
-        if (existingProfile) {
-          // Update existing profile
-          await prisma.candidateProfile.update({
-            where: { candidateId: candidateId },
-            data: {
-              fullName: personalInfo.fullName || existingProfile.fullName,
-              email: personalInfo.email || existingProfile.email,
-              phoneNumber: resolvedPhoneNumber,
-              alternatePhone: personalInfo.alternatePhoneNumber ?? existingProfile.alternatePhone,
-              address: personalInfo.address ?? existingProfile.address,
-              city: personalInfo.city ?? existingProfile.city,
-              country: personalInfo.country ?? existingProfile.country,
-              linkedinUrl: personalInfo.linkedinProfile ?? existingProfile.linkedinUrl,
-              dateOfBirth: personalInfo.dateOfBirth ? new Date(personalInfo.dateOfBirth) : existingProfile.dateOfBirth,
-              gender: genderEnum ?? existingProfile.gender,
-              maritalStatus: maritalStatusEnum ?? existingProfile.maritalStatus,
-              nationality: personalInfo.nationality ?? existingProfile.nationality,
-              passportNumber: personalInfo.passportNumber ?? existingProfile.passportNumber,
-              updatedAt: new Date(),
-            },
-          });
-        } else {
-          // Create new profile
-          const emailToUse = personalInfo.email || `${candidateId}@noemail.local`;
-
-          await prisma.candidateProfile.create({
-            data: {
-              candidateId: candidateId,
-              fullName: personalInfo.fullName || '',
-              email: emailToUse,
-              phoneNumber: resolvePhoneNumberForCvSave({
-                candidate,
-                cvPhone: personalInfo.phoneNumber,
-                existingPhone: null,
-              }),
-              alternatePhone: personalInfo.alternatePhoneNumber || null,
-              address: personalInfo.address || null,
-              city: personalInfo.city || null,
-              country: personalInfo.country || null,
-              linkedinUrl: personalInfo.linkedinProfile || null,
-              dateOfBirth: personalInfo.dateOfBirth ? new Date(personalInfo.dateOfBirth) : null,
-              gender: genderEnum,
-              maritalStatus: maritalStatusEnum,
-              nationality: personalInfo.nationality || null,
-              passportNumber: personalInfo.passportNumber || null,
-            },
-          });
-
-        }
-
-        const mirroredFullName = personalInfo.fullName || existingProfile?.fullName || '';
-        const mirroredEmail =
-          personalInfo.email ||
-          existingProfile?.email ||
-          candidate?.email ||
-          `${candidateId}@noemail.local`;
-        const mirroredPhone = resolvedPhoneNumber || candidate?.phone || null;
-        const nameParts = splitFullName(mirroredFullName);
-
-        try {
-          await prisma.candidate.update({
-            where: { id: candidateId },
-            data: {
-              email: mirroredEmail,
-              firstName: nameParts.firstName,
-              lastName: nameParts.lastName,
-              phone: mirroredPhone,
-            },
-          });
-        } catch (candidateMirrorError) {
-          console.warn('Candidate mirror update from CV failed:', candidateMirrorError?.message || candidateMirrorError);
-        }
-      } catch (error) {
-        console.error('Error saving candidate profile from CV:', error);
-        throw error;
-      }
-    }
-
-    // Store Education entries
-    if (parsedData.education && parsedData.education.length > 0) {
-      // Delete existing education entries
-      await prisma.education.deleteMany({
-        where: { candidateId: candidateId },
+    let profileExtractPdfUrl = null;
+    try {
+      console.log('📄 Generating full profile extraction PDF...');
+      const profilePdfBuffer = await generateProfileExtractPdf(parsedData);
+      const pdfUpload = await uploadBufferToCloudinary({
+        buffer: profilePdfBuffer,
+        folder: 'jobportal/cv-extract-pdfs',
+        resourceType: 'raw',
+        publicId: `${candidateId}_${timestamp}_profile_extract`,
+        originalFilename: `${candidateId}_profile_extract.pdf`,
+        candidateId,
       });
-
-      // Create new education entries
-      for (const edu of parsedData.education) {
-        await prisma.education.create({
-          data: {
-            candidateId: candidateId,
-            degree: edu.degree || 'Not specified',
-            institution: edu.institution || 'Not specified',
-            specialization: edu.specialization || null,
-            startYear: edu.startYear || new Date().getFullYear() - 4,
-            endYear: edu.endYear || null,
-            isOngoing: !edu.endYear,
-            grade: null,
-            description: null,
+      profileExtractPdfUrl = pdfUpload.secure_url;
+      await prisma.resume.update({
+        where: { candidateId },
+        data: {
+          resumeJson: {
+            ...resumeJsonData,
+            profileExtractPdfUrl,
           },
-        });
-      }
-    }
-
-    // Store Work Experience entries
-    if (parsedData.workExperience && parsedData.workExperience.length > 0) {
-      // Delete existing work experiences
-      await prisma.workExperience.deleteMany({
-        where: { candidateId: candidateId },
+        },
       });
-
-      // Create new work experience entries
-      for (const exp of parsedData.workExperience) {
-        await prisma.workExperience.create({
-          data: {
-            candidateId: candidateId,
-            jobTitle: exp.jobTitle || 'Not specified',
-            company: exp.company || 'Not specified',
-            workLocation: exp.workLocation || null,
-            workMode: null, // Will be extracted if available
-            startDate: exp.startDate ? new Date(exp.startDate) : new Date(),
-            endDate: exp.endDate ? new Date(exp.endDate) : null,
-            isCurrentJob: exp.currentlyWorking || false,
-            responsibilities: exp.responsibilities || null,
-            industry: null,
-          },
-        });
-      }
+      console.log('✅ Profile extraction PDF uploaded:', profileExtractPdfUrl);
+    } catch (pdfErr) {
+      console.warn('⚠️ Profile extraction PDF failed (upload still succeeded):', pdfErr?.message || pdfErr);
     }
-
-    // Store Skills (from skills array, excluding languages)
-    // technicalSkills and languages are already declared above
-
-    if (technicalSkills.length > 0) {
-      // Delete existing candidate skills
-      await prisma.candidateSkill.deleteMany({
-        where: { candidateId: candidateId },
-      });
-
-      for (const skillData of technicalSkills) {
-        // Find or create skill
-        let skill = await prisma.skill.findUnique({
-          where: { name: skillData.languageName },
-        });
-
-        if (!skill) {
-          skill = await prisma.skill.create({
-            data: {
-              name: skillData.languageName,
-              category: null,
-            },
-          });
-        }
-
-        // Create candidate skill relationship
-        await prisma.candidateSkill.create({
-          data: {
-            candidateId: candidateId,
-            skillId: skill.id,
-            proficiency: mapProficiency(skillData.proficiency) || Proficiency.INTERMEDIATE,
-            yearsOfExp: null,
-            isAiSuggested: true,
-          },
-        });
-      }
-    }
-
-    // Store Languages (filter languages from skills)
-    // languages is already declared above
-
-    if (languages.length > 0) {
-      // Delete existing languages
-      await prisma.candidateLanguage.deleteMany({
-        where: { candidateId: candidateId },
-      });
-
-      for (const langData of languages) {
-        await prisma.candidateLanguage.create({
-          data: {
-            candidateId: candidateId,
-            name: langData.languageName,
-            proficiency: mapProficiency(langData.proficiency) || Proficiency.INTERMEDIATE,
-            canSpeak: langData.speak || false,
-            canRead: langData.read || false,
-            canWrite: langData.write || false,
-          },
-        });
-      }
-    }
-
-    console.log('CV data stored successfully in database');
 
     // Trigger CV analysis asynchronously (don't wait for it)
     setImmediate(async () => {
@@ -623,12 +447,18 @@ async function uploadCV(req, res) {
         fileName: file.originalname,
         fileUrl: cvUpload.secure_url,
         latexFileUrl: latexUpload.secure_url,
+        profileExtractPdfUrl,
         extractedData: {
           hasPersonalInfo: !!cvData.personalInfo,
+          hasSummary: !!parsedData.summary,
           educationCount: cvData.education?.length || 0,
           workExperienceCount: cvData.workExperience?.length || 0,
           skillsCount: cvData.skills?.length || 0,
           languagesCount: cvData.languages?.length || 0,
+          projectsCount: parsedData.projects?.length || 0,
+          certificationsCount: parsedData.certifications?.length || 0,
+          internshipsCount: parsedData.internships?.length || 0,
+          persistStats,
         },
       },
     });

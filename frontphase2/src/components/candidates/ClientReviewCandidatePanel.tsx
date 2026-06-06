@@ -24,7 +24,8 @@ function candidateInitials(name?: string): string {
 
 export function ClientReviewCandidatePanel({ reviewData, variant = 'page' }: Props) {
   const cvShareMode = String(reviewData?.cvShareMode || 'edited').toLowerCase();
-  const showEditedCv = cvShareMode !== 'original';
+  const showSaasaCv = cvShareMode === 'saasa';
+  const showEditedCv = !showSaasaCv && cvShareMode !== 'original';
   const showOriginalResume = cvShareMode === 'original';
   const cvEditorPreview = reviewData?.cvEditorPreview ?? null;
   const sharedResumeUrl = String(
@@ -54,6 +55,23 @@ export function ClientReviewCandidatePanel({ reviewData, variant = 'page' }: Pro
           defaultOpen
           showMeta={!isDrawer}
         />
+
+        {showSaasaCv && sharedResumeUrl.startsWith('http') ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+            <h2 className="text-sm font-semibold text-slate-900">SAASA CV</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Annotated CV shared by the recruiter for your review.
+            </p>
+            <a
+              href={sharedResumeUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-3 inline-flex text-sm font-semibold text-amber-900 hover:underline"
+            >
+              Open SAASA CV
+            </a>
+          </div>
+        ) : null}
 
         {showEditedCv && sharedResumeUrl.startsWith('http') ? (
           <div className="rounded-xl border border-slate-200 bg-white p-4">
@@ -95,11 +113,13 @@ export function ClientReviewCandidatePanel({ reviewData, variant = 'page' }: Pro
     <div className="space-y-4">
       {!isDrawer ? (
         <div className="rounded-xl border border-[#DBEAFE] bg-[#EFF6FF] px-4 py-3 text-sm text-[#1E40AF]">
-          {showOriginalResume
-            ? 'You are viewing the original resume file shared by the recruiter.'
-            : hasCvPreview
-              ? 'You are viewing the CV the recruiter selected and submitted for your review.'
-              : 'You are viewing the recruiter’s updated CV profile for this candidate.'}
+          {showSaasaCv
+            ? 'You are viewing the SAASA CV the recruiter selected for your review.'
+            : showOriginalResume
+              ? 'You are viewing the original resume file shared by the recruiter.'
+              : hasCvPreview
+                ? 'You are viewing the CV the recruiter selected and submitted for your review.'
+                : 'You are viewing the recruiter’s updated CV profile for this candidate.'}
         </div>
       ) : (
         <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
@@ -166,6 +186,23 @@ export function ClientReviewCandidatePanel({ reviewData, variant = 'page' }: Pro
             </div>
           ) : null}
         </>
+      ) : null}
+
+      {showSaasaCv && sharedResumeUrl.startsWith('http') ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+          <h2 className="text-sm font-semibold text-[#111827]">SAASA CV</h2>
+          <p className="mt-1 text-sm text-[#4B5563]">
+            Annotated CV shared by the recruiter for your review.
+          </p>
+          <a
+            href={sharedResumeUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-3 inline-flex text-sm font-semibold text-amber-900 hover:underline"
+          >
+            Open SAASA CV
+          </a>
+        </div>
       ) : null}
 
       {showOriginalResume ? (

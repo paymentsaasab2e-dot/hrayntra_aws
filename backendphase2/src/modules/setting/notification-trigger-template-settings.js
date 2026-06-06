@@ -63,9 +63,9 @@ export async function getEffectiveNotificationTriggerTemplate(triggerId, userId 
   const system = getDefaultTriggerTemplate(id);
   const customized = Boolean(stored?.customized);
 
-  let subject = system?.subject || 'Notification from SAASA';
+  let subject = system?.subject || 'Notification from HRYANTRA';
   let bodyHtml =
-    system?.bodyHtml || '<p>Hello,</p><p>This is a notification from your SAASA workspace.</p>';
+    system?.bodyHtml || '<p>Hello,</p><p>This is a notification from your HRYANTRA workspace.</p>';
 
   if (customized) {
     if (stored?.subject?.trim()) subject = String(stored.subject).trim();
@@ -90,10 +90,10 @@ export async function getWorkspaceEffectiveTriggerTemplates(triggerIds = []) {
     const system = getDefaultTriggerTemplate(id);
     const stored = overrides[id];
     const customized = Boolean(stored?.customized);
-    let subject = system?.subject || 'Notification from SAASA';
+    let subject = system?.subject || 'Notification from HRYANTRA';
     let bodyHtml =
       system?.bodyHtml ||
-      '<p>Hello,</p><p>This is a notification from your SAASA workspace.</p>';
+      '<p>Hello,</p><p>This is a notification from your HRYANTRA workspace.</p>';
     if (customized) {
       if (stored?.subject?.trim()) subject = String(stored.subject).trim();
       if (stored?.bodyHtml?.trim()) bodyHtml = String(stored.bodyHtml).trim();

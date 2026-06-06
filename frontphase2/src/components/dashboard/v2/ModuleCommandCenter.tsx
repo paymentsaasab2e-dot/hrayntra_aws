@@ -12,17 +12,12 @@ import {
   type ModuleTabKey,
 } from '@/lib/dashboard/moduleCommandConfig';
 import { useCommandCenterLayout } from '@/lib/dashboard/useCommandCenterLayout';
-import { DashboardDataTable } from '../DashboardDataTable';
 import { DashboardWidgetCard } from '../DashboardWidget';
 import { AddWidgetWizard } from '../AddWidgetWizard';
 import { DashboardWidgetToolbar } from '../DashboardWidgetToolbar';
 import type { KpiDef } from '@/lib/dashboard/moduleCommandConfig';
 import type { DashboardWidget } from '@/lib/dashboard/types';
 import { moduleSupportsKpiCards } from '@/lib/dashboard/commandCenterDefaults';
-import {
-  filterRowsByCommandCenterStatus,
-  normalizeCommandCenterStatus,
-} from '@/lib/dashboard/commandCenterTableFilter';
 
 type Props = {
   moduleKey: ModuleTabKey;
@@ -90,13 +85,6 @@ export function ModuleCommandCenter({ moduleKey, overview }: Props) {
     return <p className="text-sm text-slate-500">Module not configured.</p>;
   }
 
-  const tableRowsRaw = config.tableDatasetId ? rowsByDataset[config.tableDatasetId] || [] : [];
-  const tableRows = useMemo(
-    () => filterRowsByCommandCenterStatus(moduleKey, tableRowsRaw, tableStatusFilter),
-    [moduleKey, tableRowsRaw, tableStatusFilter],
-  );
-  const tableFilterActive = normalizeCommandCenterStatus(tableStatusFilter) !== 'all';
-
   const headerProps = {
     label: config.label,
     listRoute: config.listRoute,
@@ -108,10 +96,6 @@ export function ModuleCommandCenter({ moduleKey, overview }: Props) {
     onDone: () => cc.cancelCustomize(),
     onCustomize: () => cc.startCustomize(),
   };
-
-  const hasTableWidget = cc.displayWidgets.some(
-    (w) => w.chartType === 'table' || w.chartType === 'expandableTable',
-  );
 
   const kpiWidgets = cc.displayWidgets.filter(isKpiCardWidget);
   const chartWidgets = cc.displayWidgets.filter((w) => !isKpiCardWidget(w));
@@ -206,33 +190,6 @@ export function ModuleCommandCenter({ moduleKey, overview }: Props) {
         <>
           {kpiSection}
           {widgetsSection}
-
-          {config.tableDatasetId && !hasTableWidget ? (
-            <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-sm font-bold text-slate-800">{config.tableTitle}</h3>
-                {tableFilterActive ? (
-                  <button
-                    type="button"
-                    onClick={() => setTableStatusFilter('all')}
-                    className="text-xs font-semibold text-indigo-600 hover:text-indigo-500"
-                  >
-                    Clear status filter ({tableStatusFilter})
-                  </button>
-                ) : (
-                  <p className="text-xs text-slate-500">Click a KPI card to filter this table</p>
-                )}
-              </div>
-              <DashboardDataTable
-                rows={tableRows}
-                variant="expandable"
-                maxRows={50}
-                viewAllHref={config.listRoute}
-                viewAllLabel={`View all ${config.label.toLowerCase()}`}
-                fillHeight={false}
-              />
-            </div>
-          ) : null}
         </>
       )}
 
@@ -378,8 +335,8 @@ function CommandCenterCharts({
 
   const customizeHint = editMode ? (
     <p className="mt-0.5 text-xs text-slate-500">
-      Remove charts you do not need, add a new one, then click <strong>Save layout</strong>.
-      <strong> Done</strong> cancels without saving.
+      Remove charts or tables you do not need, add a new widget, then click{' '}
+      <strong>Save layout</strong>. <strong>Done</strong> cancels without saving.
     </p>
   ) : usingDefaults ? (
     <p className="mt-0.5 text-xs text-slate-500">

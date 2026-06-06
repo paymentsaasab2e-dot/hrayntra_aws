@@ -936,7 +936,9 @@ export const matchService = {
       normalizeSubmissionType(data?.submissionType) || 'GENERAL';
     const cvShareModeRaw = String(data?.cvShareMode || '').trim().toLowerCase();
     const cvShareMode =
-      cvShareModeRaw === 'edited' || cvShareModeRaw === 'original' ? cvShareModeRaw : null;
+      cvShareModeRaw === 'edited' || cvShareModeRaw === 'original' || cvShareModeRaw === 'saasa'
+        ? cvShareModeRaw
+        : null;
 
     if (cvShareMode) {
       const freshCandidate = await prisma.candidate.findUnique({

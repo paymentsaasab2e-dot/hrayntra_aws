@@ -21,6 +21,70 @@ function isValidObjectId(value) {
   return typeof value === 'string' && /^[a-fA-F0-9]{24}$/.test(value.trim());
 }
 
+/** String fields searched by the Leads table search bar and smart-search prompt. */
+const LEAD_DB_TEXT_SEARCH_FIELDS = [
+  'companyName',
+  'contactPerson',
+  'directorName',
+  'directorSalutation',
+  'email',
+  'phone',
+  'interestedNeeds',
+  'servicesNeeded',
+  'notes',
+  'expectedBusinessValue',
+  'industry',
+  'sector',
+  'companySize',
+  'teamName',
+  'website',
+  'linkedIn',
+  'location',
+  'city',
+  'state',
+  'country',
+  'designation',
+  'teamMemberDesignation',
+  'teamMemberEmail',
+  'teamMemberPhone',
+  'campaignName',
+  'campaignLink',
+  'referralName',
+  'sourceWebsiteUrl',
+  'sourceLinkedInUrl',
+  'sourceEmail',
+  'status',
+];
+
+const LEAD_SEARCH_STOP_WORDS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'with', 'from', 'in', 'on', 'at', 'to', 'for', 'of',
+  'me', 'my', 'all', 'any', 'show', 'find', 'search', 'filter', 'get', 'list', 'lead', 'leads',
+]);
+
+/**
+ * Build a Prisma where fragment for free-text lead search.
+ * Each whitespace-separated term must match at least one field (AND across terms).
+ */
+function buildLeadDatabaseSearchFilter(search) {
+  const trimmed = String(search || '').trim();
+  if (!trimmed) return null;
+
+  const terms = trimmed
+    .split(/\s+/)
+    .map((term) => term.trim())
+    .filter((term) => term.length >= 2 && !LEAD_SEARCH_STOP_WORDS.has(term.toLowerCase()));
+
+  const effectiveTerms = terms.length > 0 ? terms : [trimmed];
+
+  const termClauses = effectiveTerms.map((term) => ({
+    OR: LEAD_DB_TEXT_SEARCH_FIELDS.map((field) => ({
+      [field]: { contains: term, mode: 'insensitive' },
+    })),
+  }));
+
+  return termClauses.length === 1 ? termClauses[0] : { AND: termClauses };
+}
+
 function normalizeOtherDetails(value) {
   if (!Array.isArray(value)) return null;
 
@@ -460,7 +524,7 @@ export const leadService = {
     const page = Math.max(Number.parseInt(String(req.query.page ?? '1'), 10) || 1, 1);
     const limit = Math.min(Math.max(Number.parseInt(String(req.query.limit ?? '100'), 10) || 100, 1), 500);
     const skip = (page - 1) * limit;
-    const { status, source, assignedToId, search, type, priority } = req.query;
+    const { status, source, assignedToId, search, type, priority, ids } = req.query;
 
     const baseFilters = {};
     if (status) baseFilters.status = status;
@@ -478,19 +542,24 @@ export const leadService = {
     }
 
     const andParts = [{ ...baseFilters }];
+
+    if (ids) {
+      const idList = String(ids)
+        .split(',')
+        .map((value) => value.trim())
+        .filter((value) => isValidObjectId(value));
+      if (idList.length) {
+        andParts.push({ id: { in: idList } });
+      }
+    }
+
     // Recycle Bin: hide soft-deleted rows from the normal Leads page (always opt-in via /trash).
     // `not: true` matches false, null, and missing-field documents (legacy rows from before
     // the soft-delete column existed) without tripping Prisma's "Argument isDeleted is missing".
     andParts.push({ isDeleted: { not: true } });
-    if (search) {
-      andParts.push({
-        OR: [
-          { companyName: { contains: search, mode: 'insensitive' } },
-          { contactPerson: { contains: search, mode: 'insensitive' } },
-          { email: { contains: search, mode: 'insensitive' } },
-          { phone: { contains: search, mode: 'insensitive' } },
-        ],
-      });
+    const searchFilter = buildLeadDatabaseSearchFilter(search);
+    if (searchFilter) {
+      andParts.push(searchFilter);
     }
     if (!canViewAllLeads(req) && req.user?.id) {
       andParts.push({

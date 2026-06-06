@@ -11,6 +11,7 @@ router.post('/lead-details', aiController.generateLeadDetails);
 router.post('/client-details', aiController.generateClientDetails);
 router.get('/location/search', aiController.searchLocations);
 router.post('/location/resolve', aiController.resolveLocation);
+router.post('/smart-search/parse', aiController.parseSmartSearch);
 router.post('/assistant-chat', aiController.assistantChat);
 router.post('/undo', aiController.executeUndo);
 router.get('/assistant-history/:pageKey', aiController.getAssistantHistory);

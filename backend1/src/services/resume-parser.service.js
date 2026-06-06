@@ -4,6 +4,12 @@ const OpenAI = require('openai');
 const { Mistral } = require('@mistralai/mistralai');
 const path = require('path');
 const { extractPdfText } = require('../utils/pdfTextExtract.util');
+const {
+  buildCvExtractionPrompt,
+  migrateLegacyExtraction,
+  emptyExtraction,
+  isKnownLanguage,
+} = require('./cv-extraction-schema');
 
 /** Treat placeholder .env values as unset so fallbacks can run. */
 function isConfiguredApiKey(value) {
@@ -197,82 +203,11 @@ function cleanText(rawText) {
  * Do NOT summarize, modify content meaning, or remove sections
  */
 async function structureResumeWithAI(cleanResumeText) {
-  console.log('\n🤖 STEP 4: Sending FULL Resume Text to AI (with fallback)');
-  
-  const prompt = `You are a resume structuring AI.
+  console.log('\n🤖 STEP 4: Sending FULL Resume Text to OpenAI (full profile extraction)');
 
-You will receive RAW RESUME TEXT.
-Do NOT summarize.
-Do NOT modify content meaning.
-Do NOT remove sections.
-
-Your job is ONLY to convert the resume text into structured JSON.
-
-Return data ONLY in the following JSON format:
-
-{
-  "personalInformation": {
-    "fullName": "",
-    "email": "",
-    "phoneNumber": "",
-    "alternatePhoneNumber": "",
-    "gender": "",
-    "dateOfBirth": "",
-    "maritalStatus": "",
-    "address": "",
-    "city": "",
-    "country": "",
-    "nationality": "",
-    "passportNumber": "",
-    "linkedinProfile": ""
-  },
-  "education": [
-    {
-      "degree": "",
-      "institution": "",
-      "specialization": "",
-      "startYear": 0,
-      "endYear": 0
-    }
-  ],
-  "workExperience": [
-    {
-      "jobTitle": "",
-      "company": "",
-      "workLocation": "",
-      "startDate": "",
-      "endDate": "",
-      "currentlyWorking": false,
-      "responsibilities": ""
-    }
-  ],
-  "skills": [
-    {
-      "languageName": "",
-      "proficiency": "BEGINNER|INTERMEDIATE|ADVANCED|NATIVE",
-      "speak": true,
-      "read": true,
-      "write": true
-    }
-  ]
-}
-
-Extraction Rules:
-
-1. Extract the candidate name from the top of the resume.
-2. Extract all education entries with years as numbers.
-3. Extract all work experience entries.
-4. Extract all skills including technical skills and languages.
-5. Convert all dates to YYYY-MM-DD format when possible.
-6. If a field is missing return null.
-7. If no entries exist return an empty array [].
-8. Do not add extra fields.
-9. Return ONLY valid JSON.
-
-Resume Text:
-${cleanResumeText}`;
-
+  const prompt = buildCvExtractionPrompt(cleanResumeText);
   const { OPENAI_CHAT_MODEL } = require('../config/openaiModel');
+  const openAiOnly = process.env.CV_PARSER_OPENAI_ONLY !== 'false';
 
   let responseText = '';
   let lastError = null;
@@ -281,10 +216,18 @@ ${cleanResumeText}`;
     try {
       console.log(`  📤 Using OpenAI (${OPENAI_CHAT_MODEL})...`);
       const completion = await openai.chat.completions.create({
-        messages: [{ role: 'user', content: prompt }],
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You extract structured candidate profile data from resumes. Respond with valid JSON only.',
+          },
+          { role: 'user', content: prompt },
+        ],
         model: OPENAI_CHAT_MODEL,
-        temperature: 0.3,
-        max_tokens: 4096,
+        temperature: 0.2,
+        max_tokens: 16384,
+        response_format: { type: 'json_object' },
       });
       responseText = completion.choices[0]?.message?.content?.trim() || '';
       if (responseText) {
@@ -295,12 +238,27 @@ ${cleanResumeText}`;
       console.warn(
         `  ⚠️ OpenAI failed (${OPENAI_CHAT_MODEL}): ${openaiError?.message || openaiError}`
       );
+      if (openaiError?.message?.includes('response_format')) {
+        try {
+          const completion = await openai.chat.completions.create({
+            messages: [{ role: 'user', content: prompt }],
+            model: OPENAI_CHAT_MODEL,
+            temperature: 0.2,
+            max_tokens: 16384,
+          });
+          responseText = completion.choices[0]?.message?.content?.trim() || '';
+        } catch (retryErr) {
+          lastError = retryErr;
+        }
+      }
     }
   } else {
     console.warn('  ⚠️ OpenAI not configured (missing or placeholder OPENAI_API_KEY)');
   }
 
-  if (!responseText && mistral) {
+  const tryFallbackProviders = !openAiOnly || !responseText;
+
+  if (tryFallbackProviders && !responseText && mistral) {
     try {
       console.log(`  📤 Using Mistral (${MISTRAL_CHAT_MODEL})...`);
       const chatResponse = await mistral.chat.complete({
@@ -319,10 +277,11 @@ ${cleanResumeText}`;
     }
   }
 
-  if (!responseText && genAI) {
+  if (tryFallbackProviders && !responseText && genAI) {
     try {
-      console.log('  📤 Using Google Gemini (gemini-1.5-flash)...');
-      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+      const geminiModel = process.env.GEMINI_CHAT_MODEL?.trim() || 'gemini-2.0-flash';
+      console.log(`  📤 Using Google Gemini (${geminiModel})...`);
+      const model = genAI.getGenerativeModel({ model: geminiModel });
       const result = await model.generateContent(prompt);
       const response = await result.response;
       responseText = response.text().trim();
@@ -335,7 +294,7 @@ ${cleanResumeText}`;
     }
   }
 
-  if (!responseText && anthropic) {
+  if (tryFallbackProviders && !responseText && anthropic) {
     try {
       console.log('  📤 Using Anthropic Claude...');
       const message = await anthropic.messages.create({
@@ -370,16 +329,20 @@ ${cleanResumeText}`;
     }
     
     // Parse JSON
-    const structuredData = JSON.parse(responseText);
+    const structuredData = migrateLegacyExtraction(JSON.parse(responseText));
     console.log('  ✅ Resume structured successfully');
-    
-    // Log extracted data for debugging
+
     console.log('\n📊 EXTRACTED DATA SUMMARY:');
     console.log('  Personal Info:', structuredData.personalInformation?.fullName || 'Not found');
+    console.log('  Summary:', structuredData.summary ? '✅' : '—');
     console.log('  Education Entries:', structuredData.education?.length || 0);
     console.log('  Work Experience Entries:', structuredData.workExperience?.length || 0);
+    console.log('  Internships:', structuredData.internships?.length || 0);
     console.log('  Skills:', structuredData.skills?.length || 0);
-    
+    console.log('  Languages:', structuredData.languages?.length || 0);
+    console.log('  Projects:', structuredData.projects?.length || 0);
+    console.log('  Certifications:', structuredData.certifications?.length || 0);
+
     return structuredData;
   } catch (error) {
     console.error('Error structuring resume with AI:', error);
@@ -438,18 +401,21 @@ function validateData(structuredData) {
     }
   }
   
-  // Validate dates (YYYY-MM-DD format)
-  if (validated.workExperience) {
-    validated.workExperience = validated.workExperience.map(exp => {
-      if (exp.startDate && !isValidDate(exp.startDate)) {
-        console.warn('  ⚠️  Invalid start date:', exp.startDate);
-        exp.startDate = null;
-      }
-      if (exp.endDate && !isValidDate(exp.endDate)) {
-        console.warn('  ⚠️  Invalid end date:', exp.endDate);
-        exp.endDate = null;
-      }
-      return exp;
+  const dateListKeys = ['workExperience', 'internships', 'projects'];
+  for (const key of dateListKeys) {
+    if (!Array.isArray(validated[key])) continue;
+    validated[key] = validated[key].map((row) => {
+      if (row.startDate && !isValidDate(row.startDate)) row.startDate = null;
+      if (row.endDate && !isValidDate(row.endDate)) row.endDate = null;
+      return row;
+    });
+  }
+
+  if (Array.isArray(validated.certifications)) {
+    validated.certifications = validated.certifications.map((row) => {
+      if (row.issueDate && !isValidDate(row.issueDate)) row.issueDate = null;
+      if (row.expiryDate && !isValidDate(row.expiryDate)) row.expiryDate = null;
+      return row;
     });
   }
   
@@ -508,7 +474,7 @@ function isValidDate(dateString) {
 function normalizeData(validatedData) {
   console.log('\n✨ STEP 6: Data Normalization');
   
-  const normalized = JSON.parse(JSON.stringify(validatedData)); // Deep clone
+  let normalized = JSON.parse(JSON.stringify(validatedData)); // Deep clone
   
   // Normalize personal information
   if (normalized.personalInformation) {
@@ -586,35 +552,54 @@ function normalizeData(validatedData) {
     });
   }
   
-  // Normalize skills
+  normalized = migrateLegacyExtraction(normalized);
+
+  const validProficiencies = ['BEGINNER', 'INTERMEDIATE', 'ADVANCED', 'NATIVE'];
+
   if (normalized.skills) {
-    normalized.skills = normalized.skills.map(skill => {
-      // Trim strings
-      if (skill.languageName) skill.languageName = skill.languageName.trim();
-      
-      // Convert empty strings to null
-      if (skill.languageName === '') skill.languageName = null;
-      
-      // Ensure proficiency is valid
-      const validProficiencies = ['BEGINNER', 'INTERMEDIATE', 'ADVANCED', 'NATIVE'];
-      if (!validProficiencies.includes(skill.proficiency)) {
-        skill.proficiency = 'INTERMEDIATE'; // Default
-      }
-      
-      // Ensure boolean fields are boolean
-      skill.speak = Boolean(skill.speak);
-      skill.read = Boolean(skill.read);
-      skill.write = Boolean(skill.write);
-      
-      return skill;
-    });
-    
-    // Remove skills with null languageName
-    normalized.skills = normalized.skills.filter(skill => skill.languageName !== null);
+    normalized.skills = normalized.skills
+      .map((skill) => {
+        const name = (skill.name || skill.languageName || '').trim();
+        if (!name || isKnownLanguage(name)) return null;
+        return {
+          name,
+          proficiency: validProficiencies.includes(String(skill.proficiency || '').toUpperCase())
+            ? String(skill.proficiency).toUpperCase()
+            : 'INTERMEDIATE',
+          category: skill.category || 'Hard Skills',
+        };
+      })
+      .filter(Boolean);
   }
-  
+
+  if (normalized.languages) {
+    normalized.languages = normalized.languages
+      .map((lang) => {
+        const name = (lang.name || lang.languageName || '').trim();
+        if (!name) return null;
+        return {
+          name,
+          proficiency: validProficiencies.includes(String(lang.proficiency || '').toUpperCase())
+            ? String(lang.proficiency).toUpperCase()
+            : 'INTERMEDIATE',
+          speak: lang.speak !== false,
+          read: lang.read !== false,
+          write: lang.write !== false,
+        };
+      })
+      .filter(Boolean);
+  }
+
+  if (normalized.workExperience) {
+    normalized.workExperience = normalized.workExperience.filter((exp) => {
+      const title = String(exp?.jobTitle || '').trim().toLowerCase();
+      const company = String(exp?.company || '').trim().toLowerCase();
+      return !(title === 'fresher' && (!company || company === 'n/a'));
+    });
+  }
+
   console.log('  ✅ Normalization completed');
-  
+
   return normalized;
 }
 
@@ -657,26 +642,24 @@ async function parseResumeFromBuffer(buffer, mimeType, fileName) {
     // STEP 6: Normalize Data
     const normalizedData = normalizeData(validatedData);
     
-    // Return final structured data
     const finalData = {
-      personalInformation: normalizedData.personalInformation || {
-        fullName: null,
-        email: null,
-        phoneNumber: null,
-        alternatePhoneNumber: null,
-        gender: null,
-        dateOfBirth: null,
-        maritalStatus: null,
-        address: null,
-        city: null,
-        country: null,
-        nationality: null,
-        passportNumber: null,
-        linkedinProfile: null,
+      ...emptyExtraction(),
+      ...normalizedData,
+      personalInformation: {
+        ...emptyExtraction().personalInformation,
+        ...(normalizedData.personalInformation || {}),
       },
       education: normalizedData.education || [],
-      skills: normalizedData.skills || [],
       workExperience: normalizedData.workExperience || [],
+      internships: normalizedData.internships || [],
+      skills: normalizedData.skills || [],
+      languages: normalizedData.languages || [],
+      projects: normalizedData.projects || [],
+      certifications: normalizedData.certifications || [],
+      accomplishments: normalizedData.accomplishments || [],
+      academicAchievements: normalizedData.academicAchievements || [],
+      competitiveExams: normalizedData.competitiveExams || [],
+      portfolioLinks: normalizedData.portfolioLinks || [],
     };
     
     console.log('\n' + '='.repeat(80));

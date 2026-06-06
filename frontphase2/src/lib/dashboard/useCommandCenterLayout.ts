@@ -2,46 +2,25 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { apiDashboardGetLayout, apiDashboardSaveLayout } from './api';
 import {
   buildModuleLayoutFromSession,
-  createEmptyLayout,
   getModuleLayout,
-  parseDashboardLayout,
   resolveModuleDisplayWidgets,
-  serializeLayout,
   type DashboardLayoutV2,
 } from './layoutV2';
 import type { ModuleCommandConfig, ModuleTabKey } from './moduleCommandConfig';
 import type { DashboardWidget } from './types';
+import { useDashboardLayoutStore } from './DashboardLayoutProvider';
 
 export function useCommandCenterLayout(
   moduleKey: ModuleTabKey,
   config: ModuleCommandConfig | undefined,
   widgetModuleName: string,
 ) {
-  const [layout, setLayout] = useState<DashboardLayoutV2>(createEmptyLayout);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const { layout, loading, saving, saveLayout: persistFullLayout } = useDashboardLayoutStore();
   const [editMode, setEditMode] = useState(false);
   const [sessionWidgets, setSessionWidgets] = useState<DashboardWidget[] | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
-
-  const loadLayout = useCallback(async () => {
-    setLoading(true);
-    try {
-      const raw = await apiDashboardGetLayout();
-      setLayout(parseDashboardLayout(raw));
-    } catch {
-      setLayout(createEmptyLayout());
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadLayout();
-  }, [loadLayout]);
 
   useEffect(() => {
     setEditMode(false);
@@ -64,7 +43,6 @@ export function useCommandCenterLayout(
 
   const persistModule = useCallback(
     async (nextModuleLayout: ReturnType<typeof buildModuleLayoutFromSession>) => {
-      setSaving(true);
       const next: DashboardLayoutV2 = {
         ...layout,
         modules: {
@@ -72,19 +50,14 @@ export function useCommandCenterLayout(
           [moduleKey]: nextModuleLayout,
         },
       };
-      try {
-        await apiDashboardSaveLayout(serializeLayout(next));
-        setLayout(next);
+      const ok = await persistFullLayout(next);
+      if (ok) {
         setSessionWidgets(null);
         setEditMode(false);
         toast.success('Command center layout saved.');
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Could not save layout.');
-      } finally {
-        setSaving(false);
       }
     },
-    [layout, moduleKey],
+    [layout, moduleKey, persistFullLayout],
   );
 
   const startCustomize = useCallback(() => {
@@ -179,6 +152,5 @@ export function useCommandCenterLayout(
     startAddWidget,
     nextPosition,
     duplicateWidget,
-    reloadLayout: loadLayout,
   };
 }

@@ -2706,7 +2706,14 @@ export function CreateJobDrawer({
             setShowLinkedInSuccess(true);
             setTimeout(() => setShowLinkedInSuccess(false), 5000);
           }
-          if (platformsToPublish.twitter) socialPosts.push('Twitter');
+          if (platformsToPublish.twitter) {
+            const twitterResult = (result as any).data?.twitter;
+            if (twitterResult?.success) {
+              socialPosts.push('Twitter');
+            } else if (twitterResult?.error) {
+              void requestWarning(`Job saved, but X posting failed: ${twitterResult.error}`);
+            }
+          }
           if (platformsToPublish.facebook) socialPosts.push('Facebook');
         } catch (error: any) {
           console.error('Social publishing failed:', error);

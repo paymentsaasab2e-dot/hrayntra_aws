@@ -231,6 +231,8 @@ export const env = {
 
   // AI — OpenAI primary model comes from OPENAI_CHAT_MODEL; Mistral fallback when OpenAI fails.
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  /** Optional cap for smart-search tenant snapshots. Empty/0 = load all accessible rows. */
+  SMART_SEARCH_MAX_LEADS_CONTEXT: process.env.SMART_SEARCH_MAX_LEADS_CONTEXT || '',
   /** Resolved chat model from OPENAI_CHAT_MODEL / OPENAI_ASSISTANT_MODEL (defaults to gpt-4.1). */
   OPENAI_CHAT_MODEL,
   OPENAI_ASSISTANT_MODEL: OPENAI_CHAT_MODEL,

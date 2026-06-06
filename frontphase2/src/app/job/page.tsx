@@ -51,6 +51,8 @@ import {
   SmartSearchToggleButton,
 } from '../../components/smart-search/SmartSearchToolbar';
 import { useSmartSearch } from '../../hooks/useSmartSearch';
+import { mapAiToJobsResult, parseSmartSearchWithAi } from '../../lib/smart-search/aiParser';
+import { buildJobsListApiParams } from '../../lib/smart-search/entitySmartSearch';
 import { parseJobsSmartSearchPrompt, JOBS_SMART_SEARCH_EXAMPLES } from '../../lib/smart-search/parsers';
 import { StatusChangeService } from '../../components/StatusChangeService';
 import {
@@ -956,6 +958,7 @@ export default function JobsPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [clientFilterId, setClientFilterId] = useState('');
   const [recruiterFilterId, setRecruiterFilterId] = useState('');
+  const [smartSearchJobIds, setSmartSearchJobIds] = useState<string[]>([]);
   const [clientOptions, setClientOptions] = useState<Array<{ id: string; name: string }>>([]);
   const [recruiterOptions, setRecruiterOptions] = useState<Array<{ id: string; name: string }>>([]);
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
@@ -1047,12 +1050,17 @@ export default function JobsPage() {
         clients: clientOptions,
         recruiters: recruiterOptions,
       }),
+    parsePromptWithAi: (text) =>
+      parseSmartSearchWithAi('jobs', text, { useTenantDatabase: true }, mapAiToJobsResult),
     applyParsed: (parsed) => {
       setCurrentPage(1);
       setStatusFilter(parsed.status || '');
       setClientFilterId(parsed.clientId || '');
       setRecruiterFilterId(parsed.recruiterId || '');
       setSearchFilter(parsed.searchText);
+      setSmartSearchJobIds(
+        parsed.matchingJobIds && parsed.matchingJobIds.length > 0 ? parsed.matchingJobIds : [],
+      );
     },
     onRemoveKeyword: (removed, remaining) => {
       setCurrentPage(1);
@@ -1067,6 +1075,7 @@ export default function JobsPage() {
   });
 
   const hasActiveFilters = Boolean(
+    smartSearchJobIds.length > 0 ||
     searchFilter ||
       statusFilter ||
       clientFilterId ||
@@ -1148,14 +1157,19 @@ export default function JobsPage() {
     }
   }, []);
 
-  const buildJobsQueryParams = useCallback(() => ({
-    page: currentPage,
-    limit: pageSize,
-    search: searchFilter || undefined,
-    status: statusFilter || undefined,
-    clientId: clientFilterId || undefined,
-    assignedToId: recruiterFilterId || undefined,
-  }), [currentPage, pageSize, searchFilter, statusFilter, clientFilterId, recruiterFilterId]);
+  const buildJobsQueryParams = useCallback(
+    () =>
+      buildJobsListApiParams({
+        currentPage,
+        pageSize,
+        searchFilter,
+        statusFilter,
+        clientFilterId,
+        recruiterFilterId,
+        matchingJobIds: smartSearchJobIds,
+      }),
+    [currentPage, pageSize, searchFilter, statusFilter, clientFilterId, recruiterFilterId, smartSearchJobIds],
+  );
 
   useEffect(() => {
     hasVisibleJobsRef.current = jobs.length > 0;
@@ -2204,6 +2218,7 @@ export default function JobsPage() {
                           setStatusFilter('');
                           setClientFilterId('');
                           setRecruiterFilterId('');
+                          setSmartSearchJobIds([]);
                           jobSmartSearch.clearSmartSearch();
                           setCurrentPage(1);
                         }}
@@ -2224,6 +2239,7 @@ export default function JobsPage() {
                   examples={jobSmartSearch.examples}
                   onExampleClick={jobSmartSearch.handleExample}
                   entityLabel="jobs"
+                  applying={jobSmartSearch.applying}
                   placeholder="e.g. open jobs from LinkedIn for Acme in Bangalore"
                 />
               ) : null}
@@ -2235,6 +2251,7 @@ export default function JobsPage() {
                   setStatusFilter('');
                   setClientFilterId('');
                   setRecruiterFilterId('');
+                  setSmartSearchJobIds([]);
                   jobSmartSearch.clearSmartSearch();
                   setCurrentPage(1);
                 }}
@@ -2584,6 +2601,7 @@ export default function JobsPage() {
         }
         openEditDirectly={Boolean(candidateEditOpenToken)}
         editModalOpenToken={candidateEditOpenToken}
+        loadingCandidateProfile={loadingCandidateProfile}
       />
 
       <ScheduleInterviewModal

@@ -39,7 +39,7 @@ export interface CvEditorWatermark {
 }
 
 /** Which CV version is sent to the client on Submit to Client */
-export type CvShareMode = 'edited' | 'original';
+export type CvShareMode = 'edited' | 'original' | 'saasa';
 
 /** Resume tab viewer in candidate drawer */
 export type ResumeCvViewMode = 'original' | 'saasa' | 'updated' | 'edited';
@@ -140,7 +140,7 @@ export function readCvSubmission(candidate: BackendCandidate | null): CvSubmissi
   const submission = (extra as Record<string, unknown>).cvSubmission;
   if (!submission || typeof submission !== 'object' || Array.isArray(submission)) return null;
   const mode = (submission as CvSubmissionStored).shareMode;
-  if (mode !== 'edited' && mode !== 'original') return null;
+  if (mode !== 'edited' && mode !== 'original' && mode !== 'saasa') return null;
   return submission as CvSubmissionStored;
 }
 
@@ -243,13 +243,16 @@ export function buildResumeCvViewExtra(
 
 export function resolveDefaultCvShareMode(
   candidate: BackendCandidate | null,
-  hasOriginalResume: boolean
+  hasOriginalResume: boolean,
+  hasSaasaCv = false
 ): CvShareMode | null {
   const stored = readCvSubmission(candidate);
   const hasEdited = hasEditedCvAvailable(candidate);
+  if (stored?.shareMode === 'saasa' && hasSaasaCv) return 'saasa';
   if (stored?.shareMode === 'edited' && hasEdited) return 'edited';
   if (stored?.shareMode === 'original' && hasOriginalResume) return 'original';
   if (hasEdited) return 'edited';
+  if (hasSaasaCv) return 'saasa';
   if (hasOriginalResume) return 'original';
   return null;
 }

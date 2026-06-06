@@ -1273,6 +1273,7 @@ export default function MatchesPage() {
         }}
         openEditDirectly={Boolean(profileDrawerEditOpenToken)}
         editModalOpenToken={profileDrawerEditOpenToken}
+        loadingCandidateProfile={loadingCandidateProfile}
         onAddNote={async (candidateId, note) => {
           await apiAddCandidateNote(candidateId, note);
           await loadCandidateProfile(candidateId, drawerMatchCandidate);

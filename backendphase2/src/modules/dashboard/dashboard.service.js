@@ -173,6 +173,70 @@ async function fetchClientsList(req) {
   }));
 }
 
+async function fetchLeadCommunicationStats(leadIds) {
+  const stats = new Map();
+  if (!leadIds.length) return stats;
+
+  for (const id of leadIds) {
+    stats.set(id, {
+      totalCalls: 0,
+      totalEmails: 0,
+      totalWhatsapp: 0,
+      whatsappSender: '',
+      latestActivityRemark: '',
+    });
+  }
+
+  const activities = await prisma.activity.findMany({
+    where: {
+      entityType: 'LEAD',
+      entityId: { in: leadIds },
+    },
+    select: {
+      entityId: true,
+      action: true,
+      description: true,
+      performedBy: {
+        select: { name: true, firstName: true, lastName: true, email: true },
+      },
+      createdAt: true,
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  const classify = (action, description) => {
+    const blob = `${action || ''} ${description || ''}`.toLowerCase();
+    if (/\bcall\b|phone call|logged call|call log/.test(blob)) return 'call';
+    if (/whatsapp|whats app|whats-app/.test(blob)) return 'whatsapp';
+    if (/\bemail\b|e-mail|mail sent|sent email/.test(blob)) return 'email';
+    return 'other';
+  };
+
+  for (const activity of activities) {
+    const id = activity.entityId;
+    if (!id || !stats.has(id)) continue;
+    const entry = stats.get(id);
+    const kind = classify(activity.action, activity.description);
+
+    if (kind === 'call') entry.totalCalls += 1;
+    else if (kind === 'email') entry.totalEmails += 1;
+    else if (kind === 'whatsapp') {
+      entry.totalWhatsapp += 1;
+      if (!entry.whatsappSender) {
+        entry.whatsappSender =
+          formatPersonName(activity.performedBy) || activity.performedBy?.email || '';
+      }
+    }
+
+    if (!entry.latestActivityRemark) {
+      const remark = String(activity.description || activity.action || '').trim();
+      if (remark) entry.latestActivityRemark = remark;
+    }
+  }
+
+  return stats;
+}
+
 async function fetchLeadsList() {
   const leads = await prisma.lead.findMany({
     where: { isDeleted: { not: true } },
@@ -182,6 +246,9 @@ async function fetchLeadsList() {
       id: true,
       companyName: true,
       contactPerson: true,
+      email: true,
+      phone: true,
+      notes: true,
       status: true,
       source: true,
       location: true,
@@ -192,6 +259,9 @@ async function fetchLeadsList() {
       assignedTo: { select: { id: true, firstName: true, lastName: true, name: true, email: true } },
     },
   });
+
+  const commStats = await fetchLeadCommunicationStats(leads.map((l) => l.id));
+
   return leads.map((lead) => {
     const assigneeName =
       [lead.assignedTo?.firstName, lead.assignedTo?.lastName].filter(Boolean).join(' ').trim() ||
@@ -199,15 +269,31 @@ async function fetchLeadsList() {
       lead.assignedTo?.email ||
       'Unassigned';
 
+    const activityStats = commStats.get(lead.id) || {
+      totalCalls: 0,
+      totalEmails: 0,
+      totalWhatsapp: 0,
+      whatsappSender: '',
+      latestActivityRemark: '',
+    };
+
     return {
       id: lead.id,
       leadName: lead.companyName || lead.contactPerson || 'Unnamed lead',
       companyName: lead.companyName,
       contactPerson: lead.contactPerson,
+      email: lead.email || '',
+      phone: lead.phone || '',
       status: lead.status,
       source: lead.source,
       location: lead.location,
       assignedTo: assigneeName,
+      remarks: lead.notes || '',
+      totalCalls: activityStats.totalCalls,
+      totalEmails: activityStats.totalEmails,
+      totalWhatsapp: activityStats.totalWhatsapp,
+      whatsappSender: activityStats.whatsappSender,
+      latestActivityRemark: activityStats.latestActivityRemark,
       lastFollowUp: lead.lastFollowUp,
       nextFollowUp: lead.nextFollowUp,
       lastActivity: lead.updatedAt,
@@ -308,6 +394,7 @@ async function fetchTasksAndActivity() {
       select: {
         id: true,
         taskTitle: true,
+        description: true,
         status: true,
         dueDate: true,
         createdAt: true,
@@ -330,8 +417,10 @@ async function fetchTasksAndActivity() {
     id: t.id,
     recordType: 'Task',
     title: t.taskTitle,
+    taskTitle: t.taskTitle,
     status: t.status,
     module: 'Tasks',
+    description: t.description || '',
     createdAt: t.createdAt,
     updatedAt: t.updatedAt,
     dueDate: t.dueDate,
@@ -532,7 +621,7 @@ function legacyWidgetsToModules(widgets) {
 /** Accept legacy widget array or v2 `{ version: 2, modules }` command-center layout. */
 function normalizeDashboardLayoutPayload(raw) {
   if (Array.isArray(raw)) {
-    return { version: 2, modules: legacyWidgetsToModules(raw) };
+    return { version: 2, modules: legacyWidgetsToModules(raw), hiddenTabs: [] };
   }
   if (raw && typeof raw === 'object' && raw.version === 2) {
     const modules = raw.modules && typeof raw.modules === 'object' ? raw.modules : {};
@@ -546,9 +635,13 @@ function normalizeDashboardLayoutPayload(raw) {
         customized: Boolean(mod.customized),
       };
     }
-    return { version: 2, modules: safe };
+    return {
+      version: 2,
+      modules: safe,
+      hiddenTabs: Array.isArray(raw.hiddenTabs) ? raw.hiddenTabs : [],
+    };
   }
-  return { version: 2, modules: {} };
+  return { version: 2, modules: {}, hiddenTabs: [] };
 }
 
 async function fetchDatasetRows(datasetId, req, filters) {

@@ -150,6 +150,7 @@ export interface PlacementStats {
 export interface PlacementFilters {
   page?: number;
   limit?: number;
+  ids?: string;
   search?: string;
   status?: PlacementStatus | '';
   companyId?: string;

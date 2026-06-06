@@ -112,6 +112,7 @@ export const listInterviewsQuerySchema = z.object({
   dateFrom: z.string().optional(),
   dateTo: z.string().optional(),
   search: z.string().optional(),
+  ids: z.string().optional(),
 });
 
 export const updateInterviewSchema = z
@@ -206,7 +207,7 @@ export const submitToClientSchema = z.object({
   toEmail: z.string().email().optional(),
   message: z.string().optional(),
   submissionType: submissionTypeEnum.optional(),
-  cvShareMode: z.enum(['edited', 'original']).optional(),
+  cvShareMode: z.enum(['edited', 'original', 'saasa']).optional(),
 });
 
 export const reviewTokenParamSchema = z.object({

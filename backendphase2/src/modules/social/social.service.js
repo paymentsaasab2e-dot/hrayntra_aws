@@ -1,5 +1,5 @@
 import { linkedinService } from '../linkedin/linkedin.service.js';
-import { integrationService } from '../integration/integration.service.js';
+import { twitterService } from '../twitter/twitter.service.js';
 import { dbLogger } from '../../utils/db-logger.js';
 
 export const socialService = {
@@ -8,6 +8,16 @@ export const socialService = {
    */
   async publishJob(userId, jobId, platforms, jobData) {
     const results = {};
+    const jobTitle = String(jobData.title || '').trim();
+    const companyName = String(jobData.companyName || '').trim();
+
+    console.log('[social] Publishing job to social platforms', {
+      jobId,
+      userId,
+      jobTitle: jobTitle || undefined,
+      companyName: companyName || undefined,
+      platforms,
+    });
 
     if (platforms.linkedin) {
       try {
@@ -29,31 +39,48 @@ export const socialService = {
         );
       } catch (error) {
         results.linkedin = { success: false, error: error.message };
+        console.error('[social] LinkedIn job publish failed', { jobId, error: error.message });
       }
     }
 
+    if (results.linkedin?.success) {
+      console.log('[social] Job posted to LinkedIn successfully', {
+        jobId,
+        jobTitle: jobTitle || undefined,
+        url: results.linkedin.linkedinPostUrl,
+        postId: results.linkedin.postId,
+      });
+    }
+
     if (platforms.twitter) {
-      const selected =
-        Array.isArray(jobData.twitterTargets) && jobData.twitterTargets.length
-          ? jobData.twitterTargets
-          : (await integrationService.getProviderAccounts(userId, 'twitter')).map((a) => a.id);
-
-      const twitterResults = [];
-      for (const connectionId of selected) {
-        twitterResults.push({
-          success: true,
-          connectionId,
-          url: 'https://twitter.com/placeholder',
-          message: 'Post simulated (Requires Twitter API setup)',
-        });
+      try {
+        results.twitter = await twitterService.postJob(
+          userId,
+          {
+            title: jobData.title,
+            companyName: jobData.companyName,
+            description: jobData.description,
+            applyUrl: jobData.applyUrl,
+            location: jobData.location,
+            twitterPostText: jobData.twitterPostText,
+          },
+          jobData.twitterTargets?.length ? jobData.twitterTargets : null,
+        );
+      } catch (error) {
+        results.twitter = { success: false, error: error.message };
+        console.error('[social] X job publish failed', { jobId, error: error.message });
       }
+    }
 
-      results.twitter = {
-        success: twitterResults.length > 0,
-        results: twitterResults,
-        url: twitterResults[0]?.url,
-        message: twitterResults[0]?.message,
-      };
+    if (results.twitter?.success) {
+      console.log('[social] Job posted to X successfully', {
+        jobId,
+        jobTitle: jobTitle || undefined,
+        companyName: companyName || undefined,
+        url: results.twitter.url,
+        tweetId: results.twitter.tweetId,
+        accountsPosted: results.twitter.results?.filter((entry) => entry.success).length || 1,
+      });
     }
 
     if (platforms.facebook) {
@@ -65,6 +92,24 @@ export const socialService = {
     }
 
     dbLogger.logUpdate('JOB_SOCIAL_PUBLISH', jobId, results);
+
+    const succeeded = Object.entries(results)
+      .filter(([, value]) => value?.success)
+      .map(([platform]) => platform);
+    const failed = Object.entries(results)
+      .filter(([, value]) => value && !value.success)
+      .map(([platform, value]) => ({ platform, error: value.error }));
+
+    if (succeeded.length) {
+      console.log('[social] Job social publish summary — success', {
+        jobId,
+        jobTitle: jobTitle || undefined,
+        succeeded,
+        failed: failed.length ? failed : undefined,
+      });
+    } else if (failed.length) {
+      console.error('[social] Job social publish summary — all failed', { jobId, failed });
+    }
 
     return results;
   },

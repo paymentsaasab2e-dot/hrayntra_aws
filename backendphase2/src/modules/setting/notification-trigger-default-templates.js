@@ -11,7 +11,7 @@ function emailShell(title, inner) {
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
   <div style="background: #ffffff; border-radius: 8px; padding: 32px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
     ${inner}
-    <p style="font-size: 14px; color: #6b7280; margin-top: 28px;">Best regards,<br><strong>The SAASA Team</strong></p>
+    <p style="font-size: 14px; color: #6b7280; margin-top: 28px;">Best regards,<br><strong>The HRYANTRA Team</strong></p>
   </div>
 </body>
 </html>`;
@@ -19,11 +19,11 @@ function emailShell(title, inner) {
 
 export const NOTIFICATION_TRIGGER_DEFAULT_TEMPLATES = {
   'auth.welcome_email': {
-    subject: 'Welcome to SAASA Recruitment',
+    subject: 'Welcome to HRYANTRA Recruitment',
     variables: ['recipientName', 'recipientEmail', 'loginUrl'],
     bodyHtml: emailShell(
       'Welcome',
-      `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">Welcome to SAASA Recruitment</h1>
+      `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">Welcome to HRYANTRA Recruitment</h1>
 <p>Hello {{recipientName}},</p>
 <p>Your account has been created successfully.</p>
 <p><strong>Email:</strong> {{recipientEmail}}</p>
@@ -45,11 +45,11 @@ export const NOTIFICATION_TRIGGER_DEFAULT_TEMPLATES = {
     ),
   },
   'team.invite_email': {
-    subject: 'Your SAASA portal login credentials',
+    subject: 'Your HRYANTRA portal login credentials',
     variables: ['recipientName', 'loginId', 'tempPassword', 'roleName', 'loginLink', 'resetPasswordLink'],
     bodyHtml: emailShell(
       'Team invite',
-      `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">Welcome to SAASA</h1>
+      `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">Welcome to HRYANTRA</h1>
 <p>Hello {{recipientName}},</p>
 <p>Your account has been created with the role of <strong>{{roleName}}</strong>.</p>
 <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:6px;padding:16px;margin:16px 0;">

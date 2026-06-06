@@ -294,7 +294,7 @@ async function findExistingClientImportDuplicate(companyName) {
 export const clientService = {
   async getAll(req) {
     const { page, limit, skip } = getPaginationParams(req);
-    const { status, assignedToId, search } = req.query;
+    const { status, assignedToId, search, ids } = req.query;
     const includeContacts = req.query.includeContacts === 'true';
     const includeLeadFields = req.query.includeLeadFields === 'true';
     const includeSystemClients = req.query.includeSystem === 'true';
@@ -320,6 +320,17 @@ export const clientService = {
     const superAdminScope = buildSuperAdminOwnerScope(req, ['assignedToId', 'createdById']);
     let scopedWhere = mergeWhereWithScope(where, superAdminScope);
     scopedWhere = applyMemberClientScope(scopedWhere, req);
+
+    if (ids) {
+      const idList = String(ids)
+        .split(',')
+        .map((value) => value.trim())
+        .filter((value) => /^[a-fA-F0-9]{24}$/.test(value));
+      if (idList.length) {
+        scopedWhere = { AND: [scopedWhere, { id: { in: idList } }] };
+      }
+    }
+
     const include = {
       assignedTo: {
         select: { id: true, name: true, email: true },

@@ -1815,6 +1815,10 @@ export function LeadDetailsDrawer({
         { id: 'files' as const, label: 'Files', icon: Paperclip },
       ];
 
+  const drawerPanelClass = addLeadMode
+    ? 'fixed inset-y-4 right-4 z-50 flex h-[calc(100%-2rem)] w-[min(78vw,72rem)] max-w-6xl flex-col overflow-hidden rounded-[28px] border border-slate-200/90 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.16),0_8px_24px_rgba(15,23,42,0.08)] ring-1 ring-slate-900/5 pointer-events-auto'
+    : 'fixed right-0 top-0 z-50 flex h-full w-3/4 max-w-6xl flex-col border-l border-slate-200 bg-white shadow-2xl pointer-events-auto';
+
   return (
     <AnimatePresence>
       {(lead || addLeadMode) && (
@@ -1825,7 +1829,9 @@ export function LeadDetailsDrawer({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-[2px] pointer-events-auto"
+            className={`fixed inset-0 z-50 pointer-events-auto ${
+              addLeadMode ? 'bg-slate-900/45 backdrop-blur-sm' : 'bg-slate-900/40 backdrop-blur-[2px]'
+            }`}
           />
           <motion.div
             key="panel"
@@ -1833,17 +1839,30 @@ export function LeadDetailsDrawer({
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="fixed right-0 top-0 h-full w-3/4 max-w-6xl bg-white shadow-2xl z-50 pointer-events-auto border-l border-slate-200 flex flex-col"
+            className={drawerPanelClass}
           >
           {/* Header */}
-          <div className="p-5 border-b border-slate-200 flex items-start justify-between gap-3 shrink-0 bg-white">
+          <div
+            className={`flex shrink-0 items-start justify-between gap-3 border-b ${
+              addLeadMode
+                ? 'border-slate-100 bg-gradient-to-b from-white to-slate-50/40 px-6 py-5'
+                : 'border-slate-200 bg-white p-5'
+            }`}
+          >
             <div className="flex-1 min-w-0 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+              <div
+                className={`flex h-10 w-10 shrink-0 items-center justify-center text-blue-600 ${
+                  addLeadMode ? 'rounded-2xl bg-blue-50 ring-1 ring-blue-100' : 'rounded-xl bg-blue-100'
+                }`}
+              >
                 <Building2 size={20} />
               </div>
               <div className="min-w-0">
                 {addLeadMode ? (
-                  <h2 className="text-lg font-bold text-slate-900">Add Lead</h2>
+                  <>
+                    <h2 className="text-lg font-bold tracking-tight text-slate-900">Add Lead</h2>
+                    <p className="mt-0.5 text-xs text-slate-500">Create a new lead and capture company details</p>
+                  </>
                 ) : (
                   <>
                     <h2 className="text-lg font-bold text-slate-900 truncate">{lead!.companyName}</h2>
@@ -1892,7 +1911,7 @@ export function LeadDetailsDrawer({
                   <button
                     type="button"
                     onClick={onClose}
-                    className="px-4 py-2.5 text-sm font-medium text-slate-700 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors"
+                    className="rounded-full border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
                   >
                     Cancel
                   </button>
@@ -1900,7 +1919,7 @@ export function LeadDetailsDrawer({
                     type="button"
                     onClick={() => void handleSubmitAddLead()}
                     disabled={isCreateLeadDisabled || uploadingAgreements || uploadingKyc}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Plus size={14} />
                     Create Lead
@@ -1956,9 +1975,15 @@ export function LeadDetailsDrawer({
           </div>
 
           {/* Tabs */}
-          <div className="shrink-0 bg-slate-50/80 border-b border-slate-200 px-5 pt-1">
+          <div
+            className={`shrink-0 border-b ${
+              addLeadMode
+                ? 'border-slate-100 bg-white px-6 py-3'
+                : 'border-slate-200 bg-slate-50/80 px-5 pt-1'
+            }`}
+          >
             <div className="flex items-center justify-between gap-2">
-              <div className="flex gap-1">
+              <div className={`flex ${addLeadMode ? 'gap-2' : 'gap-1'}`}>
                 {tabs.map((tab) => {
                   const isActive = activeTab === tab.id;
                   const Icon = tab.icon;
@@ -1966,13 +1991,21 @@ export function LeadDetailsDrawer({
                     <button
                       key={tab.id}
                       onClick={() => setActiveTab(tab.id)}
-                      className={`flex items-center gap-2 px-4 py-3.5 text-sm font-medium rounded-t-lg transition-all duration-200 ${
-                        isActive
-                          ? 'bg-white text-blue-600 border-b-2 border-blue-600 -mb-px shadow-sm'
-                          : 'border-b-2 border-transparent text-slate-500 hover:text-slate-700 hover:bg-white/60 active:bg-white/80'
-                      }`}
+                      className={
+                        addLeadMode
+                          ? `flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-all duration-200 ${
+                              isActive
+                                ? 'bg-blue-600 text-white shadow-sm'
+                                : 'text-slate-600 hover:bg-slate-100'
+                            }`
+                          : `flex items-center gap-2 px-4 py-3.5 text-sm font-medium rounded-t-lg transition-all duration-200 ${
+                              isActive
+                                ? 'bg-white text-blue-600 border-b-2 border-blue-600 -mb-px shadow-sm'
+                                : 'border-b-2 border-transparent text-slate-500 hover:text-slate-700 hover:bg-white/60 active:bg-white/80'
+                            }`
+                      }
                     >
-                      <Icon size={16} className={isActive ? 'text-blue-600' : 'text-slate-400'} strokeWidth={isActive ? 2.25 : 1.5} />
+                      <Icon size={16} className={isActive ? (addLeadMode ? 'text-white' : 'text-blue-600') : 'text-slate-400'} strokeWidth={isActive ? 2.25 : 1.5} />
                       {tab.label}
                     </button>
                   );
@@ -1994,11 +2027,13 @@ export function LeadDetailsDrawer({
           {/* Tab content */}
           <div ref={leadAiPromptBoundsRef} className="relative flex min-h-0 flex-1 flex-col">
             <div
-              className={`flex-1 overflow-y-auto bg-slate-50/30 ${
+              className={`flex-1 overflow-y-auto ${
+                addLeadMode ? 'bg-[#f8fafc]' : 'bg-slate-50/30'
+              } ${
                 addLeadMode && activeTab === 'add' && leadAiPromptVisible && !leadAiPromptPos ? 'pb-44' : ''
               }`}
             >
-            <div className="p-5">
+            <div className={addLeadMode ? 'px-6 py-5' : 'p-5'}>
               {showDeleteLeadForm ? (
                 <div className="space-y-5">
                   <div className="flex items-center gap-3 mb-4">
@@ -2794,12 +2829,18 @@ export function LeadDetailsDrawer({
                   </div>
                 </div>
               ) : activeTab === 'add' ? (
-                <div className="space-y-4">
-                  <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="p-5 border-b border-slate-100">
-                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Lead Information</h4>
+                <div className="space-y-6">
+                  <section className="space-y-5">
+                    <div className="flex items-center gap-3">
+                      <div className="h-8 w-8 shrink-0 rounded-xl bg-blue-50 text-blue-600 ring-1 ring-blue-100 flex items-center justify-center">
+                        <UserPlus size={15} />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-semibold text-slate-900">Lead Information</h4>
+                        <p className="text-xs text-slate-500">Company, contact, and qualification details</p>
+                      </div>
                     </div>
-                    <div className="p-5 space-y-4">
+                    <div className="space-y-4">
                       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                         <div>
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Company *</label>
@@ -4684,7 +4725,7 @@ export function LeadDetailsDrawer({
                         }
                       }}
                       rows={1}
-                      placeholder="Paste lead details — company, contact, email, phone, location…"
+                      placeholder="Paste lead info — Company, Director Name, Team Name, Email, Phone, Location, City, State, Country, Industry, Source, Services Needed, Expected Business Value…"
                       className="max-h-32 min-h-[40px] flex-1 resize-none border-0 bg-transparent py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-0 disabled:opacity-60"
                       disabled={leadAiGenerating}
                     />

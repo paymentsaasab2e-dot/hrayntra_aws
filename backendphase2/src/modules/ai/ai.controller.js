@@ -15,6 +15,7 @@ import { taskService } from '../task/task.service.js';
 import { placementService } from '../placement/placement.service.js';
 import { undoService } from './undo.service.js';
 import * as locationResolveService from '../../services/locationResolve.service.js';
+import { parseSmartSearchPrompt } from '../../services/smartSearch.service.js';
 
 const jobDescriptionJsonSchema = {
   name: 'job_description_payload',
@@ -420,7 +421,7 @@ export const aiController = {
             {
               role: 'system',
               content:
-                'You are an ATS lead creation assistant. Analyze all user-provided lead information and optimize it into a clean structured lead payload for a recruitment CRM. Do not ask follow-up questions. Infer sensible defaults when data is missing. Keep required business fields populated with realistic values. Allowed enums: type => Company|Individual|Referral. source => Website|LinkedIn|Email|Referral|Campaign. status => New|Contacted|Qualified|Converted|Lost. priority => High|Medium|Low. Dates must be YYYY-MM-DD or empty string. If a field is unknown, return empty string. Preserve any assignedToId passed from the form unless the prompt clearly overrides it.',
+                'You are an ATS lead creation assistant. Analyze all user-provided lead information and optimize it into a clean structured lead payload for a recruitment CRM Add Lead form. Do not ask follow-up questions. Infer sensible defaults when data is missing. Keep required business fields populated with realistic values. Allowed enums: type => Company|Individual|Referral. source => Website|LinkedIn|Email|Referral|Campaign. status => New|Contacted|Qualified|Lost|Converted. priority (Interest Level) => High|Medium|Low. Dates must be YYYY-MM-DD or empty string. If a field is unknown, return empty string. Preserve any assignedToId passed from the form unless the prompt clearly overrides it. Field mapping: companyName=Company; contactPerson=Director Name; companySize=Team Name; industry=Industry; website/linkedIn=Company Links; location/city/state/country=Location fields; interestedNeeds=Services Needed; notes=Expected Business Value; sourceWebsiteUrl/sourceLinkedInUrl/sourceEmail/referralName/campaignName per Source type; nextFollowUp=Next Follow-up Date & Time.',
             },
             {
               role: 'user',
@@ -545,6 +546,33 @@ export const aiController = {
       }
       console.error('[resolveLocation]', error);
       return sendError(res, 500, error.message || 'Location resolve failed', error);
+    }
+  },
+
+  async parseSmartSearch(req, res) {
+    try {
+      const { entity, prompt, context } = req.body || {};
+      if (!entity || !String(entity).trim()) {
+        return sendError(res, 400, 'entity is required');
+      }
+      if (!String(prompt || '').trim()) {
+        return sendError(res, 400, 'prompt is required');
+      }
+
+      const result = await parseSmartSearchPrompt({
+        entity: String(entity).trim(),
+        prompt: String(prompt).trim(),
+        context: context && typeof context === 'object' ? context : {},
+        req,
+      });
+
+      return sendResponse(res, 200, 'Smart search parsed', result);
+    } catch (error) {
+      console.error('[parseSmartSearch]', error);
+      if (!hasLlmProvider()) {
+        return sendError(res, 503, 'AI smart search is not configured (missing API key)');
+      }
+      return sendError(res, 500, error.message || 'Failed to parse smart search prompt', error);
     }
   },
 
