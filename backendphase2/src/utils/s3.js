@@ -243,7 +243,7 @@ export function isOurS3PdfUrl(urlString) {
     const parsed = parseOurS3Url(urlString);
     if (!parsed) return false;
     if (/\.pdf($|[?#])/i.test(u.pathname)) return true;
-    if (/\.(png|jpe?g|gif|webp)($|[?#])/i.test(u.pathname)) return true;
+    if (/\.(png|jpe?g|gif|webp|txt)($|[?#])/i.test(u.pathname)) return true;
     if (/\.(docx|doc)($|[?#])/i.test(u.pathname)) return false;
     return isExtensionlessResumeStorageKey(parsed.key);
   } catch {

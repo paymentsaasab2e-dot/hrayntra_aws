@@ -1013,14 +1013,16 @@ export const addCandidateController = {
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'text/plain',
         'image/png',
+        'image/jpeg',
+        'image/jpg',
       ];
       const cvExt = path.extname(file.originalname || '').toLowerCase();
-      const cvExtOk = ['.pdf', '.doc', '.docx', '.txt', '.png'].includes(cvExt);
+      const cvExtOk = ['.pdf', '.doc', '.docx', '.txt', '.png', '.jpg', '.jpeg'].includes(cvExt);
 
       if (!allowedMimeTypes.includes(file.mimetype) && !cvExtOk) {
         return res.status(400).json({
           success: false,
-          message: 'Only PDF, DOC, DOCX, TXT, and PNG files are allowed',
+          message: 'Only PDF, DOC, DOCX, TXT, PNG, JPG, and JPEG files are allowed',
         });
       }
 
@@ -1248,14 +1250,16 @@ export const addCandidateController = {
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'text/plain',
         'image/png',
+        'image/jpeg',
+        'image/jpg',
       ];
       const cvExt = path.extname(file.originalname || '').toLowerCase();
-      const cvExtOk = ['.pdf', '.doc', '.docx', '.txt', '.png'].includes(cvExt);
+      const cvExtOk = ['.pdf', '.doc', '.docx', '.txt', '.png', '.jpg', '.jpeg'].includes(cvExt);
       if (!allowedMimeTypes.includes(file.mimetype) && !cvExtOk) {
         safeUnlink();
         return res.status(400).json({
           success: false,
-          message: 'Only PDF, DOC, DOCX, TXT, and PNG files are allowed',
+          message: 'Only PDF, DOC, DOCX, TXT, PNG, JPG, and JPEG files are allowed',
         });
       }
 

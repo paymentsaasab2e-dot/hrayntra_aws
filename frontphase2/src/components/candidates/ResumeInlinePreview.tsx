@@ -30,7 +30,7 @@ export function ResumeInlinePreview({
   const shellClass =
     `flex h-full w-full min-h-0 flex-1 flex-col overflow-hidden bg-slate-100 ${minHeightClass} ${className}`.trim();
 
-  if (previewKind === 'pdf' || previewKind === 'image') {
+  if (previewKind === 'pdf' || previewKind === 'image' || previewKind === 'text') {
     return (
       <div className={shellClass}>
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-4 sm:p-6">
