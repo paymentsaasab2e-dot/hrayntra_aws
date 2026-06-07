@@ -44,23 +44,76 @@ export type SmartSearchKeywordChip = {
   id: string;
   value: string;
   label: string;
-  kind: 'status' | 'source' | 'recruiter' | 'text';
+  kind: 'status' | 'source' | 'recruiter' | 'priority' | 'text';
 };
+
+/** Natural-language hints for smart search — mirrors Add Lead form fields. */
+export const LEAD_SMART_SEARCH_FIELD_GUIDE =
+  'Company, Director Name, Team Name, Email, Phone, Location, City, State, Country, Industry, Source, Website, Status, Interest Level, Services Needed, Expected Business Value, Assigned To';
 
 export type LeadsSmartSearchParseResult = {
   keywords: SmartSearchKeywordChip[];
   status: LeadStatus | 'All' | null;
   source: string | null;
   recruiterId: string | null;
+  priority: string | null;
+  searchText: string;
   summary: string;
+  matchingLeadIds?: string[];
+  tenantDatabase?: {
+    tenantDbName: string;
+    totalLeads: number;
+    leadsLoadedForAi?: number;
+    truncated?: boolean;
+  };
 };
+
+/** Build the `search` query param sent to GET /leads (database full-text filter). */
+export function buildLeadsDatabaseSearchText(
+  keywords: SmartSearchKeywordChip[],
+  fallbackPrompt = '',
+): string {
+  const textTerms = keywords.filter((item) => item.kind === 'text').map((item) => item.value.trim()).filter(Boolean);
+  if (textTerms.length > 0) return textTerms.join(' ');
+  return fallbackPrompt.trim();
+}
+
+export function buildLeadsListApiParams(filters: {
+  statusFilter: LeadStatus | 'All';
+  sourceFilter: string;
+  recruiterFilter: string;
+  priorityFilter: string;
+  searchQuery: string;
+  matchingLeadIds?: string[];
+  currentPage: number;
+  pageSize: number;
+}) {
+  if (filters.matchingLeadIds && filters.matchingLeadIds.length > 0) {
+    return {
+      ids: filters.matchingLeadIds.join(','),
+      page: filters.currentPage,
+      limit: filters.pageSize,
+    };
+  }
+
+  const search = filters.searchQuery.trim();
+  return {
+    status: filters.statusFilter !== 'All' ? filters.statusFilter : undefined,
+    source: filters.sourceFilter || undefined,
+    assignedToId: filters.recruiterFilter || undefined,
+    priority: filters.priorityFilter || undefined,
+    search: search || undefined,
+    page: filters.currentPage,
+    limit: filters.pageSize,
+  };
+}
 
 export const LEADS_SMART_SEARCH_EXAMPLES = [
   { label: 'New · Website', query: 'new leads from website' },
-  { label: 'Qualified · LinkedIn', query: 'qualified leads from LinkedIn' },
-  { label: 'Company Acme', query: 'company Acme Bangalore' },
-  { label: 'Contacted · Referral', query: 'contacted referral' },
-  { label: 'Lost · Email', query: 'lost leads email source' },
+  { label: 'Qualified · LinkedIn', query: 'qualified leads from LinkedIn in Bangalore' },
+  { label: 'High interest · Tech', query: 'high interest technology leads in California' },
+  { label: 'Company Acme', query: 'company Acme director John services placement' },
+  { label: 'Services · $50k', query: 'services software placement expected business $50000' },
 ] as const;
 
 type RecruiterOption = { id: string; name: string };
@@ -124,6 +177,22 @@ function matchSource(query: string): string | null {
     return 'LinkedIn';
   }
 
+  return null;
+}
+
+function matchPriority(query: string): 'High' | 'Medium' | 'Low' | null {
+  if (/\b(high\s+interest|interest\s+high|high\s+priority|priority\s+high)\b/i.test(query)) {
+    return 'High';
+  }
+  if (/\b(medium\s+interest|interest\s+medium|medium\s+priority|priority\s+medium)\b/i.test(query)) {
+    return 'Medium';
+  }
+  if (/\b(low\s+interest|interest\s+low|low\s+priority|priority\s+low)\b/i.test(query)) {
+    return 'Low';
+  }
+  if (/\bhigh\b/i.test(query) && !/\bhigh\s*school\b/i.test(query)) return 'High';
+  if (/\bmedium\b/i.test(query)) return 'Medium';
+  if (/\blow\b/i.test(query)) return 'Low';
   return null;
 }
 
@@ -194,6 +263,7 @@ function extractFreeTextKeywords(query: string, consumed: string[]): string[] {
     if (consumedLower.has(lower)) continue;
     if (LEAD_SOURCE_OPTIONS.some((source) => source.toLowerCase() === lower)) continue;
     if (['new', 'contacted', 'qualified', 'converted', 'lost'].includes(lower)) continue;
+    if (['high', 'medium', 'low'].includes(lower)) continue;
     if (!keywords.some((item) => item.toLowerCase() === lower)) {
       keywords.push(token);
     }
@@ -216,6 +286,9 @@ export function parseLeadsSmartSearchPrompt(
       status: null,
       source: null,
       recruiterId: null,
+      priority: null,
+      searchText: '',
+      matchingLeadIds: [],
       summary: 'Enter a prompt first.',
     };
   }
@@ -256,6 +329,17 @@ export function parseLeadsSmartSearchPrompt(
     });
   }
 
+  const priority = matchPriority(prompt);
+  if (priority) {
+    consumed.push(priority, `${priority.toLowerCase()} interest`, `${priority.toLowerCase()} priority`);
+    keywords.push({
+      id: slugId('priority', priority),
+      value: priority,
+      label: `${priority} interest`,
+      kind: 'priority',
+    });
+  }
+
   const quoted = extractQuotedPhrases(prompt);
   for (const phrase of quoted) {
     consumed.push(phrase);
@@ -280,7 +364,7 @@ export function parseLeadsSmartSearchPrompt(
     }
   }
 
-  const locationPhrase = extractLabeledPhrase(prompt, ['location', 'city', 'country']);
+  const locationPhrase = extractLabeledPhrase(prompt, ['location', 'city', 'state', 'country']);
   if (locationPhrase) {
     consumed.push(locationPhrase, `location ${locationPhrase}`, `city ${locationPhrase}`);
     if (!keywords.some((item) => item.value.toLowerCase() === locationPhrase.toLowerCase())) {
@@ -288,6 +372,58 @@ export function parseLeadsSmartSearchPrompt(
         id: slugId('text', locationPhrase),
         value: locationPhrase,
         label: locationPhrase,
+        kind: 'text',
+      });
+    }
+  }
+
+  const industryPhrase = extractLabeledPhrase(prompt, ['industry', 'sector']);
+  if (industryPhrase) {
+    consumed.push(industryPhrase, `industry ${industryPhrase}`);
+    if (!keywords.some((item) => item.value.toLowerCase() === industryPhrase.toLowerCase())) {
+      keywords.push({
+        id: slugId('text', industryPhrase),
+        value: industryPhrase,
+        label: industryPhrase,
+        kind: 'text',
+      });
+    }
+  }
+
+  const teamPhrase = extractLabeledPhrase(prompt, ['team', 'team name']);
+  if (teamPhrase) {
+    consumed.push(teamPhrase, `team ${teamPhrase}`);
+    if (!keywords.some((item) => item.value.toLowerCase() === teamPhrase.toLowerCase())) {
+      keywords.push({
+        id: slugId('text', teamPhrase),
+        value: teamPhrase,
+        label: teamPhrase,
+        kind: 'text',
+      });
+    }
+  }
+
+  const directorPhrase = extractLabeledPhrase(prompt, ['director', 'director name', 'contact']);
+  if (directorPhrase) {
+    consumed.push(directorPhrase, `director ${directorPhrase}`);
+    if (!keywords.some((item) => item.value.toLowerCase() === directorPhrase.toLowerCase())) {
+      keywords.push({
+        id: slugId('text', directorPhrase),
+        value: directorPhrase,
+        label: directorPhrase,
+        kind: 'text',
+      });
+    }
+  }
+
+  const servicesPhrase = extractLabeledPhrase(prompt, ['services needed', 'services', 'service']);
+  if (servicesPhrase) {
+    consumed.push(servicesPhrase, `services ${servicesPhrase}`);
+    if (!keywords.some((item) => item.value.toLowerCase() === servicesPhrase.toLowerCase())) {
+      keywords.push({
+        id: slugId('text', servicesPhrase),
+        value: servicesPhrase,
+        label: servicesPhrase,
         kind: 'text',
       });
     }
@@ -314,13 +450,17 @@ export function parseLeadsSmartSearchPrompt(
     });
   }
 
-  const summary = `Found ${keywords.length} keyword${keywords.length === 1 ? '' : 's'} — showing matching leads`;
+  const searchText = buildLeadsDatabaseSearchText(keywords, prompt);
+  const summary = `Found ${keywords.length} keyword${keywords.length === 1 ? '' : 's'} — searching database`;
 
   return {
     keywords,
     status,
     source,
     recruiterId: recruiter?.id ?? null,
+    priority: priority ?? null,
+    searchText,
+    matchingLeadIds: [],
     summary,
   };
 }
@@ -378,20 +518,39 @@ export function buildLeadSearchHaystack(
     lead.contactPerson,
     lead.directorName,
     formatDirectorDisplay(lead.directorSalutation, lead.directorName || lead.contactPerson),
+    lead.designation,
+    lead.teamName,
+    lead.companySize,
     lead.email,
     lead.phone,
+    lead.teamMemberEmail,
+    lead.teamMemberPhone,
+    lead.teamMemberDesignation,
     ...normalizeContactList(lead.emails, lead.email),
     ...normalizeContactList(lead.phones, lead.phone),
     lead.location,
     lead.city,
+    lead.state,
     lead.country,
     lead.industry,
+    lead.sector,
+    lead.website,
+    lead.linkedIn,
+    lead.sourceWebsiteUrl,
+    lead.sourceLinkedInUrl,
+    lead.sourceEmail,
     lead.source,
     lead.status,
+    lead.priority,
     lead.campaignName,
+    lead.campaignLink,
     lead.referralName,
     lead.interestedNeeds,
+    lead.servicesNeeded,
     lead.notes,
+    lead.expectedBusinessValue,
+    lead.nextFollowUp,
+    lead.lastFollowUp,
     assigneeNames,
     dynamicFields,
   ]
@@ -424,6 +583,9 @@ export function leadMatchesSmartKeywordChips(
         lead.assignedTo?.id === chip.value ||
         (Array.isArray(lead.assignedToIds) && lead.assignedToIds.includes(chip.value))
       );
+    }
+    if (chip.kind === 'priority') {
+      return String(lead.priority || '').toLowerCase() === value;
     }
     return haystack.includes(value);
   });

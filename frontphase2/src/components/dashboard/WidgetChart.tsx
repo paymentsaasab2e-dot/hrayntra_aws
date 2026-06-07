@@ -174,6 +174,7 @@ export function WidgetChart({
           viewAllHref={expandTable ? null : viewAllHref}
           viewAllLabel={viewAllLabel}
           fillHeight
+          datasetId={datasetId}
           aria-label={
             variant === 'pivot' ? 'Pivot table' : variant === 'expandable' ? 'Expandable table' : 'Data table'
           }

@@ -19,17 +19,21 @@ import {
   X,
   Inbox,
   Loader2,
-  Sparkles,
-  ArrowUp,
 } from 'lucide-react';
 import {
-  applyLeadsSmartSearchParseResult,
-  buildSmartSearchPreviewFromPrompt,
+  buildLeadSearchHaystack,
+  buildLeadsListApiParams,
+  LEAD_SMART_SEARCH_FIELD_GUIDE,
   LEADS_SMART_SEARCH_EXAMPLES,
-  leadMatchesSmartKeywordChips,
   parseLeadsSmartSearchPrompt,
-  type SmartSearchKeywordChip,
 } from './leadsSmartSearch';
+import {
+  SmartSearchPromptPanel,
+  SmartSearchToggleButton,
+} from '../../components/smart-search/SmartSearchToolbar';
+import { useSmartSearch } from '../../hooks/useSmartSearch';
+import { mapAiToLeadsResult, parseSmartSearchWithAi } from '../../lib/smart-search/aiParser';
+import { keywordChipClass } from '../../lib/smart-search/core';
 import { downloadCsv } from '../../utils/csv';
 import { buildLeadsCsvColumns, LEADS_EXPORT_COLUMNS } from '../../lib/leadsExportColumns';
 import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
@@ -345,6 +349,8 @@ function mapBackendLeadToFrontend(backendLead: BackendLead): Lead {
         ? [backendLead.phone]
         : [],
     status: backendLead.status,
+    convertedToClientId: backendLead.convertedToClientId || backendLead.client?.id || undefined,
+    convertedClientName: backendLead.client?.companyName || undefined,
     assignedTo: backendLead.assignedTo ? {
       id: backendLead.assignedTo.id,
       name: backendLead.assignedTo.name,
@@ -409,29 +415,12 @@ function applyLeadClientFilters(
   list: Lead[],
   searchQuery: string,
   recruiterFilter: string,
+  recruiterNameById: Map<string, string> = new Map(),
 ): Lead[] {
   const query = searchQuery.trim().toLowerCase();
   return list.filter((lead) => {
-    const matchesDynamicFields =
-      !!query &&
-      Array.isArray(lead.otherDetails) &&
-      lead.otherDetails.some((item) => {
-        const label = String(item?.label || '').toLowerCase();
-        const value = String(item?.value || '').toLowerCase();
-        return label.includes(query) || value.includes(query);
-      });
     const matchesSearch =
-      !query ||
-      lead.companyName.toLowerCase().includes(query) ||
-      lead.email.toLowerCase().includes(query) ||
-      normalizeContactList(lead.emails, lead.email).some((value) => value.toLowerCase().includes(query)) ||
-      normalizeContactList(lead.phones, lead.phone).some((value) => value.toLowerCase().includes(query)) ||
-      lead.contactPerson.toLowerCase().includes(query) ||
-      (lead.directorSalutation && String(lead.directorSalutation).toLowerCase().includes(query)) ||
-      formatDirectorDisplay(lead.directorSalutation, lead.directorName || lead.contactPerson)
-        .toLowerCase()
-        .includes(query) ||
-      matchesDynamicFields;
+      !query || buildLeadSearchHaystack(lead, recruiterNameById).includes(query);
     const matchesRecruiter =
       !recruiterFilter ||
       lead.assignedToId === recruiterFilter ||
@@ -507,13 +496,12 @@ export default function RecruitmentAgencyDashboard() {
   const [exportLeadsLoading, setExportLeadsLoading] = useState(false);
   const [recycleBinDrawerOpen, setRecycleBinDrawerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [smartSearchOpen, setSmartSearchOpen] = useState(false);
-  const [smartSearchQuery, setSmartSearchQuery] = useState('');
-  const [activeSmartKeywords, setActiveSmartKeywords] = useState<SmartSearchKeywordChip[]>([]);
   const [statusFilter, setStatusFilter] = useState<LeadStatus | 'All'>('All');
   const [leadStatusOptions, setLeadStatusOptions] = useState<LeadStatus[]>(DEFAULT_LEAD_STATUS_OPTIONS);
   const [sourceFilter, setSourceFilter] = useState('');
   const [recruiterFilter, setRecruiterFilter] = useState('');
+  const [priorityFilter, setPriorityFilter] = useState('');
+  const [smartSearchLeadIds, setSmartSearchLeadIds] = useState<string[]>([]);
   const [selectedDynamicColumnLabels, setSelectedDynamicColumnLabels] = useState<string[]>([]);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null); // null = not checked yet
   const [teamMembers, setTeamMembers] = useState<BackendUser[]>([]);
@@ -751,14 +739,18 @@ export default function RecruitmentAgencyDashboard() {
           return;
         }
         
-        const response = await apiGetLeads({
-          status: statusFilter !== 'All' ? statusFilter : undefined,
-          source: sourceFilter || undefined,
-          assignedToId: recruiterFilter || undefined,
-          search: searchQuery || undefined,
-          page: currentPage,
-          limit: pageSize,
-        });
+        const response = await apiGetLeads(
+          buildLeadsListApiParams({
+            statusFilter,
+            sourceFilter,
+            recruiterFilter,
+            priorityFilter,
+            searchQuery,
+            matchingLeadIds: smartSearchLeadIds,
+            currentPage,
+            pageSize,
+          }),
+        );
         
         // Backend returns: { success: true, message: "...", data: { data: [...], pagination: {...} } }
         // So response.data is { data: [...], pagination: {...} }
@@ -808,7 +800,7 @@ export default function RecruitmentAgencyDashboard() {
     };
 
     fetchLeads();
-  }, [statusFilter, sourceFilter, searchQuery, currentPage, recruiterFilter, pageSize]);
+  }, [statusFilter, sourceFilter, searchQuery, currentPage, recruiterFilter, priorityFilter, smartSearchLeadIds, pageSize]);
 
   useEffect(() => {
     void loadLeadMetrics();
@@ -833,65 +825,66 @@ export default function RecruitmentAgencyDashboard() {
     [teamMembers],
   );
 
-  const filteredLeads = useMemo(() => {
-    let list = applyLeadClientFilters(leads, searchQuery, recruiterFilter);
-    if (activeSmartKeywords.length > 0) {
-      list = list.filter((lead) =>
-        leadMatchesSmartKeywordChips(lead, activeSmartKeywords, recruiterNameById),
-      );
-    }
-    return list;
-  }, [leads, searchQuery, recruiterFilter, activeSmartKeywords, recruiterNameById]);
-
   const smartSearchRecruiters = useMemo(
     () => teamMembers.map((member) => ({ id: member.id, name: member.name })),
     [teamMembers],
   );
 
-  const promptKeywordPreview = useMemo(
-    () =>
-      buildSmartSearchPreviewFromPrompt(smartSearchQuery, {
+  const leadsSmartSearch = useSmartSearch({
+    parsePrompt: (text) =>
+      parseLeadsSmartSearchPrompt(text, {
         statuses: leadStatusOptions,
         recruiters: smartSearchRecruiters,
       }),
-    [smartSearchQuery, leadStatusOptions, smartSearchRecruiters],
-  );
-
-  const hasActiveTableFilters =
-    statusFilter !== 'All' ||
-    !!sourceFilter ||
-    !!recruiterFilter ||
-    !!searchQuery.trim() ||
-    activeSmartKeywords.length > 0;
-
-  const removeSmartKeyword = useCallback((chipId: string) => {
-    setActiveSmartKeywords((previous) => {
-      const removed = previous.find((item) => item.id === chipId);
-      const next = previous.filter((item) => item.id !== chipId);
-
-      if (removed?.kind === 'status') setStatusFilter('All');
-      if (removed?.kind === 'source') setSourceFilter('');
-      if (removed?.kind === 'recruiter') setRecruiterFilter('');
-      if (removed?.kind === 'text') {
+    parsePromptWithAi: (text) =>
+      parseSmartSearchWithAi('leads', text, { useTenantDatabase: true }, mapAiToLeadsResult),
+    applyParsed: (parsed) => {
+      setCurrentPage(1);
+      setStatusFilter((parsed.status as LeadStatus | null) ?? 'All');
+      setSourceFilter(parsed.source ?? '');
+      setRecruiterFilter(parsed.recruiterId ?? '');
+      setPriorityFilter(parsed.priority ?? '');
+      setSearchQuery(parsed.searchText);
+      setSmartSearchLeadIds(
+        parsed.matchingLeadIds && parsed.matchingLeadIds.length > 0 ? parsed.matchingLeadIds : [],
+      );
+    },
+    onRemoveKeyword: (removed, remaining) => {
+      setCurrentPage(1);
+      if (removed.kind === 'status') setStatusFilter('All');
+      if (removed.kind === 'source') setSourceFilter('');
+      if (removed.kind === 'recruiter') setRecruiterFilter('');
+      if (removed.kind === 'priority') setPriorityFilter('');
+      if (removed.kind === 'text') {
         setSearchQuery(
-          next
+          remaining
             .filter((item) => item.kind === 'text')
             .map((item) => item.value)
             .join(' '),
         );
       }
+    },
+    examples: LEADS_SMART_SEARCH_EXAMPLES,
+  });
 
-      return next;
-    });
-    setCurrentPage(1);
-  }, []);
+  // Rows come from GET /leads — filters (status, source, recruiter, priority, search) run in the database.
+  const filteredLeads = leads;
+
+  const hasActiveTableFilters =
+    statusFilter !== 'All' ||
+    !!sourceFilter ||
+    !!recruiterFilter ||
+    !!priorityFilter ||
+    smartSearchLeadIds.length > 0 ||
+    !!searchQuery.trim() ||
+    leadsSmartSearch.activeKeywords.length > 0;
 
   const activeFilterChips = useMemo(() => {
-    const chips = activeSmartKeywords.map((keyword) => ({
+    const chips = leadsSmartSearch.activeKeywords.map((keyword) => ({
       id: keyword.id,
       label: keyword.label,
       kind: keyword.kind,
-      onRemove: () => removeSmartKeyword(keyword.id),
+      onRemove: () => leadsSmartSearch.removeKeyword(keyword.id),
     }));
 
     if (
@@ -941,8 +934,25 @@ export default function RecruitmentAgencyDashboard() {
     }
 
     if (
+      priorityFilter &&
+      !chips.some((chip) => chip.kind === 'priority' && chip.label.toLowerCase().includes(priorityFilter.toLowerCase()))
+    ) {
+      chips.push({
+        id: 'manual-priority',
+        label: `${priorityFilter} interest`,
+        kind: 'priority' as const,
+        onRemove: () => {
+          setCurrentPage(1);
+          setPriorityFilter('');
+        },
+      });
+    }
+
+    if (
       searchQuery.trim() &&
-      !activeSmartKeywords.some((item) => item.kind === 'text' && item.value === searchQuery.trim())
+      !leadsSmartSearch.activeKeywords.some(
+        (item) => item.kind === 'text' && item.value === searchQuery.trim(),
+      )
     ) {
       chips.push({
         id: 'manual-search',
@@ -957,88 +967,32 @@ export default function RecruitmentAgencyDashboard() {
 
     return chips;
   }, [
-    activeSmartKeywords,
+    leadsSmartSearch.activeKeywords,
+    leadsSmartSearch.removeKeyword,
     statusFilter,
     sourceFilter,
     recruiterFilter,
+    priorityFilter,
     searchQuery,
     recruiterNameById,
-    removeSmartKeyword,
   ]);
-
-  const applyParsedSmartSearch = useCallback(
-    (text: string, options?: { toastOnSuccess?: boolean }) => {
-      const parsed = parseLeadsSmartSearchPrompt(text, {
-        statuses: leadStatusOptions,
-        recruiters: smartSearchRecruiters,
-      });
-
-      if (!text.trim()) {
-        toast.message(parsed.summary);
-        return;
-      }
-
-      const textSearch = parsed.keywords
-        .filter((item) => item.kind === 'text')
-        .map((item) => item.value)
-        .join(' ');
-
-      applyLeadsSmartSearchParseResult(parsed, {
-        setStatusFilter,
-        setSourceFilter,
-        setRecruiterFilter,
-        setActiveSmartKeywords,
-        setCurrentPage,
-      });
-      setSearchQuery(textSearch);
-
-      if (options?.toastOnSuccess !== false) {
-        toast.success(parsed.summary);
-      }
-    },
-    [leadStatusOptions, smartSearchRecruiters],
-  );
-
-  const handleApplySmartSearch = useCallback(() => {
-    applyParsedSmartSearch(smartSearchQuery);
-  }, [applyParsedSmartSearch, smartSearchQuery]);
-
-  const handleSmartSearchExample = useCallback(
-    (query: string) => {
-      setSmartSearchQuery(query);
-      applyParsedSmartSearch(query, { toastOnSuccess: true });
-    },
-    [applyParsedSmartSearch],
-  );
 
   const clearAllTableFilters = useCallback(() => {
     setCurrentPage(1);
     setSearchQuery('');
-    setSmartSearchQuery('');
-    setActiveSmartKeywords([]);
+    leadsSmartSearch.clearSmartSearch();
     setStatusFilter('All');
     setSourceFilter('');
     setRecruiterFilter('');
+    setPriorityFilter('');
+    setSmartSearchLeadIds([]);
     setSelectedDynamicColumnLabels([]);
-  }, []);
-
-  const keywordChipClass = (kind: SmartSearchKeywordChip['kind']) => {
-    switch (kind) {
-      case 'status':
-        return 'bg-blue-100 text-blue-900 border-blue-200/80';
-      case 'source':
-        return 'bg-emerald-100 text-emerald-900 border-emerald-200/80';
-      case 'recruiter':
-        return 'bg-amber-100 text-amber-900 border-amber-200/80';
-      default:
-        return 'bg-violet-100 text-violet-900 border-violet-200/80';
-    }
-  };
+  }, [leadsSmartSearch]);
 
   const fetchAllLeadsForExport = useCallback(async (): Promise<Lead[]> => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
     if (!token) {
-      return applyLeadClientFilters(INITIAL_LEADS, searchQuery, recruiterFilter);
+      return applyLeadClientFilters(INITIAL_LEADS, searchQuery, recruiterFilter, recruiterNameById);
     }
 
     const batchSize = 500;
@@ -1047,14 +1001,18 @@ export default function RecruitmentAgencyDashboard() {
     let collected: Lead[] = [];
 
     while (page <= totalPages) {
-      const response = await apiGetLeads({
-        status: statusFilter !== 'All' ? statusFilter : undefined,
-        source: sourceFilter || undefined,
-        assignedToId: recruiterFilter || undefined,
-        search: searchQuery || undefined,
-        page,
-        limit: batchSize,
-      });
+      const response = await apiGetLeads(
+        buildLeadsListApiParams({
+          statusFilter,
+          sourceFilter,
+          recruiterFilter,
+          priorityFilter,
+          searchQuery,
+          matchingLeadIds: smartSearchLeadIds,
+          currentPage: page,
+          pageSize: batchSize,
+        }),
+      );
 
       const backendLeads = response.data ? extractBackendLeads(response.data) : [];
       collected = [...collected, ...backendLeads.map(mapBackendLeadToFrontend)];
@@ -1067,8 +1025,8 @@ export default function RecruitmentAgencyDashboard() {
       page += 1;
     }
 
-    return applyLeadClientFilters(collected, searchQuery, recruiterFilter);
-  }, [statusFilter, sourceFilter, recruiterFilter, searchQuery]);
+    return collected;
+  }, [statusFilter, sourceFilter, recruiterFilter, priorityFilter, smartSearchLeadIds, searchQuery]);
 
   const adjustLeadMetricCounts = useCallback((previousStatus?: LeadStatus, nextStatus?: LeadStatus) => {
     const getKey = (status?: LeadStatus) => {
@@ -1314,6 +1272,14 @@ export default function RecruitmentAgencyDashboard() {
     try {
       const lead = leads.find(l => l.id === id);
       if (!lead) return;
+
+      if (lead.status === 'Converted' || lead.convertedToClientId) {
+        const clientLabel = lead.convertedClientName ? ` (${lead.convertedClientName})` : '';
+        void requestError(
+          `This lead has already been converted to a client${clientLabel}. A duplicate client will not be created.`,
+        );
+        return;
+      }
       
       // Log the lead data being converted
       console.log('\n=== LEAD DATA BEING CONVERTED (Frontend) ===');
@@ -1358,8 +1324,14 @@ export default function RecruitmentAgencyDashboard() {
       console.log('\n=== CONVERSION RESPONSE (Frontend) ===');
       console.log(JSON.stringify(response, null, 2));
       
+      const convertedClient = response.data;
       // Update local state
-      setLeads(prev => prev.map(l => l.id === id ? { ...l, status: 'Converted' as LeadStatus } : l));
+      setLeads(prev => prev.map(l => l.id === id ? {
+        ...l,
+        status: 'Converted' as LeadStatus,
+        convertedToClientId: convertedClient?.id || l.convertedToClientId,
+        convertedClientName: convertedClient?.companyName || l.convertedClientName,
+      } : l));
       const previousStatus = lead.status;
       if (previousStatus !== 'Converted') {
         adjustLeadMetricCounts(previousStatus, 'Converted');
@@ -1387,8 +1359,19 @@ export default function RecruitmentAgencyDashboard() {
   });
 
   const handleInlineStatusChange = (id: string, newStatus: LeadStatus) => {
-    // Optimistically update UI
     const previousLead = leads.find((lead) => lead.id === id);
+    if (
+      newStatus === 'Converted' &&
+      previousLead &&
+      (previousLead.status === 'Converted' || previousLead.convertedToClientId)
+    ) {
+      const clientLabel = previousLead.convertedClientName ? ` (${previousLead.convertedClientName})` : '';
+      void requestError(
+        `This lead has already been converted to a client${clientLabel}. A duplicate client will not be created.`,
+      );
+      return;
+    }
+    // Optimistically update UI
     setLeads(prev => prev.map(l => (l.id === id ? { ...l, status: newStatus } : l)));
     if (previousLead && previousLead.status !== newStatus) {
       adjustLeadMetricCounts(previousLead.status, newStatus);
@@ -1496,14 +1479,18 @@ export default function RecruitmentAgencyDashboard() {
       if (!options?.silent) {
         setLoading(true);
       }
-      const response = await apiGetLeads({
-        status: statusFilter !== 'All' ? statusFilter : undefined,
-        source: sourceFilter || undefined,
-        assignedToId: recruiterFilter || undefined,
-        search: searchQuery || undefined,
-        page: currentPage,
-        limit: pageSize,
-      });
+      const response = await apiGetLeads(
+        buildLeadsListApiParams({
+          statusFilter,
+          sourceFilter,
+          recruiterFilter,
+          priorityFilter,
+          searchQuery,
+          matchingLeadIds: smartSearchLeadIds,
+          currentPage,
+          pageSize,
+        }),
+      );
       
       // Backend returns: { success: true, message: "...", data: { data: [...], pagination: {...} } }
       // So response.data is { data: [...], pagination: {...} }
@@ -1902,19 +1889,10 @@ export default function RecruitmentAgencyDashboard() {
               </div>
               
               <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                <button
-                  type="button"
-                  onClick={() => setSmartSearchOpen((open) => !open)}
-                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-all active:scale-[0.98] ${
-                    smartSearchOpen
-                      ? 'border-violet-300 bg-violet-50 text-violet-800 shadow-sm'
-                      : 'border-indigo-100/90 bg-white/95 text-indigo-900 shadow-sm hover:border-violet-200 hover:bg-violet-50/60'
-                  }`}
-                  title="Search leads with natural language"
-                >
-                  <Sparkles size={14} className={smartSearchOpen ? 'text-violet-600' : 'text-indigo-600'} strokeWidth={2.25} />
-                  Smart Search
-                </button>
+                <SmartSearchToggleButton
+                  open={leadsSmartSearch.open}
+                  onToggle={() => leadsSmartSearch.setOpen((value) => !value)}
+                />
                 <div className="flex flex-wrap items-center gap-1.5">
                   <select 
                     className={LEADS_FILTER_SELECT}
@@ -2007,7 +1985,7 @@ export default function RecruitmentAgencyDashboard() {
                     className="text-xs text-rose-600 hover:text-rose-700 font-semibold px-2 py-1.5 rounded-lg hover:bg-rose-50 flex items-center gap-1 transition-colors"
                     onClick={() => {
                     clearAllTableFilters();
-                    setSmartSearchOpen(false);
+                    leadsSmartSearch.setOpen(false);
                   }}
                   >
                     <XCircle size={15} className="text-rose-500 shrink-0" strokeWidth={2.35} />
@@ -2017,80 +1995,18 @@ export default function RecruitmentAgencyDashboard() {
               </div>
             </div>
 
-            {smartSearchOpen ? (
-              <div className="space-y-2 border-b border-indigo-100/50 bg-gradient-to-r from-violet-50/50 via-white to-indigo-50/30 px-3 py-2.5 sm:px-4">
-                <div className="flex items-start gap-2">
-                  <div className="min-w-0 flex-1">
-                    <label htmlFor="leads-smart-search" className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-violet-700/80">
-                      Search prompt
-                    </label>
-                    <textarea
-                      id="leads-smart-search"
-                      value={smartSearchQuery}
-                      onChange={(e) => setSmartSearchQuery(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          handleApplySmartSearch();
-                        }
-                      }}
-                      rows={2}
-                      placeholder={'Type your prompt, e.g.\nqualified leads from LinkedIn in Bangalore company Acme'}
-                      className="min-h-[52px] w-full resize-none rounded-xl border border-violet-200/90 bg-white px-3 py-2 text-xs text-slate-800 placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-500/25"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => void handleApplySmartSearch()}
-                    className="mt-5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-900 text-white hover:bg-slate-800"
-                    aria-label="Apply prompt and filter leads"
-                    title="Apply prompt (Enter)"
-                  >
-                    <ArrowUp size={16} strokeWidth={2.25} />
-                  </button>
-                </div>
-
-                <div className="rounded-lg border border-violet-100/80 bg-white/80 px-2.5 py-2">
-                  <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    Keywords found
-                  </p>
-                  {smartSearchQuery.trim() ? (
-                    promptKeywordPreview.length > 0 ? (
-                      <div className="flex flex-wrap gap-1.5">
-                        {promptKeywordPreview.map((keyword) => (
-                          <span
-                            key={keyword.id}
-                            className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${keywordChipClass(keyword.kind)}`}
-                          >
-                            {keyword.label}
-                          </span>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-slate-600">
-                        No keywords detected — we will match your full prompt text in the table.
-                      </p>
-                    )
-                  ) : (
-                    <p className="text-xs text-slate-500">
-                      Add a prompt — keywords appear here, then press Enter to filter leads.
-                    </p>
-                  )}
-                </div>
-
-                <div className="flex flex-wrap gap-1.5">
-                  {LEADS_SMART_SEARCH_EXAMPLES.map((example) => (
-                    <button
-                      key={example.label}
-                      type="button"
-                      onClick={() => handleSmartSearchExample(example.query)}
-                      className="rounded-full border border-violet-200/90 bg-white px-2.5 py-1 text-[11px] font-medium text-violet-800 transition-colors hover:border-violet-300 hover:bg-violet-50"
-                    >
-                      {example.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+            {leadsSmartSearch.open ? (
+              <SmartSearchPromptPanel
+                prompt={leadsSmartSearch.prompt}
+                onPromptChange={leadsSmartSearch.setPrompt}
+                onApply={leadsSmartSearch.handleApply}
+                previewKeywords={leadsSmartSearch.previewKeywords}
+                examples={leadsSmartSearch.examples}
+                onExampleClick={leadsSmartSearch.handleExample}
+                entityLabel="leads"
+                applying={leadsSmartSearch.applying}
+                placeholder={`Searches your lead database by ${LEAD_SMART_SEARCH_FIELD_GUIDE} — e.g. high interest technology leads in California company Acme`}
+              />
             ) : null}
 
             {hasActiveTableFilters ? (
@@ -2119,7 +2035,7 @@ export default function RecruitmentAgencyDashboard() {
                 </button>
                 {!loading && !error ? (
                   <span className="ml-auto text-[11px] font-medium text-slate-500">
-                    {filteredLeads.length} lead{filteredLeads.length === 1 ? '' : 's'} on this page
+                    {totalEntries} matching lead{totalEntries === 1 ? '' : 's'} in database
                   </span>
                 ) : null}
               </div>
@@ -2314,7 +2230,7 @@ export default function RecruitmentAgencyDashboard() {
                                     <Pencil size={15} strokeWidth={2.35} />
                                   </button>
                                 ) : null}
-                                {canConvertLead && (
+                                {canConvertLead && lead.status !== 'Converted' && !lead.convertedToClientId && (
                                   <button
                                     type="button"
                                     className="flex h-7 w-7 items-center justify-center rounded-lg text-emerald-600 hover:bg-white hover:text-emerald-800 hover:shadow-sm transition-all"

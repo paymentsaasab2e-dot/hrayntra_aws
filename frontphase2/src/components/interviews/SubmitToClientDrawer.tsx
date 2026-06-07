@@ -17,6 +17,8 @@ import {
   type CvShareMode,
 } from '../../lib/cvEditorMapping';
 import { isResumeHttpUrl, normalizeResumeHref } from '../../lib/resumePreview';
+import { useSaasaCvAnnotations } from '../../hooks/useSaasaCvAnnotations';
+import { resolveSaasaCvPreviewUrl } from '../../lib/saasaCvAnnotations';
 import type { Interview } from '../../types/interview.types';
 import {
   apiGetCandidate,
@@ -855,6 +857,7 @@ export function SubmitToClientDrawer({
   }, [isOpen, resolvedClientId]);
 
   const [resumePreviewOpen, setResumePreviewOpen] = useState(false);
+  const [saasaPreviewOpen, setSaasaPreviewOpen] = useState(false);
   const [cvEditorOpen, setCvEditorOpen] = useState(false);
   const [cvViewOpen, setCvViewOpen] = useState(false);
   const [cvEditorData, setCvEditorData] = useState<CVEditorData | null>(null);
@@ -868,6 +871,47 @@ export function SubmitToClientDrawer({
   );
   const hasEditedCv = hasEditedCvAvailable(presentationCandidate);
   const hasOriginalCv = Boolean(resumeHref);
+
+  const saasaCv = useSaasaCvAnnotations({
+    candidateId: isOpen ? candidateId : null,
+    candidateName: fullName,
+    resumeUrl: resumeHref || candidate?.resume || null,
+    extraData:
+      candidate?.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
+        ? (candidate.extraData as Record<string, unknown>)
+        : null,
+    enabled: isOpen && Boolean(candidateId),
+    canEdit: true,
+    onCandidateUpdated: async () => {
+      if (!candidateId) return;
+      const raw = await apiGetCandidate(candidateId);
+      setCandidate(extractApiData<BackendCandidate>(raw));
+    },
+    onToast,
+  });
+
+  const saasaCvPreviewUrl = useMemo(
+    () =>
+      resolveSaasaCvPreviewUrl(
+        candidate?.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
+          ? (candidate.extraData as Record<string, unknown>)
+          : null,
+        candidateFiles.map((file) => ({
+          id: file.id,
+          fileUrl: file.fileUrl,
+          fileType: file.fileType,
+          fileName: file.fileName,
+        })),
+      ),
+    [candidate?.extraData, candidateFiles],
+  );
+
+  const hasSaasaCvExport = Boolean(saasaCvPreviewUrl);
+  const canOpenSaasaCv = Boolean(resumeHref || candidate?.resume?.trim());
+  const saasaCvFileName =
+    saasaCv.stored?.fileName ||
+    candidateFiles.find((file) => file.fileType === 'SAASA_CV')?.fileName ||
+    (hasSaasaCvExport ? `SAASA CV — ${fullName}` : '');
 
   const cvFormOverrides = () => {
     if (isPhase1Candidate && phase1Snapshot) {
@@ -935,8 +979,8 @@ export function SubmitToClientDrawer({
       setCvShareMode(null);
       return;
     }
-    setCvShareMode(resolveDefaultCvShareMode(candidate, hasOriginalCv));
-  }, [candidate, hasOriginalCv]);
+    setCvShareMode(resolveDefaultCvShareMode(candidate, hasOriginalCv, hasSaasaCvExport));
+  }, [candidate, hasOriginalCv, hasSaasaCvExport]);
 
   const persistCvShareMode = async (mode: CvShareMode) => {
     if (!candidate?.id) return;
@@ -958,12 +1002,13 @@ export function SubmitToClientDrawer({
   };
 
   const excludeCvVersion = (mode: CvShareMode) => {
-    if (mode === 'edited' && hasOriginalCv) {
-      void persistCvShareMode('original');
-      return;
-    }
-    if (mode === 'original' && hasEditedCv) {
-      void persistCvShareMode('edited');
+    const available: CvShareMode[] = [];
+    if (hasEditedCv) available.push('edited');
+    if (hasOriginalCv) available.push('original');
+    if (hasSaasaCvExport) available.push('saasa');
+    const next = available.find((entry) => entry !== mode);
+    if (next) {
+      void persistCvShareMode(next);
       return;
     }
     onToast('At least one CV version is required to submit to the client');
@@ -1215,6 +1260,32 @@ export function SubmitToClientDrawer({
     }
   };
 
+  const clientCvSelectionPanelProps = {
+    candidate,
+    cvShareMode,
+    cvShareSaving,
+    hasEditedCv,
+    hasOriginalCv,
+    hasSaasaCv: hasSaasaCvExport,
+    canOpenSaasaCv,
+    saasaCvFileName,
+    saasaAnnotationCount: saasaCv.annotationCount,
+    saasaCvPreviewUrl: saasaCvPreviewUrl || '',
+    resumeHref,
+    cvEditorLoading,
+    saasaCvBusy: saasaCv.busy,
+    loading,
+    onSelectMode: (mode: CvShareMode) => void persistCvShareMode(mode),
+    onExcludeVersion: excludeCvVersion,
+    onEditCv: () => void openCvEditor(),
+    onPreviewEdited: openCvView,
+    onPreviewOriginal: () => setResumePreviewOpen(true),
+    onOpenSaasaCv: () => saasaCv.openModal(),
+    onPreviewSaasaCv: () => {
+      if (saasaCvPreviewUrl) setSaasaPreviewOpen(true);
+    },
+  };
+
   const submitToClient = async () => {
     if (!activeSource) return;
     stashCurrentBulkCandidate();
@@ -1237,7 +1308,7 @@ export function SubmitToClientDrawer({
       return;
     }
 
-    if (!isBulkMode && (hasEditedCv || hasOriginalCv) && !cvShareMode) {
+    if (!isBulkMode && (hasEditedCv || hasOriginalCv || hasSaasaCvExport) && !cvShareMode) {
       onToast('Select which CV to send to the client');
       return;
     }
@@ -1283,9 +1354,17 @@ export function SubmitToClientDrawer({
           const entryHasOriginalCv = Boolean(
             entryResume && isResumeHttpUrl(entryResume),
           );
+          const entryHasSaasaCv = Boolean(
+            resolveSaasaCvPreviewUrl(
+              data.extraData && typeof data.extraData === 'object' && !Array.isArray(data.extraData)
+                ? (data.extraData as Record<string, unknown>)
+                : null,
+            ),
+          );
           const entryCvShareMode =
-            cached?.cvShareMode ?? resolveDefaultCvShareMode(data, entryHasOriginalCv);
-          if ((entryHasEditedCv || entryHasOriginalCv) && !entryCvShareMode) {
+            cached?.cvShareMode ??
+            resolveDefaultCvShareMode(data, entryHasOriginalCv, entryHasSaasaCv);
+          if ((entryHasEditedCv || entryHasOriginalCv || entryHasSaasaCv) && !entryCvShareMode) {
             onToast(`Select which CV to send for ${entry.candidateName || 'each candidate'}`);
             return;
           }
@@ -1763,21 +1842,7 @@ export function SubmitToClientDrawer({
                     onToggleClientSectionVisibility={togglePhase1ClientSectionVisibility}
                   />
 
-                  <ClientCvSelectionPanel
-                    candidate={candidate}
-                    cvShareMode={cvShareMode}
-                    cvShareSaving={cvShareSaving}
-                    hasEditedCv={hasEditedCv}
-                    hasOriginalCv={hasOriginalCv}
-                    resumeHref={resumeHref}
-                    cvEditorLoading={cvEditorLoading}
-                    loading={loading}
-                    onSelectMode={(mode) => void persistCvShareMode(mode)}
-                    onExcludeVersion={excludeCvVersion}
-                    onEditCv={() => void openCvEditor()}
-                    onPreviewEdited={openCvView}
-                    onPreviewOriginal={() => setResumePreviewOpen(true)}
-                  />
+                  <ClientCvSelectionPanel {...clientCvSelectionPanelProps} />
                 </div>
               ) : null}
 
@@ -1803,21 +1868,7 @@ export function SubmitToClientDrawer({
                     onToggleClientSectionVisibility={toggleClientSectionVisibility}
                   />
 
-                  <ClientCvSelectionPanel
-                    candidate={candidate}
-                    cvShareMode={cvShareMode}
-                    cvShareSaving={cvShareSaving}
-                    hasEditedCv={hasEditedCv}
-                    hasOriginalCv={hasOriginalCv}
-                    resumeHref={resumeHref}
-                    cvEditorLoading={cvEditorLoading}
-                    loading={loading}
-                    onSelectMode={(mode) => void persistCvShareMode(mode)}
-                    onExcludeVersion={excludeCvVersion}
-                    onEditCv={() => void openCvEditor()}
-                    onPreviewEdited={openCvView}
-                    onPreviewOriginal={() => setResumePreviewOpen(true)}
-                  />
+                  <ClientCvSelectionPanel {...clientCvSelectionPanelProps} />
                 </div>
               ) : null}
 
@@ -1930,6 +1981,15 @@ export function SubmitToClientDrawer({
       resumeUrl={resumeHref || null}
       candidateName={fullName}
     />
+
+    <ResumePreviewModal
+      isOpen={saasaPreviewOpen}
+      onClose={() => setSaasaPreviewOpen(false)}
+      resumeUrl={saasaCvPreviewUrl || null}
+      candidateName={`SAASA CV — ${fullName}`}
+    />
+
+    {saasaCv.modals}
 
     {cvEditorOpen && cvEditorData ? (
       <CVEditorModal

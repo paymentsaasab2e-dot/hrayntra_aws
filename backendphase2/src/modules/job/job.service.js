@@ -647,7 +647,7 @@ export const jobService = {
 
   async getAll(req) {
     const { page, limit, skip } = getPaginationParams(req);
-    const { status, clientId, assignedToId, search, mine } = req.query;
+    const { status, clientId, assignedToId, search, mine, ids } = req.query;
 
     await ensureOrgPipelineTemplateRepairOnce();
 
@@ -680,6 +680,16 @@ export const jobService = {
     // `not: true` matches false, null, and missing-field documents (legacy rows from before
     // the soft-delete column existed) without tripping Prisma's "Argument isDeleted is missing".
     scopedWhere = { AND: [scopedWhere, { isDeleted: { not: true } }] };
+
+    if (ids) {
+      const idList = String(ids)
+        .split(',')
+        .map((value) => value.trim())
+        .filter((value) => /^[a-fA-F0-9]{24}$/.test(value));
+      if (idList.length) {
+        scopedWhere = { AND: [scopedWhere, { id: { in: idList } }] };
+      }
+    }
 
     const [jobs, total] = await Promise.all([
       prisma.job.findMany({

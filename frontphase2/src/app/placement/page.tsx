@@ -31,6 +31,7 @@ import {
   SmartSearchToggleButton,
 } from '../../components/smart-search/SmartSearchToolbar';
 import { useSmartSearch } from '../../hooks/useSmartSearch';
+import { mapAiToPlacementsResult, parseSmartSearchWithAi } from '../../lib/smart-search/aiParser';
 import {
   PLACEMENTS_SMART_SEARCH_EXAMPLES,
   parsePlacementsSmartSearchPrompt,
@@ -97,6 +98,16 @@ function PlacementsPageContent() {
   const [detailDrawerOpen, setDetailDrawerOpen] = useState(false);
   const [detailPlacementId, setDetailPlacementId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | undefined>();
+  const [smartSearchPlacementIds, setSmartSearchPlacementIds] = useState<string[]>([]);
+  const apiFilters = useMemo(
+    () => ({
+      ...filters,
+      ...(smartSearchPlacementIds.length > 0
+        ? { ids: smartSearchPlacementIds.join(',') }
+        : {}),
+    }),
+    [filters, smartSearchPlacementIds],
+  );
 
   const {
     placements,
@@ -119,7 +130,7 @@ function PlacementsPageContent() {
     deletePlacement,
     exportPlacements,
     refresh,
-  } = usePlacements(filters);
+  } = usePlacements(apiFilters);
 
   const editPlacementInitialValues = useMemo(
     () =>
@@ -187,8 +198,15 @@ function PlacementsPageContent() {
 
   const placementSmartSearch = useSmartSearch({
     parsePrompt: (text) => parsePlacementsSmartSearchPrompt(text, placementSmartSearchOptions),
+    parsePromptWithAi: (text) =>
+      parseSmartSearchWithAi('placements', text, { useTenantDatabase: true }, mapAiToPlacementsResult),
     applyParsed: (parsed) => {
       setSearchValue(parsed.searchText);
+      setSmartSearchPlacementIds(
+        parsed.matchingPlacementIds && parsed.matchingPlacementIds.length > 0
+          ? parsed.matchingPlacementIds
+          : [],
+      );
       updateFilters({
         search: parsed.searchText,
         status: (parsed.status || '') as PlacementFilters['status'],
@@ -344,6 +362,7 @@ function PlacementsPageContent() {
                     examples={placementSmartSearch.examples}
                     onExampleClick={placementSmartSearch.handleExample}
                     entityLabel="placements"
+                    applying={placementSmartSearch.applying}
                     placeholder="e.g. joined permanent placements for Acme"
                   />
                 ) : null}
@@ -352,6 +371,7 @@ function PlacementsPageContent() {
                   chips={placementSmartSearch.activeChips}
                   onClearAll={() => {
                     setSearchValue('');
+                    setSmartSearchPlacementIds([]);
                     placementSmartSearch.clearSmartSearch();
                     router.replace(pathname);
                   }}

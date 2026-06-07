@@ -329,7 +329,15 @@ export const normalizeSubmissionType = (value) => {
 // the resolver branches on whichever ID is present in the payload.
 const normalizeCvShareMode = (value) => {
   const mode = String(value || '').trim().toLowerCase();
-  return mode === 'edited' || mode === 'original' ? mode : null;
+  return mode === 'edited' || mode === 'original' || mode === 'saasa' ? mode : null;
+};
+
+const readSaasaCvFileUrl = (extraData) => {
+  if (!extraData || typeof extraData !== 'object' || Array.isArray(extraData)) return '';
+  const raw = extraData.saasaCvAnnotations;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return '';
+  const fileUrl = String(raw.fileUrl || '').trim();
+  return fileUrl.startsWith('http') ? fileUrl : '';
 };
 
 const readCandidateCvShareMode = (candidate) => {
@@ -615,26 +623,43 @@ function serializeInterviewForClientReview(
         : [];
 
   const hasPresentationSections = presentationSections.length > 0;
-  const candidateForClient = hasPresentationSections
-    ? {
-        ...baseCandidate,
-        ...(cvShareMode !== 'original' && editedFromSnapshot ? editedFromSnapshot : {}),
-        resume: cvShareMode === 'original' ? baseCandidate.resume : '',
-      }
-    : cvShareMode === 'original'
-      ? {
-          ...baseCandidate,
-          cvSummary: '',
-          cvEducationEntries: [],
-          cvWorkExperienceEntries: [],
-          skills: [],
-          languages: [],
-          education: '',
-          certifications: [],
-        }
-      : editedFromSnapshot
-        ? { ...baseCandidate, ...editedFromSnapshot, resume: '' }
-        : { ...baseCandidate, resume: '' };
+  const candidateExtra =
+    c?.extraData && typeof c.extraData === 'object' && !Array.isArray(c.extraData)
+      ? c.extraData
+      : {};
+  const saasaCvUrl = String(
+    readSaasaCvFileUrl(candidateExtra) || submissionSnapshot?.saasaCvUrl || '',
+  ).trim();
+
+  let candidateForClient;
+  if (cvShareMode === 'saasa') {
+    candidateForClient = {
+      ...baseCandidate,
+      ...(editedFromSnapshot ? editedFromSnapshot : {}),
+      resume: saasaCvUrl || baseCandidate.resume,
+    };
+  } else if (hasPresentationSections) {
+    candidateForClient = {
+      ...baseCandidate,
+      ...(cvShareMode !== 'original' && editedFromSnapshot ? editedFromSnapshot : {}),
+      resume: cvShareMode === 'original' ? baseCandidate.resume : '',
+    };
+  } else if (cvShareMode === 'original') {
+    candidateForClient = {
+      ...baseCandidate,
+      cvSummary: '',
+      cvEducationEntries: [],
+      cvWorkExperienceEntries: [],
+      skills: [],
+      languages: [],
+      education: '',
+      certifications: [],
+    };
+  } else {
+    candidateForClient = editedFromSnapshot
+      ? { ...baseCandidate, ...editedFromSnapshot, resume: '' }
+      : { ...baseCandidate, resume: '' };
+  }
 
   const cvEditorPreview =
     cvShareMode === 'edited'
@@ -643,9 +668,10 @@ function serializeInterviewForClientReview(
         : buildCvEditorPreviewFromCandidate(c, jobTitle)
       : null;
 
-  const sharedResumeUrl = String(
-    submissionSnapshot?.resume || c.resume || c.resumeUrl || '',
-  ).trim();
+  const sharedResumeUrl =
+    cvShareMode === 'saasa'
+      ? saasaCvUrl
+      : String(submissionSnapshot?.resume || c.resume || c.resumeUrl || '').trim();
 
   return {
     matchId: matchId || interview.id,
@@ -741,6 +767,7 @@ export const interviewService = {
       dateFrom,
       dateTo,
       search,
+      ids,
     } = query;
 
     const where = {};
@@ -770,6 +797,15 @@ export const interviewService = {
           ],
         },
       };
+    }
+    if (ids) {
+      const idList = String(ids)
+        .split(',')
+        .map((value) => value.trim())
+        .filter((value) => /^[a-fA-F0-9]{24}$/.test(value));
+      if (idList.length) {
+        where.id = { in: idList };
+      }
     }
 
     const assignmentScope = buildInterviewAssignmentScope(req);

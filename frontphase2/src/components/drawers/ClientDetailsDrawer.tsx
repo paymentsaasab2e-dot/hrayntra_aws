@@ -3,10 +3,12 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { formatDateDMY, formatTime12hEnGb } from '../../utils/dateDisplay';
-import { NAME_SALUTATION_OPTIONS } from '../../constants/salutations';
+import { formatDirectorDisplay } from '../../constants/salutations';
+import { DirectorContactFields } from '../forms/DirectorContactFields';
 import { WhatsAppIcon } from '../icons/WhatsAppIcon';
 import { LeadAssigneesMultiSelect } from './LeadAssigneesMultiSelect';
 import { ServicesNeededSelect } from '../forms/ServicesNeededSelect';
+import { IndustryMultiSelect } from '../forms/IndustryMultiSelect';
 import { TeamMemberOptionalFields } from '../forms/TeamMemberOptionalFields';
 import {
   isTeamMemberDetailLabel,
@@ -19,6 +21,7 @@ import {
   type TeamMemberListItem,
 } from '../../lib/teamMemberFormDetails';
 import { formatServicesNeededDisplay } from '../../lib/companyServices';
+import { formatIndustriesDisplay } from '../../lib/industryOptions';
 import { type LocationSelection } from '../LocationAutocomplete';
 import { CscLocationFields } from '../location/CscLocationFields';
 import { KycDocumentsField, KycDocumentsView } from '../documents/KycDocumentsField';
@@ -42,11 +45,17 @@ import { DocumentUploadButton, useDocumentUploadFeedback } from '../import/docum
 import { filterKycFiles, uploadKycDocuments } from '../../lib/kycDocuments';
 import { inferTimezoneDisplay, type LocationTimezoneInput } from '../../utils/inferTimezone';
 import { ClientTimezoneSelect } from '../clients/ClientTimezoneSelect';
+import { CatalogOptionDropdown, mergeCatalogOptions } from '../forms/CatalogOptionDropdown';
+import {
+  clientStatusLabelToBackend,
+  DEFAULT_CLIENT_PRIORITY_LABELS,
+  DEFAULT_CLIENT_STATUS_LABELS,
+  resolveClientStatusLabel,
+} from '../../lib/clientLifecycleStatus';
 import {
   ClientPostServiceKycFormSection,
   ClientPostServiceKycSummary,
 } from '../clients/ClientPostServiceKycSection';
-import { MultiContactFields } from '../ui/MultiContactFields';
 import {
   buildContactChannelsFromForm,
   contactListForForm,
@@ -119,6 +128,7 @@ import { ScheduleMeetingForm } from '../ScheduleMeetingForm';
 import { NotesService } from '../NotesService';
 import {
   apiAppendClientLeadStatus,
+  apiAppendClientPriority,
   apiGenerateClientDetails,
   apiCreateClient,
   apiCreateContact,
@@ -129,7 +139,9 @@ import {
   apiFetch,
   apiGetClientActivities,
   apiGetClientLeadStatusCatalog,
+  apiGetClientPriorityCatalog,
   apiRemoveClientLeadStatus,
+  apiRemoveClientPriority,
   apiGetClientScheduledMeetings,
   apiGetContacts,
   apiGetJob,
@@ -554,118 +566,6 @@ function syncClientTeamMembers(
   };
 }
 
-const DEFAULT_CLIENT_LEAD_STATUSES = ['New', 'Contacted', 'Qualified', 'Converted', 'Lost'] as const;
-
-function isDefaultClientLeadStatus(status: string | null | undefined) {
-  return DEFAULT_CLIENT_LEAD_STATUSES.includes(String(status || '').trim() as (typeof DEFAULT_CLIENT_LEAD_STATUSES)[number]);
-}
-
-function mergeClientLeadStatusOptions(
-  savedStatuses: string[] | null | undefined,
-  currentStatus: string | null | undefined,
-) {
-  const seen = new Set<string>();
-  const merged: string[] = [];
-  const push = (value: string | null | undefined) => {
-    const normalized = String(value || '').trim();
-    if (!normalized) return;
-    const key = normalized.toLowerCase();
-    if (seen.has(key)) return;
-    seen.add(key);
-    merged.push(normalized);
-  };
-
-  DEFAULT_CLIENT_LEAD_STATUSES.forEach(push);
-  (savedStatuses || []).forEach(push);
-  push(currentStatus);
-
-  return merged;
-}
-
-const ClientLeadStatusDropdown = ({
-  value,
-  options,
-  deleting,
-  onSelect,
-  onDelete,
-}: {
-  value: string;
-  options: string[];
-  deleting: boolean;
-  onSelect: (status: string) => void;
-  onDelete: (status: string) => void;
-}) => {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDocumentMouseDown = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onDocumentMouseDown);
-    return () => document.removeEventListener('mousedown', onDocumentMouseDown);
-  }, [open]);
-
-  return (
-    <div ref={rootRef} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-left text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-      >
-        <span>{value || 'New'}</span>
-        <ChevronDown size={16} className="text-slate-500" />
-      </button>
-
-      {open ? (
-        <div className="absolute z-30 mt-1 max-h-64 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-lg">
-          {options.map((status) => {
-            const isDefault = isDefaultClientLeadStatus(status);
-            const isActive = String(value || '') === String(status || '');
-            return (
-              <button
-                key={status}
-                type="button"
-                onClick={() => {
-                  onSelect(status);
-                  setOpen(false);
-                }}
-                className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm ${
-                  isActive ? 'bg-blue-50 text-blue-700' : 'text-slate-800 hover:bg-slate-50'
-                }`}
-              >
-                <span>{status}</span>
-                {!isDefault ? (
-                  <span
-                    role="button"
-                    aria-label={`Delete ${status}`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onDelete(status);
-                    }}
-                    className={`inline-flex items-center rounded p-1 text-rose-500 hover:bg-rose-50 hover:text-rose-600 ${
-                      deleting ? 'pointer-events-none opacity-50' : ''
-                    }`}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </span>
-                ) : null}
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
-    </div>
-  );
-};
-
-function deriveClientLifecycleStatus(leadStatusValue: string) {
-  return String(leadStatusValue || '').trim() === 'Converted' ? 'ACTIVE' : 'PROSPECT';
-}
-
 function mergeClientLocationSelection<T extends ClientOverviewForm>(
   prev: T,
   selection: LocationSelection,
@@ -945,27 +845,33 @@ export function ClientDetailsDrawer({
   useEffect(() => {
     if (!client?.id || propIsAddMode) return;
 
-    const nextLeadStatus = String(client.leadStatus || client.leadStatusValue || '').trim();
+    const nextStatusLabel = resolveClientStatusLabel(client);
 
     setFullClientData((prev) => {
       if (!prev || prev.id !== client.id) {
         return client;
       }
-      if ((prev.leadStatus || '') === nextLeadStatus && (prev.leadStatusValue || '') === nextLeadStatus) {
+      if (
+        resolveClientStatusLabel(prev) === nextStatusLabel &&
+        (prev.leadStatus || '') === (client.leadStatus || '')
+      ) {
         return prev;
       }
       return {
         ...prev,
-        leadStatus: nextLeadStatus || prev.leadStatus,
-        leadStatusValue: nextLeadStatus || prev.leadStatusValue,
         stage: client.stage || prev.stage,
+        leadStatus: client.leadStatus || prev.leadStatus,
+        leadStatusValue: client.leadStatusValue || prev.leadStatusValue,
       };
     });
 
     setOverviewEditForm((prev) => {
-      const normalized = nextLeadStatus || prev.leadStatusValue || 'New';
-      if (prev.leadStatusValue === normalized) return prev;
-      return { ...prev, leadStatusValue: normalized };
+      if (prev.leadStatusValue === nextStatusLabel) return prev;
+      return {
+        ...prev,
+        leadStatusValue: nextStatusLabel,
+        status: clientStatusLabelToBackend(nextStatusLabel),
+      };
     });
   }, [client?.id, client?.leadStatus, client?.leadStatusValue, client?.stage, propIsAddMode]);
 
@@ -1015,8 +921,8 @@ export function ClientDetailsDrawer({
     state: '' as string,
     latitude: null as number | null,
     longitude: null as number | null,
-    /** Lead-style funnel status (New/Contacted/Qualified/Converted/Lost). Stored on Client.leadStatus. */
-    leadStatusValue: 'New',
+    /** Client status label (Active/On Hold/Inactive + org custom). Stored on Client.leadStatus. */
+    leadStatusValue: 'Active',
     /** Multi-assignee mirror, matches LeadAssigneesMultiSelect contract. */
     assignedToIds: [] as string[],
     // Agreements & Terms — primary contract/NDA shown on the client overview.
@@ -1031,15 +937,23 @@ export function ClientDetailsDrawer({
     dynamicOtherDetails: [],
     postServiceKycForm: emptyPostServiceKycForm(),
   });
-  const [clientLeadStatusIsCustom, setClientLeadStatusIsCustom] = useState(false);
-  const [clientLeadStatusCatalog, setClientLeadStatusCatalog] = useState<string[]>([...DEFAULT_CLIENT_LEAD_STATUSES]);
+  const [clientLeadStatusCatalog, setClientLeadStatusCatalog] = useState<string[]>([...DEFAULT_CLIENT_STATUS_LABELS]);
   const [showAddClientLeadStatusInput, setShowAddClientLeadStatusInput] = useState(false);
   const [newClientLeadStatusValue, setNewClientLeadStatusValue] = useState('');
   const [savingClientLeadStatus, setSavingClientLeadStatus] = useState(false);
   const [deletingClientLeadStatus, setDeletingClientLeadStatus] = useState(false);
+  const [clientPriorityCatalog, setClientPriorityCatalog] = useState<string[]>([...DEFAULT_CLIENT_PRIORITY_LABELS]);
+  const [showAddClientPriorityInput, setShowAddClientPriorityInput] = useState(false);
+  const [newClientPriorityValue, setNewClientPriorityValue] = useState('');
+  const [savingClientPriority, setSavingClientPriority] = useState(false);
+  const [deletingClientPriority, setDeletingClientPriority] = useState(false);
   const clientLeadStatusOptions = useMemo(
-    () => mergeClientLeadStatusOptions(clientLeadStatusCatalog, overviewEditForm.leadStatusValue),
+    () => mergeCatalogOptions(DEFAULT_CLIENT_STATUS_LABELS, clientLeadStatusCatalog, overviewEditForm.leadStatusValue),
     [clientLeadStatusCatalog, overviewEditForm.leadStatusValue],
+  );
+  const clientPriorityOptions = useMemo(
+    () => mergeCatalogOptions(DEFAULT_CLIENT_PRIORITY_LABELS, clientPriorityCatalog, overviewEditForm.priority),
+    [clientPriorityCatalog, overviewEditForm.priority],
   );
   const clientLogoInputRef = useRef<HTMLInputElement>(null);
   const agreementsInputRef = useRef<HTMLInputElement>(null);
@@ -1304,7 +1218,6 @@ export function ClientDetailsDrawer({
   /** Pending file selected while editing — uploaded after Save (Add) or immediately on Save (Edit). */
   const [pendingAgreementsFile, setPendingAgreementsFile] = useState<File | null>(null);
   const [pendingKycFiles, setPendingKycFiles] = useState<File[]>([]);
-  const [pendingTeamMemberKycFiles, setPendingTeamMemberKycFiles] = useState<File[]>([]);
   const [pendingPostServiceKycFiles, setPendingPostServiceKycFiles] = useState<PendingPostServiceKycFiles>(
     () => createEmptyPendingPostServiceKycFiles(),
   );
@@ -1449,6 +1362,11 @@ export function ClientDetailsDrawer({
       )
       .map((contact) => ({
         id: contact.id,
+        teamMemberSalutation: contact.salutation || '',
+        teamMemberName:
+          [contact.firstName, contact.lastName].filter(Boolean).join(' ').trim() ||
+          contact.designation ||
+          '',
         teamMemberDesignation: contact.designation || '',
         teamMemberEmail: contact.email || '',
         teamMemberPhone: contact.phone || '',
@@ -2250,7 +2168,13 @@ export function ClientDetailsDrawer({
       expectedBusinessValue: fetchedClient?.expectedBusinessValue || client.expectedBusinessValue || '',
       nextFollowUpDue: fetchedClient?.nextFollowUpDue || '',
       sla: fetchedClient?.sla || client.sla || '',
-      status: statusMap[clientStage] || 'ACTIVE',
+      status: clientStatusLabelToBackend(
+        resolveClientStatusLabel({
+          leadStatus: fetchedClient?.leadStatus || client.leadStatus,
+          leadStatusValue: client.leadStatusValue,
+          stage: clientStage,
+        }),
+      ),
       assignedToId: assignedToId,
       // Add-Lead-mirroring fields prefill — fall back through the freshest data, the local model, then defaults.
       companyLinks: (() => {
@@ -2268,9 +2192,11 @@ export function ClientDetailsDrawer({
       longitude: typeof fetchedClient?.longitude === 'number'
         ? fetchedClient.longitude
         : (typeof client.longitude === 'number' ? client.longitude : null),
-      leadStatusValue: (
-        fetchedClient?.leadStatus || client.leadStatusValue || 'New'
-      ),
+      leadStatusValue: resolveClientStatusLabel({
+        leadStatus: fetchedClient?.leadStatus || client.leadStatus,
+        leadStatusValue: client.leadStatusValue,
+        stage: client.stage,
+      }),
       assignedToIds: assignedToId ? [assignedToId] : [],
       agreementsFileName: fetchedClient?.agreementsFileName || client.agreementsFileName || '',
       agreementsFileUrl: fetchedClient?.agreementsFileUrl || client.agreementsFileUrl || '',
@@ -2289,14 +2215,25 @@ export function ClientDetailsDrawer({
     resetClientLogoDraft();
     setPendingAgreementsFile(null);
     setPendingKycFiles([]);
-    setPendingTeamMemberKycFiles([]);
     setPendingPostServiceKycFiles(createEmptyPendingPostServiceKycFiles());
     setRemovedPostServiceKycFileIds([]);
     setClientLeadStatusCatalog((current) =>
-      mergeClientLeadStatusOptions(current, fetchedClient?.leadStatus || client.leadStatusValue || 'New'),
+      mergeCatalogOptions(
+        DEFAULT_CLIENT_STATUS_LABELS,
+        current,
+        resolveClientStatusLabel({
+          leadStatus: fetchedClient?.leadStatus || client.leadStatus,
+          leadStatusValue: client.leadStatusValue,
+          stage: client.stage,
+        }),
+      ),
     );
-    setClientLeadStatusIsCustom(
-      !isDefaultClientLeadStatus(fetchedClient?.leadStatus || client.leadStatusValue || 'New'),
+    setClientPriorityCatalog((current) =>
+      mergeCatalogOptions(
+        DEFAULT_CLIENT_PRIORITY_LABELS,
+        current,
+        fetchedClient?.priority || client.priority || overviewEditForm.priority,
+      ),
     );
     setOverviewEditMode(true);
     // Open all sections for editing
@@ -2317,16 +2254,11 @@ export function ClientDetailsDrawer({
     resetClientLogoDraft();
     setPendingAgreementsFile(null);
     setPendingKycFiles([]);
-    setPendingTeamMemberKycFiles([]);
     setPendingPostServiceKycFiles(createEmptyPendingPostServiceKycFiles());
     setRemovedPostServiceKycFileIds([]);
   };
 
   const saveOverviewEdit = async () => {
-    if (clientLeadStatusIsCustom && !String(overviewEditForm.leadStatusValue || '').trim()) {
-      toast.error('Enter a custom status before saving.');
-      return;
-    }
     if (isAddMode) {
       // Create new client
       if (!overviewEditForm.companyName.trim()) {
@@ -2343,8 +2275,6 @@ export function ClientDetailsDrawer({
           .map((link) => String(link || '').trim())
           .filter(Boolean);
         const primaryWebsite = cleanedCompanyLinks[0] || overviewEditForm.website?.trim() || undefined;
-        const leadStatusValue = String(overviewEditForm.leadStatusValue || 'New').trim() || 'New';
-        const derivedClientStatus = deriveClientLifecycleStatus(leadStatusValue);
         const primaryAssignedToId = overviewEditForm.assignedToIds?.[0] || overviewEditForm.assignedToId || undefined;
         const contactChannels = buildContactChannelsFromForm(
           overviewEditForm.contactEmails,
@@ -2366,8 +2296,10 @@ export function ClientDetailsDrawer({
           expectedBusinessValue: overviewEditForm.expectedBusinessValue || undefined,
           nextFollowUpDue: overviewEditForm.nextFollowUpDue || undefined,
           sla: overviewEditForm.sla || undefined,
-          status: derivedClientStatus as 'ACTIVE' | 'PROSPECT',
-          leadStatus: leadStatusValue,
+          status: clientStatusLabelToBackend(
+            String(overviewEditForm.leadStatusValue || 'Active').trim() || 'Active',
+          ),
+          leadStatus: String(overviewEditForm.leadStatusValue || 'Active').trim() || 'Active',
           assignedToId: primaryAssignedToId,
           // Smart-location autofill metadata + salutation (mirror Add Lead).
           city: overviewEditForm.city || undefined,
@@ -2378,11 +2310,9 @@ export function ClientDetailsDrawer({
           directorSalutation: overviewEditForm.directorSalutation || undefined,
           ...teamMemberPayloadFromForm(
             primaryTeamMemberFromList(overviewEditForm.teamMembers),
-            overviewEditForm.companySize,
           ),
           otherDetails: mergeTeamMemberIntoOtherDetails(
             curatedDynamicPairsForSave(overviewEditForm.dynamicOtherDetails),
-            overviewEditForm.companySize,
             overviewEditForm.teamMembers,
           ),
           email: contactChannels.email,
@@ -2471,7 +2401,7 @@ export function ClientDetailsDrawer({
 
         resetClientLogoDraft();
         setPendingAgreementsFile(null);
-        const pendingClientKyc = [...pendingKycFiles, ...pendingTeamMemberKycFiles];
+        const pendingClientKyc = [...pendingKycFiles];
         const pendingStructuredKycCount = Object.values(pendingPostServiceKycFiles).reduce(
           (sum, files) => sum + files.length,
           0,
@@ -2508,7 +2438,6 @@ export function ClientDetailsDrawer({
           }
         }
         setPendingKycFiles([]);
-        setPendingTeamMemberKycFiles([]);
         setPendingPostServiceKycFiles(createEmptyPendingPostServiceKycFiles());
         setRemovedPostServiceKycFileIds([]);
         onClientCreated?.();
@@ -2557,9 +2486,12 @@ export function ClientDetailsDrawer({
         if (overviewEditForm.expectedBusinessValue !== undefined) updateData.expectedBusinessValue = overviewEditForm.expectedBusinessValue || null;
         if (overviewEditForm.nextFollowUpDue !== undefined) updateData.nextFollowUpDue = overviewEditForm.nextFollowUpDue || null;
         if (overviewEditForm.sla !== undefined) updateData.sla = overviewEditForm.sla || null;
-        if (overviewEditForm.status !== undefined) updateData.status = overviewEditForm.status;
         if (overviewEditForm.leadStatusValue !== undefined) {
-          updateData.leadStatus = String(overviewEditForm.leadStatusValue || 'New').trim() || 'New';
+          const leadStatusValue = String(overviewEditForm.leadStatusValue || 'Active').trim() || 'Active';
+          updateData.leadStatus = leadStatusValue;
+          updateData.status = clientStatusLabelToBackend(leadStatusValue);
+        } else if (overviewEditForm.status !== undefined) {
+          updateData.status = overviewEditForm.status;
         }
         if (overviewEditForm.assignedToId !== undefined) {
           updateData.assignedToId = overviewEditForm.assignedToId || null;
@@ -2569,12 +2501,10 @@ export function ClientDetailsDrawer({
           updateData,
           teamMemberPayloadFromForm(
             primaryTeamMemberFromList(overviewEditForm.teamMembers),
-            overviewEditForm.companySize,
           ),
         );
         updateData.otherDetails = mergeTeamMemberIntoOtherDetails(
           curatedDynamicPairsForSave(overviewEditForm.dynamicOtherDetails),
-          overviewEditForm.companySize,
           overviewEditForm.teamMembers,
         );
 
@@ -2721,7 +2651,7 @@ export function ClientDetailsDrawer({
         }
         resetClientLogoDraft();
         setPendingAgreementsFile(null);
-        const pendingClientKycUpdate = [...pendingKycFiles, ...pendingTeamMemberKycFiles];
+        const pendingClientKycUpdate = [...pendingKycFiles];
         if (pendingClientKycUpdate.length > 0 || pendingStructuredKycCount > 0 || removedPostServiceKycFileIds.length > 0) {
           try {
             if (pendingClientKycUpdate.length > 0) {
@@ -2752,7 +2682,6 @@ export function ClientDetailsDrawer({
           }
         }
         setPendingKycFiles([]);
-        setPendingTeamMemberKycFiles([]);
         setPendingPostServiceKycFiles(createEmptyPendingPostServiceKycFiles());
         setRemovedPostServiceKycFileIds([]);
         onClientCreated?.();
@@ -2854,18 +2783,51 @@ export function ClientDetailsDrawer({
         const response = await apiGetClientLeadStatusCatalog();
         if (cancelled) return;
         setClientLeadStatusCatalog(
-          mergeClientLeadStatusOptions(response?.data?.statuses, client?.leadStatusValue ?? overviewEditForm.leadStatusValue),
+          mergeCatalogOptions(
+            DEFAULT_CLIENT_STATUS_LABELS,
+            response?.data?.statuses,
+            client?.leadStatusValue ?? overviewEditForm.leadStatusValue,
+          ),
         );
       } catch (error) {
         if (cancelled) return;
         console.error('Failed to load client statuses:', error);
         setClientLeadStatusCatalog(
-          mergeClientLeadStatusOptions([...DEFAULT_CLIENT_LEAD_STATUSES], client?.leadStatusValue ?? overviewEditForm.leadStatusValue),
+          mergeCatalogOptions(
+            DEFAULT_CLIENT_STATUS_LABELS,
+            undefined,
+            client?.leadStatusValue ?? overviewEditForm.leadStatusValue,
+          ),
+        );
+      }
+    };
+
+    const fetchClientPriorityCatalog = async () => {
+      try {
+        const response = await apiGetClientPriorityCatalog();
+        if (cancelled) return;
+        setClientPriorityCatalog(
+          mergeCatalogOptions(
+            DEFAULT_CLIENT_PRIORITY_LABELS,
+            response?.data?.statuses,
+            client?.priority ?? overviewEditForm.priority,
+          ),
+        );
+      } catch (error) {
+        if (cancelled) return;
+        console.error('Failed to load client interest levels:', error);
+        setClientPriorityCatalog(
+          mergeCatalogOptions(
+            DEFAULT_CLIENT_PRIORITY_LABELS,
+            undefined,
+            client?.priority ?? overviewEditForm.priority,
+          ),
         );
       }
     };
 
     fetchClientLeadStatusCatalog();
+    fetchClientPriorityCatalog();
     return () => {
       cancelled = true;
     };
@@ -2881,13 +2843,15 @@ export function ClientDetailsDrawer({
     setSavingClientLeadStatus(true);
     try {
       const response = await apiAppendClientLeadStatus(status);
-      const nextOptions = mergeClientLeadStatusOptions(response?.data?.statuses, status);
+      const nextOptions = mergeCatalogOptions(DEFAULT_CLIENT_STATUS_LABELS, response?.data?.statuses, status);
       setClientLeadStatusCatalog(nextOptions);
       onSelect(status);
       setNewClientLeadStatusValue('');
       setShowAddClientLeadStatusInput(false);
-      setClientLeadStatusIsCustom(false);
       toast.success(`Status "${status}" added.`);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('jobportal:client-catalog-changed'));
+      }
     } catch (error) {
       requestError(error, 'Failed to add status');
     } finally {
@@ -2897,7 +2861,12 @@ export function ClientDetailsDrawer({
 
   const deleteClientLeadStatusOption = async (status: string, onSelect: (status: string) => void) => {
     const normalized = String(status || '').trim();
-    if (!normalized || isDefaultClientLeadStatus(normalized)) return;
+    if (
+      !normalized ||
+      DEFAULT_CLIENT_STATUS_LABELS.some((option) => option.toLowerCase() === normalized.toLowerCase())
+    ) {
+      return;
+    }
 
     const confirmed = await requestConfirm(`Delete status "${normalized}"?`, {
       title: 'Delete status',
@@ -2910,15 +2879,73 @@ export function ClientDetailsDrawer({
     setDeletingClientLeadStatus(true);
     try {
       const response = await apiRemoveClientLeadStatus(normalized);
-      const fallback = 'New';
-      const nextOptions = mergeClientLeadStatusOptions(response?.data?.statuses, fallback);
+      const fallback = 'Active';
+      const nextOptions = mergeCatalogOptions(DEFAULT_CLIENT_STATUS_LABELS, response?.data?.statuses, fallback);
       setClientLeadStatusCatalog(nextOptions);
       onSelect(fallback);
       toast.success(`Status "${normalized}" deleted.`);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('jobportal:client-catalog-changed'));
+      }
     } catch (error) {
       requestError(error, 'Failed to delete status');
     } finally {
       setDeletingClientLeadStatus(false);
+    }
+  };
+
+  const addClientPriorityOption = async (onSelect: (priority: string) => void) => {
+    const priority = String(newClientPriorityValue || '').trim();
+    if (!priority) {
+      toast.error('Enter an interest level first.');
+      return;
+    }
+
+    setSavingClientPriority(true);
+    try {
+      const response = await apiAppendClientPriority(priority);
+      const nextOptions = mergeCatalogOptions(DEFAULT_CLIENT_PRIORITY_LABELS, response?.data?.statuses, priority);
+      setClientPriorityCatalog(nextOptions);
+      onSelect(priority);
+      setNewClientPriorityValue('');
+      setShowAddClientPriorityInput(false);
+      toast.success(`Interest level "${priority}" added.`);
+    } catch (error) {
+      requestError(error, 'Failed to add interest level');
+    } finally {
+      setSavingClientPriority(false);
+    }
+  };
+
+  const deleteClientPriorityOption = async (priority: string, onSelect: (priority: string) => void) => {
+    const normalized = String(priority || '').trim();
+    if (
+      !normalized ||
+      DEFAULT_CLIENT_PRIORITY_LABELS.some((option) => option.toLowerCase() === normalized.toLowerCase())
+    ) {
+      return;
+    }
+
+    const confirmed = await requestConfirm(`Delete interest level "${normalized}"?`, {
+      title: 'Delete interest level',
+      tone: 'warning',
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+    });
+    if (!confirmed) return;
+
+    setDeletingClientPriority(true);
+    try {
+      const response = await apiRemoveClientPriority(normalized);
+      const fallback = 'Medium';
+      const nextOptions = mergeCatalogOptions(DEFAULT_CLIENT_PRIORITY_LABELS, response?.data?.statuses, fallback);
+      setClientPriorityCatalog(nextOptions);
+      onSelect(fallback);
+      toast.success(`Interest level "${normalized}" deleted.`);
+    } catch (error) {
+      requestError(error, 'Failed to delete interest level');
+    } finally {
+      setDeletingClientPriority(false);
     }
   };
 
@@ -3076,7 +3103,6 @@ export function ClientDetailsDrawer({
   // Reset form when entering add mode
   useEffect(() => {
     if (isAddMode) {
-      setClientLeadStatusIsCustom(false);
       timezoneManuallyEditedRef.current = false;
       // Reset form to empty values when opening in add mode
       setOverviewEditForm((prev) => ({
@@ -3112,7 +3138,7 @@ export function ClientDetailsDrawer({
         state: '',
         latitude: null,
         longitude: null,
-        leadStatusValue: 'New',
+        leadStatusValue: 'Active',
         assignedToIds: [],
         agreementsFileName: '',
         agreementsFileUrl: '',
@@ -3124,7 +3150,6 @@ export function ClientDetailsDrawer({
       resetClientLogoDraft();
       setPendingAgreementsFile(null);
       setPendingKycFiles([]);
-      setPendingTeamMemberKycFiles([]);
       setPendingPostServiceKycFiles(createEmptyPendingPostServiceKycFiles());
       setRemovedPostServiceKycFileIds([]);
       // Set edit mode to true so form is visible
@@ -3186,7 +3211,11 @@ export function ClientDetailsDrawer({
   const companyLinksValue = [fullClientData?.website || client?.website || '', fullClientData?.linkedin || client?.linkedin || '']
     .filter(Boolean)
     .join(' | ');
-  const statusValue = fullClientData?.leadStatus || client?.leadStatus || client?.stage || '';
+  const statusValue = resolveClientStatusLabel({
+    leadStatus: fullClientData?.leadStatus || client?.leadStatus,
+    leadStatusValue: client?.leadStatusValue,
+    stage: fullClientData?.stage || client?.stage,
+  });
   const businessValue =
     fullClientData?.expectedBusinessValue ||
     client?.expectedBusinessValue ||
@@ -3507,78 +3536,35 @@ export function ClientDetailsDrawer({
                                     ))}
                                   </div>
                                 </div>
-                                <div>
-                                  <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Director Name *</label>
-                                  <div className="flex gap-2">
-                                    <select
-                                      value={overviewEditForm.directorSalutation ?? ''}
-                                      onChange={(e) => setOverviewEditForm((p) => ({ ...p, directorSalutation: e.target.value }))}
-                                      className="w-[5.75rem] shrink-0 rounded-xl border border-slate-200 px-2 py-2.5 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                      aria-label="Director salutation"
-                                    >
-                                      {NAME_SALUTATION_OPTIONS.map((opt) => (
-                                        <option key={opt.value || 'none'} value={opt.value}>
-                                          {opt.label}
-                                        </option>
-                                      ))}
-                                    </select>
-                                    <input
-                                      value={overviewEditForm.directorName}
-                                      onChange={(e) => setOverviewEditForm((p) => ({ ...p, directorName: e.target.value }))}
-                                      className="min-w-0 flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                      placeholder="e.g. John Doe"
-                                    />
-                                  </div>
-                                </div>
-                                <div>
-                                  <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Team Name</label>
-                                  <input
-                                    value={overviewEditForm.companySize}
-                                    onChange={(e) => setOverviewEditForm((p) => ({ ...p, companySize: e.target.value }))}
-                                    className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                    placeholder="e.g. Growth Team"
+                                <div className="sm:col-span-2">
+                                  <DirectorContactFields
+                                    directorSalutation={overviewEditForm.directorSalutation}
+                                    contactPerson={overviewEditForm.directorName}
+                                    emails={overviewEditForm.contactEmails}
+                                    phones={overviewEditForm.contactPhones}
+                                    email={overviewEditForm.contactEmail}
+                                    phone={overviewEditForm.contactPhone}
+                                    onDirectorSalutationChange={(value) =>
+                                      setOverviewEditForm((p) => ({ ...p, directorSalutation: value }))
+                                    }
+                                    onContactPersonChange={(value) =>
+                                      setOverviewEditForm((p) => ({ ...p, directorName: value }))
+                                    }
+                                    onEmailsChange={(contactEmails, primaryEmail) => {
+                                      setOverviewEditForm((p) => ({ ...p, contactEmails, contactEmail: primaryEmail }));
+                                    }}
+                                    onPhonesChange={(contactPhones, primaryPhone) => {
+                                      setOverviewEditForm((p) => ({ ...p, contactPhones, contactPhone: primaryPhone }));
+                                    }}
                                   />
                                 </div>
-                                <TeamMemberOptionalFields
-                                  teamName={overviewEditForm.companySize}
-                                  members={overviewEditForm.teamMembers}
-                                  onChange={(teamMembers) =>
-                                    setOverviewEditForm((p) => ({ ...p, ...syncClientTeamMembers(teamMembers) }))
-                                  }
-                                  pendingKycFiles={pendingTeamMemberKycFiles}
-                                  onPendingKycFilesChange={setPendingTeamMemberKycFiles}
-                                  uploadingKyc={uploadingKyc}
-                                  uploadSuccess={kycUploadFeedback.uploadSuccess}
-                                  uploadPercent={kycUploadFeedback.uploadPercent}
-                                  kycDisabled={uploadingKyc || uploadingAgreements}
-                                />
-                                <div>
-                                  <MultiContactFields
-                                    label="Email"
-                                    type="email"
-                                    required
-                                    values={overviewEditForm.contactEmails}
-                                    onChange={(contactEmails) => {
-                                      const primary = primaryContactValue(
-                                        normalizeContactList(contactEmails, overviewEditForm.contactEmail),
-                                      );
-                                      setOverviewEditForm((p) => ({ ...p, contactEmails, contactEmail: primary }));
-                                    }}
-                                    placeholder="email@company.com"
-                                  />
-                                </div>
-                                <div>
-                                  <MultiContactFields
-                                    label="Phone"
-                                    type="tel"
-                                    values={overviewEditForm.contactPhones}
-                                    onChange={(contactPhones) => {
-                                      const primary = primaryContactValue(
-                                        normalizeContactList(contactPhones, overviewEditForm.contactPhone),
-                                      );
-                                      setOverviewEditForm((p) => ({ ...p, contactPhones, contactPhone: primary }));
-                                    }}
-                                    placeholder="+1 (555) 000-0000"
+                                <div className="sm:col-span-2">
+                                  <TeamMemberOptionalFields
+                                    requireTeamName={false}
+                                    members={overviewEditForm.teamMembers}
+                                    onChange={(teamMembers) =>
+                                      setOverviewEditForm((p) => ({ ...p, ...syncClientTeamMembers(teamMembers) }))
+                                    }
                                   />
                                 </div>
                                 <CscLocationFields
@@ -3589,6 +3575,7 @@ export function ClientDetailsDrawer({
                                   countryCode={overviewEditForm.countryCode}
                                   latitude={overviewEditForm.latitude}
                                   longitude={overviewEditForm.longitude}
+                                  showDetectedHint={false}
                                   onLocationChange={(next) =>
                                     setOverviewEditForm((p) => ({ ...p, location: next }))
                                   }
@@ -3615,11 +3602,11 @@ export function ClientDetailsDrawer({
                                 </div>
                                 <div>
                                   <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Industry</label>
-                                  <input
-                                    value={overviewEditForm.industry}
-                                    onChange={(e) => setOverviewEditForm((p) => ({ ...p, industry: e.target.value }))}
-                                    className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                    placeholder="e.g. Technology"
+                                  <IndustryMultiSelect
+                                    value={overviewEditForm.industry ?? ''}
+                                    onChange={(industry) => setOverviewEditForm((p) => ({ ...p, industry }))}
+                                    companyName={overviewEditForm.companyName}
+                                    placeholder="Type an industry (e.g. technology, healthcare)"
                                   />
                                 </div>
                                 <div>
@@ -3637,15 +3624,17 @@ export function ClientDetailsDrawer({
                                       Add status
                                     </button>
                                   </div>
-                                  <ClientLeadStatusDropdown
-                                    value={overviewEditForm.leadStatusValue || 'New'}
+                                  <CatalogOptionDropdown
+                                    value={overviewEditForm.leadStatusValue || 'Active'}
                                     options={clientLeadStatusOptions}
+                                    defaultOptions={DEFAULT_CLIENT_STATUS_LABELS}
                                     deleting={deletingClientLeadStatus}
+                                    placeholder="Active"
                                     onSelect={(status) =>
                                       setOverviewEditForm((p) => ({
                                         ...p,
                                         leadStatusValue: status,
-                                        status: deriveClientLifecycleStatus(status),
+                                        status: clientStatusLabelToBackend(status),
                                       }))
                                     }
                                     onDelete={(status) =>
@@ -3653,7 +3642,7 @@ export function ClientDetailsDrawer({
                                         setOverviewEditForm((p) => ({
                                           ...p,
                                           leadStatusValue: nextStatus,
-                                          status: deriveClientLifecycleStatus(nextStatus),
+                                          status: clientStatusLabelToBackend(nextStatus),
                                         })),
                                       )
                                     }
@@ -3673,7 +3662,7 @@ export function ClientDetailsDrawer({
                                             setOverviewEditForm((p) => ({
                                               ...p,
                                               leadStatusValue: status,
-                                              status: deriveClientLifecycleStatus(status),
+                                              status: clientStatusLabelToBackend(status),
                                             }))
                                           )
                                         }
@@ -3696,21 +3685,67 @@ export function ClientDetailsDrawer({
                                   ) : null}
                                 </div>
                                 <div>
-                                  <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Interest Level</label>
-                                  <select
+                                  <div className="mb-1 flex items-center justify-between gap-3">
+                                    <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">Interest Level</label>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setShowAddClientPriorityInput((prev) => !prev);
+                                        setNewClientPriorityValue('');
+                                      }}
+                                      className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
+                                    >
+                                      <Plus className="h-3.5 w-3.5" />
+                                      Add level
+                                    </button>
+                                  </div>
+                                  <CatalogOptionDropdown
                                     value={overviewEditForm.priority || 'Medium'}
-                                    onChange={(e) =>
-                                      setOverviewEditForm((p) => ({
-                                        ...p,
-                                        priority: e.target.value as 'High' | 'Medium' | 'Low',
-                                      }))
+                                    options={clientPriorityOptions}
+                                    defaultOptions={DEFAULT_CLIENT_PRIORITY_LABELS}
+                                    deleting={deletingClientPriority}
+                                    placeholder="Medium"
+                                    onSelect={(priority) =>
+                                      setOverviewEditForm((p) => ({ ...p, priority }))
                                     }
-                                    className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
-                                  >
-                                    <option value="High">High</option>
-                                    <option value="Medium">Medium</option>
-                                    <option value="Low">Low</option>
-                                  </select>
+                                    onDelete={(priority) =>
+                                      deleteClientPriorityOption(priority, (nextPriority) =>
+                                        setOverviewEditForm((p) => ({ ...p, priority: nextPriority }))
+                                      )
+                                    }
+                                  />
+                                  {showAddClientPriorityInput ? (
+                                    <div className="mt-2 flex items-center gap-2">
+                                      <input
+                                        value={newClientPriorityValue}
+                                        onChange={(e) => setNewClientPriorityValue(e.target.value)}
+                                        className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                        placeholder="Enter new interest level"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          addClientPriorityOption((priority) =>
+                                            setOverviewEditForm((p) => ({ ...p, priority }))
+                                          )
+                                        }
+                                        disabled={savingClientPriority}
+                                        className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                      >
+                                        {savingClientPriority ? 'Adding...' : 'Add'}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setShowAddClientPriorityInput(false);
+                                          setNewClientPriorityValue('');
+                                        }}
+                                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  ) : null}
                                 </div>
                                 <div className="sm:col-span-2">
                                   <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Assigned To</label>
@@ -3841,9 +3876,10 @@ export function ClientDetailsDrawer({
                                 onChange={(patch) => setOverviewEditForm((p) => ({ ...p, ...patch }))}
                                 disabled={uploadingKyc || uploadingAgreements}
                                 showContractValidity
+                                showTitle={false}
                                 uploadSlot={
                                   <AgreementDocumentUpload
-                                    description="Upload the signed contract, NDA, or terms agreement for this client. PDF, DOC, DOCX up to 10MB."
+                                    description=""
                                     pendingFile={pendingAgreementsFile}
                                     onPendingFileChange={(file) => {
                                       setPendingAgreementsFile(file);
@@ -3882,6 +3918,7 @@ export function ClientDetailsDrawer({
                               <KycDocumentsField
                                 pendingFiles={pendingKycFiles}
                                 onPendingFilesChange={setPendingKycFiles}
+                                description=""
                                 uploading={uploadingKyc}
                                 uploadSuccess={kycUploadFeedback.uploadSuccess}
                                 uploadPercent={kycUploadFeedback.uploadPercent}
@@ -3989,12 +4026,11 @@ export function ClientDetailsDrawer({
                             </div>
                             <div>
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Industry</label>
-                              <input
-                                type="text"
-                                value={overviewEditForm.industry}
-                                onChange={(e) => setOverviewEditForm((p) => ({ ...p, industry: e.target.value }))}
-                                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                placeholder="Enter industry"
+                              <IndustryMultiSelect
+                                value={overviewEditForm.industry ?? ''}
+                                onChange={(industry) => setOverviewEditForm((p) => ({ ...p, industry }))}
+                                companyName={overviewEditForm.companyName}
+                                placeholder="Type an industry (e.g. technology, healthcare)"
                               />
                             </div>
                             <div>
@@ -4630,38 +4666,67 @@ export function ClientDetailsDrawer({
                                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                                   <div><FieldRow label="Company *" value={fullClientData?.name || client?.name || ''} /></div>
                                   <div><FieldRow label="Company Links" value={companyLinksValue} href={!!companyLinksValue} /></div>
-                                  <div><FieldRow label="Director Name *" value={primaryClientContact?.name || ''} /></div>
-                                  <div><FieldRow label="Team Name" value={fullClientData?.companySize || client?.companySize || ''} /></div>
+                                  <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                                      <FieldRow
+                                        label="Director Name"
+                                        value={formatDirectorDisplay(
+                                          fullClientData?.directorSalutation || client?.directorSalutation,
+                                          fullClientData?.directorName || primaryClientContact?.name || '',
+                                        )}
+                                      />
+                                      <FieldRow
+                                        label="Email *"
+                                        value={formatContactListMultiline(
+                                          fullClientData?.emails || client?.emails,
+                                          primaryClientContactEmail,
+                                        )}
+                                        href={!!primaryClientContactEmail}
+                                        multiline
+                                      />
+                                      <FieldRow
+                                        label="Mobile Number"
+                                        value={formatContactListMultiline(
+                                          fullClientData?.phones || client?.phones,
+                                          primaryClientContactPhone,
+                                        )}
+                                        multiline
+                                      />
+                                    </div>
+                                  </div>
                                   {(() => {
                                     const teamMembers = (
                                       clientTeamMemberContacts.length > 0
                                         ? extractClientTeamMembers(clientTeamMemberContacts)
                                         : resolveTeamMemberList(fullClientData || client)
                                     ).filter(teamMemberHasAnyValue);
-                                    if (!(fullClientData?.companySize || client?.companySize || '').trim() || teamMembers.length === 0) return null;
+                                    if (teamMembers.length === 0) return null;
                                     return (
-                                      <div className="sm:col-span-2 space-y-3">
+                                      <div className="sm:col-span-2 space-y-2">
+                                        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Team Member</p>
                                         {teamMembers.map((tm, index) => (
-                                          <div key={tm.id || `client-team-member-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                                            <div className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">
-                                              Team Member {index + 1}
-                                            </div>
-                                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                                              <FieldRow label="Designation" value={tm.teamMemberDesignation ?? ''} />
-                                              <FieldRow label="Email" value={tm.teamMemberEmail ?? ''} href={!!tm.teamMemberEmail} />
-                                              <FieldRow label="Phone" value={tm.teamMemberPhone ?? ''} />
-                                            </div>
+                                          <div
+                                            key={tm.id || `client-team-member-${index}`}
+                                            className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 sm:grid-cols-3"
+                                          >
+                                            <FieldRow
+                                              label="Name"
+                                              value={formatDirectorDisplay(
+                                                tm.teamMemberSalutation,
+                                                tm.teamMemberName || tm.teamMemberDesignation,
+                                              )}
+                                            />
+                                            <FieldRow label="Email" value={tm.teamMemberEmail ?? ''} href={!!tm.teamMemberEmail} />
+                                            <FieldRow label="Mobile Number" value={tm.teamMemberPhone ?? ''} />
                                           </div>
                                         ))}
                                       </div>
                                     );
                                   })()}
-                                  <div><FieldRow label="Email *" value={formatContactListMultiline(fullClientData?.emails || client?.emails, primaryClientContactEmail)} href={!!primaryClientContactEmail} multiline /></div>
-                                  <div><FieldRow label="Phone" value={formatContactListMultiline(fullClientData?.phones || client?.phones, primaryClientContactPhone)} multiline /></div>
                                   <div><FieldRow label="Location" value={fullClientData?.location || client?.location || ''} /></div>
                                   <div><FieldRow label="City" value={derivedCity} /></div>
                                   <div><FieldRow label="Country" value={derivedCountry} /></div>
-                                  <div><FieldRow label="Sector" value={fullClientData?.industry || client?.industry || ''} /></div>
+                                  <div><FieldRow label="Sector" value={formatIndustriesDisplay(fullClientData?.industry || client?.industry || '')} /></div>
                                   <div><FieldRow label="Status" value={statusValue} /></div>
                                   <div><FieldRow label="Interest Level" value={fullClientData?.priority || client?.priority || ''} /></div>
                                   <div><FieldRow label="Assigned To" value={client?.owner?.name || ''} /></div>
@@ -4842,76 +4907,37 @@ export function ClientDetailsDrawer({
                                   ))}
                                 </div>
                               </div>
-                              <div>
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Director Name *</label>
-                                <div className="flex gap-2">
-                                  <select
-                                    value={overviewEditForm.directorSalutation ?? ''}
-                                    onChange={(e) => setOverviewEditForm((p) => ({ ...p, directorSalutation: e.target.value }))}
-                                    className="w-[5.75rem] shrink-0 rounded-xl border border-slate-200 px-2 py-2.5 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                    aria-label="Director salutation"
-                                  >
-                                    {NAME_SALUTATION_OPTIONS.map((opt) => (
-                                      <option key={opt.value || 'none'} value={opt.value}>
-                                        {opt.label}
-                                      </option>
-                                    ))}
-                                  </select>
-                                  <input
-                                    value={overviewEditForm.directorName}
-                                    onChange={(e) => setOverviewEditForm((p) => ({ ...p, directorName: e.target.value }))}
-                                    className="min-w-0 flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                    placeholder="e.g. John Doe"
-                                  />
-                                </div>
-                              </div>
-                              <div>
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Team Name</label>
-                                <input
-                                  value={overviewEditForm.companySize}
-                                  onChange={(e) => setOverviewEditForm((p) => ({ ...p, companySize: e.target.value }))}
-                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                  placeholder="e.g. Growth Team"
+                              <div className="sm:col-span-2">
+                                <DirectorContactFields
+                                  directorSalutation={overviewEditForm.directorSalutation}
+                                  contactPerson={overviewEditForm.directorName}
+                                  emails={overviewEditForm.contactEmails}
+                                  phones={overviewEditForm.contactPhones}
+                                  email={overviewEditForm.contactEmail}
+                                  phone={overviewEditForm.contactPhone}
+                                  onDirectorSalutationChange={(value) =>
+                                    setOverviewEditForm((p) => ({ ...p, directorSalutation: value }))
+                                  }
+                                  onContactPersonChange={(value) =>
+                                    setOverviewEditForm((p) => ({ ...p, directorName: value }))
+                                  }
+                                  onEmailsChange={(contactEmails, primaryEmail) => {
+                                    setOverviewEditForm((p) => ({ ...p, contactEmails, contactEmail: primaryEmail }));
+                                  }}
+                                  onPhonesChange={(contactPhones, primaryPhone) => {
+                                    setOverviewEditForm((p) => ({ ...p, contactPhones, contactPhone: primaryPhone }));
+                                  }}
                                 />
                               </div>
-                              <TeamMemberOptionalFields
-                                teamName={overviewEditForm.companySize}
-                                members={overviewEditForm.teamMembers}
-                                onChange={(teamMembers) =>
-                                  setOverviewEditForm((p) => ({ ...p, ...syncClientTeamMembers(teamMembers) }))
-                                }
-                                pendingKycFiles={pendingTeamMemberKycFiles}
-                                onPendingKycFilesChange={setPendingTeamMemberKycFiles}
-                                uploadingKyc={uploadingKyc}
-                                uploadSuccess={kycUploadFeedback.uploadSuccess}
-                                uploadPercent={kycUploadFeedback.uploadPercent}
-                                kycDisabled={uploadingKyc || uploadingAgreements}
-                              />
-                              <MultiContactFields
-                                label="Email"
-                                type="email"
-                                required
-                                values={overviewEditForm.contactEmails}
-                                onChange={(contactEmails) => {
-                                  const primary = primaryContactValue(
-                                    normalizeContactList(contactEmails, overviewEditForm.contactEmail),
-                                  );
-                                  setOverviewEditForm((p) => ({ ...p, contactEmails, contactEmail: primary }));
-                                }}
-                                placeholder="email@company.com"
-                              />
-                              <MultiContactFields
-                                label="Phone"
-                                type="tel"
-                                values={overviewEditForm.contactPhones}
-                                onChange={(contactPhones) => {
-                                  const primary = primaryContactValue(
-                                    normalizeContactList(contactPhones, overviewEditForm.contactPhone),
-                                  );
-                                  setOverviewEditForm((p) => ({ ...p, contactPhones, contactPhone: primary }));
-                                }}
-                                placeholder="+1 (555) 000-0000"
-                              />
+                              <div className="sm:col-span-2">
+                                <TeamMemberOptionalFields
+                                  requireTeamName={false}
+                                  members={overviewEditForm.teamMembers}
+                                  onChange={(teamMembers) =>
+                                    setOverviewEditForm((p) => ({ ...p, ...syncClientTeamMembers(teamMembers) }))
+                                  }
+                                />
+                              </div>
                               <CscLocationFields
                                 location={overviewEditForm.location ?? ''}
                                 city={overviewEditForm.city}
@@ -4920,6 +4946,7 @@ export function ClientDetailsDrawer({
                                 countryCode={overviewEditForm.countryCode}
                                 latitude={overviewEditForm.latitude}
                                 longitude={overviewEditForm.longitude}
+                                showDetectedHint={false}
                                 onLocationChange={(next) =>
                                   setOverviewEditForm((p) => ({ ...p, location: next }))
                                 }
@@ -4946,11 +4973,11 @@ export function ClientDetailsDrawer({
                               </div>
                               <div>
                                 <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Industry</label>
-                                <input
-                                  value={overviewEditForm.industry}
-                                  onChange={(e) => setOverviewEditForm((p) => ({ ...p, industry: e.target.value }))}
-                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                  placeholder="e.g. Technology"
+                                <IndustryMultiSelect
+                                  value={overviewEditForm.industry ?? ''}
+                                  onChange={(industry) => setOverviewEditForm((p) => ({ ...p, industry }))}
+                                  companyName={overviewEditForm.companyName}
+                                  placeholder="Type an industry (e.g. technology, healthcare)"
                                 />
                               </div>
                               <div>
@@ -4968,15 +4995,17 @@ export function ClientDetailsDrawer({
                                     Add status
                                   </button>
                                 </div>
-                                <ClientLeadStatusDropdown
-                                  value={overviewEditForm.leadStatusValue || 'New'}
+                                <CatalogOptionDropdown
+                                  value={overviewEditForm.leadStatusValue || 'Active'}
                                   options={clientLeadStatusOptions}
+                                  defaultOptions={DEFAULT_CLIENT_STATUS_LABELS}
                                   deleting={deletingClientLeadStatus}
+                                  placeholder="Active"
                                   onSelect={(status) =>
                                     setOverviewEditForm((p) => ({
                                       ...p,
                                       leadStatusValue: status,
-                                      status: deriveClientLifecycleStatus(status),
+                                      status: clientStatusLabelToBackend(status),
                                     }))
                                   }
                                   onDelete={(status) =>
@@ -4984,7 +5013,7 @@ export function ClientDetailsDrawer({
                                       setOverviewEditForm((p) => ({
                                         ...p,
                                         leadStatusValue: nextStatus,
-                                        status: deriveClientLifecycleStatus(nextStatus),
+                                        status: clientStatusLabelToBackend(nextStatus),
                                       })),
                                     )
                                   }
@@ -5004,7 +5033,7 @@ export function ClientDetailsDrawer({
                                           setOverviewEditForm((p) => ({
                                             ...p,
                                             leadStatusValue: status,
-                                            status: deriveClientLifecycleStatus(status),
+                                            status: clientStatusLabelToBackend(status),
                                           }))
                                         )
                                       }
@@ -5027,21 +5056,67 @@ export function ClientDetailsDrawer({
                                 ) : null}
                               </div>
                               <div>
-                                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Interest Level</label>
-                                <select
+                                <div className="mb-1 flex items-center justify-between gap-3">
+                                  <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">Interest Level</label>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setShowAddClientPriorityInput((prev) => !prev);
+                                      setNewClientPriorityValue('');
+                                    }}
+                                    className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
+                                  >
+                                    <Plus className="h-3.5 w-3.5" />
+                                    Add level
+                                  </button>
+                                </div>
+                                <CatalogOptionDropdown
                                   value={overviewEditForm.priority || 'Medium'}
-                                  onChange={(e) =>
-                                    setOverviewEditForm((p) => ({
-                                      ...p,
-                                      priority: e.target.value as 'High' | 'Medium' | 'Low',
-                                    }))
+                                  options={clientPriorityOptions}
+                                  defaultOptions={DEFAULT_CLIENT_PRIORITY_LABELS}
+                                  deleting={deletingClientPriority}
+                                  placeholder="Medium"
+                                  onSelect={(priority) =>
+                                    setOverviewEditForm((p) => ({ ...p, priority }))
                                   }
-                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
-                                >
-                                  <option value="High">High</option>
-                                  <option value="Medium">Medium</option>
-                                  <option value="Low">Low</option>
-                                </select>
+                                  onDelete={(priority) =>
+                                    deleteClientPriorityOption(priority, (nextPriority) =>
+                                      setOverviewEditForm((p) => ({ ...p, priority: nextPriority }))
+                                    )
+                                  }
+                                />
+                                {showAddClientPriorityInput ? (
+                                  <div className="mt-2 flex items-center gap-2">
+                                    <input
+                                      value={newClientPriorityValue}
+                                      onChange={(e) => setNewClientPriorityValue(e.target.value)}
+                                      className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                      placeholder="Enter new interest level"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        addClientPriorityOption((priority) =>
+                                          setOverviewEditForm((p) => ({ ...p, priority }))
+                                        )
+                                      }
+                                      disabled={savingClientPriority}
+                                      className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                      {savingClientPriority ? 'Adding...' : 'Add'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setShowAddClientPriorityInput(false);
+                                        setNewClientPriorityValue('');
+                                      }}
+                                      className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                ) : null}
                               </div>
                               <div className="sm:col-span-2">
                                 <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Assigned To</label>
@@ -5185,7 +5260,7 @@ export function ClientDetailsDrawer({
                                     </div>
                                   ) : null}
                                   <AgreementDocumentUpload
-                                    description="Upload the signed contract, NDA, or terms agreement for this client. PDF, DOC, DOCX up to 10MB."
+                                    description=""
                                     pendingFile={pendingAgreementsFile}
                                     onPendingFileChange={(file) => {
                                       setPendingAgreementsFile(file);
@@ -5221,6 +5296,7 @@ export function ClientDetailsDrawer({
                                   <KycDocumentsField
                                     pendingFiles={pendingKycFiles}
                                     onPendingFilesChange={setPendingKycFiles}
+                                    description=""
                                     storedFiles={clientKycFiles}
                                     uploadsBase={uploadsBase}
                                     onRemoveStored={async (fileId) => {
@@ -5282,7 +5358,7 @@ export function ClientDetailsDrawer({
                               {client && (
                                 <>
                           <FieldRow label="Company Name" value={fullClientData?.name || client?.name || 'Ã¢â‚¬â€'} />
-                          <FieldRow label="Industry" value={fullClientData?.industry || client?.industry || 'Ã¢â‚¬â€'} />
+                          <FieldRow label="Industry" value={formatIndustriesDisplay(fullClientData?.industry || client?.industry || '') || '—'} />
                           <FieldRow label="Company size" value={fullClientData?.companySize || client?.companySize || 'Ã¢â‚¬â€'} />
                           <FieldRow label="Website" value={fullClientData?.website || client?.website || 'Ã¢â‚¬â€'} href={!!(fullClientData?.website || client?.website)} />
                           <FieldRow label="LinkedIn" value={fullClientData?.linkedin || client?.linkedin || 'Ã¢â‚¬â€'} href={!!(fullClientData?.linkedin || client?.linkedin)} />
@@ -5313,11 +5389,11 @@ export function ClientDetailsDrawer({
                               </div>
                               <div>
                                 <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Industry</label>
-                                <input
-                                  type="text"
-                                  value={overviewEditForm.industry}
-                                  onChange={(e) => setOverviewEditForm((p) => ({ ...p, industry: e.target.value }))}
-                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                <IndustryMultiSelect
+                                  value={overviewEditForm.industry ?? ''}
+                                  onChange={(industry) => setOverviewEditForm((p) => ({ ...p, industry }))}
+                                  companyName={overviewEditForm.companyName}
+                                  placeholder="Type an industry (e.g. technology, healthcare)"
                                 />
                               </div>
                               <div>

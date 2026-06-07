@@ -22,6 +22,14 @@ function readCvEditorLayout(extraData) {
   return layout;
 }
 
+function readSaasaCvFileUrl(extraData) {
+  if (!extraData || typeof extraData !== 'object' || Array.isArray(extraData)) return '';
+  const raw = extraData.saasaCvAnnotations;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return '';
+  const fileUrl = String(raw.fileUrl || '').trim();
+  return fileUrl.startsWith('http') ? fileUrl : '';
+}
+
 function formatPeriod(start, end) {
   const parts = [start, end].map((v) => String(v || '').trim()).filter(Boolean);
   return parts.join(' – ');
@@ -75,6 +83,7 @@ export function buildCvSubmissionSnapshot(candidate, jobTitle = '') {
   const layout = readCvEditorLayout(extra);
   const presentation = readClientPresentation(candidate?.extraData);
   const clientReviewSections = buildClientReviewSectionsFromPresentation(presentation);
+  const saasaCvUrl = readSaasaCvFileUrl(extra);
 
   return {
     submittedAt: new Date().toISOString(),
@@ -101,6 +110,7 @@ export function buildCvSubmissionSnapshot(candidate, jobTitle = '') {
       ? source.cvWorkExperienceEntries
       : [],
     resume: source?.resume || source?.resumeUrl || null,
+    saasaCvUrl: saasaCvUrl || null,
     avatar: source?.avatar ?? null,
     cvEditorLayout: layout,
     visibleSections: presentation?.visibleSections ?? null,

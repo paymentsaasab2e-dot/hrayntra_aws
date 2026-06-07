@@ -67,7 +67,7 @@ export const interviewScheduledTemplate = ({ candidateName, jobTitle, companyNam
       { label: 'Role', value: jobTitle },
       { label: 'Company', value: companyName },
       { label: 'Date & Time', value: formatDateTime(date, timezone) },
-      { label: 'Interviewers', value: panelNames.join(', ') || 'SAASA Hiring Team' },
+      { label: 'Interviewers', value: panelNames.join(', ') || 'HRYANTRA Hiring Team' },
       { label: 'Meeting Link', value: meetingLink || 'Your recruiter will share the meeting link shortly.' },
     ],
     ctaLabel: 'Join Interview',

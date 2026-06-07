@@ -30,6 +30,8 @@ import {
   SmartSearchToggleButton,
 } from '../../components/smart-search/SmartSearchToolbar';
 import { useSmartSearch } from '../../hooks/useSmartSearch';
+import { mapAiToCandidatesResult, parseSmartSearchWithAi } from '../../lib/smart-search/aiParser';
+import { buildCandidatesListApiParams } from '../../lib/smart-search/entitySmartSearch';
 import {
   CANDIDATES_SMART_SEARCH_EXAMPLES,
   parseCandidatesSmartSearchPrompt,
@@ -334,6 +336,7 @@ function CandidatesPageContent() {
   );
   const [debouncedColumnFilters, setDebouncedColumnFilters] =
     useState<CandidateTableColumnFilters>(columnFilters);
+  const [smartSearchCandidateIds, setSmartSearchCandidateIds] = useState<string[]>([]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedColumnFilters(columnFilters), 400);
@@ -590,34 +593,26 @@ function CandidatesPageContent() {
         }
       }
 
-      const queryParams: Record<string, string | number | boolean> = {
+      const stageKey = debouncedColumnFilters.stage
+        ? debouncedColumnFilters.stage.toLowerCase()
+        : '';
+      const queryParams = buildCandidatesListApiParams({
         page: activePage,
         limit: pageSize,
-      };
-
-      if (filters.search) queryParams.search = filters.search;
-
-      if (debouncedColumnFilters.company) queryParams.company = debouncedColumnFilters.company;
-      if (debouncedColumnFilters.location) queryParams.location = debouncedColumnFilters.location;
-      if (debouncedColumnFilters.jobId) queryParams.jobId = debouncedColumnFilters.jobId;
-      if (debouncedColumnFilters.experienceRange) {
-        queryParams.experienceRange = debouncedColumnFilters.experienceRange;
-      }
-      if (debouncedColumnFilters.ownerId) {
-        queryParams.assignedToId = debouncedColumnFilters.ownerId;
-      }
-
-      if (debouncedColumnFilters.stage) {
-        const stageKey = debouncedColumnFilters.stage.toLowerCase();
-        queryParams.stage = CANDIDATE_STAGE_API_MAP[stageKey] || debouncedColumnFilters.stage;
-      } else if (filters.status) {
-        queryParams.status = filters.status;
-      }
-      if (activeListTab === 'mine') {
-        queryParams.mine = true;
-      } else {
-        queryParams.includeCommonPool = true;
-      }
+        search: filters.search || undefined,
+        company: debouncedColumnFilters.company || undefined,
+        location: debouncedColumnFilters.location || undefined,
+        jobId: debouncedColumnFilters.jobId || undefined,
+        experienceRange: debouncedColumnFilters.experienceRange || undefined,
+        assignedToId: debouncedColumnFilters.ownerId || undefined,
+        stage: stageKey
+          ? CANDIDATE_STAGE_API_MAP[stageKey] || debouncedColumnFilters.stage
+          : undefined,
+        status: !debouncedColumnFilters.stage && filters.status ? filters.status : undefined,
+        mine: activeListTab === 'mine',
+        includeCommonPool: activeListTab !== 'mine',
+        matchingCandidateIds: smartSearchCandidateIds,
+      });
 
       const res = await apiGetCandidates(queryParams);
 
@@ -680,7 +675,7 @@ function CandidatesPageContent() {
         }
       }
     }
-  }, [filters, debouncedColumnFilters, currentPage, pageSize, listTab]);
+  }, [filters, debouncedColumnFilters, currentPage, pageSize, listTab, smartSearchCandidateIds]);
 
   const switchListTab = useCallback(
     (tab: CandidateListTab) => {
@@ -749,6 +744,8 @@ function CandidatesPageContent() {
 
   const candidateSmartSearch = useSmartSearch({
     parsePrompt: (text) => parseCandidatesSmartSearchPrompt(text, candidateSmartSearchOptions),
+    parsePromptWithAi: (text) =>
+      parseSmartSearchWithAi('candidates', text, { useTenantDatabase: true }, mapAiToCandidatesResult),
     applyParsed: (parsed) => {
       setCurrentPage(1);
       setFilters((prev) => ({
@@ -764,6 +761,11 @@ function CandidatesPageContent() {
         jobId: parsed.jobId || '',
         experienceRange: parsed.experienceRange || '',
       });
+      setSmartSearchCandidateIds(
+        parsed.matchingCandidateIds && parsed.matchingCandidateIds.length > 0
+          ? parsed.matchingCandidateIds
+          : [],
+      );
     },
     onRemoveKeyword: (removed, remaining) => {
       setCurrentPage(1);
@@ -795,6 +797,7 @@ function CandidatesPageContent() {
   });
 
   const hasToolbarFilters = Boolean(
+    smartSearchCandidateIds.length > 0 ||
     filters.search.trim() ||
       filters.status ||
       hasTableColumnFilters ||
@@ -804,6 +807,7 @@ function CandidatesPageContent() {
   const handleClearToolbar = useCallback(() => {
     setFilters({ search: '', status: '' });
     setColumnFilters(EMPTY_CANDIDATE_TABLE_COLUMN_FILTERS);
+    setSmartSearchCandidateIds([]);
     candidateSmartSearch.clearSmartSearch();
     setCurrentPage(1);
   }, [candidateSmartSearch]);
@@ -1772,6 +1776,7 @@ function CandidatesPageContent() {
                     examples={candidateSmartSearch.examples}
                     onExampleClick={candidateSmartSearch.handleExample}
                     entityLabel="candidates"
+                    applying={candidateSmartSearch.applying}
                     placeholder="e.g. interviewing candidates in Bangalore with 5+ years"
                   />
                 ) : null}
@@ -2411,6 +2416,7 @@ function CandidatesPageContent() {
         onRefreshCandidate={canUpdateCandidate ? loadCandidateProfile : undefined}
         openEditDirectly={Boolean(candidateEditOpenToken)}
         editModalOpenToken={candidateEditOpenToken}
+        loadingCandidateProfile={loadingCandidateProfile}
       />
 
       {submitModalElement}

@@ -157,10 +157,19 @@ function isNumericField(rows: Record<string, unknown>[], key: string) {
   });
 }
 
+/** Per-row stats — not valid default Y-axis for partition / count charts. */
+const ROW_STAT_NUMERIC_KEYS = new Set([
+  'totalCalls',
+  'totalEmails',
+  'totalWhatsapp',
+  'memberCount',
+]);
+
 function findFirstNumericKey(rows: Record<string, unknown>[]) {
   const row = rows[0] || {};
   for (const [k, v] of Object.entries(row)) {
     if (k === 'id' || k.endsWith('Id')) continue;
+    if (ROW_STAT_NUMERIC_KEYS.has(k)) continue;
     if (typeof v === 'number' && Number.isFinite(v)) return k;
     if (typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v))) return k;
   }
@@ -327,6 +336,8 @@ export function resolveWidgetConfig(
     if (PARTITION_FIELD_BY_DATASET[datasetId] && !isMetricsDatasetId(datasetId)) {
       next.categoryField = PARTITION_FIELD_BY_DATASET[datasetId];
     }
+    // Pie/donut count records per slice — never sum row stat columns (totalCalls, etc.).
+    next.valueField = undefined;
   }
 
   return next;
@@ -441,8 +452,11 @@ export function buildChartSeries(
     categoryField ||
     (timelineCharts ? findFirstDateKey(rows) || findFirstCategoryKey(rows) : findFirstCategoryKey(rows));
 
-  let metricKey = valueField || findFirstNumericKey(rows);
-  const useCountAggregation = !isNumericField(rows, metricKey);
+  // Pie/donut/funnel on list rows: always count records per category (not sum stat columns).
+  const countByCategory =
+    partitionChart || chartType === 'funnel' || chartType === 'progressBar' || chartType === 'stepTracker';
+  let metricKey = countByCategory ? '' : valueField || findFirstNumericKey(rows);
+  const useCountAggregation = countByCategory || !metricKey || !isNumericField(rows, metricKey);
 
   const bucket = new Map<string, number>();
   for (const row of rows) {

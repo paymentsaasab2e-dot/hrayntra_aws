@@ -85,6 +85,17 @@ import {
   formatCandidateExperienceForTable,
   resolveCandidateExperienceYears,
 } from '../../lib/candidateExperience';
+import type {
+  CandidateProfileDrawerData,
+  CandidateScheduledInterview,
+  CandidateTagItem,
+} from './candidateProfileDrawerData';
+
+export type {
+  CandidateProfileDrawerData,
+  CandidateScheduledInterview,
+  CandidateTagItem,
+} from './candidateProfileDrawerData';
 
 const MAX_EDIT_AVATAR_FILE_BYTES = 5 * 1024 * 1024;
 
@@ -93,12 +104,6 @@ function resolveCandidateAvatarPreviewUrl(raw: string, uploadsBase: string): str
   if (!trimmed) return '';
   if (trimmed.startsWith('blob:') || /^https?:\/\//i.test(trimmed)) return trimmed;
   return buildFileHref(trimmed, uploadsBase);
-}
-
-export interface CandidateTagItem {
-  id: string;
-  label: string;
-  color: string;
 }
 
 export interface CandidatePipelineJobOption {
@@ -121,206 +126,6 @@ export interface CandidateInterviewerOption {
   role?: string | null;
   department?: string | null;
   avatar?: string | null;
-}
-
-export interface CandidateScheduledInterview {
-  id: string;
-  candidateId: string;
-  jobId?: string | null;
-  jobTitle?: string | null;
-  type: string;
-  round: number;
-  date: string;
-  time: string;
-  duration: string;
-  mode: 'video' | 'in-person' | 'phone';
-  platform?: 'Google Meet' | 'Zoom' | null;
-  meetingLink?: string | null;
-  location?: string | null;
-  phoneNumber?: string | null;
-  interviewers: Array<{
-    id: string;
-    name: string;
-    role: 'Lead Interviewer' | 'Interviewer' | 'Observer';
-  }>;
-  clientId?: string | null;
-  clientName?: string | null;
-  clientPanel?: Array<{
-    id: string;
-    name: string;
-    role?: string | null;
-    designation?: string | null;
-  }>;
-  notes?: string;
-  sendCandidateInvite?: boolean;
-  sendInterviewerInvite?: boolean;
-  status: 'scheduled' | 'completed' | 'cancelled';
-}
-
-export interface CandidateProfileDrawerData {
-  id: string;
-  name: string;
-  firstName?: string | null;
-  lastName?: string | null;
-  avatar?: string | null;
-  currentTitle?: string | null;
-  currentCompany?: string | null;
-  stage?: string | null;
-  experience?: number | null;
-  location?: string | null;
-  email?: string | null;
-  phone?: string | null;
-  linkedIn?: string | null;
-  designation?: string | null;
-  expectedSalary?: string | null;
-  expectedSalaryValue?: number | null;
-  currentSalaryValue?: number | null;
-  salaryCurrency?: string | null;
-  noticePeriod?: string | null;
-  assignedJob?: string | null;
-  assignedJobId?: string | null;
-  /**
-   * Every job the candidate is currently associated with. Populated from
-   * portal `Application` rows + CRM `Match` rows so the drawer can show ALL
-   * applications (not just the latest match).
-   */
-  assignedJobs?: Array<{
-    id?: string | null;
-    title: string;
-    department?: string | null;
-    status?: string | null;
-    stage?: string | null;
-    appliedAt?: string | null;
-    movedAt?: string | null;
-    notes?: string | null;
-    pipelineEntryId?: string | null;
-    isPipelineEntry?: boolean;
-  }>;
-  recruiter?: string | null;
-  recruiterId?: string | null;
-  source?: string | null;
-  status?: string | null;
-  availability?: 'available' | 'limited' | 'unavailable' | string | null;
-  resumeUrl?: string | null;
-  summary?: string | null;
-  cvAddress?: string | null;
-  cvCity?: string | null;
-  cvCountry?: string | null;
-  cvAvailability?: string | null;
-  cvExpectedSalary?: string | null;
-  cvCurrentSalary?: string | null;
-  cvEducation?: string | null;
-  cvEducationEntries?: Array<{
-    degree?: string;
-    institution?: string;
-    startYear?: string;
-    endYear?: string;
-  }>;
-  cvWorkExperienceEntries?: Array<{
-    title?: string;
-    company?: string;
-    location?: string;
-    startDate?: string;
-    endDate?: string;
-    responsibilities?: string[];
-  }>;
-  cvPortfolioLinks?: Array<{
-    type?: string;
-    label?: string;
-    url?: string;
-  }>;
-  cvCertifications?: string[];
-  cvLanguages?: string[];
-  cvPortfolio?: string | null;
-  cvWebsite?: string | null;
-  cvSummary?: string | null;
-  cvNotes?: string | null;
-  careerPreferences?: {
-    currentRole?: string | null;
-    preferredJobTitles?: string[];
-    preferredRoles?: string[];
-    preferredIndustries?: string[];
-    preferredIndustry?: string | null;
-    functionalAreas?: string[];
-    functionalArea?: string | null;
-    jobTypes?: string[];
-    workModes?: string[];
-    preferredWorkMode?: string | null;
-    preferredLocations?: string[];
-    relocationPreference?: string | null;
-    salaryCurrency?: string | number | null;
-    salaryAmount?: string | number | null;
-    salaryFrequency?: string | null;
-    preferredCurrency?: string | null;
-    preferredSalary?: string | number | null;
-    preferredSalaryType?: string | null;
-    preferredBenefits?: string[];
-    currentCurrency?: string | null;
-    currentSalaryType?: string | null;
-    currentSalary?: string | number | null;
-    currentLocation?: string | null;
-    currentBenefits?: string[];
-    availabilityToStart?: string | null;
-    noticePeriod?: string | null;
-    passportNumbersByLocation?: Record<string, string> | null;
-  } | null;
-  /** Parsed bulk CV / ATS pipeline payload (sections under `pipeline`). */
-  extraData?: Record<string, unknown> | null;
-  cvPreferredLocation?: string | null;
-  cvSkills?: string[];
-  tags?: CandidateTagItem[];
-  notes?: Array<{
-    id: string;
-    text: string;
-    createdAt: string;
-    recruiter: {
-      id?: string;
-      name: string;
-      avatar?: string | null;
-    };
-    tags?: string[];
-    isPinned?: boolean;
-  }>;
-  files?: Array<{ name: string; url?: string | null }>;
-  activity?: Array<{
-    id: string;
-    type:
-      | 'stage-movement'
-      | 'email-sent'
-      | 'resume-parsed'
-      | 'added-to-pipeline'
-      | 'interview-scheduled'
-      | 'rejected'
-      | 'note-added';
-    title: string;
-    description?: string | null;
-    timestamp: string;
-    performedBy: {
-      name: string;
-      avatar?: string | null;
-    };
-    relatedJob?: string | null;
-  }>;
-  aiScore?: {
-    overall: number;
-    source?: 'match' | 'estimated' | string;
-    jobTitle?: string | null;
-    breakdown: {
-      skillsMatch: number;
-      experienceFit: number;
-      educationFit: number;
-      keywordMatch: number;
-    };
-    insights: Array<{
-      type: 'strength' | 'gap';
-      text: string;
-    }>;
-  };
-  scheduledInterviews?: CandidateScheduledInterview[];
-  auditMeta?: AuditMeta;
-  /** Job portal / candidatecommon (Phase 1) pool */
-  isPhase1Candidate?: boolean;
-  poolOrigin?: string | null;
 }
 
 interface CandidateProfileDrawerProps {
@@ -3977,6 +3782,58 @@ export function CandidateProfileDrawer({
     }
   };
 
+  const candidateEditFormSections =
+    isPhase1PortalCandidate(candidate) && phase1EditSnapshot ? (
+      <CandidatePhase1SubmitEditSections
+        candidate={candidate}
+        snapshot={phase1EditSnapshot}
+        onChange={setPhase1EditSnapshot}
+      />
+    ) : editForm ? (
+      <CandidateEditAtsSections
+        form={editForm}
+        onChange={updateEditField}
+        recruiters={recruiters}
+        jobs={jobs}
+        avatarPreview={editAvatarPreview}
+        onAvatarFile={handleEditAvatarFile}
+        onAvatarRemove={clearEditAvatarFile}
+      />
+    ) : null;
+
+  const candidateEditFormActions = (
+    <>
+      <button
+        type="button"
+        onClick={cancelOverviewEdit}
+        disabled={isSavingEdit}
+        className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        Cancel
+      </button>
+      <button
+        type="button"
+        onClick={() => void handleEditSave()}
+        disabled={
+          isSavingEdit ||
+          (isPhase1PortalCandidate(candidate) ? !phase1EditSnapshot : !editForm)
+        }
+        className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
+      >
+        <SquarePen size={16} />
+        {isSavingEdit ? 'Saving...' : 'Save Candidate'}
+      </button>
+    </>
+  );
+
+  const candidateEditFormFooter = (
+    <div className="sticky bottom-0 z-10 -mx-5 border-t border-slate-200 bg-slate-50/95 px-5 py-4 backdrop-blur sm:-mx-6 sm:px-6">
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        {candidateEditFormActions}
+      </div>
+    </div>
+  );
+
   const drawerTree = (
     <AnimatePresence>
       {isOpen && candidate ? (
@@ -4039,6 +3896,83 @@ export function CandidateProfileDrawer({
             onClose={() => setShowRejectModal(false)}
             onReject={onRejectCandidate}
           />
+          {isDirectEditLaunch ? (
+            <>
+              <motion.div
+                className={`fixed inset-0 ${layer.editBackdrop} bg-slate-950/40`}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={cancelOverviewEdit}
+              />
+
+              <motion.aside
+                dir="ltr"
+                className={`fixed inset-y-0 right-0 ${layer.editPanel} flex h-full w-full max-w-4xl flex-col border-l border-slate-200`}
+                initial={{ x: '100%' }}
+                animate={{ x: 0 }}
+                exit={{ x: '100%' }}
+                transition={{ type: 'tween', duration: 0.28 }}
+              >
+                <div className="flex h-full w-full flex-col bg-slate-50 shadow-2xl">
+                  <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 backdrop-blur">
+                    <div className="flex items-start justify-between gap-4 px-5 py-5 sm:px-6">
+                      <div className="flex min-w-0 gap-4">
+                        <ImageWithFallback
+                          src={editAvatarPreview || candidate.avatar || ''}
+                          fallbackInitials={initialsFromDisplayName(candidate.name)}
+                          alt={candidate.name}
+                          className="h-16 w-16 shrink-0 rounded-2xl object-cover text-lg ring-1 ring-slate-200"
+                        />
+                        <div className="min-w-0">
+                          <div className="inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-blue-600">
+                            <SquarePen size={16} />
+                            Edit Candidate
+                          </div>
+                          <h2 className="mt-2 truncate text-2xl font-bold text-slate-900">{candidate.name}</h2>
+                          <p className="mt-1 truncate text-sm text-slate-500">{titleLine}</p>
+                        </div>
+                      </div>
+                      {!loadingCandidateProfile && onUpdateCandidate ? (
+                        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                          {candidateEditFormActions}
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={cancelOverviewEdit}
+                          className="rounded-xl p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+                          aria-label="Close edit candidate drawer"
+                        >
+                          <X size={20} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+                    {loadingCandidateProfile ? (
+                      <div className="flex min-h-[20rem] flex-col items-center justify-center gap-3 text-slate-500">
+                        <Loader2 size={28} className="animate-spin text-blue-600" />
+                        <p className="text-sm font-medium">Loading candidate details...</p>
+                      </div>
+                    ) : onUpdateCandidate ? (
+                      <div className="space-y-5">
+                        {editError ? (
+                          <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                            {editError}
+                          </div>
+                        ) : null}
+                        {candidateEditFormSections}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-slate-500">You do not have permission to edit this candidate.</p>
+                    )}
+                  </div>
+                </div>
+              </motion.aside>
+            </>
+          ) : (
           <>
               <motion.div
                 className={`fixed inset-0 ${layer.backdrop} bg-slate-950/35`}
@@ -4221,61 +4155,13 @@ export function CandidateProfileDrawer({
                   <div className="space-y-5">
                     {showEditModal && onUpdateCandidate ? (
                       <>
-                        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
-                          <p className="font-semibold">Edit candidate — Overview</p>
-                          <p className="mt-1 text-blue-800/90">
-                            Update the same fields shown in Overview. Save applies changes to this
-                            candidate profile.
-                          </p>
-                        </div>
                         {editError ? (
                           <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                             {editError}
                           </div>
                         ) : null}
-                        {isPhase1PortalCandidate(candidate) && phase1EditSnapshot ? (
-                          <CandidatePhase1SubmitEditSections
-                            candidate={candidate}
-                            snapshot={phase1EditSnapshot}
-                            onChange={setPhase1EditSnapshot}
-                          />
-                        ) : editForm ? (
-                          <CandidateEditAtsSections
-                            form={editForm}
-                            onChange={updateEditField}
-                            recruiters={recruiters}
-                            jobs={jobs}
-                            avatarPreview={editAvatarPreview}
-                            onAvatarFile={handleEditAvatarFile}
-                            onAvatarRemove={clearEditAvatarFile}
-                          />
-                        ) : null}
-                        <div className="sticky bottom-0 z-10 -mx-5 border-t border-slate-200 bg-slate-50/95 px-5 py-4 backdrop-blur sm:-mx-6 sm:px-6">
-                          <div className="flex flex-wrap items-center justify-end gap-3">
-                            <button
-                              type="button"
-                              onClick={cancelOverviewEdit}
-                              disabled={isSavingEdit}
-                              className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void handleEditSave()}
-                              disabled={
-                                isSavingEdit ||
-                                (isPhase1PortalCandidate(candidate)
-                                  ? !phase1EditSnapshot
-                                  : !editForm)
-                              }
-                              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
-                            >
-                              <SquarePen size={16} />
-                              {isSavingEdit ? 'Saving...' : 'Save Candidate'}
-                            </button>
-                          </div>
-                        </div>
+                        {candidateEditFormSections}
+                        {candidateEditFormFooter}
                       </>
                     ) : isPhase1PortalCandidate(candidate) ? (
                       <CandidatePhase1DetailSections candidate={candidate} />
@@ -4756,6 +4642,7 @@ export function CandidateProfileDrawer({
                 </div>
               </motion.aside>
           </>
+          )}
           {cvEditor.modals}
           {saasaCv.modals}
         </React.Fragment>

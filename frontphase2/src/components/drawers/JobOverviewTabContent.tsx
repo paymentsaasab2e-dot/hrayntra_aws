@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react';
 import { ChevronDown, ChevronRight, LayoutGrid } from 'lucide-react';
 import { formatDateDMY, formatDateTimeDMY } from '../../utils/dateDisplay';
+import { formatIndustriesDisplay } from '../../lib/industryOptions';
 import type { JobApplicationSubmission, JobForDrawer } from './JobDetailsDrawer';
 
 function stripHtml(value: string): string {
@@ -139,7 +140,7 @@ export function JobOverviewTabContent({
           <OverviewField label="Country" value={displayValue(job.country)} required />
           <OverviewField label="State (optional)" value={displayValue(job.state)} />
           <OverviewField label="City (optional)" value={displayValue(job.city)} />
-          <OverviewField label="Industry Type (optional)" value={displayValue(job.jobCategory)} />
+          <OverviewField label="Industry Type (optional)" value={displayValue(formatIndustriesDisplay(job.jobCategory) || job.jobCategory)} />
           <OverviewField label="Employment Type (optional)" value={displayValue(job.employmentType)} />
           <OverviewField
             label="Target Hire Date"

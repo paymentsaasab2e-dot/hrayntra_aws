@@ -26,12 +26,8 @@ import {
 import type { CandidateProfileDrawerData } from '../drawers/CandidateProfileDrawer';
 import type { Phase1ProfileSnapshot } from '@/lib/phase1ProfileSnapshot';
 import type { Phase1ClientSectionId, Phase1ClientSectionVisibility } from '@/lib/phase1ClientPresentationSections';
-import {
-  phase1FieldLabelClass,
-  phase1FieldValueClass,
-  phase1SectionMetaClass,
-  phase1SectionTitleClass,
-} from '@/lib/phase1Typography';
+import { phase1FieldLabelClass, phase1FieldValueClass, phase1SectionMetaClass, phase1SectionTitleClass } from '@/lib/phase1Typography';
+import { CandidatePhase1CareerPreferencesEdit } from './CandidatePhase1CareerPreferencesEdit';
 
 type SectionId = Phase1ClientSectionId;
 
@@ -280,22 +276,6 @@ export function CandidatePhase1SubmitEditSections({
           </p>
         </div>
       ) : null}
-      {!showClientSectionVisibility ? (
-        <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-violet-800">Phase 1 candidate</p>
-          <p className="mt-1 text-sm text-violet-950/80">
-            Same sections as the Overview tab. Edit fields below and save to update this candidate profile.
-          </p>
-        </div>
-      ) : (
-        <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-violet-800">Phase 1 candidate</p>
-          <p className="mt-1 text-sm text-violet-950/80">
-            Same sections as the candidate profile drawer. Edit fields below — saved copy appears on the
-            profile Client tab without changing Overview.
-          </p>
-        </div>
-      )}
 
       <Phase1EditSection
         id="personal"
@@ -653,54 +633,10 @@ export function CandidatePhase1SubmitEditSections({
       </Phase1EditSection>
 
       <Phase1EditSection id="careerPreferences" title="Career preferences" icon={Target} open={open.careerPreferences} onToggle={toggle} {...sectionToggleProps} clientVisible={sectionVisible('careerPreferences')}>
-        <div className="grid gap-2 sm:grid-cols-2">
-          <EditField label="Current role" value={str(snapshot.careerPreferences?.currentRole)} onChange={(v) => patchNested('careerPreferences', 'currentRole', v)} />
-          <EditField label="Notice period" value={str(snapshot.careerPreferences?.noticePeriod)} onChange={(v) => patchNested('careerPreferences', 'noticePeriod', v)} />
-          <EditField label="Availability to start" value={str(snapshot.careerPreferences?.availabilityToStart)} onChange={(v) => patchNested('careerPreferences', 'availabilityToStart', v)} />
-          <EditField label="Relocation preference" value={str(snapshot.careerPreferences?.relocationPreference)} onChange={(v) => patchNested('careerPreferences', 'relocationPreference', v)} />
-          <EditField label="Preferred salary" value={str(snapshot.careerPreferences?.preferredSalary || snapshot.careerPreferences?.salaryAmount)} onChange={(v) => patchNested('careerPreferences', 'preferredSalary', v)} />
-          <EditField label="Preferred currency" value={str(snapshot.careerPreferences?.preferredCurrency || snapshot.careerPreferences?.salaryCurrency)} onChange={(v) => patchNested('careerPreferences', 'preferredCurrency', v)} />
-          <div className="sm:col-span-2">
-            <EditField
-              label="Preferred job titles (; separated)"
-              value={str(
-                Array.isArray(snapshot.careerPreferences?.preferredJobTitles)
-                  ? snapshot.careerPreferences.preferredJobTitles.join('; ')
-                  : snapshot.careerPreferences?.preferredRoles,
-              )}
-              onChange={(v) => {
-                const preferredJobTitles = v.split(';').map((s) => s.trim()).filter(Boolean);
-                onChange({
-                  ...snapshot,
-                  careerPreferences: {
-                    ...(snapshot.careerPreferences || {}),
-                    preferredJobTitles,
-                  },
-                });
-              }}
-            />
-          </div>
-          <div className="sm:col-span-2">
-            <EditField
-              label="Preferred locations (; separated)"
-              value={str(
-                Array.isArray(snapshot.careerPreferences?.preferredLocations)
-                  ? snapshot.careerPreferences.preferredLocations.join('; ')
-                  : '',
-              )}
-              onChange={(v) => {
-                const preferredLocations = v.split(';').map((s) => s.trim()).filter(Boolean);
-                onChange({
-                  ...snapshot,
-                  careerPreferences: {
-                    ...(snapshot.careerPreferences || {}),
-                    preferredLocations,
-                  },
-                });
-              }}
-            />
-          </div>
-        </div>
+        <CandidatePhase1CareerPreferencesEdit
+          careerPreferences={snapshot.careerPreferences || null}
+          onChange={(careerPreferences) => onChange({ ...snapshot, careerPreferences })}
+        />
       </Phase1EditSection>
 
       <Phase1EditSection id="visa" title="Visa & work authorization" icon={Shield} open={open.visa} onToggle={toggle} {...sectionToggleProps} clientVisible={sectionVisible('visa')}>

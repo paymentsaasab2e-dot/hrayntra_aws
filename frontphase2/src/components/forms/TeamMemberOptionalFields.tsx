@@ -1,8 +1,9 @@
 'use client';
 
 import React from 'react';
-import { Plus, Trash2, Users } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { KycDocumentsField } from '../documents/KycDocumentsField';
+import { NAME_SALUTATION_OPTIONS } from '../../constants/salutations';
 import type { TeamMemberListItem } from '../../lib/teamMemberFormDetails';
 import {
   createEmptyTeamMember,
@@ -11,11 +12,14 @@ import {
 } from '../../lib/teamMemberFormDetails';
 
 export type TeamMemberOptionalFieldsProps = {
-  teamName: string;
   members: TeamMemberListItem[];
   onChange: (members: TeamMemberListItem[]) => void;
-  pendingKycFiles: File[];
-  onPendingKycFilesChange: (files: File[]) => void;
+  /** When true, the block stays hidden until `teamName` is filled (client drawer). */
+  requireTeamName?: boolean;
+  teamName?: string;
+  showKyc?: boolean;
+  pendingKycFiles?: File[];
+  onPendingKycFilesChange?: (files: File[]) => void;
   uploadingKyc?: boolean;
   uploadSuccess?: boolean;
   uploadPercent?: number;
@@ -23,17 +27,19 @@ export type TeamMemberOptionalFieldsProps = {
 };
 
 export function TeamMemberOptionalFields({
-  teamName,
+  teamName = '',
   members,
   onChange,
-  pendingKycFiles,
+  requireTeamName = true,
+  showKyc = false,
+  pendingKycFiles = [],
   onPendingKycFilesChange,
   uploadingKyc,
   uploadSuccess,
   uploadPercent,
   kycDisabled,
 }: TeamMemberOptionalFieldsProps) {
-  if (!hasTeamName(teamName)) return null;
+  if (requireTeamName && !hasTeamName(teamName)) return null;
 
   const normalizedMembers = normalizeTeamMemberList(members);
 
@@ -57,95 +63,87 @@ export function TeamMemberOptionalFields({
   };
 
   return (
-    <div className="sm:col-span-2 rounded-xl border border-blue-100 bg-blue-50/40 p-4 space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Users size={16} className="text-blue-600 shrink-0" />
-          <div>
-            <p className="text-xs font-bold text-slate-700 uppercase tracking-wider">Team member details</p>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              Add one or more team members for{' '}
-              <span className="font-medium text-slate-700">{teamName.trim()}</span>
-            </p>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={addMember}
-          className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50"
-        >
-          <Plus size={14} />
-          Add member
-        </button>
-      </div>
-      <div className="space-y-4">
+    <div className="space-y-3">
+      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Team Member</p>
+      <div className="space-y-2">
         {normalizedMembers.map((member, index) => (
-          <div key={member.id || `team-member-${index}`} className="rounded-xl border border-blue-100 bg-white/80 p-4">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <p className="text-sm font-semibold text-slate-700">Team Member {index + 1}</p>
-              {normalizedMembers.length > 1 ? (
-                <button
-                  type="button"
-                  onClick={() => removeMember(index)}
-                  className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 hover:text-rose-700"
-                >
-                  <Trash2 size={14} />
-                  Remove
-                </button>
-              ) : null}
-            </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                  Designation of the team member
-                </label>
-                <input
-                  value={member.teamMemberDesignation ?? ''}
-                  onChange={(e) => updateMember(index, { teamMemberDesignation: e.target.value })}
-                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                  placeholder="e.g. Account Manager"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                  Email ID of the team member
-                </label>
-                <input
-                  type="email"
-                  value={member.teamMemberEmail ?? ''}
-                  onChange={(e) => updateMember(index, { teamMemberEmail: e.target.value })}
-                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                  placeholder="member@company.com"
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                  Phone number of the team member
-                </label>
-                <input
-                  type="tel"
-                  value={member.teamMemberPhone ?? ''}
-                  onChange={(e) => updateMember(index, { teamMemberPhone: e.target.value })}
-                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                  placeholder="+1 (555) 000-0000"
-                />
-              </div>
-            </div>
+          <div
+            key={member.id || `team-member-${index}`}
+            className="flex flex-wrap items-center gap-2"
+          >
+            <select
+              value={member.teamMemberSalutation ?? ''}
+              onChange={(e) => updateMember(index, { teamMemberSalutation: e.target.value })}
+              className="w-[5.75rem] shrink-0 rounded-xl border border-slate-200 px-2 py-2.5 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              aria-label={`Team member ${index + 1} salutation`}
+            >
+              {NAME_SALUTATION_OPTIONS.map((opt) => (
+                <option key={opt.value || 'none'} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <input
+              value={member.teamMemberName ?? ''}
+              onChange={(e) => {
+                const value = e.target.value;
+                updateMember(index, {
+                  teamMemberName: value,
+                  teamMemberDesignation: value,
+                });
+              }}
+              className="min-w-[7rem] flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              placeholder="Team member name"
+            />
+            <input
+              type="email"
+              value={member.teamMemberEmail ?? ''}
+              onChange={(e) => updateMember(index, { teamMemberEmail: e.target.value })}
+              className="min-w-[8rem] flex-[1.2] rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              placeholder="Email"
+            />
+            <input
+              type="tel"
+              value={member.teamMemberPhone ?? ''}
+              onChange={(e) => updateMember(index, { teamMemberPhone: e.target.value })}
+              className="min-w-[7rem] flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              placeholder="Mobile number"
+            />
+            {index === normalizedMembers.length - 1 ? (
+              <button
+                type="button"
+                onClick={addMember}
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-blue-200 bg-blue-50 text-blue-600 transition-colors hover:bg-blue-100"
+                aria-label="Add team member"
+              >
+                <Plus size={16} />
+              </button>
+            ) : null}
+            {normalizedMembers.length > 1 ? (
+              <button
+                type="button"
+                onClick={() => removeMember(index)}
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+                aria-label={`Remove team member ${index + 1}`}
+              >
+                <Trash2 size={16} />
+              </button>
+            ) : null}
           </div>
         ))}
-        <div className="sm:col-span-2">
-          <KycDocumentsField
-            label="KYC document of the team member (optional)"
-            description="Choose files to upload after you save — PDF, DOC, DOCX, JPG, or PNG up to 10MB each. This is a file picker, not a text field."
-            pendingFiles={pendingKycFiles}
-            onPendingFilesChange={onPendingKycFilesChange}
-            uploading={uploadingKyc}
-            uploadSuccess={uploadSuccess}
-            uploadPercent={uploadPercent}
-            disabled={kycDisabled}
-          />
-        </div>
       </div>
+      {showKyc && onPendingKycFilesChange ? (
+        <KycDocumentsField
+          label="KYC document of the team member (optional)"
+          description="Choose files to upload after you save — PDF, DOC, DOCX, JPG, or PNG up to 10MB each. This is a file picker, not a text field."
+          pendingFiles={pendingKycFiles}
+          onPendingFilesChange={onPendingKycFilesChange}
+          uploading={uploadingKyc}
+          uploadSuccess={uploadSuccess}
+          uploadPercent={uploadPercent}
+          disabled={kycDisabled}
+        />
+      ) : null}
     </div>
   );
 }

@@ -24,6 +24,7 @@ import {
 } from '../../utils/listAuditMeta.js';
 import activityService, { ENTITY_TYPES } from '../../services/activityService.js';
 import { dbLogger } from '../../utils/db-logger.js';
+import { normalizePortalCareerPreferences } from '../../utils/normalizePortalCareerPreferences.js';
 import { generateMeetingLink } from '../../services/meetingService.js';
 import {
   sendCandidateAssignmentEmail,
@@ -1938,75 +1939,30 @@ async function hydrateAndPersistCandidateCvProfile(candidate, portalClient) {
 function mergeCareerPreferencesIntoCandidate(candidate, careerPrefs) {
   if (!candidate || !careerPrefs) return candidate;
 
-  const cp = careerPrefs;
-  const noticeFromDays = cp.noticePeriodDays != null
-    ? `${cp.noticePeriodDays} day${Number(cp.noticePeriodDays) === 1 ? '' : 's'}`
-    : null;
+  const normalized = normalizePortalCareerPreferences(careerPrefs, candidate);
+  if (!normalized) return candidate;
 
-  const preferredLocations = Array.isArray(cp.preferredLocations) ? cp.preferredLocations : [];
-  const preferredRoles = Array.isArray(cp.preferredRoles)
-    ? cp.preferredRoles
-    : Array.isArray(cp.preferredJobTitles)
-      ? cp.preferredJobTitles
-      : [];
-  const preferredIndustries =
-    Array.isArray(cp.preferredIndustries) && cp.preferredIndustries.length
-      ? cp.preferredIndustries
-      : cp.preferredIndustry
-        ? [String(cp.preferredIndustry).trim()].filter(Boolean)
-        : [];
-  const functionalAreas =
-    Array.isArray(cp.functionalAreas) && cp.functionalAreas.length
-      ? cp.functionalAreas
-      : cp.functionalArea
-        ? [String(cp.functionalArea).trim()].filter(Boolean)
-        : [];
-  const workModes = Array.isArray(cp.workModes) ? cp.workModes : [];
-  const expectedSalaryNum = cp.preferredSalary != null && Number.isFinite(Number(cp.preferredSalary))
-    ? Number(cp.preferredSalary)
-    : null;
-  const currentSalaryNum = cp.currentSalary != null && Number.isFinite(Number(cp.currentSalary))
-    ? Number(cp.currentSalary)
-    : null;
+  candidate.noticePeriod = pickFirstNonEmpty(candidate.noticePeriod, normalized.noticePeriod);
+  candidate.availability = pickFirstNonEmpty(candidate.availability, normalized.availabilityToStart);
+  candidate.expectedSalary =
+    candidate.expectedSalary != null ? candidate.expectedSalary : normalized.preferredSalary;
+  candidate.currentSalary =
+    candidate.currentSalary != null ? candidate.currentSalary : normalized.currentSalary;
+  candidate.preferredLocation = pickFirstNonEmpty(
+    candidate.preferredLocation,
+    Array.isArray(normalized.preferredLocations) ? normalized.preferredLocations[0] : null,
+  );
+  if (!candidate.currentTitle && normalized.currentRole) {
+    candidate.currentTitle = normalized.currentRole;
+  }
+  if (!candidate.designation && normalized.currentRole) {
+    candidate.designation = normalized.currentRole;
+  }
+  if (normalized.currentLocation) {
+    candidate.location = pickFirstNonEmpty(candidate.location, normalized.currentLocation);
+  }
 
-  candidate.noticePeriod = pickFirstNonEmpty(candidate.noticePeriod, cp.noticePeriod, noticeFromDays);
-  candidate.availability = pickFirstNonEmpty(candidate.availability, cp.availabilityToStart);
-  candidate.expectedSalary = candidate.expectedSalary != null ? candidate.expectedSalary : expectedSalaryNum;
-  candidate.currentSalary = candidate.currentSalary != null ? candidate.currentSalary : currentSalaryNum;
-  candidate.preferredLocation = pickFirstNonEmpty(candidate.preferredLocation, preferredLocations[0]);
-
-  candidate.careerPreferences = {
-    currentRole: cp.currentRole || null,
-    preferredJobTitles: Array.isArray(cp.preferredJobTitles) ? cp.preferredJobTitles : preferredRoles,
-    preferredRoles,
-    preferredIndustries,
-    preferredIndustry: cp.preferredIndustry || null,
-    functionalAreas,
-    functionalArea: cp.functionalArea || null,
-    jobTypes: Array.isArray(cp.jobTypes) ? cp.jobTypes : [],
-    workModes,
-    preferredWorkMode: normalizePortalWorkMode(cp.preferredWorkMode),
-    preferredLocations,
-    relocationPreference: cp.relocationPreference || null,
-    preferredCurrency: cp.preferredCurrency || null,
-    preferredSalary: expectedSalaryNum,
-    preferredSalaryType: cp.preferredSalaryType || null,
-    salaryCurrency: cp.salaryCurrency || cp.preferredCurrency || null,
-    salaryAmount: cp.salaryAmount ?? cp.preferredSalary ?? null,
-    salaryFrequency: cp.salaryFrequency || cp.preferredSalaryType || null,
-    preferredBenefits: Array.isArray(cp.preferredBenefits) ? cp.preferredBenefits : [],
-    availabilityToStart: cp.availabilityToStart || null,
-    noticePeriod: cp.noticePeriod || noticeFromDays,
-    noticePeriodDays: cp.noticePeriodDays != null ? Number(cp.noticePeriodDays) : null,
-    openToRelocation: Boolean(cp.openToRelocation),
-    currentLocation: cp.currentLocation || null,
-    currentSalary: currentSalaryNum,
-    currentCurrency: cp.currentCurrency || null,
-    currentSalaryType: cp.currentSalaryType || null,
-    currentBenefits: Array.isArray(cp.currentBenefits) ? cp.currentBenefits : [],
-    passportNumbersByLocation: cp.passportNumbersByLocation ?? null,
-  };
-
+  candidate.careerPreferences = normalized;
   return candidate;
 }
 
@@ -2448,7 +2404,7 @@ async function fetchPortalCandidatesForTenant(req, { status, assignedToId, searc
 export const candidateService = {
   async getAll(req) {
     const { page, limit, skip } = getPaginationParams(req);
-    const { status, assignedToId, search } = req.query;
+    const { status, assignedToId, search, ids } = req.query;
     const listFilters = parseCandidateListFilters(req.query);
     const includeCommonPool =
       req.query?.includeCommonPool === 'true' || req.query?.includeCommonPool === '1';
@@ -2471,6 +2427,15 @@ export const candidateService = {
     }
 
     const andParts = [];
+    if (ids) {
+      const idList = String(ids)
+        .split(',')
+        .map((value) => value.trim())
+        .filter((value) => /^[a-fA-F0-9]{24}$/.test(value));
+      if (idList.length) {
+        andParts.push({ id: { in: idList } });
+      }
+    }
     // Recycle Bin: hide soft-deleted rows from the normal Candidates page.
     // `not: true` matches false, null, and missing-field documents (legacy rows from before
     // the soft-delete column existed) without tripping Prisma's "Argument isDeleted is missing".

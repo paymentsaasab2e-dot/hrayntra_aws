@@ -15,6 +15,8 @@ type Props = {
   disabled?: boolean;
   readOnly?: boolean;
   showContractValidity?: boolean;
+  /** Hide when the parent drawer already renders a section header (e.g. collapsible). */
+  showTitle?: boolean;
 };
 
 const labelClass = 'block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1';
@@ -28,18 +30,17 @@ export function AgreementTermsSection({
   disabled = false,
   readOnly = false,
   showContractValidity = false,
+  showTitle = true,
 }: Props) {
   const locked = disabled || readOnly;
 
   return (
     <section className="space-y-4 rounded-xl border border-slate-200 bg-slate-50/40 p-4">
-      <div>
-        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">Agreements &amp; Terms</h4>
-        <p className="mt-0.5 text-xs text-slate-500">
-          Upload the signed agreement (PDF, DOC, or DOCX). Fields are filled using the same document reader as bulk CV
-          import — review before saving.
-        </p>
-      </div>
+      {showTitle ? (
+        <div>
+          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">Agreements &amp; Terms</h4>
+        </div>
+      ) : null}
 
       <div>
         <span className={labelClass}>Upload agreement</span>

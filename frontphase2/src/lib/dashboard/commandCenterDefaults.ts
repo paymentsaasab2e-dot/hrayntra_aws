@@ -6,6 +6,36 @@ import { commandCenterPrimaryDatasetId } from './moduleCommandConfig';
 import type { KpiCardTemplate, ModuleCommandConfig } from './moduleCommandConfig';
 import type { DashboardWidget } from './types';
 
+export function defaultTableWidgetId(moduleKey: string) {
+  return `default-${moduleKey}-table`;
+}
+
+function moduleHasTableChart(config: ModuleCommandConfig) {
+  return config.charts.some(
+    (slot) => slot.chartType === 'table' || slot.chartType === 'expandableTable',
+  );
+}
+
+/** Default data table widget for modules that expose a table dataset but no table chart slot. */
+function buildDefaultTableWidget(
+  config: ModuleCommandConfig,
+  widgetModuleName: string,
+): DashboardWidget | null {
+  if (!config.tableDatasetId || moduleHasTableChart(config)) return null;
+  return {
+    id: defaultTableWidgetId(config.key),
+    datasetId: config.tableDatasetId,
+    module: widgetModuleName,
+    chartType: 'expandableTable',
+    title: config.tableTitle,
+    x: 0,
+    y: 99,
+    w: 12,
+    h: 4,
+    config: { showLegend: false },
+  };
+}
+
 export function kpiWidgetId(moduleKey: string, slug: string) {
   return `default-${moduleKey}-kpi-${slug}`;
 }
@@ -83,7 +113,8 @@ export function buildDefaultModuleWidgets(
       };
     });
 
-  return [...kpiWidgets, ...chartWidgets];
+  const tableWidget = buildDefaultTableWidget(config, widgetModuleName);
+  return tableWidget ? [...kpiWidgets, ...chartWidgets, tableWidget] : [...kpiWidgets, ...chartWidgets];
 }
 
 export function resolveKpiForWidget(

@@ -31,7 +31,6 @@ import {
   resolvePhase1Internships,
   resolvePhase1Languages,
   resolvePhase1PortfolioLinks,
-  resolvePhase1Resume,
   resolvePhase1Skills,
   SKILL_CATEGORIES,
 } from '@/lib/phase1OverviewResolvers';
@@ -45,6 +44,7 @@ import {
   type CvWorkEntryLike,
 } from '@/lib/candidateExperience';
 import type { Phase1ProfileSnapshot } from '@/lib/phase1ProfileSnapshot';
+import { CandidateCareerPreferencesOverview } from './CandidateCareerPreferencesOverview';
 
 type SectionId = Phase1ClientSectionId;
 
@@ -250,80 +250,10 @@ function SkillsGrouped({ skills }: { skills: ReturnType<typeof resolvePhase1Skil
   );
 }
 
-function CareerPreferencesView({ prefs }: { prefs: Record<string, unknown> }) {
-  const titles =
-    (Array.isArray(prefs.preferredJobTitles) && prefs.preferredJobTitles.length
-      ? prefs.preferredJobTitles
-      : Array.isArray(prefs.preferredRoles)
-        ? prefs.preferredRoles
-        : []) as string[];
-  const workModes =
-    (Array.isArray(prefs.workModes) && prefs.workModes.length
-      ? prefs.workModes
-      : prefs.preferredWorkMode
-        ? [String(prefs.preferredWorkMode)]
-        : []) as string[];
-  const industries =
-    (Array.isArray(prefs.preferredIndustries) && prefs.preferredIndustries.length
-      ? prefs.preferredIndustries
-      : prefs.preferredIndustry
-        ? [String(prefs.preferredIndustry)]
-        : []) as string[];
-  const areas =
-    (Array.isArray(prefs.functionalAreas) && prefs.functionalAreas.length
-      ? prefs.functionalAreas
-      : prefs.functionalArea
-        ? [String(prefs.functionalArea)]
-        : []) as string[];
-  const prefSalary = prefs.preferredSalary ?? prefs.salaryAmount;
-  const prefCurr = prefs.preferredCurrency ?? prefs.salaryCurrency;
-
-  return (
-    <div className="space-y-3">
-      {titles.length > 0 ? (
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Target roles</p>
-          <div className="mt-1 flex flex-wrap gap-1.5">
-            {titles.map((t, i) => (
-              <span key={i} className="rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-900">
-                {String(t)}
-              </span>
-            ))}
-          </div>
-        </div>
-      ) : null}
-      <div className="grid gap-2 sm:grid-cols-2">
-        <FieldRow label="Current role" value={prefs.currentRole} />
-        <FieldRow label="Notice period" value={prefs.noticePeriod} />
-        <FieldRow label="Availability to start" value={prefs.availabilityToStart} />
-        <FieldRow label="Relocation preference" value={prefs.relocationPreference} />
-        <FieldRow
-          label="Salary expectation"
-          value={
-            prefSalary
-              ? `${prefCurr || 'USD'} ${prefSalary}${prefs.preferredSalaryType || prefs.salaryFrequency ? ` (${prefs.preferredSalaryType || prefs.salaryFrequency})` : ''}`
-              : ''
-          }
-        />
-      </div>
-      {industries.length > 0 ? (
-        <FieldRow label="Preferred industries" value={industries.join(', ')} />
-      ) : null}
-      {areas.length > 0 ? <FieldRow label="Functional areas" value={areas.join(', ')} /> : null}
-      {Array.isArray(prefs.jobTypes) && prefs.jobTypes.length ? (
-        <FieldRow label="Job types" value={prefs.jobTypes} />
-      ) : null}
-      {workModes.length > 0 ? <FieldRow label="Work modes" value={workModes.join(', ')} /> : null}
-      {Array.isArray(prefs.preferredLocations) && prefs.preferredLocations.length ? (
-        <FieldRow label="Preferred locations" value={prefs.preferredLocations} />
-      ) : null}
-    </div>
-  );
-}
 
 const DEFAULT_OPEN: Record<SectionId, boolean> = {
   personal: true,
-  resume: true,
+  resume: false,
   summary: true,
   work: true,
   internships: true,
@@ -337,7 +267,7 @@ const DEFAULT_OPEN: Record<SectionId, boolean> = {
   portfolio: true,
   certifications: false,
   accomplishments: false,
-  careerPreferences: false,
+  careerPreferences: true,
   visa: false,
   vaccination: false,
 };
@@ -362,7 +292,6 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
 
   const sectionVisible = (id: Phase1ClientSectionId) => sectionVisibility?.[id] !== false;
 
-  const resume = useMemo(() => resolvePhase1Resume(snap, candidate), [snap, candidate]);
   const skills = useMemo(() => resolvePhase1Skills(snap, candidate), [snap, candidate]);
   const languages = useMemo(() => resolvePhase1Languages(snap, candidate), [snap, candidate]);
   const portfolioLinks = useMemo(() => resolvePhase1PortfolioLinks(snap, candidate), [snap, candidate]);
@@ -425,7 +354,6 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
     workEntries.length > 0 ||
     eduEntries.length > 0 ||
     personInfoRows.some((row) => display(row.value)) ||
-    Boolean(resume.fileUrl) ||
     skills.length > 0 ||
     languages.length > 0 ||
     portfolioLinks.length > 0 ||
@@ -463,50 +391,6 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
               <FieldRow key={row.label} label={row.label} value={row.value} />
             ))}
           </div>
-        </Phase1Section>
-      ) : null}
-
-      {sectionVisible('resume') ? (
-        <Phase1Section
-          id="resume"
-          title="Resume / CV"
-          icon={FileText}
-          open={open.resume}
-          onToggle={toggle}
-        >
-          {resume.fileUrl || resume.fileName ? (
-            <div className="rounded-xl border border-slate-200 bg-white p-3">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-slate-900">{resume.fileName || 'Resume'}</p>
-                  <p className="mt-0.5 text-xs text-slate-500">PDF · Job portal upload</p>
-                </div>
-                {resume.atsScore != null ? (
-                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-center">
-                    <p className="text-lg font-bold text-emerald-800">{resume.atsScore}%</p>
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-                      ATS readiness
-                    </p>
-                  </div>
-                ) : (
-                  <p className="text-xs italic text-slate-400">ATS score — upload or refresh in portal</p>
-                )}
-              </div>
-              {resume.fileUrl ? (
-                <a
-                  href={resume.fileUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-violet-700 hover:text-violet-900"
-                >
-                  Open resume
-                  <ExternalLink size={14} />
-                </a>
-              ) : null}
-            </div>
-          ) : (
-            <p className="text-sm italic text-slate-400">No resume uploaded</p>
-          )}
         </Phase1Section>
       ) : null}
 
@@ -882,16 +766,12 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
       {sectionVisible('careerPreferences') ? (
         <Phase1Section
           id="careerPreferences"
-          title="Career preferences"
+          title="Career Preferences"
           icon={Target}
           open={open.careerPreferences}
           onToggle={toggle}
         >
-          {careerPrefs ? (
-            <CareerPreferencesView prefs={careerPrefs} />
-          ) : (
-            <p className="text-sm italic text-slate-400">No career preferences added yet</p>
-          )}
+          <CandidateCareerPreferencesOverview candidate={candidate} careerPrefs={careerPrefs} />
         </Phase1Section>
       ) : null}
 

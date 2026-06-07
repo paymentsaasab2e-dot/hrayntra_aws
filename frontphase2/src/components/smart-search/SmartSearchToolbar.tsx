@@ -15,6 +15,7 @@ type SmartSearchToolbarProps = {
   examples: readonly SmartSearchExample[];
   onExampleClick: (query: string) => void;
   entityLabel?: string;
+  applying?: boolean;
 };
 
 export function SmartSearchToggleButton({
@@ -50,6 +51,7 @@ export function SmartSearchPromptPanel({
   onExampleClick,
   entityLabel = 'records',
   placeholder,
+  applying = false,
 }: Omit<SmartSearchToolbarProps, 'open' | 'onToggle'> & { placeholder?: string }) {
   return (
     <div className="space-y-2 border-b border-indigo-100/50 bg-gradient-to-r from-violet-50/50 via-white to-indigo-50/30 px-3 py-2.5 sm:px-4">
@@ -79,11 +81,12 @@ export function SmartSearchPromptPanel({
         <button
           type="button"
           onClick={onApply}
-          className="mt-5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-900 text-white hover:bg-slate-800"
+          disabled={applying}
+          className="mt-5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-900 text-white hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60"
           aria-label="Apply smart search prompt"
-          title="Apply prompt (Enter)"
+          title={applying ? 'Parsing with AI…' : 'Apply prompt (Enter)'}
         >
-          <ArrowUp size={16} strokeWidth={2.25} />
+          <ArrowUp size={16} strokeWidth={2.25} className={applying ? 'animate-pulse' : undefined} />
         </button>
       </div>
 

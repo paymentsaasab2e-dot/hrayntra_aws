@@ -20,7 +20,7 @@ export const leadFollowUpTemplate = (companyName, followUpDate, followUpType, no
           <p><strong>Date & Time:</strong> ${dateString}</p>
           ${notes ? `<p><strong>Notes:</strong> ${notes}</p>` : ''}
         </div>
-        <p style="font-size: 14px; color: #6b7280;">This is an automated notification from your SAASA leads workspace.</p>
+        <p style="font-size: 14px; color: #6b7280;">This is an automated notification from your HRYANTRA leads workspace.</p>
       </div>
     </body>
     </html>

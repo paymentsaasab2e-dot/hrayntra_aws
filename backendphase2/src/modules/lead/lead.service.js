@@ -21,6 +21,70 @@ function isValidObjectId(value) {
   return typeof value === 'string' && /^[a-fA-F0-9]{24}$/.test(value.trim());
 }
 
+/** String fields searched by the Leads table search bar and smart-search prompt. */
+const LEAD_DB_TEXT_SEARCH_FIELDS = [
+  'companyName',
+  'contactPerson',
+  'directorName',
+  'directorSalutation',
+  'email',
+  'phone',
+  'interestedNeeds',
+  'servicesNeeded',
+  'notes',
+  'expectedBusinessValue',
+  'industry',
+  'sector',
+  'companySize',
+  'teamName',
+  'website',
+  'linkedIn',
+  'location',
+  'city',
+  'state',
+  'country',
+  'designation',
+  'teamMemberDesignation',
+  'teamMemberEmail',
+  'teamMemberPhone',
+  'campaignName',
+  'campaignLink',
+  'referralName',
+  'sourceWebsiteUrl',
+  'sourceLinkedInUrl',
+  'sourceEmail',
+  'status',
+];
+
+const LEAD_SEARCH_STOP_WORDS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'with', 'from', 'in', 'on', 'at', 'to', 'for', 'of',
+  'me', 'my', 'all', 'any', 'show', 'find', 'search', 'filter', 'get', 'list', 'lead', 'leads',
+]);
+
+/**
+ * Build a Prisma where fragment for free-text lead search.
+ * Each whitespace-separated term must match at least one field (AND across terms).
+ */
+function buildLeadDatabaseSearchFilter(search) {
+  const trimmed = String(search || '').trim();
+  if (!trimmed) return null;
+
+  const terms = trimmed
+    .split(/\s+/)
+    .map((term) => term.trim())
+    .filter((term) => term.length >= 2 && !LEAD_SEARCH_STOP_WORDS.has(term.toLowerCase()));
+
+  const effectiveTerms = terms.length > 0 ? terms : [trimmed];
+
+  const termClauses = effectiveTerms.map((term) => ({
+    OR: LEAD_DB_TEXT_SEARCH_FIELDS.map((field) => ({
+      [field]: { contains: term, mode: 'insensitive' },
+    })),
+  }));
+
+  return termClauses.length === 1 ? termClauses[0] : { AND: termClauses };
+}
+
 function normalizeOtherDetails(value) {
   if (!Array.isArray(value)) return null;
 
@@ -131,6 +195,58 @@ function parseImportDateValue(value) {
 
 function equalsNormalizedText(left, right) {
   return stripNbsp(left).trim().toLowerCase() === stripNbsp(right).trim().toLowerCase();
+}
+
+function normalizeCompanyMatchKey(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/\b(private|limited|ltd|inc|llc|corp|corporation|solutions|technologies|technology|services|group|company|co)\b/gi, '')
+    .replace(/[^a-z0-9]/g, '')
+    .trim();
+}
+
+function makeLeadConversionError(message, code, meta = {}) {
+  const err = new Error(message);
+  err.statusCode = 409;
+  err.code = code;
+  err.meta = meta;
+  return err;
+}
+
+async function findDuplicateClientByCompanyName(companyName, { excludeClientId } = {}) {
+  const raw = String(companyName || '').trim();
+  if (!raw) return null;
+
+  const baseWhere = {
+    isDeleted: { not: true },
+    ...(excludeClientId ? { id: { not: excludeClientId } } : {}),
+  };
+
+  const exact = await prisma.client.findFirst({
+    where: {
+      ...baseWhere,
+      companyName: { equals: raw, mode: 'insensitive' },
+    },
+    select: { id: true, companyName: true },
+  });
+  if (exact) return exact;
+
+  const compact = normalizeCompanyMatchKey(raw);
+  if (!compact || compact.length < 3) return null;
+
+  const firstWord = raw.split(/\s+/).find((part) => part.length >= 2);
+  if (!firstWord) return null;
+
+  const candidates = await prisma.client.findMany({
+    where: {
+      ...baseWhere,
+      companyName: { contains: firstWord, mode: 'insensitive' },
+    },
+    select: { id: true, companyName: true },
+    take: 50,
+  });
+
+  return candidates.find((client) => normalizeCompanyMatchKey(client.companyName) === compact) || null;
 }
 
 function buildLeadImportDuplicateChecks({ email, companyName, contactPerson }) {
@@ -460,7 +576,7 @@ export const leadService = {
     const page = Math.max(Number.parseInt(String(req.query.page ?? '1'), 10) || 1, 1);
     const limit = Math.min(Math.max(Number.parseInt(String(req.query.limit ?? '100'), 10) || 100, 1), 500);
     const skip = (page - 1) * limit;
-    const { status, source, assignedToId, search, type, priority } = req.query;
+    const { status, source, assignedToId, search, type, priority, ids } = req.query;
 
     const baseFilters = {};
     if (status) baseFilters.status = status;
@@ -478,19 +594,24 @@ export const leadService = {
     }
 
     const andParts = [{ ...baseFilters }];
+
+    if (ids) {
+      const idList = String(ids)
+        .split(',')
+        .map((value) => value.trim())
+        .filter((value) => isValidObjectId(value));
+      if (idList.length) {
+        andParts.push({ id: { in: idList } });
+      }
+    }
+
     // Recycle Bin: hide soft-deleted rows from the normal Leads page (always opt-in via /trash).
     // `not: true` matches false, null, and missing-field documents (legacy rows from before
     // the soft-delete column existed) without tripping Prisma's "Argument isDeleted is missing".
     andParts.push({ isDeleted: { not: true } });
-    if (search) {
-      andParts.push({
-        OR: [
-          { companyName: { contains: search, mode: 'insensitive' } },
-          { contactPerson: { contains: search, mode: 'insensitive' } },
-          { email: { contains: search, mode: 'insensitive' } },
-          { phone: { contains: search, mode: 'insensitive' } },
-        ],
-      });
+    const searchFilter = buildLeadDatabaseSearchFilter(search);
+    if (searchFilter) {
+      andParts.push(searchFilter);
     }
     if (!canViewAllLeads(req) && req.user?.id) {
       andParts.push({
@@ -603,7 +724,7 @@ export const leadService = {
 
     const leadData = {
       companyName: normalizeRequiredLeadField(data.companyName),
-      contactPerson: normalizeRequiredLeadField(normalizedContactPerson),
+      contactPerson: normalizedContactPerson || null,
       directorName: normalizeNullableString(data.directorName) || null,
       directorSalutation: normalizedDirectorSalutation || null,
       email: normalizeRequiredLeadField(contactChannels.email),
@@ -1123,12 +1244,30 @@ export const leadService = {
     }
 
     if (lead.convertedToClientId) {
-      const existingClient = await prisma.client.findUnique({
-        where: { id: lead.convertedToClientId },
+      const linkedClient = await prisma.client.findFirst({
+        where: { id: lead.convertedToClientId, isDeleted: { not: true } },
+        select: { id: true, companyName: true },
       });
-      if (existingClient) {
-        return existingClient;
+      if (linkedClient) {
+        throw makeLeadConversionError(
+          `This lead was already converted to client "${linkedClient.companyName}".`,
+          'LEAD_ALREADY_CONVERTED',
+          { clientId: linkedClient.id, clientName: linkedClient.companyName },
+        );
       }
+    }
+
+    const targetCompanyName = String(
+      clientData.companyName || lead.companyName || lead.contactPerson || '',
+    ).trim();
+
+    const duplicateClient = await findDuplicateClientByCompanyName(targetCompanyName);
+    if (duplicateClient) {
+      throw makeLeadConversionError(
+        `A client named "${duplicateClient.companyName}" already exists. This lead cannot be converted again.`,
+        'CLIENT_ALREADY_EXISTS',
+        { clientId: duplicateClient.id, clientName: duplicateClient.companyName },
+      );
     }
 
     // Log the lead data to see what we're working with
@@ -1175,7 +1314,8 @@ export const leadService = {
       industry: clientData.industry || lead.industry,
       website: clientData.website || lead.website,
       logo: leadInferredLogo || null,
-      status: 'PROSPECT',
+      status: 'ACTIVE',
+      leadStatus: 'Active',
       assignedToId: resolvedAssignedToId,
       createdById: clientData.performedById || null,
       location: clientData.location || lead.location || lead.city || lead.country || null,

@@ -46,6 +46,7 @@ import {
   SmartSearchToggleButton,
 } from '../../components/smart-search/SmartSearchToolbar';
 import { useSmartSearch } from '../../hooks/useSmartSearch';
+import { mapAiToInterviewsResult, parseSmartSearchWithAi } from '../../lib/smart-search/aiParser';
 import {
   INTERVIEWS_SMART_SEARCH_EXAMPLES,
   parseInterviewsSmartSearchPrompt,
@@ -116,6 +117,7 @@ export default function InterviewsPage() {
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [rejectInterview, setRejectInterview] = useState<Interview | null>(null);
   const [editInterview, setEditInterview] = useState<Interview | null>(null);
+  const [smartSearchInterviewIds, setSmartSearchInterviewIds] = useState<string[]>([]);
   const drawer = useInterviewDrawer();
   const modals = useInterviewModals();
   const {
@@ -152,7 +154,7 @@ export default function InterviewsPage() {
     updatePanel,
     markNoShow,
     fetchAllInterviewsForExport,
-  } = useInterviews();
+  } = useInterviews({ smartSearchInterviewIds });
 
   const selectedInterview = useMemo(
     () => interviews.find((interview) => interview.id === drawer.selectedInterviewId) || null,
@@ -192,6 +194,8 @@ export default function InterviewsPage() {
 
   const interviewSmartSearch = useSmartSearch({
     parsePrompt: (text) => parseInterviewsSmartSearchPrompt(text, interviewSmartSearchOptions),
+    parsePromptWithAi: (text) =>
+      parseSmartSearchWithAi('interviews', text, { useTenantDatabase: true }, mapAiToInterviewsResult),
     applyParsed: (parsed) => {
       setPagination((p) => ({ ...p, page: 1 }));
       setFilters((prev) => ({
@@ -203,6 +207,11 @@ export default function InterviewsPage() {
         clientJob: parsed.clientJob || 'All Clients',
       }));
       setSearchQuery(parsed.searchText);
+      setSmartSearchInterviewIds(
+        parsed.matchingInterviewIds && parsed.matchingInterviewIds.length > 0
+          ? parsed.matchingInterviewIds
+          : [],
+      );
     },
     onRemoveKeyword: (removed, remaining) => {
       setPagination((p) => ({ ...p, page: 1 }));
@@ -233,6 +242,7 @@ export default function InterviewsPage() {
   });
 
   const hasToolbarFilters = useMemo(() => {
+    if (smartSearchInterviewIds.length > 0) return true;
     if (searchQuery.trim()) return true;
     if (interviewSmartSearch.activeKeywords.length > 0) return true;
     return (
@@ -243,7 +253,7 @@ export default function InterviewsPage() {
       filters.interviewer !== 'All Interviewers' ||
       filters.clientJob !== 'All Clients'
     );
-  }, [filters, interviewSmartSearch.activeKeywords.length, searchQuery]);
+  }, [filters, interviewSmartSearch.activeKeywords.length, searchQuery, smartSearchInterviewIds.length]);
 
   const patchFilter = (field: keyof InterviewFiltersState, value: string) => {
     setPagination((p) => ({ ...p, page: 1 }));
@@ -253,6 +263,7 @@ export default function InterviewsPage() {
   const handleClearToolbar = () => {
     clearFilters();
     setSearchQuery('');
+    setSmartSearchInterviewIds([]);
     interviewSmartSearch.clearSmartSearch();
     setPagination((p) => ({ ...p, page: 1 }));
   };
@@ -666,6 +677,7 @@ export default function InterviewsPage() {
                         examples={interviewSmartSearch.examples}
                         onExampleClick={interviewSmartSearch.handleExample}
                         entityLabel="interviews"
+                        applying={interviewSmartSearch.applying}
                         placeholder="e.g. scheduled technical round online this week"
                       />
                     ) : null}

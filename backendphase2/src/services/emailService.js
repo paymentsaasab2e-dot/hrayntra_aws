@@ -341,7 +341,7 @@ export async function sendPasswordResetEmail(payload) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Your SAASA password has been reset</title>
+  <title>Your HRYANTRA password has been reset</title>
 </head>
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
   <div style="background: #ffffff; border-radius: 8px; padding: 40px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
@@ -373,7 +373,7 @@ export async function sendPasswordResetEmail(payload) {
     
     <p style="font-size: 14px; color: #6b7280; margin-top: 20px;">
       Best regards,<br>
-      <strong>The SAASA Team</strong>
+      <strong>The HRYANTRA Team</strong>
     </p>
   </div>
 </body>
@@ -383,7 +383,7 @@ export async function sendPasswordResetEmail(payload) {
     await sendEmail({
       senderUserId,
       toEmail,
-      subject: 'Your SAASA password has been reset',
+      subject: 'Your HRYANTRA password has been reset',
       html,
     });
 
@@ -1180,7 +1180,7 @@ export async function sendSessionTransferRequestEmail(payload) {
     <h1 style="color: #4f46e5; margin: 0 0 16px; font-size: 22px;">Duplicate login detected</h1>
     <p style="font-size: 16px; margin: 0 0 16px;">Hello ${recipientName || 'there'},</p>
     <p style="font-size: 15px; margin: 0 0 16px;">
-      Someone is trying to sign in to your SAASA account from another device or browser while you already have an active session.
+      Someone is trying to sign in to your HRYANTRA account from another device or browser while you already have an active session.
     </p>
     <div style="background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 16px; margin: 20px 0;">
       <p style="margin: 0; font-size: 14px; font-weight: 600; color: #92400e;">New login attempt</p>
@@ -1237,7 +1237,7 @@ export async function sendSessionTransferRequestEmail(payload) {
       <a href="${rejectUrl}" target="_blank" rel="noopener noreferrer" style="color: #2563eb; text-decoration: underline;">${rejectUrl}</a>
     </p>
     <p style="font-size: 14px; color: #6b7280; margin-top: 28px;">
-      Best regards,<br><strong>The SAASA Team</strong>
+      Best regards,<br><strong>The HRYANTRA Team</strong>
     </p>
   </div>
 </body>

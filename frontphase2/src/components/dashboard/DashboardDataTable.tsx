@@ -6,8 +6,9 @@ import { ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
 import {
   formatTableCellValue,
   formatTableHeader,
+  getExpandableDetailKeys,
   getVisibleTableColumns,
-  isHiddenTableColumn,
+  isMultilineTableCell,
 } from '../../lib/dashboard/tableColumns';
 
 export type DashboardTableVariant = 'table' | 'expandable' | 'pivot';
@@ -24,6 +25,7 @@ type Props = {
   viewAllLabel?: string;
   className?: string;
   fillHeight?: boolean;
+  datasetId?: string;
   'aria-label'?: string;
 };
 
@@ -49,11 +51,15 @@ export function DashboardDataTable({
   viewAllLabel = 'View all',
   className = '',
   fillHeight = true,
+  datasetId,
   'aria-label': ariaLabel = 'Dataset table',
 }: Props) {
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
 
-  const visible = useMemo(() => getVisibleTableColumns(rows, maxColumns), [rows, maxColumns]);
+  const visible = useMemo(
+    () => getVisibleTableColumns(rows, maxColumns, datasetId),
+    [rows, maxColumns, datasetId],
+  );
 
   const pivotData = useMemo(() => {
     if (variant !== 'pivot' || !visible.length) return null;
@@ -152,7 +158,7 @@ export function DashboardDataTable({
               const isExpanded = expandedKeys.has(rowKey);
               const extraKeys =
                 variant === 'expandable'
-                  ? Object.keys(row).filter((k) => !isHiddenTableColumn(k) && !displayColumns.includes(k))
+                  ? getExpandableDetailKeys(row, displayColumns, datasetId)
                   : [];
 
               return (
@@ -189,7 +195,7 @@ export function DashboardDataTable({
                                 {formatTableHeader(key)}
                               </span>
                               <p className="mt-0.5 font-medium text-slate-800">
-                                {formatTableCellValue(key, row[key])}
+                                <CellContent columnKey={key} value={row[key]} multiline />
                               </p>
                             </div>
                           ))}
@@ -226,8 +232,17 @@ export function DashboardDataTable({
   );
 }
 
-function CellContent({ columnKey, value }: { columnKey: string; value: unknown }) {
+function CellContent({
+  columnKey,
+  value,
+  multiline = false,
+}: {
+  columnKey: string;
+  value: unknown;
+  multiline?: boolean;
+}) {
   const text = formatTableCellValue(columnKey, value);
+  const longText = multiline || isMultilineTableCell(columnKey);
 
   if (columnKey === 'status' || columnKey === 'stage' || columnKey === 'name') {
     if (columnKey === 'status' || columnKey === 'stage') {
@@ -240,8 +255,20 @@ function CellContent({ columnKey, value }: { columnKey: string; value: unknown }
     return <span className="line-clamp-2 text-xs font-semibold text-slate-900">{text}</span>;
   }
 
-  if (columnKey === 'companyName' || columnKey === 'title') {
+  if (columnKey === 'companyName' || columnKey === 'title' || columnKey === 'leadName') {
     return <span className="line-clamp-2 text-xs font-semibold text-slate-900">{text}</span>;
+  }
+
+  if (/^totalCalls$|^totalEmails$|^totalWhatsapp$/i.test(columnKey)) {
+    return (
+      <span className="inline-flex min-w-[1.75rem] items-center justify-center rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-indigo-800 ring-1 ring-indigo-100">
+        {text}
+      </span>
+    );
+  }
+
+  if (longText) {
+    return <span className="whitespace-pre-wrap text-xs font-medium leading-relaxed text-slate-700">{text}</span>;
   }
 
   return <span className="text-xs font-medium text-slate-700">{text}</span>;

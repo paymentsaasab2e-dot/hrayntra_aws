@@ -27,6 +27,7 @@ import {
   getPhase1ProfileSnapshot,
   type Phase1ProfileSnapshot,
 } from './phase1ProfileSnapshot';
+import { prepareCareerPreferencesForSave } from './normalizeCareerPreferencesRecord';
 
 function parseExtra(extraData: unknown): Record<string, unknown> {
   if (!extraData || typeof extraData !== 'object' || Array.isArray(extraData)) return {};
@@ -151,7 +152,19 @@ export function initPhase1EditSnapshotFromProfile(
   profile: CandidateProfileDrawerData,
 ): Phase1ProfileSnapshot {
   const live = getPhase1ProfileSnapshot(profile.extraData);
-  if (live) return cloneSnapshot(live);
+  if (live) {
+    const mergedCareer = prepareCareerPreferencesForSave(
+      {
+        ...((live.careerPreferences as Record<string, unknown> | null) || {}),
+        ...((profile.careerPreferences as Record<string, unknown> | null) || {}),
+      },
+      profile,
+    );
+    return {
+      ...cloneSnapshot(live),
+      careerPreferences: mergedCareer,
+    };
+  }
 
   const nameParts = String(profile.name || '').trim().split(/\s+/).filter(Boolean);
   return {
@@ -233,7 +246,10 @@ export function initPhase1EditSnapshotFromProfile(
           url: link.url || '',
         }))
       : [],
-    careerPreferences: (profile.careerPreferences as Record<string, unknown> | null | undefined) || null,
+    careerPreferences: prepareCareerPreferencesForSave(
+      (profile.careerPreferences as Record<string, unknown> | null) || null,
+      profile,
+    ),
     resume: (() => {
       const fileUrl = profile.resumeUrl || profile.files?.[0]?.url || '';
       return {
@@ -252,13 +268,26 @@ export function buildUpdatePayloadFromPhase1EditSnapshot(
   snapshot: Phase1ProfileSnapshot,
 ): UpdateCandidatePayload {
   const prev = parseExtra(profile.extraData);
+  const normalizedCareer = prepareCareerPreferencesForSave(snapshot.careerPreferences, {
+    currentTitle: profile.currentTitle,
+    designation: profile.designation,
+  });
+  const snapshotForSave: Phase1ProfileSnapshot = {
+    ...snapshot,
+    careerPreferences: normalizedCareer,
+  };
+
   const mergedExtra: Record<string, unknown> = {
     ...prev,
-    phase1ProfileSnapshot: cloneSnapshot(snapshot),
+    phase1ProfileSnapshot: cloneSnapshot(snapshotForSave),
     phase1GapExplanations: snapshot.gapExplanations || [],
     phase1Internships: snapshot.internships || [],
     phase1Accomplishments: snapshot.accomplishments || [],
   };
+
+  const preferredLocations = Array.isArray(normalizedCareer?.preferredLocations)
+    ? (normalizedCareer.preferredLocations as string[])
+    : [];
 
   const backendSeed = {
     id: profile.id,
@@ -267,17 +296,63 @@ export function buildUpdatePayloadFromPhase1EditSnapshot(
     email: profile.email ?? null,
     phone: profile.phone ?? null,
     linkedIn: profile.linkedIn ?? null,
-    currentTitle: profile.currentTitle ?? null,
+    currentTitle:
+      ((normalizedCareer?.currentRole as string) || profile.currentTitle) ?? null,
     currentCompany: profile.currentCompany ?? null,
-    location: profile.location ?? null,
+    location: ((normalizedCareer?.currentLocation as string) || profile.location) ?? null,
     stage: profile.stage ?? null,
     status: profile.status ?? null,
     source: profile.source ?? null,
     resume: profile.resumeUrl ?? null,
+    noticePeriod: ((normalizedCareer?.noticePeriod as string) || profile.noticePeriod) ?? null,
+    availability:
+      ((normalizedCareer?.availabilityToStart as string) || profile.availability) ?? null,
+    expectedSalary:
+      normalizedCareer?.preferredSalary != null
+        ? Number(normalizedCareer.preferredSalary)
+        : profile.expectedSalaryValue ?? null,
+    currentSalary:
+      normalizedCareer?.currentSalary != null
+        ? Number(normalizedCareer.currentSalary)
+        : profile.currentSalaryValue ?? null,
+    preferredLocation: preferredLocations[0] || profile.cvPreferredLocation || profile.location || null,
     extraData: mergedExtra,
   } as BackendCandidate;
 
   const enriched = enrichBackendCandidateFromPhase1Snapshot(backendSeed);
   const form = buildCandidateEditForm(mapCandidateProfile(enriched));
-  return buildUpdatePayloadFromEditForm(form, mergedExtra);
+  const payload = buildUpdatePayloadFromEditForm(form, mergedExtra);
+
+  return {
+    ...payload,
+    currentTitle: (normalizedCareer?.currentRole as string) || payload.currentTitle,
+    designation: (normalizedCareer?.currentRole as string) || payload.designation,
+    location: (normalizedCareer?.currentLocation as string) || payload.location,
+    noticePeriod: (normalizedCareer?.noticePeriod as string) || payload.noticePeriod,
+    availability: (normalizedCareer?.availabilityToStart as string) || payload.availability,
+    expectedSalary:
+      normalizedCareer?.preferredSalary != null
+        ? Number(normalizedCareer.preferredSalary)
+        : payload.expectedSalary,
+    currentSalary:
+      normalizedCareer?.currentSalary != null
+        ? Number(normalizedCareer.currentSalary)
+        : payload.currentSalary,
+    preferredLocation: preferredLocations[0] || payload.preferredLocation,
+    salary: {
+      currency:
+        (normalizedCareer?.preferredCurrency as string) ||
+        (normalizedCareer?.salaryCurrency as string) ||
+        payload.salary?.currency ||
+        'INR',
+      min:
+        normalizedCareer?.currentSalary != null
+          ? Number(normalizedCareer.currentSalary)
+          : payload.salary?.min ?? null,
+      max:
+        normalizedCareer?.preferredSalary != null
+          ? Number(normalizedCareer.preferredSalary)
+          : payload.salary?.max ?? null,
+    },
+  };
 }

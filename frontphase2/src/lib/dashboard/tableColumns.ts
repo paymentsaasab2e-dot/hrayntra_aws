@@ -1,6 +1,41 @@
 /** Keys hidden from dashboard widget tables (internal ids / raw relations). */
 const HIDDEN_KEYS = new Set(['id', '_id', '__v', 'assignedToId', 'createdById', 'departmentId']);
 
+/** Shown only when a row is expanded — not in the compact column strip. */
+const EXPAND_ONLY_KEYS_BY_DATASET: Record<string, string[]> = {
+  leads: [
+    'remarks',
+    'email',
+    'phone',
+    'totalCalls',
+    'totalEmails',
+    'totalWhatsapp',
+    'whatsappSender',
+    'latestActivityRemark',
+    'lastFollowUp',
+    'nextFollowUp',
+    'alert',
+  ],
+  tasks_and_activity: ['description', 'dueDate'],
+};
+
+/** Preferred order for expanded detail panels (subset may apply per row). */
+const EXPAND_DETAIL_ORDER: Record<string, string[]> = {
+  leads: [
+    'remarks',
+    'latestActivityRemark',
+    'totalCalls',
+    'totalEmails',
+    'totalWhatsapp',
+    'whatsappSender',
+    'email',
+    'phone',
+    'lastFollowUp',
+    'nextFollowUp',
+    'alert',
+  ],
+};
+
 export function isHiddenTableColumn(key: string): boolean {
   const k = key.trim();
   if (!k) return true;
@@ -10,7 +45,17 @@ export function isHiddenTableColumn(key: string): boolean {
   return false;
 }
 
-export function getVisibleTableColumns(rows: Record<string, unknown>[], maxColumns = 8): string[] {
+function isExpandOnlyColumn(key: string, datasetId?: string) {
+  if (!datasetId) return false;
+  const expandOnly = EXPAND_ONLY_KEYS_BY_DATASET[datasetId] || [];
+  return expandOnly.includes(key);
+}
+
+export function getVisibleTableColumns(
+  rows: Record<string, unknown>[],
+  maxColumns = 8,
+  datasetId?: string,
+): string[] {
   const ordered: string[] = [];
   const seen = new Set<string>();
 
@@ -19,6 +64,7 @@ export function getVisibleTableColumns(rows: Record<string, unknown>[], maxColum
     'companyName',
     'name',
     'title',
+    'contactPerson',
     'assignedTo',
     'assignedUser',
     'status',
@@ -30,7 +76,6 @@ export function getVisibleTableColumns(rows: Record<string, unknown>[], maxColum
     'job',
     'role',
     'department',
-    'email',
     'module',
     'recordType',
     'metric',
@@ -46,7 +91,7 @@ export function getVisibleTableColumns(rows: Record<string, unknown>[], maxColum
   ];
 
   for (const key of prefer) {
-    if (seen.has(key) || isHiddenTableColumn(key)) continue;
+    if (seen.has(key) || isHiddenTableColumn(key) || isExpandOnlyColumn(key, datasetId)) continue;
     if (rows.some((row) => row[key] !== undefined && row[key] !== null && row[key] !== '')) {
       ordered.push(key);
       seen.add(key);
@@ -55,13 +100,43 @@ export function getVisibleTableColumns(rows: Record<string, unknown>[], maxColum
 
   for (const row of rows) {
     for (const key of Object.keys(row)) {
-      if (seen.has(key) || isHiddenTableColumn(key)) continue;
+      if (seen.has(key) || isHiddenTableColumn(key) || isExpandOnlyColumn(key, datasetId)) continue;
       ordered.push(key);
       seen.add(key);
     }
   }
 
   return ordered.slice(0, maxColumns);
+}
+
+/** Detail fields rendered below the row when expanded (expandable table variant). */
+export function getExpandableDetailKeys(
+  row: Record<string, unknown>,
+  visibleColumns: string[],
+  datasetId?: string,
+): string[] {
+  const visible = new Set(visibleColumns);
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+
+  const preferred = datasetId ? EXPAND_DETAIL_ORDER[datasetId] || [] : [];
+  for (const key of preferred) {
+    if (seen.has(key) || visible.has(key) || isHiddenTableColumn(key)) continue;
+    const value = row[key];
+    if (value === undefined || value === null || value === '') continue;
+    ordered.push(key);
+    seen.add(key);
+  }
+
+  for (const key of Object.keys(row)) {
+    if (seen.has(key) || visible.has(key) || isHiddenTableColumn(key)) continue;
+    const value = row[key];
+    if (value === undefined || value === null || value === '') continue;
+    ordered.push(key);
+    seen.add(key);
+  }
+
+  return ordered;
 }
 
 const HEADER_LABELS: Record<string, string> = {
@@ -75,6 +150,14 @@ const HEADER_LABELS: Record<string, string> = {
   memberCount: 'Members',
   taskTitle: 'Task',
   placementFee: 'Fee',
+  totalCalls: 'Total calls',
+  totalEmails: 'Total emails',
+  totalWhatsapp: 'Total WhatsApp',
+  whatsappSender: 'WhatsApp sender',
+  latestActivityRemark: 'Latest activity remark',
+  remarks: 'Remarks',
+  lastFollowUp: 'Last follow-up',
+  nextFollowUp: 'Next follow-up',
 };
 
 export function formatTableHeader(key: string): string {
@@ -84,6 +167,16 @@ export function formatTableHeader(key: string): string {
     .replace(/_/g, ' ')
     .trim()
     .replace(/^\w/, (c) => c.toUpperCase());
+}
+
+function formatUserLikeValue(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return null;
+  const obj = value as Record<string, unknown>;
+  const combined = [obj.firstName, obj.lastName].filter(Boolean).join(' ').trim();
+  if (combined) return combined;
+  if (typeof obj.name === 'string' && obj.name.trim()) return obj.name.trim();
+  if (typeof obj.email === 'string' && obj.email.trim()) return obj.email.trim();
+  return null;
 }
 
 export function formatTableCellValue(key: string, value: unknown): string {
@@ -119,6 +212,15 @@ export function formatTableCellValue(key: string, value: unknown): string {
     }
   }
 
+  if (/^remarks$|remark|notes|description|latestActivityRemark/i.test(key)) {
+    if (str.length > 280) return `${str.slice(0, 277)}…`;
+    return str;
+  }
+
   if (str.length > 120) return `${str.slice(0, 117)}…`;
   return str;
+}
+
+export function isMultilineTableCell(key: string): boolean {
+  return /^remarks$|remark|notes|description|latestActivityRemark/i.test(key);
 }

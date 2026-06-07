@@ -1,11 +1,15 @@
 const { prisma } = require('../lib/prisma');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const OpenAI = require('openai');
 const pdfParse = require('pdf-parse');
 const fs = require('fs');
 const path = require('path');
 const matchingService = require('../services/matching.service');
+const { OPENAI_CHAT_MODEL } = require('../config/openaiModel');
 
-// Initialize AI
+// Initialize AI — OpenAI primary (same as CV extraction), Gemini optional fallback
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY?.trim() || null;
+const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const genAI = GEMINI_API_KEY ? new GoogleGenerativeAI(GEMINI_API_KEY) : null;
 
@@ -318,72 +322,119 @@ async function analyzeSectionCompleteness(candidate) {
   };
 }
 
+function parseGrammarAnalysisJson(text) {
+  const cleaned = String(text || '')
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('No JSON found in grammar analysis response');
+  return JSON.parse(jsonMatch[0]);
+}
+
+function grammarFallbackResult(reason, resumeText) {
+  const score = Math.min(90, Math.max(70, 85 + (resumeText?.length > 500 ? 5 : 0)));
+  return {
+    score,
+    details: { message: reason },
+    suggestions: ['Review your resume for grammar and spelling errors'],
+    mistakes: [],
+  };
+}
+
+function normalizeGrammarResult(analysis, provider) {
+  return {
+    score: Math.max(0, Math.min(100, analysis.score || 85)),
+    details: { ...analysis, provider },
+    suggestions: analysis.suggestions || [],
+    mistakes: analysis.mistakes || [],
+  };
+}
+
+async function analyzeGrammarWithOpenAI(resumeText) {
+  const prompt = `Analyze the following resume text for grammar mistakes, spelling errors, and writing quality.
+Return ONLY a JSON object:
+{
+  "score": <number between 0-100>,
+  "mistakes": [<array of grammar/spelling mistakes found>],
+  "suggestions": [<array of improvement suggestions>]
+}
+
+Resume Text:
+${resumeText.substring(0, 8000)}`;
+
+  const completion = await openai.chat.completions.create({
+    model: OPENAI_CHAT_MODEL,
+    messages: [
+      {
+        role: 'system',
+        content: 'You analyze resume grammar and writing quality. Respond with valid JSON only.',
+      },
+      { role: 'user', content: prompt },
+    ],
+    temperature: 0.2,
+    max_tokens: 1500,
+    response_format: { type: 'json_object' },
+  });
+
+  const text = completion.choices[0]?.message?.content?.trim() || '';
+  const analysis = parseGrammarAnalysisJson(text);
+  return normalizeGrammarResult(analysis, `openai:${OPENAI_CHAT_MODEL}`);
+}
+
+async function analyzeGrammarWithGemini(resumeText) {
+  const geminiModel = process.env.GEMINI_CHAT_MODEL?.trim() || 'gemini-2.0-flash';
+  const model = genAI.getGenerativeModel({ model: geminiModel });
+  const prompt = `Analyze the following resume text for grammar mistakes, spelling errors, and writing quality.
+Return a JSON object with:
+{
+  "score": <number between 0-100>,
+  "mistakes": [<array of grammar/spelling mistakes found>],
+  "suggestions": [<array of improvement suggestions>]
+}
+
+Resume Text:
+${resumeText.substring(0, 8000)}`;
+
+  const result = await model.generateContent(prompt);
+  const response = await result.response;
+  const analysis = parseGrammarAnalysisJson(response.text());
+  return normalizeGrammarResult(analysis, `gemini:${geminiModel}`);
+}
+
 /**
- * 2. Grammar Analysis using AI
+ * 2. Grammar Analysis using AI (OpenAI primary, Gemini fallback)
  */
 async function analyzeGrammar(resumeText) {
-  if (!genAI || !resumeText) {
-    return {
-      score: 85, // Default score if AI not available
-      details: { message: 'Grammar analysis skipped - AI service unavailable' },
-      suggestions: [],
-      mistakes: [],
-    };
+  if (!resumeText) {
+    return grammarFallbackResult('Grammar analysis skipped - no resume text', resumeText);
   }
 
-  try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-
-    const prompt = `Analyze the following resume text for grammar mistakes, spelling errors, and writing quality. 
-    Return a JSON object with:
-    {
-      "score": <number between 0-100>,
-      "mistakes": [<array of grammar/spelling mistakes found>],
-      "suggestions": [<array of improvement suggestions>]
-    }
-    
-    Resume Text:
-    ${resumeText.substring(0, 8000)}`;
-
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
-
-    // Try to extract JSON from response
-    let analysis;
+  if (openai) {
     try {
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        analysis = JSON.parse(jsonMatch[0]);
-      } else {
-        throw new Error('No JSON found in response');
-      }
-    } catch (parseError) {
-      // Fallback: estimate score based on text length and basic checks
-      const score = Math.min(90, Math.max(70, 85 + (resumeText.length > 500 ? 5 : 0)));
-      return {
-        score,
-        details: { message: 'Could not parse AI response, using estimated score' },
-        suggestions: ['Review your resume for grammar and spelling errors'],
-        mistakes: [],
-      };
+      const result = await analyzeGrammarWithOpenAI(resumeText);
+      console.log(`  ✅ Grammar analysis via OpenAI (${OPENAI_CHAT_MODEL})`);
+      return result;
+    } catch (error) {
+      console.warn(`  ⚠️ OpenAI grammar analysis failed: ${error.message}`);
     }
-
-    return {
-      score: Math.max(0, Math.min(100, analysis.score || 85)),
-      details: analysis,
-      suggestions: analysis.suggestions || [],
-      mistakes: analysis.mistakes || [],
-    };
-  } catch (error) {
-    console.error('Error in grammar analysis:', error.message);
-    return {
-      score: 85,
-      details: { error: error.message },
-      suggestions: ['Review your resume for grammar and spelling errors'],
-      mistakes: [],
-    };
   }
+
+  if (genAI) {
+    try {
+      const result = await analyzeGrammarWithGemini(resumeText);
+      console.log('  ✅ Grammar analysis via Gemini (fallback)');
+      return result;
+    } catch (error) {
+      console.error('Error in grammar analysis (Gemini fallback):', error.message);
+    }
+  }
+
+  return grammarFallbackResult(
+    openai || genAI ? 'AI grammar analysis unavailable, using estimated score' : 'No AI configured for grammar analysis',
+    resumeText
+  );
 }
 
 /**

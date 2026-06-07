@@ -128,8 +128,8 @@ export function NotificationTriggerTemplatePanel({
         <div className="mt-3 space-y-3 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
           <p className="text-xs leading-5 text-slate-600">
             {customized
-              ? 'You are using a customized template. Reset to restore the SAASA system default below.'
-              : 'This is the SAASA system default email. Recipients see real data when the email is sent. Click Customize to change the template.'}
+              ? 'You are using a customized template. Reset to restore the HRYANTRA system default below.'
+              : 'This is the HRYANTRA system default email. Recipients see real data when the email is sent. Click Customize to change the template.'}
           </p>
 
           {!hasContent ? (

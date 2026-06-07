@@ -2080,6 +2080,346 @@ Generate the professional summary:`;
   }
 }
 
+/**
+ * Generate company profile blurb from company name (OpenAI).
+ * POST /api/profile/generate-company-profile
+ */
+async function generateCompanyProfileWithAI(req, res) {
+  try {
+    const companyName = String(req.body?.companyName || '').trim();
+    if (!companyName) {
+      return res.status(400).json({ success: false, message: 'Company name is required' });
+    }
+
+    const jobTitle = String(req.body?.jobTitle || '').trim();
+    const industryDomain = String(req.body?.industryDomain || '').trim();
+    const workLocation = String(req.body?.workLocation || '').trim();
+
+    const OpenAI = require('openai');
+    const { OPENAI_CHAT_MODEL } = require('../config/openaiModel');
+    const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+
+    if (!OPENAI_API_KEY) {
+      return res.status(500).json({
+        success: false,
+        message: 'OPENAI_API_KEY is required for AI company profile generation',
+      });
+    }
+
+    const contextLines = [
+      `Company name: ${companyName}`,
+      jobTitle ? `Candidate role at this company: ${jobTitle}` : null,
+      industryDomain ? `Industry: ${industryDomain}` : null,
+      workLocation ? `Location context: ${workLocation}` : null,
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const prompt = `Write a concise company profile for a candidate's work experience form.
+
+${contextLines}
+
+Requirements:
+1. Describe what the company does, its industry, and typical scale or market presence when known
+2. If the company is well-known, use accurate public information; if unknown, infer cautiously from the name and any context
+3. Write in third person about the company (not about the candidate)
+4. Professional tone, 2–4 sentences, maximum 450 characters
+5. No markdown, bullet points, or headings — plain paragraph text only
+6. Do not invent specific revenue figures unless widely public for that company
+
+Return only the company profile paragraph:`;
+
+    const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+    const completion = await openai.chat.completions.create({
+      model: OPENAI_CHAT_MODEL,
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 220,
+      temperature: 0.5,
+    });
+
+    let companyProfile = completion?.choices?.[0]?.message?.content?.trim() || '';
+    if (!companyProfile) {
+      throw new Error('AI returned empty response');
+    }
+
+    companyProfile = companyProfile
+      .replace(/```/g, '')
+      .replace(/^["']|["']$/g, '')
+      .trim();
+
+    return res.json({
+      success: true,
+      data: { companyProfile },
+    });
+  } catch (error) {
+    console.error('Error generating company profile with AI:', error);
+    let errorMessage = 'Failed to generate company profile with AI';
+    if (error.message && error.message.includes('API key')) {
+      errorMessage = 'AI service configuration error. Please contact support.';
+    } else if (error.message && (error.message.includes('quota') || error.message.includes('rate limit'))) {
+      errorMessage = 'AI service is temporarily unavailable. Please try again later.';
+    }
+    return res.status(500).json({
+      success: false,
+      message: errorMessage,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+}
+
+function normalizeCompanyKey(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function findCvWorkExperienceMatch(resumeJson, companyName, jobTitle) {
+  const list = Array.isArray(resumeJson?.workExperience) ? resumeJson.workExperience : [];
+  const companyKey = normalizeCompanyKey(companyName);
+  if (!companyKey) return null;
+
+  let best = null;
+  let bestScore = 0;
+  for (const exp of list) {
+    const expCompany = normalizeCompanyKey(exp?.company || exp?.companyName);
+    if (!expCompany) continue;
+
+    let score = 0;
+    if (expCompany === companyKey) score += 10;
+    else if (expCompany.includes(companyKey) || companyKey.includes(expCompany)) score += 6;
+    else continue;
+
+    if (jobTitle) {
+      const jt = normalizeCompanyKey(jobTitle);
+      const expJt = normalizeCompanyKey(exp?.jobTitle);
+      if (jt && expJt && (expJt === jt || expJt.includes(jt) || jt.includes(expJt))) {
+        score += 4;
+      }
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      best = exp;
+    }
+  }
+  return best;
+}
+
+function collectCandidateSkillNames(candidate) {
+  const names = new Set();
+  for (const cs of candidate?.skills || []) {
+    const n = cs?.skill?.name || cs?.skillName || '';
+    if (String(n).trim()) names.add(String(n).trim());
+  }
+
+  const resumeJson = candidate?.resume?.resumeJson;
+  if (resumeJson && typeof resumeJson === 'object') {
+    const skillLists = [
+      resumeJson.skills,
+      resumeJson.technicalSkills,
+      resumeJson.coreSkills,
+      resumeJson.skillList,
+    ];
+    for (const list of skillLists) {
+      if (!Array.isArray(list)) continue;
+      for (const item of list) {
+        if (typeof item === 'string' && item.trim()) {
+          names.add(item.trim());
+          continue;
+        }
+        if (item && typeof item === 'object') {
+          const label = item.languageName || item.name || item.skill || item.title;
+          if (label && String(label).trim()) names.add(String(label).trim());
+        }
+      }
+    }
+  }
+
+  return [...names];
+}
+
+function parseAiJsonObject(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return null;
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced ? fenced[1].trim() : text;
+  try {
+    return JSON.parse(candidate);
+  } catch {
+    const start = candidate.indexOf('{');
+    const end = candidate.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      try {
+        return JSON.parse(candidate.slice(start, end + 1));
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+}
+
+/**
+ * AI autofill for work experience: company profile + role skills from CV context.
+ * POST /api/profile/work-experience-ai-autofill
+ */
+async function generateWorkExperienceAiAutofill(req, res) {
+  try {
+    const candidateId = normalizeCandidateIdForDb(req.user?.candidateId);
+    if (!candidateId) {
+      return res.status(401).json({ success: false, message: 'Not authorized' });
+    }
+
+    const companyName = String(req.body?.companyName || '').trim();
+    if (!companyName) {
+      return res.status(400).json({ success: false, message: 'Company name is required' });
+    }
+
+    const jobTitle = String(req.body?.jobTitle || '').trim();
+    const industryDomain = String(req.body?.industryDomain || '').trim();
+    const workLocation = String(req.body?.workLocation || '').trim();
+    const keyResponsibilities = String(req.body?.keyResponsibilities || '').trim();
+
+    const candidate = await prisma.candidate.findUnique({
+      where: { id: candidateId },
+      include: {
+        skills: { include: { skill: true } },
+        resume: { select: { resumeJson: true } },
+        workExperiences: {
+          orderBy: { startDate: 'desc' },
+          take: 20,
+        },
+      },
+    });
+
+    if (!candidate) {
+      return res.status(404).json({ success: false, message: 'Candidate not found' });
+    }
+
+    const resumeJson =
+      candidate.resume?.resumeJson && typeof candidate.resume.resumeJson === 'object'
+        ? candidate.resume.resumeJson
+        : null;
+    const cvMatch = findCvWorkExperienceMatch(resumeJson, companyName, jobTitle);
+    const profileSkills = collectCandidateSkillNames(candidate);
+
+    const companyKey = normalizeCompanyKey(companyName);
+    const savedMatch = (candidate.workExperiences || []).find(
+      (exp) => normalizeCompanyKey(exp.company) === companyKey
+    );
+
+    const cvContext = cvMatch
+      ? {
+          jobTitle: cvMatch.jobTitle || null,
+          company: cvMatch.company || cvMatch.companyName || null,
+          workLocation: cvMatch.workLocation || null,
+          startDate: cvMatch.startDate || null,
+          endDate: cvMatch.endDate || null,
+          responsibilities: cvMatch.responsibilities || null,
+          skills: Array.isArray(cvMatch.skills) ? cvMatch.skills : [],
+        }
+      : null;
+
+    const OpenAI = require('openai');
+    const { OPENAI_CHAT_MODEL } = require('../config/openaiModel');
+    const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+
+    if (!OPENAI_API_KEY) {
+      return res.status(500).json({
+        success: false,
+        message: 'OPENAI_API_KEY is required for AI autofill',
+      });
+    }
+
+    const prompt = `You help fill a candidate work experience form. Use the CV/resume context when available; infer reasonably when not.
+
+Target role entry:
+- Company: ${companyName}
+- Job title: ${jobTitle || '(not specified)'}
+- Industry: ${industryDomain || '(not specified)'}
+- Location: ${workLocation || '(not specified)'}
+- Responsibilities typed so far: ${keyResponsibilities || '(none)'}
+
+Matching CV work experience (from uploaded resume JSON):
+${cvContext ? JSON.stringify(cvContext, null, 2) : 'No matching CV entry found for this company.'}
+
+Candidate skill pool from CV/profile (pick only skills relevant to this role at this company):
+${profileSkills.length ? profileSkills.join(', ') : 'None listed'}
+
+Previously saved work experience at this company (if any):
+${
+  savedMatch
+    ? JSON.stringify({
+        jobTitle: savedMatch.jobTitle,
+        responsibilities: savedMatch.responsibilities,
+        workSkills: savedMatch.workSkills || [],
+        companyProfile: savedMatch.companyProfile || null,
+      })
+    : 'None'
+}
+
+Return ONLY valid JSON with this exact shape:
+{
+  "companyProfile": "2-4 sentence third-person company description, max 450 characters",
+  "workSkills": ["skill1", "skill2", "up to 12 concise skills used in this role at this company"]
+}
+
+Rules:
+1. companyProfile describes the company (not the candidate).
+2. workSkills must be specific technical/professional skills plausible for the role and company; prefer skills evidenced in the CV match and candidate skill pool.
+3. Do not include soft filler skills like "Communication" unless clearly central to the CV entry.
+4. No markdown, no extra keys.`;
+
+    const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+    const completion = await openai.chat.completions.create({
+      model: OPENAI_CHAT_MODEL,
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 450,
+      temperature: 0.45,
+      response_format: { type: 'json_object' },
+    });
+
+    const parsed = parseAiJsonObject(completion?.choices?.[0]?.message?.content);
+    if (!parsed || typeof parsed !== 'object') {
+      throw new Error('AI returned invalid JSON');
+    }
+
+    let companyProfile = String(parsed.companyProfile || '').trim();
+    companyProfile = companyProfile.replace(/```/g, '').replace(/^["']|["']$/g, '').trim();
+
+    const workSkills = (Array.isArray(parsed.workSkills) ? parsed.workSkills : [])
+      .map((s) => String(s || '').trim())
+      .filter(Boolean)
+      .slice(0, 15);
+
+    if (!companyProfile && !workSkills.length) {
+      throw new Error('AI returned empty autofill data');
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        companyProfile,
+        workSkills,
+        cvMatched: Boolean(cvMatch),
+      },
+    });
+  } catch (error) {
+    console.error('Error generating work experience AI autofill:', error);
+    let errorMessage = 'Failed to generate work experience autofill with AI';
+    if (error.message && error.message.includes('API key')) {
+      errorMessage = 'AI service configuration error. Please contact support.';
+    } else if (error.message && (error.message.includes('quota') || error.message.includes('rate limit'))) {
+      errorMessage = 'AI service is temporarily unavailable. Please try again later.';
+    }
+    return res.status(500).json({
+      success: false,
+      message: errorMessage,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+}
+
 async function saveGapExplanation(req, res) {
   try {
     const { candidateId } = req.params;
@@ -4894,6 +5234,8 @@ module.exports = {
   updateCareerPreferences,
   saveSummary,
   generateSummaryWithAI,
+  generateCompanyProfileWithAI,
+  generateWorkExperienceAiAutofill,
   saveGapExplanation,
   deleteGapExplanation,
   saveInternship,

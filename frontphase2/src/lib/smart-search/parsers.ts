@@ -28,6 +28,7 @@ export type JobsSmartSearchResult = SmartSearchParseBase & {
   clientId: string | null;
   recruiterId: string | null;
   searchText: string;
+  matchingJobIds?: string[];
 };
 
 export const JOBS_SMART_SEARCH_EXAMPLES = [
@@ -103,6 +104,7 @@ export type ClientsSmartSearchResult = SmartSearchParseBase & {
   priority: string | null;
   ownerScope: 'me' | null;
   searchText: string;
+  matchingClientIds?: string[];
 };
 
 export const CLIENTS_SMART_SEARCH_EXAMPLES = [
@@ -184,6 +186,7 @@ export type CandidatesSmartSearchResult = SmartSearchParseBase & {
   jobId: string;
   experienceRange: string;
   searchText: string;
+  matchingCandidateIds?: string[];
 };
 
 const CANDIDATE_STAGE_TOKENS = [
@@ -303,6 +306,7 @@ export type InterviewsSmartSearchResult = SmartSearchParseBase & {
   interviewer: string;
   clientJob: string;
   searchText: string;
+  matchingInterviewIds?: string[];
 };
 
 export const INTERVIEWS_SMART_SEARCH_EXAMPLES = [
@@ -407,6 +411,7 @@ export type PlacementsSmartSearchResult = SmartSearchParseBase & {
   recruiterId: string;
   employmentType: string;
   searchText: string;
+  matchingPlacementIds?: string[];
 };
 
 export const PLACEMENTS_SMART_SEARCH_EXAMPLES = [

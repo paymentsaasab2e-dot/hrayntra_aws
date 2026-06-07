@@ -44,6 +44,9 @@ export interface Lead {
   emails?: string[];
   phones?: string[];
   status: LeadStatus;
+  /** Set when this lead has already been converted to a client. */
+  convertedToClientId?: string;
+  convertedClientName?: string;
   assignedTo: {
     id?: string;
     name: string;

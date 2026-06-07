@@ -20,7 +20,10 @@ function parsePortfolioHost(url = '') {
 function isJunkPortfolioHost(host) {
   if (!host) return true;
 
-  const blocked = new Set(['b.com', 'b.net', 'b.org', 'b.io', 'b.co']);
+  const blocked = new Set([
+    'b.com', 'b.net', 'b.org', 'b.io', 'b.co',
+    'example.com', 'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com',
+  ]);
   if (blocked.has(host)) return true;
 
   const parts = host.split('.').filter(Boolean);
@@ -38,8 +41,15 @@ function isJunkPortfolioUrl(url = '') {
   const raw = String(url || '').trim();
   if (!raw) return true;
   if (/^(https?:\/\/)?(www\.)?b\.com\/?$/i.test(raw.replace(/\/+$/, ''))) return true;
+  if (/\/verification\//i.test(raw) || /\/verify\//i.test(raw)) return true;
   const host = parsePortfolioHost(raw);
-  return isJunkPortfolioHost(host);
+  if (isJunkPortfolioHost(host)) return true;
+  // Email-local false positives like arjun.me from arjun.mehta@example.com
+  if (host && /\.me$/i.test(host)) {
+    const label = host.replace(/\.me$/i, '');
+    if (label.length <= 8 && !label.includes('-')) return true;
+  }
+  return false;
 }
 
 function filterPortfolioLinks(links) {

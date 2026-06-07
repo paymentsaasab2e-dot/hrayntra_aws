@@ -13,6 +13,8 @@ export type ModuleCommandCenterLayout = {
 export type DashboardLayoutV2 = {
   version: 2;
   modules: Partial<Record<ModuleTabKey, ModuleCommandCenterLayout>>;
+  /** Module tabs hidden by the user (persisted per user). */
+  hiddenTabs?: ModuleTabKey[];
 };
 
 const EMPTY_MODULE: ModuleCommandCenterLayout = {
@@ -21,7 +23,7 @@ const EMPTY_MODULE: ModuleCommandCenterLayout = {
 };
 
 export function createEmptyLayout(): DashboardLayoutV2 {
-  return { version: 2, modules: {} };
+  return { version: 2, modules: {}, hiddenTabs: [] };
 }
 
 function moduleLayoutFromLegacyWidgets(
@@ -73,6 +75,7 @@ export function parseDashboardLayout(raw: unknown): DashboardLayoutV2 {
     return {
       version: 2,
       modules: layout.modules || {},
+      hiddenTabs: Array.isArray(layout.hiddenTabs) ? layout.hiddenTabs : [],
     };
   }
   return createEmptyLayout();
@@ -202,5 +205,6 @@ export function serializeLayout(layout: DashboardLayoutV2): DashboardLayoutV2 {
   return {
     version: 2,
     modules: { ...layout.modules },
+    hiddenTabs: [...(layout.hiddenTabs || [])],
   };
 }

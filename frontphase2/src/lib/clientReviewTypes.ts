@@ -20,7 +20,7 @@ export interface ClientReviewData {
   matchId?: string;
   interviewId: string;
   submissionType?: string;
-  cvShareMode?: 'edited' | 'original' | string;
+  cvShareMode?: 'edited' | 'original' | 'saasa' | string;
   offerLetterUrl?: string | null;
   presentationSections?: ClientReviewSection[];
   candidate?: {

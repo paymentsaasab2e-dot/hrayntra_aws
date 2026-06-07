@@ -133,7 +133,7 @@ export function KycDocumentsField({
       >
         {label}
       </label>
-      <p className="text-xs text-slate-500 mb-2">{description}</p>
+      {description ? <p className="text-xs text-slate-500 mb-2">{description}</p> : null}
 
       {(storedFiles.length > 0 || pendingFiles.length > 0) && (
         <ul className="mb-2 space-y-2">
@@ -184,9 +184,6 @@ export function KycDocumentsField({
               <CheckCircle size={14} className="shrink-0 text-emerald-600" />
               <FileText size={14} className="shrink-0 text-emerald-600" />
               <span className="min-w-0 flex-1 truncate">{file.name}</span>
-              <span className="shrink-0 text-xs text-emerald-700">
-                {isExtracting && isKycParseableFile(file) ? 'Reading document…' : 'Ready to upload'}
-              </span>
               <button
                 type="button"
                 onClick={() => {

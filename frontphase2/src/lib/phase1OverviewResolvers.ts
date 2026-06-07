@@ -4,6 +4,7 @@ import {
   resolveCandidateResumeUrlFromSources,
   type Phase1ProfileSnapshot,
 } from '@/lib/phase1ProfileSnapshot';
+import { normalizeCareerPreferencesRecord } from '@/lib/normalizeCareerPreferencesRecord';
 
 export type Phase1SkillRow = {
   name: string;
@@ -161,13 +162,11 @@ export function resolvePhase1CareerPreferences(
   snap: Phase1ProfileSnapshot | null,
   candidate: CandidateProfileDrawerData,
 ): Record<string, unknown> | null {
-  if (snap?.careerPreferences && typeof snap.careerPreferences === 'object') {
-    return snap.careerPreferences as Record<string, unknown>;
-  }
-  if (candidate.careerPreferences && typeof candidate.careerPreferences === 'object') {
-    return candidate.careerPreferences as Record<string, unknown>;
-  }
-  return null;
+  const merged = {
+    ...((snap?.careerPreferences as Record<string, unknown> | null) || {}),
+    ...((candidate.careerPreferences as Record<string, unknown> | null) || {}),
+  };
+  return normalizeCareerPreferencesRecord(merged, candidate);
 }
 
 export function getPhase1SnapshotOrNull(

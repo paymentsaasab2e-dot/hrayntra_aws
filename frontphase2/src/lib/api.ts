@@ -540,6 +540,32 @@ export async function apiGetCompanyServices() {
   }>('/settings/org/company-services', { auth: true });
 }
 
+export type IndustrySuggestionSource = 'history' | 'catalog' | 'ai';
+
+export interface IndustrySuggestion {
+  label: string;
+  source: IndustrySuggestionSource;
+}
+
+export async function apiSuggestIndustries(params: {
+  q?: string;
+  selected?: string[];
+  limit?: number;
+  companyName?: string;
+}) {
+  const sp = new URLSearchParams();
+  const q = String(params.q ?? '').trim();
+  if (q) sp.set('q', q);
+  if (params.companyName?.trim()) sp.set('companyName', params.companyName.trim());
+  if (params.limit) sp.set('limit', String(params.limit));
+  if (params.selected?.length) sp.set('selected', params.selected.join(';'));
+  const qs = sp.toString();
+  return apiFetch<{
+    suggestions: IndustrySuggestion[];
+    aiEnabled: boolean;
+  }>(`/settings/org/industries/suggest${qs ? `?${qs}` : ''}`, { auth: true });
+}
+
 export type CompanyServiceSuggestionSource = 'history' | 'catalog' | 'ai';
 
 export interface CompanyServiceSuggestion {
@@ -625,6 +651,26 @@ export async function apiRemoveClientLeadStatus(status: string) {
     method: 'POST',
     auth: true,
     body: { status },
+  });
+}
+
+export async function apiGetClientPriorityCatalog() {
+  return apiFetch<StatusCatalogResponse>('/settings/org/client-priorities', { auth: true });
+}
+
+export async function apiAppendClientPriority(priority: string) {
+  return apiFetch<StatusCatalogResponse>('/settings/org/client-priorities/append', {
+    method: 'POST',
+    auth: true,
+    body: { priority },
+  });
+}
+
+export async function apiRemoveClientPriority(priority: string) {
+  return apiFetch<StatusCatalogResponse>('/settings/org/client-priorities/remove', {
+    method: 'POST',
+    auth: true,
+    body: { priority },
   });
 }
 
@@ -1460,6 +1506,7 @@ export async function apiGetJobs(params: {
   search?: string;
   page?: number;
   limit?: number;
+  ids?: string;
   /** When true, backend returns only jobs created by the logged-in user */
   mine?: boolean;
 }) {
@@ -1898,6 +1945,7 @@ export async function apiGetCandidates(params: {
   experienceRange?: string;
   page?: number;
   limit?: number;
+  ids?: string;
   mine?: boolean;
   /** Merge verified Phase 1 snapshots from candidatecommon DB */
   includeCommonPool?: boolean;
@@ -2806,6 +2854,7 @@ export const apiGetInterviews = async (params: {
   dateFrom?: string;
   dateTo?: string;
   search?: string;
+  ids?: string;
 } = {}) => {
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
@@ -2898,7 +2947,7 @@ export const apiSubmitInterviewToClient = async (
     toEmail?: string;
     message?: string;
     submissionType?: string;
-    cvShareMode?: 'edited' | 'original';
+    cvShareMode?: 'edited' | 'original' | 'saasa';
   }
 ) => {
   return apiFetch<{
@@ -3395,7 +3444,7 @@ export const apiSubmitMatch = async (
     message: string;
     notifyClient: boolean;
     submissionType?: string;
-    cvShareMode?: 'edited' | 'original';
+    cvShareMode?: 'edited' | 'original' | 'saasa';
     additionalClients?: Array<{ clientId: string; toEmail?: string }>;
     batchMatchIds?: string[];
   }
@@ -3475,6 +3524,11 @@ export interface BackendLead {
   type: 'Company' | 'Individual' | 'Referral';
   source?: 'Website' | 'LinkedIn' | 'Email' | 'Referral' | 'Campaign' | null;
   status: 'New' | 'Contacted' | 'Qualified' | 'Converted' | 'Lost';
+  convertedToClientId?: string | null;
+  client?: {
+    id: string;
+    companyName: string;
+  } | null;
   priority: 'High' | 'Medium' | 'Low';
   interestedNeeds?: string | null;
   notes?: string | null;
@@ -3609,6 +3663,8 @@ export const apiGetLeads = async (params: {
   priority?: string;
   assignedToId?: string;
   search?: string;
+  /** Comma-separated lead ids from AI smart search (tenant DB row ids). */
+  ids?: string;
   page?: number;
   limit?: number;
 } = {}) => {
@@ -3783,6 +3839,7 @@ export const apiGetClients = async (params: {
   type?: string;
   page?: number;
   limit?: number;
+  ids?: string;
   includeContacts?: boolean;
   includeLeadFields?: boolean;
 } = {}) => {

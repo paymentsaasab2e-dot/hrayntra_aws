@@ -10,7 +10,7 @@ import {
   isGarbageEducationSummary,
 } from '@/lib/candidateEducation';
 import { parseWorkExperienceEditorValue } from '@/lib/candidateExperience';
-import type { CandidateProfileDrawerData } from '../drawers/CandidateProfileDrawer';
+import type { CandidateProfileDrawerData } from '../drawers/candidateProfileDrawerData';
 import { CandidatePhotoUpload } from './AddCandidateFormSections';
 
 export type CandidateEditFormState = {

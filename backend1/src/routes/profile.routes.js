@@ -26,6 +26,8 @@ const {
   updateCareerPreferences,
   saveSummary,
   generateSummaryWithAI,
+  generateCompanyProfileWithAI,
+  generateWorkExperienceAiAutofill,
   saveGapExplanation,
   deleteGapExplanation,
   saveInternship,
@@ -119,6 +121,8 @@ router.post('/photo/:candidateId', profilePhotoUpload.single('photo'), uploadPro
 router.delete('/photo/:candidateId', deleteProfilePhoto);
 router.put('/summary/:candidateId', saveSummary);
 router.post('/generate-summary/:candidateId', generateSummaryWithAI);
+router.post('/generate-company-profile', protect, generateCompanyProfileWithAI);
+router.post('/work-experience-ai-autofill', protect, generateWorkExperienceAiAutofill);
 router.post('/gap-explanation/:candidateId', saveGapExplanation);
 router.delete('/gap-explanation/:candidateId', deleteGapExplanation);
 router.post('/internship/:candidateId', saveInternship);
