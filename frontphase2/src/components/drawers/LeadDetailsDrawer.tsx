@@ -645,10 +645,12 @@ export function LeadDetailsDrawer({
   /** Pending Agreements & Terms file selected in the Add Lead form (uploaded after the lead is created). */
   const [pendingAddLeadAgreementsFile, setPendingAddLeadAgreementsFile] = useState<File | null>(null);
   const [pendingAddLeadKycFiles, setPendingAddLeadKycFiles] = useState<File[]>([]);
+  const [pendingAddLeadTeamMemberKycFiles, setPendingAddLeadTeamMemberKycFiles] = useState<File[]>([]);
   const addLeadAgreementsInputRef = useRef<HTMLInputElement | null>(null);
   /** Pending Agreements & Terms file selected in the Overview edit form (uploaded immediately on save). */
   const [pendingOverviewAgreementsFile, setPendingOverviewAgreementsFile] = useState<File | null>(null);
   const [pendingOverviewKycFiles, setPendingOverviewKycFiles] = useState<File[]>([]);
+  const [pendingOverviewTeamMemberKycFiles, setPendingOverviewTeamMemberKycFiles] = useState<File[]>([]);
   const overviewAgreementsInputRef = useRef<HTMLInputElement | null>(null);
   const [uploadingAgreements, setUploadingAgreements] = useState(false);
   const [uploadingKyc, setUploadingKyc] = useState(false);
@@ -1518,6 +1520,7 @@ export function LeadDetailsDrawer({
     setOverviewEditErrors({});
     setPendingOverviewAgreementsFile(null);
     setPendingOverviewKycFiles([]);
+    setPendingOverviewTeamMemberKycFiles([]);
     if (overviewAgreementsInputRef.current) overviewAgreementsInputRef.current.value = '';
   };
 
@@ -1673,6 +1676,7 @@ export function LeadDetailsDrawer({
 
       const updatedLeadResponse = await apiUpdateLead(lead.id, updateData);
       setPendingOverviewKycFiles([]);
+      setPendingOverviewTeamMemberKycFiles([]);
       setOverviewEditMode(false);
       setOverviewEditErrors({});
       onUpdateLead?.(updatedLeadResponse.data);
