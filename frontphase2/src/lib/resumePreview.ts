@@ -170,6 +170,50 @@ export function canEmbedOfficeOnlineForResume(resumeUrl?: string | null): boolea
 
 export type ResumePreviewMode = 'pdf' | 'image' | 'html' | 'text' | 'none';
 
+export type ResumeBufferKind = 'pdf' | 'image' | 'text' | 'unknown';
+
+/** Detect resume file type from downloaded bytes (handles extensionless S3 keys). */
+export function detectResumeBufferKind(buffer: ArrayBuffer): ResumeBufferKind {
+  if (buffer.byteLength < 4) return 'unknown';
+  const bytes = new Uint8Array(buffer, 0, Math.min(16, buffer.byteLength));
+  const magic4 = String.fromCharCode(...bytes.slice(0, 4));
+  if (magic4 === '%PDF') return 'pdf';
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image';
+  if (magic4 === '\x89PNG') return 'image';
+  if (magic4 === 'GIF8') return 'image';
+  if (
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46
+  ) {
+    const riff = String.fromCharCode(...bytes.slice(8, 12));
+    if (riff === 'WEBP') return 'image';
+  }
+  return 'unknown';
+}
+
+export function detectResumeContentType(
+  contentType: string,
+  buffer?: ArrayBuffer,
+): ResumeBufferKind {
+  if (buffer && buffer.byteLength > 0) {
+    const fromBytes = detectResumeBufferKind(buffer);
+    if (fromBytes !== 'unknown') return fromBytes;
+  }
+  const ct = String(contentType || '').toLowerCase();
+  if (ct.includes('pdf')) return 'pdf';
+  if (ct.startsWith('image/')) return 'image';
+  if (ct.startsWith('text/')) return 'text';
+  return 'unknown';
+}
+
+/** Direct file URL for images (skip PDF proxy). */
+export function buildResumeDirectUrl(resumeUrl: string): string {
+  return normalizeResumeHref(resumeUrl);
+}
+
 export function getResumePreviewMode(resumeUrl?: string | null): ResumePreviewMode {
   return resolveResumePreviewKind(resumeUrl);
 }

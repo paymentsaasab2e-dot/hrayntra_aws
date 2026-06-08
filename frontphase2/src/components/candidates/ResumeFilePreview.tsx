@@ -1,10 +1,18 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { SaasaCvPdfViewer } from './SaasaCvPdfViewer';
-import { buildResumeViewerUrl } from '../../lib/resumePreview';
+import {
+  buildResumeDirectUrl,
+  buildResumeViewerUrl,
+  detectResumeBufferKind,
+  detectResumeContentType,
+  isImageResume,
+  normalizeResumeHref,
+  resolveResumePreviewKind,
+} from '../../lib/resumePreview';
 
-type PreviewMode = 'loading' | 'image' | 'pdf' | 'text';
+type PreviewMode = 'loading' | 'image' | 'pdf' | 'text' | 'error';
 
 interface ResumeFilePreviewProps {
   resumeUrl: string;
@@ -12,53 +20,150 @@ interface ResumeFilePreviewProps {
   layout?: 'inline' | 'modal';
 }
 
+function uniqueUrls(...urls: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of urls) {
+    const url = String(raw || '').trim();
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    out.push(url);
+  }
+  return out;
+}
+
 export function ResumeFilePreview({
   resumeUrl,
   candidateName = 'Candidate',
   layout = 'inline',
 }: ResumeFilePreviewProps) {
-  const viewerUrl = buildResumeViewerUrl(resumeUrl);
+  const href = useMemo(() => normalizeResumeHref(resumeUrl), [resumeUrl]);
+  const staticKind = useMemo(() => (href ? resolveResumePreviewKind(href) : 'none'), [href]);
+  const directUrl = useMemo(() => (href ? buildResumeDirectUrl(href) : ''), [href]);
+  const proxyUrl = useMemo(() => (href ? buildResumeViewerUrl(href) : ''), [href]);
+
   const [mode, setMode] = useState<PreviewMode>('loading');
   const [error, setError] = useState<string | null>(null);
   const [textContent, setTextContent] = useState('');
+  const [imageUrl, setImageUrl] = useState('');
+  const [pdfUrl, setPdfUrl] = useState('');
+
+  const handlePdfError = useCallback(
+    (message: string) => {
+      if (/not a valid pdf/i.test(message) && directUrl) {
+        setImageUrl(directUrl);
+        setMode('image');
+        setError(null);
+      }
+    },
+    [directUrl],
+  );
 
   useEffect(() => {
     let cancelled = false;
-    setMode('loading');
-    setError(null);
-    setTextContent('');
+    let objectUrl: string | null = null;
 
-    const detect = async () => {
-      try {
-        const response = await fetch(viewerUrl, { method: 'GET', cache: 'no-store' });
-        if (!response.ok) {
-          const text = await response.text().catch(() => '');
-          throw new Error(text || `Failed to load resume (${response.status})`);
-        }
-        const contentType = (response.headers.get('content-type') || '').toLowerCase();
-        if (cancelled) return;
-        if (contentType.startsWith('image/')) {
-          setMode('image');
-          return;
-        }
-        if (contentType.startsWith('text/')) {
-          setTextContent(await response.text());
-          setMode('text');
-          return;
-        }
-        setMode('pdf');
-      } catch (err) {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : 'Failed to load resume preview');
-        setMode('pdf');
-      }
+    const finish = () => {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
 
-    void detect();
+    const setImageFromBuffer = (buffer: ArrayBuffer, contentType: string, sourceUrl: string) => {
+      const blob = new Blob([buffer], { type: contentType || 'image/jpeg' });
+      objectUrl = URL.createObjectURL(blob);
+      setImageUrl(objectUrl);
+      setPdfUrl('');
+      setMode('image');
+    };
+
+    const probe = async () => {
+      if (!href) {
+        setError('No resume file URL');
+        setMode('error');
+        return;
+      }
+
+      setMode('loading');
+      setError(null);
+      setTextContent('');
+      setImageUrl('');
+      setPdfUrl('');
+
+      if (staticKind === 'image' || isImageResume(href)) {
+        setImageUrl(directUrl);
+        setMode('image');
+        return;
+      }
+
+      const candidates = uniqueUrls(proxyUrl, directUrl);
+      let lastError = 'Failed to load resume preview';
+
+      for (const url of candidates) {
+        try {
+          const response = await fetch(url, {
+            method: 'GET',
+            credentials: 'include',
+            cache: 'no-store',
+            headers: { Accept: 'application/pdf,image/*,text/*,*/*' },
+          });
+
+          if (!response.ok) {
+            const detail = (await response.text().catch(() => '')).slice(0, 180).trim();
+            lastError = detail || `Failed to load resume (${response.status})`;
+            continue;
+          }
+
+          const contentType = response.headers.get('content-type') || '';
+          const buffer = await response.arrayBuffer();
+          if (cancelled) return;
+
+          const detected = detectResumeContentType(contentType, buffer);
+          if (detected === 'image' || detectResumeBufferKind(buffer) === 'image') {
+            setImageFromBuffer(buffer, contentType, url);
+            return;
+          }
+
+          if (detected === 'text') {
+            setTextContent(new TextDecoder().decode(buffer));
+            setMode('text');
+            return;
+          }
+
+          if (detectResumeBufferKind(buffer) === 'pdf') {
+            setPdfUrl(url);
+            setMode('pdf');
+            return;
+          }
+
+          if (detected === 'pdf') {
+            lastError = 'File is not a valid PDF';
+            continue;
+          }
+
+          lastError = 'Unsupported resume file type';
+        } catch (err) {
+          lastError = err instanceof Error ? err.message : 'Failed to load resume preview';
+        }
+      }
+
+      if (cancelled) return;
+
+      if (directUrl) {
+        setImageUrl(directUrl);
+        setMode('image');
+        return;
+      }
+
+      setError(lastError);
+      setMode('error');
+    };
+
+    void probe();
+
     return () => {
       cancelled = true;
+      finish();
     };
-  }, [viewerUrl]);
+  }, [href, staticKind, directUrl, proxyUrl]);
 
   const isModal = layout === 'modal';
   const loadingShellClass = isModal
@@ -79,11 +184,37 @@ export function ResumeFilePreview({
     );
   }
 
-  if (mode === 'image') {
+  if (mode === 'error') {
+    return (
+      <div className={`${loadingShellClass} flex-col gap-3 p-6 text-center`}>
+        <p className="text-sm text-red-600">{error || 'Failed to load resume preview'}</p>
+        {directUrl ? (
+          <a
+            href={directUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="text-sm font-medium text-blue-600 hover:underline"
+          >
+            Open file in new tab
+          </a>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (mode === 'image' && imageUrl) {
     return (
       <div className={imageShellClass}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={viewerUrl} alt={`${candidateName} resume`} className={imageClass} />
+        <img
+          src={imageUrl}
+          alt={`${candidateName} resume`}
+          className={imageClass}
+          onError={() => {
+            setError('Failed to load resume preview');
+            setMode('error');
+          }}
+        />
       </div>
     );
   }
@@ -103,12 +234,11 @@ export function ResumeFilePreview({
 
   return (
     <div className={isModal ? 'w-full' : undefined}>
-      {error ? (
-        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-center text-xs text-amber-800">
-          {error}
-        </div>
-      ) : null}
-      <SaasaCvPdfViewer pdfUrl={viewerUrl} />
+      <SaasaCvPdfViewer
+        pdfUrl={pdfUrl || proxyUrl}
+        fallbackOpenUrl={directUrl}
+        onError={handlePdfError}
+      />
     </div>
   );
 }

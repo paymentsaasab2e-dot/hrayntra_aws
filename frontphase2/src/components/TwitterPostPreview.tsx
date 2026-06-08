@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { Twitter } from 'lucide-react';
+import { linkifyPostText } from '../utils/linkifyPostText';
 
 interface TwitterPostPreviewProps {
   accountName?: string;
@@ -26,7 +27,9 @@ export function TwitterPostPreview({ accountName, postText }: TwitterPostPreview
               <span className="text-slate-500">now</span>
             </div>
             <div className="mt-2 text-sm text-slate-900 whitespace-pre-wrap break-words leading-relaxed">
-              {postText || 'Tweet preview will appear here once job details are filled in.'}
+              {postText
+                ? linkifyPostText(postText)
+                : 'Tweet preview will appear here once job details are filled in.'}
             </div>
           </div>
         </div>

@@ -19,10 +19,7 @@ export const linkedinController = {
       authUrl.searchParams.set('response_type', 'code');
       authUrl.searchParams.set('client_id', env.LINKEDIN_CLIENT_ID);
       authUrl.searchParams.set('redirect_uri', env.LINKEDIN_REDIRECT_URI);
-      authUrl.searchParams.set(
-        'scope',
-        'openid profile email w_member_social r_organization_social w_organization_social'
-      );
+      authUrl.searchParams.set('scope', env.LINKEDIN_OAUTH_SCOPES.join(' '));
       // Encode userId in state for callback
       const tenantDbName = String(getActiveTenantDbName() || '').trim();
       const stateWithUserId = `${state}:${req.user.id}:${tenantDbName}`;

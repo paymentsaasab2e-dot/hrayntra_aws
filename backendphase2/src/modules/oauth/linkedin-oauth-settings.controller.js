@@ -22,7 +22,7 @@ export const linkedinOAuthSettingsController = {
       response_type: 'code',
       client_id: env.LINKEDIN_CLIENT_ID,
       redirect_uri: env.LINKEDIN_OAUTH_REDIRECT_URI,
-      scope: 'openid profile email w_member_social',
+      scope: env.LINKEDIN_OAUTH_SCOPES.join(' '),
       state,
     });
     const url = `https://www.linkedin.com/oauth/v2/authorization?${params.toString()}`;

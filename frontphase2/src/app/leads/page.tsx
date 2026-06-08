@@ -2094,7 +2094,7 @@ export default function RecruitmentAgencyDashboard() {
                             onChange={toggleSelectAll}
                           />
                         </th>
-                        <th className="px-3 sm:px-4 py-2">Lead</th>
+                        <th className="px-3 sm:px-4 py-2 min-w-[11rem]">Lead</th>
                         <th className="px-3 sm:px-4 py-2">Source</th>
                         <th className="px-3 sm:px-4 py-2">Contact</th>
                         {selectedDynamicColumnLabels.map((label) => (
@@ -2137,7 +2137,7 @@ export default function RecruitmentAgencyDashboard() {
                                 onChange={() => toggleLeadSelection(lead.id)}
                               />
                             </td>
-                            <td className="px-3 sm:px-4 py-2">
+                            <td className="px-3 sm:px-4 py-2 min-w-[11rem] align-top">
                               <div className="flex items-start gap-2">
                                 <span className="mt-0.5 shrink-0">
                                   <TableBrandAvatar
@@ -2147,10 +2147,10 @@ export default function RecruitmentAgencyDashboard() {
                                     statusDotTitle={`Lead: ${lead.status}`}
                                   />
                                 </span>
-                                <div className="min-w-0 flex flex-col gap-0.5">
+                                <div className="flex min-w-[8rem] flex-col gap-0.5">
                                 <button
                                   type="button"
-                                  className="text-left text-xs font-semibold text-slate-900 hover:text-indigo-700 transition-colors line-clamp-1"
+                                  className="text-left text-xs font-semibold leading-snug text-slate-900 hover:text-indigo-700 transition-colors whitespace-normal break-words"
                                   onClick={() => {
                                     void openLeadDrawerWithFreshData(lead, 'view');
                                   }}

@@ -50,7 +50,7 @@ async function sendOTPEmail(otp, recipientEmail, whatsappNumber) {
     const { data, error } = await resend.emails.send({
       from: FROM_EMAIL,
       to: recipientEmail,
-      subject: 'Your SAASA B2E Verification Code',
+      subject: 'Your HRYANTRA Verification Code',
       html: emailHTML,
       text: emailText,
     });

@@ -134,13 +134,13 @@ export function DashboardDataTable({
     >
       <div className={scrollClass}>
         <table className="w-full min-w-[640px] text-left" aria-label={ariaLabel}>
-          <thead className="sticky top-0 z-[1]">
-            <tr className="border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-[9px] font-bold uppercase tracking-[0.12em] text-indigo-950/45">
+          <thead className="sticky top-0 z-10 bg-slate-50 shadow-[0_1px_0_0_rgb(226,232,240)]">
+            <tr className="border-b border-indigo-100/50 bg-slate-50 text-[9px] font-bold uppercase tracking-[0.12em] text-indigo-950/45">
               {variant === 'expandable' ? (
-                <th className="w-9 px-2 py-2" aria-label="Expand" />
+                <th className="w-9 bg-slate-50 px-2 py-2" aria-label="Expand" />
               ) : null}
               {displayColumns.map((key) => (
-                <th key={key} className="whitespace-nowrap px-3 py-2 sm:px-4">
+                <th key={key} className="whitespace-nowrap bg-slate-50 px-3 py-2 sm:px-4">
                   {variant === 'pivot'
                     ? key === 'name'
                       ? formatTableHeader(pivotData?.categoryKey || 'name')

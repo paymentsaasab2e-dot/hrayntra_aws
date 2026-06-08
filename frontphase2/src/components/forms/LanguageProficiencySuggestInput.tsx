@@ -2,6 +2,10 @@
 
 import React, { useCallback } from 'react';
 import { apiSuggestLanguages, apiSuggestProficiencies } from '../../lib/api';
+import {
+  buildLocalLanguageSuggestions,
+  buildLocalProficiencySuggestions,
+} from '../../constants/languageOptions';
 import { SuggestTypeahead } from './SuggestTypeahead';
 
 const inputClass =
@@ -26,15 +30,29 @@ export function LanguageSuggestInput({
 }: LanguageSuggestInputProps) {
   const fetchSuggestions = useCallback(
     async (query: string) => {
-      const res = await apiSuggestLanguages({
-        q: query,
-        selected: excludeLanguages.filter((lang) => lang.toLowerCase() !== value.trim().toLowerCase()),
-        limit: 8,
-        jobTitle: jobTitle.trim() || undefined,
-      });
+      const excluded = excludeLanguages.filter(
+        (lang) => lang.toLowerCase() !== value.trim().toLowerCase(),
+      );
+      try {
+        const res = await apiSuggestLanguages({
+          q: query,
+          selected: excluded,
+          limit: 8,
+          jobTitle: jobTitle.trim() || undefined,
+        });
+        const suggestions = res.data?.suggestions ?? [];
+        if (suggestions.length > 0) {
+          return {
+            suggestions,
+            aiEnabled: res.data?.aiEnabled,
+          };
+        }
+      } catch {
+        /* fall back to local catalog */
+      }
       return {
-        suggestions: res.data?.suggestions ?? [],
-        aiEnabled: res.data?.aiEnabled,
+        suggestions: buildLocalLanguageSuggestions(query, excluded, 8),
+        aiEnabled: false,
       };
     },
     [excludeLanguages, jobTitle, value],
@@ -72,14 +90,25 @@ export function ProficiencySuggestInput({
 }: ProficiencySuggestInputProps) {
   const fetchSuggestions = useCallback(
     async (query: string) => {
-      const res = await apiSuggestProficiencies({
-        q: query,
-        limit: 8,
-        language: language.trim() || undefined,
-      });
+      try {
+        const res = await apiSuggestProficiencies({
+          q: query,
+          limit: 8,
+          language: language.trim() || undefined,
+        });
+        const suggestions = res.data?.suggestions ?? [];
+        if (suggestions.length > 0) {
+          return {
+            suggestions,
+            aiEnabled: res.data?.aiEnabled,
+          };
+        }
+      } catch {
+        /* fall back to local catalog */
+      }
       return {
-        suggestions: res.data?.suggestions ?? [],
-        aiEnabled: res.data?.aiEnabled,
+        suggestions: buildLocalProficiencySuggestions(query, [], 8),
+        aiEnabled: false,
       };
     },
     [language],

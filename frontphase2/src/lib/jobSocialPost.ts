@@ -177,6 +177,32 @@ export function buildTwitterJobPost(input: JobSocialPostInput, maxLength = 280):
   return tweet.substring(0, maxLength);
 }
 
+export const APPLY_LINK_TOKEN_PLACEHOLDER = '[link-on-save]';
+
+const PLACEHOLDER_APPLY_URL_RE = /https?:\/\/[^\s]*\/apply\/\[link-on-save\](?:\?[^\s]*)?/gi;
+
+/** Swap pre-save preview apply URLs in social post copy with the real link after the job is saved. */
+export function replaceApplyUrlInSocialPostText(
+  text: string,
+  realApplyUrl: string,
+  previewApplyUrl?: string,
+): string {
+  const body = String(text || '');
+  const resolved = String(realApplyUrl || '').trim();
+  if (!resolved) return body;
+
+  let next = body;
+  const preview = String(previewApplyUrl || '').trim();
+  if (preview) {
+    next = next.split(preview).join(resolved);
+  }
+  next = next.replace(PLACEHOLDER_APPLY_URL_RE, resolved);
+  if (next.includes(APPLY_LINK_TOKEN_PLACEHOLDER)) {
+    next = next.replaceAll(APPLY_LINK_TOKEN_PLACEHOLDER, resolved);
+  }
+  return next;
+}
+
 export function buildCandidatePortalApplyUrlPreview(tenantDbName?: string | null): string {
   const base =
     process.env.NEXT_PUBLIC_PHASE1_FRONTEND_URL?.trim() ||
@@ -186,5 +212,5 @@ export function buildCandidatePortalApplyUrlPreview(tenantDbName?: string | null
       : 'http://localhost:3000');
   const tenant = String(tenantDbName || '').trim();
   const qs = tenant ? `?tenantDbName=${encodeURIComponent(tenant)}` : '';
-  return `${base.replace(/\/$/, '')}/apply/[link-on-save]${qs}`;
+  return `${base.replace(/\/$/, '')}/apply/${APPLY_LINK_TOKEN_PLACEHOLDER}${qs}`;
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import {
   splitDateTimeForDisplay,
@@ -113,7 +114,9 @@ import {
 import { formatServicesNeededDisplay } from '../../lib/companyServices';
 import { DrawerCloseButton } from './DrawerCloseButton';
 import { LeadSourceFields } from './LeadSourceFields';
-import { LocationAutocomplete, type LocationSelection } from '../LocationAutocomplete';
+import type { LocationSelection } from '../LocationAutocomplete';
+import { CscLocationFields } from '../location/CscLocationFields';
+import { getCountryByCodeOrName, inferLocationFromCityName } from '../../lib/cscData';
 import { WhatsAppIcon } from '../icons/WhatsAppIcon';
 
 const CALL_OUTCOMES = ['Interested', 'Follow-up Required', 'No Answer', 'Wrong Number', 'Not Interested'];
@@ -133,6 +136,9 @@ function mergeLocationFields<
     location: selection.location,
     city: selection.city?.trim() ? selection.city : prev.city ?? '',
     country: selection.country?.trim() ? selection.country : prev.country ?? '',
+    countryCode: selection.countryCode?.trim()
+      ? selection.countryCode
+      : (prev as { countryCode?: string }).countryCode ?? '',
     state: selection.state?.trim() ? selection.state : prev.state ?? '',
     latitude: selection.latitude,
     longitude: selection.longitude,
@@ -315,6 +321,7 @@ export type AddLeadFormData = AgreementTermsFormValues & {
   emails: string[];
   phones: string[];
   country?: string;
+  countryCode?: string;
   city?: string;
   /** Smart-location autofill metadata (OSM/Nominatim). */
   state?: string;
@@ -558,6 +565,7 @@ export function LeadDetailsDrawer({
   onDeleteLead,
   onDuplicateLead,
 }: LeadDetailsDrawerProps) {
+  usePageDrawerLifecycle(Boolean(lead) || addLeadMode);
   const [activeTab, setActiveTab] = useState<'overview' | 'activities' | 'notes' | 'files' | 'add'>(
     'overview'
   );
@@ -606,6 +614,7 @@ export function LeadDetailsDrawer({
     emails: [''],
     phones: [''],
     country: '',
+    countryCode: '',
     city: '',
     state: '',
     latitude: null,
@@ -748,6 +757,7 @@ export function LeadDetailsDrawer({
     emails: [''],
     phones: [''],
     country: '',
+    countryCode: '',
     city: '',
     state: '',
     latitude: null,
@@ -816,7 +826,28 @@ export function LeadDetailsDrawer({
     location: generated.location || form.location,
     country: generated.country || form.country,
     city: generated.city || form.city,
-    state: form.state,
+    state: (() => {
+      const nextCity = (generated.city || form.city || '').trim();
+      if (generated.state?.trim()) return generated.state.trim();
+      if (form.state?.trim()) return form.state;
+      if (!nextCity) return form.state;
+      return inferLocationFromCityName(nextCity, {
+        country: generated.country || form.country,
+        countryCode: form.countryCode,
+        state: form.state,
+      })?.state || form.state;
+    })(),
+    countryCode: (() => {
+      const nextCity = (generated.city || form.city || '').trim();
+      if (form.countryCode?.trim()) return form.countryCode;
+      if (!nextCity) return form.countryCode;
+      return (
+        inferLocationFromCityName(nextCity, {
+          country: generated.country || form.country,
+          state: form.state,
+        })?.countryCode || form.countryCode
+      );
+    })(),
     latitude: form.latitude,
     longitude: form.longitude,
     campaignName: generated.campaignName || form.campaignName,
@@ -1049,6 +1080,7 @@ export function LeadDetailsDrawer({
     emails: [''] as string[],
     phones: [''] as string[],
     country: '',
+    countryCode: '',
     city: '',
     state: '',
     latitude: null as number | null,
@@ -1464,8 +1496,12 @@ export function LeadDetailsDrawer({
       emails: contactListForForm(lead.emails, lead.email),
       phones: contactListForForm(lead.phones, lead.phone),
       country: lead.country ?? '',
+      countryCode: getCountryByCodeOrName(undefined, lead.country ?? '')?.isoCode ?? '',
       city: lead.city ?? '',
-      state: lead.state ?? '',
+      state:
+        lead.state?.trim() ||
+        inferLocationFromCityName(lead.city ?? '', { country: lead.country ?? '' })?.state ||
+        '',
       latitude: typeof lead.latitude === 'number' ? lead.latitude : null,
       longitude: typeof lead.longitude === 'number' ? lead.longitude : null,
       source: lead.source,
@@ -1735,6 +1771,9 @@ export function LeadDetailsDrawer({
         ),
         country: addLeadForm.country?.trim() || undefined,
         city: addLeadForm.city?.trim() || undefined,
+        state: addLeadForm.state?.trim() || undefined,
+        latitude: typeof addLeadForm.latitude === 'number' ? addLeadForm.latitude : undefined,
+        longitude: typeof addLeadForm.longitude === 'number' ? addLeadForm.longitude : undefined,
         type: addLeadForm.type || 'Company',
         source: addLeadForm.source || 'Website',
         campaignName: addLeadForm.campaignName?.trim() || undefined,
@@ -2954,27 +2993,18 @@ export function LeadDetailsDrawer({
                             }
                           />
                         </div>
-                        <div className="sm:col-span-2">
-                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Location</label>
-                          <LocationAutocomplete
-                            value={addLeadForm.location ?? ''}
-                            onChange={(next) => setAddLeadForm((p) => ({ ...p, location: next }))}
-                            onSelect={(s) => setAddLeadForm((p) => mergeLocationFields(p, s))}
-                            placeholder="Start typing a city, region, or address…"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">City</label>
-                          <input value={addLeadForm.city ?? ''} onChange={(e) => setAddLeadForm((p) => ({ ...p, city: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" placeholder="e.g. San Francisco" />
-                        </div>
-                        <div>
-                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">State</label>
-                          <input value={addLeadForm.state ?? ''} onChange={(e) => setAddLeadForm((p) => ({ ...p, state: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" placeholder="e.g. California" />
-                        </div>
-                        <div>
-                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Country</label>
-                          <input value={addLeadForm.country ?? ''} onChange={(e) => setAddLeadForm((p) => ({ ...p, country: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" placeholder="e.g. United States" />
-                        </div>
+                        <CscLocationFields
+                          location={addLeadForm.location ?? ''}
+                          city={addLeadForm.city ?? ''}
+                          state={addLeadForm.state ?? ''}
+                          country={addLeadForm.country ?? ''}
+                          countryCode={addLeadForm.countryCode ?? ''}
+                          latitude={addLeadForm.latitude ?? null}
+                          longitude={addLeadForm.longitude ?? null}
+                          showDetectedHint={false}
+                          onLocationChange={(next) => setAddLeadForm((p) => ({ ...p, location: next }))}
+                          onSelect={(s) => setAddLeadForm((p) => mergeLocationFields(p, s))}
+                        />
                         <div>
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Industry</label>
                           <input value={addLeadForm.industry ?? ''} onChange={(e) => setAddLeadForm((p) => ({ ...p, industry: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" placeholder="e.g. Technology" />
@@ -3544,27 +3574,18 @@ export function LeadDetailsDrawer({
                                 }
                               />
                             </div>
-                            <div className="sm:col-span-2">
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Location</label>
-                              <LocationAutocomplete
-                                value={overviewEditForm.location}
-                                onChange={(next) => setOverviewEditForm((p) => ({ ...p, location: next }))}
-                                onSelect={(s) => setOverviewEditForm((p) => mergeLocationFields(p, s))}
-                                placeholder="Start typing a city, region, or address…"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">City</label>
-                              <input value={overviewEditForm.city} onChange={(e) => setOverviewEditForm((p) => ({ ...p, city: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">State</label>
-                              <input value={overviewEditForm.state} onChange={(e) => setOverviewEditForm((p) => ({ ...p, state: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Country</label>
-                              <input value={overviewEditForm.country} onChange={(e) => setOverviewEditForm((p) => ({ ...p, country: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
-                            </div>
+                            <CscLocationFields
+                              location={overviewEditForm.location}
+                              city={overviewEditForm.city}
+                              state={overviewEditForm.state}
+                              country={overviewEditForm.country}
+                              countryCode={overviewEditForm.countryCode}
+                              latitude={overviewEditForm.latitude}
+                              longitude={overviewEditForm.longitude}
+                              showDetectedHint={false}
+                              onLocationChange={(next) => setOverviewEditForm((p) => ({ ...p, location: next }))}
+                              onSelect={(s) => setOverviewEditForm((p) => mergeLocationFields(p, s))}
+                            />
                             <div>
                               <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Industry</label>
                               <input value={overviewEditForm.industry} onChange={(e) => setOverviewEditForm((p) => ({ ...p, industry: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
@@ -3887,14 +3908,18 @@ export function LeadDetailsDrawer({
                                 className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                               />
                             </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Location</label>
-                              <LocationAutocomplete
-                                value={overviewEditForm.location}
-                                onChange={(next) => setOverviewEditForm((p) => ({ ...p, location: next }))}
-                                onSelect={(s) => setOverviewEditForm((p) => mergeLocationFields(p, s))}
-                              />
-                            </div>
+                            <CscLocationFields
+                              location={overviewEditForm.location}
+                              city={overviewEditForm.city}
+                              state={overviewEditForm.state}
+                              country={overviewEditForm.country}
+                              countryCode={overviewEditForm.countryCode}
+                              latitude={overviewEditForm.latitude}
+                              longitude={overviewEditForm.longitude}
+                              showDetectedHint={false}
+                              onLocationChange={(next) => setOverviewEditForm((p) => ({ ...p, location: next }))}
+                              onSelect={(s) => setOverviewEditForm((p) => mergeLocationFields(p, s))}
+                            />
                           </div>
                         )}
                       </div>

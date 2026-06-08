@@ -82,11 +82,18 @@ function loadPdfJsFromCdn(): Promise<PdfJsLib> {
 
 interface SaasaCvPdfViewerProps {
   pdfUrl: string;
+  /** Shown in error state — usually the direct file URL, not the PDF proxy. */
+  fallbackOpenUrl?: string;
   onReady?: (meta: SaasaCvPdfDocumentMeta) => void;
   onError?: (message: string) => void;
 }
 
-export function SaasaCvPdfViewer({ pdfUrl, onReady, onError }: SaasaCvPdfViewerProps) {
+export function SaasaCvPdfViewer({
+  pdfUrl,
+  fallbackOpenUrl,
+  onReady,
+  onError,
+}: SaasaCvPdfViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -175,12 +182,12 @@ export function SaasaCvPdfViewer({ pdfUrl, onReady, onError }: SaasaCvPdfViewerP
         <div className="flex min-h-[min(40dvh,480px)] flex-col items-center justify-center gap-3 p-6 text-center">
           <p className="text-sm text-red-600">{error}</p>
           <a
-            href={pdfUrl}
+            href={fallbackOpenUrl || pdfUrl}
             target="_blank"
             rel="noreferrer"
             className="text-sm font-medium text-blue-600 hover:underline"
           >
-            Open PDF in new tab
+            Open file in new tab
           </a>
         </div>
       ) : null}

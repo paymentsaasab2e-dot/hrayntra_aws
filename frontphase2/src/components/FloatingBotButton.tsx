@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { Eraser, MessageSquareText, History, X, PlusCircle } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AssistantChatPanel, type AssistantPromptSuggestion, type UiChatMessage } from './AssistantChatPanel';
+import { usePageDrawerOpen } from '../hooks/usePageDrawerOpen';
 import {
   apiDeleteAssistantHistory,
   apiGetAssistantHistory,
@@ -19,8 +20,10 @@ import {
 
 const STORAGE_KEY = 'floating-bot-position';
 const HISTORY_STORAGE_PREFIX = 'floating-bot-history';
-const SIZE = 72;
+const SIZE = 52;
 const MARGIN = 16;
+const ROLL_DURATION_SEC = 2.8;
+const ROLL_DURATION_MS = ROLL_DURATION_SEC * 1000;
 const BUBBLE_WIDTH = 210;
 const BUBBLE_HEIGHT = 52;
 const BUBBLE_GAP = 10;
@@ -166,6 +169,10 @@ export function FloatingBotButton() {
   const [taskMemory, setTaskMemory] = useState<{ tasks: AssistantTaskChain[] } | null>(null);
   const [actionLog, setActionLog] = useState<AssistantActionLogItem[]>([]);
   const [pos, setPos] = useState({ x: 0, y: 0 });
+  const [rollRotation, setRollRotation] = useState(0);
+  const [isRolling, setIsRolling] = useState(false);
+  const pageDrawerOpen = usePageDrawerOpen();
+  const rolledForDrawerRef = useRef(false);
   const dragRef = useRef<{ pointerId: number; startClientX: number; startClientY: number; originX: number; originY: number } | null>(null);
   const hasDraggedRef = useRef(false);
   const seededGreetingKeyRef = useRef<string | null>(null);
@@ -198,6 +205,37 @@ export function FloatingBotButton() {
     setDragging(false);
     setShowPageBubble(false);
   }, [pathname]);
+
+  /** Roll ARIA to the left when a page drawer opens while the bot is on the right. */
+  useEffect(() => {
+    if (!pageDrawerOpen) {
+      rolledForDrawerRef.current = false;
+      return;
+    }
+    if (rolledForDrawerRef.current || typeof window === 'undefined') return;
+
+    setPos((current) => {
+      const centerX = current.x + SIZE / 2;
+      if (centerX <= window.innerWidth / 2) return current;
+
+      rolledForDrawerRef.current = true;
+      setIsRolling(true);
+      setRollRotation((value) => value + 720);
+      const next = { x: MARGIN, y: current.y };
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, [pageDrawerOpen]);
+
+  useEffect(() => {
+    if (!isRolling) return;
+    const timer = window.setTimeout(() => setIsRolling(false), ROLL_DURATION_MS);
+    return () => window.clearTimeout(timer);
+  }, [isRolling]);
 
   const handleHistorySync = useCallback((history: AssistantHistoryRecord | null) => {
     if (!history) return;
@@ -256,8 +294,8 @@ export function FloatingBotButton() {
             <motion.aside initial={{ x: 400, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 400, opacity: 0 }} transition={{ type: 'spring', damping: 25, stiffness: 200 }} className="fixed bottom-4 right-4 z-[9999] flex h-[600px] w-[400px] flex-col overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-2xl ring-1 ring-slate-900/5">
               <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-slate-50/50 px-6 py-4">
                 <div className="flex items-center gap-3">
-                  <div className="relative size-10 overflow-hidden rounded-2xl border border-orange-200 bg-white shadow-sm shadow-orange-200">
-                    <Image src={BOT_IMAGE_SRC} alt="ARIA" fill className="object-contain p-0.5" sizes="40px" priority={false} unoptimized />
+                  <div className="relative size-8 overflow-hidden rounded-xl border border-orange-200 bg-white shadow-sm shadow-orange-200">
+                    <Image src={BOT_IMAGE_SRC} alt="ARIA" fill className="object-contain p-0.5" sizes="32px" priority={false} unoptimized />
                   </div>
                   <div>
                     <h2 className="text-base font-bold text-slate-900">{ARIA_IDENTITY.name}</h2>
@@ -305,11 +343,38 @@ export function FloatingBotButton() {
         ) : null}
       </AnimatePresence>
 
-      <button type="button" aria-label="Open assistant" aria-expanded={drawerOpen} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endDrag} onPointerCancel={endDrag} className="fixed z-[9999] box-border touch-none select-none rounded-full border-2 border-orange-400 bg-white p-1 shadow-lg ring-2 ring-orange-200/80 transition-all duration-200 hover:border-blue-400 hover:ring-blue-200/80 focus:outline-none" style={{ left: pos.x, top: pos.y, width: SIZE, height: SIZE, cursor: dragging ? 'grabbing' : 'grab' }}>
+      <motion.button
+        type="button"
+        aria-label="Open assistant"
+        aria-expanded={drawerOpen}
+        data-floating-bot="true"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        animate={{ left: pos.x, top: pos.y, rotate: rollRotation }}
+        transition={
+          dragging
+            ? { duration: 0 }
+            : isRolling
+              ? {
+                  left: { duration: ROLL_DURATION_SEC, ease: [0.45, 0.05, 0.55, 0.95] },
+                  top: { duration: ROLL_DURATION_SEC, ease: [0.45, 0.05, 0.55, 0.95] },
+                  rotate: { duration: ROLL_DURATION_SEC, ease: 'linear' },
+                }
+              : {
+                  left: { type: 'spring', stiffness: 110, damping: 16 },
+                  top: { type: 'spring', stiffness: 110, damping: 16 },
+                  rotate: { duration: 0.35, ease: 'easeOut' },
+                }
+        }
+        className="fixed z-[9999] box-border touch-none select-none rounded-full border-2 border-orange-400 bg-white p-0.5 shadow-lg ring-2 ring-orange-200/80 transition-colors duration-200 hover:border-blue-400 hover:ring-blue-200/80 focus:outline-none"
+        style={{ width: SIZE, height: SIZE, cursor: dragging ? 'grabbing' : 'grab' }}
+      >
         <span className="relative block h-full w-full overflow-hidden rounded-full">
           <Image src={BOT_IMAGE_SRC} alt="ARIA floating assistant" fill className="pointer-events-none rounded-full object-contain p-0.5" draggable={false} priority={false} unoptimized />
         </span>
-      </button>
+      </motion.button>
     </>
   );
 }

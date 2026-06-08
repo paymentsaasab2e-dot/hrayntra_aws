@@ -28,7 +28,7 @@ function generateOTPEmailHTML(data) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Verification Code - SAASA B2E</title>
+  <title>Verification Code - HRYANTRA</title>
 </head>
 <body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f5f5f5;">
   <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f5f5f5;">
@@ -39,7 +39,7 @@ function generateOTPEmailHTML(data) {
           <!-- Header -->
           <tr>
             <td style="background: linear-gradient(135deg, #239CD2 0%, #1a7ba8 100%); padding: 30px; text-align: center;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: 600;">SAASA B2E</h1>
+              <h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: 600;">HRYANTRA</h1>
             </td>
           </tr>
           
@@ -84,7 +84,7 @@ function generateOTPEmailHTML(data) {
           <tr>
             <td style="padding: 20px 40px; background-color: #ffffff; border-top: 1px solid #e0e0e0;">
               <p style="margin: 0; font-size: 12px; color: #999999; text-align: center;">
-                © ${year} SAASA B2E. All rights reserved.
+                © ${year} HRYANTRA. All rights reserved.
               </p>
               <p style="margin: 10px 0 0 0; font-size: 12px; color: #999999; text-align: center;">
                 Need help? Contact us at <a href="mailto:${supportEmail}" style="color: #239CD2; text-decoration: none;">${supportEmail}</a>
@@ -116,7 +116,7 @@ function generateOTPEmailText(data) {
   } = data;
 
   return `
-SAASA B2E - Verification Code
+HRYANTRA - Verification Code
 
 Hello,
 
@@ -128,7 +128,7 @@ This code will expire in ${expiresInMinutes} minutes. Please do not share this c
 
 If you didn't request this code, please ignore this email.
 
-© ${year} SAASA B2E. All rights reserved.
+© ${year} HRYANTRA. All rights reserved.
 Need help? Contact us at ${supportEmail}
   `.trim();
 }

@@ -198,6 +198,31 @@ export type CscCitySearchHit = {
   displayName: string;
 };
 
+/** Resolve city → state/country when only a city name is known (e.g. Hyderabad → Telangana, India). */
+export function inferLocationFromCityName(
+  cityName: string,
+  hints?: { country?: string; countryCode?: string; state?: string },
+): LocationSelection | null {
+  const trimmed = cityName.trim();
+  if (!trimmed) return null;
+
+  const country = getCountryByCodeOrName(hints?.countryCode, hints?.country);
+  if (country) {
+    const stateRecord = hints?.state
+      ? findStateByNameOrIso(country.isoCode, hints.state)
+      : undefined;
+    const cityRecord = findCityRecord(country.isoCode, trimmed, stateRecord?.isoCode);
+    if (cityRecord) return cityToLocationSelection(cityRecord);
+  }
+
+  const key = normalizeKey(trimmed);
+  const hits = searchCscCities(trimmed, 12);
+  const exact = hits.find((h) => normalizeKey(h.city.name) === key);
+  const hit = exact ?? hits[0];
+  if (!hit) return null;
+  return cityToLocationSelection(hit.city);
+}
+
 export function searchCscCities(query: string, limit = 25): CscCitySearchHit[] {
   const key = normalizeKey(query);
   if (key.length < 2) return [];

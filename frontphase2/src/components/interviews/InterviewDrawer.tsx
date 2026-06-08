@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { AnimatePresence, motion } from 'motion/react';
 import { Copy, Edit2, RotateCcw, Trash2, UserRoundX, X, XCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -50,6 +51,7 @@ export function InterviewDrawer({
   onAddNote,
   onAction,
 }: InterviewDrawerProps) {
+  usePageDrawerLifecycle(isOpen);
   const [activeTab, setActiveTab] = useState<DrawerTab>('overview');
   const router = useRouter();
 

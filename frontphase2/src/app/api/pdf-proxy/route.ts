@@ -35,7 +35,7 @@ function pdfProxyResponse(upstream: Response): NextResponse {
   return new NextResponse(upstream.body, {
     status: upstream.status,
     headers: {
-      'Content-Type': upstream.headers.get('content-type') || 'application/pdf',
+      'Content-Type': upstream.headers.get('content-type') || 'application/octet-stream',
       'Content-Disposition': 'inline',
       'Cache-Control': 'private, max-age=300',
     },

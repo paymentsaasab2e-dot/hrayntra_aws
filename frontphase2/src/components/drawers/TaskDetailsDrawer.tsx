@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
+import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
@@ -261,6 +262,7 @@ export function TaskDetailsDrawer({
   onRelatedEntityClick,
   isLoading = false,
 }: TaskDetailsDrawerProps) {
+  usePageDrawerLifecycle(isOpen);
   const [activeTab, setActiveTab] = useState<'overview' | 'activity' | 'communication' | 'alerts' | 'suggestions'>('overview');
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [createForm, setCreateForm] = useState<TaskFormValues>(CREATE_FORM_INITIAL);

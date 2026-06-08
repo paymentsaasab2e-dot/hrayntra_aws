@@ -41,7 +41,7 @@ function getTemplateVariables(templateType, data) {
         whatsappNumber: data.whatsappNumber,
         expiresInMinutes: data.expiresInMinutes || 5,
         supportEmail: data.supportEmail || 'support@saasab2e.com',
-        companyName: 'SAASA B2E',
+        companyName: 'HRYANTRA',
         year: new Date().getFullYear(),
       };
 

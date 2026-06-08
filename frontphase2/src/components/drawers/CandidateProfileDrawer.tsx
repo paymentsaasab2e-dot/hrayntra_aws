@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { createPortal } from 'react-dom';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { CandidateResumeTabPanel } from '../candidates/CandidateResumeTabPanel';
@@ -3407,6 +3408,7 @@ export function CandidateProfileDrawer({
   showSubmitToClient = false,
   stackAboveSiblingDrawers = false,
 }: CandidateProfileDrawerProps) {
+  usePageDrawerLifecycle(isOpen);
   const layer = stackAboveSiblingDrawers
     ? {
         backdrop: 'z-[117]',

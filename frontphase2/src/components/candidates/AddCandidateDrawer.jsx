@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import {
   BulkCvLeaveGuardProvider,
   useBulkCvLeaveGuard,
@@ -673,6 +674,7 @@ function AddCandidateDrawerInner({
   /** Inline bulk CV panel (e.g. /demoAi) — same parse pipeline, no drawer overlay. */
   embeddedBulkCv = false,
 }) {
+  usePageDrawerLifecycle(isOpen);
   const drawerActive = isOpen || embeddedBulkCv;
   const [portalMounted, setPortalMounted] = useState(false);
   const [activeTab, setActiveTab] = useState(embeddedBulkCv ? 'bulkResume' : initialTab);
