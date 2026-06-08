@@ -66,6 +66,7 @@ import {
   normalizeCandidateEmailInput,
   validateCandidateEmail,
 } from '@/lib/candidateEmailValidation';
+import { formatDateTimeDMY } from '@/utils/dateDisplay';
 
 /** Align with backend `RESUME_MAX_FILE_BYTES` (default 25MB). Optional: NEXT_PUBLIC_RESUME_MAX_FILE_BYTES (bytes). */
 const MAX_RESUME_FILE_BYTES = (() => {
@@ -977,10 +978,8 @@ function AddCandidateDrawerInner({
     if (nextTab) setActiveTab(nextTab);
   };
 
-  // Bulk CV parsing must not be killed mid-loop by a stray backdrop click — abandoning the
-  // loop would leave partially-created candidates without showing the user what finished
-  // and what didn't. While `bulkResumePhase === 'importing'` the drawer ignores backdrop /
-  // X / Cancel clicks; users have to use the explicit "Stop parsing" button instead.
+  // While bulk CV parsing runs, closing the drawer or switching tabs shows a confirmation
+  // (Yes = stop parsing and leave, No = stay and keep processing).
   const isBulkResumeBusy = activeTab === 'bulkResume' && bulkResumePhase === 'importing';
 
   const stopBulkResumeParsing = useCallback(() => {
@@ -1059,6 +1058,13 @@ function AddCandidateDrawerInner({
 
   const handleTabChange = (nextTab) => {
     if (nextTab === activeTab) return;
+    if (isBulkResumeBusy) {
+      leaveGuard.requestLeave({
+        leaveActionLabel: 'switch tabs',
+        onConfirmed: () => resetForNext(nextTab),
+      });
+      return;
+    }
     resetForNext(nextTab);
   };
 
@@ -2475,11 +2481,8 @@ function AddCandidateDrawerInner({
 
   const formatExistingCandidateDate = (value) => {
     if (value == null || value === '') return '—';
-    try {
-      return new Date(value).toLocaleString();
-    } catch {
-      return '—';
-    }
+    const formatted = formatDateTimeDMY(value);
+    return formatted || '—';
   };
 
   const bulkDuplicateQueueSize =

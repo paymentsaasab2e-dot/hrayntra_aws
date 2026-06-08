@@ -140,6 +140,95 @@ export function getPhase1ProfileSnapshot(
   return snap as Phase1ProfileSnapshot;
 }
 
+function mapEmploymentStatusLabel(status?: string | null): string {
+  const raw = String(status || '').trim();
+  if (!raw) return '';
+  const key = raw.toUpperCase();
+  const map: Record<string, string> = {
+    EMPLOYED: 'Employed',
+    UNEMPLOYED: 'Unemployed',
+    FREELANCING: 'Freelancing',
+    STUDENT: 'Student',
+    OTHER: 'Other',
+  };
+  return map[key] || raw;
+}
+
+type PersonalInfoSource = {
+  cvAddress?: string | null;
+  cvCity?: string | null;
+  cvCountry?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  linkedIn?: string | null;
+  address?: string | null;
+  city?: string | null;
+  country?: string | null;
+  gender?: string | null;
+  extraData?: Record<string, unknown> | null;
+};
+
+/** Merge snapshot personalInfo with candidate fallbacks for drawer view/edit. */
+export function resolvePhase1PersonalInfo(
+  snapshot: Phase1ProfileSnapshot | null | undefined,
+  candidate: PersonalInfoSource,
+): NonNullable<Phase1ProfileSnapshot['personalInfo']> {
+  const pi = { ...(snapshot?.personalInfo || {}) };
+  const extra =
+    candidate.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
+      ? candidate.extraData
+      : {};
+
+  if (!String(pi.employment || '').trim()) {
+    pi.employment =
+      mapEmploymentStatusLabel(
+        (extra.employmentStatus as string | undefined) ||
+          (extra.employment as string | undefined),
+      ) || pi.employment;
+  }
+  if (!String(pi.nationality || '').trim()) {
+    pi.nationality = String((extra.nationality as string | undefined) || '').trim() || pi.nationality;
+  }
+  if (!String(pi.passportNumber || '').trim()) {
+    pi.passportNumber =
+      String((extra.passportNumber as string | undefined) || '').trim() || pi.passportNumber;
+  }
+  if (!String(pi.address || '').trim()) {
+    pi.address =
+      String(candidate.cvAddress || candidate.address || '').trim() || pi.address;
+  }
+  if (!String(pi.city || '').trim()) {
+    pi.city = String(candidate.cvCity || candidate.city || '').trim() || pi.city;
+  }
+  if (!String(pi.country || '').trim()) {
+    pi.country = String(candidate.cvCountry || candidate.country || '').trim() || pi.country;
+  }
+  if (!String(pi.email || '').trim()) {
+    pi.email = String(candidate.email || '').trim() || pi.email;
+  }
+  if (!String(pi.phone || '').trim()) {
+    pi.phone = String(candidate.phone || '').trim() || pi.phone;
+  }
+  if (!String(pi.linkedinUrl || '').trim()) {
+    pi.linkedinUrl = String(candidate.linkedIn || '').trim() || pi.linkedinUrl;
+  }
+  if (!String(pi.gender || '').trim() && candidate.gender) {
+    pi.gender = String(candidate.gender).trim();
+  }
+
+  return pi;
+}
+
+function patchSnapshotPersonalInfo(
+  snapshot: Phase1ProfileSnapshot,
+  candidate: PersonalInfoSource,
+): Phase1ProfileSnapshot {
+  return {
+    ...snapshot,
+    personalInfo: resolvePhase1PersonalInfo(snapshot, candidate),
+  };
+}
+
 function mapWorkEntries(work: Phase1ProfileSnapshot['workExperience']) {
   if (!Array.isArray(work) || !work.length) return null;
   return work.map((w) => {
@@ -184,6 +273,8 @@ export function enrichBackendCandidateFromPhase1Snapshot(c: BackendCandidate): B
   if (!snap) return c;
 
   const pi = snap.personalInfo || {};
+  const patchedSnap = patchSnapshotPersonalInfo(snap, c);
+  const mergedPi = patchedSnap.personalInfo || pi;
   const work = mapWorkEntries(snap.workExperience);
   const edu = mapEducationEntries(snap.education);
   const skillRows = Array.isArray(snap.skills) ? snap.skills : [];
@@ -203,7 +294,7 @@ export function enrichBackendCandidateFromPhase1Snapshot(c: BackendCandidate): B
     ...(c.extraData && typeof c.extraData === 'object' && !Array.isArray(c.extraData)
       ? (c.extraData as Record<string, unknown>)
       : {}),
-    phase1ProfileSnapshot: snap,
+    phase1ProfileSnapshot: patchedSnap,
     phase1GapExplanations: snap.gapExplanations || [],
     phase1Internships: snap.internships || [],
     phase1Accomplishments: snap.accomplishments || [],
@@ -214,16 +305,16 @@ export function enrichBackendCandidateFromPhase1Snapshot(c: BackendCandidate): B
 
   return {
     ...c,
-    firstName: c.firstName || pi.firstName || c.firstName,
-    lastName: c.lastName || pi.lastName || c.lastName,
-    email: c.email || pi.email || c.email,
-    phone: c.phone || pi.phone || c.phone,
-    linkedIn: c.linkedIn || pi.linkedinUrl || c.linkedIn,
-    city: c.city || pi.city || c.city,
-    country: c.country || pi.country || c.country,
+    firstName: c.firstName || mergedPi.firstName || c.firstName,
+    lastName: c.lastName || mergedPi.lastName || c.lastName,
+    email: c.email || mergedPi.email || c.email,
+    phone: c.phone || mergedPi.phone || c.phone,
+    linkedIn: c.linkedIn || mergedPi.linkedinUrl || c.linkedIn,
+    city: c.city || mergedPi.city || c.city,
+    country: c.country || mergedPi.country || c.country,
     location:
-      c.location || [pi.city, pi.country].filter(Boolean).join(', ') || c.location || null,
-    avatar: c.avatar || pi.profilePhotoUrl || null,
+      c.location || [mergedPi.city, mergedPi.country].filter(Boolean).join(', ') || c.location || null,
+    avatar: c.avatar || mergedPi.profilePhotoUrl || null,
     currentTitle:
       c.currentTitle ||
       (latestWork?.jobTitle as string) ||
@@ -244,7 +335,7 @@ export function enrichBackendCandidateFromPhase1Snapshot(c: BackendCandidate): B
       c.noticePeriod || (snap.careerPreferences?.noticePeriod as string) || null,
     availability:
       c.availability || (snap.careerPreferences?.availabilityToStart as string) || null,
-    address: c.address || snap.personalInfo?.city || c.address,
+    address: c.address || mergedPi.address || snap.personalInfo?.city || c.address,
     careerPreferences:
       c.careerPreferences || snap.careerPreferences
         ? ({

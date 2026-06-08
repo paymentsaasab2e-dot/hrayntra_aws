@@ -10,6 +10,7 @@ import type {
 import { calculatePlacementFee } from '../utils/placements';
 import { addDaysIso, recalcInvoiceTotals, recalcLineItem } from './invoiceCalculations';
 import { resolveClientEmail } from './invoiceCurrency';
+import { formatDateDMY } from '../utils/dateDisplay';
 
 /** Placeholder agency bank until billing settings are fully configured. */
 export const DUMMY_AGENCY_BANK: InvoiceBankDetails = {
@@ -35,9 +36,8 @@ function parsePercent(raw: unknown): number | null {
 
 function formatDateDisplay(iso?: string | null): string {
   if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return String(iso);
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  const formatted = formatDateDMY(iso);
+  return formatted || String(iso);
 }
 
 function formatReplacementTerms(client: BackendClient): string {

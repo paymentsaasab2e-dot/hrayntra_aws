@@ -4,9 +4,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, Plus, Search, User, X } from 'lucide-react';
 import { DocumentUploadDropzone } from '../import/documentUploadUi';
 import { IndustryMultiSelect } from '../forms/IndustryMultiSelect';
+import { LanguageSuggestInput, ProficiencySuggestInput } from '../forms/LanguageProficiencySuggestInput';
 import { JobLocationFields } from '../location/JobLocationFields';
 import type { BackendClient, BackendUser } from '../../lib/api';
 import { JOB_SALARY_CURRENCY_OPTIONS } from '../../constants/jobSalary';
+import {
+  isSyntheticJobContactId,
+  type JobContactPersonOption,
+} from '../../lib/jobClientContacts';
 
 export interface JobLanguageEntry {
   language: string;
@@ -40,10 +45,7 @@ export interface CreateJobDetailsFormData {
   assignedToId: string;
 }
 
-interface ContactOption {
-  id: string;
-  name: string;
-}
+type ContactOption = JobContactPersonOption;
 
 interface CreateJobDetailsFormProps {
   formData: CreateJobDetailsFormData;
@@ -74,7 +76,6 @@ const labelClass = 'block text-sm font-medium text-slate-700 mb-2';
 
 const PRIORITY_OPTIONS = ['Low', 'Medium', 'High', 'Urgent'];
 const EMPLOYMENT_TYPES = ['Full Time', 'Part Time', 'Contract', 'Internship', 'Freelance'];
-const PROFICIENCY_OPTIONS = ['Basic', 'Conversational', 'Professional', 'Native'];
 
 function DropdownField({
   label,
@@ -176,7 +177,42 @@ export function CreateJobDetailsForm({
   const selectedCompany = clients.find((c) => c.id === formData.companyId);
   const selectedRecruiter = users.find((u) => u.id === formData.assignedToId);
   const selectedManager = users.find((u) => u.id === formData.managerId);
-  const selectedContact = contacts.find((c) => c.id === formData.contactPersonId);
+  const selectedContact =
+    contacts.find((c) => c.id === formData.contactPersonId) ||
+    contacts.find(
+      (c) =>
+        !formData.contactPersonId &&
+        formData.contactPersonName &&
+        c.name === formData.contactPersonName,
+    );
+  const directorContacts = contacts.filter((c) => c.role === 'Director');
+  const teamMemberContacts = contacts.filter((c) => c.role === 'Team Member');
+  const otherContacts = contacts.filter((c) => c.role === 'Contact');
+
+  const selectContact = (contact: ContactOption) => {
+    patchForm({
+      contactPersonId: isSyntheticJobContactId(contact.id) ? '' : contact.id,
+      contactPersonName: contact.name,
+    });
+    setDropdownsOpen((prev) => ({ ...prev, contact: false }));
+  };
+
+  const renderContactOption = (contact: ContactOption) => (
+    <li key={contact.id}>
+      <button
+        type="button"
+        onClick={() => selectContact(contact)}
+        className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${
+          (formData.contactPersonId && formData.contactPersonId === contact.id) ||
+          (!formData.contactPersonId && formData.contactPersonName === contact.name)
+            ? 'bg-blue-50 text-blue-700 font-medium'
+            : 'text-slate-700'
+        }`}
+      >
+        {contact.name}
+      </button>
+    </li>
+  );
   const [clientSearch, setClientSearch] = useState('');
   const [currencySearch, setCurrencySearch] = useState('');
 
@@ -344,25 +380,35 @@ export function CreateJobDetailsForm({
                 None
               </button>
             </li>
-            {contacts.map((contact) => (
-              <li key={contact.id}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    patchForm({
-                      contactPersonId: contact.id,
-                      contactPersonName: contact.name,
-                    });
-                    setDropdownsOpen((prev) => ({ ...prev, contact: false }));
-                  }}
-                  className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${
-                    formData.contactPersonId === contact.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'
-                  }`}
-                >
-                  {contact.name}
-                </button>
-              </li>
-            ))}
+            {directorContacts.length > 0 ? (
+              <>
+                <li className="px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Director
+                </li>
+                {directorContacts.map(renderContactOption)}
+              </>
+            ) : null}
+            {teamMemberContacts.length > 0 ? (
+              <>
+                <li className="px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Team Members
+                </li>
+                {teamMemberContacts.map(renderContactOption)}
+              </>
+            ) : null}
+            {otherContacts.length > 0 ? (
+              <>
+                {directorContacts.length > 0 || teamMemberContacts.length > 0 ? (
+                  <li className="px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                    Other Contacts
+                  </li>
+                ) : null}
+                {otherContacts.map(renderContactOption)}
+              </>
+            ) : null}
+            {contacts.length === 0 ? (
+              <li className="px-4 py-2 text-sm text-slate-500">No contacts for this client</li>
+            ) : null}
           </>
         )}
       </DropdownField>
@@ -570,24 +616,19 @@ export function CreateJobDetailsForm({
           <div className="space-y-2">
             {formData.languages.map((row, index) => (
               <div key={`lang-${index}`} className="grid grid-cols-[1fr_1fr_auto] gap-2">
-                <input
-                  type="text"
+                <LanguageSuggestInput
                   value={row.language}
-                  onChange={(e) => updateLanguageRow(index, { language: e.target.value })}
-                  placeholder="Language"
-                  className={inputClass}
+                  onChange={(language) => updateLanguageRow(index, { language })}
+                  jobTitle={formData.jobTitle}
+                  excludeLanguages={formData.languages
+                    .map((entry, i) => (i === index ? '' : entry.language))
+                    .filter(Boolean)}
                 />
-                <select
+                <ProficiencySuggestInput
                   value={row.proficiency}
-                  onChange={(e) => updateLanguageRow(index, { proficiency: e.target.value })}
-                  className={inputClass}
-                >
-                  {PROFICIENCY_OPTIONS.map((opt) => (
-                    <option key={opt} value={opt}>
-                      {opt}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(proficiency) => updateLanguageRow(index, { proficiency })}
+                  language={row.language}
+                />
                 <button
                   type="button"
                   onClick={() => removeLanguageRow(index)}

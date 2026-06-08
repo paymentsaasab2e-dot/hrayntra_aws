@@ -566,6 +566,51 @@ export async function apiSuggestIndustries(params: {
   }>(`/settings/org/industries/suggest${qs ? `?${qs}` : ''}`, { auth: true });
 }
 
+export type LanguageSuggestionSource = 'history' | 'catalog' | 'ai';
+
+export interface LanguageSuggestion {
+  label: string;
+  source: LanguageSuggestionSource;
+}
+
+export async function apiSuggestLanguages(params: {
+  q?: string;
+  selected?: string[];
+  limit?: number;
+  jobTitle?: string;
+}) {
+  const sp = new URLSearchParams();
+  const q = String(params.q ?? '').trim();
+  if (q) sp.set('q', q);
+  if (params.jobTitle?.trim()) sp.set('jobTitle', params.jobTitle.trim());
+  if (params.limit) sp.set('limit', String(params.limit));
+  if (params.selected?.length) sp.set('selected', params.selected.join(';'));
+  const qs = sp.toString();
+  return apiFetch<{
+    suggestions: LanguageSuggestion[];
+    aiEnabled: boolean;
+  }>(`/settings/org/languages/suggest${qs ? `?${qs}` : ''}`, { auth: true });
+}
+
+export async function apiSuggestProficiencies(params: {
+  q?: string;
+  selected?: string[];
+  limit?: number;
+  language?: string;
+}) {
+  const sp = new URLSearchParams();
+  const q = String(params.q ?? '').trim();
+  if (q) sp.set('q', q);
+  if (params.language?.trim()) sp.set('language', params.language.trim());
+  if (params.limit) sp.set('limit', String(params.limit));
+  if (params.selected?.length) sp.set('selected', params.selected.join(';'));
+  const qs = sp.toString();
+  return apiFetch<{
+    suggestions: LanguageSuggestion[];
+    aiEnabled: boolean;
+  }>(`/settings/org/proficiencies/suggest${qs ? `?${qs}` : ''}`, { auth: true });
+}
+
 export type CompanyServiceSuggestionSource = 'history' | 'catalog' | 'ai';
 
 export interface CompanyServiceSuggestion {
@@ -671,6 +716,26 @@ export async function apiRemoveClientPriority(priority: string) {
     method: 'POST',
     auth: true,
     body: { priority },
+  });
+}
+
+export async function apiGetAgreementLevelCatalog() {
+  return apiFetch<StatusCatalogResponse>('/settings/org/agreement-levels', { auth: true });
+}
+
+export async function apiAppendAgreementLevel(level: string) {
+  return apiFetch<StatusCatalogResponse>('/settings/org/agreement-levels/append', {
+    method: 'POST',
+    auth: true,
+    body: { level },
+  });
+}
+
+export async function apiRemoveAgreementLevel(level: string) {
+  return apiFetch<StatusCatalogResponse>('/settings/org/agreement-levels/remove', {
+    method: 'POST',
+    auth: true,
+    body: { level },
   });
 }
 
@@ -3727,7 +3792,15 @@ export const apiGetLeadActivities = async (leadId: string) => {
   return apiFetch<BackendActivity[]>(`/leads/${leadId}/activities`, { auth: true });
 };
 
-export const apiConvertLeadToClient = async (id: string, clientData: {
+export const apiConvertLeadToClient = async (id: string, clientData: ConvertLeadToClientData) => {
+  return apiFetch<any>(`/leads/${id}/convert`, {
+    method: 'POST',
+    body: clientData,
+    auth: true,
+  });
+};
+
+export interface ConvertLeadToClientData {
   companyName?: string;
   industry?: string;
   companySize?: string;
@@ -3735,17 +3808,42 @@ export const apiConvertLeadToClient = async (id: string, clientData: {
   address?: string;
   linkedin?: string;
   location?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  latitude?: number | null;
+  longitude?: number | null;
   hiringLocations?: string;
   servicesNeeded?: string;
   expectedBusinessValue?: string;
   priority?: string;
-}) => {
-  return apiFetch<any>(`/leads/${id}/convert`, {
-    method: 'POST',
-    body: clientData,
-    auth: true,
-  });
-};
+  assignedToId?: string;
+  directorSalutation?: string;
+  directorName?: string;
+  contactPerson?: string;
+  primaryContact?: string;
+  email?: string;
+  phone?: string;
+  emails?: string[];
+  phones?: string[];
+  teamMemberDesignation?: string | null;
+  teamMemberEmail?: string | null;
+  teamMemberPhone?: string | null;
+  otherDetails?: Array<{ label: string; value: string }>;
+  nextFollowUpDue?: string | null;
+  agreementsFileName?: string | null;
+  agreementsFileUrl?: string | null;
+  agreementsUploadedAt?: string | null;
+  agreementLevel?: string | null;
+  agreementServiceChargePercent?: string | null;
+  agreementContractValidity?: string | null;
+  agreementContractStartDate?: string | null;
+  agreementContractEndDate?: string | null;
+  agreementTimePeriod?: string | null;
+  agreementAdvancePaymentPercent?: string | null;
+  agreementFreeReplacementValue?: number | null;
+  agreementFreeReplacementUnit?: 'MONTHS' | 'DAYS' | null;
+}
 
 // ────────────────────────────────────────────────────────────
 // Clients

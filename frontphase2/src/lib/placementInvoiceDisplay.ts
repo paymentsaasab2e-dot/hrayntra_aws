@@ -3,6 +3,7 @@ import type {
   InvoiceBankDetails,
   RecruitmentInvoiceData,
 } from '../types/recruitmentInvoice';
+import { formatDateDMY } from '../utils/dateDisplay';
 
 export const INVOICE_FIELD_NOT_AVAILABLE = 'Not available';
 
@@ -23,10 +24,10 @@ function displayValue(raw?: string | number | null): { value: string; missing: b
 
 function formatDateField(iso?: string | null): { value: string; missing: boolean } {
   if (!iso) return { value: INVOICE_FIELD_NOT_AVAILABLE, missing: true };
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return displayValue(iso);
+  const formatted = formatDateDMY(iso);
+  if (!formatted) return displayValue(iso);
   return {
-    value: d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
+    value: formatted,
     missing: false,
   };
 }

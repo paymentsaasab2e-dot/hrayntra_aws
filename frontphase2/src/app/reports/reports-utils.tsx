@@ -2,6 +2,7 @@
 
 import React from 'react';
 import type { LeaderboardRow } from './types';
+import { formatDateTimeDMY } from '../../utils/dateDisplay';
 
 export function formatNumber(value: number) {
   return new Intl.NumberFormat('en-US').format(Number(value || 0));
@@ -57,9 +58,7 @@ export function clientHealthBadge(healthOrVolume: string | number): { label: str
 }
 
 export function formatActivityTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return formatDateTimeDMY(value);
 }
 
 export function ReportCard({ title, children }: { title?: string; children: React.ReactNode }) {

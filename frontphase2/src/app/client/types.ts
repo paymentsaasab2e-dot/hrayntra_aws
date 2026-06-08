@@ -191,6 +191,12 @@ export interface Client {
   agreementContractValidity?: string | null;
   agreementContractStartDate?: string | null;
   agreementContractEndDate?: string | null;
+  agreementLevel?: string | null;
+  agreementServiceChargePercent?: string | null;
+  agreementTimePeriod?: string | null;
+  agreementAdvancePaymentPercent?: string | null;
+  agreementFreeReplacementValue?: number | null;
+  agreementFreeReplacementUnit?: 'MONTHS' | 'DAYS' | null;
   postServiceKycForm?: PostServiceKycFormValues | null;
   otherDetails?: Array<{ label: string; value: string }>;
 }

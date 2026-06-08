@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Award,
   Briefcase,
@@ -23,7 +23,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import type { CandidateProfileDrawerData } from '../drawers/CandidateProfileDrawer';
-import { getPhase1ProfileSnapshot } from '@/lib/phase1ProfileSnapshot';
+import { getPhase1ProfileSnapshot, resolvePhase1PersonalInfo } from '@/lib/phase1ProfileSnapshot';
 import type { Phase1ClientSectionId, Phase1ClientSectionVisibility } from '@/lib/phase1ClientPresentationSections';
 import {
   resolvePhase1Accomplishments,
@@ -45,6 +45,9 @@ import {
 } from '@/lib/candidateExperience';
 import type { Phase1ProfileSnapshot } from '@/lib/phase1ProfileSnapshot';
 import { CandidateCareerPreferencesOverview } from './CandidateCareerPreferencesOverview';
+import { formatIsoDateOnlyForDisplay } from '@/utils/dateDisplay';
+import { buildFileHref } from '@/utils/cloudinaryUrls';
+import { collectDocumentUrls, displayNameFromFileUrl } from '@/utils/fileDisplay';
 
 type SectionId = Phase1ClientSectionId;
 
@@ -54,7 +57,7 @@ function display(value: unknown): string {
   if (typeof value === 'number' && Number.isFinite(value)) return String(value);
   if (Array.isArray(value)) return value.filter(Boolean).map(String).join(', ');
   if (typeof value === 'object') return '';
-  return String(value).trim();
+  return formatIsoDateOnlyForDisplay(String(value).trim());
 }
 
 function FieldRow({ label, value }: { label: string; value?: unknown }) {
@@ -64,6 +67,41 @@ function FieldRow({ label, value }: { label: string; value?: unknown }) {
       <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
       {text ? (
         <p className="mt-1 whitespace-pre-line break-words text-sm font-medium text-slate-800">{text}</p>
+      ) : (
+        <p className="mt-1 text-sm italic text-slate-400">Not provided</p>
+      )}
+    </div>
+  );
+}
+
+function DocumentLinksFieldRow({ label, value }: { label: string; value?: unknown }) {
+  const urls = collectDocumentUrls(value);
+
+  return (
+    <div className="rounded-xl border border-slate-200/80 bg-white px-3 py-2.5 sm:col-span-2">
+      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
+      {urls.length ? (
+        <ul className="mt-2 space-y-2">
+          {urls.map((url, index) => {
+            const href = buildFileHref(url, '');
+            const name = displayNameFromFileUrl(url);
+            return (
+              <li key={`${url}-${index}`}>
+                <a
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex max-w-full items-center gap-2 rounded-lg border border-violet-200 bg-violet-50/60 px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-100 hover:underline"
+                  title={name}
+                >
+                  <FileText size={14} className="shrink-0 text-violet-600" />
+                  <span className="truncate">{name}</span>
+                  <ExternalLink size={12} className="shrink-0 opacity-70" />
+                </a>
+              </li>
+            );
+          })}
+        </ul>
       ) : (
         <p className="mt-1 text-sm italic text-slate-400">Not provided</p>
       )}
@@ -252,22 +290,22 @@ function SkillsGrouped({ skills }: { skills: ReturnType<typeof resolvePhase1Skil
 
 
 const DEFAULT_OPEN: Record<SectionId, boolean> = {
-  personal: true,
+  personal: false,
   resume: false,
-  summary: true,
-  work: true,
-  internships: true,
+  summary: false,
+  work: false,
+  internships: false,
   gap: false,
-  education: true,
+  education: false,
   academic: false,
   exams: false,
-  skills: true,
-  languages: true,
+  skills: false,
+  languages: false,
   projects: false,
-  portfolio: true,
+  portfolio: false,
   certifications: false,
   accomplishments: false,
-  careerPreferences: true,
+  careerPreferences: false,
   visa: false,
   vaccination: false,
 };
@@ -285,6 +323,10 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
   );
 
   const [open, setOpen] = useState<Record<SectionId, boolean>>(DEFAULT_OPEN);
+
+  useEffect(() => {
+    setOpen(DEFAULT_OPEN);
+  }, [candidate.id]);
 
   const toggle = (key: SectionId) => {
     setOpen((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -324,7 +366,7 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
     : (candidate.cvCertifications || []).map((name) => ({ certificationName: name }));
 
   const personInfoRows = useMemo(() => {
-    const pi = snap?.personalInfo || {};
+    const pi = resolvePhase1PersonalInfo(snap, candidate);
     const fullName =
       [pi.firstName, pi.middleName, pi.lastName].filter(Boolean).join(' ').trim() ||
       candidate.name ||
@@ -831,21 +873,24 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
           onToggle={toggle}
         >
           {snap?.vaccination ? (
-            <RecordCard
-              title="Vaccination record"
-              rows={[
-                { label: 'Status', value: snap.vaccination.vaccinationStatus },
-                { label: 'Vaccine type', value: snap.vaccination.vaccineType },
-                { label: 'Last vaccination date', value: snap.vaccination.lastVaccinationDate },
-                {
-                  label: 'Validity',
-                  value: [snap.vaccination.validityMonth, snap.vaccination.validityYear]
+            <div className="rounded-xl border border-slate-200 bg-white p-3">
+              <p className="text-sm font-semibold text-slate-900">Vaccination record</p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <FieldRow label="Status" value={snap.vaccination.vaccinationStatus} />
+                <FieldRow label="Vaccine type" value={snap.vaccination.vaccineType} />
+                <FieldRow label="Last vaccination date" value={snap.vaccination.lastVaccinationDate} />
+                <FieldRow
+                  label="Validity"
+                  value={[snap.vaccination.validityMonth, snap.vaccination.validityYear]
                     .filter(Boolean)
-                    .join('/'),
-                },
-                { label: 'Documents', value: snap.vaccination.documents || snap.vaccination.certificate },
-              ]}
-            />
+                    .join('/')}
+                />
+                <DocumentLinksFieldRow
+                  label="Documents"
+                  value={snap.vaccination.documents ?? snap.vaccination.certificate}
+                />
+              </div>
+            </div>
           ) : (
             <p className="text-sm italic text-slate-400">No vaccination information added yet</p>
           )}

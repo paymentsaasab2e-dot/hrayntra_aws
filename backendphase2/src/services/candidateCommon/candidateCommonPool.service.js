@@ -7,6 +7,7 @@ import {
 import { resolveCandidateListExperienceYears } from '../../utils/candidateExperienceYears.util.js';
 import { normalizePortalCareerPreferences } from '../../utils/normalizePortalCareerPreferences.js';
 import { batchHydrateCandidatesResumeFromPortal } from '../../utils/candidateResumeHydrate.util.js';
+import { hydratePhase1SnapshotPersonalInfoFromPortal } from '../../utils/phase1SnapshotHydrate.util.js';
 import { buildSuperAdminOwnerScope, isSuperAdminUser } from '../../utils/superAdminScope.js';
 import { canViewAllAssignments, hasAnyPermission as hasAnyPermissionScope } from '../../utils/permissionScope.js';
 
@@ -372,6 +373,7 @@ export async function fetchCandidateCommonByCandidateId(candidateId, options = {
   try {
     const portalClient = getJobPortalPrismaClient();
     if (portalClient) {
+      await hydratePhase1SnapshotPersonalInfoFromPortal(mapped, portalClient);
       await batchHydrateCandidatesResumeFromPortal([mapped], portalClient);
       const computed = resolveCandidateListExperienceYears(mapped);
       if (computed != null) {

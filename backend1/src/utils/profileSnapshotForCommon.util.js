@@ -24,6 +24,17 @@ function mapPhoneCode(countryCode) {
 
 const INTERNSHIP_ENTRIES_PREFIX = '__INTERNSHIP_ENTRIES__:';
 
+function mapEmploymentLabel(status) {
+  const map = {
+    EMPLOYED: 'Employed',
+    UNEMPLOYED: 'Unemployed',
+    FREELANCING: 'Freelancing',
+    STUDENT: 'Student',
+    OTHER: 'Other',
+  };
+  return map[String(status || '').trim().toUpperCase()] || String(status || '').trim();
+}
+
 function extractGapEntries(gapExplanationRecord) {
   if (!gapExplanationRecord) return [];
   const preferredSupportObj =
@@ -236,6 +247,10 @@ function buildProfileSnapshot(candidate) {
             : '',
           country: profile.country || '',
           city: profile.city || '',
+          address: profile.address || '',
+          nationality: profile.nationality || '',
+          passportNumber: profile.passportNumber || '',
+          employment: mapEmploymentLabel(profile.employmentStatus),
           linkedinUrl: profile.linkedinUrl || '',
         }
       : null,

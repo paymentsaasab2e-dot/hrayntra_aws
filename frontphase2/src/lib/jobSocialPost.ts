@@ -1,3 +1,5 @@
+import { formatDateDMY } from '../utils/dateDisplay';
+
 export type JobSocialPostInput = {
   jobTitle: string;
   companyName: string;
@@ -74,9 +76,8 @@ function formatLanguages(languages: JobSocialPostInput['languages']): string {
 function formatHireDate(value?: string): string {
   const raw = String(value || '').trim();
   if (!raw) return '';
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) return raw;
-  return parsed.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  const formatted = formatDateDMY(raw);
+  return formatted || raw;
 }
 
 function appendLine(lines: string[], label: string, value?: string) {

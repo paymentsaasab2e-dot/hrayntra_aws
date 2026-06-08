@@ -50,6 +50,27 @@ export function formatDateTimeDMY(value: unknown): string {
   return `${formatDateDMY(d)}, ${time}`;
 }
 
+const ISO_DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** True when the string is a calendar date in `YYYY-MM-DD` form (no time). */
+export function isIsoDateOnlyString(value: string): boolean {
+  return ISO_DATE_ONLY.test(String(value || '').trim());
+}
+
+/**
+ * Format plain `YYYY-MM-DD` values as DD/MM/YYYY; pass through everything else unchanged.
+ * Useful in generic field `display()` helpers.
+ */
+export function formatIsoDateOnlyForDisplay(value: unknown): string {
+  const str = String(value ?? '').trim();
+  if (!str) return '';
+  if (isIsoDateOnlyString(str)) {
+    const dmy = formatDateDMY(str);
+    if (dmy) return dmy;
+  }
+  return str;
+}
+
 /** Time only (12h), for pairing with `formatDateDMY` on a second line. */
 export function formatTime12hEnGb(value: unknown): string {
   const d = parseDisplayableDate(value);

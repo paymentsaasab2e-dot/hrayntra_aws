@@ -1,4 +1,6 @@
 /** Keys hidden from dashboard widget tables (internal ids / raw relations). */
+import { formatDateTimeDMY } from '../../utils/dateDisplay';
+
 const HIDDEN_KEYS = new Set(['id', '_id', '__v', 'assignedToId', 'createdById', 'departmentId']);
 
 /** Shown only when a row is expanded — not in the compact column strip. */
@@ -200,16 +202,8 @@ export function formatTableCellValue(key: string, value: unknown): string {
 
   const str = String(value);
   if (/At$|Date$|^timestamp$|^postedDate$/i.test(key)) {
-    const d = new Date(str);
-    if (!Number.isNaN(d.getTime())) {
-      return d.toLocaleString(undefined, {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-    }
+    const formatted = formatDateTimeDMY(str);
+    if (formatted) return formatted;
   }
 
   if (/^remarks$|remark|notes|description|latestActivityRemark/i.test(key)) {

@@ -66,6 +66,7 @@ import {
 } from 'lucide-react';
 import { downloadCsv } from '../../utils/csv';
 import { extractAuditMeta } from '../../utils/auditMeta';
+import { formatDateDMY } from '../../utils/dateDisplay';
 import { displayCandidateEmail, parseBulkCopyLabel } from '../../lib/bulkCvEmail';
 import {
   collectCandidateWorkEntries,
@@ -270,7 +271,7 @@ function mapBackendCandidate(c: BackendCandidate): Candidate {
     stage: String(c.stage || '').trim() || resolveCandidateListStage(c),
     owner: c.assignedTo?.name || 'Unassigned',
     lastActivity: (c.updatedAt || c.createdAt)
-      ? (c.updatedAt || c.createdAt).slice(0, 10)
+      ? formatDateDMY(c.updatedAt || c.createdAt)
       : '',
     hotlist: c.hotlist,
     phone: c.phone || '',
@@ -519,7 +520,7 @@ function CandidatesPageContent() {
               phone: profile.phone || candidate.phone,
               email: profile.email || candidate.email,
               source: profile.source || candidate.source,
-              lastActivity: new Date().toISOString().slice(0, 10),
+              lastActivity: formatDateDMY(new Date()),
             }
           : candidate
       )

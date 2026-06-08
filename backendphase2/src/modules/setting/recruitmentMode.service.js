@@ -187,6 +187,7 @@ const KEY_COMPANY_SERVICES = 'companyServices';
 const KEY_LEAD_STATUS_OPTIONS = 'leadStatusOptions';
 const KEY_CLIENT_LEAD_STATUS_OPTIONS = 'clientLeadStatusOptions';
 const KEY_CLIENT_PRIORITY_OPTIONS = 'clientPriorityOptions';
+const KEY_AGREEMENT_LEVEL_OPTIONS = 'agreementLevelOptions';
 
 /** Default recruitment services offered by the agency (org can extend via settings). */
 export const DEFAULT_COMPANY_SERVICES = [
@@ -222,6 +223,14 @@ export const DEFAULT_LEAD_STATUS_OPTIONS = [
 export const DEFAULT_CLIENT_LEAD_STATUS_OPTIONS = ['Active', 'On Hold', 'Inactive'];
 
 export const DEFAULT_CLIENT_PRIORITY_OPTIONS = ['High', 'Medium', 'Low'];
+
+export const DEFAULT_AGREEMENT_LEVEL_OPTIONS = [
+  'Level 1',
+  'Level 2',
+  'Level 3',
+  'Level 4',
+  'Executive',
+];
 
 export function normalizeServiceLabel(raw) {
   return String(raw || '').trim().replace(/\s+/g, ' ');
@@ -446,6 +455,36 @@ export async function removeClientPriorityOption(priority) {
     DEFAULT_CLIENT_PRIORITY_OPTIONS,
     priority,
     'Interest level',
+  );
+}
+
+export async function getOrgCustomAgreementLevelOptions() {
+  return getOrgCustomStatusOptions(KEY_AGREEMENT_LEVEL_OPTIONS);
+}
+
+export async function getAgreementLevelOptions() {
+  return getMergedStatusOptions(KEY_AGREEMENT_LEVEL_OPTIONS, DEFAULT_AGREEMENT_LEVEL_OPTIONS);
+}
+
+export async function setAgreementLevelOptions(levels) {
+  return setOrgCustomStatusOptions(KEY_AGREEMENT_LEVEL_OPTIONS, levels);
+}
+
+export async function appendAgreementLevelOption(level) {
+  return appendOrgStatusOption(
+    KEY_AGREEMENT_LEVEL_OPTIONS,
+    DEFAULT_AGREEMENT_LEVEL_OPTIONS,
+    level,
+    'Agreement level',
+  );
+}
+
+export async function removeAgreementLevelOption(level) {
+  return removeOrgStatusOption(
+    KEY_AGREEMENT_LEVEL_OPTIONS,
+    DEFAULT_AGREEMENT_LEVEL_OPTIONS,
+    level,
+    'Agreement level',
   );
 }
 

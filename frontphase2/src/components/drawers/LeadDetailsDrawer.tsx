@@ -391,7 +391,16 @@ interface LeadDetailsDrawerProps {
   /** Called when user submits the Add Lead form */
   onAddLead?: (data: AddLeadFormData, createdLead?: BackendLead) => void;
   onUpdateLead?: (updatedLead?: BackendLead) => void;
-  onConvert?: (id: string) => void;
+  onConvert?: (id: string, form: {
+    companyName: string;
+    primaryContact: string;
+    email: string;
+    phone: string;
+    industry: string;
+    companySize: string;
+    accountManager: string;
+    createJobRequirement: boolean;
+  }) => void;
   onMarkLost?: (id: string, formData?: MarkLostFormData) => void;
   onAssignLead?: (id: string, formData: AssignLeadFormData) => void;
   onDeleteLead?: (id: string) => void;
@@ -902,11 +911,12 @@ export function LeadDetailsDrawer({
     }
   };
 
-  const [addLeadSectionsOpen, setAddLeadSectionsOpen] = useState({
-    company: true,
-    contact: true,
-    leadDetails: true,
-  });
+  const DEFAULT_ADD_LEAD_SECTIONS = {
+    company: false,
+    contact: false,
+    leadDetails: false,
+  };
+  const [addLeadSectionsOpen, setAddLeadSectionsOpen] = useState(DEFAULT_ADD_LEAD_SECTIONS);
   const [leadAiPrompt, setLeadAiPrompt] = useState('');
   const [leadAiError, setLeadAiError] = useState('');
   const [leadAiStatus, setLeadAiStatus] = useState('');
@@ -1006,11 +1016,20 @@ export function LeadDetailsDrawer({
   );
 
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
-  const [overviewOpen, setOverviewOpen] = useState<Record<string, boolean>>({
+  const DEFAULT_LEAD_OVERVIEW_SECTIONS: Record<string, boolean> = {
     company: false,
     contact: false,
     leadDetails: false,
-  });
+  };
+  const [overviewOpen, setOverviewOpen] = useState<Record<string, boolean>>(
+    DEFAULT_LEAD_OVERVIEW_SECTIONS,
+  );
+
+  useEffect(() => {
+    if (!lead && !addLeadMode) return;
+    setOverviewOpen(DEFAULT_LEAD_OVERVIEW_SECTIONS);
+    setAddLeadSectionsOpen(DEFAULT_ADD_LEAD_SECTIONS);
+  }, [lead?.id, addLeadMode]);
   const [overviewEditMode, setOverviewEditMode] = useState(false);
   const [overviewEditErrors, setOverviewEditErrors] = useState<LeadRequiredFieldErrors>({});
   const [overviewEditForm, setOverviewEditForm] = useState({
@@ -1401,7 +1420,7 @@ export function LeadDetailsDrawer({
     }
     setConvertToClientForm({
       companyName: lead?.companyName ?? '',
-      primaryContact: formatDirectorDisplay(lead?.directorSalutation, lead?.contactPerson) || lead?.contactPerson || '',
+      primaryContact: lead?.directorName || lead?.contactPerson || '',
       email: lead?.email ?? '',
       phone: lead?.phone ?? '',
       industry: lead?.industry ?? '',
@@ -1492,7 +1511,6 @@ export function LeadDetailsDrawer({
     if (overviewAgreementsInputRef.current) overviewAgreementsInputRef.current.value = '';
     setLeadStatusCatalog((current) => mergeLeadStatusOptions(current, lead.status));
     setOverviewEditMode(true);
-    setOverviewOpen({ company: true, contact: true, leadDetails: true });
   };
 
   const cancelOverviewEdit = () => {
@@ -2501,7 +2519,7 @@ export function LeadDetailsDrawer({
                       />
                     </div>
                     <div>
-                      <label htmlFor="convert-contact" className="block text-sm font-medium text-slate-700 mb-2">Primary Contact</label>
+                      <label htmlFor="convert-contact" className="block text-sm font-medium text-slate-700 mb-2">Director Name</label>
                       <input
                         id="convert-contact"
                         type="text"
@@ -2660,7 +2678,7 @@ export function LeadDetailsDrawer({
                           void requestError(leadConvertedAlertMessage(lead));
                           return;
                         }
-                        if (lead) onConvert?.(lead.id);
+                        if (lead) onConvert?.(lead.id, convertToClientForm);
                         setShowConvertToClientForm(false);
                         setActiveTab('overview');
                       }}

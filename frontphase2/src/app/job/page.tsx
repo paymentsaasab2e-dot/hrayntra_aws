@@ -4,8 +4,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { SHOW_TABLE_ROW_EDIT_ICON } from '../../constants/tableUi';
 import {
   Plus, 
-  LayoutGrid, 
-  List, 
   RefreshCcw, 
   Search,
   XCircle,
@@ -18,8 +16,6 @@ import {
   Users, 
   CheckCircle2, 
   Clock, 
-  Flame,
-  MoreHorizontal,
   CheckSquare,
   Download,
   Trash2,
@@ -29,7 +25,7 @@ import { downloadCsv } from '../../utils/csv';
 import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
 import { buildJobsCsvColumns, JOBS_EXPORT_COLUMNS } from '../../lib/export/jobsExportColumns';
 import { fetchAllPaginated, totalPagesFromPagination } from '../../lib/export/fetchAllPaginated';
-import { formatDateTimeDMY } from '../../utils/dateDisplay';
+import { formatDateDMY, formatDateTimeDMY } from '../../utils/dateDisplay';
 import { extractAuditMeta } from '../../utils/auditMeta';
 import { TableAuditColumnHeader, TableAuditCell } from '../../components/table/TableAuditCell';
 import type { AuditMeta } from '../../types/audit';
@@ -300,12 +296,6 @@ interface JobsListViewProps {
   onCancelStatusEdit: () => void;
 }
 
-interface JobsBoardViewProps {
-  jobs: Job[];
-  onJobClick?: (job: Job) => void;
-  canAssignJob: boolean;
-}
-
 // No fallback mock data - use empty array if API fails
 
 // Stats from API — tiles use <SummaryCard /> so height/layout match Leads.
@@ -574,74 +564,6 @@ const JobsListView = ({ jobs, onJobClick, onEditJob, onAddCandidate, onDeleteJob
   </div>
 );
 
-const JobsBoardView = ({ jobs, onJobClick, canAssignJob }: JobsBoardViewProps) => {
-  // Board columns are placeholders; job cards below use your real jobs from the API.
-  const columns = [
-    { id: 'new', label: 'New Candidates', count: 0 },
-    { id: 'shortlist', label: 'Shortlisted', count: 0 },
-    { id: 'interview', label: 'Interviewing', count: 0 },
-    { id: 'offered', label: 'Offered', count: 0 },
-    { id: 'joined', label: 'Joined', count: 0 },
-  ];
-
-  return (
-    <div className="flex gap-6 overflow-x-auto pb-6 scrollbar-hide">
-      {columns.map((col) => (
-        <div key={col.id} className="min-w-[300px] flex-1 flex flex-col gap-4">
-          <div className="flex items-center justify-between px-1">
-            <div className="flex items-center gap-2">
-              <h3 className="font-bold text-gray-900 text-sm">{col.label}</h3>
-              <span className="bg-gray-200 text-gray-600 text-[10px] px-2 py-0.5 rounded-full font-bold">{col.count}</span>
-            </div>
-            <button className="text-gray-400 hover:text-gray-600">
-              <MoreHorizontal size={16} />
-            </button>
-          </div>
-          
-          <div className="flex flex-col gap-3">
-            {jobs.slice(0, 6).map((job) => (
-              <div key={job.id} role="button" tabIndex={0} onClick={() => onJobClick?.(job)} onKeyDown={(e) => e.key === 'Enter' && onJobClick?.(job)} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm hover:border-blue-400 cursor-pointer transition-all">
-              <div className="flex justify-between items-start mb-3">
-                <div className="flex flex-col">
-                    <h4 className="font-bold text-gray-900 text-sm leading-tight">{job.title}</h4>
-                </div>
-                  {job.hot && <Flame size={14} className="text-orange-500" />}
-                </div>
-                <div className="flex items-center justify-between mt-4">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-500">{job.client}</span>
-                  </div>
-                  <div className="flex items-center gap-1 bg-blue-50 text-blue-600 px-2 py-0.5 rounded text-[10px] font-bold">
-                    <Users size={10} />
-                    <span>{job.applied}</span>
-                  </div>
-                </div>
-                <div className="mt-3 pt-3 border-t border-gray-50 flex items-center justify-between">
-                  <div className="flex -space-x-2">
-                    {[1, 2, 3].map((i) => (
-                      <div key={i} className="w-6 h-6 rounded-full border-2 border-white bg-gray-200 flex items-center justify-center">
-                        <span className="text-[8px] font-bold text-gray-500">JD</span>
-                      </div>
-                    ))}
-                  </div>
-                  <span className={`text-[10px] font-bold ${job.slaRisk ? 'text-red-500' : 'text-gray-400'}`}>
-                    {job.slaRisk ? 'SLA Risk' : 'On Track'}
-                  </span>
-                </div>
-              </div>
-            ))}
-            {canAssignJob && (
-              <button className="py-2 border-2 border-dashed border-gray-200 rounded-xl text-gray-400 text-xs font-bold hover:bg-gray-50 hover:border-gray-300 transition-colors">
-                + Assign Job
-              </button>
-            )}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-};
-
 function mapBackendStatus(status: string): JobStatus {
   switch (status) {
     case 'OPEN':
@@ -757,7 +679,7 @@ function mapBackendJob(job: BackendJob): Job {
     joined,
     openings: job.openings,
     owner: job.assignedTo?.name ?? 'Unassigned',
-    createdDate: job.createdAt?.slice(0, 10) ?? '-',
+    createdDate: job.createdAt ? formatDateDMY(job.createdAt) : '-',
     hot: (job as any).hot ?? false,
     aiMatch: (job as any).aiMatch ?? false,
     aiMatchCount:
@@ -944,7 +866,6 @@ export default function JobsPage() {
   const canCreateJob = hasAnyPermission(['jobs_create', 'create_job']);
   const canUpdateJob = hasAnyPermission(['jobs_update', 'edit_job']);
   const canDeleteJob = hasAnyPermission(['jobs_delete', 'delete_job']);
-  const canAssignJob = hasPermission('assign_job');
   const canAddCandidate = hasPermission('add_candidate');
   const canCreateInterview = hasPermission('interviews_create');
   const canUpdateCandidate = hasAnyPermission([
@@ -953,7 +874,6 @@ export default function JobsPage() {
     'move_pipeline',
     'submit_candidate',
   ]);
-  const [view, setView] = useState<'list' | 'board'>('list');
   const [searchFilter, setSearchFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [clientFilterId, setClientFilterId] = useState('');
@@ -2099,7 +2019,6 @@ export default function JobsPage() {
             </div>
 
           {loading ? (
-            view === 'list' ? (
               <div className={PH2_TABLE_CARD_CLASS}>
                 <div className={PH2_TOOLBAR_ROW_CLASS}>
                   <div className="h-9 w-full max-w-md animate-pulse rounded-xl bg-white/80 ring-1 ring-indigo-100/80 lg:flex-1" />
@@ -2107,11 +2026,6 @@ export default function JobsPage() {
                 </div>
                 <TableSkeleton rows={8} columns={7} />
               </div>
-            ) : (
-              <div className={PH2_TABLE_CARD_CLASS}>
-                <div className="p-10 text-center text-sm font-medium text-slate-500">Loading board…</div>
-              </div>
-            )
           ) : (
             <div className={PH2_TABLE_CARD_CLASS}>
               <div className={PH2_TOOLBAR_ROW_CLASS}>
@@ -2133,32 +2047,6 @@ export default function JobsPage() {
                     />
                   </div>
                 <div className="flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-center lg:justify-end">
-                  <div className="inline-flex w-fit items-center rounded-lg border border-indigo-100/90 bg-white/95 p-0.5 shadow-sm ring-1 ring-indigo-100/40">
-                      <button
-                        type="button"
-                      onClick={() => setView('list')}
-                      className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap transition-all ${
-                        view === 'list'
-                          ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-sm'
-                          : 'text-slate-600 hover:bg-indigo-50/50'
-                      }`}
-                    >
-                      <List size={14} className="shrink-0" />
-                      List
-                      </button>
-                    <button
-                      type="button"
-                      onClick={() => setView('board')}
-                      className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap transition-all ${
-                        view === 'board'
-                          ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-sm'
-                          : 'text-slate-600 hover:bg-indigo-50/50'
-                      }`}
-                    >
-                      <LayoutGrid size={14} className="shrink-0" />
-                      Board
-                    </button>
-                </div>
                   <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                     <SmartSearchToggleButton
                       open={jobSmartSearch.open}
@@ -2264,12 +2152,10 @@ export default function JobsPage() {
                 <div className="p-10 text-center text-sm font-medium text-rose-600">Error: {error}</div>
               ) : (
             <motion.div
-              key={view}
                   initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.22 }}
                 >
-                  {view === 'list' ? (
                 <>
                   <JobsListView 
                     jobs={jobs} 
@@ -2311,11 +2197,6 @@ export default function JobsPage() {
                     />
                   </div>
                 </>
-              ) : (
-                    <div className="p-2 sm:p-3">
-                <JobsBoardView jobs={jobs} onJobClick={openJobDrawer} canAssignJob={canAssignJob} />
-                    </div>
-              )}
             </motion.div>
               )}
           </div>
