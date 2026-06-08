@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Award,
   Briefcase,
@@ -31,6 +31,15 @@ import { buildCareerPreferencesViewModel, countCareerPreferencesFilled } from '@
 
 type SectionKey = 'personal' | 'education' | 'work' | 'professional' | 'social' | 'summary';
 
+const DEFAULT_CLOSED_SECTIONS: Record<SectionKey, boolean> = {
+  personal: false,
+  education: false,
+  work: false,
+  professional: false,
+  social: false,
+  summary: false,
+};
+
 function isOverviewSectionVisible(
   id: SectionKey,
   visibility?: Partial<ClientSectionVisibility> | null,
@@ -39,10 +48,12 @@ function isOverviewSectionVisible(
   return visibility[id] !== false;
 }
 
+import { formatIsoDateOnlyForDisplay } from '@/utils/dateDisplay';
+
 function display(value: unknown): string {
   if (value === undefined || value === null) return '';
   if (typeof value === 'number' && Number.isFinite(value)) return String(value);
-  return String(value).trim();
+  return formatIsoDateOnlyForDisplay(String(value).trim());
 }
 
 function FieldRow({
@@ -476,14 +487,11 @@ type Props = {
 
 export function CandidateAtsExtractedOverview({ candidate, sectionVisibility }: Props) {
   const model = useMemo(() => buildOverviewModel(candidate), [candidate]);
-  const [open, setOpen] = useState<Record<SectionKey, boolean>>({
-    personal: true,
-    education: true,
-    work: true,
-    professional: true,
-    social: true,
-    summary: true,
-  });
+  const [open, setOpen] = useState<Record<SectionKey, boolean>>(DEFAULT_CLOSED_SECTIONS);
+
+  useEffect(() => {
+    setOpen(DEFAULT_CLOSED_SECTIONS);
+  }, [candidate.id]);
 
   const toggle = (key: SectionKey) => {
     setOpen((prev) => ({ ...prev, [key]: !prev[key] }));

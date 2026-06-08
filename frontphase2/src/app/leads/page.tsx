@@ -58,6 +58,7 @@ import {
   apiConvertLeadToClient,
   type BackendLead,
   type BackendUser,
+  type ConvertLeadToClientData,
 } from '../../lib/api';
 import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
@@ -1268,7 +1269,19 @@ export default function RecruitmentAgencyDashboard() {
     setStatusFilter((prev) => (prev === nextStatus ? 'All' : nextStatus));
   };
 
-  const handleConvert = async (id: string) => {
+  const handleConvert = async (
+    id: string,
+    form?: {
+      companyName: string;
+      primaryContact: string;
+      email: string;
+      phone: string;
+      industry: string;
+      companySize: string;
+      accountManager: string;
+      createJobRequirement: boolean;
+    },
+  ) => {
     try {
       const lead = leads.find(l => l.id === id);
       if (!lead) return;
@@ -1280,44 +1293,63 @@ export default function RecruitmentAgencyDashboard() {
         );
         return;
       }
-      
-      // Log the lead data being converted
-      console.log('\n=== LEAD DATA BEING CONVERTED (Frontend) ===');
-      console.log(JSON.stringify({
-        id: lead.id,
-        companyName: lead.companyName,
-        industry: lead.industry,
-        companySize: lead.companySize,
-        website: lead.website,
-        linkedIn: lead.linkedIn,
-        location: lead.location,
-        city: lead.city,
-        country: lead.country,
-        designation: lead.designation,
-        contactPerson: lead.contactPerson,
-        email: lead.email,
-        phone: lead.phone,
-        priority: lead.priority,
-      }, null, 2));
-      
-      const convertData = {
-        companyName: lead.companyName,
-        industry: lead.industry,
-        companySize: lead.companySize,
+
+      const resolvedAssignedToId =
+        (form?.accountManager
+          ? teamMembers.find((member) => member.name === form.accountManager)?.id
+          : undefined) ||
+        lead.assignedToId ||
+        lead.assignedTo?.id;
+
+      const locationParts = [lead.city, lead.state, lead.country].filter(Boolean);
+      const directorName =
+        form?.primaryContact?.trim() || lead.directorName || lead.contactPerson || '';
+      const convertData: ConvertLeadToClientData = {
+        companyName: form?.companyName?.trim() || lead.companyName,
+        industry: form?.industry || lead.industry,
+        companySize: form?.companySize || lead.companySize,
         website: lead.website,
         address: lead.location,
         linkedin: lead.linkedIn,
-        location: lead.location || lead.city || lead.country,
-        hiringLocations: lead.city && lead.country ? `${lead.city}, ${lead.country}` : lead.city || lead.country,
-        priority: lead.priority ? lead.priority.charAt(0) + lead.priority.slice(1).toLowerCase() : undefined,
+        location: lead.location || locationParts.join(', ') || undefined,
+        city: lead.city,
+        state: lead.state,
+        country: lead.country,
+        latitude: typeof lead.latitude === 'number' ? lead.latitude : undefined,
+        longitude: typeof lead.longitude === 'number' ? lead.longitude : undefined,
+        hiringLocations: locationParts.join(', ') || lead.city || lead.country,
+        priority: lead.priority
+          ? lead.priority.charAt(0) + lead.priority.slice(1).toLowerCase()
+          : undefined,
         servicesNeeded: lead.servicesNeeded || lead.interestedNeeds,
         expectedBusinessValue: lead.expectedBusinessValue || lead.notes,
+        assignedToId: resolvedAssignedToId,
+        directorSalutation: lead.directorSalutation,
+        directorName: directorName || undefined,
+        contactPerson: directorName || undefined,
+        email: form?.email?.trim() || lead.email,
+        phone: form?.phone?.trim() || lead.phone,
+        emails: lead.emails,
+        phones: lead.phones,
+        teamMemberDesignation: lead.teamMemberDesignation || null,
+        teamMemberEmail: lead.teamMemberEmail || null,
+        teamMemberPhone: lead.teamMemberPhone || null,
+        otherDetails: lead.otherDetails,
+        nextFollowUpDue: lead.nextFollowUp || null,
+        agreementsFileName: lead.agreementsFileName || null,
+        agreementsFileUrl: lead.agreementsFileUrl || null,
+        agreementsUploadedAt: lead.agreementsUploadedAt || null,
+        agreementLevel: lead.agreementLevel || null,
+        agreementServiceChargePercent: lead.agreementServiceChargePercent || null,
+        agreementContractValidity: lead.agreementContractValidity || null,
+        agreementContractStartDate: lead.agreementContractStartDate || null,
+        agreementContractEndDate: lead.agreementContractEndDate || null,
+        agreementTimePeriod: lead.agreementTimePeriod || null,
+        agreementAdvancePaymentPercent: lead.agreementAdvancePaymentPercent || null,
+        agreementFreeReplacementValue: lead.agreementFreeReplacementValue ?? null,
+        agreementFreeReplacementUnit: lead.agreementFreeReplacementUnit || null,
       };
-      
-      // Log the data being sent to backend
-      console.log('\n=== DATA BEING SENT TO BACKEND (Frontend) ===');
-      console.log(JSON.stringify(convertData, null, 2));
-      
+
       const response = await apiConvertLeadToClient(id, convertData);
       
       // Log the response

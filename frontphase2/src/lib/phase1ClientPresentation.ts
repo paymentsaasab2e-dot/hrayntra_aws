@@ -25,6 +25,7 @@ import { mapCandidateProfile } from './mapCandidateProfile';
 import {
   enrichBackendCandidateFromPhase1Snapshot,
   getPhase1ProfileSnapshot,
+  resolvePhase1PersonalInfo,
   type Phase1ProfileSnapshot,
 } from './phase1ProfileSnapshot';
 import { prepareCareerPreferencesForSave } from './normalizeCareerPreferencesRecord';
@@ -162,6 +163,7 @@ export function initPhase1EditSnapshotFromProfile(
     );
     return {
       ...cloneSnapshot(live),
+      personalInfo: resolvePhase1PersonalInfo(live, profile),
       careerPreferences: mergedCareer,
     };
   }

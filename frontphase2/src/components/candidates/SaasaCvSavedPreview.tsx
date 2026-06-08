@@ -70,7 +70,7 @@ export function SaasaCvSavedPreview({
     );
   }
 
-  const imageUrl = viewerUrl || href;
+  const imageUrl = href;
 
   return (
     <div className={shellClass} aria-label={`${candidateName} SAASA CV`}>

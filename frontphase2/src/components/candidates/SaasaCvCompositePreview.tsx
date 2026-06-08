@@ -6,7 +6,8 @@ import { ResumeWordFileViewer } from './ResumeWordFileViewer';
 import {
   buildResumeViewerUrl,
   canPreviewResumeAsHtml,
-  canPreviewResumeInline,
+  isImageResume,
+  isPdfResume,
   normalizeResumeHref,
 } from '../../lib/resumePreview';
 import type { SaasaCvAnnotation, SaasaCvCompanyLogo } from '../../lib/saasaCvAnnotations';
@@ -36,12 +37,14 @@ export function SaasaCvCompositePreview({
   minHeightClass = 'min-h-[420px]',
 }: SaasaCvCompositePreviewProps) {
   const href = useMemo(() => normalizeResumeHref(baseResumeUrl), [baseResumeUrl]);
-  const canPdf = Boolean(href && canPreviewResumeInline(href));
+  const canPdf = Boolean(href && isPdfResume(href));
+  const canImage = Boolean(href && isImageResume(href));
   const canWord = Boolean(href && canPreviewResumeAsHtml(href));
 
   const [pdfDocMeta, setPdfDocMeta] = useState<SaasaCvPdfDocumentMeta | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [wordPreviewReady, setWordPreviewReady] = useState(false);
+  const [imagePreviewReady, setImagePreviewReady] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -49,7 +52,7 @@ export function SaasaCvCompositePreview({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pdfLoadGenRef = useRef(0);
 
-  const paintSurfaceReady = Boolean(pdfDocMeta?.totalHeight) || wordPreviewReady;
+  const paintSurfaceReady = Boolean(pdfDocMeta?.totalHeight) || wordPreviewReady || imagePreviewReady;
   const docHeightPx = pdfDocMeta?.totalHeight ?? 0;
 
   const pinAnnotations = annotations.filter((a) => a.type === 'comment' || a.type === 'important');
@@ -108,6 +111,7 @@ export function SaasaCvCompositePreview({
   useEffect(() => {
     if (!enabled) return;
     setWordPreviewReady(false);
+    setImagePreviewReady(false);
   }, [enabled, href]);
 
   useEffect(() => {
@@ -218,6 +222,18 @@ export function SaasaCvCompositePreview({
               className="relative z-0"
               onReady={() => setWordPreviewReady(true)}
             />
+          ) : canImage ? (
+            <div className="relative z-0 w-full p-2 sm:p-4">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={href}
+                alt={`${candidateName} SAASA CV`}
+                crossOrigin="anonymous"
+                className="mx-auto block h-auto w-full max-w-full rounded-lg"
+                onLoad={() => setImagePreviewReady(true)}
+                onError={() => setImagePreviewReady(false)}
+              />
+            </div>
           ) : (
             <div
               className="flex items-center justify-center p-8 text-sm text-slate-500"

@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
-import { Download, Eye, FileText, X } from 'lucide-react';
+import { Download, Eye, FileText, Loader2, X } from 'lucide-react';
 import { ResumeDocxPreview } from './ResumeDocxPreview';
 import { ResumeFilePreview } from './ResumeFilePreview';
 import { SaasaCvSavedPreview } from './SaasaCvSavedPreview';
@@ -14,6 +14,7 @@ import {
   isImageResume,
   normalizeResumeHref,
 } from '../../lib/resumePreview';
+import { triggerFileDownload } from '../../utils/triggerFileDownload';
 
 interface ResumePreviewModalProps {
   isOpen: boolean;
@@ -29,6 +30,11 @@ export function ResumePreviewModal({
   candidateName = 'Candidate',
 }: ResumePreviewModalProps) {
   const [portalReady, setPortalReady] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const uploadsBase = useMemo(() => {
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1';
+    return apiBase.replace(/\/api\/v1\/?$/, '');
+  }, []);
   const href = resumeUrl ? normalizeResumeHref(resumeUrl) : '';
   const canPdf = Boolean(href && canPreviewResumeInline(href));
   const canHtml = Boolean(href && canPreviewResumeAsHtml(href));
@@ -47,6 +53,21 @@ export function ResumePreviewModal({
       document.body.style.overflow = previous;
     };
   }, [isOpen]);
+
+  const handleDownload = async () => {
+    if (!resumeUrl || downloading) return;
+    setDownloading(true);
+    try {
+      const ext = getResumeExtension(resumeUrl);
+      const base = String(candidateName || 'candidate').replace(/[\\/:*?"<>|]+/g, '_').trim() || 'candidate';
+      await triggerFileDownload(resumeUrl, {
+        uploadsBase,
+        filename: ext ? `${base}-resume.${ext}` : `${base}-resume.pdf`,
+      });
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   if (!portalReady) return null;
 
@@ -91,16 +112,15 @@ export function ResumePreviewModal({
                   <Eye size={15} />
                   Open in tab
                 </a>
-                <a
-                  href={href}
-                  target="_blank"
-                  rel="noreferrer"
-                  download
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                <button
+                  type="button"
+                  onClick={() => void handleDownload()}
+                  disabled={downloading}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
                 >
-                  <Download size={15} />
+                  {downloading ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
                   Download
-                </a>
+                </button>
                 <button
                   type="button"
                   onClick={onClose}
@@ -155,16 +175,15 @@ export function ResumePreviewModal({
                       >
                         Open Resume
                       </a>
-                      <a
-                        href={href}
-                        target="_blank"
-                        rel="noreferrer"
-                        download
-                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                      <button
+                        type="button"
+                        onClick={() => void handleDownload()}
+                        disabled={downloading}
+                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
                       >
-                        <Download size={16} />
+                        {downloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
                         Download
-                      </a>
+                      </button>
                     </div>
                   </div>
                 </div>

@@ -64,6 +64,18 @@ export function canPreviewResumeInline(resumeUrl?: string | null): boolean {
   return isExtensionlessResumeStoragePath(String(resumeUrl).trim());
 }
 
+/** True only when the resume should be rendered with PDF.js (not images / Word / plain text). */
+export function isPdfResume(resumeUrl?: string | null): boolean {
+  const trimmed = String(resumeUrl || '').trim();
+  if (!trimmed || isWordResume(trimmed) || isImageResume(trimmed) || isTextResume(trimmed)) {
+    return false;
+  }
+  const ext = getResumeExtension(trimmed);
+  if (ext === 'pdf') return true;
+  if (ext) return false;
+  return isExtensionlessResumeStoragePath(trimmed);
+}
+
 /** Which inline renderer to use in the candidate drawer Resume tab. */
 export function resolveResumePreviewKind(resumeUrl?: string | null): ResumePreviewMode {
   if (!String(resumeUrl || '').trim()) return 'none';
@@ -90,6 +102,9 @@ export function buildResumePdfProxyUrl(sourceUrl: string): string {
 }
 
 export function buildResumeViewerUrl(resumeUrl: string): string {
+  if (isImageResume(resumeUrl)) {
+    return normalizeResumeHref(resumeUrl);
+  }
   return buildResumePdfProxyUrl(resumeUrl);
 }
 

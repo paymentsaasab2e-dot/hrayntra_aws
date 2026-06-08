@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { Check, FileText } from 'lucide-react';
+import { formatDateDMY } from '../../utils/dateDisplay';
 
 export function formatResumeFileSize(bytes) {
   const n = Number(bytes);
@@ -12,9 +13,8 @@ export function formatResumeFileSize(bytes) {
 }
 
 export function formatResumeUploadDate(date = new Date()) {
-  const d = date instanceof Date ? date : new Date(date);
-  if (Number.isNaN(d.getTime())) return 'today';
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  const formatted = formatDateDMY(date);
+  return formatted || 'today';
 }
 
 /**

@@ -1,4 +1,5 @@
 import { prisma } from '../config/prisma.js';
+import { escapePrismaRegex } from '../utils/escapePrismaRegex.js';
 
 /** Active candidates only — matches Candidates list (`isDeleted: { not: true }`). */
 export const activeCandidateClause = { isDeleted: { not: true } };
@@ -62,10 +63,6 @@ export function candidateEmailsAreDuplicate(a, b) {
   return left === right;
 }
 
-function escapeReg(s) {
-  return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 function stripCopySuffix(lastName) {
   return String(lastName || '').replace(/\s+copy\s+\d+$/i, '').trim();
 }
@@ -112,7 +109,12 @@ export async function findExistingCandidateDuplicate({ email, firstName: _firstN
     where: {
       AND: [
         activeCandidateClause,
-        { email: { equals: normalizedIncoming, mode: 'insensitive' } },
+        {
+          email: {
+            equals: escapePrismaRegex(normalizedIncoming),
+            mode: 'insensitive',
+          },
+        },
       ],
     },
     select: duplicateSelect,
@@ -212,7 +214,12 @@ export async function nextCopyLastNameForBulk({
       where: {
         AND: [
           activeCandidateClause,
-          { email: { equals: normalizedEmail, mode: 'insensitive' } },
+          {
+            email: {
+              equals: escapePrismaRegex(normalizedEmail),
+              mode: 'insensitive',
+            },
+          },
         ],
       },
       select: { lastName: true },
@@ -221,15 +228,18 @@ export async function nextCopyLastNameForBulk({
   } else {
     const fn = String(firstName || '').trim();
     if (!fn) return `${base} copy 1`;
+    const escapedFirstName = escapePrismaRegex(fn);
+    const escapedBase = escapePrismaRegex(base);
+    const escapedCopyPrefix = escapePrismaRegex(`${base} copy `);
     const rows = await prisma.candidate.findMany({
       where: {
         AND: [
           activeCandidateClause,
-          { firstName: { equals: fn, mode: 'insensitive' } },
+          { firstName: { equals: escapedFirstName, mode: 'insensitive' } },
           {
             OR: [
-              { lastName: { equals: base, mode: 'insensitive' } },
-              { lastName: { startsWith: `${base} copy `, mode: 'insensitive' } },
+              { lastName: { equals: escapedBase, mode: 'insensitive' } },
+              { lastName: { startsWith: escapedCopyPrefix, mode: 'insensitive' } },
             ],
           },
         ],
@@ -288,7 +298,12 @@ export async function nextUniqueEmailVariant(email) {
       where: {
         AND: [
           activeCandidateClause,
-          { email: { equals: candidateEmail, mode: 'insensitive' } },
+          {
+            email: {
+              equals: escapePrismaRegex(candidateEmail),
+              mode: 'insensitive',
+            },
+          },
         ],
       },
       select: { id: true, email: true },
@@ -305,7 +320,12 @@ export async function nextUniqueEmailVariant(email) {
     where: {
       AND: [
         activeCandidateClause,
-        { email: { equals: stampEmail, mode: 'insensitive' } },
+        {
+          email: {
+            equals: escapePrismaRegex(stampEmail),
+            mode: 'insensitive',
+          },
+        },
       ],
     },
     select: { id: true, email: true },

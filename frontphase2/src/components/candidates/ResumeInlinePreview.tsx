@@ -1,10 +1,11 @@
 'use client';
 
-import React from 'react';
-import { Download } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { Download, Loader2 } from 'lucide-react';
 import { ResumeDocxPreview } from './ResumeDocxPreview';
 import { ResumeFilePreview } from './ResumeFilePreview';
-import { normalizeResumeHref, resolveResumePreviewKind } from '../../lib/resumePreview';
+import { getResumeExtension, normalizeResumeHref, resolveResumePreviewKind } from '../../lib/resumePreview';
+import { triggerFileDownload } from '../../utils/triggerFileDownload';
 
 interface ResumeInlinePreviewProps {
   resumeUrl: string | null | undefined;
@@ -22,8 +23,28 @@ export function ResumeInlinePreview({
   className = '',
   minHeightClass = 'min-h-[420px]',
 }: ResumeInlinePreviewProps) {
+  const [downloading, setDownloading] = useState(false);
+  const uploadsBase = useMemo(() => {
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1';
+    return apiBase.replace(/\/api\/v1\/?$/, '');
+  }, []);
   const href = resumeUrl ? normalizeResumeHref(resumeUrl) : '';
   const previewKind = href ? resolveResumePreviewKind(href) : 'none';
+
+  const handleDownload = async () => {
+    if (!resumeUrl || downloading) return;
+    setDownloading(true);
+    try {
+      const ext = getResumeExtension(resumeUrl);
+      const base = String(candidateName || 'candidate').replace(/[\\/:*?"<>|]+/g, '_').trim() || 'candidate';
+      await triggerFileDownload(resumeUrl, {
+        uploadsBase,
+        filename: ext ? `${base}-resume.${ext}` : `${base}-resume.pdf`,
+      });
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   if (!href) return null;
 
@@ -69,16 +90,15 @@ export function ResumeInlinePreview({
             >
               Open resume
             </a>
-            <a
-              href={href}
-              target="_blank"
-              rel="noreferrer"
-              download
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            <button
+              type="button"
+              onClick={() => void handleDownload()}
+              disabled={downloading}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
             >
-              <Download size={16} />
+              {downloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
               Download
-            </a>
+            </button>
           </div>
         </div>
       </div>

@@ -29,6 +29,7 @@ import {
   apiUpdateJob,
   apiGetJob,
   apiGetClients,
+  apiGetClient,
   apiGetContacts,
   apiGenerateJobDescription,
   apiProcessJobCreationPipeline,
@@ -44,6 +45,7 @@ import {
   getTenantDbName,
   type CreateJobData,
   type BackendClient,
+  type BackendContact,
   type BackendUser,
 } from '../../lib/api';
 import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
@@ -70,6 +72,10 @@ import {
   normalizeApplicationFormSchema,
   type ApplicationFormSchema,
 } from '../../lib/applicationFormTypes';
+import {
+  buildJobContactPersonOptions,
+  type JobContactPersonOption,
+} from '../../lib/jobClientContacts';
 
 type ApplicationLogoOption = 'account' | 'company' | 'none' | 'custom';
 
@@ -537,6 +543,12 @@ interface AccordionSection {
   isOpen: boolean;
 }
 
+const DEFAULT_JOB_DRAWER_ACCORDIONS: AccordionSection[] = [
+  { id: 'details', label: 'Job Details', isOpen: false },
+  { id: 'application', label: 'Job Application Form', isOpen: false },
+  { id: 'publish', label: 'Publish & Share', isOpen: false },
+];
+
 interface AiDescriptionSection {
   heading: string;
   paragraphs: string[];
@@ -577,7 +589,7 @@ export function CreateJobDrawer({
   const [loadingClients, setLoadingClients] = useState(false);
   const [users, setUsers] = useState<BackendUser[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
-  const [contacts, setContacts] = useState<{ id: string; name: string }[]>([]);
+  const [contacts, setContacts] = useState<JobContactPersonOption[]>([]);
   const [loadingContacts, setLoadingContacts] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
   const [showAiPromptBox, setShowAiPromptBox] = useState(false);
@@ -639,11 +651,7 @@ export function CreateJobDrawer({
   const linkedIn = useLinkedIn();
 
   // Accordion state
-  const [accordions, setAccordions] = useState<AccordionSection[]>([
-    { id: 'details', label: 'Job Details', isOpen: true },
-    { id: 'application', label: 'Job Application Form', isOpen: false },
-    { id: 'publish', label: 'Publish & Share', isOpen: false },
-  ]);
+  const [accordions, setAccordions] = useState<AccordionSection[]>(DEFAULT_JOB_DRAWER_ACCORDIONS);
 
   // Form state - Section 1: Job Details
   const [formData, setFormData] = useState({
@@ -765,6 +773,13 @@ export function CreateJobDrawer({
     applicationQuestions: false,
   });
 
+  // Collapse accordion sections whenever the drawer opens
+  useEffect(() => {
+    if (isOpen) {
+      setAccordions(DEFAULT_JOB_DRAWER_ACCORDIONS);
+    }
+  }, [isOpen]);
+
   // Reset form when switching between add and edit modes
   useEffect(() => {
     if (!isOpen) {
@@ -883,6 +898,7 @@ export function CreateJobDrawer({
       setDisconnectingLinkedInId(null);
       setDisconnectingTwitterId(null);
       setConnectingLinkedIn(false);
+      setAccordions(DEFAULT_JOB_DRAWER_ACCORDIONS);
     }
   }, [isOpen]);
 
@@ -904,22 +920,24 @@ export function CreateJobDrawer({
     const loadContacts = async () => {
       try {
         setLoadingContacts(true);
-        const response = await apiGetContacts({ clientId: formData.companyId });
-        const raw = (response as { data?: unknown }).data;
+        const clientId = formData.companyId;
+        const [contactsResponse, clientResponse] = await Promise.all([
+          apiGetContacts({ clientId, type: 'CLIENT' }),
+          apiGetClient(clientId).catch(() => null),
+        ]);
+        const raw = (contactsResponse as { data?: unknown }).data;
         const list = Array.isArray(raw)
           ? raw
           : raw && typeof raw === 'object' && Array.isArray((raw as { data?: unknown }).data)
             ? (raw as { data: unknown[] }).data
             : [];
         if (cancelled) return;
+        const client =
+          clientResponse && typeof clientResponse === 'object' && 'id' in clientResponse
+            ? (clientResponse as BackendClient)
+            : null;
         setContacts(
-          list.map((item: { id?: string; firstName?: string; lastName?: string; name?: string }) => {
-            const name =
-              [item.firstName, item.lastName].filter(Boolean).join(' ').trim() ||
-              String(item.name || '').trim() ||
-              'Contact';
-            return { id: String(item.id || ''), name };
-          }).filter((c) => c.id)
+          buildJobContactPersonOptions(list as BackendContact[], client),
         );
       } catch {
         if (!cancelled) setContacts([]);

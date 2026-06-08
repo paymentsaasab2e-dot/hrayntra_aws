@@ -17,6 +17,7 @@ import {
   batchHydrateCandidatesResumeFromPortal,
 } from '../../utils/candidateResumeHydrate.util.js';
 import { persistCandidateCvProfileToTenant } from '../../utils/candidateCvPersist.util.js';
+import { hydratePhase1SnapshotPersonalInfoFromPortal } from '../../utils/phase1SnapshotHydrate.util.js';
 import {
   USER_BRIEF_SELECT,
   prepareListWithAuditMeta,
@@ -1927,6 +1928,7 @@ async function hydrateCandidateResumeFromPortal(candidate, portalClient) {
 
 async function hydrateAndPersistCandidateCvProfile(candidate, portalClient) {
   if (!candidate) return candidate;
+  await hydratePhase1SnapshotPersonalInfoFromPortal(candidate, portalClient);
   await hydrateCandidateResumeFromPortal(candidate, portalClient);
   try {
     await persistCandidateCvProfileToTenant(candidate);

@@ -32,6 +32,11 @@ import {
   appendClientPriorityOption,
   removeClientPriorityOption,
   DEFAULT_CLIENT_PRIORITY_OPTIONS,
+  getOrgCustomAgreementLevelOptions,
+  getAgreementLevelOptions,
+  appendAgreementLevelOption,
+  removeAgreementLevelOption,
+  DEFAULT_AGREEMENT_LEVEL_OPTIONS,
   DEFAULT_COMPANY_SERVICES,
   RECOMMENDED_COMPANY_SERVICES,
   SUBSCRIPTION_PLAN_OPTIONS,
@@ -40,6 +45,7 @@ import {
 } from './recruitmentMode.service.js';
 import { suggestCompanyServicesOptions } from './companyServicesSuggest.service.js';
 import { suggestIndustryOptions } from './industrySuggest.service.js';
+import { suggestLanguageOptions, suggestProficiencyOptions } from './languageSuggest.service.js';
 import { hasLlmProvider } from '../../services/llmChatFallback.service.js';
 
 const router = express.Router();
@@ -216,6 +222,42 @@ router.get('/industries/suggest', async (req, res) => {
   }
 });
 
+router.get('/languages/suggest', async (req, res) => {
+  try {
+    const query = String(req.query?.q ?? req.query?.query ?? '').trim();
+    const jobTitle = String(req.query?.jobTitle ?? req.query?.title ?? '').trim();
+    const limit = Math.min(Math.max(parseInt(String(req.query?.limit || '8'), 10) || 8, 1), 12);
+    const selectedRaw = req.query?.selected ?? req.query?.exclude ?? '';
+    const selected = String(selectedRaw)
+      .split(/[;,]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const result = await suggestLanguageOptions({ query, selected, limit, jobTitle });
+    sendResponse(res, 200, 'OK', result);
+  } catch (error) {
+    sendError(res, 500, error.message || 'Failed to suggest languages', error);
+  }
+});
+
+router.get('/proficiencies/suggest', async (req, res) => {
+  try {
+    const query = String(req.query?.q ?? req.query?.query ?? '').trim();
+    const language = String(req.query?.language ?? req.query?.lang ?? '').trim();
+    const limit = Math.min(Math.max(parseInt(String(req.query?.limit || '8'), 10) || 8, 1), 12);
+    const selectedRaw = req.query?.selected ?? req.query?.exclude ?? '';
+    const selected = String(selectedRaw)
+      .split(/[;,]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const result = await suggestProficiencyOptions({ query, selected, limit, language });
+    sendResponse(res, 200, 'OK', result);
+  } catch (error) {
+    sendError(res, 500, error.message || 'Failed to suggest proficiencies', error);
+  }
+});
+
 router.get('/company-services/suggest', async (req, res) => {
   try {
     const query = String(req.query?.q ?? req.query?.query ?? '').trim();
@@ -377,6 +419,46 @@ router.post('/client-priorities/remove', async (req, res) => {
     });
   } catch (error) {
     sendError(res, 400, error.message || 'Failed to remove interest level', error);
+  }
+});
+
+router.get('/agreement-levels', async (req, res) => {
+  try {
+    const custom = await getOrgCustomAgreementLevelOptions();
+    const levels = await getAgreementLevelOptions();
+    sendResponse(res, 200, 'OK', {
+      statuses: levels,
+      custom,
+      defaults: DEFAULT_AGREEMENT_LEVEL_OPTIONS,
+    });
+  } catch (error) {
+    sendError(res, 500, error.message || 'Failed to load agreement levels', error);
+  }
+});
+
+router.post('/agreement-levels/append', async (req, res) => {
+  try {
+    const level = req.body?.level ?? req.body?.status ?? req.body?.name ?? req.body;
+    const levels = await appendAgreementLevelOption(level);
+    sendResponse(res, 200, 'Agreement level added', {
+      statuses: levels,
+      defaults: DEFAULT_AGREEMENT_LEVEL_OPTIONS,
+    });
+  } catch (error) {
+    sendError(res, 400, error.message || 'Failed to add agreement level', error);
+  }
+});
+
+router.post('/agreement-levels/remove', async (req, res) => {
+  try {
+    const level = req.body?.level ?? req.body?.status ?? req.body?.name ?? req.body;
+    const levels = await removeAgreementLevelOption(level);
+    sendResponse(res, 200, 'Agreement level removed', {
+      statuses: levels,
+      defaults: DEFAULT_AGREEMENT_LEVEL_OPTIONS,
+    });
+  } catch (error) {
+    sendError(res, 400, error.message || 'Failed to remove agreement level', error);
   }
 });
 

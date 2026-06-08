@@ -9,7 +9,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { BulkCvLeaveConfirmModal } from '../components/candidates/BulkCvLeaveConfirmModal';
+import { requestConfirm } from '../lib/appDialog';
 
 type BulkCvGuardProgress = { current: number; total: number };
 
@@ -44,43 +44,59 @@ function isSamePageNavigation(href: string): boolean {
   }
 }
 
+function buildBulkCvLeaveMessage(
+  leaveActionLabel: string,
+  progress: BulkCvGuardProgress,
+): string {
+  const progressLine =
+    progress.total > 0
+      ? `\n\nProcessed ${progress.current} of ${progress.total} so far.`
+      : '';
+  return `CVs are still being parsed and saved. If you ${leaveActionLabel} now, parsing will stop and remaining files may not be processed.${progressLine}`;
+}
+
 export function BulkCvLeaveGuardProvider({ children }: { children: React.ReactNode }) {
   const [registration, setRegistration] = useState<BulkCvGuardRegistration | null>(null);
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [leaveActionLabel, setLeaveActionLabel] = useState('leave');
-  const leaveIntentRef = useRef<LeaveIntent | null>(null);
+  const registrationRef = useRef<BulkCvGuardRegistration | null>(null);
   const onStopRef = useRef<(() => void) | null>(null);
   const historyTrapRef = useRef(false);
+  const leaveConfirmInFlightRef = useRef(false);
 
   useEffect(() => {
-    onStopRef.current = registration?.onStop ?? null;
-  }, [registration?.onStop]);
+    onStopRef.current = registrationRef.current?.onStop ?? null;
+  }, [registration?.onStop, registration?.active]);
 
   const register = useCallback((next: BulkCvGuardRegistration | null) => {
+    registrationRef.current = next;
     setRegistration(next);
   }, []);
 
   const requestLeave = useCallback((intent: LeaveIntent) => {
-    if (!registration?.active) {
+    const activeRegistration = registrationRef.current;
+    if (!activeRegistration?.active) {
       intent.onConfirmed();
       return;
     }
-    leaveIntentRef.current = intent;
-    setLeaveActionLabel(intent.leaveActionLabel);
-    setConfirmOpen(true);
-  }, [registration?.active]);
+    if (leaveConfirmInFlightRef.current) return;
 
-  const handleStay = useCallback(() => {
-    leaveIntentRef.current = null;
-    setConfirmOpen(false);
-  }, []);
+    leaveConfirmInFlightRef.current = true;
+    const { progress } = activeRegistration;
 
-  const handleStopAndLeave = useCallback(() => {
-    const intent = leaveIntentRef.current;
-    leaveIntentRef.current = null;
-    setConfirmOpen(false);
-    onStopRef.current?.();
-    intent?.onConfirmed?.();
+    void requestConfirm(
+      buildBulkCvLeaveMessage(intent.leaveActionLabel, progress),
+      {
+        title: 'Bulk CV parsing in progress',
+        tone: 'warning',
+        confirmLabel: `Yes — stop & ${intent.leaveActionLabel}`,
+        cancelLabel: 'No — keep parsing',
+      },
+    ).then((confirmed) => {
+      leaveConfirmInFlightRef.current = false;
+      if (confirmed) {
+        onStopRef.current?.();
+        intent.onConfirmed();
+      }
+    });
   }, []);
 
   const isActive = Boolean(registration?.active);
@@ -101,7 +117,7 @@ export function BulkCvLeaveGuardProvider({ children }: { children: React.ReactNo
     if (!isActive || typeof window === 'undefined') return;
 
     const onDocumentClick = (event: MouseEvent) => {
-      if (confirmOpen) return;
+      if (leaveConfirmInFlightRef.current) return;
       const target = event.target;
       if (!(target instanceof Element)) return;
       const anchor = target.closest('a[href]');
@@ -130,7 +146,7 @@ export function BulkCvLeaveGuardProvider({ children }: { children: React.ReactNo
 
     document.addEventListener('click', onDocumentClick, true);
     return () => document.removeEventListener('click', onDocumentClick, true);
-  }, [confirmOpen, isActive, requestLeave]);
+  }, [isActive, requestLeave]);
 
   useEffect(() => {
     if (!isActive || typeof window === 'undefined') return;
@@ -146,7 +162,7 @@ export function BulkCvLeaveGuardProvider({ children }: { children: React.ReactNo
 
     const onPopState = () => {
       trap();
-      if (confirmOpen) return;
+      if (leaveConfirmInFlightRef.current) return;
       requestLeave({
         leaveActionLabel: 'go back',
         onConfirmed: () => {
@@ -163,21 +179,13 @@ export function BulkCvLeaveGuardProvider({ children }: { children: React.ReactNo
         historyTrapRef.current = false;
       }
     };
-  }, [confirmOpen, isActive, requestLeave]);
+  }, [isActive, requestLeave]);
 
   const value = useMemo(() => ({ register, requestLeave }), [register, requestLeave]);
 
   return (
     <BulkCvLeaveGuardContext.Provider value={value}>
       {children}
-      <BulkCvLeaveConfirmModal
-        open={confirmOpen && isActive}
-        processed={registration?.progress.current ?? 0}
-        total={registration?.progress.total ?? 0}
-        leaveActionLabel={leaveActionLabel}
-        onStay={handleStay}
-        onStopAndLeave={handleStopAndLeave}
-      />
     </BulkCvLeaveGuardContext.Provider>
   );
 }
@@ -200,17 +208,27 @@ export function useBulkCvLeaveGuardRegistration(
   enabled = true
 ) {
   const ctx = useBulkCvLeaveGuardOptional();
+  const registrationRef = useRef(registration);
+  registrationRef.current = registration;
 
   useEffect(() => {
     if (!ctx || !enabled) return;
-    ctx.register(registration);
+    if (!registration?.active) {
+      ctx.register(null);
+      return () => ctx.register(null);
+    }
+    ctx.register(registrationRef.current);
     return () => ctx.register(null);
+  }, [ctx, enabled, registration?.active]);
+
+  useEffect(() => {
+    if (!ctx || !enabled || !registration?.active) return;
+    ctx.register(registrationRef.current);
   }, [
     ctx,
     enabled,
     registration?.active,
     registration?.progress.current,
     registration?.progress.total,
-    registration?.onStop,
   ]);
 }

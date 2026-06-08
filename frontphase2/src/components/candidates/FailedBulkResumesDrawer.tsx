@@ -13,6 +13,7 @@ import {
 import { RECYCLE_BIN_SYNC_EVENT } from '@/constants/recycleBin';
 import { requestConfirm } from '@/lib/appDialog';
 import { BULK_CV_ACCEPT_INPUT } from '@/lib/bulkCvFileTypes';
+import { formatDateTimeDMY } from '@/utils/dateDisplay';
 
 type Props = {
   isOpen: boolean;
@@ -220,7 +221,7 @@ export default function FailedBulkResumesDrawer({ isOpen, onClose, onReupload }:
                           </div>
                           <p className="mt-1 text-xs text-red-800/90">{row.reason}</p>
                           <p className="mt-1 text-[10px] text-slate-400">
-                            {new Date(row.failedAt).toLocaleString()}
+                            {formatDateTimeDMY(row.failedAt)}
                           </p>
                           <div className="mt-3 flex flex-wrap gap-2">
                             <button

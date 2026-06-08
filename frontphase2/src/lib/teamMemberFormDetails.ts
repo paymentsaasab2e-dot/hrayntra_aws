@@ -109,7 +109,7 @@ export function parseTeamMemberFromOtherDetails(
   };
 }
 
-function parseTeamMemberListFromOtherDetails(
+export function teamMembersFromOtherDetails(
   otherDetails?: Array<{ label: string; value: string }> | null,
 ): TeamMemberListItem[] {
   const grouped = new Map<number, TeamMemberListItem>();
@@ -150,7 +150,7 @@ export function resolveTeamMemberList(source?: {
   teamMemberPhone?: string | null;
   otherDetails?: Array<{ label: string; value: string }> | null;
 } | null): TeamMemberListItem[] {
-  const numbered = parseTeamMemberListFromOtherDetails(source?.otherDetails);
+  const numbered = teamMembersFromOtherDetails(source?.otherDetails);
   if (numbered.length > 0) {
     return normalizeTeamMemberList(numbered);
   }
@@ -223,7 +223,8 @@ export function teamMemberPayloadFromForm(member: TeamMemberFormValues) {
       teamMemberPhone: null,
     };
   }
-  const name = String(member.teamMemberName ?? member.teamMemberDesignation ?? '').trim();
+  const name = String(member.teamMemberName ?? '').trim()
+    || String(member.teamMemberDesignation ?? '').trim();
   return {
     teamMemberDesignation: name || null,
     teamMemberEmail: member.teamMemberEmail?.trim() || null,
@@ -239,4 +240,57 @@ export function teamMemberHasAnyValue(member: TeamMemberFormValues): boolean {
       String(member.teamMemberEmail ?? '').trim() ||
       String(member.teamMemberPhone ?? '').trim(),
   );
+}
+
+function normalizeTeamMemberEmail(email?: string | null): string {
+  return String(email || '').trim().toLowerCase();
+}
+
+/** Merge contact-backed rows with numbered otherDetails rows (names from drawer save). */
+export function mergeTeamMembersWithContacts(
+  fromContacts: TeamMemberListItem[],
+  fromStored: TeamMemberListItem[],
+): TeamMemberListItem[] {
+  if (!fromContacts.length) {
+    return normalizeTeamMemberList(fromStored);
+  }
+  if (!fromStored.length) {
+    return normalizeTeamMemberList(fromContacts);
+  }
+
+  const usedStored = new Set<number>();
+  const merged: TeamMemberListItem[] = [];
+
+  for (const contact of fromContacts) {
+    const contactEmail = normalizeTeamMemberEmail(contact.teamMemberEmail);
+    const storedIdx = fromStored.findIndex(
+      (stored, idx) =>
+        !usedStored.has(idx) &&
+        contactEmail &&
+        normalizeTeamMemberEmail(stored.teamMemberEmail) === contactEmail,
+    );
+    const stored = storedIdx >= 0 ? fromStored[storedIdx] : undefined;
+    if (storedIdx >= 0) usedStored.add(storedIdx);
+
+    const storedName = String(stored?.teamMemberName ?? '').trim();
+    const contactName = String(contact.teamMemberName ?? '').trim();
+    const resolvedName = storedName || contactName;
+
+    merged.push({
+      id: contact.id,
+      teamMemberSalutation: stored?.teamMemberSalutation || contact.teamMemberSalutation || '',
+      teamMemberName: resolvedName,
+      teamMemberDesignation: resolvedName || stored?.teamMemberDesignation || contact.teamMemberDesignation || '',
+      teamMemberEmail: contact.teamMemberEmail || stored?.teamMemberEmail || '',
+      teamMemberPhone: contact.teamMemberPhone || stored?.teamMemberPhone || '',
+    });
+  }
+
+  fromStored.forEach((stored, idx) => {
+    if (!usedStored.has(idx) && teamMemberHasAnyValue(stored)) {
+      merged.push(stored);
+    }
+  });
+
+  return normalizeTeamMemberList(merged);
 }

@@ -12,6 +12,7 @@ import {
 import { parseWorkExperienceEditorValue } from '@/lib/candidateExperience';
 import type { CandidateProfileDrawerData } from '../drawers/candidateProfileDrawerData';
 import { CandidatePhotoUpload } from './AddCandidateFormSections';
+import { isoToDMYDate, parseDMYToYMD } from '@/utils/formatLeadDateTime';
 
 export type CandidateEditFormState = {
   firstName: string;
@@ -285,7 +286,7 @@ export function buildCandidateEditForm(candidate: CandidateProfileDrawerData): C
     nationality: str(personal.nationality),
     currentCompanyWebsite: str(personal.currentCompanyWebsite),
     maritalStatus: str(personal.maritalStatus),
-    birthDate: str(personal.birthDate),
+    birthDate: isoToDMYDate(str(personal.birthDate)) || str(personal.birthDate),
     passportNumber: str(personal.passportNumber),
     educationCourses:
       joinSemicolonList(educationPipe.courses) || joinSemicolonList(extra.courses),
@@ -446,7 +447,8 @@ export function buildExtraDataFromEditForm(
         nationality: editForm.nationality.trim() || null,
         currentCompanyWebsite: editForm.currentCompanyWebsite.trim() || null,
         maritalStatus: editForm.maritalStatus.trim() || null,
-        birthDate: editForm.birthDate.trim() || null,
+        birthDate:
+          parseDMYToYMD(editForm.birthDate.trim()) || editForm.birthDate.trim() || null,
         passportNumber: editForm.passportNumber.trim() || null,
       },
       education: {

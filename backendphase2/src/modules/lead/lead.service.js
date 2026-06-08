@@ -16,6 +16,11 @@ import {
 } from '../../utils/agreementTermsFields.js';
 import { prepareListWithAuditMeta, attachAuditMetaToEntity } from '../../utils/listAuditMeta.js';
 import { ENTITY_TYPES } from '../../services/activityService.js';
+import {
+  mergeDirectorIntoOtherDetails,
+  resolveDirectorNameFromLeadContext,
+  resolveDirectorSalutationFromLeadContext,
+} from '../../utils/directorOtherDetails.js';
 
 function isValidObjectId(value) {
   return typeof value === 'string' && /^[a-fA-F0-9]{24}$/.test(value.trim());
@@ -1027,6 +1032,25 @@ export const leadService = {
           (data.expectedBusinessValue !== undefined ? data.expectedBusinessValue : null) ||
           currentLead.expectedBusinessValue ||
           currentLead.notes,
+        directorName:
+          data.directorName !== undefined ? data.directorName : currentLead.directorName,
+        contactPerson:
+          data.contactPerson !== undefined ? data.contactPerson : currentLead.contactPerson,
+        directorSalutation:
+          data.directorSalutation !== undefined ? data.directorSalutation : currentLead.directorSalutation,
+        email: data.email !== undefined ? data.email : currentLead.email,
+        phone: data.phone !== undefined ? data.phone : currentLead.phone,
+        emails: data.emails !== undefined ? data.emails : currentLead.emails,
+        phones: data.phones !== undefined ? data.phones : currentLead.phones,
+        otherDetails: data.otherDetails !== undefined ? data.otherDetails : currentLead.otherDetails,
+        teamMemberDesignation:
+          data.teamMemberDesignation !== undefined
+            ? data.teamMemberDesignation
+            : currentLead.teamMemberDesignation,
+        teamMemberEmail:
+          data.teamMemberEmail !== undefined ? data.teamMemberEmail : currentLead.teamMemberEmail,
+        teamMemberPhone:
+          data.teamMemberPhone !== undefined ? data.teamMemberPhone : currentLead.teamMemberPhone,
       });
       delete updateData.status;
       delete updateData.convertedToClientId;
@@ -1309,6 +1333,34 @@ export const leadService = {
         ? clientData.logo.trim()
         : this.inferLogoUrlFromLeadFiles(lead.files || []);
 
+    const contactChannels = normalizeContactChannels({
+      email: clientData.email || lead.email,
+      phone: clientData.phone || lead.phone,
+      emails: clientData.emails || lead.emails,
+      phones: clientData.phones || lead.phones,
+    });
+
+    const agreementSource = { ...lead, ...clientData };
+    const locationParts = [
+      clientData.city || lead.city,
+      clientData.state || lead.state,
+      clientData.country || lead.country,
+    ].filter(Boolean);
+
+    const directorName = resolveDirectorNameFromLeadContext(clientData, lead);
+    const directorSalutation = resolveDirectorSalutationFromLeadContext(clientData, lead);
+    const mergedOtherDetails = mergeDirectorIntoOtherDetails(
+      Array.isArray(clientData.otherDetails)
+        ? clientData.otherDetails
+        : Array.isArray(lead.otherDetails)
+          ? lead.otherDetails
+          : [],
+      {
+        directorSalutation,
+        directorName,
+      },
+    );
+
     const clientCreateData = {
       companyName: String(clientData.companyName || lead.companyName || lead.contactPerson || 'Client').trim() || 'Client',
       industry: clientData.industry || lead.industry,
@@ -1318,22 +1370,57 @@ export const leadService = {
       leadStatus: 'Active',
       assignedToId: resolvedAssignedToId,
       createdById: clientData.performedById || null,
-      location: clientData.location || lead.location || lead.city || lead.country || null,
-      address: clientData.address || lead.location || (lead.city && lead.country ? `${lead.city}, ${lead.country}` : lead.city || lead.country || null),
+      location:
+        clientData.location ||
+        lead.location ||
+        locationParts.join(', ') ||
+        lead.city ||
+        lead.country ||
+        null,
+      address:
+        clientData.address ||
+        lead.location ||
+        (lead.city && lead.country ? `${lead.city}, ${lead.country}` : lead.city || lead.country || null),
       companySize: clientData.companySize || lead.teamName || lead.companySize || null,
       teamMemberDesignation:
         clientData.teamMemberDesignation || lead.teamMemberDesignation || null,
       teamMemberEmail: clientData.teamMemberEmail || lead.teamMemberEmail || null,
       teamMemberPhone: clientData.teamMemberPhone || lead.teamMemberPhone || null,
-      linkedin: clientData.linkedin || lead.linkedIn || null, // Map linkedIn to linkedin
-      hiringLocations: clientData.hiringLocations || (lead.city && lead.country ? `${lead.city}, ${lead.country}` : lead.city || lead.country || null),
+      linkedin: clientData.linkedin || lead.linkedIn || null,
+      hiringLocations:
+        clientData.hiringLocations ||
+        (locationParts.length ? locationParts.join(', ') : lead.city || lead.country || null),
       timezone: clientData.timezone || null,
-      clientSince: new Date(), // Set to conversion date
-      priority: clientData.priority || (lead.priority ? lead.priority.charAt(0) + lead.priority.slice(1).toLowerCase() : null), // Convert enum to string
+      clientSince: new Date(),
+      priority:
+        clientData.priority ||
+        (lead.priority ? lead.priority.charAt(0) + lead.priority.slice(1).toLowerCase() : null),
       servicesNeeded: clientData.servicesNeeded || lead.servicesNeeded || lead.interestedNeeds || null,
-      expectedBusinessValue: clientData.expectedBusinessValue || lead.expectedBusinessValue || lead.notes || null,
+      expectedBusinessValue:
+        clientData.expectedBusinessValue || lead.expectedBusinessValue || lead.notes || null,
       sla: clientData.sla || null,
-      nextFollowUpDue: lead.nextFollowUp || null,
+      nextFollowUpDue: clientData.nextFollowUpDue
+        ? new Date(clientData.nextFollowUpDue)
+        : lead.nextFollowUp || null,
+      city: clientData.city || lead.city || null,
+      state: clientData.state || lead.state || null,
+      country: clientData.country || lead.country || null,
+      latitude: Number.isFinite(Number(clientData.latitude ?? lead.latitude))
+        ? Number(clientData.latitude ?? lead.latitude)
+        : undefined,
+      longitude: Number.isFinite(Number(clientData.longitude ?? lead.longitude))
+        ? Number(clientData.longitude ?? lead.longitude)
+        : undefined,
+      directorSalutation: directorSalutation || null,
+      emails: contactChannels.emails,
+      phones: contactChannels.phones,
+      otherDetails: mergedOtherDetails,
+      agreementsFileName: clientData.agreementsFileName || lead.agreementsFileName || null,
+      agreementsFileUrl: clientData.agreementsFileUrl || lead.agreementsFileUrl || null,
+      agreementsUploadedAt: clientData.agreementsUploadedAt
+        ? new Date(clientData.agreementsUploadedAt)
+        : lead.agreementsUploadedAt || null,
+      ...buildAgreementTermsCreateFields(agreementSource),
     };
 
     // Log the client data being created
@@ -1371,27 +1458,37 @@ export const leadService = {
       },
     });
 
-    // Create a Contact record from the lead's contact person data
-    if (lead.contactPerson && lead.email) {
+    // Create a primary director Contact so the client drawer can show the director name.
+    const contactPersonName = directorName;
+    const contactEmail = String(clientData.email || lead.email || '').trim().toLowerCase();
+    const contactPhone = clientData.phone || lead.phone || null;
+
+    if (contactPersonName) {
       try {
-        const nameParts = lead.contactPerson.trim().split(' ');
-        const firstName = nameParts[0] || lead.contactPerson;
+        const nameParts = contactPersonName.split(/\s+/).filter(Boolean);
+        const firstName = nameParts[0] || contactPersonName;
         const lastName = nameParts.slice(1).join(' ') || '';
-        
+        const resolvedEmail =
+          contactEmail || `client-${client.id}-director@placeholder.local`;
+
         await prisma.contact.create({
           data: {
-            salutation: lead.directorSalutation ? String(lead.directorSalutation).trim() || null : null,
-            firstName: firstName,
-            lastName: lastName,
-            email: lead.email.toLowerCase().trim(),
-            phone: lead.phone || null,
+            salutation: directorSalutation || null,
+            firstName,
+            lastName,
+            email: resolvedEmail,
+            phone: contactPhone,
             companyId: client.id,
-            designation: lead.designation || null,
-            location: lead.city && lead.country ? `${lead.city}, ${lead.country}` : lead.city || lead.country || lead.location || null,
+            designation: 'Director',
+            location:
+              locationParts.length
+                ? locationParts.join(', ')
+                : lead.city || lead.country || lead.location || null,
             linkedinUrl: lead.linkedIn || null,
             contactType: 'CLIENT',
             status: 'ACTIVE',
             ownerId: resolvedAssignedToId || null,
+            isPrimary: true,
           },
         });
       } catch (error) {

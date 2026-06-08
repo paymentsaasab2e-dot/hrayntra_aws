@@ -17,6 +17,7 @@ import {
   type CvParseRoute,
 } from '@/lib/bulkCvTokensStore';
 import { requestConfirm } from '@/lib/appDialog';
+import { formatDateTimeDMY } from '@/utils/dateDisplay';
 
 type Props = {
   isOpen: boolean;
@@ -263,7 +264,7 @@ export default function BulkCvTokensDrawer({ isOpen, onClose }: Props) {
                 : ' · no billable LLM usage yet'}
               {routeCounts.unparsedCount > 0 ? ` · ${routeCounts.unparsedCount} failed before parse` : ''}
               {' · started '}
-              {new Date(session.startedAt).toLocaleString()}
+              {formatDateTimeDMY(session.startedAt)}
             </p>
           ) : null}
         </div>

@@ -57,14 +57,14 @@ export function BulkCvLeaveConfirmModal({
             onClick={onStay}
             className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
-            Keep parsing
+            No — keep parsing
           </button>
           <button
             type="button"
             onClick={onStopAndLeave}
             className="rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-red-700"
           >
-            Stop parsing &amp; {leaveActionLabel}
+            Yes — stop &amp; {leaveActionLabel}
           </button>
         </div>
       </div>

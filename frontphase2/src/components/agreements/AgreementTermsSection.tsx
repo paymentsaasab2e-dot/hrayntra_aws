@@ -1,12 +1,28 @@
 'use client';
 
 import React from 'react';
+import { Plus } from 'lucide-react';
 import {
   AGREEMENT_LEVEL_OPTIONS,
   AGREEMENT_REPLACEMENT_UNIT_OPTIONS,
   DEFAULT_AGREEMENT_PAYMENT_TERMS,
   type AgreementTermsFormValues,
 } from '../../lib/agreementTerms';
+import { CatalogOptionDropdown } from '../forms/CatalogOptionDropdown';
+
+export type AgreementLevelCatalogProps = {
+  options: string[];
+  defaultOptions: readonly string[];
+  deleting?: boolean;
+  saving?: boolean;
+  showAddInput: boolean;
+  newValue: string;
+  onToggleAddInput: () => void;
+  onNewValueChange: (value: string) => void;
+  onAdd: () => void;
+  onCancelAdd: () => void;
+  onDelete: (level: string) => void;
+};
 
 type Props = {
   values: AgreementTermsFormValues;
@@ -17,6 +33,8 @@ type Props = {
   showContractValidity?: boolean;
   /** Hide when the parent drawer already renders a section header (e.g. collapsible). */
   showTitle?: boolean;
+  /** When provided, Level uses the same add/delete catalog dropdown as client Status. */
+  levelCatalog?: AgreementLevelCatalogProps;
 };
 
 const labelClass = 'block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1';
@@ -31,6 +49,7 @@ export function AgreementTermsSection({
   readOnly = false,
   showContractValidity = false,
   showTitle = true,
+  levelCatalog,
 }: Props) {
   const locked = disabled || readOnly;
 
@@ -49,20 +68,71 @@ export function AgreementTermsSection({
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
-          <label className={labelClass}>Level</label>
-          <select
-            value={values.agreementLevel}
-            onChange={(e) => onChange({ agreementLevel: e.target.value })}
-            disabled={locked}
-            className={inputClass}
-          >
-            <option value="">Select level</option>
-            {AGREEMENT_LEVEL_OPTIONS.map((level) => (
-              <option key={level} value={level}>
-                {level}
-              </option>
-            ))}
-          </select>
+          <div className="mb-1 flex items-center justify-between gap-3">
+            <label className={labelClass}>Level</label>
+            {levelCatalog && !locked ? (
+              <button
+                type="button"
+                onClick={levelCatalog.onToggleAddInput}
+                className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add level
+              </button>
+            ) : null}
+          </div>
+          {levelCatalog ? (
+            <>
+              <CatalogOptionDropdown
+                value={values.agreementLevel}
+                options={levelCatalog.options}
+                defaultOptions={levelCatalog.defaultOptions}
+                deleting={levelCatalog.deleting}
+                placeholder="Select level"
+                onSelect={(level) => onChange({ agreementLevel: level })}
+                onDelete={locked ? undefined : levelCatalog.onDelete}
+              />
+              {levelCatalog.showAddInput ? (
+                <div className="mt-2 flex items-center gap-2">
+                  <input
+                    value={levelCatalog.newValue}
+                    onChange={(e) => levelCatalog.onNewValueChange(e.target.value)}
+                    className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    placeholder="Enter new level"
+                  />
+                  <button
+                    type="button"
+                    onClick={levelCatalog.onAdd}
+                    disabled={levelCatalog.saving}
+                    className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {levelCatalog.saving ? 'Adding...' : 'Add'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={levelCatalog.onCancelAdd}
+                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <select
+              value={values.agreementLevel}
+              onChange={(e) => onChange({ agreementLevel: e.target.value })}
+              disabled={locked}
+              className={inputClass}
+            >
+              <option value="">Select level</option>
+              {AGREEMENT_LEVEL_OPTIONS.map((level) => (
+                <option key={level} value={level}>
+                  {level}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
         <div>

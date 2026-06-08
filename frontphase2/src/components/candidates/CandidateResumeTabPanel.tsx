@@ -26,7 +26,8 @@ import {
   type SaasaCvFileRef,
 } from '../../lib/saasaCvAnnotations';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
-import { isResumeHttpUrl, normalizeResumeHref } from '../../lib/resumePreview';
+import { getResumeExtension, isResumeHttpUrl, normalizeResumeHref } from '../../lib/resumePreview';
+import { triggerFileDownload } from '../../utils/triggerFileDownload';
 
 export interface CandidateResumeCvEditorApi {
   backendCandidate: BackendCandidate | null;
@@ -75,6 +76,8 @@ export function CandidateResumeTabPanel({
   const [filesResumeUrl, setFilesResumeUrl] = useState<string | null>(null);
   const [candidateFiles, setCandidateFiles] = useState<SaasaCvFileRef[]>([]);
   const [portalReady, setPortalReady] = useState(false);
+  const [downloadingResume, setDownloadingResume] = useState(false);
+  const [downloadingSaasa, setDownloadingSaasa] = useState(false);
 
   useEffect(() => {
     setPortalReady(true);
@@ -226,6 +229,45 @@ export function CandidateResumeTabPanel({
     setViewMode(mode);
   };
 
+  const buildResumeFilename = (sourceUrl: string, label: string) => {
+    const ext = getResumeExtension(sourceUrl);
+    const base = String(candidate.name || 'candidate').replace(/[\\/:*?"<>|]+/g, '_').trim() || 'candidate';
+    return ext ? `${base}-${label}.${ext}` : `${base}-${label}.pdf`;
+  };
+
+  const handleDownloadResume = async () => {
+    const source = originalResumeRaw || effectiveResumeHref;
+    if (!source || downloadingResume) return;
+    setDownloadingResume(true);
+    try {
+      await triggerFileDownload(source, {
+        uploadsBase,
+        filename: buildResumeFilename(source, 'resume'),
+      });
+    } catch (error) {
+      onToast?.(error instanceof Error ? error.message : 'Failed to download resume');
+    } finally {
+      setDownloadingResume(false);
+    }
+  };
+
+  const handleDownloadSaasaCv = async () => {
+    const source = saasaPreviewRaw || saasaStored?.fileUrl || saasaSavedFileUrl || effectiveSaasaPreviewHref;
+    if (!source || downloadingSaasa) return;
+    setDownloadingSaasa(true);
+    try {
+      const namedFile = candidateFiles.find((file) => file.fileUrl && file.fileUrl === source);
+      await triggerFileDownload(source, {
+        uploadsBase,
+        filename: namedFile?.fileName || buildResumeFilename(source, 'saasa-cv'),
+      });
+    } catch (error) {
+      onToast?.(error instanceof Error ? error.message : 'Failed to download SAASA CV');
+    } finally {
+      setDownloadingSaasa(false);
+    }
+  };
+
   const showOriginalPreview = viewMode === 'original' && Boolean(effectiveResumeHref);
   /** Resume tab SAASA mode: only the saved export (never live annotation overlay). */
   const showSaasaSavedFile = viewMode === 'saasa' && Boolean(effectiveSaasaPreviewHref);
@@ -290,16 +332,15 @@ export function CandidateResumeTabPanel({
                       <Eye size={16} />
                       Preview
                     </button>
-                    <a
-                      href={effectiveResumeHref}
-                      target="_blank"
-                      rel="noreferrer"
-                      download
-                      className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    <button
+                      type="button"
+                      onClick={() => void handleDownloadResume()}
+                      disabled={downloadingResume}
+                      className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
                     >
-                      <Download size={16} />
+                      {downloadingResume ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
                       Download
-                    </a>
+                    </button>
                   </>
                 ) : showSaasaToolbar ? (
                   <>
@@ -321,16 +362,15 @@ export function CandidateResumeTabPanel({
                       <Eye size={16} />
                       Preview
                     </button>
-                    <a
-                      href={effectiveSaasaPreviewHref}
-                      target="_blank"
-                      rel="noreferrer"
-                      download
-                      className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    <button
+                      type="button"
+                      onClick={() => void handleDownloadSaasaCv()}
+                      disabled={downloadingSaasa}
+                      className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
                     >
-                      <Download size={16} />
+                      {downloadingSaasa ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
                       Download
-                    </a>
+                    </button>
                   </>
                 ) : showStructuredToolbar ? (
                   <button

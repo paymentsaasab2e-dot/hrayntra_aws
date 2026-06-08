@@ -101,8 +101,8 @@ export function OrganizationSettings({ logo }: OrganizationSettingsProps) {
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-slate-700">Date Format</label>
-              <select className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2b7fff]/20 focus:border-[#2b7fff] transition-all">
-                <option>DD/MM/YYYY</option>
+              <select defaultValue="DD/MM/YYYY" className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2b7fff]/20 focus:border-[#2b7fff] transition-all">
+                <option value="DD/MM/YYYY">DD/MM/YYYY</option>
                 <option>MM/DD/YYYY</option>
                 <option>YYYY-MM-DD</option>
               </select>

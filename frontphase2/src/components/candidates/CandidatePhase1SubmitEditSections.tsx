@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Award,
   Briefcase,
@@ -25,11 +25,28 @@ import {
 } from 'lucide-react';
 import type { CandidateProfileDrawerData } from '../drawers/CandidateProfileDrawer';
 import type { Phase1ProfileSnapshot } from '@/lib/phase1ProfileSnapshot';
-import type { Phase1ClientSectionId, Phase1ClientSectionVisibility } from '@/lib/phase1ClientPresentationSections';
+import { resolvePhase1PersonalInfo } from '@/lib/phase1ProfileSnapshot';
+import {
+  PHASE1_CLIENT_SECTION_IDS,
+  type Phase1ClientSectionId,
+  type Phase1ClientSectionVisibility,
+} from '@/lib/phase1ClientPresentationSections';
 import { phase1FieldLabelClass, phase1FieldValueClass, phase1SectionMetaClass, phase1SectionTitleClass } from '@/lib/phase1Typography';
 import { CandidatePhase1CareerPreferencesEdit } from './CandidatePhase1CareerPreferencesEdit';
+import { isoToDMYDate, parseDMYToYMD } from '@/utils/formatLeadDateTime';
 
 type SectionId = Phase1ClientSectionId;
+
+const DEFAULT_CLOSED_SECTIONS = Object.fromEntries(
+  PHASE1_CLIENT_SECTION_IDS.map((id) => [id, false]),
+) as Record<SectionId, boolean>;
+
+function normalizeDobForEdit(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  return parseDMYToYMD(trimmed) || trimmed;
+}
 
 function EditField({
   label,
@@ -179,32 +196,17 @@ export function CandidatePhase1SubmitEditSections({
   clientSectionVisibility,
   onToggleClientSectionVisibility,
 }: Props) {
-  const [open, setOpen] = useState<Record<SectionId, boolean>>({
-    personal: true,
-    resume: true,
-    summary: true,
-    work: true,
-    internships: true,
-    gap: true,
-    education: true,
-    academic: true,
-    exams: true,
-    skills: true,
-    languages: true,
-    projects: true,
-    portfolio: true,
-    certifications: true,
-    accomplishments: true,
-    careerPreferences: true,
-    visa: true,
-    vaccination: true,
-  });
+  const [open, setOpen] = useState<Record<SectionId, boolean>>(DEFAULT_CLOSED_SECTIONS);
+
+  useEffect(() => {
+    setOpen(DEFAULT_CLOSED_SECTIONS);
+  }, [candidate.id]);
 
   const toggle = (key: SectionId) => {
     setOpen((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const pi = snapshot.personalInfo || {};
+  const pi = resolvePhase1PersonalInfo(snapshot, candidate);
   const patchPersonal = (patch: Partial<NonNullable<Phase1ProfileSnapshot['personalInfo']>>) => {
     onChange({ ...snapshot, personalInfo: { ...pi, ...patch } });
   };
@@ -293,7 +295,11 @@ export function CandidatePhase1SubmitEditSections({
           <EditField label="Email" value={str(pi.email || candidate.email)} onChange={(v) => patchPersonal({ email: v })} />
           <EditField label="Phone code" value={str(pi.phoneCode)} onChange={(v) => patchPersonal({ phoneCode: v })} />
           <EditField label="Mobile" value={str(pi.phone || candidate.phone)} onChange={(v) => patchPersonal({ phone: v })} />
-          <EditField label="Date of birth" value={str(pi.dob)} onChange={(v) => patchPersonal({ dob: v })} />
+          <EditField
+            label="Date of birth"
+            value={isoToDMYDate(str(pi.dob)) || str(pi.dob)}
+            onChange={(v) => patchPersonal({ dob: normalizeDobForEdit(v) })}
+          />
           <EditField label="Gender" value={str(pi.gender)} onChange={(v) => patchPersonal({ gender: v })} />
           <EditField label="Nationality" value={str(pi.nationality)} onChange={(v) => patchPersonal({ nationality: v })} />
           <EditField label="City" value={str(pi.city || candidate.cvCity)} onChange={(v) => patchPersonal({ city: v })} />

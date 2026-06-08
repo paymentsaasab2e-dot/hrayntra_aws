@@ -198,7 +198,7 @@ export function CandidatePhase1CareerPreferencesEdit({ careerPreferences, onChan
         label="Earliest start date"
         value={availability.earliestStartDate}
         onChange={(v) => patch({ earliestStartDate: v })}
-        placeholder="YYYY-MM-DD"
+        placeholder="DD/MM/YYYY"
       />
       <EditField
         label="Describe availability"

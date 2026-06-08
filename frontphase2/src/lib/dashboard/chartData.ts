@@ -1,4 +1,5 @@
 import type { ChartRecommendation, WidgetConfig } from './types';
+import { formatDateDMY } from '../../utils/dateDisplay';
 
 /** Chart types hidden from the add/edit widget picker */
 export const EXCLUDED_WIDGET_CHART_TYPES = new Set([
@@ -464,7 +465,7 @@ export function buildChartSeries(
     if (timeField && timelineCharts) {
       const raw = getNested(row, timeField);
       const d = raw ? new Date(String(raw)) : null;
-      label = d && !Number.isNaN(d.getTime()) ? d.toISOString().slice(0, 10) : label;
+      label = d && !Number.isNaN(d.getTime()) ? formatDateDMY(d) || label : label;
     }
     if (partitionChart) {
       label = formatPartitionLabel(label);

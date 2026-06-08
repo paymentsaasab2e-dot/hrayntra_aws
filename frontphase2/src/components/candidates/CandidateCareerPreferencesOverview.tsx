@@ -7,11 +7,12 @@ import {
   countCareerPreferencesFilled,
   type CareerPreferencesViewModel,
 } from '@/lib/candidateCareerPreferencesModel';
+import { formatIsoDateOnlyForDisplay } from '@/utils/dateDisplay';
 
 function display(value: unknown): string {
   if (value === undefined || value === null) return '';
   if (typeof value === 'number' && Number.isFinite(value)) return String(value);
-  return String(value).trim();
+  return formatIsoDateOnlyForDisplay(String(value).trim());
 }
 
 function PreferenceCard({ title, children }: { title: string; children: React.ReactNode }) {

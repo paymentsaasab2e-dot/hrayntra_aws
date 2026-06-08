@@ -5,6 +5,7 @@ import type { BillingSettingsSnapshot, RecruitmentInvoiceData } from '../../type
 import { INVOICE_FIELD_NOT_AVAILABLE } from '../../lib/placementInvoiceDisplay';
 import { convertAmount, formatCurrencyAmount } from '../../utils/currency';
 import { amountToWords } from '../../utils/amountToWords';
+import { formatDateDMY } from '../../utils/dateDisplay';
 
 function formatMoney(amount: number, currency: string, fractionDigits = 2) {
   try {
@@ -21,9 +22,8 @@ function formatMoney(amount: number, currency: string, fractionDigits = 2) {
 
 function formatDateDisplay(iso?: string | null) {
   if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  const formatted = formatDateDMY(iso);
+  return formatted || iso;
 }
 
 function TermLine({ label, value }: { label: string; value: string }) {

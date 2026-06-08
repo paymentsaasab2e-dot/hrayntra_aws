@@ -13,13 +13,26 @@ import { TeamMemberOptionalFields } from '../forms/TeamMemberOptionalFields';
 import {
   isTeamMemberDetailLabel,
   mergeTeamMemberIntoOtherDetails,
+  mergeTeamMembersWithContacts,
   normalizeTeamMemberList,
   primaryTeamMemberFromList,
   resolveTeamMemberList,
   teamMemberHasAnyValue,
   teamMemberPayloadFromForm,
+  teamMembersFromOtherDetails,
   type TeamMemberListItem,
 } from '../../lib/teamMemberFormDetails';
+import {
+  directorFromOtherDetails,
+  isDirectorDetailLabel,
+  mergeDirectorIntoOtherDetails,
+} from '../../lib/clientDirectorDetails';
+import {
+  directorNameFromContact,
+  isClientTeamMemberContact,
+  isDirectorBackendContact,
+  resolveDirectorBackendContact,
+} from '../../lib/clientContactRoles';
 import { formatServicesNeededDisplay } from '../../lib/companyServices';
 import { formatIndustriesDisplay } from '../../lib/industryOptions';
 import { type LocationSelection } from '../LocationAutocomplete';
@@ -28,11 +41,13 @@ import { KycDocumentsField, KycDocumentsView } from '../documents/KycDocumentsFi
 import { AgreementDocumentUpload } from '../documents/AgreementDocumentUpload';
 import { AgreementTermsSection } from '../agreements/AgreementTermsSection';
 import {
+  AGREEMENT_LEVEL_OPTIONS,
   agreementTermsApiPayload,
   agreementTermsFromRecord,
   emptyAgreementTerms,
   formatAgreementTermsSummary,
 } from '../../lib/agreementTerms';
+import type { AgreementLevelCatalogProps } from '../agreements/AgreementTermsSection';
 import {
   emptyPostServiceKycForm,
   type PostServiceKycAttachmentFieldKey,
@@ -127,6 +142,7 @@ import { useFiles } from '../../hooks/useFiles';
 import { ScheduleMeetingForm } from '../ScheduleMeetingForm';
 import { NotesService } from '../NotesService';
 import {
+  apiAppendAgreementLevel,
   apiAppendClientLeadStatus,
   apiAppendClientPriority,
   apiGenerateClientDetails,
@@ -138,8 +154,10 @@ import {
   apiDetectContactDuplicates,
   apiFetch,
   apiGetClientActivities,
+  apiGetAgreementLevelCatalog,
   apiGetClientLeadStatusCatalog,
   apiGetClientPriorityCatalog,
+  apiRemoveAgreementLevel,
   apiRemoveClientLeadStatus,
   apiRemoveClientPriority,
   apiGetClientScheduledMeetings,
@@ -336,11 +354,116 @@ function filterImportedDynamicOtherDetails(
 ): Array<{ label: string; value: string }> {
   if (!Array.isArray(details)) return [];
   return details
-    .filter((item) => !isTeamMemberDetailLabel(item?.label))
+    .filter((item) => !isTeamMemberDetailLabel(item?.label) && !isDirectorDetailLabel(item?.label))
     .map((item) => ({
       label: String(item.label ?? '').trim(),
       value: String(item.value ?? ''),
     }));
+}
+
+function isLinkedInCompanyUrl(url: string): boolean {
+  return /linkedin\.com/i.test(String(url || '').trim());
+}
+
+function buildCompanyLinksFromClient(record: {
+  website?: string | null;
+  linkedin?: string | null;
+}): string[] {
+  const links = [record.website, record.linkedin].map((v) => String(v || '').trim()).filter(Boolean);
+  return links.length ? links : [''];
+}
+
+function normalizeCompanyLinksForSave(links: string[], fallbackWebsite = ''): {
+  website: string | undefined;
+  linkedin: string | undefined;
+} {
+  const cleaned = (links.length ? links : [fallbackWebsite]).map((link) => String(link || '').trim()).filter(Boolean);
+  const linkedin = cleaned.find(isLinkedInCompanyUrl);
+  const website = cleaned.find((link) => !isLinkedInCompanyUrl(link));
+  return {
+    website: website || cleaned[0] || undefined,
+    linkedin: linkedin || undefined,
+  };
+}
+
+function resolveClientCityStateCountry(source: {
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  hiringLocations?: string | null;
+  location?: string | null;
+}): { city: string; state: string; country: string } {
+  const city = String(source.city || '').trim();
+  const state = String(source.state || '').trim();
+  const country = String(source.country || '').trim();
+  if (city || state || country) {
+    return { city, state, country };
+  }
+  const locationSource = String(source.hiringLocations || source.location || '').trim();
+  const parts = locationSource.split(',').map((part) => part.trim()).filter(Boolean);
+  if (parts.length >= 3) {
+    return { city: parts[0], state: parts[1], country: parts[parts.length - 1] };
+  }
+  if (parts.length === 2) {
+    return { city: parts[0], state: '', country: parts[1] };
+  }
+  if (parts.length === 1) {
+    return { city: parts[0], state: '', country: '' };
+  }
+  return { city: '', state: '', country: '' };
+}
+
+function mergeBackendClientRecord(existing: Client, backend: BackendClient): Client {
+  const statusMap: Record<string, Client['stage']> = {
+    ACTIVE: 'Active',
+    PROSPECT: 'Active',
+    ON_HOLD: 'On Hold',
+    INACTIVE: 'Inactive',
+  };
+  const locationFields = resolveClientCityStateCountry(backend);
+  return {
+    ...existing,
+    name: backend.companyName || existing.name,
+    industry: backend.industry || existing.industry || 'Not specified',
+    location: backend.location || existing.location || 'Not specified',
+    companySize: backend.companySize || existing.companySize,
+    hiringLocations: backend.hiringLocations || existing.hiringLocations,
+    servicesNeeded: backend.servicesNeeded || existing.servicesNeeded,
+    expectedBusinessValue: backend.expectedBusinessValue || existing.expectedBusinessValue,
+    leadStatus: backend.leadStatus || existing.leadStatus,
+    leadStatusValue: backend.leadStatus || existing.leadStatusValue,
+    website: backend.website || existing.website,
+    linkedin: backend.linkedin || existing.linkedin,
+    timezone: backend.timezone || existing.timezone,
+    clientSince: backend.clientSince ? formatDateDMY(backend.clientSince) : existing.clientSince,
+    priority: (backend.priority as Client['priority']) || existing.priority,
+    sla: backend.sla || existing.sla,
+    stage: statusMap[backend.status] || existing.stage,
+    owner: backend.assignedTo
+      ? { name: backend.assignedTo.name, avatar: backend.assignedTo.avatar || '' }
+      : existing.owner,
+    emails: backend.emails?.length ? backend.emails : existing.emails,
+    phones: backend.phones?.length ? backend.phones : existing.phones,
+    city: locationFields.city || existing.city,
+    state: backend.state || locationFields.state || existing.state,
+    country: locationFields.country || existing.country,
+    latitude: typeof backend.latitude === 'number' ? backend.latitude : existing.latitude,
+    longitude: typeof backend.longitude === 'number' ? backend.longitude : existing.longitude,
+    directorSalutation: backend.directorSalutation || existing.directorSalutation,
+    teamMemberDesignation: backend.teamMemberDesignation || existing.teamMemberDesignation,
+    teamMemberEmail: backend.teamMemberEmail || existing.teamMemberEmail,
+    teamMemberPhone: backend.teamMemberPhone || existing.teamMemberPhone,
+    logo: backend.logo || existing.logo,
+    agreementsFileName: backend.agreementsFileName || existing.agreementsFileName,
+    agreementsFileUrl: backend.agreementsFileUrl || existing.agreementsFileUrl,
+    agreementsUploadedAt: backend.agreementsUploadedAt || existing.agreementsUploadedAt,
+    agreementContractValidity: backend.agreementContractValidity || existing.agreementContractValidity,
+    agreementContractStartDate: backend.agreementContractStartDate || existing.agreementContractStartDate,
+    agreementContractEndDate: backend.agreementContractEndDate || existing.agreementContractEndDate,
+    postServiceKycForm: backend.postServiceKycForm || existing.postServiceKycForm,
+    otherDetails: Array.isArray(backend.otherDetails) ? backend.otherDetails : existing.otherDetails,
+    ...agreementTermsFromRecord(backend),
+  } as Client;
 }
 
 type ClientOverviewForm = {
@@ -398,6 +521,58 @@ type ClientOverviewForm = {
 };
 
 const CLIENT_TEAM_MEMBER_TAG = 'TEAM_MEMBER';
+
+function extractTeamMembersFromContacts(contacts: BackendContact[]): TeamMemberListItem[] {
+  const members = contacts
+    .filter(isClientTeamMemberContact)
+    .map((contact) => {
+      const joinedName = [contact.firstName, contact.lastName].filter(Boolean).join(' ').trim();
+      const designation = String(contact.designation || '').trim();
+      const looksLikeGeneratedName =
+        /^Member\s+\d+$/i.test(String(contact.lastName || '').trim()) &&
+        !String(contact.firstName || '').trim();
+      // Prefer the contact's actual firstName/lastName (the value we persist from the drawer).
+      // Only fall back to `designation` when the name looks like a system-generated placeholder
+      // or is missing.
+      let memberName = joinedName;
+      if (looksLikeGeneratedName) {
+        memberName = designation && designation !== 'Team Member' ? designation : joinedName || designation;
+      } else if (!memberName || memberName === 'Team Member') {
+        memberName = designation && designation !== 'Team Member' ? designation : memberName || designation || '';
+      }
+
+      return {
+        id: contact.id,
+        teamMemberSalutation: contact.salutation || '',
+        teamMemberName: memberName,
+        teamMemberDesignation: designation || memberName,
+        teamMemberEmail: contact.email || '',
+        teamMemberPhone: contact.phone || '',
+      };
+    });
+
+  return normalizeTeamMemberList(members);
+}
+
+function resolveClientTeamMembersForForm(
+  teamContacts: BackendContact[],
+  clientRecord: Parameters<typeof resolveTeamMemberList>[0],
+  directorContactId?: string | null,
+): TeamMemberListItem[] {
+  const fromStored = teamMembersFromOtherDetails(clientRecord?.otherDetails);
+  const filteredTeamContacts = teamContacts.filter((contact) => {
+    if (directorContactId && contact.id === directorContactId) return false;
+    return !isDirectorBackendContact(contact);
+  });
+  const fromContacts = extractTeamMembersFromContacts(filteredTeamContacts);
+
+  if (fromContacts.some(teamMemberHasAnyValue)) {
+    return mergeTeamMembersWithContacts(fromContacts, fromStored);
+  }
+
+  return resolveTeamMemberList(clientRecord);
+}
+
 const POST_SERVICE_KYC_ATTACHMENT_FIELDS: PostServiceKycAttachmentFieldKey[] = [
   'shareholderPassportCopyFiles',
   'generalManagerIdCardFiles',
@@ -757,77 +932,7 @@ export function ClientDetailsDrawer({
           }, null, 2));
           
           if (response.data) {
-            // Map BackendClient to Client format
-            const statusMap: Record<string, Client['stage']> = {
-              'ACTIVE': 'Active',
-              'PROSPECT': 'Active',
-              'ON_HOLD': 'On Hold',
-              'INACTIVE': 'Inactive',
-            };
-            const mappedClient: Client = {
-              ...client,
-              name: response.data.companyName,
-              industry: response.data.industry || client.industry || 'Not specified',
-              location: response.data.location || client.location || 'Not specified',
-              companySize: response.data.companySize || client.companySize,
-              hiringLocations: response.data.hiringLocations || client.hiringLocations,
-              servicesNeeded: response.data.servicesNeeded || client.servicesNeeded,
-              expectedBusinessValue: response.data.expectedBusinessValue || client.expectedBusinessValue,
-              leadStatus: response.data.leadStatus || client.leadStatus,
-              website: response.data.website || client.website,
-              linkedin: response.data.linkedin || client.linkedin,
-              timezone: response.data.timezone || client.timezone,
-              clientSince: response.data.clientSince ? formatDateDMY(response.data.clientSince) : client.clientSince,
-              priority: response.data.priority as Client['priority'] || client.priority,
-              sla: response.data.sla || client.sla,
-              stage: statusMap[response.data.status] || client.stage,
-              emails: response.data.emails?.length ? response.data.emails : client.emails,
-              phones: response.data.phones?.length ? response.data.phones : client.phones,
-              agreementsFileName: response.data.agreementsFileName || client.agreementsFileName,
-              agreementsFileUrl: response.data.agreementsFileUrl || client.agreementsFileUrl,
-              agreementsUploadedAt: response.data.agreementsUploadedAt || client.agreementsUploadedAt,
-              agreementContractValidity:
-                response.data.agreementContractValidity || client.agreementContractValidity,
-              agreementContractStartDate:
-                response.data.agreementContractStartDate || client.agreementContractStartDate,
-              agreementContractEndDate:
-                response.data.agreementContractEndDate || client.agreementContractEndDate,
-              agreementLevel: response.data.agreementLevel || (client as any).agreementLevel,
-              agreementServiceChargePercent:
-                response.data.agreementServiceChargePercent || (client as any).agreementServiceChargePercent,
-              agreementTimePeriod: response.data.agreementTimePeriod || (client as any).agreementTimePeriod,
-              agreementAdvancePaymentPercent:
-                response.data.agreementAdvancePaymentPercent || (client as any).agreementAdvancePaymentPercent,
-              agreementFreeReplacementValue:
-                response.data.agreementFreeReplacementValue ?? (client as any).agreementFreeReplacementValue,
-              agreementFreeReplacementUnit:
-                response.data.agreementFreeReplacementUnit || (client as any).agreementFreeReplacementUnit,
-              postServiceKycForm: response.data.postServiceKycForm || client.postServiceKycForm,
-              otherDetails: Array.isArray(response.data.otherDetails)
-                ? response.data.otherDetails
-                : client.otherDetails,
-            };
-            
-            // Log the mapped client data
-            console.log('\n=== MAPPED CLIENT DATA (Frontend) ===');
-            console.log(JSON.stringify({
-              id: mappedClient.id,
-              name: mappedClient.name,
-              industry: mappedClient.industry,
-              companySize: mappedClient.companySize,
-              servicesNeeded: mappedClient.servicesNeeded,
-              expectedBusinessValue: mappedClient.expectedBusinessValue,
-              leadStatus: mappedClient.leadStatus,
-              website: mappedClient.website,
-              linkedin: mappedClient.linkedin,
-              location: mappedClient.location,
-              hiringLocations: mappedClient.hiringLocations,
-              timezone: mappedClient.timezone,
-              priority: mappedClient.priority,
-              sla: mappedClient.sla,
-            }, null, 2));
-            
-            setFullClientData(mappedClient);
+            setFullClientData(mergeBackendClientRecord(client, response.data));
           }
         } catch (error) {
           console.error('Failed to fetch full client data:', error);
@@ -875,17 +980,26 @@ export function ClientDetailsDrawer({
     });
   }, [client?.id, client?.leadStatus, client?.leadStatusValue, client?.stage, propIsAddMode]);
 
-  const [overviewOpen, setOverviewOpen] = useState<Record<string, boolean>>({
-    leadInformation: true,
-    agreementsTerms: true,
-    kycForm: true,
+  const DEFAULT_CLIENT_OVERVIEW_SECTIONS: Record<string, boolean> = {
+    leadInformation: false,
+    agreementsTerms: false,
+    kycForm: false,
     companySnapshot: false,
     contactPerson: false,
     relationship: false,
     performance: false,
     health: false,
-  });
+  };
+  const [overviewOpen, setOverviewOpen] = useState<Record<string, boolean>>(
+    DEFAULT_CLIENT_OVERVIEW_SECTIONS,
+  );
   const isAddMode = propIsAddMode;
+
+  useEffect(() => {
+    if (!client && !isAddMode) return;
+    setOverviewOpen(DEFAULT_CLIENT_OVERVIEW_SECTIONS);
+  }, [client?.id, isAddMode]);
+
   const [overviewEditMode, setOverviewEditMode] = useState(isAddMode);
   const timezoneManuallyEditedRef = useRef(false);
   const [overviewEditForm, setOverviewEditForm] = useState<ClientOverviewForm>({
@@ -947,6 +1061,11 @@ export function ClientDetailsDrawer({
   const [newClientPriorityValue, setNewClientPriorityValue] = useState('');
   const [savingClientPriority, setSavingClientPriority] = useState(false);
   const [deletingClientPriority, setDeletingClientPriority] = useState(false);
+  const [agreementLevelCatalog, setAgreementLevelCatalog] = useState<string[]>([...AGREEMENT_LEVEL_OPTIONS]);
+  const [showAddAgreementLevelInput, setShowAddAgreementLevelInput] = useState(false);
+  const [newAgreementLevelValue, setNewAgreementLevelValue] = useState('');
+  const [savingAgreementLevel, setSavingAgreementLevel] = useState(false);
+  const [deletingAgreementLevel, setDeletingAgreementLevel] = useState(false);
   const clientLeadStatusOptions = useMemo(
     () => mergeCatalogOptions(DEFAULT_CLIENT_STATUS_LABELS, clientLeadStatusCatalog, overviewEditForm.leadStatusValue),
     [clientLeadStatusCatalog, overviewEditForm.leadStatusValue],
@@ -954,6 +1073,15 @@ export function ClientDetailsDrawer({
   const clientPriorityOptions = useMemo(
     () => mergeCatalogOptions(DEFAULT_CLIENT_PRIORITY_LABELS, clientPriorityCatalog, overviewEditForm.priority),
     [clientPriorityCatalog, overviewEditForm.priority],
+  );
+  const agreementLevelOptions = useMemo(
+    () =>
+      mergeCatalogOptions(
+        AGREEMENT_LEVEL_OPTIONS,
+        agreementLevelCatalog,
+        overviewEditForm.agreementLevel,
+      ),
+    [agreementLevelCatalog, overviewEditForm.agreementLevel],
   );
   const clientLogoInputRef = useRef<HTMLInputElement>(null);
   const agreementsInputRef = useRef<HTMLInputElement>(null);
@@ -1351,30 +1479,6 @@ export function ClientDetailsDrawer({
     };
   }, []);
 
-  const extractClientTeamMembers = useCallback((contacts: BackendContact[]): TeamMemberListItem[] => {
-    const members = contacts
-      .filter((contact) =>
-        !contact.isPrimary &&
-        (
-          (Array.isArray(contact.tags) && contact.tags.includes(CLIENT_TEAM_MEMBER_TAG)) ||
-          String(contact.notesText || '').includes('Team:')
-        )
-      )
-      .map((contact) => ({
-        id: contact.id,
-        teamMemberSalutation: contact.salutation || '',
-        teamMemberName:
-          [contact.firstName, contact.lastName].filter(Boolean).join(' ').trim() ||
-          contact.designation ||
-          '',
-        teamMemberDesignation: contact.designation || '',
-        teamMemberEmail: contact.email || '',
-        teamMemberPhone: contact.phone || '',
-      }));
-
-    return normalizeTeamMemberList(members);
-  }, []);
-
   const refreshClientContacts = useCallback(async () => {
     if (!client?.id) {
       setClientContacts([]);
@@ -1393,13 +1497,7 @@ export function ClientDetailsDrawer({
       );
       setClientContacts(mappedContacts);
       setClientTeamMemberContacts(
-        contactsList.filter((contact: BackendContact) =>
-          !contact.isPrimary &&
-          (
-            (Array.isArray(contact.tags) && contact.tags.includes(CLIENT_TEAM_MEMBER_TAG)) ||
-            String(contact.notesText || '').includes('Team:')
-          )
-        )
+        contactsList.filter((contact: BackendContact) => isClientTeamMemberContact(contact)),
       );
 
       setSelectedContact((prev) => {
@@ -1421,12 +1519,26 @@ export function ClientDetailsDrawer({
     teamName: string,
     members: TeamMemberListItem[],
     primaryEmail?: string,
+    directorContactId?: string,
   ) => {
+    let resolvedDirectorContactId = directorContactId;
+    if (!resolvedDirectorContactId) {
+      try {
+        const response = await apiGetContacts({ clientId, type: 'CLIENT' });
+        const contactsList = Array.isArray(response.data)
+          ? response.data
+          : (response.data as { data?: BackendContact[]; items?: BackendContact[] })?.data
+            || (response.data as { items?: BackendContact[] })?.items
+            || [];
+        resolvedDirectorContactId = resolveDirectorBackendContact(contactsList)?.id;
+      } catch {
+        resolvedDirectorContactId = undefined;
+      }
+    }
+
     const normalizeEmail = (value?: string | null) => String(value || '').trim().toLowerCase();
     const normalizedTeamName = String(teamName || '').trim();
-    const rawMembers = normalizedTeamName
-      ? normalizeTeamMemberList(members).filter(teamMemberHasAnyValue)
-      : [];
+    const rawMembers = normalizeTeamMemberList(members).filter(teamMemberHasAnyValue);
     const teamContactIds = new Set(clientTeamMemberContacts.map((contact) => contact.id));
     const reservedEmails = new Set(
       [
@@ -1449,10 +1561,13 @@ export function ClientDetailsDrawer({
       return true;
     });
     const keptIds = new Set(
-      normalizedMembers.map((member) => String(member.id || '').trim()).filter(Boolean),
+      normalizedMembers
+        .map((member) => String(member.id || '').trim())
+        .filter((id) => id && id !== resolvedDirectorContactId),
     );
 
     for (const contact of clientTeamMemberContacts) {
+      if (resolvedDirectorContactId && contact.id === resolvedDirectorContactId) continue;
       if (!keptIds.has(contact.id)) {
         await apiDeleteContact(contact.id);
       }
@@ -1460,23 +1575,31 @@ export function ClientDetailsDrawer({
 
     for (let index = 0; index < normalizedMembers.length; index += 1) {
       const member = normalizedMembers[index];
+      const memberContactId =
+        member.id && resolvedDirectorContactId && member.id === resolvedDirectorContactId
+          ? undefined
+          : member.id;
+      const memberName = String(member.teamMemberName || '').trim()
+        || String(member.teamMemberDesignation || '').trim();
+      const [firstName = '', ...lastParts] = memberName.split(/\s+/).filter(Boolean);
       const payload: Partial<CreateContactData> = {
-        firstName: normalizedTeamName || `Team Member ${index + 1}`,
-        lastName: `Member ${index + 1}`,
+        salutation: member.teamMemberSalutation?.trim() || undefined,
+        firstName: firstName || `Team Member ${index + 1}`,
+        lastName: lastParts.join(' '),
         email: member.teamMemberEmail?.trim() || undefined,
         phone: member.teamMemberPhone?.trim() || undefined,
-        designation: member.teamMemberDesignation?.trim() || 'Team Member',
+        designation: memberName || 'Team Member',
         companyId: clientId,
         ownerId: ownerId || undefined,
         isPrimary: false,
         contactType: 'CLIENT',
         department: 'Other',
-        notes: `Team: ${normalizedTeamName}`,
+        notes: normalizedTeamName ? `Team: ${normalizedTeamName}` : 'Team member',
         tags: [CLIENT_TEAM_MEMBER_TAG],
       };
 
-      if (member.id) {
-        await apiUpdateContact(member.id, payload);
+      if (memberContactId) {
+        await apiUpdateContact(memberContactId, payload);
       } else {
         const created = await apiCreateContact(payload as CreateContactData);
         if ((created as any)?.data?.duplicate || (created as any)?.duplicate) {
@@ -1496,6 +1619,7 @@ export function ClientDetailsDrawer({
     options: {
       contactId?: string;
       directorName: string;
+      salutation?: string;
       email?: string;
       phone?: string;
       location?: string;
@@ -1506,6 +1630,7 @@ export function ClientDetailsDrawer({
     const email = normalizeEmail(options.email);
     const [firstName = '', ...lastParts] = options.directorName.trim().split(/\s+/).filter(Boolean);
     const payload: CreateContactData = {
+      salutation: options.salutation?.trim() || undefined,
       firstName: firstName || 'Unknown',
       lastName: lastParts.join(' '),
       email: email || undefined,
@@ -1534,10 +1659,7 @@ export function ClientDetailsDrawer({
           : (response.data as { data?: BackendContact[]; items?: BackendContact[] })?.data
             || (response.data as { items?: BackendContact[] })?.items
             || [];
-        const directorContact = contactsList.find(
-          (contact) => String(contact.designation || '').toLowerCase() === 'director',
-        );
-        return directorContact?.id || contactsList[0]?.id;
+        return resolveDirectorBackendContact(contactsList)?.id;
       } catch {
         return undefined;
       }
@@ -2091,32 +2213,27 @@ export function ClientDetailsDrawer({
     if (fetchedContacts.length) {
       setClientContacts(fetchedContacts.map(mapBackendContactToClientContact));
       setClientTeamMemberContacts(
-        fetchedContacts.filter((contact) =>
-          !contact.isPrimary &&
-          (
-            (Array.isArray(contact.tags) && contact.tags.includes(CLIENT_TEAM_MEMBER_TAG)) ||
-            String(contact.notesText || '').includes('Team:')
-          )
-        )
+        fetchedContacts.filter((contact) => isClientTeamMemberContact(contact)),
       );
     } else {
       setClientContacts([]);
       setClientTeamMemberContacts([]);
     }
 
-    const fetchedPrimary =
-      fetchedContacts.find((contact) => contact.isPrimary) || fetchedContacts[0] || null;
-    const fetchedPrimaryName = fetchedPrimary
-      ? `${fetchedPrimary.firstName || ''} ${fetchedPrimary.lastName || ''}`.trim()
-      : '';
-    const fetchedPrimaryEmailRaw = fetchedPrimary?.email || '';
+    const fetchedDirector = resolveDirectorBackendContact(fetchedContacts);
+    const storedDirector = directorFromOtherDetails(
+      (fetchedClient as BackendClient | null)?.otherDetails ?? client?.otherDetails ?? null,
+    );
+    const fetchedPrimaryName = directorNameFromContact(fetchedDirector);
+    const fetchedPrimaryEmailRaw = fetchedDirector?.email || '';
     const fetchedPrimaryEmail =
       fetchedPrimaryEmailRaw && !fetchedPrimaryEmailRaw.includes('@placeholder.local')
         ? fetchedPrimaryEmailRaw
         : '';
-    const fetchedPrimaryPhone = fetchedPrimary?.phone || '';
+    const fetchedPrimaryPhone = fetchedDirector?.phone || '';
 
-    const directorNameValue = fetchedPrimaryName || primaryClientContact?.name || '';
+    const directorNameValue =
+      fetchedPrimaryName || storedDirector.directorName || primaryClientContact?.name || '';
     const contactEmailValue = fetchedPrimaryEmail || primaryClientContactEmail;
     const contactPhoneValue = fetchedPrimaryPhone || primaryClientContactPhone;
     
@@ -2139,6 +2256,16 @@ export function ClientDetailsDrawer({
     }
     
     timezoneManuallyEditedRef.current = false;
+    const clientRecord = fetchedClient || client;
+    const locationFields = resolveClientCityStateCountry(clientRecord);
+    const resolvedStage = fetchedClient
+      ? ({
+          ACTIVE: 'Active',
+          PROSPECT: 'Active',
+          ON_HOLD: 'On Hold',
+          INACTIVE: 'Inactive',
+        }[fetchedClient.status] as Client['stage']) || clientStage
+      : clientStage;
     setOverviewEditForm({
       companyName: fetchedClient?.companyName || client.name || '',
       logo: fetchedClient?.logo || client.logo || '',
@@ -2147,9 +2274,12 @@ export function ClientDetailsDrawer({
       website: fetchedClient?.website || client.website || '',
       linkedin: fetchedClient?.linkedin || client.linkedin || '',
       location: fetchedClient?.location || client.location || '',
-      city: derivedCity,
-      country: derivedCountry,
-      countryCode: fetchedClient?.countryCode || client.countryCode || '',
+      city: locationFields.city,
+      country: locationFields.country,
+      countryCode:
+        (fetchedClient as { countryCode?: string } | null)?.countryCode ||
+        (client as { countryCode?: string }).countryCode ||
+        '',
       directorName: directorNameValue,
       contactEmail: contactEmailValue,
       contactPhone: contactPhoneValue,
@@ -2166,26 +2296,30 @@ export function ClientDetailsDrawer({
       priority: fetchedClient?.priority || client.priority || '',
       servicesNeeded: fetchedClient?.servicesNeeded || client.servicesNeeded || '',
       expectedBusinessValue: fetchedClient?.expectedBusinessValue || client.expectedBusinessValue || '',
-      nextFollowUpDue: fetchedClient?.nextFollowUpDue || '',
+      nextFollowUpDue: normalizeClientAiDateInput(
+        fetchedClient?.nextFollowUpDue || client?.nextFollowUpDue || '',
+      ),
       sla: fetchedClient?.sla || client.sla || '',
       status: clientStatusLabelToBackend(
         resolveClientStatusLabel({
           leadStatus: fetchedClient?.leadStatus || client.leadStatus,
-          leadStatusValue: client.leadStatusValue,
-          stage: clientStage,
+          leadStatusValue: fetchedClient?.leadStatus || client.leadStatusValue,
+          stage: resolvedStage,
         }),
       ),
       assignedToId: assignedToId,
-      // Add-Lead-mirroring fields prefill — fall back through the freshest data, the local model, then defaults.
-      companyLinks: (() => {
-        const website = fetchedClient?.website || client.website || '';
-        const linkedin = fetchedClient?.linkedin || client.linkedin || '';
-        const list = [website, linkedin].filter(Boolean);
-        return list.length > 0 ? list : [''];
-      })(),
-      directorSalutation: fetchedClient?.directorSalutation || client.directorSalutation || '',
-      designation: '',
-      state: fetchedClient?.state || client.state || '',
+      companyLinks: buildCompanyLinksFromClient({
+        website: fetchedClient?.website || client.website,
+        linkedin: fetchedClient?.linkedin || client.linkedin,
+      }),
+      directorSalutation:
+        fetchedClient?.directorSalutation ||
+        client?.directorSalutation ||
+        storedDirector.directorSalutation ||
+        fetchedDirector?.salutation ||
+        '',
+      designation: fetchedDirector?.designation || client?.contacts?.[0]?.designation || '',
+      state: fetchedClient?.state || client.state || locationFields.state,
       latitude: typeof fetchedClient?.latitude === 'number'
         ? fetchedClient.latitude
         : (typeof client.latitude === 'number' ? client.latitude : null),
@@ -2194,8 +2328,8 @@ export function ClientDetailsDrawer({
         : (typeof client.longitude === 'number' ? client.longitude : null),
       leadStatusValue: resolveClientStatusLabel({
         leadStatus: fetchedClient?.leadStatus || client.leadStatus,
-        leadStatusValue: client.leadStatusValue,
-        stage: client.stage,
+        leadStatusValue: fetchedClient?.leadStatus || client.leadStatusValue,
+        stage: resolvedStage,
       }),
       assignedToIds: assignedToId ? [assignedToId] : [],
       agreementsFileName: fetchedClient?.agreementsFileName || client.agreementsFileName || '',
@@ -2203,9 +2337,11 @@ export function ClientDetailsDrawer({
       agreementsUploadedAt: fetchedClient?.agreementsUploadedAt || client.agreementsUploadedAt || '',
       ...agreementTermsFromRecord(fetchedClient || client),
       ...syncClientTeamMembers(
-        fetchedContacts.length
-          ? extractClientTeamMembers(fetchedContacts)
-          : resolveTeamMemberList(fetchedClient || client),
+        resolveClientTeamMembersForForm(
+          fetchedContacts.filter((contact) => isClientTeamMemberContact(contact)),
+          fetchedClient || client,
+          fetchedDirector?.id,
+        ),
       ),
       postServiceKycForm: postServiceKycFormFromRecord(fetchedClient || client),
       dynamicOtherDetails: filterImportedDynamicOtherDetails(
@@ -2223,8 +2359,8 @@ export function ClientDetailsDrawer({
         current,
         resolveClientStatusLabel({
           leadStatus: fetchedClient?.leadStatus || client.leadStatus,
-          leadStatusValue: client.leadStatusValue,
-          stage: client.stage,
+          leadStatusValue: fetchedClient?.leadStatus || client.leadStatusValue,
+          stage: resolvedStage,
         }),
       ),
     );
@@ -2235,18 +2371,14 @@ export function ClientDetailsDrawer({
         fetchedClient?.priority || client.priority || overviewEditForm.priority,
       ),
     );
+    setAgreementLevelCatalog((current) =>
+      mergeCatalogOptions(
+        AGREEMENT_LEVEL_OPTIONS,
+        current,
+        fetchedClient?.agreementLevel || client.agreementLevel || overviewEditForm.agreementLevel,
+      ),
+    );
     setOverviewEditMode(true);
-    // Open all sections for editing
-    setOverviewOpen({
-      leadInformation: true,
-      agreementsTerms: true,
-      kycForm: true,
-      companySnapshot: true,
-      contactPerson: true,
-      relationship: true,
-      performance: true,
-      health: true,
-    });
   };
 
   const cancelOverviewEdit = () => {
@@ -2274,8 +2406,17 @@ export function ClientDetailsDrawer({
         const cleanedCompanyLinks = (overviewEditForm.companyLinks || [overviewEditForm.website || ''])
           .map((link) => String(link || '').trim())
           .filter(Boolean);
-        const primaryWebsite = cleanedCompanyLinks[0] || overviewEditForm.website?.trim() || undefined;
+        const { website: savedWebsite, linkedin: savedLinkedin } = normalizeCompanyLinksForSave(
+          cleanedCompanyLinks,
+          overviewEditForm.website,
+        );
+        const primaryWebsite = savedWebsite || overviewEditForm.website?.trim() || undefined;
         const primaryAssignedToId = overviewEditForm.assignedToIds?.[0] || overviewEditForm.assignedToId || undefined;
+        const mergedHiringLocations =
+          [overviewEditForm.city, overviewEditForm.state, overviewEditForm.country].filter(Boolean).join(', ') ||
+          overviewEditForm.hiringLocations?.trim() ||
+          overviewEditForm.location?.trim() ||
+          undefined;
         const contactChannels = buildContactChannelsFromForm(
           overviewEditForm.contactEmails,
           overviewEditForm.contactPhones,
@@ -2287,9 +2428,9 @@ export function ClientDetailsDrawer({
           industry: overviewEditForm.industry || undefined,
           companySize: overviewEditForm.companySize || undefined,
           website: primaryWebsite,
-          linkedin: overviewEditForm.linkedin || undefined,
+          linkedin: savedLinkedin || overviewEditForm.linkedin || undefined,
           location: overviewEditForm.location || undefined,
-          hiringLocations: overviewEditForm.hiringLocations || undefined,
+          hiringLocations: mergedHiringLocations,
           timezone: overviewEditForm.timezone || undefined,
           priority: overviewEditForm.priority || undefined,
           servicesNeeded: overviewEditForm.servicesNeeded || undefined,
@@ -2311,9 +2452,15 @@ export function ClientDetailsDrawer({
           ...teamMemberPayloadFromForm(
             primaryTeamMemberFromList(overviewEditForm.teamMembers),
           ),
-          otherDetails: mergeTeamMemberIntoOtherDetails(
-            curatedDynamicPairsForSave(overviewEditForm.dynamicOtherDetails),
-            overviewEditForm.teamMembers,
+          otherDetails: mergeDirectorIntoOtherDetails(
+            mergeTeamMemberIntoOtherDetails(
+              curatedDynamicPairsForSave(overviewEditForm.dynamicOtherDetails),
+              overviewEditForm.teamMembers,
+            ),
+            {
+              directorSalutation: overviewEditForm.directorSalutation,
+              directorName: overviewEditForm.directorName,
+            },
           ),
           email: contactChannels.email,
           phone: contactChannels.phone,
@@ -2346,6 +2493,7 @@ export function ClientDetailsDrawer({
           try {
             await syncPrimaryClientContact(createdClientId, {
               directorName: overviewEditForm.directorName,
+              salutation: overviewEditForm.directorSalutation || undefined,
               email: contactChannels.email || undefined,
               phone: contactChannels.phone || undefined,
               location:
@@ -2364,9 +2512,10 @@ export function ClientDetailsDrawer({
           await syncClientTeamMemberContacts(
             createdClientId,
             primaryAssignedToId || undefined,
-            overviewEditForm.companySize,
+            overviewEditForm.companyName,
             overviewEditForm.teamMembers,
             contactChannels.email || undefined,
+            undefined,
           );
         }
 
@@ -2462,6 +2611,14 @@ export function ClientDetailsDrawer({
           0,
         );
         let nextPostServiceKycForm = overviewEditForm.postServiceKycForm;
+        const cleanedCompanyLinks = (overviewEditForm.companyLinks || [overviewEditForm.website || ''])
+          .map((link) => String(link || '').trim())
+          .filter(Boolean);
+        const { website: savedWebsite, linkedin: savedLinkedin } = normalizeCompanyLinksForSave(
+          cleanedCompanyLinks,
+          overviewEditForm.website,
+        );
+        const primaryAssignedToId = overviewEditForm.assignedToIds?.[0] || overviewEditForm.assignedToId || undefined;
         const updateData: any = {
           companyName: overviewEditForm.companyName,
           email: contactChannels.email,
@@ -2473,11 +2630,35 @@ export function ClientDetailsDrawer({
         // Only include fields that have values or are being cleared
         if (overviewEditForm.industry !== undefined) updateData.industry = overviewEditForm.industry || null;
         if (overviewEditForm.companySize !== undefined) updateData.companySize = overviewEditForm.companySize || null;
-        if (overviewEditForm.website !== undefined) updateData.website = overviewEditForm.website || null;
-        if (overviewEditForm.linkedin !== undefined) updateData.linkedin = overviewEditForm.linkedin || null;
+        if (overviewEditForm.website !== undefined || cleanedCompanyLinks.length) {
+          updateData.website = savedWebsite || overviewEditForm.website || null;
+        }
+        if (overviewEditForm.linkedin !== undefined || cleanedCompanyLinks.length) {
+          updateData.linkedin = savedLinkedin || overviewEditForm.linkedin || null;
+        }
         if (overviewEditForm.location !== undefined) updateData.location = overviewEditForm.location || null;
-        const mergedHiringLocations = [overviewEditForm.city, overviewEditForm.country].filter(Boolean).join(', ');
-        if (overviewEditForm.hiringLocations !== undefined || overviewEditForm.city !== undefined || overviewEditForm.country !== undefined) {
+        if (overviewEditForm.city !== undefined) updateData.city = overviewEditForm.city || null;
+        if (overviewEditForm.state !== undefined) updateData.state = overviewEditForm.state || null;
+        if (overviewEditForm.country !== undefined) updateData.country = overviewEditForm.country || null;
+        if (overviewEditForm.countryCode !== undefined) updateData.countryCode = overviewEditForm.countryCode || null;
+        if (overviewEditForm.latitude !== undefined) {
+          updateData.latitude = typeof overviewEditForm.latitude === 'number' ? overviewEditForm.latitude : null;
+        }
+        if (overviewEditForm.longitude !== undefined) {
+          updateData.longitude = typeof overviewEditForm.longitude === 'number' ? overviewEditForm.longitude : null;
+        }
+        if (overviewEditForm.directorSalutation !== undefined) {
+          updateData.directorSalutation = overviewEditForm.directorSalutation || null;
+        }
+        const mergedHiringLocations = [overviewEditForm.city, overviewEditForm.state, overviewEditForm.country]
+          .filter(Boolean)
+          .join(', ');
+        if (
+          overviewEditForm.hiringLocations !== undefined ||
+          overviewEditForm.city !== undefined ||
+          overviewEditForm.state !== undefined ||
+          overviewEditForm.country !== undefined
+        ) {
           updateData.hiringLocations = mergedHiringLocations || overviewEditForm.hiringLocations || null;
         }
         if (overviewEditForm.timezone !== undefined) updateData.timezone = overviewEditForm.timezone || null;
@@ -2493,8 +2674,8 @@ export function ClientDetailsDrawer({
         } else if (overviewEditForm.status !== undefined) {
           updateData.status = overviewEditForm.status;
         }
-        if (overviewEditForm.assignedToId !== undefined) {
-          updateData.assignedToId = overviewEditForm.assignedToId || null;
+        if (overviewEditForm.assignedToId !== undefined || overviewEditForm.assignedToIds !== undefined) {
+          updateData.assignedToId = primaryAssignedToId || null;
         }
         if (overviewEditForm.logo !== undefined) updateData.logo = overviewEditForm.logo || null;
         Object.assign(
@@ -2503,9 +2684,15 @@ export function ClientDetailsDrawer({
             primaryTeamMemberFromList(overviewEditForm.teamMembers),
           ),
         );
-        updateData.otherDetails = mergeTeamMemberIntoOtherDetails(
-          curatedDynamicPairsForSave(overviewEditForm.dynamicOtherDetails),
-          overviewEditForm.teamMembers,
+        updateData.otherDetails = mergeDirectorIntoOtherDetails(
+          mergeTeamMemberIntoOtherDetails(
+            curatedDynamicPairsForSave(overviewEditForm.dynamicOtherDetails),
+            overviewEditForm.teamMembers,
+          ),
+          {
+            directorSalutation: overviewEditForm.directorSalutation,
+            directorName: overviewEditForm.directorName,
+          },
         );
 
         // Agreements & Terms — upload the new file (if any) before patching the client so the
@@ -2561,94 +2748,85 @@ export function ClientDetailsDrawer({
 
         console.log('Updating client with data:', updateData);
         await apiUpdateClient(client.id, updateData);
-        await syncClientTeamMemberContacts(
-          client.id,
-          overviewEditForm.assignedToId || undefined,
-          overviewEditForm.companySize,
-          overviewEditForm.teamMembers,
-          contactChannels.email || undefined,
-        );
         await syncPrimaryClientContact(client.id, {
           contactId: primaryClientContact?.id,
           directorName: overviewEditForm.directorName,
+          salutation: overviewEditForm.directorSalutation || undefined,
           email: contactChannels.email || undefined,
           phone: contactChannels.phone || undefined,
           location:
             [overviewEditForm.city, overviewEditForm.country].filter(Boolean).join(', ') ||
             overviewEditForm.location ||
             undefined,
-          ownerId: overviewEditForm.assignedToId || undefined,
+          ownerId: primaryAssignedToId || undefined,
         });
-        setFullClientData((prev) => {
-          if (!prev) return prev;
-          const next = { ...prev } as any;
-          if (updateData.logo !== undefined) next.logo = updateData.logo ?? '';
-          if (updateData.agreementsFileName !== undefined) next.agreementsFileName = updateData.agreementsFileName ?? null;
-          if (updateData.agreementsFileUrl !== undefined) next.agreementsFileUrl = updateData.agreementsFileUrl ?? null;
-          if (updateData.agreementsUploadedAt !== undefined) next.agreementsUploadedAt = updateData.agreementsUploadedAt ?? null;
-          if (updateData.agreementLevel !== undefined) next.agreementLevel = updateData.agreementLevel ?? null;
-          if (updateData.agreementServiceChargePercent !== undefined) {
-            next.agreementServiceChargePercent = updateData.agreementServiceChargePercent ?? null;
-          }
-          if (updateData.agreementContractValidity !== undefined) {
-            next.agreementContractValidity = updateData.agreementContractValidity ?? null;
-          }
-          if (updateData.agreementContractStartDate !== undefined) {
-            next.agreementContractStartDate = updateData.agreementContractStartDate ?? null;
-          }
-          if (updateData.agreementContractEndDate !== undefined) {
-            next.agreementContractEndDate = updateData.agreementContractEndDate ?? null;
-          }
-          if (updateData.agreementTimePeriod !== undefined) next.agreementTimePeriod = updateData.agreementTimePeriod ?? null;
-          if (updateData.agreementAdvancePaymentPercent !== undefined) {
-            next.agreementAdvancePaymentPercent = updateData.agreementAdvancePaymentPercent ?? null;
-          }
-          if (updateData.agreementFreeReplacementValue !== undefined) {
-            next.agreementFreeReplacementValue = updateData.agreementFreeReplacementValue ?? null;
-          }
-          if (updateData.agreementFreeReplacementUnit !== undefined) {
-            next.agreementFreeReplacementUnit = updateData.agreementFreeReplacementUnit ?? null;
-          }
-          if (updateData.postServiceKycForm !== undefined) {
-            next.postServiceKycForm = updateData.postServiceKycForm ?? null;
-          }
-          if (updateData.emails !== undefined) next.emails = updateData.emails;
-          if (updateData.phones !== undefined) next.phones = updateData.phones;
-          if (updateData.leadStatus !== undefined) {
-            next.leadStatus = updateData.leadStatus ?? undefined;
-            next.leadStatusValue = updateData.leadStatus ?? undefined;
-          }
-          if (updateData.status !== undefined) {
-            const reverseStatusMap: Record<string, Client['stage']> = {
-              ACTIVE: 'Active',
-              PROSPECT: 'Active',
-              ON_HOLD: 'On Hold',
-              INACTIVE: 'Inactive',
-            };
-            next.stage = reverseStatusMap[String(updateData.status)] || next.stage;
-          }
-          return next;
-        });
-        if (updateData.leadStatus !== undefined || updateData.status !== undefined) {
-          const reverseStatusMap: Record<string, Client['stage']> = {
-            ACTIVE: 'Active',
-            PROSPECT: 'Active',
-            ON_HOLD: 'On Hold',
-            INACTIVE: 'Inactive',
-          };
-          onClientUpdated?.({
-            id: client.id,
-            ...(updateData.leadStatus !== undefined
-              ? {
-                  leadStatus: updateData.leadStatus ?? undefined,
-                  leadStatusValue: updateData.leadStatus ?? undefined,
-                }
-              : {}),
-            ...(updateData.status !== undefined
-              ? { stage: reverseStatusMap[String(updateData.status)] || client.stage }
-              : {}),
+        await syncClientTeamMemberContacts(
+          client.id,
+          primaryAssignedToId || undefined,
+          overviewEditForm.companyName,
+          overviewEditForm.teamMembers,
+          contactChannels.email || undefined,
+          primaryClientContact?.id,
+        );
+        try {
+          const refreshed = await apiFetch<BackendClient>(`/clients/${client.id}`, {
+            method: 'GET',
+            auth: true,
           });
+          if (refreshed.data) {
+            const mapped = mergeBackendClientRecord(client, refreshed.data);
+            setFullClientData(mapped);
+            onClientUpdated?.({
+              id: client.id,
+              name: mapped.name,
+              industry: mapped.industry,
+              location: mapped.location,
+              companySize: mapped.companySize,
+              hiringLocations: mapped.hiringLocations,
+              servicesNeeded: mapped.servicesNeeded,
+              expectedBusinessValue: mapped.expectedBusinessValue,
+              leadStatus: mapped.leadStatus,
+              leadStatusValue: mapped.leadStatusValue,
+              website: mapped.website,
+              linkedin: mapped.linkedin,
+              timezone: mapped.timezone,
+              priority: mapped.priority,
+              stage: mapped.stage,
+              owner: mapped.owner,
+              city: mapped.city,
+              state: mapped.state,
+              country: mapped.country,
+              latitude: mapped.latitude,
+              longitude: mapped.longitude,
+              emails: mapped.emails,
+              phones: mapped.phones,
+              otherDetails: mapped.otherDetails,
+              directorSalutation: mapped.directorSalutation,
+              teamMemberDesignation: mapped.teamMemberDesignation,
+              teamMemberEmail: mapped.teamMemberEmail,
+              teamMemberPhone: mapped.teamMemberPhone,
+              sla: mapped.sla,
+              nextFollowUpDue: mapped.nextFollowUpDue,
+              logo: mapped.logo,
+              postServiceKycForm: mapped.postServiceKycForm,
+              agreementsFileName: mapped.agreementsFileName,
+              agreementsFileUrl: mapped.agreementsFileUrl,
+              agreementsUploadedAt: mapped.agreementsUploadedAt,
+              agreementLevel: mapped.agreementLevel,
+              agreementServiceChargePercent: mapped.agreementServiceChargePercent,
+              agreementContractValidity: mapped.agreementContractValidity,
+              agreementContractStartDate: mapped.agreementContractStartDate,
+              agreementContractEndDate: mapped.agreementContractEndDate,
+              agreementTimePeriod: mapped.agreementTimePeriod,
+              agreementAdvancePaymentPercent: mapped.agreementAdvancePaymentPercent,
+              agreementFreeReplacementValue: mapped.agreementFreeReplacementValue,
+              agreementFreeReplacementUnit: mapped.agreementFreeReplacementUnit,
+            });
+          }
+        } catch (refreshError) {
+          console.error('Failed to refresh client after save:', refreshError);
         }
+        await refreshClientContacts();
         resetClientLogoDraft();
         setPendingAgreementsFile(null);
         const pendingClientKycUpdate = [...pendingKycFiles];
@@ -2826,8 +3004,33 @@ export function ClientDetailsDrawer({
       }
     };
 
+    const fetchAgreementLevelCatalog = async () => {
+      try {
+        const response = await apiGetAgreementLevelCatalog();
+        if (cancelled) return;
+        setAgreementLevelCatalog(
+          mergeCatalogOptions(
+            AGREEMENT_LEVEL_OPTIONS,
+            response?.data?.statuses,
+            client?.agreementLevel ?? overviewEditForm.agreementLevel,
+          ),
+        );
+      } catch (error) {
+        if (cancelled) return;
+        console.error('Failed to load agreement levels:', error);
+        setAgreementLevelCatalog(
+          mergeCatalogOptions(
+            AGREEMENT_LEVEL_OPTIONS,
+            undefined,
+            client?.agreementLevel ?? overviewEditForm.agreementLevel,
+          ),
+        );
+      }
+    };
+
     fetchClientLeadStatusCatalog();
     fetchClientPriorityCatalog();
+    fetchAgreementLevelCatalog();
     return () => {
       cancelled = true;
     };
@@ -2947,6 +3150,92 @@ export function ClientDetailsDrawer({
     } finally {
       setDeletingClientPriority(false);
     }
+  };
+
+  const addAgreementLevelOption = async (onSelect: (level: string) => void) => {
+    const level = String(newAgreementLevelValue || '').trim();
+    if (!level) {
+      toast.error('Enter a level name first.');
+      return;
+    }
+
+    setSavingAgreementLevel(true);
+    try {
+      const response = await apiAppendAgreementLevel(level);
+      const nextOptions = mergeCatalogOptions(AGREEMENT_LEVEL_OPTIONS, response?.data?.statuses, level);
+      setAgreementLevelCatalog(nextOptions);
+      onSelect(level);
+      setNewAgreementLevelValue('');
+      setShowAddAgreementLevelInput(false);
+      toast.success(`Level "${level}" added.`);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('jobportal:client-catalog-changed'));
+      }
+    } catch (error) {
+      requestError(error, 'Failed to add level');
+    } finally {
+      setSavingAgreementLevel(false);
+    }
+  };
+
+  const deleteAgreementLevelOption = async (level: string, onSelect: (level: string) => void) => {
+    const normalized = String(level || '').trim();
+    if (
+      !normalized ||
+      AGREEMENT_LEVEL_OPTIONS.some((option) => option.toLowerCase() === normalized.toLowerCase())
+    ) {
+      return;
+    }
+
+    const confirmed = await requestConfirm(`Delete level "${normalized}"?`, {
+      title: 'Delete level',
+      tone: 'warning',
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+    });
+    if (!confirmed) return;
+
+    setDeletingAgreementLevel(true);
+    try {
+      const response = await apiRemoveAgreementLevel(normalized);
+      const nextOptions = mergeCatalogOptions(AGREEMENT_LEVEL_OPTIONS, response?.data?.statuses);
+      setAgreementLevelCatalog(nextOptions);
+      onSelect('');
+      toast.success(`Level "${normalized}" deleted.`);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('jobportal:client-catalog-changed'));
+      }
+    } catch (error) {
+      requestError(error, 'Failed to delete level');
+    } finally {
+      setDeletingAgreementLevel(false);
+    }
+  };
+
+  const agreementLevelCatalogProps: AgreementLevelCatalogProps = {
+    options: agreementLevelOptions,
+    defaultOptions: AGREEMENT_LEVEL_OPTIONS,
+    deleting: deletingAgreementLevel,
+    saving: savingAgreementLevel,
+    showAddInput: showAddAgreementLevelInput,
+    newValue: newAgreementLevelValue,
+    onToggleAddInput: () => {
+      setShowAddAgreementLevelInput((prev) => !prev);
+      setNewAgreementLevelValue('');
+    },
+    onNewValueChange: setNewAgreementLevelValue,
+    onAdd: () =>
+      addAgreementLevelOption((nextLevel) =>
+        setOverviewEditForm((p) => ({ ...p, agreementLevel: nextLevel })),
+      ),
+    onCancelAdd: () => {
+      setShowAddAgreementLevelInput(false);
+      setNewAgreementLevelValue('');
+    },
+    onDelete: (level) =>
+      deleteAgreementLevelOption(level, (nextLevel) =>
+        setOverviewEditForm((p) => ({ ...p, agreementLevel: nextLevel })),
+      ),
   };
 
   // Fetch client activities whenever client changes
@@ -3146,6 +3435,7 @@ export function ClientDetailsDrawer({
         ...emptyAgreementTerms(),
         ...syncClientTeamMembers(),
         postServiceKycForm: emptyPostServiceKycForm(),
+        dynamicOtherDetails: [],
       }));
       resetClientLogoDraft();
       setPendingAgreementsFile(null);
@@ -3154,16 +3444,6 @@ export function ClientDetailsDrawer({
       setRemovedPostServiceKycFileIds([]);
       // Set edit mode to true so form is visible
       setOverviewEditMode(true);
-      // Open relevant sections
-      setOverviewOpen({
-        leadInformation: true,
-        agreementsTerms: true,
-        kycForm: true,
-        companySnapshot: true,
-        relationship: true,
-        performance: false,
-        health: false,
-      });
       // Set active tab to overview
       setActiveTab('overview');
     } else {
@@ -3201,32 +3481,40 @@ export function ClientDetailsDrawer({
   }, [orgRecruitmentUiVersion]);
 
   const revenue = client?.revenue ?? `$${(Number(client?.placements ?? 0) * 3.5).toFixed(1)}k`;
-  const primaryClientContact = clientContacts.find((contact) => contact.isPrimary) || clientContacts[0] || null;
+  const teamMemberContactIds = useMemo(
+    () => new Set(clientTeamMemberContacts.map((contact) => contact.id)),
+    [clientTeamMemberContacts],
+  );
+  const primaryClientContact =
+    clientContacts.find((contact) => contact.isPrimary && !teamMemberContactIds.has(contact.id)) ||
+    clientContacts.find(
+      (contact) =>
+        !teamMemberContactIds.has(contact.id) &&
+        String(contact.designation || '').trim().toLowerCase() === 'director',
+    ) ||
+    clientContacts.find((contact) => !teamMemberContactIds.has(contact.id)) ||
+    null;
   const primaryClientContactEmail = primaryClientContact?.email && !primaryClientContact.email.includes('@placeholder.local') ? primaryClientContact.email : '';
   const primaryClientContactPhone = primaryClientContact?.phone || '';
-  const locationSource = fullClientData?.hiringLocations || client?.hiringLocations || fullClientData?.location || client?.location || '';
-  const locationParts = locationSource.split(',').map((part) => part.trim()).filter(Boolean);
-  const derivedCity = locationParts[0] || '';
-  const derivedCountry = locationParts.length > 1 ? locationParts[locationParts.length - 1] : '';
-  const companyLinksValue = [fullClientData?.website || client?.website || '', fullClientData?.linkedin || client?.linkedin || '']
+  const clientRecordForDisplay = fullClientData || client;
+  const locationFields = resolveClientCityStateCountry(clientRecordForDisplay || {});
+  const companyLinksValue = buildCompanyLinksFromClient({
+    website: fullClientData?.website || client?.website,
+    linkedin: fullClientData?.linkedin || client?.linkedin,
+  })
     .filter(Boolean)
     .join(' | ');
   const statusValue = resolveClientStatusLabel({
     leadStatus: fullClientData?.leadStatus || client?.leadStatus,
-    leadStatusValue: client?.leadStatusValue,
+    leadStatusValue: fullClientData?.leadStatusValue || client?.leadStatusValue,
     stage: fullClientData?.stage || client?.stage,
   });
-  const businessValue =
-    fullClientData?.expectedBusinessValue ||
-    client?.expectedBusinessValue ||
-    fullClientData?.revenueGenerated ||
-    fullClientData?.billingTotalRevenue ||
-    fullClientData?.revenue ||
-    client?.revenueGenerated ||
-    client?.billingTotalRevenue ||
-    client?.revenue ||
-    '';
+  const businessValue = fullClientData?.expectedBusinessValue || client?.expectedBusinessValue || '';
   const servicesNeededValue = fullClientData?.servicesNeeded || client?.servicesNeeded || '';
+  const assignedToValue = fullClientData?.owner?.name || client?.owner?.name || '';
+  const viewDynamicFields = filterImportedDynamicOtherDetails(
+    fullClientData?.otherDetails ?? client?.otherDetails ?? null,
+  );
   const phaseOneJobs = clientJobs.filter((job) => job.status !== 'Paused');
 
   // Don't render if no client and not in add mode
@@ -3267,7 +3555,7 @@ export function ClientDetailsDrawer({
                   )}
                   <div className="min-w-0">
                     <h2 className="text-lg font-bold text-slate-900 truncate">
-                      {isAddMode ? 'Add New Client' : client?.name}
+                      {isAddMode ? 'Add New Client' : fullClientData?.name || client?.name}
                     </h2>
                   </div>
                 </div>
@@ -3877,6 +4165,7 @@ export function ClientDetailsDrawer({
                                 disabled={uploadingKyc || uploadingAgreements}
                                 showContractValidity
                                 showTitle={false}
+                                levelCatalog={agreementLevelCatalogProps}
                                 uploadSlot={
                                   <AgreementDocumentUpload
                                     description=""
@@ -4671,8 +4960,16 @@ export function ClientDetailsDrawer({
                                       <FieldRow
                                         label="Director Name"
                                         value={formatDirectorDisplay(
-                                          fullClientData?.directorSalutation || client?.directorSalutation,
-                                          fullClientData?.directorName || primaryClientContact?.name || '',
+                                          fullClientData?.directorSalutation ||
+                                            client?.directorSalutation ||
+                                            directorFromOtherDetails(
+                                              fullClientData?.otherDetails || client?.otherDetails,
+                                            ).directorSalutation,
+                                          primaryClientContact?.name ||
+                                            directorFromOtherDetails(
+                                              fullClientData?.otherDetails || client?.otherDetails,
+                                            ).directorName ||
+                                            '',
                                         )}
                                       />
                                       <FieldRow
@@ -4695,10 +4992,10 @@ export function ClientDetailsDrawer({
                                     </div>
                                   </div>
                                   {(() => {
-                                    const teamMembers = (
-                                      clientTeamMemberContacts.length > 0
-                                        ? extractClientTeamMembers(clientTeamMemberContacts)
-                                        : resolveTeamMemberList(fullClientData || client)
+                                    const teamMembers = resolveClientTeamMembersForForm(
+                                      clientTeamMemberContacts,
+                                      fullClientData || client,
+                                      primaryClientContact?.id,
                                     ).filter(teamMemberHasAnyValue);
                                     if (teamMembers.length === 0) return null;
                                     return (
@@ -4724,35 +5021,23 @@ export function ClientDetailsDrawer({
                                     );
                                   })()}
                                   <div><FieldRow label="Location" value={fullClientData?.location || client?.location || ''} /></div>
-                                  <div><FieldRow label="City" value={derivedCity} /></div>
-                                  <div><FieldRow label="Country" value={derivedCountry} /></div>
-                                  <div><FieldRow label="Sector" value={formatIndustriesDisplay(fullClientData?.industry || client?.industry || '')} /></div>
+                                  <div><FieldRow label="City" value={locationFields.city} /></div>
+                                  <div><FieldRow label="State" value={locationFields.state} /></div>
+                                  <div><FieldRow label="Country" value={locationFields.country} /></div>
+                                  <div><FieldRow label="Timezone" value={fullClientData?.timezone || client?.timezone || ''} /></div>
+                                  <div><FieldRow label="Industry" value={formatIndustriesDisplay(fullClientData?.industry || client?.industry || '')} /></div>
                                   <div><FieldRow label="Status" value={statusValue} /></div>
                                   <div><FieldRow label="Interest Level" value={fullClientData?.priority || client?.priority || ''} /></div>
-                                  <div><FieldRow label="Assigned To" value={client?.owner?.name || ''} /></div>
+                                  <div><FieldRow label="Assigned To" value={assignedToValue} /></div>
                                 </div>
                                 <div><FieldRow label="Services Needed" value={servicesNeededValue} /></div>
                                 <div><FieldRow label="Expected Business Value" value={businessValue} /></div>
-                                {Array.isArray(fullClientData?.otherDetails) && fullClientData.otherDetails.length ? (
+                                {viewDynamicFields.length ? (
                                   <div className="sm:col-span-2">
                                     <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
                                       <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">Dynamic Fields</p>
                                       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                                        {fullClientData.otherDetails.map((item, index) => (
-                                          <div key={`${item.label}-${index}`} className="text-sm">
-                                            <span className="font-semibold text-slate-900">{item.label}:</span>{' '}
-                                            <span className="text-slate-600">{item.value}</span>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  </div>
-                                ) : Array.isArray(client?.otherDetails) && client.otherDetails.length ? (
-                                  <div className="sm:col-span-2">
-                                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
-                                      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">Dynamic Fields</p>
-                                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                                        {client.otherDetails.map((item, index) => (
+                                        {viewDynamicFields.map((item, index) => (
                                           <div key={`${item.label}-${index}`} className="text-sm">
                                             <span className="font-semibold text-slate-900">{item.label}:</span>{' '}
                                             <span className="text-slate-600">{item.value}</span>
@@ -5228,6 +5513,7 @@ export function ClientDetailsDrawer({
                               onChange={(patch) => setOverviewEditForm((p) => ({ ...p, ...patch }))}
                               disabled={uploadingKyc || uploadingAgreements}
                               showContractValidity
+                              levelCatalog={agreementLevelCatalogProps}
                               uploadSlot={
                                 <>
                                   {overviewEditForm.agreementsFileUrl && !pendingAgreementsFile ? (
