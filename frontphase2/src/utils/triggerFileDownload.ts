@@ -1,4 +1,9 @@
 import { getAccessToken } from '../lib/api';
+import {
+  buildResumeDownloadProxyUrl,
+  getResumeExtension,
+  normalizeResumeHref,
+} from '../lib/resumePreview';
 import { normalizeCloudinaryDocumentUrl } from './cloudinaryUrls';
 
 function sanitizeFilename(name: string): string {
@@ -80,6 +85,26 @@ function cloudinaryAttachmentUrl(url: string): string {
   return url.replace('/upload/', '/upload/fl_attachment/');
 }
 
+function inferExtensionFromContentType(contentType: string): string {
+  const ct = String(contentType || '').toLowerCase();
+  if (ct.includes('pdf')) return 'pdf';
+  if (ct.includes('jpeg') || ct.includes('jpg')) return 'jpg';
+  if (ct.includes('png')) return 'png';
+  if (ct.includes('gif')) return 'gif';
+  if (ct.includes('webp')) return 'webp';
+  if (ct.includes('plain')) return 'txt';
+  if (ct.includes('wordprocessingml')) return 'docx';
+  if (ct.includes('msword')) return 'doc';
+  return '';
+}
+
+function withDownloadExtension(filename: string, extension: string): string {
+  const safeName = sanitizeFilename(filename);
+  if (!extension) return safeName;
+  const base = safeName.replace(/\.[a-z0-9]+$/i, '');
+  return `${base}.${extension}`;
+}
+
 async function downloadBlob(blob: Blob, filename: string) {
   const objectUrl = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -103,13 +128,14 @@ export async function triggerFileDownload(
   const sourceUrl = resolveRawDownloadUrl(fileUrl, uploadsBase);
   if (!sourceUrl) throw new Error('No file to download');
 
-  const filename = sanitizeFilename(options?.filename || inferFilenameFromUrl(sourceUrl));
+  const normalizedSource = normalizeResumeHref(sourceUrl);
+  const requestedFilename = sanitizeFilename(options?.filename || inferFilenameFromUrl(sourceUrl));
   const token = typeof window !== 'undefined' ? getAccessToken() : null;
   const authHeaders: HeadersInit | undefined = token ? { Authorization: `Bearer ${token}` } : undefined;
 
   const proxyPath = resolveDownloadFilePath(sourceUrl, uploadsBase);
   if (proxyPath) {
-    const params = new URLSearchParams({ path: proxyPath, filename });
+    const params = new URLSearchParams({ path: proxyPath, filename: requestedFilename });
     const response = await fetch(`/api/download-file?${params.toString()}`, {
       headers: authHeaders,
       cache: 'no-store',
@@ -117,7 +143,27 @@ export async function triggerFileDownload(
     if (!response.ok) {
       throw new Error(`Download failed (${response.status})`);
     }
-    await downloadBlob(await response.blob(), filename);
+    await downloadBlob(await response.blob(), requestedFilename);
+    return;
+  }
+
+  const resumeProxyUrl = buildResumeDownloadProxyUrl(normalizedSource || sourceUrl);
+  if (resumeProxyUrl) {
+    const response = await fetch(resumeProxyUrl, {
+      headers: authHeaders,
+      cache: 'no-store',
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const detail = (await response.text().catch(() => '')).slice(0, 180).trim();
+      throw new Error(detail || `Download failed (${response.status})`);
+    }
+
+    const blob = await response.blob();
+    const urlExt = getResumeExtension(normalizedSource || sourceUrl);
+    const contentExt = inferExtensionFromContentType(response.headers.get('content-type') || blob.type);
+    const downloadName = withDownloadExtension(requestedFilename, urlExt || contentExt);
+    await downloadBlob(blob, downloadName);
     return;
   }
 
@@ -138,7 +184,7 @@ export async function triggerFileDownload(
         lastError = new Error(`Download failed (${response.status})`);
         continue;
       }
-      await downloadBlob(await response.blob(), filename);
+      await downloadBlob(await response.blob(), requestedFilename);
       return;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error('Download failed');

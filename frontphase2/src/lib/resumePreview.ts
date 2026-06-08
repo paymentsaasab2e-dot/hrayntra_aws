@@ -214,6 +214,49 @@ export function buildResumeDirectUrl(resumeUrl: string): string {
   return normalizeResumeHref(resumeUrl);
 }
 
+/** Remote S3 / Cloudinary resume URLs cannot be fetched from the browser (CORS). */
+export function isRemoteResumeStorageUrl(resumeUrl?: string | null): boolean {
+  const base = normalizeResumeHref(String(resumeUrl || '').trim());
+  if (!/^https?:\/\//i.test(base)) return false;
+
+  if (isExtensionlessResumeStoragePath(base)) return true;
+
+  try {
+    const u = new URL(base);
+    const path = u.pathname;
+    const hasResumeExt = /\.(pdf|png|jpe?g|gif|webp|txt|docx|doc)($|[?#])/i.test(path);
+
+    if (u.hostname === 'res.cloudinary.com' && hasResumeExt) return true;
+
+    const isS3Host =
+      u.hostname.endsWith('.amazonaws.com') ||
+      u.hostname.includes('.s3.') ||
+      u.hostname.startsWith('s3.');
+    if (isS3Host && (hasResumeExt || isExtensionlessResumeStoragePath(path))) return true;
+  } catch {
+    /* ignore */
+  }
+
+  return false;
+}
+
+/** Same-origin URL for downloading remote resumes without CORS errors. */
+export function buildResumeDownloadProxyUrl(resumeUrl: string): string {
+  const base = normalizeResumeHref(String(resumeUrl || '').split('#')[0].trim());
+  if (!base) return '';
+  if (base.startsWith('/api/')) return base;
+
+  if (isWordResume(base)) {
+    return buildResumeDocxBytesUrl(base);
+  }
+
+  if (isRemoteResumeStorageUrl(base)) {
+    return `/api/pdf-proxy?url=${encodeURIComponent(base)}`;
+  }
+
+  return '';
+}
+
 export function getResumePreviewMode(resumeUrl?: string | null): ResumePreviewMode {
   return resolveResumePreviewKind(resumeUrl);
 }

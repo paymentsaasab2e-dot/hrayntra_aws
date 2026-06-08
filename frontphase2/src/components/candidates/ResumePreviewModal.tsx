@@ -62,8 +62,13 @@ export function ResumePreviewModal({
       const base = String(candidateName || 'candidate').replace(/[\\/:*?"<>|]+/g, '_').trim() || 'candidate';
       await triggerFileDownload(resumeUrl, {
         uploadsBase,
-        filename: ext ? `${base}-resume.${ext}` : `${base}-resume.pdf`,
+        filename: ext ? `${base}-resume.${ext}` : `${base}-resume`,
       });
+    } catch (error) {
+      console.error('Resume download failed:', error);
+      window.alert(
+        error instanceof Error ? error.message : 'Could not download this resume. Try Open in tab instead.',
+      );
     } finally {
       setDownloading(false);
     }
