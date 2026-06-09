@@ -325,7 +325,24 @@ export function enrichBackendCandidateFromPhase1Snapshot(c: BackendCandidate): B
     ...(c.extraData && typeof c.extraData === 'object' && !Array.isArray(c.extraData)
       ? (c.extraData as Record<string, unknown>)
       : {}),
-    phase1ProfileSnapshot: patchedSnap,
+    phase1ProfileSnapshot: {
+      ...patchedSnap,
+      personalInfo: {
+        ...(patchedSnap.personalInfo || {}),
+        employment:
+          mergedPi.employment ||
+          mapEmploymentStatusLabel(String((c.extraData as Record<string, unknown>)?.employmentStatus || '')) ||
+          undefined,
+        passportNumber:
+          mergedPi.passportNumber ||
+          String((c.extraData as Record<string, unknown>)?.passportNumber || '').trim() ||
+          undefined,
+        nationality:
+          mergedPi.nationality ||
+          String((c.extraData as Record<string, unknown>)?.nationality || '').trim() ||
+          undefined,
+      },
+    },
     phase1GapExplanations: snap.gapExplanations || [],
     phase1Internships: snap.internships || [],
     phase1Accomplishments: snap.accomplishments || [],
