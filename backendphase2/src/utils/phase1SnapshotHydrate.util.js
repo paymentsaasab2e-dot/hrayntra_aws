@@ -177,6 +177,74 @@ function applyPortalScalarsToCandidate(candidate, profile) {
   if (location) candidate.location = location;
 }
 
+function normalizePortalProfileDoc(doc) {
+  if (!doc || typeof doc !== 'object') return null;
+  const readDate = (value) => {
+    if (!value) return null;
+    if (value instanceof Date) return value;
+    if (typeof value === 'string') return value;
+    if (value.$date) return value.$date;
+    return null;
+  };
+
+  return {
+    fullName: doc.fullName || doc.full_name || '',
+    email: doc.email || '',
+    phoneNumber: doc.phoneNumber || doc.phone_number || null,
+    profilePhotoUrl: doc.profilePhotoUrl || doc.profile_photo_url || null,
+    gender: doc.gender || null,
+    dateOfBirth: readDate(doc.dateOfBirth || doc.date_of_birth),
+    address: doc.address || null,
+    city: doc.city || null,
+    country: doc.country || null,
+    nationality: doc.nationality || null,
+    passportNumber: doc.passportNumber || doc.passport_number || null,
+    linkedinUrl: doc.linkedinUrl || doc.linkedin_url || null,
+    employmentStatus: doc.employmentStatus || doc.employment_status || null,
+  };
+}
+
+/** Job-portal Prisma on backendphase2 may not expose CandidateProfile — read Mongo directly. */
+async function fetchPortalCandidateProfileRaw(portalClient, candidateId) {
+  const idStr = String(candidateId || '').trim();
+  if (!idStr || !portalClient) return null;
+
+  if (portalClient.candidateProfile?.findUnique) {
+    try {
+      const row = await portalClient.candidateProfile.findUnique({
+        where: { candidateId: idStr },
+      });
+      if (row) return row;
+    } catch {
+      /* fall through to raw */
+    }
+  }
+
+  if (!portalClient.$runCommandRaw) return null;
+
+  const isObjectIdHex = /^[a-fA-F0-9]{24}$/.test(idStr);
+  const filters = isObjectIdHex
+    ? [{ candidateId: { $oid: idStr } }, { candidateId: idStr }]
+    : [{ candidateId: idStr }];
+
+  for (const filter of filters) {
+    try {
+      const result = await portalClient.$runCommandRaw({
+        find: 'candidate_profiles',
+        filter,
+        limit: 1,
+      });
+      const doc = result?.cursor?.firstBatch?.[0];
+      const normalized = normalizePortalProfileDoc(doc);
+      if (normalized) return normalized;
+    } catch {
+      /* try next filter */
+    }
+  }
+
+  return null;
+}
+
 function resolveSnapshotFromCandidate(candidate) {
   const extra =
     candidate?.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
@@ -196,13 +264,11 @@ function resolveSnapshotFromCandidate(candidate) {
  * Fixes production lag when candidatecommon has not been re-synced yet.
  */
 export async function overlayLivePortalProfileOnCandidate(candidate, portalClient) {
-  if (!candidate?.id || !portalClient?.candidateProfile?.findUnique) return candidate;
+  if (!candidate?.id || !portalClient) return candidate;
   if (!isPhase1LinkedCandidate(candidate)) return candidate;
 
   try {
-    const profile = await portalClient.candidateProfile.findUnique({
-      where: { candidateId: String(candidate.id) },
-    });
+    const profile = await fetchPortalCandidateProfileRaw(portalClient, candidate.id);
     if (!profile) return candidate;
 
     applyPortalScalarsToCandidate(candidate, profile);
