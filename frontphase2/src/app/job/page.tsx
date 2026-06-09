@@ -11,7 +11,6 @@ import {
   UserPlus, 
   FileText, 
   BrainCircuit, 
-  MapPin, 
   Briefcase, 
   Users, 
   CheckCircle2, 
@@ -402,8 +401,8 @@ const JobsListView = ({ jobs, onJobClick, onEditJob, onAddCandidate, onDeleteJob
             <th className="px-3 py-2 sm:px-4 w-10 first:pl-4">
               <input type="checkbox" className="rounded border-slate-300" aria-label="Select all" />
           </th>
-            <th className="px-3 py-2 sm:px-4">Job title</th>
-            <th className="px-3 py-2 sm:px-4">Client & location</th>
+            <th className="min-w-[12rem] px-3 py-2 align-middle sm:min-w-[14rem] sm:px-4">Job title</th>
+            <th className="px-3 py-2 sm:px-4">Client</th>
             <th className="px-3 py-2 sm:px-4">Status</th>
             <th className="px-3 py-2 sm:px-4">Pipeline</th>
             <th className="px-3 py-2 sm:px-4">Details</th>
@@ -428,18 +427,18 @@ const JobsListView = ({ jobs, onJobClick, onEditJob, onAddCandidate, onDeleteJob
                 <td className="px-3 py-2 sm:px-4" onClick={(e) => e.stopPropagation()}>
                   <input type="checkbox" className="rounded border-slate-300" aria-label={`Select ${job.title}`} />
             </td>
-                <td className="px-3 py-2 sm:px-4">
-              <div className="flex flex-col">
+                <td className="min-w-[12rem] align-middle px-3 py-2 sm:min-w-[14rem] sm:px-4">
+              <div className="flex flex-col justify-center">
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => onJobClick?.(job)}
-                        className="text-left text-xs font-semibold text-slate-900 hover:text-indigo-700 transition-colors line-clamp-1"
-                    title="View job details"
+                        className="min-w-0 flex-1 text-left text-xs font-semibold leading-snug text-slate-900 whitespace-normal break-words hover:text-indigo-700 transition-colors"
+                    title={job.title}
                   >
                     {job.title}
                   </button>
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex shrink-0 items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <FileText size={14} className="text-slate-400 cursor-default" />
                         <BrainCircuit size={14} className="text-violet-500 hover:text-violet-700 cursor-pointer" />
                   </div>
@@ -447,13 +446,7 @@ const JobsListView = ({ jobs, onJobClick, onEditJob, onAddCandidate, onDeleteJob
               </div>
             </td>
                 <td className="px-3 py-2 sm:px-4">
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-xs font-medium text-slate-800">{job.client}</span>
-                    <div className="flex items-center gap-1 text-[10px] text-slate-500">
-                      <MapPin size={12} className="shrink-0" />
-                  <span>{job.location}</span>
-                </div>
-              </div>
+                  <span className="text-xs font-medium text-slate-800 line-clamp-2">{job.client}</span>
             </td>
                 <td className="px-3 py-2 sm:px-4" onClick={(e) => e.stopPropagation()}>
               <div className="flex flex-col gap-2">

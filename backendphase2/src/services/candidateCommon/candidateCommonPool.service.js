@@ -88,13 +88,44 @@ function applyProfileSnapshotFields(mapped, row) {
     ? snapshot.certifications.map((c) => String(c.certificationName || '').trim()).filter(Boolean)
     : [];
 
+  const portfolioLinks = Array.isArray(snapshot.portfolioLinks) ? snapshot.portfolioLinks : [];
+  const cvPortfolioLinks = mapped.cvPortfolioLinks || portfolioLinks;
+  let linkedIn = mapped.linkedIn || pi.linkedinUrl || null;
+  if (!String(linkedIn || '').trim()) {
+    for (const link of [...portfolioLinks, ...(Array.isArray(cvPortfolioLinks) ? cvPortfolioLinks : [])]) {
+      const url = String(link?.url || '').trim();
+      if (!url) continue;
+      const host = url.replace(/^https?:\/\//i, '').toLowerCase();
+      if (host === 'gmail.com' || host === 'b.com') continue;
+      const type = String(link?.linkType || link?.type || link?.title || '').toLowerCase();
+      if (type.includes('linkedin') || /linkedin\.com/i.test(url)) {
+        linkedIn = url;
+        break;
+      }
+    }
+  }
+
+  const enrichedPersonalInfo = {
+    ...(pi || {}),
+    employment: pi?.employment || null,
+    passportNumber: pi?.passportNumber || null,
+    nationality: pi?.nationality || null,
+    address: pi?.address || row.addressLine || mapped.address || null,
+    linkedinUrl: pi?.linkedinUrl || linkedIn || null,
+  };
+
+  const enrichedSnapshot = {
+    ...snapshot,
+    personalInfo: enrichedPersonalInfo,
+  };
+
   const withSnapshot = {
     ...mapped,
     firstName: mapped.firstName || pi.firstName || null,
     lastName: mapped.lastName || pi.lastName || null,
     email: mapped.email || pi.email || null,
     phone: mapped.phone || pi.phone || null,
-    linkedIn: mapped.linkedIn || pi.linkedinUrl || null,
+    linkedIn,
     city: mapped.city || pi.city || null,
     country: mapped.country || pi.country || null,
     location:
@@ -125,7 +156,7 @@ function applyProfileSnapshotFields(mapped, row) {
       snapshot.careerPreferences?.availabilityToStart ||
       mapped.availability ||
       null,
-    address: row.addressLine || mapped.address || null,
+    address: enrichedPersonalInfo.address || row.addressLine || mapped.address || null,
     careerPreferences: normalizeCareerPreferences(mergedCareerPreferences) || mapped.careerPreferences || null,
     certifications: certificationsFromSnap.length ? certificationsFromSnap : mapped.certifications,
     certificationsList: certificationsFromSnap.length
@@ -140,7 +171,12 @@ function applyProfileSnapshotFields(mapped, row) {
         : null),
     extraData: {
       ...(mapped.extraData && typeof mapped.extraData === 'object' ? mapped.extraData : {}),
-      phase1ProfileSnapshot: snapshot,
+      phase1ProfileSnapshot: enrichedSnapshot,
+      ...(enrichedPersonalInfo.passportNumber
+        ? { passportNumber: enrichedPersonalInfo.passportNumber }
+        : {}),
+      ...(enrichedPersonalInfo.employment ? { employment: enrichedPersonalInfo.employment } : {}),
+      ...(enrichedPersonalInfo.nationality ? { nationality: enrichedPersonalInfo.nationality } : {}),
       ...(typeof snapshot.cvWorkHistoryNarrative === 'string' && snapshot.cvWorkHistoryNarrative.trim()
         ? { workHistory: snapshot.cvWorkHistoryNarrative.trim() }
         : {}),

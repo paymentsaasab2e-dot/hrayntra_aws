@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+/** Allow slow upstream responses when requests still route through this proxy. */
+export const maxDuration = 300;
 
 const DEFAULT_BACKEND_BASE = 'https://api2.hryantra.com/api/v1';
 const backendBase = (process.env.BACKEND_INTERNAL_URL || DEFAULT_BACKEND_BASE).replace(/\/$/, '');

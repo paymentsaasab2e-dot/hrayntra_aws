@@ -27,36 +27,154 @@ function personalInfoNeedsHydration(personalInfo) {
   );
 }
 
-export function patchPhase1SnapshotPersonalInfo(snapshot, profile) {
+function splitFullName(fullName) {
+  const parts = String(fullName || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!parts.length) return { firstName: null, lastName: null };
+  if (parts.length === 1) return { firstName: parts[0], lastName: null };
+  return { firstName: parts[0], lastName: parts.slice(1).join(' ') };
+}
+
+function pickPortalValue(portalValue, existingValue) {
+  const portal = String(portalValue || '').trim();
+  if (portal) return portal;
+  return String(existingValue || '').trim() || null;
+}
+
+function resolveLinkedInFromPortfolioSources(snapshot, candidate) {
+  const direct = String(snapshot?.personalInfo?.linkedinUrl || candidate?.linkedIn || '').trim();
+  if (direct) return direct;
+
+  const lists = [
+    ...(Array.isArray(snapshot?.portfolioLinks) ? snapshot.portfolioLinks : []),
+    ...(Array.isArray(candidate?.cvPortfolioLinks) ? candidate.cvPortfolioLinks : []),
+  ];
+
+  for (const link of lists) {
+    const url = String(link?.url || '').trim();
+    if (!url) continue;
+    const host = url.replace(/^https?:\/\//i, '').toLowerCase();
+    if (host === 'gmail.com' || host === 'b.com') continue;
+    const type = String(link?.linkType || link?.type || link?.title || '').toLowerCase();
+    if (type.includes('linkedin') || /linkedin\.com/i.test(url)) return url;
+  }
+
+  return '';
+}
+
+function patchSnapshotAddressFromCandidate(candidate, profile, personalInfo) {
+  const fromProfile = String(profile?.address || '').trim();
+  if (fromProfile) return fromProfile;
+  return String(candidate?.addressLine || candidate?.address || personalInfo?.address || '').trim();
+}
+
+function isPhase1LinkedCandidate(candidate) {
+  const source = String(candidate?.source || '').trim().toLowerCase();
+  if (source === 'phase1') return true;
+  if (candidate?.isPhase1Candidate === true) return true;
+  const extra =
+    candidate?.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
+      ? candidate.extraData
+      : {};
+  if (extra.phase1ProfileSnapshot && typeof extra.phase1ProfileSnapshot === 'object') return true;
+  if (candidate?.profileSnapshot && typeof candidate.profileSnapshot === 'object') return true;
+  return false;
+}
+
+export function patchPhase1SnapshotPersonalInfo(snapshot, profile, { preferPortal = false } = {}) {
   if (!snapshot || typeof snapshot !== 'object' || !profile) return snapshot;
   const personalInfo = { ...(snapshot.personalInfo || {}) };
+  const apply = (key, value) => {
+    if (!value) return;
+    const next = String(value).trim();
+    if (!next) return;
+    if (preferPortal || !String(personalInfo[key] || '').trim()) {
+      personalInfo[key] = next;
+    }
+  };
 
-  if (!String(personalInfo.employment || '').trim() && profile.employmentStatus) {
-    personalInfo.employment = mapEmploymentLabel(profile.employmentStatus);
+  if (profile.employmentStatus) {
+    apply('employment', mapEmploymentLabel(profile.employmentStatus));
   }
-  if (!String(personalInfo.nationality || '').trim() && profile.nationality) {
-    personalInfo.nationality = String(profile.nationality).trim();
+  apply('nationality', profile.nationality);
+  apply('passportNumber', profile.passportNumber);
+  apply('address', profile.address);
+  if (profile.gender) apply('gender', mapGenderLabel(profile.gender));
+  if (profile.dateOfBirth) {
+    apply('dob', new Date(profile.dateOfBirth).toISOString().split('T')[0]);
   }
-  if (!String(personalInfo.passportNumber || '').trim() && profile.passportNumber) {
-    personalInfo.passportNumber = String(profile.passportNumber).trim();
-  }
-  if (!String(personalInfo.address || '').trim() && profile.address) {
-    personalInfo.address = String(profile.address).trim();
-  }
-  if (!String(personalInfo.gender || '').trim() && profile.gender) {
-    personalInfo.gender = mapGenderLabel(profile.gender);
-  }
-  if (!String(personalInfo.dob || '').trim() && profile.dateOfBirth) {
-    personalInfo.dob = new Date(profile.dateOfBirth).toISOString().split('T')[0];
-  }
-  if (!String(personalInfo.linkedinUrl || '').trim() && profile.linkedinUrl) {
-    personalInfo.linkedinUrl = String(profile.linkedinUrl).trim();
-  }
+  apply('linkedinUrl', profile.linkedinUrl);
+  apply('email', profile.email);
+  apply('phone', profile.phoneNumber);
+  apply('city', profile.city);
+  apply('country', profile.country);
+  if (profile.profilePhotoUrl) apply('profilePhotoUrl', profile.profilePhotoUrl);
+
+  const fromName = splitFullName(profile.fullName);
+  if (fromName.firstName) apply('firstName', fromName.firstName);
+  if (fromName.lastName) apply('lastName', fromName.lastName);
 
   return {
     ...snapshot,
     personalInfo,
   };
+}
+
+/** Prefer live job-portal profile over stale candidatecommon snapshot (production sync lag). */
+export function mergeLivePortalProfileIntoSnapshot(snapshot, profile) {
+  return patchPhase1SnapshotPersonalInfo(snapshot || { personalInfo: {} }, profile, {
+    preferPortal: true,
+  });
+}
+
+function applyPortalScalarsToCandidate(candidate, profile) {
+  const fromName = splitFullName(profile.fullName);
+  if (fromName.firstName) candidate.firstName = fromName.firstName;
+  if (fromName.lastName) candidate.lastName = fromName.lastName;
+
+  const email = String(profile.email || '').trim();
+  if (email) candidate.email = email;
+
+  const phone = String(profile.phoneNumber || '').trim();
+  if (phone) candidate.phone = phone;
+
+  const city = String(profile.city || '').trim();
+  if (city) candidate.city = city;
+
+  const country = String(profile.country || '').trim();
+  if (country) candidate.country = country;
+
+  const address = String(profile.address || candidate.addressLine || candidate.address || '').trim();
+  if (address) {
+    candidate.address = address;
+    candidate.addressLine = address;
+  }
+
+  if (profile.employmentStatus) {
+    candidate.employmentStatus = profile.employmentStatus;
+  }
+  if (profile.passportNumber) {
+    candidate.passportNumber = String(profile.passportNumber).trim();
+  }
+  if (profile.nationality) {
+    candidate.nationality = String(profile.nationality).trim();
+  }
+
+  if (profile.gender) candidate.gender = mapGenderLabel(profile.gender);
+  if (profile.dateOfBirth) {
+    candidate.dateOfBirth = new Date(profile.dateOfBirth);
+  }
+
+  const linkedin = String(profile.linkedinUrl || '').trim();
+  if (linkedin) candidate.linkedIn = linkedin;
+
+  const photo = String(profile.profilePhotoUrl || '').trim();
+  if (photo) candidate.avatar = photo;
+
+  const location = [city, country].filter(Boolean).join(', ');
+  if (location) candidate.location = location;
 }
 
 function resolveSnapshotFromCandidate(candidate) {
@@ -73,13 +191,13 @@ function resolveSnapshotFromCandidate(candidate) {
   return null;
 }
 
-/** Backfill missing Phase 1 basic-info fields from the live job-portal profile row. */
-export async function hydratePhase1SnapshotPersonalInfoFromPortal(candidate, portalClient) {
+/**
+ * Overlay the live job-portal CandidateProfile onto CRM drawer data.
+ * Fixes production lag when candidatecommon has not been re-synced yet.
+ */
+export async function overlayLivePortalProfileOnCandidate(candidate, portalClient) {
   if (!candidate?.id || !portalClient?.candidateProfile?.findUnique) return candidate;
-
-  const resolved = resolveSnapshotFromCandidate(candidate);
-  if (!resolved) return candidate;
-  if (!personalInfoNeedsHydration(resolved.snapshot.personalInfo)) return candidate;
+  if (!isPhase1LinkedCandidate(candidate)) return candidate;
 
   try {
     const profile = await portalClient.candidateProfile.findUnique({
@@ -87,21 +205,65 @@ export async function hydratePhase1SnapshotPersonalInfoFromPortal(candidate, por
     });
     if (!profile) return candidate;
 
-    const patchedSnapshot = patchPhase1SnapshotPersonalInfo(resolved.snapshot, profile);
-    if (resolved.container === 'extraData') {
-      candidate.extraData = {
-        ...resolved.extra,
-        phase1ProfileSnapshot: patchedSnapshot,
+    applyPortalScalarsToCandidate(candidate, profile);
+
+    const resolved = resolveSnapshotFromCandidate(candidate);
+    const baseSnapshot = resolved?.snapshot || { personalInfo: {} };
+    let patchedSnapshot = mergeLivePortalProfileIntoSnapshot(baseSnapshot, profile);
+
+    const address = patchSnapshotAddressFromCandidate(
+      candidate,
+      profile,
+      patchedSnapshot.personalInfo || {},
+    );
+    if (address) {
+      patchedSnapshot = {
+        ...patchedSnapshot,
+        personalInfo: {
+          ...(patchedSnapshot.personalInfo || {}),
+          address,
+        },
       };
     }
+
+    const linkedIn = resolveLinkedInFromPortfolioSources(patchedSnapshot, candidate);
+    if (linkedIn) {
+      candidate.linkedIn = linkedIn;
+      patchedSnapshot = {
+        ...patchedSnapshot,
+        personalInfo: {
+          ...(patchedSnapshot.personalInfo || {}),
+          linkedinUrl: linkedIn,
+        },
+      };
+    }
+
+    const extra =
+      resolved?.extra ||
+      (candidate.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
+        ? candidate.extraData
+        : {});
+
+    candidate.extraData = {
+      ...extra,
+      phase1ProfileSnapshot: patchedSnapshot,
+      ...(profile.employmentStatus ? { employmentStatus: profile.employmentStatus } : {}),
+      ...(profile.passportNumber ? { passportNumber: String(profile.passportNumber).trim() } : {}),
+      ...(profile.nationality ? { nationality: String(profile.nationality).trim() } : {}),
+    };
     candidate.profileSnapshot = patchedSnapshot;
   } catch (err) {
     console.warn(
-      '[phase1SnapshotHydrate] failed for candidate',
+      '[phase1SnapshotHydrate] live portal overlay failed for candidate',
       candidate.id,
       err?.message || err,
     );
   }
 
   return candidate;
+}
+
+/** Backfill Phase 1 basic-info from the live job-portal profile row (drawer open). */
+export async function hydratePhase1SnapshotPersonalInfoFromPortal(candidate, portalClient) {
+  return overlayLivePortalProfileOnCandidate(candidate, portalClient);
 }
