@@ -1,11 +1,12 @@
 'use client';
 
 import React, { useMemo } from 'react';
-import { SaasaCvPdfViewer } from './SaasaCvPdfViewer';
+import { ResumeFilePreview } from './ResumeFilePreview';
 import {
   buildResumeViewerUrl,
   getResumeExtension,
   normalizeResumeHref,
+  resolveResumePreviewKind,
 } from '../../lib/resumePreview';
 
 interface SaasaCvSavedPreviewProps {
@@ -37,51 +38,39 @@ export function SaasaCvSavedPreview({
   }, [baseHref, cacheKey]);
 
   const ext = getResumeExtension(href);
+  const previewKind = resolveResumePreviewKind(href);
   const viewerUrl = href ? buildResumeViewerUrl(href) : '';
   const shellClass =
     `flex h-full w-full min-h-0 flex-1 flex-col overflow-hidden bg-slate-100 ${minHeightClass} ${className}`.trim();
 
   if (!enabled || !href) return null;
 
-  if (ext === 'pdf') {
-    if (preferNativePdfEmbed && viewerUrl) {
-      return (
-        <div className={shellClass} aria-label={`${candidateName} SAASA CV`}>
-          <div className="min-h-0 flex-1 overflow-hidden p-2 sm:p-4">
-            <iframe
-              key={viewerUrl}
-              src={viewerUrl}
-              title={`${candidateName} SAASA CV`}
-              className="mx-auto block h-[min(78dvh,900px)] w-full max-w-[52rem] rounded-lg border border-slate-200 bg-white shadow-sm"
-            />
-          </div>
-        </div>
-      );
-    }
+  const useNativePdfEmbed =
+    preferNativePdfEmbed &&
+    ext === 'pdf' &&
+    previewKind === 'pdf' &&
+    Boolean(viewerUrl);
 
+  if (useNativePdfEmbed) {
     return (
-      <div className={shellClass}>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-4 sm:p-6">
-          <div className="mx-auto w-full max-w-[52rem]">
-            <SaasaCvPdfViewer pdfUrl={viewerUrl || href} />
-          </div>
+      <div className={shellClass} aria-label={`${candidateName} SAASA CV`}>
+        <div className="min-h-0 flex-1 overflow-hidden p-2 sm:p-4">
+          <iframe
+            key={viewerUrl}
+            src={viewerUrl}
+            title={`${candidateName} SAASA CV`}
+            className="mx-auto block h-[min(78dvh,900px)] w-full max-w-[52rem] rounded-lg border border-slate-200 bg-white shadow-sm"
+          />
         </div>
       </div>
     );
   }
 
-  const imageUrl = href;
-
   return (
     <div className={shellClass} aria-label={`${candidateName} SAASA CV`}>
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-4 sm:p-6">
         <div className="mx-auto w-full max-w-[52rem]">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={imageUrl}
-            alt={`${candidateName} SAASA CV`}
-            className="mx-auto block max-h-[min(82dvh,960px)] w-full rounded-lg border border-slate-200 bg-white object-contain shadow-sm"
-          />
+          <ResumeFilePreview resumeUrl={href} candidateName={candidateName} />
         </div>
       </div>
     </div>

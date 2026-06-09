@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Loader2, Sparkles } from 'lucide-react';
 
 export type SuggestSource = 'history' | 'catalog' | 'ai';
@@ -28,6 +29,12 @@ export interface SuggestTypeaheadProps {
   typeHint?: string;
 }
 
+type DropdownPosition = {
+  top: number;
+  left: number;
+  width: number;
+};
+
 export function SuggestTypeahead({
   value,
   onChange,
@@ -44,13 +51,32 @@ export function SuggestTypeahead({
   const [suggestions, setSuggestions] = useState<SuggestItem[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [aiEnabled, setAiEnabled] = useState(false);
+  const [dropdownPos, setDropdownPos] = useState<DropdownPosition | null>(null);
+  const [mounted, setMounted] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestIdRef = useRef(0);
 
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
     setQuery(value);
   }, [value]);
+
+  const updateDropdownPosition = useCallback(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setDropdownPos({
+      top: rect.bottom + 4,
+      left: rect.left,
+      width: rect.width,
+    });
+  }, []);
 
   const loadSuggestions = useCallback(
     async (q: string) => {
@@ -73,18 +99,33 @@ export function SuggestTypeahead({
 
   useEffect(() => {
     if (!open || disabled) return;
+    updateDropdownPosition();
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       void loadSuggestions(query);
-    }, 320);
+    }, 220);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, open, disabled, loadSuggestions]);
+  }, [query, open, disabled, loadSuggestions, updateDropdownPosition]);
+
+  useEffect(() => {
+    if (!open) return;
+    const reposition = () => updateDropdownPosition();
+    window.addEventListener('resize', reposition);
+    window.addEventListener('scroll', reposition, true);
+    return () => {
+      window.removeEventListener('resize', reposition);
+      window.removeEventListener('scroll', reposition, true);
+    };
+  }, [open, updateDropdownPosition]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (!containerRef.current?.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (containerRef.current?.contains(target)) return;
+      if (dropdownRef.current?.contains(target)) return;
+      setOpen(false);
     };
     const escHandler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false);
@@ -122,11 +163,76 @@ export function SuggestTypeahead({
     }
   };
 
-  const showDropdown = open && !disabled;
+  const showDropdown = open && !disabled && mounted;
+
+  const dropdown =
+    showDropdown && dropdownPos ? (
+      <div
+        ref={dropdownRef}
+        className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg"
+        style={{
+          position: 'fixed',
+          top: dropdownPos.top,
+          left: dropdownPos.left,
+          width: dropdownPos.width,
+          zIndex: 9999,
+        }}
+      >
+        <div className="border-b border-slate-100 px-3 py-2">
+          <p className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            {loadingSuggestions ? (
+              <>
+                <Loader2 size={11} className="animate-spin text-blue-500" />
+                Searching…
+              </>
+            ) : (
+              <>
+                <Sparkles size={11} className="text-amber-500" />
+                {trimmedQuery ? `${typeHint} for “${trimmedQuery}”` : typeHint}
+              </>
+            )}
+          </p>
+        </div>
+        <ul className="max-h-48 overflow-y-auto py-1" role="listbox">
+          {!loadingSuggestions && suggestions.length === 0 && !showAddCustom && (
+            <li className="px-4 py-2.5 text-sm text-slate-500">{emptyHint}</li>
+          )}
+          {suggestions.map((item) => (
+            <li key={`${item.source}-${item.label}`}>
+              <button
+                type="button"
+                role="option"
+                className="flex w-full items-center justify-between gap-2 px-4 py-2 text-left text-sm text-slate-800 hover:bg-slate-50"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => pick(item.label)}
+              >
+                <span>{highlightMatch(item.label, trimmedQuery)}</span>
+                <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                  {SOURCE_HINT[item.source]}
+                </span>
+              </button>
+            </li>
+          ))}
+          {showAddCustom && (
+            <li>
+              <button
+                type="button"
+                className="w-full px-4 py-2.5 text-left text-sm font-medium text-blue-700 hover:bg-blue-50"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => pick(trimmedQuery)}
+              >
+                {`Use “${trimmedQuery}”`}
+              </button>
+            </li>
+          )}
+        </ul>
+      </div>
+    ) : null;
 
   return (
     <div ref={containerRef} className={`relative ${className}`}>
       <input
+        ref={inputRef}
         type="text"
         disabled={disabled}
         value={query}
@@ -134,8 +240,12 @@ export function SuggestTypeahead({
           setQuery(e.target.value);
           onChange(e.target.value);
           setOpen(true);
+          updateDropdownPosition();
         }}
-        onFocus={() => setOpen(true)}
+        onFocus={() => {
+          setOpen(true);
+          updateDropdownPosition();
+        }}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
         className={inputClassName}
@@ -144,59 +254,7 @@ export function SuggestTypeahead({
         aria-expanded={showDropdown}
       />
 
-      {showDropdown && (
-        <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
-          <div className="border-b border-slate-100 px-3 py-2">
-            <p className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-              {loadingSuggestions ? (
-                <>
-                  <Loader2 size={11} className="animate-spin text-blue-500" />
-                  Searching…
-                </>
-              ) : (
-                <>
-                  <Sparkles size={11} className="text-amber-500" />
-                  {trimmedQuery ? `${typeHint} for “${trimmedQuery}”` : typeHint}
-                  {!loadingSuggestions && aiEnabled ? '' : ''}
-                </>
-              )}
-            </p>
-          </div>
-          <ul className="max-h-48 overflow-y-auto py-1" role="listbox">
-            {!loadingSuggestions && suggestions.length === 0 && !showAddCustom && (
-              <li className="px-4 py-2.5 text-sm text-slate-500">{emptyHint}</li>
-            )}
-            {suggestions.map((item) => (
-              <li key={`${item.source}-${item.label}`}>
-                <button
-                  type="button"
-                  role="option"
-                  className="flex w-full items-center justify-between gap-2 px-4 py-2 text-left text-sm text-slate-800 hover:bg-slate-50"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => pick(item.label)}
-                >
-                  <span>{highlightMatch(item.label, trimmedQuery)}</span>
-                  <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-slate-400">
-                    {SOURCE_HINT[item.source]}
-                  </span>
-                </button>
-              </li>
-            ))}
-            {showAddCustom && (
-              <li>
-                <button
-                  type="button"
-                  className="w-full px-4 py-2.5 text-left text-sm font-medium text-blue-700 hover:bg-blue-50"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => pick(trimmedQuery)}
-                >
-                  {`Use “${trimmedQuery}”`}
-                </button>
-              </li>
-            )}
-          </ul>
-        </div>
-      )}
+      {mounted && dropdown ? createPortal(dropdown, document.body) : null}
     </div>
   );
 }

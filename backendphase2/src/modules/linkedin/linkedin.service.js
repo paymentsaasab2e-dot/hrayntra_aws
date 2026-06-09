@@ -224,9 +224,18 @@ export const linkedinService = {
       throw new Error('LinkedIn token expired. Please reconnect.');
     }
 
-    const shareText =
+    let shareText =
       jobData.postText ||
       `We're hiring a ${jobData.jobTitle} at ${jobData.company}!\n\n${jobData.description?.substring(0, 200) || ''}${jobData.description?.length > 200 ? '...' : ''}\n\n${jobData.location ? `Location: ${jobData.location}\n\n` : ''}Apply here: ${jobData.applyUrl}\n\n#hiring #jobs #careers`;
+
+    const applyUrl = String(jobData.applyUrl || '').trim();
+    if (applyUrl && shareText.includes('[link-on-save]')) {
+      shareText = shareText.replace(
+        /https?:\/\/[^\s]*\/apply\/\[link-on-save\](?:\?[^\s]*)?/gi,
+        applyUrl,
+      );
+      shareText = shareText.replaceAll('[link-on-save]', applyUrl);
+    }
 
     const ugcPostPayload = {
       author: authorUrn,

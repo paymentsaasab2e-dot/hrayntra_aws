@@ -1,10 +1,14 @@
 export { DrawerCloseButton } from './DrawerCloseButton';
 export type { DrawerCloseButtonProps } from './DrawerCloseButton';
+export { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 
 /** Shared width for right-side slide-out drawers (matches Job Details drawer). */
 export const DRAWER_PANEL_WIDTH_CLASS = 'w-3/4 max-w-6xl';
 
 export const DRAWER_PANEL_BASE_CLASS = `fixed right-0 top-0 h-full ${DRAWER_PANEL_WIDTH_CLASS} bg-white shadow-2xl border-l border-slate-200 flex flex-col`;
+
+/** Marker for page drawers — used by ARIA to roll aside when a drawer opens. */
+export const DRAWER_PANEL_MARKER_ATTR = 'data-app-page-drawer="panel"';
 
 /** Portal overlay: full viewport, panel slides in from the physical right. Set dir="ltr" on the element. */
 export const RIGHT_DRAWER_OVERLAY_CLASS =

@@ -47,7 +47,13 @@ function buildDefaultTweetText(jobData = {}) {
 
 function resolveTweetText(jobData = {}) {
   const custom = String(jobData.twitterPostText || jobData.postText || '').trim();
-  return truncateTweet(custom || buildDefaultTweetText(jobData));
+  let text = truncateTweet(custom || buildDefaultTweetText(jobData));
+  const applyUrl = String(jobData.applyUrl || '').trim();
+  if (applyUrl && text.includes('[link-on-save]')) {
+    text = text.replace(/https?:\/\/[^\s]*\/apply\/\[link-on-save\](?:\?[^\s]*)?/gi, applyUrl);
+    text = text.replaceAll('[link-on-save]', applyUrl);
+  }
+  return text;
 }
 
 function connectionUsername(row) {

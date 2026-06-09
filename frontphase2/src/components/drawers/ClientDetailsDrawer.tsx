@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { formatDateDMY, formatTime12hEnGb } from '../../utils/dateDisplay';
 import { formatDirectorDisplay } from '../../constants/salutations';
@@ -882,6 +883,7 @@ export function ClientDetailsDrawer({
   onClientUpdated,
   onJobCreated,
 }: ClientDetailsDrawerProps) {
+  usePageDrawerLifecycle(Boolean(client) || propIsAddMode);
   const [activeTab, setActiveTab] = useState<
     'overview' | 'contacts' | 'jobs' | 'placements' | 'billing' | 'activity' | 'notes' | 'files' | 'schedule'
   >('overview');

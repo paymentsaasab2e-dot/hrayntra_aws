@@ -154,6 +154,13 @@ export const env = {
   LINKEDIN_REDIRECT_URI:
     process.env.LINKEDIN_REDIRECT_URI ||
     `http://localhost:${parseInt(process.env.PORT || '5001', 10)}/api/v1/linkedin/auth/linkedin/callback`,
+  /** Personal profile posting works with w_member_social. Add r/w_organization_social only after LinkedIn approves them for your app. */
+  LINKEDIN_OAUTH_SCOPES: (
+    process.env.LINKEDIN_OAUTH_SCOPES || 'openid profile email w_member_social'
+  )
+    .split(/[\s,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean),
   TWITTER_API_KEY: process.env.TWITTER_API_KEY,
   TWITTER_API_SECRET: process.env.TWITTER_API_SECRET,
   FACEBOOK_APP_ID: process.env.FACEBOOK_APP_ID,

@@ -615,7 +615,7 @@ export function CreateJobDetailsForm({
         ) : (
           <div className="space-y-2">
             {formData.languages.map((row, index) => (
-              <div key={`lang-${index}`} className="grid grid-cols-[1fr_1fr_auto] gap-2">
+              <div key={`lang-${index}`} className="relative z-10 grid grid-cols-[1fr_1fr_auto] gap-2">
                 <LanguageSuggestInput
                   value={row.language}
                   onChange={(language) => updateLanguageRow(index, { language })}

@@ -43,6 +43,7 @@ export function SaasaCvCompositePreview({
 
   const [pdfDocMeta, setPdfDocMeta] = useState<SaasaCvPdfDocumentMeta | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfRenderFailed, setPdfRenderFailed] = useState(false);
   const [wordPreviewReady, setWordPreviewReady] = useState(false);
   const [imagePreviewReady, setImagePreviewReady] = useState(false);
 
@@ -52,7 +53,10 @@ export function SaasaCvCompositePreview({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pdfLoadGenRef = useRef(0);
 
-  const paintSurfaceReady = Boolean(pdfDocMeta?.totalHeight) || wordPreviewReady || imagePreviewReady;
+  const showImagePreview = canImage || pdfRenderFailed;
+  const showPdfPreview = canPdf && !pdfRenderFailed;
+  const paintSurfaceReady =
+    Boolean(pdfDocMeta?.totalHeight) || wordPreviewReady || imagePreviewReady;
   const docHeightPx = pdfDocMeta?.totalHeight ?? 0;
 
   const pinAnnotations = annotations.filter((a) => a.type === 'comment' || a.type === 'important');
@@ -62,7 +66,11 @@ export function SaasaCvCompositePreview({
     `flex h-full w-full min-h-0 flex-1 flex-col overflow-hidden bg-slate-100 ${minHeightClass} ${className}`.trim();
 
   useEffect(() => {
-    if (!enabled || !canPdf || !href) {
+    setPdfRenderFailed(false);
+  }, [enabled, href]);
+
+  useEffect(() => {
+    if (!enabled || !canPdf || !href || pdfRenderFailed) {
       setPdfDocMeta(null);
       setPdfLoading(false);
       return;
@@ -85,6 +93,7 @@ export function SaasaCvCompositePreview({
         .catch(() => {
           if (cancelled || gen !== pdfLoadGenRef.current) return;
           setPdfDocMeta(null);
+          setPdfRenderFailed(true);
         })
         .finally(() => {
           if (cancelled || gen !== pdfLoadGenRef.current) return;
@@ -106,7 +115,7 @@ export function SaasaCvCompositePreview({
     return () => {
       cancelled = true;
     };
-  }, [enabled, canPdf, href]);
+  }, [enabled, canPdf, href, pdfRenderFailed]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -123,7 +132,7 @@ export function SaasaCvCompositePreview({
 
     let w = surface.offsetWidth || surface.clientWidth;
     let h = surface.offsetHeight || surface.clientHeight;
-    if (canPdf && pdfDocMeta?.totalHeight) {
+    if (showPdfPreview && pdfDocMeta?.totalHeight) {
       w = pdfDocMeta.width;
       h = pdfDocMeta.totalHeight;
     }
@@ -139,7 +148,7 @@ export function SaasaCvCompositePreview({
       opacity: 0.55,
       sizePx: 10,
     });
-  }, [enabled, paintSurfaceReady, paintAnnotations, pdfDocMeta, canPdf]);
+  }, [enabled, paintSurfaceReady, paintAnnotations, pdfDocMeta, showPdfPreview]);
 
   useEffect(() => {
     if (!enabled || !surfaceRef.current || !paintSurfaceReady) return;
@@ -152,7 +161,7 @@ export function SaasaCvCompositePreview({
         if (!canvas || !surface) return;
         let w = surface.offsetWidth;
         let h = surface.offsetHeight;
-        if (canPdf && pdfDocMeta?.totalHeight) {
+        if (showPdfPreview && pdfDocMeta?.totalHeight) {
           w = pdfDocMeta.width;
           h = pdfDocMeta.totalHeight;
         }
@@ -172,7 +181,7 @@ export function SaasaCvCompositePreview({
       window.cancelAnimationFrame(frame);
       ro.disconnect();
     };
-  }, [enabled, paintSurfaceReady, pdfDocMeta, canPdf, paintAnnotations]);
+  }, [enabled, paintSurfaceReady, pdfDocMeta, showPdfPreview, paintAnnotations]);
 
   useEffect(() => {
     if (!enabled) {
@@ -192,7 +201,7 @@ export function SaasaCvCompositePreview({
           ref={surfaceRef}
           className="relative mx-auto w-full select-none rounded-xl border border-slate-200 bg-white"
           style={
-            canPdf && paintSurfaceReady
+            showPdfPreview && paintSurfaceReady
               ? {
                   width: '100%',
                   maxWidth: CV_VIEWER_MAX_WIDTH,
@@ -202,7 +211,7 @@ export function SaasaCvCompositePreview({
               : { minHeight: CV_VIEWER_MIN_HEIGHT, maxWidth: CV_VIEWER_MAX_WIDTH }
           }
         >
-          {canPdf && pdfLoading && !paintSurfaceReady ? (
+          {showPdfPreview && pdfLoading && !paintSurfaceReady ? (
             <div
               className="flex items-center justify-center text-sm text-slate-600"
               style={{ minHeight: CV_VIEWER_MIN_HEIGHT }}
@@ -211,7 +220,7 @@ export function SaasaCvCompositePreview({
             </div>
           ) : null}
 
-          {canPdf ? (
+          {showPdfPreview ? (
             <div ref={pdfHostRef} className="relative z-0 w-full" aria-hidden={!paintSurfaceReady} />
           ) : canWord ? (
             <ResumeWordFileViewer
@@ -222,7 +231,7 @@ export function SaasaCvCompositePreview({
               className="relative z-0"
               onReady={() => setWordPreviewReady(true)}
             />
-          ) : canImage ? (
+          ) : showImagePreview ? (
             <div className="relative z-0 w-full p-2 sm:p-4">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img

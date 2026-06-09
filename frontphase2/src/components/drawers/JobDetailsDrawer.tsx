@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import {
   CandidateTable,
   type Candidate as JobDrawerTableCandidate,
@@ -623,6 +624,7 @@ export function JobDetailsDrawer({
   onEditCandidate,
   onJobCandidatesChange,
 }: JobDetailsDrawerProps) {
+  usePageDrawerLifecycle(isOpen);
   const [pipelineStages, setPipelineStages] = useState<JobPipelineStage[]>(normalizePipelineStages(initialPipelineStages));
   const [draggedStageId, setDraggedStageId] = useState<string | null>(null);
   const [pipelineDirty, setPipelineDirty] = useState(false);

@@ -1,4 +1,4 @@
-import { buildResumePdfProxyUrl } from './resumePreview';
+import { buildResumePdfProxyUrl, detectResumeBufferKind } from './resumePreview';
 
 /** PDF.js 3.11 — exposes window.pdfjsLib (required for SAASA paint surface). */
 const PDFJS_VERSION = '3.11.174';
@@ -158,6 +158,11 @@ export async function fetchSaasaCvPdfBytes(pdfUrl: string): Promise<ArrayBuffer>
 
     const buf = await res.arrayBuffer();
     if (buf.byteLength < 4) throw new Error('Empty PDF response');
+
+    const bufferKind = detectResumeBufferKind(buf);
+    if (bufferKind === 'image') {
+      throw new Error('Response is not a valid PDF');
+    }
 
     const magic = String.fromCharCode(...new Uint8Array(buf, 0, 4));
     if (magic !== '%PDF') throw new Error('Response is not a valid PDF');

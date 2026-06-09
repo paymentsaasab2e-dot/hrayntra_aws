@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
@@ -148,6 +149,7 @@ export function LeadImportDrawer({
   onClose,
   onImportComplete,
 }: LeadImportDrawerProps) {
+  usePageDrawerLifecycle(isOpen);
   const [step, setStep] = useState(1);
   const [fileName, setFileName] = useState('');
   const [columnMapping, setColumnMapping] = useState<Record<string, string>>(

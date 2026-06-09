@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Download, ChevronRight, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -74,6 +75,7 @@ export function ClientImportDrawer({
   onClose,
   onImportComplete,
 }: ClientImportDrawerProps) {
+  usePageDrawerLifecycle(isOpen);
   const [step, setStep] = useState(1);
   const [fileName, setFileName] = useState('');
   const [columnMapping, setColumnMapping] = useState<Record<string, string>>(

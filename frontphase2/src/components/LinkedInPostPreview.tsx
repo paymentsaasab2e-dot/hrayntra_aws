@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { Linkedin, Clock } from 'lucide-react';
+import { linkifyPostText } from '../utils/linkifyPostText';
 
 interface LinkedInPostPreviewProps {
   userName: string;
@@ -64,7 +65,7 @@ export function LinkedInPostPreview({
       {/* Post content */}
       <div className="p-4">
         <div className="text-sm text-slate-900 whitespace-pre-line leading-relaxed">
-          {postText}
+          {linkifyPostText(postText)}
         </div>
       </div>
 

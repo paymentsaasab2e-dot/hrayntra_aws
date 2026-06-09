@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { AnimatePresence, motion } from 'motion/react';
 import { X, Mail, Phone, MapPin, Linkedin, Edit, Trash2 } from 'lucide-react';
 import { ImageWithFallback } from '../ImageWithFallback';
@@ -22,6 +23,7 @@ interface ContactDetailDrawerProps {
 }
 
 export function ContactDetailDrawer({ contact, isOpen, onClose, onEdit, onDelete }: ContactDetailDrawerProps) {
+  usePageDrawerLifecycle(isOpen && Boolean(contact));
   const [activeTab, setActiveTab] = useState<'overview' | 'activity' | 'communication' | 'jobs'>('overview');
 
   if (!contact) return null;

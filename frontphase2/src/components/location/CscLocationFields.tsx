@@ -9,6 +9,7 @@ import {
   findCityRecord,
   findStateByNameOrIso,
   getCountryByCodeOrName,
+  inferLocationFromCityName,
   getCscCityOptions,
   getCscCountryOptions,
   getCscStateOptions,
@@ -156,7 +157,23 @@ export function CscLocationFields({
   };
 
   const handleCityChange = (cityName: string) => {
-    if (!resolvedCountry) return;
+    if (!resolvedCountry) {
+      const inferred = inferLocationFromCityName(cityName);
+      if (inferred) {
+        onSelect(inferred);
+        return;
+      }
+      onSelect({
+        location: cityName,
+        city: cityName,
+        state: '',
+        country: '',
+        countryCode: '',
+        latitude: 0,
+        longitude: 0,
+      });
+      return;
+    }
     const cityRecord = findCityRecord(
       resolvedCountry.isoCode,
       cityName,
@@ -164,6 +181,15 @@ export function CscLocationFields({
     );
     if (cityRecord) {
       onSelect(cityToLocationSelection(cityRecord));
+      return;
+    }
+    const inferred = inferLocationFromCityName(cityName, {
+      country: resolvedCountry.name,
+      countryCode: resolvedCountry.isoCode,
+      state,
+    });
+    if (inferred) {
+      onSelect(inferred);
       return;
     }
     if (resolvedState) {

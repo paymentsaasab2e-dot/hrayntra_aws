@@ -55,6 +55,7 @@ import { TwitterPostPreview } from '../TwitterPostPreview';
 import { SocialAccountPicker } from '../SocialAccountPicker';
 import {
   buildCandidatePortalApplyUrlPreview,
+  replaceApplyUrlInSocialPostText,
   buildLinkedInJobPost,
   buildTwitterJobPost,
   type JobSocialPostInput,
@@ -63,6 +64,7 @@ import { useLinkedIn } from '../../hooks/useLinkedIn';
 import { requestError, requestInfo, requestWarning } from '../../lib/appDialog';
 import { clampDateTimeLocalToMin, getLocalDateTimeInputMinNow } from '../../utils/dateInputConstraints';
 import { CreateJobDetailsForm, type CreateJobDetailsFormData } from './CreateJobDetailsForm';
+import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { normalizeJobSalaryCurrency } from '../../constants/jobSalary';
 import { getCachedOrgDefaultCurrency } from '../../lib/api';
 import { DocumentUploadButton, useDocumentUploadFeedback } from '../import/documentUploadUi';
@@ -581,6 +583,7 @@ export function CreateJobDrawer({
   onJobUpdated,
   defaultClientId = null,
 }: CreateJobDrawerProps) {
+  usePageDrawerLifecycle(isOpen);
   const isEditMode = !!jobId;
   const isDuplicateMode = !jobId && !!duplicateFromJobId;
   const [loading, setLoading] = useState(false);
@@ -2702,7 +2705,24 @@ export function CreateJobDrawer({
           if (!applyUrl) {
             applyUrl = effectiveApplyUrl;
           }
-          
+
+          const previewApplyUrl = buildCandidatePortalApplyUrlPreview(getTenantDbName());
+          const resolvedLinkedInPostText = replaceApplyUrlInSocialPostText(
+            linkedInPostText,
+            applyUrl,
+            previewApplyUrl,
+          );
+          const resolvedTwitterPostText = replaceApplyUrlInSocialPostText(
+            formData.twitterTweetText,
+            applyUrl,
+            previewApplyUrl,
+          );
+          const resolvedFacebookPostText = replaceApplyUrlInSocialPostText(
+            formData.facebookCaption,
+            applyUrl,
+            previewApplyUrl,
+          );
+
           const result = await apiPublishSocialJob({
             jobId: createdJobId,
             title: formData.jobTitle,
@@ -2711,9 +2731,9 @@ export function CreateJobDrawer({
             applyUrl,
             location: formData.city || formData.fullAddress || undefined,
             platforms: platformsToPublish,
-            linkedinPostText: linkedInPostText,
-            twitterPostText: formData.twitterTweetText,
-            facebookPostText: formData.facebookCaption,
+            linkedinPostText: resolvedLinkedInPostText,
+            twitterPostText: resolvedTwitterPostText,
+            facebookPostText: resolvedFacebookPostText,
             linkedinTargets: selectedLinkedInTargets,
             twitterTargets: selectedTwitterTargets,
           });

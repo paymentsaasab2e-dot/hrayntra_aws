@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { AnimatePresence, motion } from 'motion/react';
 import { Loader2, Plus, Save, Send, X } from 'lucide-react';
 import CVEditorModal from '../CVEditorModal';
@@ -311,6 +312,7 @@ export function SubmitToClientDrawer({
   onClose,
   onToast,
 }: SubmitToClientDrawerProps) {
+  usePageDrawerLifecycle(isOpen);
   const onToastRef = useRef(onToast);
   onToastRef.current = onToast;
   const toast = useCallback((message: string) => {

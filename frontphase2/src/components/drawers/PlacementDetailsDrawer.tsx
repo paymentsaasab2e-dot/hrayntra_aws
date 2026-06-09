@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { AnimatePresence, motion } from 'motion/react';
 import Link from 'next/link';
 import { Download, Eye, FileText, X } from 'lucide-react';
@@ -34,6 +35,7 @@ export function PlacementDetailsDrawer({
   onStatusChange,
   onScheduleJoining,
 }: PlacementDetailsDrawerProps) {
+  usePageDrawerLifecycle(isOpen);
   const [placement, setPlacement] = useState<Placement | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
