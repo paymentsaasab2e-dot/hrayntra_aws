@@ -1,5 +1,10 @@
 /* Simple API client for talking to the Express backend */
 
+import {
+  createHttpApiError,
+  normalizeFetchError,
+  normalizeInvalidResponseError,
+} from './apiNetworkErrors';
 import type {
   BillingSettingsSnapshot,
   CreatePlacementInvoicePayload,
@@ -29,12 +34,40 @@ const isLocalBrowser =
     window.location.hostname === '127.0.0.1' ||
     window.location.hostname.endsWith('.local'));
 
+/** Paths that can exceed the Next.js/Vercel proxy limit (e.g. large or slow DOCX parsing). */
+const LONG_RUNNING_API_PATH_PREFIXES = [
+  '/candidates/bulk-cv/',
+  '/candidates/parse-resume',
+  '/candidates/bulk-import',
+  '/jobs/process-jd-file',
+];
+
+function isLongRunningApiPath(path: string): boolean {
+  const normalized = path.startsWith('/') ? path : `/${path}`;
+  return LONG_RUNNING_API_PATH_PREFIXES.some(
+    (prefix) => normalized === prefix || normalized.startsWith(prefix)
+  );
+}
+
 // Determination of API base based on environment
 function resolveApiBase(): string {
   if (isLocalBrowser) return LOCAL_API_BASE;
   const publicApi = process.env.NEXT_PUBLIC_API_URL?.trim();
   if (publicApi) return publicApi.replace(/\/$/, '');
   return PROD_PROXY_BASE;
+}
+
+/** Direct backend URL for uploads/parsing — avoids same-origin proxy timeouts on slow files. */
+function resolveDirectApiBase(): string {
+  if (isLocalBrowser) return LOCAL_API_BASE;
+  const publicApi = process.env.NEXT_PUBLIC_API_URL?.trim();
+  if (publicApi) return publicApi.replace(/\/$/, '');
+  return PRODUCTION_API_BASE;
+}
+
+function resolveApiBaseForPath(path: string): string {
+  if (isLongRunningApiPath(path)) return resolveDirectApiBase();
+  return resolveApiBase();
 }
 
 const API_BASE = resolveApiBase();
@@ -184,7 +217,8 @@ export async function apiFetch<T>(
     signal?: AbortSignal;
   } = {}
 ): Promise<ApiResponse<T>> {
-  const url = `${API_BASE}${path}`;
+  const apiBase = resolveApiBaseForPath(path);
+  const url = `${apiBase}${path}`;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
@@ -252,18 +286,14 @@ export async function apiFetch<T>(
       cache: 'no-store',
     });
   } catch (fetchError: any) {
-    // Handle network errors (server not running, no internet, etc.)
-    if (fetchError.name === 'TypeError' && fetchError.message.includes('fetch')) {
-      throw new Error('Unable to connect to server. Please ensure the backend server is running.');
-    }
-    throw fetchError;
+    throw normalizeFetchError(fetchError);
   }
 
   let json: any;
   try {
     json = await res.json();
   } catch {
-    throw new Error('Invalid server response');
+    throw normalizeInvalidResponseError(res.status);
   }
 
   if (!res.ok || json?.success === false) {
@@ -318,7 +348,7 @@ export async function apiFetch<T>(
             try {
               retryJson = await retryRes.json();
             } catch {
-              throw new Error('Invalid server response');
+              throw normalizeInvalidResponseError(retryRes.status);
             }
 
             if (retryRes.ok && retryJson?.success !== false) {
@@ -392,12 +422,11 @@ export async function apiFetch<T>(
     const friendlyMsg = authPaths.some((p) => path === p || path.startsWith(`${p}?`))
       ? formatAuthErrorMessage({ status: res.status, message: detailedMsg }, detailedMsg)
       : detailedMsg;
-    const error: any = new Error(friendlyMsg);
-    error.status = res.status;
-    error.data = json?.data;
-    error.raw = json;
-    error.validationIssues = validationIssues;
-    throw error;
+    throw createHttpApiError(res.status, friendlyMsg, {
+      data: json?.data,
+      raw: json,
+      validationIssues,
+    });
   }
 
   if (debugApiLogs) {
@@ -937,12 +966,13 @@ export async function apiFetchFormData<T>(
     signal?: AbortSignal;
   } = {}
 ): Promise<ApiResponse<T>> {
-  const url = `${API_BASE}${path}`;
+  const apiBase = resolveApiBaseForPath(path);
+  const url = `${apiBase}${path}`;
   const headers: Record<string, string> = {};
 
   if (debugApiLogs) {
     const entries = Array.from(formData.entries()).slice(0, 10).map(([k, v]) => [k, typeof v === 'string' ? v : typeof v]);
-    console.log('[apiFetchFormData] request', { method: options.method || 'POST', path, auth: !!options.auth, entries });
+    console.log('[apiFetchFormData] request', { method: options.method || 'POST', path, apiBase, auth: !!options.auth, entries });
   }
 
   if (options.auth) {
@@ -967,14 +997,11 @@ export async function apiFetchFormData<T>(
       signal: options.signal,
     });
   } catch (fetchError: any) {
-    if (fetchError.name === 'TypeError' && fetchError.message.includes('fetch')) {
-      throw new Error('Unable to connect to server. Please ensure the backend server is running.');
-    }
-    throw fetchError;
+    throw normalizeFetchError(fetchError);
   }
 
   const json = await res.json().catch(() => {
-    throw new Error('Invalid server response');
+    throw normalizeInvalidResponseError(res.status);
   });
 
   if (!res.ok || json?.success === false) {
@@ -987,7 +1014,10 @@ export async function apiFetchFormData<T>(
         data: summarizeForLog(json?.data),
       });
     }
-    throw new Error(json?.message || `Request failed with status ${res.status}`);
+    throw createHttpApiError(res.status, json?.message || `Request failed with status ${res.status}`, {
+      data: json?.data,
+      raw: json,
+    });
   }
 
   if (debugApiLogs) {

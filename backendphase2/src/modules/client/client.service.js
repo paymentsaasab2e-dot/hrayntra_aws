@@ -1340,7 +1340,7 @@ export const clientService = {
           data: {
             firstName,
             lastName,
-            email: null,
+            email: `client-${companyId}-director@placeholder.local`,
             phone: phone || null,
             designation: 'Director',
             department: teamName || null,

@@ -27,6 +27,7 @@ import {
 import { getPhase1ProfileSnapshot } from '@/lib/phase1ProfileSnapshot';
 import type { ClientSectionVisibility } from '@/lib/clientPresentationSections';
 import { CandidateCareerPreferencesOverview } from './CandidateCareerPreferencesOverview';
+import { CandidateHiringOverview } from './CandidateHiringSection';
 import { buildCareerPreferencesViewModel, countCareerPreferencesFilled } from '@/lib/candidateCareerPreferencesModel';
 
 type SectionKey = 'personal' | 'education' | 'work' | 'professional' | 'social' | 'summary';
@@ -572,21 +573,21 @@ export function CandidateAtsExtractedOverview({ candidate, sectionVisibility }: 
     socialFilled > 0 ||
     summaryFilled > 0;
 
-  if (!hasAnyExtracted) {
-    return (
-      <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
-        <FileText className="mx-auto text-slate-300" size={32} />
-        <p className="mt-3 text-sm font-medium text-slate-700">No extracted CV data yet</p>
-        <p className="mt-1 text-xs text-slate-500">
-          Upload a resume via Bulk CV or parse a resume to populate ATS fields here.
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4">
-      {isOverviewSectionVisible('personal', sectionVisibility) ? (
+      <CandidateHiringOverview candidate={candidate} />
+
+      {!hasAnyExtracted ? (
+        <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
+          <FileText className="mx-auto text-slate-300" size={32} />
+          <p className="mt-3 text-sm font-medium text-slate-700">No extracted CV data yet</p>
+          <p className="mt-1 text-xs text-slate-500">
+            Upload a resume via Bulk CV or parse a resume to populate ATS fields here.
+          </p>
+        </div>
+      ) : null}
+
+      {hasAnyExtracted && isOverviewSectionVisible('personal', sectionVisibility) ? (
       <SectionBlock
         id="personal"
         title="Personal Information"
@@ -616,7 +617,7 @@ export function CandidateAtsExtractedOverview({ candidate, sectionVisibility }: 
       </SectionBlock>
       ) : null}
 
-      {isOverviewSectionVisible('education', sectionVisibility) ? (
+      {hasAnyExtracted && isOverviewSectionVisible('education', sectionVisibility) ? (
       <SectionBlock
         id="education"
         title="Education"
@@ -643,7 +644,7 @@ export function CandidateAtsExtractedOverview({ candidate, sectionVisibility }: 
       </SectionBlock>
       ) : null}
 
-      {isOverviewSectionVisible('professional', sectionVisibility) ? (
+      {hasAnyExtracted && isOverviewSectionVisible('professional', sectionVisibility) ? (
       <SectionBlock
         id="professional"
         title="Career Preferences"
@@ -657,7 +658,7 @@ export function CandidateAtsExtractedOverview({ candidate, sectionVisibility }: 
       </SectionBlock>
       ) : null}
 
-      {isOverviewSectionVisible('work', sectionVisibility) ? (
+      {hasAnyExtracted && isOverviewSectionVisible('work', sectionVisibility) ? (
       <SectionBlock
         id="work"
         title="Work Experience"
@@ -682,7 +683,7 @@ export function CandidateAtsExtractedOverview({ candidate, sectionVisibility }: 
       </SectionBlock>
       ) : null}
 
-      {isOverviewSectionVisible('social', sectionVisibility) ? (
+      {hasAnyExtracted && isOverviewSectionVisible('social', sectionVisibility) ? (
       <SectionBlock
         id="social"
         title="Social Network Information"
@@ -726,7 +727,7 @@ export function CandidateAtsExtractedOverview({ candidate, sectionVisibility }: 
       </SectionBlock>
       ) : null}
 
-      {isOverviewSectionVisible('summary', sectionVisibility) ? (
+      {hasAnyExtracted && isOverviewSectionVisible('summary', sectionVisibility) ? (
       <SectionBlock
         id="summary"
         title="Summary & Additional"

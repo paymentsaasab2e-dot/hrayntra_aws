@@ -45,6 +45,7 @@ import {
 } from '@/lib/candidateExperience';
 import type { Phase1ProfileSnapshot } from '@/lib/phase1ProfileSnapshot';
 import { CandidateCareerPreferencesOverview } from './CandidateCareerPreferencesOverview';
+import { CandidateHiringOverview } from './CandidateHiringSection';
 import { formatIsoDateOnlyForDisplay } from '@/utils/dateDisplay';
 import { buildFileHref } from '@/utils/cloudinaryUrls';
 import { collectDocumentUrls, displayNameFromFileUrl } from '@/utils/fileDisplay';
@@ -403,24 +404,24 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
     accomplishments.length > 0 ||
     Boolean(careerPrefs);
 
-  if (!hasAnyOverviewData) {
-    return (
-      <div className="rounded-2xl border border-dashed border-violet-300 bg-violet-50/50 p-8 text-center">
-        <FileText className="mx-auto text-violet-300" size={32} />
-        <p className="mt-3 text-sm font-medium text-slate-700">Phase 1 profile details not synced yet</p>
-        <p className="mt-1 text-xs text-slate-500">
-          This candidate is from the Phase 1 pool. Full dashboard sections appear after their profile is
-          synced to candidatecommon.
-        </p>
-      </div>
-    );
-  }
-
   const summaryText = snap?.summaryText || candidate.cvSummary || candidate.summary || '';
 
   return (
     <div className="space-y-4">
-      {sectionVisible('personal') ? (
+      <CandidateHiringOverview candidate={candidate} />
+
+      {!hasAnyOverviewData ? (
+        <div className="rounded-2xl border border-dashed border-violet-300 bg-violet-50/50 p-8 text-center">
+          <FileText className="mx-auto text-violet-300" size={32} />
+          <p className="mt-3 text-sm font-medium text-slate-700">Phase 1 profile details not synced yet</p>
+          <p className="mt-1 text-xs text-slate-500">
+            This candidate is from the Phase 1 pool. Full dashboard sections appear after their profile is
+            synced to candidatecommon.
+          </p>
+        </div>
+      ) : null}
+
+      {hasAnyOverviewData && sectionVisible('personal') ? (
         <Phase1Section
           id="personal"
           title="Basic information"
@@ -436,7 +437,7 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
         </Phase1Section>
       ) : null}
 
-      {sectionVisible('summary') ? (
+      {hasAnyOverviewData && sectionVisible('summary') ? (
         <Phase1Section
           id="summary"
           title="Professional summary"
@@ -456,7 +457,7 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
         </Phase1Section>
       ) : null}
 
-      {sectionVisible('work') ? (
+      {hasAnyOverviewData && sectionVisible('work') ? (
         <Phase1Section
           id="work"
           title="Work experience"
@@ -473,7 +474,7 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
         </Phase1Section>
       ) : null}
 
-      {sectionVisible('internships') ? (
+      {hasAnyOverviewData && sectionVisible('internships') ? (
         <Phase1Section
           id="internships"
           title="Internships"
@@ -513,7 +514,7 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
         </Phase1Section>
       ) : null}
 
-      {sectionVisible('gap') ? (
+      {hasAnyOverviewData && sectionVisible('gap') ? (
         <Phase1Section
           id="gap"
           title="Gap explanation"
@@ -541,7 +542,7 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
         </Phase1Section>
       ) : null}
 
-      {sectionVisible('education') ? (
+      {hasAnyOverviewData && sectionVisible('education') ? (
         <Phase1Section
           id="education"
           title="Education"
@@ -574,7 +575,7 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
         </Phase1Section>
       ) : null}
 
-      {sectionVisible('academic') ? (
+      {hasAnyOverviewData && sectionVisible('academic') ? (
         <Phase1Section
           id="academic"
           title="Academic achievements"
@@ -602,7 +603,7 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
         </Phase1Section>
       ) : null}
 
-      {sectionVisible('exams') ? (
+      {hasAnyOverviewData && sectionVisible('exams') ? (
         <Phase1Section
           id="exams"
           title="Competitive exams"
@@ -632,7 +633,7 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
         </Phase1Section>
       ) : null}
 
-      {sectionVisible('skills') ? (
+      {hasAnyOverviewData && sectionVisible('skills') ? (
         <Phase1Section
           id="skills"
           title="Skills"
@@ -645,7 +646,7 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
         </Phase1Section>
       ) : null}
 
-      {sectionVisible('languages') ? (
+      {hasAnyOverviewData && sectionVisible('languages') ? (
         <Phase1Section
           id="languages"
           title="Languages"
@@ -678,7 +679,7 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
         </Phase1Section>
       ) : null}
 
-      {sectionVisible('projects') ? (
+      {hasAnyOverviewData && sectionVisible('projects') ? (
         <Phase1Section
           id="projects"
           title="Projects"
@@ -714,7 +715,7 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
         </Phase1Section>
       ) : null}
 
-      {sectionVisible('portfolio') ? (
+      {hasAnyOverviewData && sectionVisible('portfolio') ? (
         <Phase1Section
           id="portfolio"
           title="Portfolio links"
@@ -750,7 +751,7 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
         </Phase1Section>
       ) : null}
 
-      {sectionVisible('certifications') ? (
+      {hasAnyOverviewData && sectionVisible('certifications') ? (
         <Phase1Section
           id="certifications"
           title="Certifications"
@@ -777,7 +778,7 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
         </Phase1Section>
       ) : null}
 
-      {sectionVisible('accomplishments') ? (
+      {hasAnyOverviewData && sectionVisible('accomplishments') ? (
         <Phase1Section
           id="accomplishments"
           title="Accomplishments"
@@ -805,7 +806,7 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
         </Phase1Section>
       ) : null}
 
-      {sectionVisible('careerPreferences') ? (
+      {hasAnyOverviewData && sectionVisible('careerPreferences') ? (
         <Phase1Section
           id="careerPreferences"
           title="Career Preferences"
@@ -817,7 +818,7 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
         </Phase1Section>
       ) : null}
 
-      {sectionVisible('visa') ? (
+      {hasAnyOverviewData && sectionVisible('visa') ? (
         <Phase1Section
           id="visa"
           title="Visa & work authorization"
@@ -864,7 +865,7 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
         </Phase1Section>
       ) : null}
 
-      {sectionVisible('vaccination') ? (
+      {hasAnyOverviewData && sectionVisible('vaccination') ? (
         <Phase1Section
           id="vaccination"
           title="Vaccination"

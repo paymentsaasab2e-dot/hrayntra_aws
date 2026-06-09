@@ -38,6 +38,7 @@ import {
   apiUploadCandidateResumeFile,
   buildSocketBaseUrl,
 } from '@/lib/api';
+import { getApiErrorMessage, withApiRetry } from '@/lib/apiNetworkErrors';
 import {
   EMPTY_EDUCATION_ENTRY,
   buildEducationSummaryFromCvEntries,
@@ -1787,6 +1788,31 @@ function AddCandidateDrawerInner({
       BULK_CV_MAX_CONCURRENCY,
       Math.max(1, Number.isFinite(rawConc) && rawConc > 0 ? Math.floor(rawConc) : 8)
     );
+    const rawMaxRetries = Number(
+      typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_BULK_CV_MAX_RETRIES : NaN
+    );
+    const BULK_CV_MAX_RETRIES = Math.max(
+      1,
+      Number.isFinite(rawMaxRetries) && rawMaxRetries > 0 ? Math.floor(rawMaxRetries) : 3
+    );
+
+    const runBulkCvStep = async (index, label, operation) =>
+      withApiRetry(operation, {
+        maxAttempts: BULK_CV_MAX_RETRIES,
+        baseDelayMs: 0,
+        signal: abortSignal,
+        onRetry: (attempt, retryError) => {
+          setBulkResumeResults((prev) => {
+            const next = [...prev];
+            next[index] = {
+              ...next[index],
+              status: 'processing',
+              message: `${label} — retry ${attempt + 1}/${BULK_CV_MAX_RETRIES} (${getApiErrorMessage(retryError)})`,
+            };
+            return next;
+          });
+        },
+      });
 
     const sessionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 11)}`;
     bulkCvSessionIdRef.current = sessionId;
@@ -1808,15 +1834,8 @@ function AddCandidateDrawerInner({
       bulkCvSocketRef.current = socket;
 
       await new Promise((resolve, reject) => {
-        const t = window.setTimeout(() => reject(new Error('Socket connection timeout')), 15000);
-        socket.once('connect', () => {
-          window.clearTimeout(t);
-          resolve();
-        });
-        socket.once('connect_error', (err) => {
-          window.clearTimeout(t);
-          reject(err);
-        });
+        socket.once('connect', () => resolve());
+        socket.once('connect_error', (err) => reject(err));
       });
 
       socket.emit('bulk_cv_join', { sessionId });
@@ -1873,13 +1892,15 @@ function AddCandidateDrawerInner({
       });
 
       try {
-        const parsedResponse = await apiBulkCvProcessFile(
-          item.kind === 'stored'
-            ? { storedFileId: item.storedFileId }
-            : { file: item.file },
-          sessionId,
-          index,
-          { signal: abortSignal }
+        const parsedResponse = await runBulkCvStep(index, 'Parsing CV', () =>
+          apiBulkCvProcessFile(
+            item.kind === 'stored'
+              ? { storedFileId: item.storedFileId }
+              : { file: item.file },
+            sessionId,
+            index,
+            { signal: abortSignal }
+          )
         );
         const envelope = parsedResponse.data || {};
 
@@ -1918,7 +1939,9 @@ function AddCandidateDrawerInner({
           ...(duplicateResolution === 'updated' ? { duplicateAction: 'updateExisting' } : {}),
         };
         try {
-          createResponse = await apiCreateCandidateFromDrawer(bulkSavePayload, { signal: abortSignal });
+          createResponse = await runBulkCvStep(index, 'Saving candidate', () =>
+            apiCreateCandidateFromDrawer(bulkSavePayload, { signal: abortSignal })
+          );
         } catch (createError) {
           const dupExisting =
             createError?.data?.existingCandidate || createError?.raw?.data?.existingCandidate;
@@ -1928,14 +1951,16 @@ function AddCandidateDrawerInner({
           if (
             canCreateAnyway &&
             dupExisting &&
-            String(createError?.message || '').toLowerCase().includes('already exists')
+            String(getApiErrorMessage(createError) || '').toLowerCase().includes('already exists')
           ) {
-            createResponse = await apiCreateCandidateFromDrawer(
-              {
-                ...buildBulkResumePayload(enrichedCandidate),
-                duplicateAction: 'create_anyway',
-              },
-              { signal: abortSignal }
+            createResponse = await runBulkCvStep(index, 'Saving candidate', () =>
+              apiCreateCandidateFromDrawer(
+                {
+                  ...buildBulkResumePayload(enrichedCandidate),
+                  duplicateAction: 'create_anyway',
+                },
+                { signal: abortSignal }
+              )
             );
           } else {
             throw createError;
@@ -2010,7 +2035,7 @@ function AddCandidateDrawerInner({
             status: 'failed',
             message: dupLabel
               ? `Candidate already exists — ${dupLabel}. Remove that profile from Candidates or Recycle Bin, then retry.`
-              : error.message || 'Failed to create candidate',
+              : getApiErrorMessage(error) || 'Failed to create candidate',
           });
         }
       }

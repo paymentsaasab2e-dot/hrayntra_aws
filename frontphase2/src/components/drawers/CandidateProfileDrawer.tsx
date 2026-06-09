@@ -74,6 +74,7 @@ import { profileCanSubmitToClient } from '../../lib/candidateSubmitToClient';
 import { CandidateAtsExtractedOverview } from '../candidates/CandidateAtsExtractedOverview';
 import { CandidatePhase1DetailSections } from '../candidates/CandidatePhase1DetailSections';
 import { CandidatePhase1SubmitEditSections } from '../candidates/CandidatePhase1SubmitEditSections';
+import { applyHiringFieldsFromEditForm, CandidateHiringEditSection } from '../candidates/CandidateHiringSection';
 import { mergeProfileWithClientPresentation, readClientPresentation } from '../../lib/clientPresentationDraft';
 import {
   buildUpdatePayloadFromPhase1EditSnapshot,
@@ -3742,9 +3743,13 @@ export function CandidateProfileDrawer({
         validateEditFormStructured(editForm);
       }
 
-      const payload = isPhase1Edit
+      let payload = isPhase1Edit
         ? buildUpdatePayloadFromPhase1EditSnapshot(candidate, phase1EditSnapshot)
         : buildUpdatePayloadFromEditForm(editForm!, candidate.extraData);
+
+      if (isPhase1Edit && editForm) {
+        payload = applyHiringFieldsFromEditForm(payload, editForm);
+      }
 
       if (editAvatarFile) {
         try {
@@ -3786,11 +3791,21 @@ export function CandidateProfileDrawer({
 
   const candidateEditFormSections =
     isPhase1PortalCandidate(candidate) && phase1EditSnapshot ? (
-      <CandidatePhase1SubmitEditSections
-        candidate={candidate}
-        snapshot={phase1EditSnapshot}
-        onChange={setPhase1EditSnapshot}
-      />
+      <>
+        <CandidatePhase1SubmitEditSections
+          candidate={candidate}
+          snapshot={phase1EditSnapshot}
+          onChange={setPhase1EditSnapshot}
+        />
+        {editForm ? (
+          <CandidateHiringEditSection
+            form={editForm}
+            onChange={updateEditField}
+            recruiters={recruiters}
+            jobs={jobs}
+          />
+        ) : null}
+      </>
     ) : editForm ? (
       <CandidateEditAtsSections
         form={editForm}

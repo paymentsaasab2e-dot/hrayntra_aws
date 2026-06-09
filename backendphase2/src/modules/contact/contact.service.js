@@ -5,6 +5,7 @@ import { ENTITY_TYPES } from '../../services/activityService.js';
 import { attachAuditMetaToEntity } from '../../utils/listAuditMeta.js';
 import activityService from '../../services/activityService.js';
 import { dbLogger } from '../../utils/db-logger.js';
+import { resolveContactCreateEmail } from '../../utils/resolveContactEmail.js';
 
 export const contactService = {
   async getAll(filters = {}) {
@@ -172,11 +173,13 @@ export const contactService = {
   },
 
   async create(data, userId) {
-    // Check for duplicate email
-    if (data.email) {
-      const normalizedEmail = data.email.toLowerCase().trim();
+    const resolvedEmail = resolveContactCreateEmail(data);
+    const hasRealEmail = Boolean(String(data.email || '').trim());
+
+    // Check for duplicate email only when caller supplied a real address.
+    if (hasRealEmail) {
       const existing = await prisma.contact.findUnique({
-        where: { email: normalizedEmail },
+        where: { email: resolvedEmail },
       });
 
       if (existing) {
@@ -194,7 +197,7 @@ export const contactService = {
       firstName: data.firstName,
       lastName: data.lastName,
       salutation: data.salutation != null && String(data.salutation).trim() ? String(data.salutation).trim() : null,
-      email: data.email?.toLowerCase().trim() || null,
+      email: resolvedEmail,
       phone: data.phone || null,
       companyId: data.companyId || null,
       designation: data.designation || null,

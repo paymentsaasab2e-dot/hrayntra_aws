@@ -31,7 +31,7 @@ export type Phase1ProfileSnapshot = {
     issueDate?: string;
     expiryDate?: string;
   }>;
-  portfolioLinks?: Array<{ type?: string; url?: string }>;
+  portfolioLinks?: Array<{ linkType?: string; type?: string; url?: string; title?: string }>;
   careerPreferences?: Record<string, unknown> | null;
   resume?: {
     fileName?: string;
@@ -154,10 +154,18 @@ function mapEmploymentStatusLabel(status?: string | null): string {
   return map[key] || raw;
 }
 
+type PortfolioLinkLike = {
+  linkType?: string;
+  type?: string;
+  url?: string;
+  title?: string;
+};
+
 type PersonalInfoSource = {
   cvAddress?: string | null;
   cvCity?: string | null;
   cvCountry?: string | null;
+  cvPortfolioLinks?: PortfolioLinkLike[] | null;
   email?: string | null;
   phone?: string | null;
   linkedIn?: string | null;
@@ -167,6 +175,26 @@ type PersonalInfoSource = {
   gender?: string | null;
   extraData?: Record<string, unknown> | null;
 };
+
+/** LinkedIn URL from snapshot / CV portfolio links when personalInfo.linkedinUrl is empty. */
+export function resolveLinkedInFromPortfolioSources(
+  snapshot?: Phase1ProfileSnapshot | null,
+  links?: PortfolioLinkLike[] | null,
+): string {
+  const lists = [
+    ...(Array.isArray(snapshot?.portfolioLinks) ? snapshot.portfolioLinks : []),
+    ...(Array.isArray(links) ? links : []),
+  ];
+  for (const link of lists) {
+    const url = String(link?.url || '').trim();
+    if (!url) continue;
+    const host = url.replace(/^https?:\/\//i, '').toLowerCase();
+    if (host === 'gmail.com' || host === 'b.com') continue;
+    const type = String(link?.linkType || link?.type || link?.title || '').toLowerCase();
+    if (type.includes('linkedin') || /linkedin\.com/i.test(url)) return url;
+  }
+  return '';
+}
 
 /** Merge snapshot personalInfo with candidate fallbacks for drawer view/edit. */
 export function resolvePhase1PersonalInfo(
@@ -210,7 +238,10 @@ export function resolvePhase1PersonalInfo(
     pi.phone = String(candidate.phone || '').trim() || pi.phone;
   }
   if (!String(pi.linkedinUrl || '').trim()) {
-    pi.linkedinUrl = String(candidate.linkedIn || '').trim() || pi.linkedinUrl;
+    pi.linkedinUrl =
+      resolveLinkedInFromPortfolioSources(snapshot, candidate.cvPortfolioLinks) ||
+      String(candidate.linkedIn || '').trim() ||
+      pi.linkedinUrl;
   }
   if (!String(pi.gender || '').trim() && candidate.gender) {
     pi.gender = String(candidate.gender).trim();
@@ -309,7 +340,11 @@ export function enrichBackendCandidateFromPhase1Snapshot(c: BackendCandidate): B
     lastName: c.lastName || mergedPi.lastName || c.lastName,
     email: c.email || mergedPi.email || c.email,
     phone: c.phone || mergedPi.phone || c.phone,
-    linkedIn: c.linkedIn || mergedPi.linkedinUrl || c.linkedIn,
+    linkedIn:
+      c.linkedIn ||
+      mergedPi.linkedinUrl ||
+      resolveLinkedInFromPortfolioSources(snap, c.cvPortfolioLinks) ||
+      c.linkedIn,
     city: c.city || mergedPi.city || c.city,
     country: c.country || mergedPi.country || c.country,
     location:

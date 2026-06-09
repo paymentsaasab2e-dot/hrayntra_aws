@@ -12,6 +12,7 @@ import {
 import { parseWorkExperienceEditorValue } from '@/lib/candidateExperience';
 import type { CandidateProfileDrawerData } from '../drawers/candidateProfileDrawerData';
 import { CandidatePhotoUpload } from './AddCandidateFormSections';
+import { CandidateHiringEditSection } from './CandidateHiringSection';
 import { isoToDMYDate, parseDMYToYMD } from '@/utils/formatLeadDateTime';
 
 export type CandidateEditFormState = {
@@ -80,11 +81,6 @@ export type CandidateEditFormState = {
   hackathons: string;
   avatar: string;
 };
-
-const CANDIDATE_STATUS_OPTIONS = ['NEW', 'ACTIVE', 'PLACED', 'INACTIVE', 'BLACKLISTED'];
-const CANDIDATE_STAGE_OPTIONS = ['Applied', 'Shortlisted', 'Screening', 'Interviewing', 'Offered', 'Hired', 'Rejected'];
-const CANDIDATE_AVAILABILITY_OPTIONS = ['available', 'limited', 'unavailable'];
-const SALARY_CURRENCY_OPTIONS = ['INR', 'USD', 'EUR', 'GBP', 'AED'];
 
 function str(value: unknown): string {
   if (value === undefined || value === null) return '';
@@ -1043,48 +1039,7 @@ export function CandidateEditAtsSections({
       </EditSection>
 
       {!isClientSubmit ? (
-        <EditSection title="Hiring & assignment" icon={Briefcase}>
-          <EditField label="Source" value={form.source} onChange={(v) => onChange('source', v)} />
-          <EditSelect
-            label="Stage"
-            value={form.stage}
-            options={CANDIDATE_STAGE_OPTIONS.map((value) => ({ label: value, value }))}
-            onChange={(v) => onChange('stage', v)}
-          />
-          <EditSelect
-            label="Status"
-            value={form.status}
-            options={CANDIDATE_STATUS_OPTIONS.map((value) => ({ label: value, value }))}
-            onChange={(v) => onChange('status', v)}
-          />
-          <EditSelect
-            label="Assigned recruiter"
-            value={form.recruiterId}
-            options={recruiters.map((r) => ({ label: r.name, value: r.id }))}
-            onChange={(v) => onChange('recruiterId', v)}
-          />
-          <EditSelect
-            label="Assigned job"
-            value={form.assignedJobId}
-            options={jobs.map((job) => ({
-              label: `${job.title}${job.department ? ` · ${job.department}` : ''}`,
-              value: job.id,
-            }))}
-            onChange={(v) => onChange('assignedJobId', v)}
-          />
-          <EditSelect
-            label="Availability"
-            value={form.availability}
-            options={CANDIDATE_AVAILABILITY_OPTIONS.map((value) => ({ label: value, value }))}
-            onChange={(v) => onChange('availability', v)}
-          />
-          <EditSelect
-            label="Salary currency (default)"
-            value={form.salaryCurrency}
-            options={SALARY_CURRENCY_OPTIONS.map((value) => ({ label: value, value }))}
-            onChange={(v) => onChange('salaryCurrency', v)}
-          />
-        </EditSection>
+        <CandidateHiringEditSection form={form} onChange={onChange} recruiters={recruiters} jobs={jobs} />
       ) : null}
     </div>
   );
