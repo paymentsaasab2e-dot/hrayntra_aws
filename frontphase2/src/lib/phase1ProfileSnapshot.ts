@@ -404,12 +404,16 @@ export function enrichBackendCandidateFromPhase1Snapshot(c: BackendCandidate): B
       (Array.isArray(c.cvEducationEntries) && c.cvEducationEntries.length
         ? c.cvEducationEntries
         : edu) || c.cvEducationEntries,
-    cvPortfolioLinks:
-      (Array.isArray(c.cvPortfolioLinks) && c.cvPortfolioLinks.length
-        ? c.cvPortfolioLinks
-        : Array.isArray(snap.portfolioLinks) && snap.portfolioLinks.length
-          ? snap.portfolioLinks
-          : null) || c.cvPortfolioLinks,
+    cvPortfolioLinks: (() => {
+      const fromSnapshot = Array.isArray(snap.portfolioLinks) ? snap.portfolioLinks : [];
+      if (isPhase1PortalCandidate(c) && fromSnapshot.length) {
+        return fromSnapshot;
+      }
+      if (Array.isArray(c.cvPortfolioLinks) && c.cvPortfolioLinks.length) {
+        return c.cvPortfolioLinks;
+      }
+      return fromSnapshot.length ? fromSnapshot : c.cvPortfolioLinks;
+    })(),
     extraData: mergedExtra,
     ...(typeof snap.resume?.atsScore === 'number'
       ? { resumeAtsScore: snap.resume.atsScore }

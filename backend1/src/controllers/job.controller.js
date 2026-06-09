@@ -1,7 +1,7 @@
 const { prisma, retryQuery } = require('../lib/prisma');
 const matchingService = require('../services/matching.service');
 const { runJobMatchingPipeline: runJobMatchingPipelinePhase1 } = require('../services/job-matching-pipeline-phase1.service');
-const { formatPortalJob } = require('../utils/formatPortalJob.util');
+const { formatPortalJob, shouldShowClientNamePublicly } = require('../utils/formatPortalJob.util');
 
 // simple in-memory cache
 const cache = {
@@ -616,7 +616,9 @@ async function recommendJobs(req, res) {
     const dbFormatted = jobs.map(job => ({
       id: job.id,
       title: job.title,
-      company: job.company?.name || job.client?.companyName || 'Hiring Partner',
+      company: shouldShowClientNamePublicly(job)
+        ? job.company?.name || job.client?.companyName || 'Hiring Partner'
+        : null,
       location: job.location,
       type: job.type || job.employmentType || 'Full-time',
       logo: jobListingThumbnail(job) || '',

@@ -123,6 +123,13 @@ export const env = {
   RESEND_FROM_EMAIL: process.env.RESEND_FROM_EMAIL || process.env.EMAIL_FROM,
   RESEND_TEMPLATE_AUTH_OTP: process.env.RESEND_TEMPLATE_AUTH_OTP,
   EMAIL_FROM: process.env.RESEND_FROM_EMAIL || process.env.EMAIL_FROM || 'onboarding@resend.dev',
+  EMAIL_FROM_AUTH: process.env.EMAIL_FROM_AUTH,
+  EMAIL_FROM_WELCOME: process.env.EMAIL_FROM_WELCOME,
+  EMAIL_FROM_TEAM: process.env.EMAIL_FROM_TEAM,
+  EMAIL_FROM_OPERATIONS: process.env.EMAIL_FROM_OPERATIONS,
+  EMAIL_FROM_CAREERS: process.env.EMAIL_FROM_CAREERS,
+  EMAIL_FROM_EMPLOYERS: process.env.EMAIL_FROM_EMPLOYERS,
+  EMAIL_FROM_BILLING: process.env.EMAIL_FROM_BILLING,
   
   // Frontend (invite emails, OAuth UI redirects — must match deployed employers app URL in production)
   FRONTEND_URL: publicFrontendUrl,

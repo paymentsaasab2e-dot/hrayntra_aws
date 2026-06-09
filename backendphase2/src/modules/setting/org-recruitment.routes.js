@@ -42,6 +42,9 @@ import {
   SUBSCRIPTION_PLAN_OPTIONS,
   SUPPORTED_CURRENCIES,
   DEFAULT_ORG_CURRENCY,
+  DEFAULT_CLIENT_PAGE_FIELD_VISIBILITY,
+  getClientPageFieldVisibility,
+  setClientPageFieldVisibility,
 } from './recruitmentMode.service.js';
 import { suggestCompanyServicesOptions } from './companyServicesSuggest.service.js';
 import { suggestIndustryOptions } from './industrySuggest.service.js';
@@ -58,6 +61,7 @@ router.get('/recruitment-summary', async (req, res) => {
     const recruitmentMode = await getRecruitmentMode();
     const subscriptionPlan = await getSubscriptionPlan();
     const defaultCurrency = await getDefaultCurrency();
+    const clientPageFieldVisibility = await getClientPageFieldVisibility();
     sendResponse(res, 200, 'OK', {
       recruitmentMode,
       billingEnabled: recruitmentMode !== 'standalone',
@@ -65,6 +69,7 @@ router.get('/recruitment-summary', async (req, res) => {
       subscriptionPlanOptions: SUBSCRIPTION_PLAN_OPTIONS,
       defaultCurrency,
       supportedCurrencies: SUPPORTED_CURRENCIES,
+      clientPageFieldVisibility,
     });
   } catch (error) {
     sendError(res, 500, error.message || 'Failed to load org summary', error);
@@ -110,6 +115,28 @@ router.put('/recruitment-mode', requireAnyPermission(['manage_settings']), async
     sendResponse(res, 200, 'Recruitment mode saved', { recruitmentMode: saved });
   } catch (error) {
     sendError(res, 400, error.message || 'Failed to save recruitment mode', error);
+  }
+});
+
+router.get('/client-page-fields', requireAnyPermission(['manage_settings']), async (req, res) => {
+  try {
+    const clientPageFieldVisibility = await getClientPageFieldVisibility();
+    sendResponse(res, 200, 'OK', {
+      clientPageFieldVisibility,
+      defaults: DEFAULT_CLIENT_PAGE_FIELD_VISIBILITY,
+    });
+  } catch (error) {
+    sendError(res, 500, error.message || 'Failed to load client page field visibility', error);
+  }
+});
+
+router.put('/client-page-fields', requireAnyPermission(['manage_settings']), async (req, res) => {
+  try {
+    const fields = req.body?.clientPageFieldVisibility ?? req.body ?? {};
+    const clientPageFieldVisibility = await setClientPageFieldVisibility(fields);
+    sendResponse(res, 200, 'Client page field visibility saved', { clientPageFieldVisibility });
+  } catch (error) {
+    sendError(res, 400, error.message || 'Failed to save client page field visibility', error);
   }
 });
 

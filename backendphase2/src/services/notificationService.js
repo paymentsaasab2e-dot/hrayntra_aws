@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import { env } from '../config/env.js';
+import { getEmailFromForTrigger } from '../config/emailFromAddresses.js';
 import {
   feedbackReminderTemplate,
   interviewCancelledTemplate,
@@ -38,7 +39,7 @@ const sendMail = async ({ to, subject, html }) => {
   }
 
   const result = await mailer.sendMail({
-    from: env.EMAIL_FROM,
+    from: getEmailFromForTrigger('interview.legacy_smtp'),
     to,
     subject,
     html,

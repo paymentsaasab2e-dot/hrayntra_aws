@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, Plus, Search, User, X } from 'lucide-react';
-import { DocumentUploadDropzone } from '../import/documentUploadUi';
+import { ChevronDown, Eye, EyeOff, Plus, Search, User, X } from 'lucide-react';
 import { IndustryMultiSelect } from '../forms/IndustryMultiSelect';
 import { LanguageSuggestInput, ProficiencySuggestInput } from '../forms/LanguageProficiencySuggestInput';
 import { JobLocationFields } from '../location/JobLocationFields';
@@ -23,6 +22,7 @@ export interface CreateJobDetailsFormData {
   jobTitle: string;
   priority: string;
   companyId: string;
+  showClientNamePublicly: boolean;
   contactPersonId: string;
   contactPersonName: string;
   numberOfOpenings: string;
@@ -62,10 +62,6 @@ interface CreateJobDetailsFormProps {
   setSkillInput: (value: string) => void;
   onAddSkill: () => void;
   onRemoveSkill: (index: number) => void;
-  uploadedFile: File | null;
-  setUploadedFile: (file: File | null) => void;
-  existingOtherDocName: string;
-  uploadingFile: boolean;
 }
 
 const inputClass =
@@ -89,6 +85,7 @@ function DropdownField({
   searchQuery = '',
   onSearchQueryChange,
   searchPlaceholder = 'Search…',
+  labelAction,
   children,
 }: {
   label: string;
@@ -102,14 +99,18 @@ function DropdownField({
   searchQuery?: string;
   onSearchQueryChange?: (value: string) => void;
   searchPlaceholder?: string;
+  labelAction?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const isOpen = dropdownsOpen[openKey];
   return (
     <div>
-      <label className={labelClass}>
-        {label} {required ? <span className="text-red-500">*</span> : null}
-      </label>
+      <div className={`${labelAction ? 'mb-2 flex flex-wrap items-center justify-between gap-2' : ''}`}>
+        <label className={labelAction ? 'mb-0 block text-sm font-medium text-slate-700' : labelClass}>
+          {label} {required ? <span className="text-red-500">*</span> : null}
+        </label>
+        {labelAction}
+      </div>
       <div className="relative">
         <button
           type="button"
@@ -169,10 +170,6 @@ export function CreateJobDetailsForm({
   setSkillInput,
   onAddSkill,
   onRemoveSkill,
-  uploadedFile,
-  setUploadedFile,
-  existingOtherDocName,
-  uploadingFile,
 }: CreateJobDetailsFormProps) {
   const selectedCompany = clients.find((c) => c.id === formData.companyId);
   const selectedRecruiter = users.find((u) => u.id === formData.assignedToId);
@@ -324,6 +321,25 @@ export function CreateJobDetailsForm({
         searchQuery={clientSearch}
         onSearchQueryChange={setClientSearch}
         searchPlaceholder="Search companies…"
+        labelAction={
+          <button
+            type="button"
+            onClick={() => patchForm({ showClientNamePublicly: !formData.showClientNamePublicly })}
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors ${
+              formData.showClientNamePublicly
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-100'
+            }`}
+            title={
+              formData.showClientNamePublicly
+                ? 'Client name is visible on public job posts'
+                : 'Client name is hidden on public job posts'
+            }
+          >
+            {formData.showClientNamePublicly ? <Eye size={14} /> : <EyeOff size={14} />}
+            {formData.showClientNamePublicly ? 'Visible to public' : 'Hidden from public'}
+          </button>
+        }
       >
         {loadingClients ? (
           <li className="px-4 py-2 text-sm text-slate-500">Loading…</li>
@@ -470,18 +486,6 @@ export function CreateJobDetailsForm({
           value={formData.targetHireDate}
           onChange={(e) => patchForm({ targetHireDate: e.target.value })}
           className={inputClass}
-        />
-      </div>
-
-      <div>
-        <label className={labelClass}>Other Document (optional)</label>
-        <DocumentUploadDropzone
-          selectedFileName={uploadedFile?.name || existingOtherDocName || undefined}
-          placeholder="Upload PDF, DOC, or image"
-          hint="Optional job description or supporting document"
-          accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp"
-          isUploading={uploadingFile}
-          onFileSelect={(file) => setUploadedFile(file)}
         />
       </div>
 

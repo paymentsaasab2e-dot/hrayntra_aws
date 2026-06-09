@@ -37,8 +37,14 @@ function parseExperienceRange(experienceRequired) {
   return { min: null, max: null, display: raw };
 }
 
+function shouldShowClientNamePublicly(job) {
+  return job?.showClientNamePublicly !== false;
+}
+
 function formatPortalJob(job, options = {}) {
   if (!job) return null;
+
+  const showClient = shouldShowClientNamePublicly(job);
 
   const salaryJson = job.salary || undefined;
   const salaryMin = job.salaryMin ?? salaryJson?.min ?? null;
@@ -64,9 +70,10 @@ function formatPortalJob(job, options = {}) {
   return {
     id: job.id,
     title: job.title,
-    company: job.company?.name || job.client?.companyName || null,
-    companyId: job.company?.id || job.client?.id || null,
-    companyLogo: thumb,
+    company: showClient ? job.company?.name || job.client?.companyName || null : null,
+    companyId: showClient ? job.company?.id || job.client?.id || null : null,
+    companyLogo: showClient ? thumb : null,
+    showClientNamePublicly: showClient,
     applicationFormLogo: job.applicationFormLogo ?? undefined,
     applicationFormEnabled: !!job.applicationFormEnabled,
     applicationFormQuestions: Array.isArray(job.applicationFormQuestions)
@@ -122,6 +129,7 @@ function formatPortalJob(job, options = {}) {
 
 module.exports = {
   formatPortalJob,
+  shouldShowClientNamePublicly,
   parseLanguages,
   parseExperienceRange,
 };

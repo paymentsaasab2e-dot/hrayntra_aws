@@ -5,6 +5,11 @@ import {
   type Phase1ProfileSnapshot,
 } from '@/lib/phase1ProfileSnapshot';
 import { normalizeCareerPreferencesRecord } from '@/lib/normalizeCareerPreferencesRecord';
+import {
+  dedupePortfolioLinksByUrl,
+  filterPortfolioLinks,
+  normalizePortfolioLinkRow,
+} from '@/lib/portfolioLinkFilter';
 
 export type Phase1SkillRow = {
   name: string;
@@ -121,23 +126,29 @@ export function resolvePhase1PortfolioLinks(
   snap: Phase1ProfileSnapshot | null,
   candidate: CandidateProfileDrawerData,
 ): Phase1PortfolioLinkRow[] {
-  if (Array.isArray(snap?.portfolioLinks) && snap.portfolioLinks.length) {
-    return snap.portfolioLinks.map((link) => ({
-      type: link.type ? String(link.type) : undefined,
-      label: link.type ? String(link.type) : undefined,
-      url: link.url ? String(link.url) : undefined,
-    }));
+  const snapshotLinks = filterPortfolioLinks(snap?.portfolioLinks || []).map(normalizePortfolioLinkRow);
+  if (snapshotLinks.length) {
+    return dedupePortfolioLinksByUrl(snapshotLinks);
   }
-  const fromCv = candidate.cvPortfolioLinks || [];
-  if (fromCv.length) {
-    return fromCv.map((link) => ({
-      type: link.type,
-      label: link.label || link.type,
-      url: link.url,
-    }));
-  }
-  const urls = [candidate.cvPortfolio, candidate.cvWebsite].filter(Boolean) as string[];
-  return urls.map((url) => ({ type: 'Portfolio', label: 'Portfolio', url }));
+
+  const fromCv = dedupePortfolioLinksByUrl(
+    filterPortfolioLinks(candidate.cvPortfolioLinks || []).map((link) =>
+      normalizePortfolioLinkRow({
+        url: link.url,
+        linkType: link.type,
+        type: link.type,
+        title: link.label,
+      }),
+    ),
+  );
+  if (fromCv.length) return fromCv;
+
+  const urls = filterPortfolioLinks(
+    [candidate.cvPortfolio, candidate.cvWebsite].filter(Boolean) as string[],
+  );
+  return dedupePortfolioLinksByUrl(
+    urls.map((url) => ({ type: 'Portfolio', label: 'Portfolio', url: String(url) })),
+  );
 }
 
 export function resolvePhase1Internships(

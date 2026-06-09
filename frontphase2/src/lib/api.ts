@@ -21,6 +21,7 @@ import type {
   ScheduleJoiningPayload,
 } from '../types/placement';
 import type { PostServiceKycFormValues } from './clientKycForm';
+import { cacheClientPageFieldVisibility, normalizeClientPageFieldVisibility } from './clientPageFieldVisibility';
 
 export type { BillingSettingsSnapshot, CreatePlacementInvoicePayload };
 
@@ -476,6 +477,11 @@ export function applyOrgRecruitmentSummaryPayload(
         billingEnabled?: boolean;
         subscriptionPlan?: { name?: string } | null;
         defaultCurrency?: string | null;
+        clientPageFieldVisibility?: {
+          interestLevel?: boolean;
+          status?: boolean;
+          assignedTo?: boolean;
+        } | null;
       }
     | null
     | undefined
@@ -495,6 +501,9 @@ export function applyOrgRecruitmentSummaryPayload(
   if (currency && currency.length === 3) {
     localStorage.setItem('orgDefaultCurrency', currency);
   }
+  if (payload?.clientPageFieldVisibility) {
+    cacheClientPageFieldVisibility(normalizeClientPageFieldVisibility(payload.clientPageFieldVisibility));
+  }
   window.dispatchEvent(new CustomEvent(ORG_RECRUITMENT_CACHE_EVENT));
 }
 
@@ -508,11 +517,54 @@ export async function syncOrgRecruitmentSummaryFromApi(): Promise<void> {
       billingEnabled?: boolean;
       subscriptionPlan?: { name?: string } | null;
       defaultCurrency?: string | null;
+      clientPageFieldVisibility?: {
+        interestLevel?: boolean;
+        status?: boolean;
+        assignedTo?: boolean;
+      };
     }>('/settings/org/recruitment-summary', { auth: true });
     applyOrgRecruitmentSummaryPayload(res.data as Parameters<typeof applyOrgRecruitmentSummaryPayload>[0]);
   } catch {
     applyOrgRecruitmentSummaryPayload({ recruitmentMode: 'agency', billingEnabled: true, subscriptionPlan: null });
   }
+}
+
+export async function apiGetClientPageFieldVisibility() {
+  return apiFetch<{
+    clientPageFieldVisibility: {
+      interestLevel: boolean;
+      status: boolean;
+      assignedTo: boolean;
+    };
+    defaults: {
+      interestLevel: boolean;
+      status: boolean;
+      assignedTo: boolean;
+    };
+  }>('/settings/org/client-page-fields', { auth: true });
+}
+
+export async function apiSetClientPageFieldVisibility(fields: {
+  interestLevel?: boolean;
+  status?: boolean;
+  assignedTo?: boolean;
+}) {
+  const res = await apiFetch<{
+    clientPageFieldVisibility: {
+      interestLevel: boolean;
+      status: boolean;
+      assignedTo: boolean;
+    };
+  }>('/settings/org/client-page-fields', {
+    method: 'PUT',
+    auth: true,
+    body: { clientPageFieldVisibility: fields },
+  });
+  if (typeof window !== 'undefined' && res.data?.clientPageFieldVisibility) {
+    cacheClientPageFieldVisibility(normalizeClientPageFieldVisibility(res.data.clientPageFieldVisibility));
+    window.dispatchEvent(new CustomEvent(ORG_RECRUITMENT_CACHE_EVENT));
+  }
+  return res;
 }
 
 export async function apiGetOrgDefaultCurrency() {
@@ -1557,6 +1609,7 @@ export interface BackendJob {
   noCandidates?: boolean;
   slaRisk?: boolean;
   visibility?: string | null;
+  showClientNamePublicly?: boolean | null;
   manager?: { id: string; name: string; email?: string } | null;
   managerId?: string | null;
   jobLocationType?: string | null;
@@ -1674,6 +1727,8 @@ export interface CreateJobData {
   languages?: Array<{ language: string; proficiency: string }>;
   managerId?: string | null;
   supportingRecruiters?: string[];
+  /** When false, client name is hidden on Phase 1 listings and social posts. Default true. */
+  showClientNamePublicly?: boolean;
 }
 
 export const apiCreateJob = async (data: CreateJobData) => {
@@ -5553,6 +5608,7 @@ export interface SocialPublishData {
   jobId: string;
   title: string;
   companyName: string;
+  showClientNamePublicly?: boolean;
   description?: string;
   applyUrl: string;
   location?: string;

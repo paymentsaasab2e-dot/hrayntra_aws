@@ -654,7 +654,7 @@ export function CandidateAtsExtractedOverview({ candidate, sectionVisibility }: 
         filled={profScalarFilled}
         total={profTotal}
       >
-        <CandidateCareerPreferencesOverview candidate={candidate} showResume />
+        <CandidateCareerPreferencesOverview candidate={candidate} />
       </SectionBlock>
       ) : null}
 

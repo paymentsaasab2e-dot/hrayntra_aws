@@ -308,6 +308,35 @@ function parseTargetHireDateValue(raw: string): string {
   return '';
 }
 
+/** Parse stored `experienceRequired` (e.g. `2-8`, `3`, `3-`) into numeric form strings. */
+function parseExperienceRequiredForForm(experienceRequired?: string | null): {
+  min: string;
+  max: string;
+} {
+  const raw = String(experienceRequired || '').trim();
+  if (!raw) return { min: '', max: '' };
+
+  const rangeMatch = raw.match(/^(\d+)\s*-\s*(\d+)/);
+  if (rangeMatch) {
+    return {
+      min: rangeMatch[1],
+      max: rangeMatch[2],
+    };
+  }
+
+  const openEndedMatch = raw.match(/^(\d+)\s*-/);
+  if (openEndedMatch) {
+    return { min: openEndedMatch[1], max: '' };
+  }
+
+  const singleMatch = raw.match(/^(\d+)/);
+  if (singleMatch) {
+    return { min: singleMatch[1], max: '' };
+  }
+
+  return { min: '', max: '' };
+}
+
 export interface JobPromptHints {
   jobTitle: string;
   openings: string;
@@ -534,7 +563,7 @@ export interface CreateJobDrawerProps {
   onJobCreated?: () => void;
   jobId?: string;
   duplicateFromJobId?: string | null;
-  onJobUpdated?: () => void;
+  onJobUpdated?: (jobId: string) => void | Promise<void>;
   /** When opening “Add job” from a client, pre-select this client (company) in the form */
   defaultClientId?: string | null;
 }
@@ -664,6 +693,7 @@ export function CreateJobDrawer({
     priority: 'Medium',
     numberOfOpenings: '1',
     companyId: '',
+    showClientNamePublicly: true,
     contactPersonId: '',
     contactPersonName: '',
     industryType: '',
@@ -793,6 +823,7 @@ export function CreateJobDrawer({
         priority: 'Medium',
         numberOfOpenings: '1',
         companyId: '',
+        showClientNamePublicly: true,
         contactPersonId: '',
         contactPersonName: '',
         industryType: '',
@@ -1182,7 +1213,9 @@ export function CreateJobDrawer({
       const companyName = company?.companyName || '';
       setFormData((prev) => ({
         ...prev,
-        facebookCaption: `Join our team! We're looking for a ${formData.jobTitle} at ${companyName}. Apply: ${effectiveApplyUrl}`,
+        facebookCaption: formData.showClientNamePublicly
+          ? `Join our team! We're looking for a ${formData.jobTitle} at ${companyName}. Apply: ${effectiveApplyUrl}`
+          : `Join our team! We're looking for a ${formData.jobTitle}. Apply: ${effectiveApplyUrl}`,
       }));
     }
   }, [
@@ -1279,37 +1312,9 @@ export function CreateJobDrawer({
         }
       }
       
-      // Parse experience - format: "2-8" or "2" or "2-"
-      const experienceRequired = job.experienceRequired || '';
-      let minExperience = '0 Year';
-      let maxExperience = '';
-      if (experienceRequired) {
-        // Handle formats: "2-8", "2", "2-", "2-8 Years", etc.
-        const cleanExp = experienceRequired.trim();
-        // Match: "2-8" -> min=2, max=8
-        // Match: "2" -> min=2, max=undefined
-        // Match: "2-" -> min=2, max=undefined
-        const expMatch = cleanExp.match(/^(\d+)(?:-(\d+))?/);
-        if (expMatch && expMatch[1]) {
-          const min = parseInt(expMatch[1]);
-          const max = expMatch[2] ? parseInt(expMatch[2]) : null;
-          
-          // Map to dropdown options exactly
-          if (min === 0) minExperience = '0 Year';
-          else if (min === 1) minExperience = '1 Year';
-          else if (min >= 2 && min <= 4) minExperience = `${min} Years`;
-          else if (min >= 5) minExperience = '5+ Years';
-          
-          if (max !== null) {
-            if (max === 1) maxExperience = '1 Year';
-            else if (max >= 2 && max <= 4) maxExperience = `${max} Years`;
-            else if (max === 5) maxExperience = '5 Years';
-            else if (max === 8) maxExperience = '8 Years';
-            else if (max >= 10) maxExperience = '10+ Years';
-            else maxExperience = `${max} Years`; // Fallback
-          }
-        }
-      }
+      const { min: minExperience, max: maxExperience } = parseExperienceRequiredForForm(
+        job.experienceRequired,
+      );
       
       // Map job type
       const mapJobTypeFromBackend = (type: string): string => {
@@ -1461,6 +1466,7 @@ export function CreateJobDrawer({
         jobTitle: isDuplicateMode ? `${job.title || ''} Copy` : (job.title || ''),
         priority: jobExtras.priority || 'Medium',
         companyId: job.clientId || '',
+        showClientNamePublicly: (job as { showClientNamePublicly?: boolean }).showClientNamePublicly !== false,
         contactPersonId: jobExtras.hiringManagerId || '',
         contactPersonName: jobExtras.hiringManager || '',
         numberOfOpenings: String(job.openings || 1),
@@ -2656,13 +2662,14 @@ export function CreateJobDrawer({
             ? formData.assignedToId
             : null
           : formData.assignedToId || undefined,
+        showClientNamePublicly: formData.showClientNamePublicly,
       };
 
       let createdJobId: string | undefined;
       if (isEditMode && jobId) {
         await apiUpdateJob(jobId, jobData);
         createdJobId = jobId;
-        onJobUpdated?.();
+        await Promise.resolve(onJobUpdated?.(jobId));
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('jobportal:jobs-changed'));
         }
@@ -2692,7 +2699,7 @@ export function CreateJobDrawer({
       if (Object.values(platformsToPublish).some(Boolean) && createdJobId) {
         try {
           const company = clients.find(c => c.id === formData.companyId);
-          const companyName = company?.companyName || '';
+          const companyName = formData.showClientNamePublicly ? company?.companyName || '' : '';
           let applyUrl = String(formData.linkedInExternalUrl || '').trim();
           if (!applyUrl) {
             try {
@@ -2727,6 +2734,7 @@ export function CreateJobDrawer({
             jobId: createdJobId,
             title: formData.jobTitle,
             companyName,
+            showClientNamePublicly: formData.showClientNamePublicly,
             description: formData.jobDescriptionHtml ? formData.jobDescriptionHtml.replace(/<[^>]*>/g, '') : undefined,
             applyUrl,
             location: formData.city || formData.fullAddress || undefined,
@@ -2853,6 +2861,7 @@ export function CreateJobDrawer({
           jobTitle: prev.jobTitle,
           priority: prev.priority,
           companyId: prev.companyId,
+          showClientNamePublicly: prev.showClientNamePublicly,
           contactPersonId: prev.contactPersonId,
           contactPersonName: prev.contactPersonName,
           numberOfOpenings: prev.numberOfOpenings,
@@ -2900,6 +2909,7 @@ export function CreateJobDrawer({
     jobTitle: formData.jobTitle,
     priority: formData.priority,
     companyId: formData.companyId,
+    showClientNamePublicly: formData.showClientNamePublicly,
     contactPersonId: formData.contactPersonId,
     contactPersonName: formData.contactPersonName,
     numberOfOpenings: formData.numberOfOpenings,
@@ -3000,24 +3010,112 @@ export function CreateJobDrawer({
                 {accordions.find(a => a.id === 'details')?.isOpen && (
                   <div className="p-5 space-y-6">
                     <div>
+                      <input
+                        ref={smartJobFileInputRef}
+                        type="file"
+                        accept=".pdf,.doc,.docx,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          e.target.value = '';
+                          void handleSmartJobFilePick(file);
+                        }}
+                      />
+
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <h3 className="text-sm font-bold text-slate-900">
                           Job Description{' '}
                           <span className="font-normal text-slate-500">(optional)</span>
                         </h3>
-                        <button
-                          type="button"
-                          onClick={() => void handleAutoFillFromPastedJd()}
-                          disabled={aiGenerating}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          <Sparkles className="h-3.5 w-3.5" />
-                          Auto-fill from pasted JD
-                        </button>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => smartJobFileInputRef.current?.click()}
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              const file = e.dataTransfer.files?.[0];
+                              if (file) void handleSmartJobFilePick(file);
+                            }}
+                            disabled={aiGenerating}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:border-blue-300 hover:bg-blue-50/50 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            <Upload className="h-3.5 w-3.5 text-blue-600" />
+                            Upload job description
+                            <span className="font-normal text-slate-500">· PDF, DOC, DOCX, TXT</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleAutoFillFromPastedJd()}
+                            disabled={aiGenerating}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            <Sparkles className="h-3.5 w-3.5" />
+                            Auto-fill from pasted JD
+                          </button>
+                        </div>
                       </div>
+
                       <p className="mt-1 mb-3 text-xs text-slate-500">
-                        Rich-text editor for the full posting. Use the smart prompt below to pre-fill fields from pasted text.
+                        Upload a document to parse and auto-fill job fields with AI, or paste and edit the full posting below.
                       </p>
+
+                      {smartJobAttachment ? (
+                        <div className="mb-3">
+                          <div className="flex items-center gap-2 rounded-lg border border-slate-700/30 bg-slate-900 px-2.5 py-2 text-white">
+                            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-600">
+                              {smartJobAttachment.status === 'processing' ? (
+                                <Loader2 className="h-4 w-4 animate-spin text-white" strokeWidth={2.25} />
+                              ) : (
+                                <FileText className="h-4 w-4 text-white" strokeWidth={2} />
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-xs font-medium leading-tight">
+                                {smartJobAttachment.file.name}
+                              </p>
+                              <p className="text-[11px] leading-tight text-slate-400">
+                                {smartJobAttachment.status === 'processing'
+                                  ? 'Extracting job details…'
+                                  : smartJobAttachment.status === 'error'
+                                    ? smartJobAttachment.error || 'Processing failed'
+                                    : 'Ready — review the form and publish'}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                clearSmartJobAttachment();
+                                setUploadedFile(null);
+                                setExistingOtherDocName('');
+                              }}
+                              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
+                              aria-label="Remove attached file"
+                              title="Remove file"
+                              disabled={smartJobAttachment.status === 'processing'}
+                            >
+                              <X size={12} strokeWidth={2.5} />
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {smartJobAttachment && smartJobStatus ? (
+                        <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900">
+                          {smartJobStatus}
+                        </p>
+                      ) : null}
+
+                      {smartJobAttachment && smartJobError ? (
+                        <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-700">
+                          {smartJobError}
+                        </p>
+                      ) : null}
+
                       {isOpen ? (
                         <div onPasteCapture={handleJobDescriptionPaste}>
                           <RichTextEditor
@@ -3047,10 +3145,6 @@ export function CreateJobDrawer({
                       setSkillInput={setSkillInput}
                       onAddSkill={addSkill}
                       onRemoveSkill={removeSkill}
-                      uploadedFile={uploadedFile}
-                      setUploadedFile={setUploadedFile}
-                      existingOtherDocName={existingOtherDocName}
-                      uploadingFile={uploadingFile}
                     />
                   </div>
                 )}
@@ -3955,7 +4049,7 @@ export function CreateJobDrawer({
                     <div className="flex items-center gap-2">
                       <Sparkles size={16} className="text-blue-600" />
                       <span className="text-sm font-semibold text-slate-900">Smart fill</span>
-                      <span className="text-xs text-slate-500">Upload a file or paste details</span>
+                      <span className="text-xs text-slate-500">Paste details to auto-fill the form</span>
                     </div>
                     {smartJobPromptVisible ? (
                       <button
@@ -3989,98 +4083,7 @@ export function CreateJobDrawer({
                     </p>
                   ) : null}
 
-                  <input
-                    ref={smartJobFileInputRef}
-                    type="file"
-                    accept=".pdf,.doc,.docx,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      e.target.value = '';
-                      void handleSmartJobFilePick(file);
-                    }}
-                  />
-
-                  <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2">
-                    {/* Upload JD */}
-                    <div className="flex flex-col rounded-xl border border-slate-200 bg-slate-50/80 p-2.5">
-                      <div className="mb-1.5 flex items-center gap-2">
-                        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-blue-100 text-blue-600">
-                          <Upload size={13} />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-xs font-semibold text-slate-900">Upload job description</p>
-                          <p className="text-[11px] leading-tight text-slate-500">PDF, DOC, DOCX, TXT</p>
-                        </div>
-                      </div>
-
-                      {smartJobAttachment ? (
-                        <div>
-                          <div className="flex items-center gap-2 rounded-lg border border-slate-700/30 bg-slate-900 px-2 py-1.5 text-white">
-                            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-600">
-                              {smartJobAttachment.status === 'processing' ? (
-                                <Loader2 className="h-4 w-4 animate-spin text-white" strokeWidth={2.25} />
-                              ) : (
-                                <FileText className="h-4 w-4 text-white" strokeWidth={2} />
-                              )}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-xs font-medium leading-tight">
-                                {smartJobAttachment.file.name}
-                              </p>
-                              <p className="text-[11px] leading-tight text-slate-400">
-                                {smartJobAttachment.status === 'processing'
-                                  ? 'Extracting job details…'
-                                  : smartJobAttachment.status === 'error'
-                                    ? smartJobAttachment.error || 'Processing failed'
-                                    : 'Ready — review the form and publish'}
-                              </p>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                clearSmartJobAttachment();
-                                setUploadedFile(null);
-                                setExistingOtherDocName('');
-                              }}
-                              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
-                              aria-label="Remove attached file"
-                              title="Remove file"
-                              disabled={smartJobAttachment.status === 'processing'}
-                            >
-                              <X size={12} strokeWidth={2.5} />
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => smartJobFileInputRef.current?.click()}
-                          onDragOver={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                          }}
-                          onDrop={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            const file = e.dataTransfer.files?.[0];
-                            if (file) void handleSmartJobFilePick(file);
-                          }}
-                          disabled={aiGenerating}
-                          className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 text-center transition-colors hover:border-blue-400 hover:bg-blue-50/40 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600">
-                            <Upload size={14} />
-                          </div>
-                          <span className="text-xs font-medium text-slate-800">
-                            Drop or click to upload
-                          </span>
-                          <span className="text-[11px] text-slate-400">· 5 MB</span>
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Paste prompt */}
+                  <div className="grid grid-cols-1 gap-2.5">
                     <div className="flex flex-col rounded-xl border border-slate-200 bg-slate-50/80 p-2.5">
                       <div className="mb-1.5 flex items-center gap-2">
                         <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-violet-100 text-violet-600">

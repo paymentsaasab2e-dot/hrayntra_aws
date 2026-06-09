@@ -12,6 +12,7 @@ import type { TeamMember, TeamMemberFilters, UserStatus } from '../../types/team
 import { EditMemberModal } from './EditMemberModal';
 import { GenerateCredentialsModal } from './GenerateCredentialsModal';
 import { LoginHistoryDrawer } from './LoginHistoryDrawer';
+import { positionFixedDropdownFromTrigger } from '../../lib/positionFixedDropdown';
 
 interface TeamTableProps {
   onSelectMember: (member: TeamMember) => void;
@@ -118,42 +119,8 @@ export const TeamTable: React.FC<TeamTableProps> = ({ onSelectMember }) => {
   };
 
   const openActionMenu = (member: TeamMember, button: HTMLButtonElement) => {
-    const rect = button.getBoundingClientRect();
-    const menuWidth = 224;
-    const estimatedMenuHeight = 360;
-    const gap = 8;
-    const margin = 12;
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-
-    // Horizontal: align the menu's right edge to the trigger's right edge so it
-    // doesn't escape to the right; clamp to viewport with a small margin.
-    let left = rect.right - menuWidth;
-    left = Math.max(margin, Math.min(left, viewportWidth - menuWidth - margin));
-
-    // Vertical: open below the trigger when there is room, otherwise above.
-    // Always clamp `top` so the menu can never extend past the viewport
-    // (previous logic let the menu overflow past the bottom of the page,
-    // making the lower items unreachable in tables near the bottom).
-    const spaceBelow = viewportHeight - rect.bottom - gap - margin;
-    const spaceAbove = rect.top - gap - margin;
-    const fitsBelow = spaceBelow >= estimatedMenuHeight;
-    const fitsAbove = spaceAbove >= estimatedMenuHeight;
-
-    let top: number;
-    if (fitsBelow) {
-      top = rect.bottom + gap;
-    } else if (fitsAbove) {
-      top = rect.top - estimatedMenuHeight - gap;
-    } else {
-      // Doesn't fully fit either side — pick the larger half and clamp.
-      top = spaceBelow >= spaceAbove ? rect.bottom + gap : margin;
-    }
-    top = Math.max(margin, Math.min(top, viewportHeight - estimatedMenuHeight - margin));
-    if (top < margin) top = margin;
-
     setActionMenuOpen(member.id);
-    setActionMenuPos({ top, left });
+    setActionMenuPos(positionFixedDropdownFromTrigger(button, 224, { gap: 8 }));
   };
 
   // Recalculate menu position on resize / scroll while the menu is open so it

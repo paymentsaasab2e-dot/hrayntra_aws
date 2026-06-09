@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { X, Filter, ChevronDown, Calendar, Search } from 'lucide-react';
 import type { Client, ClientPriority, ClientStage } from '../../app/client/types';
+import type { ClientPageFieldVisibility } from '../../lib/clientPageFieldVisibility';
 
 /** Persisted filter state. `null` / empty / 'All' means "no filter for that field". */
 export interface ClientFilters {
@@ -34,6 +35,7 @@ interface ClientFilterDrawerProps {
   industryOptions?: string[];
   /** Current logged-in user's display name — used to filter "Me only" */
   currentUserName?: string;
+  fieldVisibility?: ClientPageFieldVisibility;
   onClose: () => void;
   onApply: (filters: ClientFilters) => void;
 }
@@ -58,9 +60,13 @@ export function ClientFilterDrawer({
   value,
   industryOptions,
   currentUserName,
+  fieldVisibility,
   onClose,
   onApply,
 }: ClientFilterDrawerProps) {
+  const showStatusFilter = fieldVisibility?.status === true;
+  const showInterestFilter = fieldVisibility?.interestLevel === true;
+  const showOwnerFilter = fieldVisibility?.assignedTo === true;
   // Local draft so cancelling/discarding doesn't mutate parent state.
   const [draft, setDraft] = useState<ClientFilters>(value);
 
@@ -129,53 +135,55 @@ export function ClientFilterDrawer({
             </div>
           </div>
 
-          {/* Stage */}
-          <div className="space-y-3">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Stage</label>
-            <div className="grid grid-cols-2 gap-2">
-              {(['All', 'Active', 'On Hold', 'Inactive'] as const).map((option) => {
-                const isActive = draft.stage === option;
-                return (
-                  <button
-                    key={option}
-                    type="button"
-                    onClick={() => setDraft((p) => ({ ...p, stage: option as ClientFilters['stage'] }))}
-                    className={`px-3 py-2 text-sm rounded-lg font-medium transition-colors border ${
-                      isActive
-                        ? 'border-blue-200 bg-blue-50 text-blue-700'
-                        : 'border-slate-200 text-slate-600 hover:border-slate-300'
-                    }`}
-                  >
-                    {option}
-                  </button>
-                );
-              })}
+          {showStatusFilter ? (
+            <div className="space-y-3">
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Stage</label>
+              <div className="grid grid-cols-2 gap-2">
+                {(['All', 'Active', 'On Hold', 'Inactive'] as const).map((option) => {
+                  const isActive = draft.stage === option;
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => setDraft((p) => ({ ...p, stage: option as ClientFilters['stage'] }))}
+                      className={`px-3 py-2 text-sm rounded-lg font-medium transition-colors border ${
+                        isActive
+                          ? 'border-blue-200 bg-blue-50 text-blue-700'
+                          : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                      }`}
+                    >
+                      {option}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          ) : null}
 
-          {/* Priority */}
-          <div className="space-y-3">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Priority</label>
-            <div className="grid grid-cols-4 gap-2">
-              {(['All', 'High', 'Medium', 'Low'] as const).map((option) => {
-                const isActive = draft.priority === option;
-                return (
-                  <button
-                    key={option}
-                    type="button"
-                    onClick={() => setDraft((p) => ({ ...p, priority: option as ClientFilters['priority'] }))}
-                    className={`px-3 py-2 text-sm rounded-lg font-medium transition-colors border ${
-                      isActive
-                        ? 'border-blue-200 bg-blue-50 text-blue-700'
-                        : 'border-slate-200 text-slate-600 hover:border-slate-300'
-                    }`}
-                  >
-                    {option}
-                  </button>
-                );
-              })}
+          {showInterestFilter ? (
+            <div className="space-y-3">
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Priority</label>
+              <div className="grid grid-cols-4 gap-2">
+                {(['All', 'High', 'Medium', 'Low'] as const).map((option) => {
+                  const isActive = draft.priority === option;
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => setDraft((p) => ({ ...p, priority: option as ClientFilters['priority'] }))}
+                      className={`px-3 py-2 text-sm rounded-lg font-medium transition-colors border ${
+                        isActive
+                          ? 'border-blue-200 bg-blue-50 text-blue-700'
+                          : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                      }`}
+                    >
+                      {option}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          ) : null}
 
           {/* Location */}
           <div className="space-y-3">
@@ -192,29 +200,30 @@ export function ClientFilterDrawer({
             </div>
           </div>
 
-          {/* Account Owner Scope */}
-          <div className="space-y-3">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Account Owner</label>
-            <div className="grid grid-cols-2 gap-2">
-              {(['all', 'me'] as const).map((scope) => {
-                const isActive = draft.ownerScope === scope;
-                return (
-                  <button
-                    key={scope}
-                    type="button"
-                    onClick={() => setDraft((p) => ({ ...p, ownerScope: scope }))}
-                    className={`px-3 py-2 text-sm rounded-lg font-medium transition-colors border ${
-                      isActive
-                        ? 'border-blue-200 bg-blue-50 text-blue-700'
-                        : 'border-slate-200 text-slate-600 hover:border-slate-300'
-                    }`}
-                  >
-                    {scope === 'all' ? 'All' : currentUserName ? `Me only (${currentUserName})` : 'Me only'}
-                  </button>
-                );
-              })}
+          {showOwnerFilter ? (
+            <div className="space-y-3">
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Account Owner</label>
+              <div className="grid grid-cols-2 gap-2">
+                {(['all', 'me'] as const).map((scope) => {
+                  const isActive = draft.ownerScope === scope;
+                  return (
+                    <button
+                      key={scope}
+                      type="button"
+                      onClick={() => setDraft((p) => ({ ...p, ownerScope: scope }))}
+                      className={`px-3 py-2 text-sm rounded-lg font-medium transition-colors border ${
+                        isActive
+                          ? 'border-blue-200 bg-blue-50 text-blue-700'
+                          : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                      }`}
+                    >
+                      {scope === 'all' ? 'All' : currentUserName ? `Me only (${currentUserName})` : 'Me only'}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          ) : null}
 
           {/* Open Jobs Range */}
           <div className="space-y-3">
@@ -301,18 +310,23 @@ export function applyClientFilters(
   clients: Client[],
   filters: ClientFilters,
   currentUserName?: string,
+  fieldVisibility?: ClientPageFieldVisibility,
 ): Client[] {
+  const showStatusFilter = fieldVisibility?.status === true;
+  const showInterestFilter = fieldVisibility?.interestLevel === true;
+  const showOwnerFilter = fieldVisibility?.assignedTo === true;
+
   return clients.filter((client) => {
     if (filters.industry && filters.industry !== 'All Industries') {
       if ((client.industry || '').toLowerCase() !== filters.industry.toLowerCase()) return false;
     }
-    if (filters.stage !== 'All' && client.stage !== filters.stage) return false;
-    if (filters.priority !== 'All' && client.priority !== filters.priority) return false;
+    if (showStatusFilter && filters.stage !== 'All' && client.stage !== filters.stage) return false;
+    if (showInterestFilter && filters.priority !== 'All' && client.priority !== filters.priority) return false;
     if (filters.location.trim()) {
       const haystack = `${client.location || ''} ${client.hiringLocations || ''}`.toLowerCase();
       if (!haystack.includes(filters.location.trim().toLowerCase())) return false;
     }
-    if (filters.ownerScope === 'me') {
+    if (showOwnerFilter && filters.ownerScope === 'me') {
       if (!currentUserName || client.owner?.name !== currentUserName) return false;
     }
     if (filters.openJobsMin !== null && client.openJobs < filters.openJobsMin) return false;
@@ -343,13 +357,20 @@ export function applyClientFilters(
   });
 }
 
-export function isClientFilterActive(filters: ClientFilters): boolean {
+export function isClientFilterActive(
+  filters: ClientFilters,
+  fieldVisibility?: ClientPageFieldVisibility,
+): boolean {
+  const showStatusFilter = fieldVisibility?.status === true;
+  const showInterestFilter = fieldVisibility?.interestLevel === true;
+  const showOwnerFilter = fieldVisibility?.assignedTo === true;
+
   return (
     (filters.industry && filters.industry !== 'All Industries') ||
-    filters.stage !== 'All' ||
-    filters.priority !== 'All' ||
+    (showStatusFilter && filters.stage !== 'All') ||
+    (showInterestFilter && filters.priority !== 'All') ||
     filters.location.trim() !== '' ||
-    filters.ownerScope !== 'all' ||
+    (showOwnerFilter && filters.ownerScope !== 'all') ||
     filters.openJobsMin !== null ||
     filters.openJobsMax !== null ||
     filters.lastActivity !== 'any'

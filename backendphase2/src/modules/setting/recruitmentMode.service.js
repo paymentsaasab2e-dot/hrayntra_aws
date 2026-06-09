@@ -5,6 +5,36 @@ const KEY_RECRUITMENT_MODE = 'recruitmentMode';
 const KEY_PIPELINE_TEMPLATE = 'defaultPipelineTemplate';
 const KEY_SUBSCRIPTION_PLAN = 'subscriptionPlan';
 const KEY_DEFAULT_CURRENCY = 'defaultCurrency';
+const KEY_CLIENT_PAGE_FIELDS = 'clientPageFieldVisibility';
+
+/** Client list/drawer fields hidden by default until enabled in Recruitment workflow settings. */
+export const DEFAULT_CLIENT_PAGE_FIELD_VISIBILITY = {
+  interestLevel: false,
+  status: false,
+  assignedTo: false,
+};
+
+function normalizeClientPageFieldVisibility(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return { ...DEFAULT_CLIENT_PAGE_FIELD_VISIBILITY };
+  }
+  return {
+    interestLevel: raw.interestLevel === true,
+    status: raw.status === true,
+    assignedTo: raw.assignedTo === true,
+  };
+}
+
+export async function getClientPageFieldVisibility() {
+  const row = await findOrgSettingRow(KEY_CLIENT_PAGE_FIELDS);
+  return normalizeClientPageFieldVisibility(row?.value);
+}
+
+export async function setClientPageFieldVisibility(fields) {
+  const normalized = normalizeClientPageFieldVisibility(fields);
+  await upsertOrgSettingJson(KEY_CLIENT_PAGE_FIELDS, normalized);
+  return normalized;
+}
 
 export const SUBSCRIPTION_PLAN_OPTIONS = [
   { id: 'basic', name: 'Basic' },

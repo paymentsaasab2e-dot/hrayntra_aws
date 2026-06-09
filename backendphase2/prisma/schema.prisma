@@ -663,6 +663,8 @@ model Job {
   languages                Json? // [{ language, proficiency }]
   managerId                String?   @db.ObjectId
   visibility               String? // Internal, Public
+  /// When false, client/company name is hidden on Phase 1 portal listings and social job posts.
+  showClientNamePublicly   Boolean?  @default(true)
   distributionPlatforms    Json? // Distribution platforms (careerPage, linkedIn, naukri, indeed, internalDatabase)
   supportingRecruiters     String[]  @default([]) // Array of supporting recruiter user IDs
   applicationFormEnabled   Boolean   @default(false) // Enable job application form

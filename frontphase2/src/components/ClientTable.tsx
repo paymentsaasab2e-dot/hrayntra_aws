@@ -31,6 +31,8 @@ interface ClientTableProps {
   onClientStatusChange?: (clientId: string, newStatus: string) => void;
   clientNameSortOrder: 'asc' | 'desc';
   onToggleClientNameSortOrder: () => void;
+  showStatusColumn?: boolean;
+  showRecruiterColumn?: boolean;
 }
 
 // Custom Checkbox Component for better design tool compatibility
@@ -64,6 +66,8 @@ export function ClientTable({
   onClientStatusChange,
   clientNameSortOrder,
   onToggleClientNameSortOrder,
+  showStatusColumn = false,
+  showRecruiterColumn = false,
 }: ClientTableProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingClientId, setUploadingClientId] = useState<string | null>(null);
@@ -165,8 +169,8 @@ export function ClientTable({
                   {label}
                 </th>
               ))}
-              <th className="px-3 sm:px-4 py-2">Status</th>
-              <th className="px-3 sm:px-4 py-2">Recruiter</th>
+              {showStatusColumn ? <th className="px-3 sm:px-4 py-2">Status</th> : null}
+              {showRecruiterColumn ? <th className="px-3 sm:px-4 py-2">Recruiter</th> : null}
               <TableAuditColumnHeader />
               <th className="px-3 sm:px-4 py-2 text-right">Actions</th>
             </tr>
@@ -239,43 +243,47 @@ export function ClientTable({
                     </td>
                   );
                 })}
-                <td className="px-3 sm:px-4 py-2" onClick={(e) => e.stopPropagation()}>
-                  {canUpdateClientStatus && onClientStatusChange ? (
-                    <select
-                      className="max-w-[10rem] cursor-pointer rounded-full border-0 bg-slate-100/80 px-2 py-1 text-[11px] font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200/90 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
-                      value={resolveClientStatusLabel(client)}
-                      onChange={(e) => onClientStatusChange(client.id, e.target.value)}
-                    >
-                      {clientStatusOptions.map((status) => (
-                        <option key={status} value={status}>
-                          {status}
-                        </option>
-                      ))}
-                    </select>
-                  ) : resolveClientStatusLabel(client) ? (
-                    <span
-                      className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${clientStatusBadgeClass(
-                        resolveClientStatusLabel(client),
-                      )}`}
-                    >
-                      {resolveClientStatusLabel(client)}
-                    </span>
-                  ) : (
-                    <span className="text-[11px] text-slate-400">-</span>
-                  )}
-                </td>
-                <td className="px-3 sm:px-4 py-2">
-                  <div className="flex items-center gap-2">
-                    <TableBrandAvatar
-                      src={client.owner.avatar}
-                      name={client.owner.name}
-                      size="xs"
-                      showStatusDot={false}
-                      alt={client.owner.name}
-                    />
-                    <span className="text-[11px] font-medium text-slate-700">{client.owner.name}</span>
-                  </div>
-                </td>
+                {showStatusColumn ? (
+                  <td className="px-3 sm:px-4 py-2" onClick={(e) => e.stopPropagation()}>
+                    {canUpdateClientStatus && onClientStatusChange ? (
+                      <select
+                        className="max-w-[10rem] cursor-pointer rounded-full border-0 bg-slate-100/80 px-2 py-1 text-[11px] font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200/90 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                        value={resolveClientStatusLabel(client)}
+                        onChange={(e) => onClientStatusChange(client.id, e.target.value)}
+                      >
+                        {clientStatusOptions.map((status) => (
+                          <option key={status} value={status}>
+                            {status}
+                          </option>
+                        ))}
+                      </select>
+                    ) : resolveClientStatusLabel(client) ? (
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${clientStatusBadgeClass(
+                          resolveClientStatusLabel(client),
+                        )}`}
+                      >
+                        {resolveClientStatusLabel(client)}
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-slate-400">-</span>
+                    )}
+                  </td>
+                ) : null}
+                {showRecruiterColumn ? (
+                  <td className="px-3 sm:px-4 py-2">
+                    <div className="flex items-center gap-2">
+                      <TableBrandAvatar
+                        src={client.owner.avatar}
+                        name={client.owner.name}
+                        size="xs"
+                        showStatusDot={false}
+                        alt={client.owner.name}
+                      />
+                      <span className="text-[11px] font-medium text-slate-700">{client.owner.name}</span>
+                    </div>
+                  </td>
+                ) : null}
                 <TableAuditCell audit={client.auditMeta} />
                 <td className="px-3 sm:px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="inline-flex items-center justify-end gap-0.5 rounded-xl bg-slate-100/70 p-0.5 ring-1 ring-slate-200/60">

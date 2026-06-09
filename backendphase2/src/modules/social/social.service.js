@@ -9,7 +9,8 @@ export const socialService = {
   async publishJob(userId, jobId, platforms, jobData) {
     const results = {};
     const jobTitle = String(jobData.title || '').trim();
-    const companyName = String(jobData.companyName || '').trim();
+    const showClientName = jobData.showClientNamePublicly !== false;
+    const companyName = showClientName ? String(jobData.companyName || '').trim() : '';
 
     console.log('[social] Publishing job to social platforms', {
       jobId,
@@ -29,7 +30,7 @@ export const socialService = {
           userId,
           {
             jobTitle: jobData.title,
-            company: jobData.companyName,
+            company: companyName || undefined,
             description: jobData.description,
             applyUrl: jobData.applyUrl,
             location: jobData.location,
@@ -58,7 +59,7 @@ export const socialService = {
           userId,
           {
             title: jobData.title,
-            companyName: jobData.companyName,
+            companyName: companyName || undefined,
             description: jobData.description,
             applyUrl: jobData.applyUrl,
             location: jobData.location,
