@@ -1,4 +1,9 @@
 import { formatDateDMY } from '../utils/dateDisplay';
+import {
+  isJobFieldPubliclyVisible,
+  parseJobPublicFieldVisibility,
+  type JobPublicFieldVisibility,
+} from './jobPublicFieldVisibility';
 
 export type JobSocialPostInput = {
   jobTitle: string;
@@ -22,6 +27,8 @@ export type JobSocialPostInput = {
   languages?: Array<{ language: string; proficiency: string }>;
   jobDescriptionHtml?: string;
   applyUrl: string;
+  showClientNamePublicly?: boolean;
+  publicFieldVisibility?: JobPublicFieldVisibility | null;
 };
 
 export function stripHtml(html: string): string {
@@ -87,8 +94,16 @@ function appendLine(lines: string[], label: string, value?: string) {
 
 export function buildJobSocialDetailLines(input: JobSocialPostInput): string[] {
   const lines: string[] = [];
-  const title = String(input.jobTitle || '').trim();
-  const company = String(input.companyName || '').trim();
+  const visibility = parseJobPublicFieldVisibility(input.publicFieldVisibility);
+  const showClient = isJobFieldPubliclyVisible(
+    visibility,
+    'client',
+    input.showClientNamePublicly !== false,
+  );
+  const title = isJobFieldPubliclyVisible(visibility, 'jobTitle')
+    ? String(input.jobTitle || '').trim()
+    : '';
+  const company = showClient ? String(input.companyName || '').trim() : '';
 
   if (title && company) {
     lines.push(`Role: ${title} at ${company}`);
@@ -96,37 +111,71 @@ export function buildJobSocialDetailLines(input: JobSocialPostInput): string[] {
     lines.push(`Role: ${title}`);
   }
 
-  appendLine(lines, 'Location', formatLocation(input));
-  appendLine(lines, 'Openings', input.numberOfOpenings);
-  appendLine(lines, 'Priority', input.priority);
-  appendLine(lines, 'Employment type', input.employmentType);
-  appendLine(lines, 'Industry', input.industryType);
-  appendLine(lines, 'Nationality', input.nationality);
-  appendLine(lines, 'Target hire date', formatHireDate(input.targetHireDate));
-  appendLine(lines, 'Experience', formatExperience(input));
-  appendLine(lines, 'Salary', formatSalary(input));
+  if (isJobFieldPubliclyVisible(visibility, 'location')) {
+    appendLine(lines, 'Location', formatLocation(input));
+  }
+  if (isJobFieldPubliclyVisible(visibility, 'openings')) {
+    appendLine(lines, 'Openings', input.numberOfOpenings);
+  }
+  if (isJobFieldPubliclyVisible(visibility, 'priority')) {
+    appendLine(lines, 'Priority', input.priority);
+  }
+  if (isJobFieldPubliclyVisible(visibility, 'employmentType')) {
+    appendLine(lines, 'Employment type', input.employmentType);
+  }
+  if (isJobFieldPubliclyVisible(visibility, 'industryType')) {
+    appendLine(lines, 'Industry', input.industryType);
+  }
+  if (isJobFieldPubliclyVisible(visibility, 'nationality')) {
+    appendLine(lines, 'Nationality', input.nationality);
+  }
+  if (isJobFieldPubliclyVisible(visibility, 'targetHireDate')) {
+    appendLine(lines, 'Target hire date', formatHireDate(input.targetHireDate));
+  }
+  if (isJobFieldPubliclyVisible(visibility, 'experience')) {
+    appendLine(lines, 'Experience', formatExperience(input));
+  }
+  if (isJobFieldPubliclyVisible(visibility, 'salary')) {
+    appendLine(lines, 'Salary', formatSalary(input));
+  }
 
-  const skills = (input.skills || []).map((s) => String(s).trim()).filter(Boolean);
-  if (skills.length) appendLine(lines, 'Skills', skills.join(', '));
+  if (isJobFieldPubliclyVisible(visibility, 'skills')) {
+    const skills = (input.skills || []).map((s) => String(s).trim()).filter(Boolean);
+    if (skills.length) appendLine(lines, 'Skills', skills.join(', '));
+  }
 
-  const languages = formatLanguages(input.languages);
-  if (languages) appendLine(lines, 'Languages', languages);
+  if (isJobFieldPubliclyVisible(visibility, 'languages')) {
+    const languages = formatLanguages(input.languages);
+    if (languages) appendLine(lines, 'Languages', languages);
+  }
 
-  appendLine(lines, 'Contact', input.contactPersonName);
+  if (isJobFieldPubliclyVisible(visibility, 'contactPerson')) {
+    appendLine(lines, 'Contact', input.contactPersonName);
+  }
 
-  const description = stripHtml(input.jobDescriptionHtml || '');
-  if (description) {
-    const excerpt = description.length > 220 ? `${description.slice(0, 220).trim()}…` : description;
-    lines.push('');
-    lines.push(excerpt);
+  if (isJobFieldPubliclyVisible(visibility, 'jobDescription')) {
+    const description = stripHtml(input.jobDescriptionHtml || '');
+    if (description) {
+      const excerpt = description.length > 220 ? `${description.slice(0, 220).trim()}…` : description;
+      lines.push('');
+      lines.push(excerpt);
+    }
   }
 
   return lines;
 }
 
 export function buildLinkedInJobPost(input: JobSocialPostInput, maxLength = 700): string {
-  const title = String(input.jobTitle || 'Open role').trim();
-  const company = String(input.companyName || 'our team').trim();
+  const visibility = parseJobPublicFieldVisibility(input.publicFieldVisibility);
+  const showClient = isJobFieldPubliclyVisible(
+    visibility,
+    'client',
+    input.showClientNamePublicly !== false,
+  );
+  const title = isJobFieldPubliclyVisible(visibility, 'jobTitle')
+    ? String(input.jobTitle || 'Open role').trim()
+    : 'Open role';
+  const company = showClient ? String(input.companyName || 'our team').trim() : 'our team';
   const applyUrl = String(input.applyUrl || '').trim();
 
   const bodyLines = buildJobSocialDetailLines(input);
@@ -158,10 +207,18 @@ export function buildLinkedInJobPost(input: JobSocialPostInput, maxLength = 700)
 }
 
 export function buildTwitterJobPost(input: JobSocialPostInput, maxLength = 280): string {
-  const title = String(input.jobTitle || 'Open role').trim();
-  const company = String(input.companyName || 'our team').trim();
+  const visibility = parseJobPublicFieldVisibility(input.publicFieldVisibility);
+  const showClient = isJobFieldPubliclyVisible(
+    visibility,
+    'client',
+    input.showClientNamePublicly !== false,
+  );
+  const title = isJobFieldPubliclyVisible(visibility, 'jobTitle')
+    ? String(input.jobTitle || 'Open role').trim()
+    : 'Open role';
+  const company = showClient ? String(input.companyName || 'our team').trim() : 'our team';
   const applyUrl = String(input.applyUrl || '').trim();
-  const location = formatLocation(input);
+  const location = isJobFieldPubliclyVisible(visibility, 'location') ? formatLocation(input) : '';
 
   const parts: string[] = [`We're hiring a ${title} at ${company}!`];
   if (location) parts.push(`📍 ${location}`);

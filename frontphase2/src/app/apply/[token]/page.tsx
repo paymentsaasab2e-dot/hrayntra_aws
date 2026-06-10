@@ -21,6 +21,7 @@ interface PublicJobSummary {
   overview?: string | null;
   keyResponsibilities?: string[];
   requirements?: string[];
+  candidateRequirements?: string[];
   skills?: string[];
   preferredSkills?: string[];
   experienceRequired?: string | null;

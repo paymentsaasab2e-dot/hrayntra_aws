@@ -2,6 +2,11 @@
 
 import React, { useMemo } from 'react';
 import { MapPin } from 'lucide-react';
+import {
+  isJobFieldPubliclyVisible,
+  parseJobPublicFieldVisibility,
+  type JobPublicVisibilityField,
+} from '../../lib/jobPublicFieldVisibility';
 
 export interface PublicJobOverviewJob {
   title?: string;
@@ -11,6 +16,7 @@ export interface PublicJobOverviewJob {
   overview?: string | null;
   keyResponsibilities?: string[];
   requirements?: string[];
+  candidateRequirements?: string[];
   skills?: string[];
   preferredSkills?: string[];
   experienceRequired?: string | null;
@@ -18,6 +24,8 @@ export interface PublicJobOverviewJob {
   benefits?: string[];
   employmentType?: string | null;
   workMode?: string | null;
+  showClientNamePublicly?: boolean;
+  publicFieldVisibility?: Record<string, boolean> | null;
 }
 
 function formatEmploymentType(type?: string | null): string {
@@ -121,7 +129,11 @@ function BulletList({ items }: { items: string[] }) {
 }
 
 export function PublicJobOverviewPanel({ job }: { job: PublicJobOverviewJob }) {
-  const htmlSource = (job.description || job.overview || '').trim();
+  const visibility = parseJobPublicFieldVisibility(job.publicFieldVisibility);
+  const show = (field: JobPublicVisibilityField) =>
+    isJobFieldPubliclyVisible(visibility, field, job.showClientNamePublicly);
+
+  const htmlSource = show('jobDescription') ? (job.description || job.overview || '').trim() : '';
   const hasHtml = /<[^>]+>/.test(htmlSource);
 
   const htmlSections = useMemo(
@@ -129,17 +141,20 @@ export function PublicJobOverviewPanel({ job }: { job: PublicJobOverviewJob }) {
     [hasHtml, htmlSource]
   );
 
-  const employmentLabel = formatEmploymentType(job.employmentType);
-  const skills = [...(job.skills || []), ...(job.preferredSkills || [])].filter(Boolean);
+  const employmentLabel = show('employmentType') ? formatEmploymentType(job.employmentType) : '';
+  const skills = show('skills')
+    ? [...(job.skills || []), ...(job.preferredSkills || [])].filter(Boolean)
+    : [];
   const hasStructuredLists =
     !hasHtml &&
-    ((job.keyResponsibilities?.length ?? 0) > 0 ||
-      (job.requirements?.length ?? 0) > 0 ||
+    ((show('keyResponsibilities') && (job.keyResponsibilities?.length ?? 0) > 0) ||
+      (show('qualifications') && (job.requirements?.length ?? 0) > 0) ||
+      (show('candidateRequirements') && (job.candidateRequirements?.length ?? 0) > 0) ||
       (job.benefits?.length ?? 0) > 0);
 
   return (
     <div className="space-y-4">
-      {job.location ? (
+      {show('location') && job.location ? (
         <p className="flex items-center gap-2 text-sm text-slate-600">
           <MapPin size={16} className="shrink-0 text-slate-400" />
           {job.location}
@@ -180,15 +195,21 @@ export function PublicJobOverviewPanel({ job }: { job: PublicJobOverviewJob }) {
         </SectionCard>
       ) : null}
 
-      {hasStructuredLists && (job.keyResponsibilities?.length ?? 0) > 0 ? (
+      {hasStructuredLists && show('keyResponsibilities') && (job.keyResponsibilities?.length ?? 0) > 0 ? (
         <SectionCard title="Key responsibilities">
           <BulletList items={job.keyResponsibilities!} />
         </SectionCard>
       ) : null}
 
-      {hasStructuredLists && (job.requirements?.length ?? 0) > 0 ? (
-        <SectionCard title="Requirements">
+      {hasStructuredLists && show('qualifications') && (job.requirements?.length ?? 0) > 0 ? (
+        <SectionCard title="Preferred education / qualifications">
           <BulletList items={job.requirements!} />
+        </SectionCard>
+      ) : null}
+
+      {hasStructuredLists && show('candidateRequirements') && (job.candidateRequirements?.length ?? 0) > 0 ? (
+        <SectionCard title="Candidate requirements">
+          <BulletList items={job.candidateRequirements!} />
         </SectionCard>
       ) : null}
 

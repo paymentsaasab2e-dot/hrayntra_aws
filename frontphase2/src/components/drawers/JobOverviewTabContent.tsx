@@ -1,10 +1,9 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { ChevronDown, ChevronRight, LayoutGrid } from 'lucide-react';
-import { formatDateDMY, formatDateTimeDMY } from '../../utils/dateDisplay';
+import { formatDateDMY } from '../../utils/dateDisplay';
 import { formatIndustriesDisplay } from '../../lib/industryOptions';
-import type { JobApplicationSubmission, JobForDrawer } from './JobDetailsDrawer';
+import type { JobForDrawer } from './JobDetailsDrawer';
 
 function stripHtml(value: string): string {
   return String(value || '')
@@ -117,27 +116,6 @@ function OverviewSection({ title, children }: { title: string; children: ReactNo
   );
 }
 
-function formatApplicationCandidateName(app: JobApplicationSubmission) {
-  const first = app.candidate?.firstName?.trim() || '';
-  const last = app.candidate?.lastName?.trim() || '';
-  const name = `${first} ${last}`.trim();
-  return name || app.candidate?.email || 'Candidate';
-}
-
-function applicationAnswerRows(answers?: Record<string, unknown> | null) {
-  if (!answers || typeof answers !== 'object') return [];
-  return Object.entries(answers).map(([key, value]) => ({
-    key,
-    label: key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-    value:
-      value === null || value === undefined
-        ? '—'
-        : typeof value === 'object'
-          ? JSON.stringify(value, null, 2)
-          : String(value),
-  }));
-}
-
 function formatApplicationLogoLabel(logo?: string): string {
   const raw = String(logo || '').trim();
   if (!raw) return '—';
@@ -150,15 +128,9 @@ function formatApplicationLogoLabel(logo?: string): string {
 
 export interface JobOverviewTabContentProps {
   job: JobForDrawer;
-  expandedApplicationIds: Set<string>;
-  onToggleApplication: (applicationId: string) => void;
 }
 
-export function JobOverviewTabContent({
-  job,
-  expandedApplicationIds,
-  onToggleApplication,
-}: JobOverviewTabContentProps) {
+export function JobOverviewTabContent({ job }: JobOverviewTabContentProps) {
   const { min: minExp, max: maxExp } = parseExperienceYears(job.experienceRequired);
   const requiredSkills = job.requiredSkills || [];
   const preferredSkills = job.preferredSkills || [];
@@ -276,7 +248,8 @@ export function JobOverviewTabContent({
           </div>
         ) : null}
         <OverviewList label="Key Responsibilities" items={job.keyResponsibilities} />
-        <OverviewList label="Qualifications / Requirements" items={job.requirements} />
+        <OverviewList label="Preferred Education / Qualifications" items={job.requirements} />
+        <OverviewList label="Candidate Requirements" items={job.candidateRequirements} />
         <OverviewSkillTags label="Required Skills" skills={requiredSkills} />
         <OverviewSkillTags label="Preferred Skills" skills={preferredSkills} />
         <div>
@@ -321,72 +294,6 @@ export function JobOverviewTabContent({
           <OverviewField label="Note for Candidates" value={displayValue(job.applicationFormNote)} />
         ) : null}
       </OverviewSection>
-
-      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-100 p-5">
-          <h4 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400">
-            <LayoutGrid size={14} className="text-slate-400" />
-            Job applications
-          </h4>
-        </div>
-        <div className="p-5">
-          {Array.isArray(job.applications) && job.applications.length > 0 ? (
-            <div className="space-y-2">
-              {job.applications.map((app) => {
-                const answers = applicationAnswerRows(app.screeningAnswers || null);
-                const open = expandedApplicationIds.has(app.id);
-                return (
-                  <div key={app.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-                    <button
-                      type="button"
-                      onClick={() => onToggleApplication(app.id)}
-                      className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-slate-50/70"
-                    >
-                      <div>
-                        <p className="text-sm font-semibold text-slate-900">{formatApplicationCandidateName(app)}</p>
-                        <p className="mt-0.5 text-xs text-slate-500">
-                          {app.appliedAt ? formatDateTimeDMY(app.appliedAt) : 'Applied'}
-                          {app.status ? ` • ${app.status}` : ''}
-                        </p>
-                      </div>
-                      {open ? (
-                        <ChevronDown size={16} className="shrink-0 text-slate-400" />
-                      ) : (
-                        <ChevronRight size={16} className="shrink-0 text-slate-400" />
-                      )}
-                    </button>
-                    {open ? (
-                      <div className="border-t border-slate-100 bg-slate-50/40 px-4 py-3">
-                        {answers.length > 0 ? (
-                          <div className="space-y-2">
-                            {answers.map((row) => (
-                              <div
-                                key={`${app.id}-${row.key}`}
-                                className="rounded-lg border border-slate-200 bg-white px-3 py-2"
-                              >
-                                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                                  {row.label}
-                                </p>
-                                <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{row.value}</p>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-sm text-slate-500">No screening answers submitted.</p>
-                        )}
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-              No applications yet for this job.
-            </p>
-          )}
-        </div>
-      </section>
     </div>
   );
 }

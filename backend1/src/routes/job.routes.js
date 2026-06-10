@@ -14,6 +14,9 @@ router.get('/recommend', jobController.recommendJobs);
 // Get all jobs
 router.get('/', jobController.getAllJobs);
 
+// Phase 2 CRM calls this after mirroring job edits to the portal DB.
+router.post('/cache/invalidate', jobController.invalidateJobsCache);
+
 // Seed sample jobs (for testing)
 router.post('/seed', jobController.seedSampleJobs);
 

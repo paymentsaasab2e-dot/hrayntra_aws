@@ -48,7 +48,23 @@ export function isRetryableHttpStatus(status: number): boolean {
 export function normalizeFetchError(error: unknown): ApiRequestError {
   if (error instanceof ApiRequestError) return error;
 
+  if (error && typeof error === 'object' && (error as Error).name === 'TimeoutError') {
+    return new ApiRequestError('Request timed out. The server may be busy — retrying can help.', {
+      kind: 'timeout',
+      retryable: true,
+      cause: error,
+    });
+  }
+
   if (error && typeof error === 'object' && (error as Error).name === 'AbortError') {
+    const msg = String((error as Error).message || '').toLowerCase();
+    if (/timeout|timed out/i.test(msg)) {
+      return new ApiRequestError('Request timed out. The server may be busy — retrying can help.', {
+        kind: 'timeout',
+        retryable: true,
+        cause: error,
+      });
+    }
     return new ApiRequestError('Request was cancelled.', {
       kind: 'abort',
       retryable: false,

@@ -1,7 +1,16 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, Eye, EyeOff, Plus, Search, User, X } from 'lucide-react';
+import { ChevronDown, Plus, Search, User, X } from 'lucide-react';
+import { PublicVisibilityToggle } from '../forms/PublicVisibilityToggle';
+import {
+  isJobFieldPubliclyVisible,
+  mergeClientVisibility,
+  parseJobPublicFieldVisibility,
+  toggleJobPublicFieldVisibility,
+  type JobPublicFieldVisibility,
+  type JobPublicVisibilityField,
+} from '../../lib/jobPublicFieldVisibility';
 import { IndustryMultiSelect } from '../forms/IndustryMultiSelect';
 import { LanguageSuggestInput, ProficiencySuggestInput } from '../forms/LanguageProficiencySuggestInput';
 import { JobLocationFields } from '../location/JobLocationFields';
@@ -39,10 +48,14 @@ export interface CreateJobDetailsFormData {
   salaryCurrency: string;
   languages: JobLanguageEntry[];
   skills: string[];
+  keyResponsibilitiesText: string;
+  qualificationsExperienceText: string;
+  candidateRequirementsText: string;
   videoMediaLink: string;
   forecastRevenue: string;
   managerId: string;
   assignedToId: string;
+  publicFieldVisibility: JobPublicFieldVisibility;
 }
 
 type ContactOption = JobContactPersonOption;
@@ -69,6 +82,53 @@ const inputClass =
 const compactInputClass =
   'rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500';
 const labelClass = 'block text-sm font-medium text-slate-700 mb-2';
+
+function FieldLabelRow({
+  label,
+  required,
+  labelAction,
+}: {
+  label: string;
+  required?: boolean;
+  labelAction?: React.ReactNode;
+}) {
+  return (
+    <div className={`${labelAction ? 'mb-2 flex flex-wrap items-center justify-between gap-2' : ''}`}>
+      <label className={labelAction ? 'mb-0 block text-sm font-medium text-slate-700' : labelClass}>
+        {label} {required ? <span className="text-red-500">*</span> : null}
+      </label>
+      {labelAction}
+    </div>
+  );
+}
+
+function ListTextareaField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  labelAction,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  labelAction?: React.ReactNode;
+}) {
+  return (
+    <div>
+      <FieldLabelRow label={label} labelAction={labelAction} />
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder || 'Enter one item per line'}
+        rows={4}
+        className={`${inputClass} min-h-[100px] resize-y`}
+      />
+      <p className="mt-1 text-xs text-slate-500">One item per line</p>
+    </div>
+  );
+}
 
 const PRIORITY_OPTIONS = ['Low', 'Medium', 'High', 'Urgent'];
 const EMPLOYMENT_TYPES = ['Full Time', 'Part Time', 'Contract', 'Internship', 'Freelance'];
@@ -250,6 +310,36 @@ export function CreateJobDetailsForm({
 
   const patchForm = (patch: Partial<CreateJobDetailsFormData>) => setFormData(patch);
 
+  const visibility = parseJobPublicFieldVisibility(formData.publicFieldVisibility);
+
+  const isFieldVisible = (field: JobPublicVisibilityField) =>
+    isJobFieldPubliclyVisible(
+      visibility,
+      field,
+      field === 'client' ? formData.showClientNamePublicly : undefined,
+    );
+
+  const toggleFieldVisibility = (field: JobPublicVisibilityField) => {
+    if (field === 'client') {
+      const nextShow = !formData.showClientNamePublicly;
+      patchForm({
+        showClientNamePublicly: nextShow,
+        publicFieldVisibility: mergeClientVisibility(visibility, nextShow),
+      });
+      return;
+    }
+    patchForm({
+      publicFieldVisibility: toggleJobPublicFieldVisibility(visibility, field),
+    });
+  };
+
+  const visibilityAction = (field: JobPublicVisibilityField) => (
+    <PublicVisibilityToggle
+      visible={isFieldVisible(field)}
+      onToggle={() => toggleFieldVisibility(field)}
+    />
+  );
+
   const addLanguageRow = () => {
     setFormData({
       languages: [...formData.languages, { language: '', proficiency: 'Conversational' }],
@@ -271,7 +361,7 @@ export function CreateJobDetailsForm({
   return (
     <div className="space-y-4">
       <div>
-        <label className={labelClass}>Nationality</label>
+        <FieldLabelRow label="Nationality" labelAction={visibilityAction('nationality')} />
         <input
           type="text"
           value={formData.nationality}
@@ -282,9 +372,7 @@ export function CreateJobDetailsForm({
       </div>
 
       <div>
-        <label className={labelClass}>
-          Job Title <span className="text-red-500">*</span>
-        </label>
+        <FieldLabelRow label="Job Title" required labelAction={visibilityAction('jobTitle')} />
         <input
           type="text"
           value={formData.jobTitle}
@@ -295,7 +383,7 @@ export function CreateJobDetailsForm({
       </div>
 
       <div>
-        <label className={labelClass}>Priority (optional)</label>
+        <FieldLabelRow label="Priority (optional)" labelAction={visibilityAction('priority')} />
         <select
           value={formData.priority}
           onChange={(e) => patchForm({ priority: e.target.value })}
@@ -321,25 +409,7 @@ export function CreateJobDetailsForm({
         searchQuery={clientSearch}
         onSearchQueryChange={setClientSearch}
         searchPlaceholder="Search companies…"
-        labelAction={
-          <button
-            type="button"
-            onClick={() => patchForm({ showClientNamePublicly: !formData.showClientNamePublicly })}
-            className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors ${
-              formData.showClientNamePublicly
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
-                : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-100'
-            }`}
-            title={
-              formData.showClientNamePublicly
-                ? 'Client name is visible on public job posts'
-                : 'Client name is hidden on public job posts'
-            }
-          >
-            {formData.showClientNamePublicly ? <Eye size={14} /> : <EyeOff size={14} />}
-            {formData.showClientNamePublicly ? 'Visible to public' : 'Hidden from public'}
-          </button>
-        }
+        labelAction={visibilityAction('client')}
       >
         {loadingClients ? (
           <li className="px-4 py-2 text-sm text-slate-500">Loading…</li>
@@ -374,6 +444,7 @@ export function CreateJobDetailsForm({
 
       <DropdownField
         label="Contact Person (optional)"
+        labelAction={visibilityAction('contactPerson')}
         placeholder={formData.companyId ? 'Select contact' : 'Select a client first'}
         valueLabel={selectedContact?.name || formData.contactPersonName || undefined}
         openKey="contact"
@@ -430,9 +501,7 @@ export function CreateJobDetailsForm({
       </DropdownField>
 
       <div>
-        <label className={labelClass}>
-          No of Positions <span className="text-red-500">*</span>
-        </label>
+        <FieldLabelRow label="No of Positions" required labelAction={visibilityAction('openings')} />
         <input
           type="number"
           min={1}
@@ -442,17 +511,23 @@ export function CreateJobDetailsForm({
         />
       </div>
 
-      <JobLocationFields
-        country={formData.country}
-        state={formData.state}
-        city={formData.city}
-        onChange={(patch) => patchForm(patch)}
-        labelClass={labelClass}
-        inputClass={inputClass}
-      />
+      <div>
+        <FieldLabelRow
+          label="Location (Country / State / City)"
+          labelAction={visibilityAction('location')}
+        />
+        <JobLocationFields
+          country={formData.country}
+          state={formData.state}
+          city={formData.city}
+          onChange={(patch) => patchForm(patch)}
+          labelClass={labelClass}
+          inputClass={inputClass}
+        />
+      </div>
 
       <div>
-        <label className={labelClass}>Industry Type (optional)</label>
+        <FieldLabelRow label="Industry Type (optional)" labelAction={visibilityAction('industryType')} />
         <IndustryMultiSelect
           value={formData.industryType}
           onChange={(industryType) => patchForm({ industryType })}
@@ -462,7 +537,10 @@ export function CreateJobDetailsForm({
       </div>
 
       <div>
-        <label className={labelClass}>Employment Type (optional)</label>
+        <FieldLabelRow
+          label="Employment Type (optional)"
+          labelAction={visibilityAction('employmentType')}
+        />
         <select
           value={formData.employmentType}
           onChange={(e) => patchForm({ employmentType: e.target.value })}
@@ -478,9 +556,11 @@ export function CreateJobDetailsForm({
       </div>
 
       <div>
-        <label className={labelClass}>
-          Target Hire Date <span className="text-red-500">*</span>
-        </label>
+        <FieldLabelRow
+          label="Target Hire Date"
+          required
+          labelAction={visibilityAction('targetHireDate')}
+        />
         <input
           type="date"
           value={formData.targetHireDate}
@@ -489,6 +569,11 @@ export function CreateJobDetailsForm({
         />
       </div>
 
+      <div>
+        <FieldLabelRow
+          label="Years of Experience (optional)"
+          labelAction={visibilityAction('experience')}
+        />
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label className={labelClass}>Minimum Years of Experience (optional)</label>
@@ -513,9 +598,10 @@ export function CreateJobDetailsForm({
           />
         </div>
       </div>
+      </div>
 
       <div>
-        <label className={labelClass}>Salary range (optional)</label>
+        <FieldLabelRow label="Salary range (optional)" labelAction={visibilityAction('salary')} />
         <div className="flex max-w-2xl flex-wrap items-center gap-3">
           <div className="relative">
             <button
@@ -603,8 +689,10 @@ export function CreateJobDetailsForm({
         </div>
       </div>
       <div>
-        <div className="mb-2 flex items-center justify-between">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <label className={labelClass}>Language & Proficiency</label>
+          <div className="flex flex-wrap items-center gap-2">
+            {visibilityAction('languages')}
           <button
             type="button"
             onClick={addLanguageRow}
@@ -613,6 +701,7 @@ export function CreateJobDetailsForm({
             <Plus className="h-3.5 w-3.5" />
             Add language
           </button>
+          </div>
         </div>
         {formData.languages.length === 0 ? (
           <p className="text-xs text-slate-500">No languages added yet.</p>
@@ -647,8 +736,32 @@ export function CreateJobDetailsForm({
         )}
       </div>
 
+      <ListTextareaField
+        label="Key Responsibilities"
+        value={formData.keyResponsibilitiesText}
+        onChange={(value) => patchForm({ keyResponsibilitiesText: value })}
+        placeholder={'e.g. Design and develop features\nCollaborate with cross-functional teams'}
+        labelAction={visibilityAction('keyResponsibilities')}
+      />
+
+      <ListTextareaField
+        label="Preferred Education / Qualifications"
+        value={formData.qualificationsExperienceText}
+        onChange={(value) => patchForm({ qualificationsExperienceText: value })}
+        placeholder={'e.g. B.Tech in Computer Science\n3+ years in React development'}
+        labelAction={visibilityAction('qualifications')}
+      />
+
+      <ListTextareaField
+        label="Candidate Requirements"
+        value={formData.candidateRequirementsText}
+        onChange={(value) => patchForm({ candidateRequirementsText: value })}
+        placeholder={'e.g. Must be available to join within 30 days\nValid work authorization required'}
+        labelAction={visibilityAction('candidateRequirements')}
+      />
+
       <div>
-        <label className={labelClass}>Skills</label>
+        <FieldLabelRow label="Skills" labelAction={visibilityAction('skills')} />
         <div className="flex gap-2">
           <input
             type="text"

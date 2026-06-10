@@ -1,6 +1,11 @@
 const { prisma } = require('../lib/prisma');
 const { createCandidateNotification } = require('../services/notification.service');
 const { scheduleCandidateCommonSync } = require('../services/candidateCommonSync.service');
+const {
+  resolvePublicCompanyName,
+  shouldShowClientNamePublicly,
+  CONFIDENTIAL_COMPANY_LABEL,
+} = require('../utils/formatPortalJob.util');
 
 /** True for Prisma Mongo write conflicts / transient transaction failures (case + message fallbacks). */
 function isMongoTransientWriteConflict(e) {
@@ -846,10 +851,7 @@ async function createApplication(req, res) {
         job: {
           id: application.job.id,
           title: application.job.title,
-          company:
-            application.job.company?.name ||
-            application.job.client?.companyName ||
-            'Unknown Company',
+          company: resolvePublicCompanyName(application.job, CONFIDENTIAL_COMPANY_LABEL),
         },
       },
     };
@@ -864,21 +866,16 @@ async function createApplication(req, res) {
       title: 'Application submitted successfully',
       description: `Your application for ${
         application.job.title || 'a role'
-      } at ${
-        application.job.company?.name ||
-        application.job.client?.companyName ||
-        'the company'
-      } has been received.`,
+      } at ${resolvePublicCompanyName(application.job, 'the company')} has been received.`,
       actionButton: 'View application',
       actionPath: `/applications/${application.id}`,
       metadata: {
         applicationId: application.id,
         jobId: job.id,
         jobTitle: application.job.title || null,
-        companyName:
-          application.job.company?.name ||
-          application.job.client?.companyName ||
-          null,
+        companyName: shouldShowClientNamePublicly(application.job)
+          ? application.job.company?.name || application.job.client?.companyName || null
+          : null,
         status: application.status,
       },
     });
@@ -994,7 +991,6 @@ async function getApplications(req, res) {
     // Transform applications to match frontend format
     const transformedApplications = applications.map((app) => {
       const job = app.job;
-      const company = job.company;
 
       // Format salary
       let salary = 'Not specified';
@@ -1039,7 +1035,7 @@ async function getApplications(req, res) {
         id: app.id,
         jobId: job.id,
         jobTitle: job.title,
-        company: company?.name || job.client?.companyName || 'Unknown Company',
+        company: resolvePublicCompanyName(job, CONFIDENTIAL_COMPANY_LABEL),
         status: displayStatus,
         applicationStatus: statusMap[app.status] || app.status,
         pipelineStatusCode: recruiterMatch?.status || null,
@@ -1310,10 +1306,7 @@ async function getApplicationById(req, res) {
         job: {
           id: application.job.id,
           title: application.job.title,
-          company:
-            application.job.company?.name ||
-            application.job.client?.companyName ||
-            'Unknown Company',
+          company: resolvePublicCompanyName(application.job, CONFIDENTIAL_COMPANY_LABEL),
           location: application.job.location || 'Not specified',
           workMode: application.job.workMode || application.job.jobLocationType || 'Not specified',
           experience:

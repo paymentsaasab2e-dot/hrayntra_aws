@@ -50,6 +50,45 @@ function isLongRunningApiPath(path: string): boolean {
   );
 }
 
+const LONG_RUNNING_FETCH_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.NEXT_PUBLIC_LONG_RUNNING_FETCH_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 10 * 60 * 1000;
+})();
+
+function mergeAbortSignals(
+  userSignal: AbortSignal | undefined,
+  timeoutMs: number | undefined
+): AbortSignal | undefined {
+  if (!userSignal && !timeoutMs) return undefined;
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (userSignal) {
+    if (userSignal.aborted) {
+      abort();
+    } else {
+      userSignal.addEventListener('abort', abort, { once: true });
+    }
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  if (timeoutMs && timeoutMs > 0) {
+    timer = setTimeout(() => {
+      try {
+        controller.abort(new DOMException('Request timed out', 'TimeoutError'));
+      } catch {
+        abort();
+      }
+    }, timeoutMs);
+  }
+  controller.signal.addEventListener(
+    'abort',
+    () => {
+      if (timer) clearTimeout(timer);
+    },
+    { once: true }
+  );
+  return controller.signal;
+}
+
 // Determination of API base based on environment
 function resolveApiBase(): string {
   if (isLocalBrowser) return LOCAL_API_BASE;
@@ -1016,9 +1055,11 @@ export async function apiFetchFormData<T>(
     auth?: boolean;
     includeTenantHeader?: boolean;
     signal?: AbortSignal;
+    /** Override API host for bulk CV load distribution (must include `/api/v1`). */
+    apiBase?: string;
   } = {}
 ): Promise<ApiResponse<T>> {
-  const apiBase = resolveApiBaseForPath(path);
+  const apiBase = options.apiBase?.replace(/\/$/, '') || resolveApiBaseForPath(path);
   const url = `${apiBase}${path}`;
   const headers: Record<string, string> = {};
 
@@ -1040,13 +1081,22 @@ export async function apiFetchFormData<T>(
     headers['x-tenant-db-name'] = tenantDbName;
   }
 
+  const longRunning = isLongRunningApiPath(path);
+  const fetchSignal = mergeAbortSignals(
+    options.signal,
+    longRunning ? LONG_RUNNING_FETCH_TIMEOUT_MS : undefined
+  );
+
   let res: Response;
   try {
     res = await fetch(url, {
       method: options.method || 'POST',
       headers,
       body: formData,
-      signal: options.signal,
+      signal: fetchSignal,
+      credentials: 'include',
+      mode: 'cors',
+      cache: 'no-store',
     });
   } catch (fetchError: any) {
     throw normalizeFetchError(fetchError);
@@ -1102,7 +1152,7 @@ export type BulkCvExpandZipResult = {
 export async function apiBulkCvExpandZip(
   archive: File,
   sessionId: string,
-  options: { signal?: AbortSignal } = {}
+  options: { signal?: AbortSignal; apiBase?: string } = {}
 ) {
   const formData = new FormData();
   formData.append('sessionId', sessionId);
@@ -1111,22 +1161,54 @@ export async function apiBulkCvExpandZip(
     method: 'POST',
     auth: true,
     signal: options.signal,
+    apiBase: options.apiBase,
   });
 }
 
-export async function apiBulkCvReleaseZip(sessionId: string) {
-  return apiFetch<unknown>('/candidates/bulk-cv/release-zip', {
-    method: 'POST',
-    auth: true,
-    body: JSON.stringify({ sessionId }),
+export async function apiBulkCvReleaseZip(
+  sessionId: string,
+  options: { apiBase?: string } = {}
+) {
+  const apiBase = options.apiBase?.replace(/\/$/, '') || resolveApiBaseForPath('/candidates/bulk-cv/release-zip');
+  const url = `${apiBase}/candidates/bulk-cv/release-zip`;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const token = getAccessToken();
+  if (!token) throw new Error('Authentication required. Please log in.');
+  headers.Authorization = `Bearer ${token}`;
+  const tenantDbName = getTenantDbName();
+  if (tenantDbName) headers['x-tenant-db-name'] = tenantDbName;
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ sessionId }),
+      credentials: 'include',
+      mode: 'cors',
+      cache: 'no-store',
+    });
+  } catch (fetchError: unknown) {
+    throw normalizeFetchError(fetchError);
+  }
+
+  const json = await res.json().catch(() => {
+    throw normalizeInvalidResponseError(res.status);
   });
+  if (!res.ok || json?.success === false) {
+    throw createHttpApiError(res.status, json?.message || `Request failed with status ${res.status}`, {
+      data: json?.data,
+      raw: json,
+    });
+  }
+  return json as ApiResponse<unknown>;
 }
 
 export async function apiBulkCvProcessFile(
   payload: { file?: File; storedFileId?: string },
   sessionId: string,
   fileIndex: number,
-  options: { signal?: AbortSignal } = {}
+  options: { signal?: AbortSignal; apiBase?: string } = {}
 ) {
   const formData = new FormData();
   formData.append('sessionId', sessionId);
@@ -1140,6 +1222,7 @@ export async function apiBulkCvProcessFile(
     method: 'POST',
     auth: true,
     signal: options.signal,
+    apiBase: options.apiBase,
   });
 }
 
@@ -1590,6 +1673,7 @@ export interface BackendJob {
   education?: string | null;
   priority?: string | null;
   keyResponsibilities?: string[];
+  candidateRequirements?: string[];
   skills?: string[];
   preferredSkills?: string[];
   benefits?: string[];
@@ -1610,6 +1694,7 @@ export interface BackendJob {
   slaRisk?: boolean;
   visibility?: string | null;
   showClientNamePublicly?: boolean | null;
+  publicFieldVisibility?: Record<string, boolean> | null;
   manager?: { id: string; name: string; email?: string } | null;
   managerId?: string | null;
   jobLocationType?: string | null;
@@ -1680,6 +1765,7 @@ export interface CreateJobData {
   skills?: string[];
   preferredSkills?: string[];
   keyResponsibilities?: string[];
+  candidateRequirements?: string[];
   location?: string;
   type?: 'FULL_TIME' | 'PART_TIME' | 'CONTRACT' | 'FREELANCE' | 'INTERNSHIP';
   status?: 'DRAFT' | 'OPEN' | 'ON_HOLD' | 'CLOSED' | 'FILLED';
@@ -1729,6 +1815,8 @@ export interface CreateJobData {
   supportingRecruiters?: string[];
   /** When false, client name is hidden on Phase 1 listings and social posts. Default true. */
   showClientNamePublicly?: boolean;
+  /** Per-field visibility for public apply page, Phase 1, and social posts. */
+  publicFieldVisibility?: Record<string, boolean>;
 }
 
 export const apiCreateJob = async (data: CreateJobData) => {

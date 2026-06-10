@@ -152,11 +152,16 @@ function formatPublicJob(job) {
     company: showClient ? client?.companyName || null : null,
     companyLogo: showClient ? client?.logo || null : null,
     showClientNamePublicly: showClient,
+    publicFieldVisibility:
+      job.publicFieldVisibility && typeof job.publicFieldVisibility === 'object'
+        ? job.publicFieldVisibility
+        : null,
     location: job.location || [job.city, job.state, job.country].filter(Boolean).join(', ') || null,
     description: job.description || job.overview || null,
     overview: job.overview || null,
     keyResponsibilities: job.keyResponsibilities || [],
     requirements: job.requirements || [],
+    candidateRequirements: job.candidateRequirements || [],
     skills: job.skills || [],
     preferredSkills: job.preferredSkills || [],
     experienceRequired: job.experienceRequired || null,
