@@ -159,6 +159,76 @@ export function resolvePhase1Internships(
   return extraArray(candidate, 'phase1Internships');
 }
 
+export function resolvePhase1Education(
+  snap: Phase1ProfileSnapshot | null,
+  candidate: CandidateProfileDrawerData,
+): Array<Record<string, unknown>> {
+  if (Array.isArray(snap?.education) && snap.education.length) return snap.education;
+  return (candidate.cvEducationEntries || []).map((entry) => ({
+    degreeProgram: entry.degree,
+    institutionName: entry.institution,
+    fieldOfStudy: entry.field,
+    startYear: entry.startYear,
+    endYear: entry.endYear,
+  }));
+}
+
+export function resolvePhase1GapExplanations(
+  snap: Phase1ProfileSnapshot | null,
+  candidate: CandidateProfileDrawerData,
+): Array<Record<string, unknown>> {
+  if (Array.isArray(snap?.gapExplanations) && snap.gapExplanations.length) {
+    return snap.gapExplanations;
+  }
+  return extraArray(candidate, 'phase1GapExplanations');
+}
+
+export function resolvePhase1AcademicAchievements(
+  snap: Phase1ProfileSnapshot | null,
+  candidate: CandidateProfileDrawerData,
+): Array<Record<string, unknown>> {
+  if (Array.isArray(snap?.academicAchievements) && snap.academicAchievements.length) {
+    return snap.academicAchievements;
+  }
+  return extraArray(candidate, 'phase1AcademicAchievements');
+}
+
+export function resolvePhase1CompetitiveExams(
+  snap: Phase1ProfileSnapshot | null,
+  candidate: CandidateProfileDrawerData,
+): Array<Record<string, unknown>> {
+  if (Array.isArray(snap?.competitiveExams) && snap.competitiveExams.length) {
+    return snap.competitiveExams;
+  }
+  return extraArray(candidate, 'phase1CompetitiveExams');
+}
+
+export function resolvePhase1Projects(
+  snap: Phase1ProfileSnapshot | null,
+  candidate: CandidateProfileDrawerData,
+): Array<Record<string, unknown>> {
+  if (Array.isArray(snap?.projects) && snap.projects.length) {
+    return snap.projects;
+  }
+  return extraArray(candidate, 'phase1Projects');
+}
+
+export function resolvePhase1Certifications(
+  snap: Phase1ProfileSnapshot | null,
+  candidate: CandidateProfileDrawerData,
+): Array<Record<string, unknown>> {
+  if (Array.isArray(snap?.certifications) && snap.certifications.length) {
+    return snap.certifications;
+  }
+
+  const fromExtra = extraArray(candidate, 'phase1Certifications');
+  if (fromExtra.length) return fromExtra;
+
+  return (candidate.cvCertifications || []).map((name) => ({
+    certificationName: String(name),
+  }));
+}
+
 export function resolvePhase1Accomplishments(
   snap: Phase1ProfileSnapshot | null,
   candidate: CandidateProfileDrawerData,
@@ -166,7 +236,41 @@ export function resolvePhase1Accomplishments(
   if (Array.isArray(snap?.accomplishments) && snap.accomplishments.length) {
     return snap.accomplishments;
   }
-  return extraArray(candidate, 'phase1Accomplishments');
+  const fromExtra = extraArray(candidate, 'phase1Accomplishments');
+  if (fromExtra.length) return fromExtra;
+  return [];
+}
+
+export function resolvePhase1VisaWorkAuthorization(
+  snap: Phase1ProfileSnapshot | null,
+  candidate: CandidateProfileDrawerData,
+): Record<string, unknown> | null {
+  if (snap?.visaWorkAuthorization && typeof snap.visaWorkAuthorization === 'object') {
+    return snap.visaWorkAuthorization as Record<string, unknown>;
+  }
+
+  const fromExtra = candidate.extraData?.phase1VisaWorkAuthorization;
+  if (fromExtra && typeof fromExtra === 'object' && !Array.isArray(fromExtra)) {
+    return fromExtra as Record<string, unknown>;
+  }
+
+  return null;
+}
+
+export function resolvePhase1Vaccination(
+  snap: Phase1ProfileSnapshot | null,
+  candidate: CandidateProfileDrawerData,
+): Record<string, unknown> | null {
+  if (snap?.vaccination && typeof snap.vaccination === 'object') {
+    return snap.vaccination as Record<string, unknown>;
+  }
+
+  const fromExtra = candidate.extraData?.phase1Vaccination;
+  if (fromExtra && typeof fromExtra === 'object' && !Array.isArray(fromExtra)) {
+    return fromExtra as Record<string, unknown>;
+  }
+
+  return null;
 }
 
 export function resolvePhase1CareerPreferences(

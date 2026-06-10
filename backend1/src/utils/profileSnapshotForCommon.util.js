@@ -1,6 +1,12 @@
 const { mapWorkExperienceForClient } = require('./workExperienceEnums');
 const { resolveCandidateLocalPhone } = require('./phone.util');
 const { filterPortfolioLinks } = require('./portfolioLinkFilter.util');
+const {
+  extractAcademicAchievementEntries,
+  extractCompetitiveExamEntries,
+  extractProjectEntries,
+  mapEducationForSnapshot,
+} = require('./profileSectionEntries.util');
 
 function mapGenderLabel(value) {
   const raw = String(value || '').trim().toUpperCase();
@@ -136,69 +142,14 @@ function buildProfileSnapshot(candidate) {
 
   const gapExplanations = extractGapEntries(candidate.gapExplanation);
   const internships = extractInternshipEntries(candidate.internship);
-  const academicAchievements = candidate.academicAchievement
-    ? [
-        {
-          id: candidate.academicAchievement.id,
-          achievementTitle: candidate.academicAchievement.achievementTitle || '',
-          awardedBy: candidate.academicAchievement.awardedBy || '',
-          yearReceived: candidate.academicAchievement.yearReceived || '',
-          categoryType: candidate.academicAchievement.categoryType || '',
-          description: candidate.academicAchievement.description || '',
-        },
-      ]
-    : [];
-  const competitiveExams = candidate.competitiveExam
-    ? [
-        {
-          id: candidate.competitiveExam.id,
-          examName: candidate.competitiveExam.examName || '',
-          yearTaken: candidate.competitiveExam.yearTaken || '',
-          resultStatus: candidate.competitiveExam.resultStatus || '',
-          scoreMarks: candidate.competitiveExam.scoreMarks || '',
-          scoreType: candidate.competitiveExam.scoreType || '',
-          validUntil: candidate.competitiveExam.validUntil || '',
-          additionalNotes: candidate.competitiveExam.additionalNotes || '',
-        },
-      ]
-    : [];
-  const projects = candidate.project
-    ? [
-        {
-          id: candidate.project.id,
-          projectTitle: candidate.project.projectTitle || '',
-          projectType: candidate.project.projectType || '',
-          organizationClient: candidate.project.organizationClient || '',
-          currentlyWorking: Boolean(candidate.project.currentlyWorking),
-          startDate: candidate.project.startDate
-            ? new Date(candidate.project.startDate).toISOString()
-            : '',
-          endDate: candidate.project.endDate
-            ? new Date(candidate.project.endDate).toISOString()
-            : '',
-          projectDescription: candidate.project.projectDescription || '',
-          responsibilities: candidate.project.responsibilities || '',
-          technologies: candidate.project.technologies || [],
-          projectOutcome: candidate.project.projectOutcome || '',
-          projectLink: candidate.project.projectLink || '',
-        },
-      ]
-    : [];
+  const academicAchievements = extractAcademicAchievementEntries(candidate.academicAchievement);
+  const competitiveExams = extractCompetitiveExamEntries(candidate.competitiveExam);
+  const projects = extractProjectEntries(candidate.project);
 
   const workExperience = (candidate.workExperiences || []).map((exp) => mapWorkExperienceForClient(exp));
   const latestWork = workExperience[0] || null;
 
-  const education = (candidate.educations || []).map((edu) => ({
-    id: edu.id,
-    educationLevel: edu.educationLevel || '',
-    degreeProgram: edu.degree || '',
-    institutionName: edu.institution || '',
-    fieldOfStudy: edu.specialization || '',
-    startYear: edu.startYear?.toString() || '',
-    endYear: edu.endYear?.toString() || '',
-    currentlyStudying: edu.isOngoing || false,
-    grade: edu.grade || '',
-  }));
+  const education = (candidate.educations || []).map(mapEducationForSnapshot);
 
   const skills = (candidate.skills || []).map((cs) => ({
     id: cs.id,
@@ -316,7 +267,13 @@ function buildProfileSnapshot(candidate) {
       certificationName: cert.certificationName || '',
       issuingOrganization: cert.issuingOrganization || '',
       issueDate: cert.issueDate || '',
-      expiryDate: cert.expiryDate || undefined,
+      expiryDate: cert.expiryDate || '',
+      doesNotExpire: cert.doesNotExpire || false,
+      credentialId: cert.credentialId || '',
+      credentialUrl: cert.credentialUrl || '',
+      certificateFile: cert.certificateFile || '',
+      documents: Array.isArray(cert.documents) ? cert.documents : [],
+      description: cert.description || '',
     })),
     accomplishments: (candidate.accomplishments || []).map((acc) => ({
       id: acc.id,
@@ -324,6 +281,9 @@ function buildProfileSnapshot(candidate) {
       category: acc.category || '',
       organization: acc.organization || '',
       achievementDate: acc.achievementDate || '',
+      description: acc.description || '',
+      supportingDocument: acc.supportingDocument || '',
+      documents: Array.isArray(acc.documents) ? acc.documents : [],
     })),
     visaWorkAuthorization: candidate.visaWorkAuthorization || null,
     vaccination: candidate.vaccination || null,

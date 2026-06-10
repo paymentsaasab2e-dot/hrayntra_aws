@@ -1,4 +1,7 @@
 import type { BackendCandidate } from './api';
+import { educationRecordToSnapshotRow } from './candidateEducationFields';
+import { mergeCandidateWorkEntryLists } from './candidateExperience';
+import { workExperienceRecordToSnapshotRow } from './candidateWorkExperienceFields';
 
 export type Phase1ProfileSnapshot = {
   personalInfo?: {
@@ -30,6 +33,12 @@ export type Phase1ProfileSnapshot = {
     issuingOrganization?: string;
     issueDate?: string;
     expiryDate?: string;
+    doesNotExpire?: boolean;
+    credentialId?: string;
+    credentialUrl?: string;
+    certificateFile?: string;
+    documents?: Array<Record<string, unknown>>;
+    description?: string;
   }>;
   portfolioLinks?: Array<{ linkType?: string; type?: string; url?: string; title?: string }>;
   careerPreferences?: Record<string, unknown> | null;
@@ -262,36 +271,12 @@ function patchSnapshotPersonalInfo(
 
 function mapWorkEntries(work: Phase1ProfileSnapshot['workExperience']) {
   if (!Array.isArray(work) || !work.length) return null;
-  return work.map((w) => {
-    const responsibilities = w.responsibilities;
-    return {
-      title: (w.jobTitle as string) || (w.title as string) || null,
-      jobTitle: (w.jobTitle as string) || (w.title as string) || null,
-      company: (w.company as string) || (w.companyName as string) || null,
-      companyName: (w.company as string) || (w.companyName as string) || null,
-      location: (w.workLocation as string) || (w.location as string) || null,
-      startDate: (w.startDate as string) || null,
-      endDate: (w.endDate as string) || null,
-      responsibilities: Array.isArray(responsibilities)
-        ? responsibilities
-        : responsibilities
-          ? [String(responsibilities)]
-          : w.description
-            ? [String(w.description)]
-            : [],
-    };
-  });
+  return work.map((w) => workExperienceRecordToSnapshotRow(w as Record<string, unknown>));
 }
 
 function mapEducationEntries(edu: Phase1ProfileSnapshot['education']) {
   if (!Array.isArray(edu) || !edu.length) return null;
-  return edu.map((e) => ({
-    degree: (e.degreeProgram as string) || (e.degree as string) || null,
-    institution: (e.institutionName as string) || (e.institution as string) || null,
-    field: (e.fieldOfStudy as string) || (e.field as string) || null,
-    startYear: (e.startYear as string) || null,
-    endYear: (e.endYear as string) || null,
-  }));
+  return edu.map((e) => educationRecordToSnapshotRow(e as Record<string, unknown>));
 }
 
 /** Fill sparse API rows with Phase 1 dashboard snapshot stored in candidatecommon. */
@@ -396,10 +381,16 @@ export function enrichBackendCandidateFromPhase1Snapshot(c: BackendCandidate): B
           } as BackendCandidate['careerPreferences'])
         : c.careerPreferences,
     certifications: certNames.length ? certNames : c.certifications,
-    cvWorkExperienceEntries:
-      (Array.isArray(c.cvWorkExperienceEntries) && c.cvWorkExperienceEntries.length
-        ? c.cvWorkExperienceEntries
-        : work) || c.cvWorkExperienceEntries,
+    cvWorkExperienceEntries: (() => {
+      const fromCv = Array.isArray(c.cvWorkExperienceEntries) ? c.cvWorkExperienceEntries : [];
+      const fromSnap = Array.isArray(work) ? work : [];
+      if (fromSnap.length && fromCv.length) {
+        return mergeCandidateWorkEntryLists(fromSnap, fromCv);
+      }
+      if (fromSnap.length) return fromSnap;
+      if (fromCv.length) return fromCv;
+      return c.cvWorkExperienceEntries;
+    })(),
     cvEducationEntries:
       (Array.isArray(c.cvEducationEntries) && c.cvEducationEntries.length
         ? c.cvEducationEntries

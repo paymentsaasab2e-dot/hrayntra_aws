@@ -22,12 +22,18 @@ import {
   type ClientPresentationStored,
 } from './clientPresentationDraft';
 import { mapCandidateProfile } from './mapCandidateProfile';
+import { workExperienceRecordToSnapshotRow } from './candidateWorkExperienceFields';
+import {
+  normalizeVaccinationRecord,
+  vaccinationRecordToSnapshotRow,
+} from './candidateVaccinationFields';
 import {
   enrichBackendCandidateFromPhase1Snapshot,
   getPhase1ProfileSnapshot,
   resolvePhase1PersonalInfo,
   type Phase1ProfileSnapshot,
 } from './phase1ProfileSnapshot';
+import { accomplishmentRecordToSnapshotRow, normalizeAccomplishmentRecord } from './candidateAccomplishmentFields';
 import { prepareCareerPreferencesForSave } from './normalizeCareerPreferencesRecord';
 
 function parseExtra(extraData: unknown): Record<string, unknown> {
@@ -161,10 +167,20 @@ export function initPhase1EditSnapshotFromProfile(
       },
       profile,
     );
+    const accomplishmentRows =
+      Array.isArray(live.accomplishments) && live.accomplishments.length
+        ? live.accomplishments
+        : Array.isArray(profile.extraData?.phase1Accomplishments)
+          ? (profile.extraData.phase1Accomplishments as Array<Record<string, unknown>>)
+          : [];
+
     return {
       ...cloneSnapshot(live),
       personalInfo: resolvePhase1PersonalInfo(live, profile),
       careerPreferences: mergedCareer,
+      accomplishments: accomplishmentRows.map((row) =>
+        accomplishmentRecordToSnapshotRow(normalizeAccomplishmentRecord(row)),
+      ),
     };
   }
 
@@ -182,14 +198,9 @@ export function initPhase1EditSnapshotFromProfile(
     },
     summaryText: profile.cvSummary || profile.summary || undefined,
     workExperience: Array.isArray(profile.cvWorkExperienceEntries)
-      ? profile.cvWorkExperienceEntries.map((w) => ({
-          jobTitle: w.title,
-          company: w.company,
-          workLocation: w.location,
-          startDate: w.startDate,
-          endDate: w.endDate,
-          responsibilities: w.responsibilities,
-        }))
+      ? profile.cvWorkExperienceEntries.map((w) =>
+          workExperienceRecordToSnapshotRow(w as Record<string, unknown>),
+        )
       : [],
     education: Array.isArray(profile.cvEducationEntries)
       ? profile.cvEducationEntries.map((e) => ({
@@ -277,6 +288,18 @@ export function buildUpdatePayloadFromPhase1EditSnapshot(
   const snapshotForSave: Phase1ProfileSnapshot = {
     ...snapshot,
     careerPreferences: normalizedCareer,
+    accomplishments: Array.isArray(snapshot.accomplishments)
+      ? snapshot.accomplishments.map((row) =>
+          accomplishmentRecordToSnapshotRow(
+            normalizeAccomplishmentRecord(row as Record<string, unknown>),
+          ),
+        )
+      : [],
+    vaccination: snapshot.vaccination
+      ? vaccinationRecordToSnapshotRow(
+          normalizeVaccinationRecord(snapshot.vaccination as Record<string, unknown>),
+        )
+      : null,
   };
 
   const mergedExtra: Record<string, unknown> = {
