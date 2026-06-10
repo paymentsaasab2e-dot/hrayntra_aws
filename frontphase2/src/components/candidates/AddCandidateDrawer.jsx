@@ -1786,7 +1786,7 @@ function AddCandidateDrawerInner({
     );
     const BULK_CV_CONCURRENCY = Math.min(
       BULK_CV_MAX_CONCURRENCY,
-      Math.max(1, Number.isFinite(rawConc) && rawConc > 0 ? Math.floor(rawConc) : 8)
+      Math.max(1, Number.isFinite(rawConc) && rawConc > 0 ? Math.floor(rawConc) : 3)
     );
     const rawMaxRetries = Number(
       typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_BULK_CV_MAX_RETRIES : NaN
@@ -1799,7 +1799,7 @@ function AddCandidateDrawerInner({
     const runBulkCvStep = async (index, label, operation) =>
       withApiRetry(operation, {
         maxAttempts: BULK_CV_MAX_RETRIES,
-        baseDelayMs: 0,
+        baseDelayMs: 2000,
         signal: abortSignal,
         onRetry: (attempt, retryError) => {
           setBulkResumeResults((prev) => {

@@ -1,9 +1,8 @@
 const { Resend } = require('resend');
 const { generateOTPEmailHTML, generateOTPEmailText } = require('../templates/otpEmail.template');
+const { getEmailFromForTrigger } = require('../config/emailFromAddresses');
 
 const resend = new Resend(process.env.RESEND_API_KEY);
-
-const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
 
 /**
  * Send OTP via email directly using inline HTML template
@@ -48,7 +47,7 @@ async function sendOTPEmail(otp, recipientEmail, whatsappNumber) {
 
     // Send email directly using Resend
     const { data, error } = await resend.emails.send({
-      from: FROM_EMAIL,
+      from: getEmailFromForTrigger('auth.otp_verification'),
       to: recipientEmail,
       subject: 'Your HRYANTRA Verification Code',
       html: emailHTML,

@@ -3656,6 +3656,18 @@ export function CandidateProfileDrawer({
     [candidate]
   );
 
+  const overviewContentKey = useMemo(() => {
+    if (!candidate) return 'overview-empty';
+    return [
+      candidate.id,
+      candidate.currentTitle,
+      candidate.currentCompany,
+      candidate.phone,
+      candidate.email,
+      JSON.stringify(candidate.extraData ?? null),
+    ].join('|');
+  }, [candidate]);
+
   const phase1ClientPresentationProfile = useMemo(
     () => (candidate ? mergeProfileWithPhase1ClientPresentation(candidate) : null),
     [candidate]
@@ -3770,6 +3782,9 @@ export function CandidateProfileDrawer({
       }
 
       await Promise.resolve(onUpdateCandidate(candidate.id, payload));
+      if (onRefreshCandidate) {
+        await Promise.resolve(onRefreshCandidate(candidate.id));
+      }
 
       if (editAvatarPreviewRef.current) {
         URL.revokeObjectURL(editAvatarPreviewRef.current);
@@ -4181,9 +4196,9 @@ export function CandidateProfileDrawer({
                         {candidateEditFormFooter}
                       </>
                     ) : isPhase1PortalCandidate(candidate) ? (
-                      <CandidatePhase1DetailSections candidate={candidate} />
+                      <CandidatePhase1DetailSections key={overviewContentKey} candidate={candidate} />
                     ) : (
-                      <CandidateAtsExtractedOverview candidate={candidate} />
+                      <CandidateAtsExtractedOverview key={overviewContentKey} candidate={candidate} />
                     )}
                   </div>
                 )}

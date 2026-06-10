@@ -43,6 +43,8 @@ import {
   SmartSearchToggleButton,
 } from '../../components/smart-search/SmartSearchToolbar';
 import { useSmartSearch } from '../../hooks/useSmartSearch';
+import { useClientPageFieldVisibility } from '../../hooks/useClientPageFieldVisibility';
+import type { ClientPageFieldVisibility } from '../../lib/clientPageFieldVisibility';
 import { mapAiToClientsResult, parseSmartSearchWithAi } from '../../lib/smart-search/aiParser';
 import { buildClientsListApiParams } from '../../lib/smart-search/entitySmartSearch';
 import {
@@ -123,10 +125,12 @@ const StatusCards = ({
   activeTab,
   onTabChange,
   counts,
+  fieldVisibility,
 }: {
   activeTab: string;
   onTabChange: (tab: string) => void;
   counts: { all: number; active: number; 'on-hold': number; inactive: number; hot: number };
+  fieldVisibility: ClientPageFieldVisibility;
 }) => {
   const cards: Array<{
     id: string;
@@ -136,10 +140,16 @@ const StatusCards = ({
     icon: React.ReactNode;
   }> = [
     { id: 'all', label: 'All Clients', count: counts.all, color: 'indigo', icon: <FolderOpen size={16} strokeWidth={2.35} /> },
-    { id: 'active', label: 'Active', count: counts.active, color: 'blue', icon: <Users size={16} strokeWidth={2.35} /> },
-    { id: 'on-hold', label: 'On Hold', count: counts['on-hold'], color: 'orange', icon: <Briefcase size={16} strokeWidth={2.35} /> },
-    { id: 'inactive', label: 'Inactive', count: counts.inactive, color: 'gray', icon: <BadgeInfo size={16} strokeWidth={2.35} /> },
-    { id: 'hot', label: 'Hot', count: counts.hot, color: 'purple', icon: <Flame size={16} strokeWidth={2.35} /> },
+    ...(fieldVisibility.status
+      ? [
+          { id: 'active', label: 'Active', count: counts.active, color: 'blue' as SummaryCardColor, icon: <Users size={16} strokeWidth={2.35} /> },
+          { id: 'on-hold', label: 'On Hold', count: counts['on-hold'], color: 'orange' as SummaryCardColor, icon: <Briefcase size={16} strokeWidth={2.35} /> },
+          { id: 'inactive', label: 'Inactive', count: counts.inactive, color: 'gray' as SummaryCardColor, icon: <BadgeInfo size={16} strokeWidth={2.35} /> },
+        ]
+      : []),
+    ...(fieldVisibility.interestLevel
+      ? [{ id: 'hot', label: 'Hot', count: counts.hot, color: 'purple' as SummaryCardColor, icon: <Flame size={16} strokeWidth={2.35} /> }]
+      : []),
   ];
 
   return (
@@ -324,6 +334,7 @@ export default function App() {
   const canCreateJob = hasAnyPermission(['jobs_create', 'create_job']);
   const canUpdateClient = hasAnyPermission(['clients_update']);
   const canOpenClientTrash = hasAnyPermission(['clients_delete']);
+  const clientFieldVisibility = useClientPageFieldVisibility();
   const [activeTab, setActiveTab] = useState('all');
   const [clientNameSortOrder, setClientNameSortOrder] = useState<'asc' | 'desc'>('asc');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -433,8 +444,8 @@ export default function App() {
   }, [selectedDynamicColumnLabels]);
 
   const advancedFilteredClients = useMemo(
-    () => applyClientFilters(clients, advancedFilters, currentUserName),
-    [clients, advancedFilters, currentUserName]
+    () => applyClientFilters(clients, advancedFilters, currentUserName, clientFieldVisibility),
+    [clients, advancedFilters, currentUserName, clientFieldVisibility]
   );
   const filteredClients = useMemo(
     () => filterClientsByTab(advancedFilteredClients, activeTab),
@@ -512,7 +523,17 @@ export default function App() {
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [clients]);
-  const filtersActive = isClientFilterActive(advancedFilters);
+  const filtersActive = isClientFilterActive(advancedFilters, clientFieldVisibility);
+
+  useEffect(() => {
+    if (activeTab === 'hot' && !clientFieldVisibility.interestLevel) {
+      setActiveTab('all');
+      return;
+    }
+    if (['active', 'on-hold', 'inactive'].includes(activeTab) && !clientFieldVisibility.status) {
+      setActiveTab('all');
+    }
+  }, [activeTab, clientFieldVisibility.interestLevel, clientFieldVisibility.status]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -809,7 +830,7 @@ export default function App() {
 
   const applyExportClientFilters = useCallback(
     (source: Client[]) => {
-      const advanced = applyClientFilters(source, advancedFilters, currentUserName);
+      const advanced = applyClientFilters(source, advancedFilters, currentUserName, clientFieldVisibility);
       const filtered = filterClientsByTab(advanced, activeTab);
       const list = [...filtered];
       list.sort((a, b) => {
@@ -818,7 +839,7 @@ export default function App() {
       });
       return list;
     },
-    [activeTab, advancedFilters, clientNameSortOrder, currentUserName],
+    [activeTab, advancedFilters, clientNameSortOrder, currentUserName, clientFieldVisibility],
   );
 
   const fetchAllClientsForExport = useCallback(async (): Promise<Client[]> => {
@@ -1086,7 +1107,16 @@ export default function App() {
         </header>
 
         <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
-          {loading ? <StatusCardsSkeleton /> : <StatusCards activeTab={activeTab} onTabChange={setActiveTab} counts={tabCounts} />}
+          {loading ? (
+            <StatusCardsSkeleton />
+          ) : (
+            <StatusCards
+              activeTab={activeTab}
+              onTabChange={setActiveTab}
+              counts={tabCounts}
+              fieldVisibility={clientFieldVisibility}
+            />
+          )}
 
           {loading ? (
             <div className="mb-4 overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm">
@@ -1137,10 +1167,14 @@ export default function App() {
                     }}
                   >
                     <option value="all">All stages</option>
-                    <option value="active">Active</option>
-                    <option value="on-hold">On hold</option>
-                    <option value="inactive">Inactive</option>
-                    <option value="hot">Hot</option>
+                    {clientFieldVisibility.status ? (
+                      <>
+                        <option value="active">Active</option>
+                        <option value="on-hold">On hold</option>
+                        <option value="inactive">Inactive</option>
+                      </>
+                    ) : null}
+                    {clientFieldVisibility.interestLevel ? <option value="hot">Hot</option> : null}
                   </select>
                   <button
                     type="button"
@@ -1247,7 +1281,9 @@ export default function App() {
                     onLogoUpdated={handleRefresh}
                     canCreateJob={canCreateJob}
                     clientStatusOptions={clientStatusOptions}
-                    canUpdateClientStatus={canUpdateClient}
+                    canUpdateClientStatus={canUpdateClient && clientFieldVisibility.status}
+                    showStatusColumn={clientFieldVisibility.status}
+                    showRecruiterColumn={clientFieldVisibility.assignedTo}
                     onClientStatusChange={(clientId, newStatus) => {
                       void handleInlineClientStatusChange(clientId, newStatus);
                     }}
@@ -1340,6 +1376,7 @@ export default function App() {
           value={advancedFilters}
           industryOptions={industryOptions}
           currentUserName={currentUserName}
+          fieldVisibility={clientFieldVisibility}
           onApply={(next) => setAdvancedFilters(next)}
           onClose={() => setIsFilterOpen(false)}
         />
@@ -1378,28 +1415,32 @@ export default function App() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <select
-                value={bulkAssignedTo}
-                onChange={(e) => handleBulkAssignChange(e.target.value)}
-                disabled={bulkActionLoading}
-                className="bg-slate-900 text-slate-100 text-sm p-2 rounded-lg border border-slate-700"
-                style={{ WebkitTextFillColor: '#f1f5f9' }}
-              >
-                <option value="" className="text-slate-900 bg-white">Assign To</option>
-                {teamMembers.map(u => <option key={u.id} value={u.id} className="text-slate-900 bg-white">{u.name}</option>)}
-              </select>
-              <select
-                value={bulkStatus}
-                onChange={(e) => handleBulkStatusChange(e.target.value)}
-                disabled={bulkActionLoading}
-                className="bg-slate-900 text-slate-100 text-sm p-2 rounded-lg border border-slate-700"
-                style={{ WebkitTextFillColor: '#f1f5f9' }}
-              >
-                <option value="" className="text-slate-900 bg-white">Status</option>
-                <option value="ACTIVE" className="text-slate-900 bg-white">Active</option>
-                <option value="ON_HOLD" className="text-slate-900 bg-white">On Hold</option>
-                <option value="INACTIVE" className="text-slate-900 bg-white">Inactive</option>
-              </select>
+              {clientFieldVisibility.assignedTo ? (
+                <select
+                  value={bulkAssignedTo}
+                  onChange={(e) => handleBulkAssignChange(e.target.value)}
+                  disabled={bulkActionLoading}
+                  className="bg-slate-900 text-slate-100 text-sm p-2 rounded-lg border border-slate-700"
+                  style={{ WebkitTextFillColor: '#f1f5f9' }}
+                >
+                  <option value="" className="text-slate-900 bg-white">Assign To</option>
+                  {teamMembers.map(u => <option key={u.id} value={u.id} className="text-slate-900 bg-white">{u.name}</option>)}
+                </select>
+              ) : null}
+              {clientFieldVisibility.status ? (
+                <select
+                  value={bulkStatus}
+                  onChange={(e) => handleBulkStatusChange(e.target.value)}
+                  disabled={bulkActionLoading}
+                  className="bg-slate-900 text-slate-100 text-sm p-2 rounded-lg border border-slate-700"
+                  style={{ WebkitTextFillColor: '#f1f5f9' }}
+                >
+                  <option value="" className="text-slate-900 bg-white">Status</option>
+                  <option value="ACTIVE" className="text-slate-900 bg-white">Active</option>
+                  <option value="ON_HOLD" className="text-slate-900 bg-white">On Hold</option>
+                  <option value="INACTIVE" className="text-slate-900 bg-white">Inactive</option>
+                </select>
+              ) : null}
               <button onClick={handleBulkDelete} disabled={bulkActionLoading} className="bg-red-600 px-4 py-2 rounded-lg text-sm font-semibold">Delete</button>
               <button onClick={clearBulkSelection} disabled={bulkActionLoading} className="bg-slate-800 px-4 py-2 rounded-lg text-sm font-semibold">Clear</button>
             </div>

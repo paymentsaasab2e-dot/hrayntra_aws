@@ -76,15 +76,20 @@ export function normalizeFetchError(error: unknown): ApiRequestError {
   }
 
   if (
-    /failed to fetch|networkerror|load failed|err_connection|econnrefused|connection refused|network request failed|socket hang up/i.test(
+    /failed to fetch|networkerror|load failed|err_connection|econnrefused|connection refused|network request failed|socket hang up|err_connection_reset|connection reset/i.test(
       message
     ) ||
     (name === 'TypeError' && message.includes('fetch'))
   ) {
-    return new ApiRequestError(
-      'Network error — could not reach the server. Check your connection or try again shortly.',
-      { kind: 'network', retryable: true, cause: error }
-    );
+    const isLocalDev =
+      typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1' ||
+        window.location.hostname.endsWith('.local'));
+    const friendly = isLocalDev
+      ? 'Backend unreachable — the API on port 5001 may be restarting or overloaded. Retrying…'
+      : 'Network error — could not reach the server. The API may be busy; retrying…';
+    return new ApiRequestError(friendly, { kind: 'network', retryable: true, cause: error });
   }
 
   return new ApiRequestError((error as Error)?.message || 'Unexpected network error.', {

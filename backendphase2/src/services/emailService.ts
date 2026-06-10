@@ -1,8 +1,8 @@
 import { Resend } from 'resend';
 import { env } from '../config/env.js';
+import { getEmailFromForTrigger } from '../config/emailFromAddresses.js';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
-const FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@saasa.com';
 
 interface InviteEmailPayload {
   toEmail: string;
@@ -88,7 +88,7 @@ export async function sendInviteEmail(
     `;
 
     const result = await resend.emails.send({
-      from: FROM_EMAIL,
+      from: getEmailFromForTrigger('team.invite_email'),
       to: toEmail,
       subject: 'Your HRYANTRA portal login credentials',
       html,
@@ -156,7 +156,7 @@ export async function sendPasswordResetEmail(
     `;
 
     const result = await resend.emails.send({
-      from: FROM_EMAIL,
+      from: getEmailFromForTrigger('auth.otp_verification'),
       to: toEmail,
       subject: 'Your HRYANTRA password has been reset',
       html,

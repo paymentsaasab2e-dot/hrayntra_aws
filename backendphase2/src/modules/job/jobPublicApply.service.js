@@ -145,11 +145,13 @@ function resolveJobFormSchema(job) {
 
 function formatPublicJob(job) {
   const client = job.client;
+  const showClient = job?.showClientNamePublicly !== false;
   return {
     id: job.id,
     title: job.title,
-    company: client?.companyName || null,
-    companyLogo: client?.logo || null,
+    company: showClient ? client?.companyName || null : null,
+    companyLogo: showClient ? client?.logo || null : null,
+    showClientNamePublicly: showClient,
     location: job.location || [job.city, job.state, job.country].filter(Boolean).join(', ') || null,
     description: job.description || job.overview || null,
     overview: job.overview || null,

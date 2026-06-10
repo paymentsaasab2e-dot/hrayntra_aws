@@ -1,4 +1,5 @@
 import { resend, getEmailFrom } from '../config/email.js';
+import { getEmailFromForTrigger } from '../config/emailFromAddresses.js';
 import { env } from '../config/env.js';
 import { interviewTemplate } from './templates/interview.template.js';
 import { placementTemplate } from './templates/placement.template.js';
@@ -6,15 +7,16 @@ import { isNotificationTriggerEnabled } from '../modules/setting/notification-tr
 import { renderNotificationTriggerEmail } from '../modules/setting/notification-trigger-template-settings.js';
 import logger from '../utils/logger.js';
 
-export const sendEmail = async (to, subject, html) => {
+export const sendEmail = async (to, subject, html, triggerId) => {
   try {
     if (!env.RESEND_API_KEY) {
       logger.warn('RESEND_API_KEY not configured, email not sent');
       return { success: false, error: 'Email service not configured' };
     }
 
+    const from = triggerId ? getEmailFromForTrigger(triggerId) : getEmailFrom();
     const result = await resend.emails.send({
-      from: getEmailFrom(),
+      from,
       to,
       subject,
       html,
@@ -37,7 +39,7 @@ export const sendOtpEmail = async (to, otp, name) => {
     recipientName: name,
     otp,
   });
-  return sendEmail(to, subject, html);
+  return sendEmail(to, subject, html, 'auth.otp_verification');
 };
 
 export const sendWelcomeEmail = async (to, name) => {
@@ -53,7 +55,7 @@ export const sendWelcomeEmail = async (to, name) => {
     loginUrl,
   });
 
-  return sendEmail(to, subject, html);
+  return sendEmail(to, subject, html, 'auth.welcome_email');
 };
 
 export const sendInterviewEmail = async (to, candidateName, jobTitle, scheduledAt, location, meetingLink, companyName = '') => {
@@ -72,13 +74,14 @@ export const sendInterviewEmail = async (to, candidateName, jobTitle, scheduledA
   });
 
   if (rendered.effective?.customized) {
-    return sendEmail(to, rendered.subject, rendered.html);
+    return sendEmail(to, rendered.subject, rendered.html, 'interview.candidate_scheduled');
   }
 
   return sendEmail(
     to,
     'Interview Scheduled',
-    interviewTemplate(candidateName, jobTitle, scheduledAt, location, meetingLink)
+    interviewTemplate(candidateName, jobTitle, scheduledAt, location, meetingLink),
+    'interview.candidate_scheduled',
   );
 };
 
@@ -97,13 +100,14 @@ export const sendPlacementEmail = async (to, candidateName, jobTitle, startDate,
   });
 
   if (rendered.effective?.customized) {
-    return sendEmail(to, rendered.subject, rendered.html);
+    return sendEmail(to, rendered.subject, rendered.html, 'placement.confirmed_email');
   }
 
   return sendEmail(
     to,
     'Placement Confirmed',
-    placementTemplate(candidateName, jobTitle, startDate, companyName)
+    placementTemplate(candidateName, jobTitle, startDate, companyName),
+    'placement.confirmed_email',
   );
 };
 
@@ -124,7 +128,7 @@ export const sendLeadFollowUpEmail = async (to, leadCompanyName, followUpDate, f
     notes,
   });
 
-  return sendEmail(to, subject, html);
+  return sendEmail(to, subject, html, 'lead.followup_email');
 };
 
 export const sendMatchSubmissionEmail = async ({
@@ -177,7 +181,7 @@ export const sendMatchSubmissionEmail = async ({
 
   const finalSubject = effective?.customized ? templateSubject : subject || templateSubject;
 
-  return sendEmail(to, finalSubject, html);
+  return sendEmail(to, finalSubject, html, 'match.submission_email');
 };
 
 /**

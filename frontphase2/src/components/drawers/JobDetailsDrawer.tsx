@@ -173,6 +173,7 @@ export interface JobForDrawer {
   slaRisk?: boolean;
   managerName?: string;
   visibility?: string;
+  showClientNamePublicly?: boolean;
   auditMeta?: AuditMeta;
 }
 

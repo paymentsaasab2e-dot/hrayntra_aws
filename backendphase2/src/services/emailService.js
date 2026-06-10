@@ -10,10 +10,9 @@ import {
   joiningScheduledCandidateTemplate,
   joiningScheduledReportingContactTemplate,
 } from '../emails/templates/placement.template.js';
+import { getEmailFromForTrigger } from '../config/emailFromAddresses.js';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
-// Use the Resend configured from address; fallback to a generic placeholder.
-const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || process.env.FROM_EMAIL || 'noreply@saasa.com';
 
 function formatAssignedByClause(assignedByName) {
   const name = String(assignedByName || '').trim();
@@ -210,7 +209,8 @@ async function trySendWithConnectedGmail({ senderUserId, toEmail, subject, html,
   };
 }
 
-async function sendEmail({ senderUserId, toEmail, subject, html, attachments = [] }) {
+async function sendEmail({ senderUserId, toEmail, subject, html, attachments = [], triggerId }) {
+  const fromEmail = getEmailFromForTrigger(triggerId);
   const normalizedAttachments = (Array.isArray(attachments) ? attachments : [])
     .map((item) => {
       const filename = String(item?.filename || 'attachment.pdf').trim();
@@ -252,7 +252,7 @@ async function sendEmail({ senderUserId, toEmail, subject, html, attachments = [
   }
 
   await resend.emails.send({
-    from: FROM_EMAIL,
+    from: fromEmail,
     to: toEmail,
     subject,
     html,
@@ -261,7 +261,7 @@ async function sendEmail({ senderUserId, toEmail, subject, html, attachments = [
 
   logEmailSent({
     provider: 'resend',
-    fromEmail: FROM_EMAIL,
+    fromEmail,
     toEmail,
     subject,
     html,
@@ -270,7 +270,7 @@ async function sendEmail({ senderUserId, toEmail, subject, html, attachments = [
   return {
     success: true,
     provider: 'resend',
-    fromEmail: FROM_EMAIL,
+    fromEmail,
   };
 }
 
@@ -313,6 +313,7 @@ export async function sendInviteEmail(payload) {
       toEmail,
       subject,
       html,
+      triggerId: 'team.invite_email',
     });
 
     return { success: true };
@@ -385,6 +386,7 @@ export async function sendPasswordResetEmail(payload) {
       toEmail,
       subject: 'Your HRYANTRA password has been reset',
       html,
+      triggerId: 'auth.otp_verification',
     });
 
     return { success: true };
@@ -438,6 +440,7 @@ export async function sendLeadAssignmentEmail(payload) {
       toEmail,
       subject,
       html,
+      triggerId: 'lead.assignment_email',
     });
 
     return { success: true };
@@ -491,6 +494,7 @@ export async function sendClientAssignmentEmail(payload) {
       toEmail,
       subject,
       html,
+      triggerId: 'client.assignment_email',
     });
 
     return { success: true };
@@ -539,6 +543,7 @@ export async function sendJobAssignmentEmail(payload) {
       toEmail,
       subject,
       html,
+      triggerId: 'job.assignment_email',
     });
 
     return { success: true };
@@ -602,6 +607,7 @@ export async function sendCandidateAssignmentEmail(payload) {
       toEmail,
       subject,
       html,
+      triggerId: 'candidate.assignment_email',
     });
 
     return { success: true };
@@ -666,6 +672,7 @@ export async function sendCandidateInterviewScheduledEmail(payload) {
       toEmail,
       subject,
       html,
+      triggerId: 'interview.candidate_scheduled',
     });
 
     return { success: true };
@@ -732,6 +739,7 @@ export async function sendInterviewPanelScheduledEmail(payload) {
       toEmail,
       subject,
       html,
+      triggerId: 'interview.panel_scheduled',
     });
 
     return { success: true };
@@ -836,6 +844,7 @@ export async function sendPlacementInvoiceEmail(payload) {
       subject,
       html: htmlWithAttachmentNote,
       attachments,
+      triggerId: 'billing.invoice_email',
     });
 
     return { success: true };
@@ -888,6 +897,7 @@ export async function sendJoiningScheduledCandidateEmail(payload) {
       toEmail,
       subject: `Joining scheduled${jobTitle ? `: ${jobTitle}` : ''}${companyName ? ` at ${companyName}` : ''}`,
       html,
+      triggerId: 'placement.joining_scheduled_candidate',
     });
 
     return { success: true };
@@ -946,6 +956,7 @@ export async function sendJoiningScheduledReportingContactEmail(payload) {
       toEmail,
       subject: `Joining scheduled — ${candidateName || 'Candidate'}${jobTitle ? ` (${jobTitle})` : ''}`,
       html,
+      triggerId: 'placement.joining_scheduled_reporting',
     });
 
     return { success: true };
@@ -983,6 +994,7 @@ export async function sendOfferReleasedEmail(payload) {
       toEmail,
       subject,
       html,
+      triggerId: 'offer.released_email',
     });
 
     return { success: true };
@@ -1024,6 +1036,7 @@ export async function sendCandidateRejectedEmail(payload) {
       toEmail,
       subject,
       html,
+      triggerId: 'candidate.rejected_email',
     });
 
     return { success: true };
@@ -1060,6 +1073,7 @@ export async function sendCandidateHiredEmail(payload) {
       toEmail,
       subject,
       html,
+      triggerId: 'candidate.hired_email',
     });
 
     return { success: true };
@@ -1096,6 +1110,7 @@ export async function sendJobClosedEmail(payload) {
       toEmail,
       subject,
       html,
+      triggerId: 'job.closed_email',
     });
 
     return { success: true };
@@ -1132,6 +1147,7 @@ export async function sendClientFollowUpReminderEmail(payload) {
       toEmail,
       subject,
       html,
+      triggerId: 'client.followup_email',
     });
 
     return { success: true };
@@ -1249,6 +1265,7 @@ export async function sendSessionTransferRequestEmail(payload) {
       toEmail,
       subject: 'Duplicate login request — approve or reject',
       html,
+      triggerId: 'session.transfer',
     });
 
     return { success: true };

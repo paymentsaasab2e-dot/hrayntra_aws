@@ -1,5 +1,6 @@
 const { mapWorkExperienceForClient } = require('./workExperienceEnums');
 const { resolveCandidateLocalPhone } = require('./phone.util');
+const { filterPortfolioLinks } = require('./portfolioLinkFilter.util');
 
 function mapGenderLabel(value) {
   const raw = String(value || '').trim().toUpperCase();
@@ -257,7 +258,7 @@ function buildProfileSnapshot(candidate) {
     summaryText: candidate.summary?.summaryText || '',
     gapExplanations,
     internships,
-    portfolioLinks: candidate.portfolioLinks?.links || [],
+    portfolioLinks: filterPortfolioLinks(candidate.portfolioLinks?.links || []),
     education,
     workExperience,
     skills,

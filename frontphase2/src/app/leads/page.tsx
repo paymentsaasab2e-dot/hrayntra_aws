@@ -2137,9 +2137,9 @@ export default function RecruitmentAgencyDashboard() {
                                 onChange={() => toggleLeadSelection(lead.id)}
                               />
                             </td>
-                            <td className="px-3 sm:px-4 py-2 min-w-[11rem] align-top">
-                              <div className="flex items-start gap-2">
-                                <span className="mt-0.5 shrink-0">
+                            <td className="px-3 sm:px-4 py-2 min-w-[11rem] align-middle">
+                              <div className="flex items-center gap-2">
+                                <span className="shrink-0">
                                   <TableBrandAvatar
                                     name={lead.companyName}
                                     size="sm"
@@ -2147,7 +2147,7 @@ export default function RecruitmentAgencyDashboard() {
                                     statusDotTitle={`Lead: ${lead.status}`}
                                   />
                                 </span>
-                                <div className="flex min-w-[8rem] flex-col gap-0.5">
+                                <div className="flex min-w-[8rem] flex-col justify-center gap-0.5">
                                 <button
                                   type="button"
                                   className="text-left text-xs font-semibold leading-snug text-slate-900 hover:text-indigo-700 transition-colors whitespace-normal break-words"

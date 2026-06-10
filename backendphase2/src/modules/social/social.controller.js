@@ -26,15 +26,17 @@ export const socialController = {
         facebookPostText,
         linkedinTargets,
         twitterTargets,
+        showClientNamePublicly,
       } = req.body;
 
-      if (!jobId || !title || !companyName || !applyUrl) {
-        return sendError(res, 400, 'Job ID, title, company name, and apply URL are required');
+      if (!jobId || !title || !applyUrl) {
+        return sendError(res, 400, 'Job ID, title, and apply URL are required');
       }
 
       const postData = {
         title,
-        companyName,
+        companyName: showClientNamePublicly === false ? '' : companyName,
+        showClientNamePublicly: showClientNamePublicly !== false,
         description,
         applyUrl,
         location,

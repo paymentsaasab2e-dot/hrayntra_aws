@@ -7,7 +7,6 @@ import {
   ChevronDown,
   Eye,
   EyeOff,
-  FileText,
   GraduationCap,
   Globe2,
   Languages,
@@ -33,20 +32,14 @@ import {
 } from '@/lib/phase1ClientPresentationSections';
 import { phase1FieldLabelClass, phase1FieldValueClass, phase1SectionMetaClass, phase1SectionTitleClass } from '@/lib/phase1Typography';
 import { CandidatePhase1CareerPreferencesEdit } from './CandidatePhase1CareerPreferencesEdit';
-import { isoToDMYDate, parseDMYToYMD } from '@/utils/formatLeadDateTime';
+import { EditDateField } from './EditDateField';
+import { getLocalDateInputMinToday } from '@/utils/dateInputConstraints';
 
 type SectionId = Phase1ClientSectionId;
 
 const DEFAULT_CLOSED_SECTIONS = Object.fromEntries(
   PHASE1_CLIENT_SECTION_IDS.map((id) => [id, false]),
 ) as Record<SectionId, boolean>;
-
-function normalizeDobForEdit(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) return '';
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
-  return parseDMYToYMD(trimmed) || trimmed;
-}
 
 function EditField({
   label,
@@ -207,6 +200,7 @@ export function CandidatePhase1SubmitEditSections({
   };
 
   const pi = resolvePhase1PersonalInfo(snapshot, candidate);
+  const birthDateMax = getLocalDateInputMinToday();
   const patchPersonal = (patch: Partial<NonNullable<Phase1ProfileSnapshot['personalInfo']>>) => {
     onChange({ ...snapshot, personalInfo: { ...pi, ...patch } });
   };
@@ -295,10 +289,12 @@ export function CandidatePhase1SubmitEditSections({
           <EditField label="Email" value={str(pi.email || candidate.email)} onChange={(v) => patchPersonal({ email: v })} />
           <EditField label="Phone code" value={str(pi.phoneCode)} onChange={(v) => patchPersonal({ phoneCode: v })} />
           <EditField label="Mobile" value={str(pi.phone || candidate.phone)} onChange={(v) => patchPersonal({ phone: v })} />
-          <EditField
+          <EditDateField
             label="Date of birth"
-            value={isoToDMYDate(str(pi.dob)) || str(pi.dob)}
-            onChange={(v) => patchPersonal({ dob: normalizeDobForEdit(v) })}
+            value={str(pi.dob)}
+            max={birthDateMax}
+            outputIso
+            onChange={(v) => patchPersonal({ dob: v })}
           />
           <EditField label="Gender" value={str(pi.gender)} onChange={(v) => patchPersonal({ gender: v })} />
           <EditField label="Nationality" value={str(pi.nationality)} onChange={(v) => patchPersonal({ nationality: v })} />
@@ -311,55 +307,6 @@ export function CandidatePhase1SubmitEditSections({
           <EditField label="Passport number" value={str(pi.passportNumber)} onChange={(v) => patchPersonal({ passportNumber: v })} />
           <div className="sm:col-span-2">
             <EditField label="LinkedIn" value={str(pi.linkedinUrl || candidate.linkedIn)} onChange={(v) => patchPersonal({ linkedinUrl: v })} />
-          </div>
-        </div>
-      </Phase1EditSection>
-
-      <Phase1EditSection
-        id="resume"
-        title="Resume / CV"
-        icon={FileText}
-        open={open.resume}
-        onToggle={toggle}
-        {...sectionToggleProps}
-        clientVisible={sectionVisible('resume')}
-      >
-        <div className="grid gap-3 sm:grid-cols-2">
-          <EditField
-            label="File name"
-            value={str(snapshot.resume?.fileName || candidate.files?.[0]?.name)}
-            onChange={(v) =>
-              onChange({
-                ...snapshot,
-                resume: { ...(snapshot.resume || {}), fileName: v },
-              })
-            }
-          />
-          <EditField
-            label="ATS readiness (%)"
-            value={str(snapshot.resume?.atsScore ?? '')}
-            onChange={(v) => {
-              const n = Number(v);
-              onChange({
-                ...snapshot,
-                resume: {
-                  ...(snapshot.resume || {}),
-                  atsScore: Number.isFinite(n) ? n : null,
-                },
-              });
-            }}
-          />
-          <div className="sm:col-span-2">
-            <EditField
-              label="Resume URL"
-              value={str(snapshot.resume?.fileUrl || candidate.resumeUrl)}
-              onChange={(v) =>
-                onChange({
-                  ...snapshot,
-                  resume: { ...(snapshot.resume || {}), fileUrl: v },
-                })
-              }
-            />
           </div>
         </div>
       </Phase1EditSection>
@@ -397,8 +344,8 @@ export function CandidatePhase1SubmitEditSections({
             <EditField label="Company" value={str(row.companyName)} onChange={(v) => patchArray('internships', index, 'companyName', v)} />
             <EditField label="Type" value={str(row.internshipType)} onChange={(v) => patchArray('internships', index, 'internshipType', v)} />
             <EditField label="Location" value={str(row.location)} onChange={(v) => patchArray('internships', index, 'location', v)} />
-            <EditField label="Start date" value={str(row.startDate)} onChange={(v) => patchArray('internships', index, 'startDate', v)} />
-            <EditField label="End date" value={str(row.endDate)} onChange={(v) => patchArray('internships', index, 'endDate', v)} />
+            <EditDateField label="Start date" value={str(row.startDate)} outputIso onChange={(v) => patchArray('internships', index, 'startDate', v)} />
+            <EditDateField label="End date" value={str(row.endDate)} outputIso onChange={(v) => patchArray('internships', index, 'endDate', v)} />
             <div className="sm:col-span-2">
               <EditField label="Responsibilities" value={str(row.responsibilities)} onChange={(v) => patchArray('internships', index, 'responsibilities', v)} multiline />
             </div>
@@ -449,8 +396,8 @@ export function CandidatePhase1SubmitEditSections({
               <EditField label="Job title" value={str(w.jobTitle || w.title)} onChange={(v) => patchArray('workExperience', index, 'jobTitle', v)} />
               <EditField label="Company" value={str(w.company || w.companyName)} onChange={(v) => patchArray('workExperience', index, 'company', v)} />
               <EditField label="Location" value={str(w.workLocation || w.location)} onChange={(v) => patchArray('workExperience', index, 'workLocation', v)} />
-              <EditField label="Start date" value={str(w.startDate)} onChange={(v) => patchArray('workExperience', index, 'startDate', v)} />
-              <EditField label="End date" value={str(w.endDate)} onChange={(v) => patchArray('workExperience', index, 'endDate', v)} />
+              <EditDateField label="Start date" value={str(w.startDate)} outputIso onChange={(v) => patchArray('workExperience', index, 'startDate', v)} />
+              <EditDateField label="End date" value={str(w.endDate)} outputIso onChange={(v) => patchArray('workExperience', index, 'endDate', v)} />
               <div className="sm:col-span-2">
                 <EditField
                   label="Responsibilities (; separated)"
@@ -496,8 +443,8 @@ export function CandidatePhase1SubmitEditSections({
             <div className="grid gap-2 sm:grid-cols-2">
               <EditField label="Name" value={str(cert.certificationName)} onChange={(v) => patchArray('certifications', index, 'certificationName', v)} />
               <EditField label="Issuing organization" value={str(cert.issuingOrganization)} onChange={(v) => patchArray('certifications', index, 'issuingOrganization', v)} />
-              <EditField label="Issue date" value={str(cert.issueDate)} onChange={(v) => patchArray('certifications', index, 'issueDate', v)} />
-              <EditField label="Expiry date" value={str(cert.expiryDate)} onChange={(v) => patchArray('certifications', index, 'expiryDate', v)} />
+              <EditDateField label="Issue date" value={str(cert.issueDate)} outputIso onChange={(v) => patchArray('certifications', index, 'issueDate', v)} />
+              <EditDateField label="Expiry date" value={str(cert.expiryDate)} outputIso onChange={(v) => patchArray('certifications', index, 'expiryDate', v)} />
             </div>
           </div>
         ))}
@@ -630,7 +577,7 @@ export function CandidatePhase1SubmitEditSections({
             <EditField label="Title" value={str(row.title || row.accomplishmentTitle)} onChange={(v) => patchArray('accomplishments', index, 'title', v)} />
             <EditField label="Category" value={str(row.category)} onChange={(v) => patchArray('accomplishments', index, 'category', v)} />
             <EditField label="Organization" value={str(row.organization)} onChange={(v) => patchArray('accomplishments', index, 'organization', v)} />
-            <EditField label="Date" value={str(row.achievementDate)} onChange={(v) => patchArray('accomplishments', index, 'achievementDate', v)} />
+            <EditDateField label="Date" value={str(row.achievementDate)} outputIso onChange={(v) => patchArray('accomplishments', index, 'achievementDate', v)} />
             <div className="sm:col-span-2">
               <EditField label="Description" value={str(row.description)} onChange={(v) => patchArray('accomplishments', index, 'description', v)} multiline />
             </div>
@@ -660,7 +607,7 @@ export function CandidatePhase1SubmitEditSections({
         <div className="grid gap-2 sm:grid-cols-2">
           <EditField label="Status" value={str(snapshot.vaccination?.vaccinationStatus)} onChange={(v) => patchNested('vaccination', 'vaccinationStatus', v)} />
           <EditField label="Vaccine type" value={str(snapshot.vaccination?.vaccineType)} onChange={(v) => patchNested('vaccination', 'vaccineType', v)} />
-          <EditField label="Last vaccination date" value={str(snapshot.vaccination?.lastVaccinationDate)} onChange={(v) => patchNested('vaccination', 'lastVaccinationDate', v)} />
+          <EditDateField label="Last vaccination date" value={str(snapshot.vaccination?.lastVaccinationDate)} outputIso max={birthDateMax} onChange={(v) => patchNested('vaccination', 'lastVaccinationDate', v)} />
           <EditField label="Validity month" value={str(snapshot.vaccination?.validityMonth)} onChange={(v) => patchNested('vaccination', 'validityMonth', v)} />
           <EditField label="Validity year" value={str(snapshot.vaccination?.validityYear)} onChange={(v) => patchNested('vaccination', 'validityYear', v)} />
         </div>

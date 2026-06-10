@@ -236,6 +236,115 @@ function toJobForDrawer(j: Job): JobForDrawer {
   };
 }
 
+function unwrapBackendJob(response: unknown): Record<string, any> {
+  return (response as any).data?.data || (response as any).data || response;
+}
+
+function mapBackendJobToJobForDrawer(backendJob: Record<string, any>, fallbackJob?: Job): JobForDrawer {
+  const job = fallbackJob;
+  return {
+    id: backendJob.id,
+    title: backendJob.title,
+    client: backendJob.client?.companyName || job?.client || '',
+    clientId: backendJob.client?.id,
+    location: backendJob.location || job?.location || '',
+    status: mapBackendStatus(backendJob.status) as JobForDrawer['status'],
+    employmentType: formatEmploymentType(backendJob.type) || undefined,
+    salaryRange: formatSalaryRange(backendJob.salary),
+    postedDate: backendJob.postedDate
+      ? new Date(backendJob.postedDate).toISOString().split('T')[0]
+      : backendJob.createdAt
+        ? backendJob.createdAt.split('T')[0]
+        : job?.createdDate,
+    recruiter: backendJob.assignedTo?.name || job?.owner,
+    hiringManager: backendJob.hiringManager || undefined,
+    applied:
+      typeof backendJob.appliedCount === 'number'
+        ? backendJob.appliedCount
+        : backendJob._count?.applications ?? job?.applied ?? 0,
+    interviewed: backendJob._count?.interviews || job?.interviewed || 0,
+    offered: 0,
+    joined: backendJob._count?.placements || job?.joined || 0,
+    openings: backendJob.openings || job?.openings || 0,
+    owner: backendJob.assignedTo?.name || job?.owner || '',
+    createdDate: backendJob.createdAt ? backendJob.createdAt.split('T')[0] : job?.createdDate || '',
+    jobCategory: backendJob.jobCategory || undefined,
+    jobLocationType: backendJob.jobLocationType || undefined,
+    salaryType: backendJob.salary?.type || undefined,
+    salaryCurrency: backendJob.salary?.currency || undefined,
+    minSalary: backendJob.salary?.min,
+    maxSalary: backendJob.salary?.max,
+    department: backendJob.department || undefined,
+    applicationFormEnabled: backendJob.applicationFormEnabled || false,
+    applicationFormLogo: backendJob.applicationFormLogo || undefined,
+    applicationFormQuestions: backendJob.applicationFormQuestions || [],
+    applicationFormNote: backendJob.applicationFormNote || undefined,
+    applyUrl: backendJob.applyUrl || undefined,
+    applications: Array.isArray(backendJob.applications)
+      ? backendJob.applications.map((app: any) => ({
+          id: String(app.id || ''),
+          candidateId: String(app.candidateId || ''),
+          status: app.status || undefined,
+          appliedAt: app.appliedAt || undefined,
+          screeningAnswers:
+            app.screeningAnswers && typeof app.screeningAnswers === 'object'
+              ? app.screeningAnswers
+              : null,
+          candidate: app.candidate
+            ? {
+                id: app.candidate.id ? String(app.candidate.id) : undefined,
+                firstName: app.candidate.firstName || null,
+                lastName: app.candidate.lastName || null,
+                email: app.candidate.email || null,
+              }
+            : null,
+        }))
+      : [],
+    overview: backendJob.overview || undefined,
+    keyResponsibilities: backendJob.keyResponsibilities || undefined,
+    requiredSkills: backendJob.skills || undefined,
+    preferredSkills: backendJob.preferredSkills || undefined,
+    experienceRequired: backendJob.experienceRequired || undefined,
+    education: backendJob.education || undefined,
+    benefits: backendJob.benefits || undefined,
+    description: backendJob.description || undefined,
+    requirements: backendJob.requirements || undefined,
+    nationality: backendJob.nationality || undefined,
+    country: backendJob.country || undefined,
+    state: backendJob.state || undefined,
+    city: backendJob.city || undefined,
+    priority: backendJob.priority || undefined,
+    languages: Array.isArray(backendJob.languages) ? backendJob.languages : undefined,
+    workMode: backendJob.workMode || undefined,
+    expectedClosureDate: backendJob.expectedClosureDate
+      ? new Date(backendJob.expectedClosureDate).toISOString().split('T')[0]
+      : undefined,
+    jdFileName: backendJob.jdFileName || undefined,
+    videoMediaLink: backendJob.videoMediaLink || undefined,
+    forecastRevenue: backendJob.forecastRevenue || undefined,
+    hot: Boolean(backendJob.hot),
+    aiMatch: Boolean(backendJob.aiMatch),
+    noCandidates: Boolean(backendJob.noCandidates),
+    slaRisk: Boolean(backendJob.slaRisk),
+    managerName: backendJob.manager?.name || undefined,
+    visibility: backendJob.visibility || undefined,
+    showClientNamePublicly: backendJob.showClientNamePublicly !== false,
+    auditMeta: extractAuditMeta(backendJob as Record<string, unknown>),
+  };
+}
+
+function mapBackendPipelineStages(backendJob: Record<string, any>) {
+  if (backendJob.pipelineStages && Array.isArray(backendJob.pipelineStages)) {
+    return backendJob.pipelineStages.map((stage: any) => ({
+      id: stage.id,
+      name: stage.name,
+      sla: '',
+      systemRole: stage.systemRole ?? undefined,
+    }));
+  }
+  return [];
+}
+
 interface JobStatusPillProps {
   status: JobStatus;
 }
@@ -1376,125 +1485,45 @@ export default function JobsPage() {
     }
   }, []);
 
+  const hydrateJobDetailsFromBackend = useCallback(
+    async (jobId: string, fallbackJob?: Job | null) => {
+      const response = await apiGetJob(jobId);
+      const backendJob = unwrapBackendJob(response);
+      const mappedJob = mapBackendJobToJobForDrawer(backendJob, fallbackJob || undefined);
+      setJobDetails(mappedJob);
+      setJobPipelineStages(mapBackendPipelineStages(backendJob));
+      await fetchJobCandidates(jobId, backendJob);
+      return mappedJob;
+    },
+    [fetchJobCandidates],
+  );
+
+  const refreshJobDetails = useCallback(
+    async (jobId: string) => {
+      const fallbackJob = jobs.find((j) => j.id === jobId) || selectedJob;
+      try {
+        setLoadingJobDetails(true);
+        await hydrateJobDetailsFromBackend(jobId, fallbackJob);
+      } catch (error) {
+        console.error('Failed to refresh job details:', error);
+      } finally {
+        setLoadingJobDetails(false);
+      }
+    },
+    [hydrateJobDetailsFromBackend, jobs, selectedJob],
+  );
+
   const openJobDrawer = async (job: Job) => {
     setSelectedJob(job);
     setJobDrawerOpen(true);
     setJobCandidates([]); // Reset candidates while fetching
     setJobDetails(null); // Reset until fetch completes
-    
-    // Fetch full job details from backend
+
     try {
       setLoadingJobDetails(true);
-      const response = await apiGetJob(job.id);
-      // Handle response structure: { success: true, data: {...} } or direct data
-      const backendJob = (response as any).data?.data || (response as any).data || response;
-      
-      // Map backend job to JobForDrawer format
-      const mappedJob: JobForDrawer = {
-        id: backendJob.id,
-        title: backendJob.title,
-        client: backendJob.client?.companyName || job.client,
-        clientId: backendJob.client?.id,
-        location: backendJob.location || job.location,
-        status: mapBackendStatus(backendJob.status) as JobForDrawer['status'],
-        employmentType: formatEmploymentType(backendJob.type) || undefined,
-        salaryRange: formatSalaryRange(backendJob.salary),
-        postedDate: backendJob.postedDate ? new Date(backendJob.postedDate).toISOString().split('T')[0] : 
-                   backendJob.createdAt ? backendJob.createdAt.split('T')[0] : job.createdDate,
-        recruiter: backendJob.assignedTo?.name || job.owner,
-        hiringManager: backendJob.hiringManager || undefined,
-        applied:
-          typeof backendJob.appliedCount === 'number'
-            ? backendJob.appliedCount
-            : backendJob._count?.applications ?? job.applied,
-        interviewed: backendJob._count?.interviews || job.interviewed,
-        offered: 0,
-        joined: backendJob._count?.placements || job.joined,
-        openings: backendJob.openings || job.openings,
-        owner: backendJob.assignedTo?.name || job.owner,
-        createdDate: backendJob.createdAt ? backendJob.createdAt.split('T')[0] : job.createdDate,
-        jobCategory: backendJob.jobCategory || undefined,
-        jobLocationType: backendJob.jobLocationType || undefined,
-        salaryType: backendJob.salary?.type || undefined,
-        salaryCurrency: backendJob.salary?.currency || undefined,
-        minSalary: backendJob.salary?.min,
-        maxSalary: backendJob.salary?.max,
-      department: backendJob.department || undefined,
-      applicationFormEnabled: backendJob.applicationFormEnabled || false,
-      applicationFormLogo: backendJob.applicationFormLogo || undefined,
-      applicationFormQuestions: backendJob.applicationFormQuestions || [],
-      applicationFormNote: backendJob.applicationFormNote || undefined,
-      applyUrl: backendJob.applyUrl || undefined,
-        applications: Array.isArray(backendJob.applications)
-          ? backendJob.applications.map((app: any) => ({
-              id: String(app.id || ''),
-              candidateId: String(app.candidateId || ''),
-              status: app.status || undefined,
-              appliedAt: app.appliedAt || undefined,
-              screeningAnswers:
-                app.screeningAnswers && typeof app.screeningAnswers === 'object'
-                  ? app.screeningAnswers
-                  : null,
-              candidate: app.candidate
-                ? {
-                    id: app.candidate.id ? String(app.candidate.id) : undefined,
-                    firstName: app.candidate.firstName || null,
-                    lastName: app.candidate.lastName || null,
-                    email: app.candidate.email || null,
-                  }
-                : null,
-            }))
-          : [],
-        overview: backendJob.overview || undefined,
-        keyResponsibilities: backendJob.keyResponsibilities || undefined,
-        requiredSkills: backendJob.skills || undefined,
-        preferredSkills: backendJob.preferredSkills || undefined,
-        experienceRequired: backendJob.experienceRequired || undefined,
-        education: backendJob.education || undefined,
-        benefits: backendJob.benefits || undefined,
-        description: backendJob.description || undefined,
-        requirements: backendJob.requirements || undefined,
-        nationality: backendJob.nationality || undefined,
-        country: backendJob.country || undefined,
-        state: backendJob.state || undefined,
-        city: backendJob.city || undefined,
-        priority: backendJob.priority || undefined,
-        languages: Array.isArray(backendJob.languages) ? backendJob.languages : undefined,
-        workMode: backendJob.workMode || undefined,
-        expectedClosureDate: backendJob.expectedClosureDate
-          ? new Date(backendJob.expectedClosureDate).toISOString().split('T')[0]
-          : undefined,
-        jdFileName: backendJob.jdFileName || undefined,
-        videoMediaLink: backendJob.videoMediaLink || undefined,
-        forecastRevenue: backendJob.forecastRevenue || undefined,
-        hot: Boolean(backendJob.hot),
-        aiMatch: Boolean(backendJob.aiMatch),
-        noCandidates: Boolean(backendJob.noCandidates),
-        slaRisk: Boolean(backendJob.slaRisk),
-        managerName: backendJob.manager?.name || undefined,
-        visibility: backendJob.visibility || undefined,
-        auditMeta: extractAuditMeta(backendJob as Record<string, unknown>),
-      };
-      
-      setJobDetails(mappedJob);
-      
-      // Map pipeline stages
-      if (backendJob.pipelineStages && Array.isArray(backendJob.pipelineStages)) {
-        const stages = backendJob.pipelineStages.map((stage: any) => ({
-          id: stage.id,
-          name: stage.name,
-          sla: '',
-          systemRole: stage.systemRole ?? undefined,
-        }));
-        setJobPipelineStages(stages);
-      } else {
-        setJobPipelineStages([]);
-      }
-
-      await fetchJobCandidates(job.id, backendJob);
+      await hydrateJobDetailsFromBackend(job.id, job);
     } catch (error) {
       console.error('Failed to fetch job details:', error);
-      // Use basic job data from list
       setJobDetails(toJobForDrawer(job));
       setJobPipelineStages([]);
       setJobCandidates([]);
@@ -2465,7 +2494,19 @@ export default function JobsPage() {
         onUpdateCandidate={
           canUpdateCandidate
             ? async (candidateId, payload) => {
-                await apiUpdateCandidate(candidateId, payload);
+                const response = await apiUpdateCandidate(candidateId, payload);
+                const updated = extractApiData<BackendCandidate>(response);
+                if (updated) {
+                  let profile = mapCandidateProfile(updated);
+                  if (activeJobForCandidateDrawer) {
+                    profile = {
+                      ...profile,
+                      assignedJobId: activeJobForCandidateDrawer.id,
+                      assignedJob: activeJobForCandidateDrawer.title,
+                    };
+                  }
+                  setSelectedCandidateProfile(profile);
+                }
                 await loadCandidateProfileInJobContext(candidateId);
                 if (activeJobForCandidateDrawer?.id) {
                   await refreshJobCandidates(activeJobForCandidateDrawer.id);
@@ -2500,10 +2541,13 @@ export default function JobsPage() {
           setEditJobDrawerOpen(false);
           setEditingJobId(null);
         }}
-        onJobUpdated={() => {
+        onJobUpdated={async (updatedJobId) => {
           setEditJobDrawerOpen(false);
           setEditingJobId(null);
           void reloadMyJobsAndMetrics();
+          if (updatedJobId && jobDrawerOpen) {
+            await refreshJobDetails(updatedJobId);
+          }
         }}
       />
 

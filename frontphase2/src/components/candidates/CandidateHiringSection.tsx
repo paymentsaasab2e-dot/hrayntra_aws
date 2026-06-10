@@ -5,6 +5,7 @@ import { Briefcase, ChevronDown } from 'lucide-react';
 import type { UpdateCandidatePayload } from '@/lib/api';
 import type { CandidateProfileDrawerData } from '../drawers/candidateProfileDrawerData';
 import type { CandidateEditFormState } from './CandidateEditAtsSections';
+import { formatIsoDateOnlyForDisplay } from '@/utils/dateDisplay';
 
 const CANDIDATE_STATUS_OPTIONS = ['NEW', 'ACTIVE', 'PLACED', 'INACTIVE', 'BLACKLISTED'];
 const CANDIDATE_STAGE_OPTIONS = ['Applied', 'Shortlisted', 'Screening', 'Interviewing', 'Offered', 'Hired', 'Rejected'];
@@ -15,7 +16,7 @@ function display(value: unknown): string {
   if (value === undefined || value === null) return '';
   const text = String(value).trim();
   if (!text || text === '—') return '';
-  return text;
+  return formatIsoDateOnlyForDisplay(text);
 }
 
 function OverviewField({ label, value }: { label: string; value?: unknown }) {

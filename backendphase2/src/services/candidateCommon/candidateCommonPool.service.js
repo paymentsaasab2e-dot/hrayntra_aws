@@ -10,6 +10,7 @@ import { batchHydrateCandidatesResumeFromPortal } from '../../utils/candidateRes
 import { hydratePhase1SnapshotPersonalInfoFromPortal } from '../../utils/phase1SnapshotHydrate.util.js';
 import { buildSuperAdminOwnerScope, isSuperAdminUser } from '../../utils/superAdminScope.js';
 import { canViewAllAssignments, hasAnyPermission as hasAnyPermissionScope } from '../../utils/permissionScope.js';
+import { normalizePortfolioLinksForCommon } from '../../utils/portfolioLinkFilter.util.js';
 
 function isTenantScopedRequest() {
   return Boolean(getActiveTenantDbName());
@@ -88,8 +89,14 @@ function applyProfileSnapshotFields(mapped, row) {
     ? snapshot.certifications.map((c) => String(c.certificationName || '').trim()).filter(Boolean)
     : [];
 
-  const portfolioLinks = Array.isArray(snapshot.portfolioLinks) ? snapshot.portfolioLinks : [];
-  const cvPortfolioLinks = mapped.cvPortfolioLinks || portfolioLinks;
+  const portfolioLinks =
+    normalizePortfolioLinksForCommon(snapshot.portfolioLinks) ||
+    (Array.isArray(snapshot.portfolioLinks) ? snapshot.portfolioLinks : []);
+  const cvPortfolioLinks =
+    normalizePortfolioLinksForCommon(mapped.cvPortfolioLinks) ||
+    normalizePortfolioLinksForCommon(portfolioLinks) ||
+    mapped.cvPortfolioLinks ||
+    portfolioLinks;
   let linkedIn = mapped.linkedIn || pi.linkedinUrl || null;
   if (!String(linkedIn || '').trim()) {
     for (const link of [...portfolioLinks, ...(Array.isArray(cvPortfolioLinks) ? cvPortfolioLinks : [])]) {
@@ -117,6 +124,7 @@ function applyProfileSnapshotFields(mapped, row) {
   const enrichedSnapshot = {
     ...snapshot,
     personalInfo: enrichedPersonalInfo,
+    ...(Array.isArray(portfolioLinks) && portfolioLinks.length ? { portfolioLinks } : {}),
   };
 
   const withSnapshot = {
@@ -164,11 +172,7 @@ function applyProfileSnapshotFields(mapped, row) {
       : mapped.certificationsList,
     cvEducationEntries,
     cvWorkExperienceEntries,
-    cvPortfolioLinks:
-      mapped.cvPortfolioLinks ||
-      (Array.isArray(snapshot.portfolioLinks) && snapshot.portfolioLinks.length
-        ? snapshot.portfolioLinks
-        : null),
+    cvPortfolioLinks: cvPortfolioLinks?.length ? cvPortfolioLinks : null,
     extraData: {
       ...(mapped.extraData && typeof mapped.extraData === 'object' ? mapped.extraData : {}),
       phase1ProfileSnapshot: enrichedSnapshot,

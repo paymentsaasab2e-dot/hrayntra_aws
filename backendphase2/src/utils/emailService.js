@@ -1,5 +1,6 @@
 import { Resend } from 'resend';
 import { env } from '../config/env.js';
+import { getEmailFromForTrigger } from '../config/emailFromAddresses.js';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -90,8 +91,7 @@ export async function sendCredentialInvite({
 
   try {
     const result = await resend.emails.send({
-      // Use the configured Resend from address; fallback to a generic placeholder.
-      from: process.env.RESEND_FROM_EMAIL || process.env.EMAIL_FROM || 'HRYANTRA <noreply@saasa.com>',
+      from: getEmailFromForTrigger('team.invite_email'),
       to: email,
       subject: `Welcome to HRYANTRA - Your Login Credentials`,
       html,
@@ -171,8 +171,7 @@ export async function sendPasswordResetEmail({
 
   try {
     const result = await resend.emails.send({
-      // Use the configured Resend from address for password reset emails as well.
-      from: process.env.RESEND_FROM_EMAIL || process.env.EMAIL_FROM || 'HRYANTRA <noreply@saasa.com>',
+      from: getEmailFromForTrigger('auth.otp_verification'),
       to: email,
       subject: `Password Reset - HRYANTRA`,
       html,

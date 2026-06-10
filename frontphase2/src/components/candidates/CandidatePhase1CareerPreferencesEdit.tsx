@@ -7,6 +7,7 @@ import {
 } from '@/lib/normalizeCareerPreferencesRecord';
 import { parseAvailabilityFields } from '@/lib/candidateCareerPreferencesModel';
 import { phase1FieldLabelClass, phase1FieldValueClass } from '@/lib/phase1Typography';
+import { EditDateField } from './EditDateField';
 
 function EditField({
   label,
@@ -194,11 +195,11 @@ export function CandidatePhase1CareerPreferencesEdit({ careerPreferences, onChan
         value={String(prefs.noticePeriod ?? '')}
         onChange={(v) => patch({ noticePeriod: v })}
       />
-      <EditField
+      <EditDateField
         label="Earliest start date"
         value={availability.earliestStartDate}
-        onChange={(v) => patch({ earliestStartDate: v })}
-        placeholder="DD/MM/YYYY"
+        outputIso
+        onChange={(v) => patch({ earliestStartDate: v, availabilityToStart: v })}
       />
       <EditField
         label="Describe availability"

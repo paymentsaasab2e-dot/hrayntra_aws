@@ -12,6 +12,9 @@ function stripHtml(value: string): string {
     .replace(/<\/p>/gi, '\n')
     .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
@@ -52,6 +55,57 @@ function OverviewField({ label, value, required }: { label: string; value: strin
   );
 }
 
+function OverviewList({
+  label,
+  items,
+  emptyLabel = 'Not provided',
+}: {
+  label: string;
+  items?: string[];
+  emptyLabel?: string;
+}) {
+  return (
+    <div>
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{label}</p>
+      {items && items.length > 0 ? (
+        <ul className="mt-2 list-inside list-disc space-y-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          {items.map((item, i) => (
+            <li key={`${label}-${i}`}>{item}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+          {emptyLabel}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function OverviewSkillTags({ label, skills }: { label: string; skills?: string[] }) {
+  return (
+    <div>
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{label}</p>
+      {skills && skills.length > 0 ? (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {skills.map((skill, index) => (
+            <span
+              key={`${skill}-${index}`}
+              className="rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700"
+            >
+              {skill}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+          Not provided
+        </p>
+      )}
+    </div>
+  );
+}
+
 function OverviewSection({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -84,6 +138,16 @@ function applicationAnswerRows(answers?: Record<string, unknown> | null) {
   }));
 }
 
+function formatApplicationLogoLabel(logo?: string): string {
+  const raw = String(logo || '').trim();
+  if (!raw) return '—';
+  if (raw === 'account') return 'Account logo';
+  if (raw === 'company') return 'Company logo';
+  if (raw === 'none') return 'No logo';
+  if (/^https?:\/\//i.test(raw)) return 'Custom logo URL';
+  return raw;
+}
+
 export interface JobOverviewTabContentProps {
   job: JobForDrawer;
   expandedApplicationIds: Set<string>;
@@ -96,9 +160,12 @@ export function JobOverviewTabContent({
   onToggleApplication,
 }: JobOverviewTabContentProps) {
   const { min: minExp, max: maxExp } = parseExperienceYears(job.experienceRequired);
-  const skills = job.requiredSkills || [];
+  const requiredSkills = job.requiredSkills || [];
+  const preferredSkills = job.preferredSkills || [];
   const hasHtmlDescription = Boolean(job.description && /<[^>]+>/.test(job.description));
   const descriptionPlain = job.description ? stripHtml(job.description) : '';
+  const overviewPlain = job.overview ? stripHtml(job.overview) : '';
+  const workModeLabel = displayValue(job.workMode || job.jobLocationType, '—');
 
   const recruiterDisplay =
     job.recruiter?.trim() && job.recruiter !== '-'
@@ -107,69 +174,115 @@ export function JobOverviewTabContent({
         ? job.owner
         : 'Unassigned';
 
+  const screeningQuestionCount = Array.isArray(job.applicationFormQuestions)
+    ? job.applicationFormQuestions.filter((q) => String(q || '').trim()).length
+    : 0;
+
   return (
     <div className="space-y-4">
-      <OverviewSection title="Job posting details">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-            Job Description <span className="normal-case text-slate-500">(optional)</span>
-          </p>
-          <p className="mt-0.5 mb-2 text-xs text-slate-500">
-            Rich-text editor for the full posting. Upload a JD above or use Generate JD with AI to pre-fill this
-            field.
-          </p>
-          {hasHtmlDescription ? (
-            <div
-              className="prose prose-sm max-w-none min-h-[120px] rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-800 prose-p:my-2 prose-ul:my-2"
-              dangerouslySetInnerHTML={{ __html: job.description || '' }}
-            />
-          ) : (
-            <div className="min-h-[120px] whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-              {descriptionPlain || '—'}
-            </div>
-          )}
-        </div>
+      <OverviewSection title="Job description">
+        {hasHtmlDescription ? (
+          <div
+            className="prose prose-sm max-w-none min-h-[80px] rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-800 prose-p:my-2 prose-ul:my-2"
+            dangerouslySetInnerHTML={{ __html: job.description || '' }}
+          />
+        ) : (
+          <div className="min-h-[80px] whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+            {descriptionPlain || '—'}
+          </div>
+        )}
+      </OverviewSection>
 
+      <OverviewSection title="Job details">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <OverviewField label="Nationality" value={displayValue(job.nationality)} />
           <OverviewField label="Job Title" value={displayValue(job.title)} required />
-          <OverviewField label="Priority (optional)" value={displayValue(job.priority)} />
+          <OverviewField label="Status" value={displayValue(job.status)} />
           <OverviewField label="Client" value={displayValue(job.client)} required />
-          <OverviewField label="Contact Person (optional)" value={displayValue(job.hiringManager)} />
-          <OverviewField label="No of Positions" value={displayValue(job.openings)} required />
+          <OverviewField
+            label="Client name on public posts"
+            value={job.showClientNamePublicly === false ? 'Hidden from public' : 'Visible to public'}
+          />
+          <OverviewField label="Nationality" value={displayValue(job.nationality)} />
+          <OverviewField label="Priority" value={displayValue(job.priority)} />
+          <OverviewField label="Contact Person" value={displayValue(job.hiringManager)} />
+          <OverviewField label="No. of Positions" value={displayValue(job.openings)} required />
           <OverviewField label="Country" value={displayValue(job.country)} required />
-          <OverviewField label="State (optional)" value={displayValue(job.state)} />
-          <OverviewField label="City (optional)" value={displayValue(job.city)} />
-          <OverviewField label="Industry Type (optional)" value={displayValue(formatIndustriesDisplay(job.jobCategory) || job.jobCategory)} />
-          <OverviewField label="Employment Type (optional)" value={displayValue(job.employmentType)} />
+          <OverviewField label="State" value={displayValue(job.state)} />
+          <OverviewField label="City" value={displayValue(job.city)} />
+          <OverviewField label="Location (combined)" value={displayValue(job.location)} />
+          <OverviewField
+            label="Industry Type"
+            value={displayValue(formatIndustriesDisplay(job.jobCategory) || job.jobCategory)}
+          />
+          <OverviewField label="Department" value={displayValue(job.department)} />
+          <OverviewField label="Employment Type" value={displayValue(job.employmentType)} />
+          <OverviewField label="Work Mode / Location Type" value={workModeLabel} />
           <OverviewField
             label="Target Hire Date"
             value={job.expectedClosureDate ? formatDateDMY(job.expectedClosureDate) : '—'}
             required
           />
-          <OverviewField label="Other Document (optional)" value={displayValue(job.jdFileName)} />
-          <OverviewField label="Minimum Years of Experience (optional)" value={minExp} />
-          <OverviewField label="Maximum Years of Experience (optional)" value={maxExp} />
+          <OverviewField
+            label="Posted Date"
+            value={job.postedDate ? formatDateDMY(job.postedDate) : '—'}
+          />
+          <OverviewField
+            label="Created Date"
+            value={job.createdDate ? formatDateDMY(job.createdDate) : '—'}
+          />
+          <OverviewField label="Assign Manager" value={displayValue(job.managerName)} />
+          <OverviewField label="Assign Recruiter" value={recruiterDisplay} />
+          <OverviewField label="Visibility" value={displayValue(job.visibility)} />
+          <OverviewField label="JD Document" value={displayValue(job.jdFileName)} />
+          <OverviewField label="Video / Media Link" value={displayValue(job.videoMediaLink)} />
+          <OverviewField label="Forecast Revenue" value={displayValue(job.forecastRevenue)} />
+          <OverviewField label="Hot Job" value={displayValue(job.hot)} />
+          <OverviewField label="AI Match Enabled" value={displayValue(job.aiMatch)} />
+          <OverviewField label="SLA Risk" value={displayValue(job.slaRisk)} />
         </div>
+      </OverviewSection>
 
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Salary range (optional)</p>
-          <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <OverviewField label="Currency" value={displayValue(job.salaryCurrency)} />
-            <OverviewField
-              label="Min"
-              value={job.minSalary !== undefined && job.minSalary !== null ? String(job.minSalary) : '—'}
-            />
-            <OverviewField
-              label="Max"
-              value={job.maxSalary !== undefined && job.maxSalary !== null ? String(job.maxSalary) : '—'}
-            />
+      <OverviewSection title="Compensation">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <OverviewField label="Currency" value={displayValue(job.salaryCurrency)} />
+          <OverviewField
+            label="Minimum Salary"
+            value={job.minSalary !== undefined && job.minSalary !== null ? String(job.minSalary) : '—'}
+          />
+          <OverviewField
+            label="Maximum Salary"
+            value={job.maxSalary !== undefined && job.maxSalary !== null ? String(job.maxSalary) : '—'}
+          />
+          <OverviewField label="Pay Type" value={displayValue(job.salaryType)} />
+        </div>
+        {job.salaryRange ? (
+          <OverviewField label="Salary Range (display)" value={displayValue(job.salaryRange)} />
+        ) : null}
+        <OverviewList label="Benefits" items={job.benefits} />
+      </OverviewSection>
+
+      <OverviewSection title="Requirements & experience">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <OverviewField label="Minimum Years of Experience" value={minExp} />
+          <OverviewField label="Maximum Years of Experience" value={maxExp} />
+          <OverviewField label="Education" value={displayValue(job.education)} />
+        </div>
+        {overviewPlain ? (
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Job Summary</p>
+            <p className="mt-1 whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+              {overviewPlain}
+            </p>
           </div>
-          {job.salaryType ? <p className="mt-2 text-xs text-slate-500">Pay type: {job.salaryType}</p> : null}
-        </div>
-
+        ) : null}
+        <OverviewList label="Key Responsibilities" items={job.keyResponsibilities} />
+        <OverviewList label="Qualifications / Requirements" items={job.requirements} />
+        <OverviewSkillTags label="Required Skills" skills={requiredSkills} />
+        <OverviewSkillTags label="Preferred Skills" skills={preferredSkills} />
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Language &amp; Proficiency</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+            Languages &amp; Proficiency
+          </p>
           {job.languages && job.languages.length > 0 ? (
             <ul className="mt-2 space-y-2">
               {job.languages.map((row, index) => (
@@ -185,92 +298,29 @@ export function JobOverviewTabContent({
             </ul>
           ) : (
             <p className="mt-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-              No languages added yet.
+              Not provided
             </p>
           )}
         </div>
-
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Skills</p>
-          {skills.length > 0 ? (
-            <div className="mt-2 flex flex-wrap gap-2">
-              {skills.map((skill, index) => (
-                <span
-                  key={`${skill}-${index}`}
-                  className="rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700"
-                >
-                  {skill}
-                </span>
-              ))}
-            </div>
-          ) : (
-            <p className="mt-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-              No skills added yet.
-            </p>
-          )}
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <OverviewField label="Assign Manager" value={displayValue(job.managerName)} />
-          <OverviewField label="Assign Recruiter" value={recruiterDisplay} />
-        </div>
-
-        {job.location ? <OverviewField label="Location (combined)" value={displayValue(job.location)} /> : null}
       </OverviewSection>
 
-      {(job.overview ||
-        job.keyResponsibilities?.length ||
-        job.preferredSkills?.length ||
-        job.benefits?.length ||
-        job.education ||
-        job.requirements?.length) && (
-        <OverviewSection title="Additional job content">
-          {job.overview ? (
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Job summary</p>
-              <p className="mt-1 whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                {job.overview}
-              </p>
-            </div>
-          ) : null}
-          {job.keyResponsibilities && job.keyResponsibilities.length > 0 ? (
-            <div>
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                Key responsibilities
-              </p>
-              <ul className="list-inside list-disc space-y-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                {job.keyResponsibilities.map((item, i) => (
-                  <li key={i}>{item}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-          {job.preferredSkills && job.preferredSkills.length > 0 ? (
-            <div>
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Preferred skills</p>
-              <div className="flex flex-wrap gap-2">
-                {job.preferredSkills.map((skill, index) => (
-                  <span
-                    key={`${skill}-${index}`}
-                    className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600"
-                  >
-                    {skill}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ) : null}
-          {job.education ? <OverviewField label="Education" value={displayValue(job.education)} /> : null}
-          {job.benefits && job.benefits.length > 0 ? (
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Benefits</p>
-              <p className="mt-1 whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                {job.benefits.join('\n')}
-              </p>
-            </div>
-          ) : null}
-        </OverviewSection>
-      )}
+      <OverviewSection title="Application form & apply link">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <OverviewField label="Application Form Enabled" value={displayValue(job.applicationFormEnabled)} />
+          <OverviewField
+            label="Application Form Logo"
+            value={formatApplicationLogoLabel(job.applicationFormLogo)}
+          />
+          <OverviewField
+            label="Screening Questions"
+            value={screeningQuestionCount > 0 ? String(screeningQuestionCount) : '—'}
+          />
+          <OverviewField label="Public Apply URL" value={displayValue(job.applyUrl)} />
+        </div>
+        {job.applicationFormNote ? (
+          <OverviewField label="Note for Candidates" value={displayValue(job.applicationFormNote)} />
+        ) : null}
+      </OverviewSection>
 
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 p-5">

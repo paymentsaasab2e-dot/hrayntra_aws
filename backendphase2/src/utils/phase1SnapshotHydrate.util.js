@@ -1,3 +1,5 @@
+import { normalizePortfolioLinksForCommon } from './portfolioLinkFilter.util.js';
+
 function mapGenderLabel(value) {
   const raw = String(value || '').trim().toUpperCase();
   if (raw === 'MALE') return 'Male';
@@ -204,6 +206,46 @@ function normalizePortalProfileDoc(doc) {
   };
 }
 
+/** Live portfolio links from job-portal Mongo (source of truth for Phase 1). */
+async function fetchPortalPortfolioLinksRaw(portalClient, candidateId) {
+  const idStr = String(candidateId || '').trim();
+  if (!idStr || !portalClient) return null;
+
+  if (portalClient.candidatePortfolioLinks?.findUnique) {
+    try {
+      const row = await portalClient.candidatePortfolioLinks.findUnique({
+        where: { candidateId: idStr },
+      });
+      if (row?.links) return row.links;
+    } catch {
+      /* fall through to raw */
+    }
+  }
+
+  if (!portalClient.$runCommandRaw) return null;
+
+  const isObjectIdHex = /^[a-fA-F0-9]{24}$/.test(idStr);
+  const filters = isObjectIdHex
+    ? [{ candidateId: { $oid: idStr } }, { candidateId: idStr }]
+    : [{ candidateId: idStr }];
+
+  for (const filter of filters) {
+    try {
+      const result = await portalClient.$runCommandRaw({
+        find: 'candidate_portfolio_links',
+        filter,
+        limit: 1,
+      });
+      const doc = result?.cursor?.firstBatch?.[0];
+      if (doc?.links) return doc.links;
+    } catch {
+      /* try next filter */
+    }
+  }
+
+  return null;
+}
+
 /** Job-portal Prisma on backendphase2 may not expose CandidateProfile — read Mongo directly. */
 async function fetchPortalCandidateProfileRaw(portalClient, candidateId) {
   const idStr = String(candidateId || '').trim();
@@ -290,6 +332,27 @@ export async function overlayLivePortalProfileOnCandidate(candidate, portalClien
           address,
         },
       };
+    }
+
+    const livePortfolioRaw = await fetchPortalPortfolioLinksRaw(portalClient, candidate.id);
+    const livePortfolioLinks = normalizePortfolioLinksForCommon(
+      Array.isArray(livePortfolioRaw) ? livePortfolioRaw : [],
+    );
+    if (livePortfolioLinks?.length) {
+      patchedSnapshot = {
+        ...patchedSnapshot,
+        portfolioLinks: livePortfolioLinks,
+      };
+      candidate.cvPortfolioLinks = livePortfolioLinks;
+    } else if (Array.isArray(patchedSnapshot.portfolioLinks) && patchedSnapshot.portfolioLinks.length) {
+      const filtered = normalizePortfolioLinksForCommon(patchedSnapshot.portfolioLinks);
+      patchedSnapshot = {
+        ...patchedSnapshot,
+        portfolioLinks: filtered || [],
+      };
+      if (filtered?.length) {
+        candidate.cvPortfolioLinks = filtered;
+      }
     }
 
     const linkedIn = resolveLinkedInFromPortfolioSources(patchedSnapshot, candidate);

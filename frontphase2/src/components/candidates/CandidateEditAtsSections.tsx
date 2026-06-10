@@ -13,7 +13,9 @@ import { parseWorkExperienceEditorValue } from '@/lib/candidateExperience';
 import type { CandidateProfileDrawerData } from '../drawers/candidateProfileDrawerData';
 import { CandidatePhotoUpload } from './AddCandidateFormSections';
 import { CandidateHiringEditSection } from './CandidateHiringSection';
-import { isoToDMYDate, parseDMYToYMD } from '@/utils/formatLeadDateTime';
+import { EditDateField } from './EditDateField';
+import { parseDMYToYMD } from '@/utils/formatLeadDateTime';
+import { getLocalDateInputMinToday } from '@/utils/dateInputConstraints';
 
 export type CandidateEditFormState = {
   firstName: string;
@@ -282,7 +284,7 @@ export function buildCandidateEditForm(candidate: CandidateProfileDrawerData): C
     nationality: str(personal.nationality),
     currentCompanyWebsite: str(personal.currentCompanyWebsite),
     maritalStatus: str(personal.maritalStatus),
-    birthDate: isoToDMYDate(str(personal.birthDate)) || str(personal.birthDate),
+    birthDate: str(personal.birthDate),
     passportNumber: str(personal.passportNumber),
     educationCourses:
       joinSemicolonList(educationPipe.courses) || joinSemicolonList(extra.courses),
@@ -444,7 +446,9 @@ export function buildExtraDataFromEditForm(
         currentCompanyWebsite: editForm.currentCompanyWebsite.trim() || null,
         maritalStatus: editForm.maritalStatus.trim() || null,
         birthDate:
-          parseDMYToYMD(editForm.birthDate.trim()) || editForm.birthDate.trim() || null,
+          /^\d{4}-\d{2}-\d{2}$/.test(editForm.birthDate.trim())
+            ? editForm.birthDate.trim()
+            : parseDMYToYMD(editForm.birthDate.trim()) || editForm.birthDate.trim() || null,
         passportNumber: editForm.passportNumber.trim() || null,
       },
       education: {
@@ -801,7 +805,14 @@ export function CandidateEditAtsSections({
           onChange={(v) => onChange('currentCompanyWebsite', v)}
         />
         <EditField label="Marital Status" value={form.maritalStatus} onChange={(v) => onChange('maritalStatus', v)} />
-        <EditField label="Birth Date" value={form.birthDate} onChange={(v) => onChange('birthDate', v)} />
+        <EditDateField
+          label="Birth Date"
+          variant="ats"
+          value={form.birthDate}
+          max={getLocalDateInputMinToday()}
+          outputIso
+          onChange={(v) => onChange('birthDate', v)}
+        />
         <EditField label="Passport Number" value={form.passportNumber} onChange={(v) => onChange('passportNumber', v)} />
         <EditField label="Preferred Location" value={form.preferredLocation} onChange={(v) => onChange('preferredLocation', v)} />
       </EditSection>
@@ -897,9 +908,6 @@ export function CandidateEditAtsSections({
         />
         <EditField label="Expected Benefits" value={form.expectedBenefits} onChange={(v) => onChange('expectedBenefits', v)} />
         <EditField label="Notice Period" value={form.noticePeriod} onChange={(v) => onChange('noticePeriod', v)} />
-        <div className="md:col-span-2">
-          <EditField label="Resume URL" value={form.resumeUrl} onChange={(v) => onChange('resumeUrl', v)} />
-        </div>
         <div className="md:col-span-2">
           <EditTextarea
             label="Work history (narrative)"

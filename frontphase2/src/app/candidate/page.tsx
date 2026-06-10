@@ -2411,7 +2411,13 @@ function CandidatesPageContent() {
         }
         showSubmitToClient={canSubmitToClient}
         onUpdateCandidate={canUpdateCandidate ? async (candidateId, payload) => {
-          await apiUpdateCandidate(candidateId, payload);
+          const response = await apiUpdateCandidate(candidateId, payload);
+          const updated = extractApiData<BackendCandidate>(response);
+          if (updated) {
+            const mappedProfile = mapCandidateProfile(updated);
+            setSelectedCandidateProfile(mappedProfile);
+            syncCandidateCard(mappedProfile);
+          }
           await loadCandidateProfile(candidateId);
         } : undefined}
         onRefreshCandidate={canUpdateCandidate ? loadCandidateProfile : undefined}

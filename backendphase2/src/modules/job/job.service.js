@@ -249,6 +249,7 @@ async function syncJobToJobPortalDb(job, payload = {}) {
     noCandidates: Boolean(job.noCandidates),
     slaRisk: Boolean(job.slaRisk),
     visibility: job.visibility || null,
+    showClientNamePublicly: job.showClientNamePublicly !== false,
     distributionPlatforms: job.distributionPlatforms || null,
     supportingRecruiters: Array.isArray(job.supportingRecruiters) ? job.supportingRecruiters : [],
     applicationFormEnabled: Boolean(job.applicationFormEnabled),
@@ -958,6 +959,7 @@ export const jobService = {
       videoMediaLink: data.videoMediaLink,
       languages: data.languages,
       supportingRecruiters: data.supportingRecruiters,
+      showClientNamePublicly: data.showClientNamePublicly !== false,
     });
 
     if (data.clientId) {
@@ -1096,6 +1098,7 @@ export const jobService = {
         workMode: true,
         priority: true,
         visibility: true,
+        showClientNamePublicly: true,
         distributionPlatforms: true,
         supportingRecruiters: true,
         applicationFormEnabled: true,
@@ -1149,6 +1152,10 @@ export const jobService = {
       workMode: data.workMode,
       priority: data.priority,
       visibility: data.visibility,
+      showClientNamePublicly:
+        data.showClientNamePublicly === undefined
+          ? undefined
+          : data.showClientNamePublicly !== false,
       distributionPlatforms: data.distributionPlatforms,
       supportingRecruiters: data.supportingRecruiters,
       applicationFormEnabled: data.applicationFormEnabled,

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useCallback } from 'react';
+import { Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   apiFetch,
@@ -10,9 +11,15 @@ import {
   apiSetSubscriptionPlan,
   apiGetOrgDefaultCurrency,
   apiSetOrgDefaultCurrency,
+  apiGetClientPageFieldVisibility,
+  apiSetClientPageFieldVisibility,
   type SubscriptionPlanOption,
 } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
+import {
+  DEFAULT_CLIENT_PAGE_FIELD_VISIBILITY,
+  type ClientPageFieldVisibility,
+} from '../../lib/clientPageFieldVisibility';
 
 type RecruitmentMode = 'agency' | 'standalone';
 
@@ -52,6 +59,13 @@ export function RecruitmentWorkflowSettings() {
     'USD', 'EUR', 'GBP', 'INR', 'AED', 'SGD', 'AUD', 'CAD', 'JPY', 'CNY',
   ]);
   const [savingCurrency, setSavingCurrency] = useState(false);
+  const [clientPageFields, setClientPageFields] = useState<ClientPageFieldVisibility>({
+    ...DEFAULT_CLIENT_PAGE_FIELD_VISIBILITY,
+  });
+  const [draftClientPageFields, setDraftClientPageFields] = useState<ClientPageFieldVisibility>({
+    ...DEFAULT_CLIENT_PAGE_FIELD_VISIBILITY,
+  });
+  const [savingClientPageFields, setSavingClientPageFields] = useState(false);
 
   const load = useCallback(async () => {
     if (!canManage) {
@@ -60,11 +74,12 @@ export function RecruitmentWorkflowSettings() {
     }
     setLoading(true);
     try {
-      const [modeRes, tplRes, planRes, currencyRes] = await Promise.all([
+      const [modeRes, tplRes, planRes, currencyRes, clientFieldsRes] = await Promise.all([
         apiFetch<{ recruitmentMode: RecruitmentMode }>('/settings/org/recruitment-mode', { auth: true }),
         apiFetch<{ stages: TemplateStage[] }>('/settings/org/pipeline-template', { auth: true }),
         apiGetSubscriptionPlan(),
         apiGetOrgDefaultCurrency(),
+        apiGetClientPageFieldVisibility(),
       ]);
       const m = modeRes.data?.recruitmentMode === 'standalone' ? 'standalone' : 'agency';
       setMode(m);
@@ -85,6 +100,9 @@ export function RecruitmentWorkflowSettings() {
       if (Array.isArray(currencyRes.data?.supportedCurrencies) && currencyRes.data!.supportedCurrencies.length > 0) {
         setSupportedCurrencies(currencyRes.data!.supportedCurrencies);
       }
+      const fields = clientFieldsRes.data?.clientPageFieldVisibility ?? DEFAULT_CLIENT_PAGE_FIELD_VISIBILITY;
+      setClientPageFields(fields);
+      setDraftClientPageFields(fields);
     } catch (e: any) {
       toast.error(e?.message || 'Failed to load recruitment settings');
     } finally {
@@ -95,6 +113,27 @@ export function RecruitmentWorkflowSettings() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const saveClientPageFields = async () => {
+    setSavingClientPageFields(true);
+    try {
+      const res = await apiSetClientPageFieldVisibility(draftClientPageFields);
+      const saved = res.data?.clientPageFieldVisibility ?? draftClientPageFields;
+      setClientPageFields(saved);
+      setDraftClientPageFields(saved);
+      await syncOrgRecruitmentSummaryFromApi();
+      toast.success('Client page field visibility saved');
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to save client page fields');
+    } finally {
+      setSavingClientPageFields(false);
+    }
+  };
+
+  const clientPageFieldsDirty =
+    draftClientPageFields.interestLevel !== clientPageFields.interestLevel ||
+    draftClientPageFields.status !== clientPageFields.status ||
+    draftClientPageFields.assignedTo !== clientPageFields.assignedTo;
 
   const saveMode = async () => {
     setSavingMode(true);
@@ -342,6 +381,66 @@ export function RecruitmentWorkflowSettings() {
             {applyingTemplate ? 'Applying…' : 'Apply to jobs without a pipeline'}
           </button>
         </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div className="p-5 border-b border-slate-100 flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">Client page fields</h3>
+            <p className="text-xs text-slate-500 mt-1">
+              Control which client fields appear on the Clients list and client drawer. Hidden by default — turn on only the fields your team needs.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void saveClientPageFields()}
+            disabled={savingClientPageFields || !clientPageFieldsDirty}
+            className="shrink-0 px-4 py-2 rounded-lg text-xs font-bold bg-[#2b7fff] text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-600"
+          >
+            {savingClientPageFields ? 'Saving…' : 'Save fields'}
+          </button>
+        </div>
+        <div className="divide-y divide-slate-100">
+          {(
+            [
+              { key: 'interestLevel' as const, label: 'Interest level', hint: 'Priority / hot clients' },
+              { key: 'status' as const, label: 'Status', hint: 'Active, on hold, inactive' },
+              { key: 'assignedTo' as const, label: 'Assigned to', hint: 'Account owner / recruiter' },
+            ] as const
+          ).map((field) => {
+            const visible = draftClientPageFields[field.key];
+            return (
+              <div key={field.key} className="p-5 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">{field.label}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">{field.hint}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDraftClientPageFields((prev) => ({
+                      ...prev,
+                      [field.key]: !prev[field.key],
+                    }))
+                  }
+                  className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    visible
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                      : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  {visible ? <Eye size={14} /> : <EyeOff size={14} />}
+                  {visible ? 'Visible on client page' : 'Hidden on client page'}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        {clientPageFieldsDirty ? (
+          <p className="px-5 py-3 text-[11px] text-amber-700 border-t border-slate-100 bg-amber-50/50">
+            You have unsaved changes to client page field visibility.
+          </p>
+        ) : null}
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
