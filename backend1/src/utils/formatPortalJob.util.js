@@ -37,8 +37,17 @@ function parseExperienceRange(experienceRequired) {
   return { min: null, max: null, display: raw };
 }
 
+const CONFIDENTIAL_COMPANY_LABEL = 'Confidential';
+
 function shouldShowClientNamePublicly(job) {
   return job?.showClientNamePublicly !== false;
+}
+
+function resolvePublicCompanyName(job, fallback = CONFIDENTIAL_COMPANY_LABEL) {
+  if (!shouldShowClientNamePublicly(job)) {
+    return fallback;
+  }
+  return job?.company?.name || job?.client?.companyName || fallback;
 }
 
 function formatPortalJob(job, options = {}) {
@@ -74,6 +83,10 @@ function formatPortalJob(job, options = {}) {
     companyId: showClient ? job.company?.id || job.client?.id || null : null,
     companyLogo: showClient ? thumb : null,
     showClientNamePublicly: showClient,
+    publicFieldVisibility:
+      job.publicFieldVisibility && typeof job.publicFieldVisibility === 'object'
+        ? job.publicFieldVisibility
+        : null,
     applicationFormLogo: job.applicationFormLogo ?? undefined,
     applicationFormEnabled: !!job.applicationFormEnabled,
     applicationFormQuestions: Array.isArray(job.applicationFormQuestions)
@@ -116,6 +129,9 @@ function formatPortalJob(job, options = {}) {
     skills: Array.isArray(job.skills) ? job.skills : [],
     preferredSkills: Array.isArray(job.preferredSkills) ? job.preferredSkills : [],
     requirements: Array.isArray(job.requirements) ? job.requirements : [],
+    candidateRequirements: Array.isArray(job.candidateRequirements)
+      ? job.candidateRequirements
+      : [],
     visaSponsorship: job.visaSponsorship ?? false,
     postedAt: job.postedAt ?? job.postedDate ?? job.createdAt ?? null,
     postedDate: job.postedDate ?? job.postedAt ?? job.createdAt ?? null,
@@ -130,6 +146,8 @@ function formatPortalJob(job, options = {}) {
 module.exports = {
   formatPortalJob,
   shouldShowClientNamePublicly,
+  resolvePublicCompanyName,
+  CONFIDENTIAL_COMPANY_LABEL,
   parseLanguages,
   parseExperienceRange,
 };

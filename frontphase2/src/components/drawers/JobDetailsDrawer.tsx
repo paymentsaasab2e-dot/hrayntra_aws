@@ -156,6 +156,7 @@ export interface JobForDrawer {
   benefits?: string[];
   description?: string;
   requirements?: string[];
+  candidateRequirements?: string[];
   nationality?: string;
   country?: string;
   state?: string;
@@ -993,7 +994,6 @@ export function JobDetailsDrawer({
   const [notesTagFilter, setNotesTagFilter] = useState<JobNoteTag | 'All'>('All');
   const [pinnedNoteIds, setPinnedNoteIds] = useState<Set<string>>(new Set());
   const [filesTypeFilter, setFilesTypeFilter] = useState<JobFileType | 'All'>('All');
-  const [expandedApplicationIds, setExpandedApplicationIds] = useState<Set<string>>(new Set());
   const [jobActivities, setJobActivities] = useState<BackendActivity[]>([]);
   const [loadingActivities, setLoadingActivities] = useState(false);
   const [activityFilter, setActivityFilter] = useState<'All' | 'Jobs' | 'Candidates' | 'Interviews' | 'Notes' | 'Files'>('All');
@@ -1405,18 +1405,7 @@ export function JobDetailsDrawer({
             {/* Tab content */}
             <div className="flex-1 overflow-y-auto bg-slate-50/30 p-5">
               {activeTab === 'overview' && job && (
-                <JobOverviewTabContent
-                  job={job}
-                  expandedApplicationIds={expandedApplicationIds}
-                  onToggleApplication={(applicationId) => {
-                    setExpandedApplicationIds((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(applicationId)) next.delete(applicationId);
-                      else next.add(applicationId);
-                      return next;
-                    });
-                  }}
-                />
+                <JobOverviewTabContent job={job} />
               )}
 
               {activeTab === 'candidates' && (

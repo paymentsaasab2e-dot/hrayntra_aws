@@ -759,6 +759,8 @@ model Job {
   overview              String?
   openings              Int?           @default(1)
   keyResponsibilities    String[]       @default([])
+  requirements           String[]       @default([])
+  candidateRequirements  String[]       @default([])
   preferredSkills       String[]       @default([])
   experienceRequired    String?
   education              String?
@@ -821,6 +823,8 @@ model Job {
 
   /// When false, client/company name is hidden on candidate-facing job listings and apply pages.
   showClientNamePublicly   Boolean?  @default(true)
+  /// Per-field public visibility mirrored from Phase 2 CRM.
+  publicFieldVisibility    Json?
 
   applications     Application[]
   savedJobs        SavedJob[]

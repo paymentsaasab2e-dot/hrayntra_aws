@@ -4,6 +4,7 @@ import {
   getDefaultPrismaClient,
   getJobPortalPrismaClient,
 } from '../../config/prisma.js';
+import { env } from '../../config/env.js';
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
 import { dbLogger } from '../../utils/db-logger.js';
 import activityService from '../../services/activityService.js';
@@ -172,9 +173,50 @@ async function loadClientMirrorForPortalSync(job) {
   });
 }
 
+function resolvePortalSyncTenantDbName(job, payload = {}) {
+  return (
+    getActiveTenantDbName() ||
+    String(job?.tenantDbName || '').trim() ||
+    String(payload?.tenantDbName || '').trim() ||
+    'default'
+  );
+}
+
+async function loadJobForPortalSync(jobId) {
+  if (!jobId) return null;
+  return prisma.job.findUnique({
+    where: { id: jobId },
+    include: {
+      client: {
+        select: { id: true, companyName: true, industry: true, logo: true, location: true },
+      },
+    },
+  });
+}
+
+async function invalidatePortalJobsListCache() {
+  const base = String(env.JOB_PORTAL_API_URL || '').trim().replace(/\/$/, '');
+  if (!base) return;
+  try {
+    const response = await fetch(`${base}/api/jobs/cache/invalidate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!response.ok) {
+      console.warn(`[syncJobToJobPortalDb] cache invalidate HTTP ${response.status}`);
+    }
+  } catch (error) {
+    console.warn('[syncJobToJobPortalDb] cache invalidate failed:', error?.message || error);
+  }
+}
+
+async function syncJobToPortal(job, payload = {}) {
+  const jobForSync = (await loadJobForPortalSync(job?.id)) || job;
+  await syncJobToJobPortalDb(jobForSync, payload);
+}
+
 async function syncJobToJobPortalDb(job, payload = {}) {
-  const tenantDbName = getActiveTenantDbName();
-  if (!tenantDbName) return;
+  const tenantDbName = resolvePortalSyncTenantDbName(job, payload);
 
   // Mirror into the shared job-portal DB (JOB_PORTAL_DATABASE_URL), not tenant/default DATABASE_URL.
   // backend1 `/api/jobs` reads this DB — screening questions must land here or Apply shows no modal.
@@ -219,6 +261,7 @@ async function syncJobToJobPortalDb(job, payload = {}) {
     skills: Array.isArray(job.skills) ? job.skills : [],
     preferredSkills: Array.isArray(job.preferredSkills) ? job.preferredSkills : [],
     keyResponsibilities: Array.isArray(job.keyResponsibilities) ? job.keyResponsibilities : [],
+    candidateRequirements: Array.isArray(job.candidateRequirements) ? job.candidateRequirements : [],
     type: job.type ? String(job.type) : 'FULL_TIME',
     status: ['CLOSED', 'FILLED'].includes(String(job.status || '').toUpperCase()) ? 'CLOSED' : 'OPEN',
     // Origin tenant — backend1 reads this on every apply to route the new
@@ -234,7 +277,6 @@ async function syncJobToJobPortalDb(job, payload = {}) {
     experienceRequired: job.experienceRequired || null,
     education: job.education || null,
     benefits: Array.isArray(job.benefits) ? job.benefits : [],
-    postedDate: job.postedDate || new Date(),
     hiringManager: job.hiringManager || null,
     hiringManagerId: job.hiringManagerId || null,
     priority: job.priority || null,
@@ -249,13 +291,25 @@ async function syncJobToJobPortalDb(job, payload = {}) {
     noCandidates: Boolean(job.noCandidates),
     slaRisk: Boolean(job.slaRisk),
     visibility: job.visibility || null,
-    showClientNamePublicly: job.showClientNamePublicly !== false,
+    showClientNamePublicly: job.showClientNamePublicly === false ? false : true,
+    publicFieldVisibility:
+      job.publicFieldVisibility && typeof job.publicFieldVisibility === 'object'
+        ? job.publicFieldVisibility
+        : null,
     distributionPlatforms: job.distributionPlatforms || null,
     supportingRecruiters: Array.isArray(job.supportingRecruiters) ? job.supportingRecruiters : [],
     applicationFormEnabled: Boolean(job.applicationFormEnabled),
     applicationFormLogo: job.applicationFormLogo || null,
     applicationFormQuestions: Array.isArray(job.applicationFormQuestions) ? job.applicationFormQuestions : [],
     applicationFormNote: job.applicationFormNote || null,
+    nationality: job.nationality || null,
+    country: job.country || null,
+    state: job.state || null,
+    city: job.city || null,
+    languages: job.languages || null,
+    forecastRevenue: job.forecastRevenue || null,
+    videoMediaLink: job.videoMediaLink || null,
+    postedDate: job.postedDate || job.createdAt || null,
   };
 
   await portalPrisma.job.upsert({
@@ -266,6 +320,25 @@ async function syncJobToJobPortalDb(job, payload = {}) {
     },
     update: jobPortalData,
   });
+
+  console.log(
+    `[syncJobToJobPortalDb] mirrored job ${job.id} → portal DB (tenant=${tenantDbName}, showClient=${jobPortalData.showClientNamePublicly})`,
+  );
+
+  const activeTenant = getActiveTenantDbName();
+  if (activeTenant && job?.id && job.tenantDbName !== activeTenant) {
+    try {
+      await prisma.job.update({
+        where: { id: job.id },
+        data: { tenantDbName: activeTenant },
+      });
+    } catch (tenantStampError) {
+      console.warn(
+        `[syncJobToJobPortalDb] could not stamp tenantDbName on job ${job.id}:`,
+        tenantStampError?.message || tenantStampError,
+      );
+    }
+  }
 
   // Mirror this job's pipeline stages into the portal DB so the
   // candidate-portal application-detail view can resolve the per-job
@@ -322,6 +395,8 @@ async function syncJobToJobPortalDb(job, payload = {}) {
       pipelineMirrorError?.message || pipelineMirrorError
     );
   }
+
+  await invalidatePortalJobsListCache();
 }
 
 /**
@@ -591,6 +666,7 @@ export const jobService = {
       skills: Array.isArray(job.skills) ? job.skills : [],
       preferredSkills: Array.isArray(job.preferredSkills) ? job.preferredSkills : [],
       keyResponsibilities: Array.isArray(job.keyResponsibilities) ? job.keyResponsibilities : [],
+      candidateRequirements: Array.isArray(job.candidateRequirements) ? job.candidateRequirements : [],
       location: job.location || null,
       type: job.type || null,
       status: job.status,
@@ -923,6 +999,7 @@ export const jobService = {
       skills: data.skills || [],
       preferredSkills: data.preferredSkills || [],
       keyResponsibilities: data.keyResponsibilities || [],
+      candidateRequirements: data.candidateRequirements || [],
       location: data.location,
       type: data.type || 'FULL_TIME',
       status: data.status || 'OPEN', // Default to OPEN when creating from client drawer
@@ -960,6 +1037,7 @@ export const jobService = {
       languages: data.languages,
       supportingRecruiters: data.supportingRecruiters,
       showClientNamePublicly: data.showClientNamePublicly !== false,
+      publicFieldVisibility: data.publicFieldVisibility || null,
     });
 
     if (data.clientId) {
@@ -1053,7 +1131,7 @@ export const jobService = {
     }
 
     try {
-      await syncJobToJobPortalDb(job, data);
+      await syncJobToPortal(job, data);
     } catch (syncError) {
       console.error(`Failed to sync job ${job.id} to job portal DB:`, syncError?.message || syncError);
     }
@@ -1127,6 +1205,8 @@ export const jobService = {
       skills: data.skills,
       preferredSkills: data.preferredSkills,
       keyResponsibilities: data.keyResponsibilities,
+      candidateRequirements: data.candidateRequirements,
+      publicFieldVisibility: data.publicFieldVisibility,
       location: data.location,
       type: data.type,
       status: data.status,
@@ -1156,6 +1236,7 @@ export const jobService = {
         data.showClientNamePublicly === undefined
           ? undefined
           : data.showClientNamePublicly !== false,
+      publicFieldVisibility: data.publicFieldVisibility,
       distributionPlatforms: data.distributionPlatforms,
       supportingRecruiters: data.supportingRecruiters,
       applicationFormEnabled: data.applicationFormEnabled,
@@ -1240,7 +1321,7 @@ export const jobService = {
       }
 
       try {
-        await syncJobToJobPortalDb(updatedJob, data);
+        await syncJobToPortal(updatedJob, data);
       } catch (syncError) {
         console.error(`Failed to sync job ${id} to job portal DB:`, syncError?.message || syncError);
       }
@@ -1425,7 +1506,7 @@ export const jobService = {
     }
 
     try {
-      await syncJobToJobPortalDb(updated, data);
+      await syncJobToPortal(updated, data);
     } catch (syncError) {
       console.error(`Failed to sync job ${id} to job portal DB:`, syncError?.message || syncError);
     }

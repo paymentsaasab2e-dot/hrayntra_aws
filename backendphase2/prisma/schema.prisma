@@ -635,6 +635,8 @@ model Job {
   // Extended fields from frontend (ClientDetailsDrawer Jobs tab)
   overview                 String?
   keyResponsibilities      String[]
+  /// Preferred education / qualifications (one string per bullet in CRM UI).
+  candidateRequirements    String[]  @default([])
   preferredSkills          String[]
   experienceRequired       String?
   education                String?
@@ -665,6 +667,8 @@ model Job {
   visibility               String? // Internal, Public
   /// When false, client/company name is hidden on Phase 1 portal listings and social job posts.
   showClientNamePublicly   Boolean?  @default(true)
+  /// Per-field public visibility for candidate portal, apply page, and social posts.
+  publicFieldVisibility    Json?
   distributionPlatforms    Json? // Distribution platforms (careerPage, linkedIn, naukri, indeed, internalDatabase)
   supportingRecruiters     String[]  @default([]) // Array of supporting recruiter user IDs
   applicationFormEnabled   Boolean   @default(false) // Enable job application form

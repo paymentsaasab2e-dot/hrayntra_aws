@@ -309,6 +309,7 @@ function mapBackendJobToJobForDrawer(backendJob: Record<string, any>, fallbackJo
     benefits: backendJob.benefits || undefined,
     description: backendJob.description || undefined,
     requirements: backendJob.requirements || undefined,
+    candidateRequirements: backendJob.candidateRequirements || undefined,
     nationality: backendJob.nationality || undefined,
     country: backendJob.country || undefined,
     state: backendJob.state || undefined,
@@ -329,6 +330,7 @@ function mapBackendJobToJobForDrawer(backendJob: Record<string, any>, fallbackJo
     managerName: backendJob.manager?.name || undefined,
     visibility: backendJob.visibility || undefined,
     showClientNamePublicly: backendJob.showClientNamePublicly !== false,
+    publicFieldVisibility: backendJob.publicFieldVisibility || undefined,
     auditMeta: extractAuditMeta(backendJob as Record<string, unknown>),
   };
 }

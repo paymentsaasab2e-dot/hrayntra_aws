@@ -78,6 +78,14 @@ import {
   buildJobContactPersonOptions,
   type JobContactPersonOption,
 } from '../../lib/jobClientContacts';
+import {
+  DEFAULT_JOB_PUBLIC_FIELD_VISIBILITY,
+  isJobFieldPubliclyVisible,
+  mergeClientVisibility,
+  parseJobPublicFieldVisibility,
+  toggleJobPublicFieldVisibility,
+} from '../../lib/jobPublicFieldVisibility';
+import { PublicVisibilityToggle } from '../forms/PublicVisibilityToggle';
 
 type ApplicationLogoOption = 'account' | 'company' | 'none' | 'custom';
 
@@ -694,6 +702,7 @@ export function CreateJobDrawer({
     numberOfOpenings: '1',
     companyId: '',
     showClientNamePublicly: true,
+    publicFieldVisibility: { ...DEFAULT_JOB_PUBLIC_FIELD_VISIBILITY },
     contactPersonId: '',
     contactPersonName: '',
     industryType: '',
@@ -715,6 +724,7 @@ export function CreateJobDrawer({
     jobSummary: '',
     keyResponsibilitiesText: '',
     qualificationsExperienceText: '',
+    candidateRequirementsText: '',
     compensationBenefitsText: '',
     minExperience: '',
     maxExperience: '',
@@ -824,6 +834,7 @@ export function CreateJobDrawer({
         numberOfOpenings: '1',
         companyId: '',
         showClientNamePublicly: true,
+        publicFieldVisibility: { ...DEFAULT_JOB_PUBLIC_FIELD_VISIBILITY },
         contactPersonId: '',
         contactPersonName: '',
         industryType: '',
@@ -842,6 +853,7 @@ export function CreateJobDrawer({
         jobSummary: '',
         keyResponsibilitiesText: '',
         qualificationsExperienceText: '',
+        candidateRequirementsText: '',
         compensationBenefitsText: '',
         minExperience: '',
         maxExperience: '',
@@ -1162,6 +1174,8 @@ export function CreateJobDrawer({
       languages: formData.languages,
       jobDescriptionHtml: formData.jobDescriptionHtml,
       applyUrl: effectiveApplyUrl,
+      showClientNamePublicly: formData.showClientNamePublicly,
+      publicFieldVisibility: formData.publicFieldVisibility,
     };
   }, [clients, effectiveApplyUrl, formData]);
 
@@ -1417,6 +1431,11 @@ export function CreateJobDrawer({
           ? job.requirements.join('\n')
           : getSectionTextFromHtml(job.description || '', 'requirements') ||
             getSectionTextFromHtml(job.description || '', 'qualifications');
+      const candidateRequirementsText =
+        Array.isArray((job as { candidateRequirements?: string[] }).candidateRequirements) &&
+        (job as { candidateRequirements?: string[] }).candidateRequirements!.length
+          ? (job as { candidateRequirements?: string[] }).candidateRequirements!.join('\n')
+          : getSectionTextFromHtml(job.description || '', 'candidate requirements');
       const benefitsText =
         Array.isArray(job.benefits) && job.benefits.length
           ? job.benefits.join('\n')
@@ -1467,6 +1486,10 @@ export function CreateJobDrawer({
         priority: jobExtras.priority || 'Medium',
         companyId: job.clientId || '',
         showClientNamePublicly: (job as { showClientNamePublicly?: boolean }).showClientNamePublicly !== false,
+        publicFieldVisibility: mergeClientVisibility(
+          parseJobPublicFieldVisibility((job as { publicFieldVisibility?: unknown }).publicFieldVisibility),
+          (job as { showClientNamePublicly?: boolean }).showClientNamePublicly !== false,
+        ),
         contactPersonId: jobExtras.hiringManagerId || '',
         contactPersonName: jobExtras.hiringManager || '',
         numberOfOpenings: String(job.openings || 1),
@@ -1495,6 +1518,7 @@ export function CreateJobDrawer({
         jobSummary: job.overview || plainDescription,
         keyResponsibilitiesText: responsibilitiesText,
         qualificationsExperienceText: qualificationsText,
+        candidateRequirementsText,
         compensationBenefitsText: benefitsText,
         minExperience,
         maxExperience,
@@ -2235,6 +2259,8 @@ export function CreateJobDrawer({
         keyResponsibilitiesText: data.keyResponsibilitiesText || prev.keyResponsibilitiesText,
         qualificationsExperienceText:
           data.qualificationsExperienceText || prev.qualificationsExperienceText,
+        candidateRequirementsText:
+          data.candidateRequirementsText || prev.candidateRequirementsText,
         compensationBenefitsText: data.compensationBenefitsText || prev.compensationBenefitsText,
         educationalQualification: data.educationalQualification || prev.educationalQualification,
         educationalSpecialization:
@@ -2564,6 +2590,7 @@ export function CreateJobDrawer({
 
       const keyResponsibilities = toList(formData.keyResponsibilitiesText);
       const qualifications = toList(formData.qualificationsExperienceText);
+      const candidateRequirements = toList(formData.candidateRequirementsText);
       const benefits = toList(formData.compensationBenefitsText);
       const composedDescription = [
         `<h2>${formData.jobTitle.trim()}</h2>`,
@@ -2572,7 +2599,10 @@ export function CreateJobDrawer({
           ? `<h3>Key Responsibilities</h3><ul>${keyResponsibilities.map((item) => `<li>${item}</li>`).join('')}</ul>`
           : '',
         qualifications.length
-          ? `<h3>Qualifications and Experience</h3><ul>${qualifications.map((item) => `<li>${item}</li>`).join('')}</ul>`
+          ? `<h3>Preferred Education / Qualifications</h3><ul>${qualifications.map((item) => `<li>${item}</li>`).join('')}</ul>`
+          : '',
+        candidateRequirements.length
+          ? `<h3>Candidate Requirements</h3><ul>${candidateRequirements.map((item) => `<li>${item}</li>`).join('')}</ul>`
           : '',
         benefits.length
           ? `<h3>Compensation & Benefits</h3><ul>${benefits.map((item) => `<li>${item}</li>`).join('')}</ul>`
@@ -2621,6 +2651,7 @@ export function CreateJobDrawer({
         jobCategory: formData.industryType.trim() || undefined,
         expectedClosureDate: formData.targetHireDate || undefined,
         keyResponsibilities,
+        candidateRequirements,
         experienceRequired:
           Number.isFinite(parsedMinExp) || Number.isFinite(parsedMaxExp)
             ? `${Number.isFinite(parsedMinExp) ? parsedMinExp : ''}${Number.isFinite(parsedMaxExp) ? `-${parsedMaxExp}` : ''}`.trim()
@@ -2663,6 +2694,10 @@ export function CreateJobDrawer({
             : null
           : formData.assignedToId || undefined,
         showClientNamePublicly: formData.showClientNamePublicly,
+        publicFieldVisibility: mergeClientVisibility(
+          formData.publicFieldVisibility,
+          formData.showClientNamePublicly,
+        ),
       };
 
       let createdJobId: string | undefined;
@@ -2735,7 +2770,11 @@ export function CreateJobDrawer({
             title: formData.jobTitle,
             companyName,
             showClientNamePublicly: formData.showClientNamePublicly,
-            description: formData.jobDescriptionHtml ? formData.jobDescriptionHtml.replace(/<[^>]*>/g, '') : undefined,
+            description:
+              isJobFieldPubliclyVisible(formData.publicFieldVisibility, 'jobDescription') &&
+              formData.jobDescriptionHtml
+                ? formData.jobDescriptionHtml.replace(/<[^>]*>/g, '')
+                : undefined,
             applyUrl,
             location: formData.city || formData.fullAddress || undefined,
             platforms: platformsToPublish,
@@ -2862,6 +2901,7 @@ export function CreateJobDrawer({
           priority: prev.priority,
           companyId: prev.companyId,
           showClientNamePublicly: prev.showClientNamePublicly,
+          publicFieldVisibility: prev.publicFieldVisibility,
           contactPersonId: prev.contactPersonId,
           contactPersonName: prev.contactPersonName,
           numberOfOpenings: prev.numberOfOpenings,
@@ -2878,6 +2918,9 @@ export function CreateJobDrawer({
           salaryCurrency: prev.currency,
           languages: prev.languages,
           skills: prev.skills,
+          keyResponsibilitiesText: prev.keyResponsibilitiesText,
+          qualificationsExperienceText: prev.qualificationsExperienceText,
+          candidateRequirementsText: prev.candidateRequirementsText,
           videoMediaLink: prev.videoMediaLink,
           forecastRevenue: prev.forecastRevenue,
           managerId: prev.managerId,
@@ -2910,6 +2953,7 @@ export function CreateJobDrawer({
     priority: formData.priority,
     companyId: formData.companyId,
     showClientNamePublicly: formData.showClientNamePublicly,
+    publicFieldVisibility: formData.publicFieldVisibility,
     contactPersonId: formData.contactPersonId,
     contactPersonName: formData.contactPersonName,
     numberOfOpenings: formData.numberOfOpenings,
@@ -2926,6 +2970,9 @@ export function CreateJobDrawer({
     salaryCurrency: formData.currency,
     languages: formData.languages,
     skills: formData.skills,
+    keyResponsibilitiesText: formData.keyResponsibilitiesText,
+    qualificationsExperienceText: formData.qualificationsExperienceText,
+    candidateRequirementsText: formData.candidateRequirementsText,
     videoMediaLink: formData.videoMediaLink,
     forecastRevenue: formData.forecastRevenue,
     managerId: formData.managerId,
@@ -3028,6 +3075,21 @@ export function CreateJobDrawer({
                           <span className="font-normal text-slate-500">(optional)</span>
                         </h3>
                         <div className="flex flex-wrap items-center gap-2">
+                          <PublicVisibilityToggle
+                            visible={isJobFieldPubliclyVisible(
+                              formData.publicFieldVisibility,
+                              'jobDescription',
+                            )}
+                            onToggle={() =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                publicFieldVisibility: toggleJobPublicFieldVisibility(
+                                  parseJobPublicFieldVisibility(prev.publicFieldVisibility),
+                                  'jobDescription',
+                                ),
+                              }))
+                            }
+                          />
                           <button
                             type="button"
                             onClick={() => smartJobFileInputRef.current?.click()}
@@ -3636,11 +3698,32 @@ export function CreateJobDrawer({
                                 <LinkedInPostPreview
                                   userName={selectedLinkedInPreviewAccount?.name || linkedIn.linkedinUser?.name || 'Your LinkedIn profile'}
                                   userPicture={selectedLinkedInPreviewAccount?.picture || linkedIn.linkedinUser?.picture}
-                                  jobTitle={formData.jobTitle}
-                                  company={clients.find(c => c.id === formData.companyId)?.companyName || ''}
-                                  description={formData.jobDescriptionHtml ? formData.jobDescriptionHtml.replace(/<[^>]*>/g, '') : undefined}
+                                  jobTitle={
+                                    isJobFieldPubliclyVisible(formData.publicFieldVisibility, 'jobTitle')
+                                      ? formData.jobTitle
+                                      : ''
+                                  }
+                                  company={
+                                    isJobFieldPubliclyVisible(
+                                      formData.publicFieldVisibility,
+                                      'client',
+                                      formData.showClientNamePublicly,
+                                    )
+                                      ? clients.find((c) => c.id === formData.companyId)?.companyName || ''
+                                      : ''
+                                  }
+                                  description={
+                                    isJobFieldPubliclyVisible(formData.publicFieldVisibility, 'jobDescription') &&
+                                    formData.jobDescriptionHtml
+                                      ? formData.jobDescriptionHtml.replace(/<[^>]*>/g, '')
+                                      : undefined
+                                  }
                                   applyUrl={effectiveApplyUrl}
-                                  location={formData.city || formData.state || formData.country || formData.fullAddress || undefined}
+                                  location={
+                                    isJobFieldPubliclyVisible(formData.publicFieldVisibility, 'location')
+                                      ? formData.city || formData.state || formData.country || formData.fullAddress || undefined
+                                      : undefined
+                                  }
                                   postText={linkedInPostText}
                                 />
                               </div>

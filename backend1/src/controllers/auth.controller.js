@@ -7,37 +7,83 @@ const { OtpStatus } = require('@prisma/client');
 const { isPortalPlaceholderFullName } = require('../utils/portal-profile-placeholder.util');
 const jwt = require('jsonwebtoken');
 
+async function detachLoginIdentifiersFromCandidate(candidate, { normalizedEmail, fullWhatsAppNumber }) {
+  const patch = {};
+  if ((candidate.email || '').toLowerCase() === normalizedEmail) {
+    patch.email = null;
+  }
+  if (candidate.whatsappNumber === fullWhatsAppNumber) {
+    patch.whatsappNumber = null;
+  }
+  if (Object.keys(patch).length === 0) {
+    return;
+  }
+  await retryQuery(async () => {
+    return await prisma.candidate.update({
+      where: { id: candidate.id },
+      data: patch,
+    });
+  });
+}
+
+async function updateCandidateLoginFields(candidate, { normalizedEmail, fullWhatsAppNumber, countryCode }) {
+  const needsUpdate =
+    (candidate.email || '').toLowerCase() !== normalizedEmail ||
+    candidate.countryCode !== countryCode ||
+    candidate.whatsappNumber !== fullWhatsAppNumber;
+
+  if (!needsUpdate) {
+    return candidate;
+  }
+
+  return retryQuery(async () => {
+    return await prisma.candidate.update({
+      where: { id: candidate.id },
+      data: {
+        email: normalizedEmail,
+        countryCode,
+        whatsappNumber: fullWhatsAppNumber,
+      },
+    });
+  });
+}
+
+/**
+ * Resolve candidate for OTP login when email + WhatsApp may exist on separate legacy rows.
+ * User proves both on login, so we merge onto one record instead of blocking with 409.
+ */
 async function getOrCreateCandidateForOtp({
   candidateId,
   normalizedEmail,
   fullWhatsAppNumber,
   countryCode,
 }) {
-  let candidate = await retryQuery(async () => {
-    return await prisma.candidate.findFirst({
-      where: { email: normalizedEmail },
-    });
-  });
-
-  if (!candidate) {
-    candidate = await retryQuery(async () => {
-      return await prisma.candidate.findUnique({
+  const [byEmail, byId, byWhatsApp] = await Promise.all([
+    retryQuery(async () =>
+      prisma.candidate.findFirst({
+        where: { email: normalizedEmail },
+      }),
+    ),
+    retryQuery(async () =>
+      prisma.candidate.findUnique({
         where: { id: candidateId },
-      });
-    });
-  }
-
-  if (!candidate) {
-    candidate = await retryQuery(async () => {
-      return await prisma.candidate.findUnique({
+      }),
+    ),
+    retryQuery(async () =>
+      prisma.candidate.findUnique({
         where: { whatsappNumber: fullWhatsAppNumber },
-      });
-    });
+      }),
+    ),
+  ]);
+
+  const linked = new Map();
+  for (const row of [byEmail, byId, byWhatsApp]) {
+    if (row) linked.set(row.id, row);
   }
 
-  if (!candidate) {
+  if (linked.size === 0) {
     try {
-      candidate = await retryQuery(async () => {
+      return await retryQuery(async () => {
         return await prisma.candidate.upsert({
           where: { id: candidateId },
           update: {
@@ -56,39 +102,46 @@ async function getOrCreateCandidateForOtp({
       });
     } catch (error) {
       if (error.code === 'P2002' || error.code === 'P2034') {
-        candidate = await retryQuery(async () => {
+        const fallback = await retryQuery(async () => {
           return await prisma.candidate.findFirst({
             where: {
               OR: [{ email: normalizedEmail }, { whatsappNumber: fullWhatsAppNumber }],
             },
           });
         });
+        if (fallback) {
+          return getOrCreateCandidateForOtp({
+            candidateId,
+            normalizedEmail,
+            fullWhatsAppNumber,
+            countryCode,
+          });
+        }
       }
-      if (!candidate) {
-        throw error;
-      }
+      throw error;
     }
   }
 
-  const needsUpdate =
-    (candidate.email || '').toLowerCase() !== normalizedEmail ||
-    candidate.countryCode !== countryCode ||
-    candidate.whatsappNumber !== fullWhatsAppNumber;
-
-  if (needsUpdate) {
-    candidate = await retryQuery(async () => {
-      return await prisma.candidate.update({
-        where: { id: candidate.id },
-        data: {
-          email: normalizedEmail,
-          countryCode,
-          whatsappNumber: fullWhatsAppNumber,
-        },
-      });
-    });
+  // Prefer the WhatsApp-linked row (unique phone), then email-id row, then email match.
+  const primary = byWhatsApp || byId || byEmail;
+  if (!primary) {
+    throw new Error('Failed to resolve candidate for OTP login');
   }
 
-  return candidate;
+  for (const secondary of linked.values()) {
+    if (secondary.id !== primary.id) {
+      await detachLoginIdentifiersFromCandidate(secondary, {
+        normalizedEmail,
+        fullWhatsAppNumber,
+      });
+    }
+  }
+
+  return updateCandidateLoginFields(primary, {
+    normalizedEmail,
+    fullWhatsAppNumber,
+    countryCode,
+  });
 }
 
 /**
@@ -197,6 +250,12 @@ async function sendOTP(req, res) {
     });
   } catch (error) {
     console.error('Error sending OTP:', error);
+    if (error.statusCode === 409 || error.code === 'CANDIDATE_IDENTITY_CONFLICT') {
+      return res.status(409).json({
+        success: false,
+        message: error.message,
+      });
+    }
     res.status(500).json({
       success: false,
       message: 'Failed to send OTP',
@@ -466,6 +525,12 @@ async function verifyOTP(req, res) {
     });
   } catch (error) {
     console.error('Error verifying OTP:', error);
+    if (error.statusCode === 409 || error.code === 'CANDIDATE_IDENTITY_CONFLICT') {
+      return res.status(409).json({
+        success: false,
+        message: error.message,
+      });
+    }
     res.status(500).json({
       success: false,
       message: 'Failed to verify OTP',

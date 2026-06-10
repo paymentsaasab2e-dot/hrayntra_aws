@@ -9,8 +9,13 @@ const cache = {
   lastFetched: 0,
   TTL: 300000, // 5 minutes
   /** Bump when job list payload shape changes so old cache entries cannot hide new fields (e.g. screening questions). */
-  version: 4,
+  version: 5,
 };
+
+function invalidateJobsListCache() {
+  cache.jobs = null;
+  cache.lastFetched = 0;
+}
 
 /** When recruiters upload a job / apply-form image, Phase 2 stores HTTPS URL here — use for portal job cards */
 function listingImageUrlFromJob(job) {
@@ -1254,6 +1259,18 @@ async function bulkDeleteJobs(req, res) {
   }
 }
 
+/**
+ * Clear in-memory jobs list cache (called by Phase 2 after CRM job edits).
+ * POST /api/jobs/cache/invalidate
+ */
+async function invalidateJobsCache(req, res) {
+  invalidateJobsListCache();
+  res.json({
+    success: true,
+    message: 'Jobs list cache cleared',
+  });
+}
+
 module.exports = {
   getAllJobs,
   getJobById,
@@ -1263,4 +1280,5 @@ module.exports = {
   getPersonalizedJobs,
   deleteJob,
   bulkDeleteJobs,
+  invalidateJobsCache,
 };

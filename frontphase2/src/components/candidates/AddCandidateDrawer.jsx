@@ -36,9 +36,23 @@ import {
   apiUpdateCandidate,
   apiUploadCandidateAvatar,
   apiUploadCandidateResumeFile,
-  buildSocketBaseUrl,
 } from '@/lib/api';
-import { getApiErrorMessage, withApiRetry } from '@/lib/apiNetworkErrors';
+import {
+  bulkCvPoolSize,
+  getBulkCvApiNode,
+  pickAlternateBulkCvNode,
+  pickBulkCvNodeForWorkItem,
+  pickBulkCvZipNode,
+  resolveBulkCvApiPool,
+} from '@/lib/bulkCvApiPool';
+import { getApiErrorMessage, isRetryableApiError, sleep, withApiRetry } from '@/lib/apiNetworkErrors';
+import {
+  resolveBulkCvConcurrency,
+  resolveBulkCvInterFileDelayMs,
+  resolveBulkCvMaxRetries,
+  resolveBulkCvRetryBaseDelayMs,
+  resolveBulkCvWorkerStaggerMs,
+} from '@/lib/bulkCvRuntime';
 import {
   EMPTY_EDUCATION_ENTRY,
   buildEducationSummaryFromCvEntries,
@@ -740,6 +754,12 @@ function AddCandidateDrawerInner({
   const stopBulkParsingRef = useRef(() => {});
   const bulkResumeAbortRef = useRef(null);
   const bulkCvSocketRef = useRef(null);
+  /** One Socket.IO client per bulk CV API node (for load-balanced parse + duplicate resolution). */
+  const bulkCvSocketsRef = useRef([]);
+  /** API pool index where the current ZIP session was expanded (stored files must stay on this node). */
+  const bulkCvZipNodeIndexRef = useRef(null);
+  /** fileIndex → API pool index (which node parsed / owns duplicate waiters). */
+  const bulkCvFileNodeIndexRef = useRef(new Map());
   const bulkCvSessionIdRef = useRef('');
   const bulkCvCurrentFileIndexRef = useRef(-1);
   /** Parallel bulk parse: duplicate modals must queue so each fileIndex gets a user decision. */
@@ -773,22 +793,24 @@ function AddCandidateDrawerInner({
     }
   };
 
+  const emitBulkCvDuplicateDecision = (fileIndex, decision) => {
+    const sid = bulkCvSessionIdRef.current;
+    if (!sid || fileIndex === undefined || fileIndex === null) return;
+    const nodeIndex = bulkCvFileNodeIndexRef.current.get(fileIndex) ?? 0;
+    const socket = bulkCvSocketsRef.current[nodeIndex] || bulkCvSocketRef.current;
+    try {
+      socket?.emit('duplicate_decision', { sessionId: sid, fileIndex, decision });
+    } catch {
+      /* ignore */
+    }
+  };
+
   const autoRespondBulkDuplicate = (payload, decision) => {
     const fileIndex = payload?.fileIndex;
     if (fileIndex !== undefined && fileIndex !== null) {
       bulkCvDupAwaitingIndicesRef.current.delete(fileIndex);
     }
-    const sid = bulkCvSessionIdRef.current;
-    if (!sid || !bulkCvSocketRef.current) return;
-    try {
-      bulkCvSocketRef.current.emit('duplicate_decision', {
-        sessionId: sid,
-        fileIndex,
-        decision,
-      });
-    } catch {
-      /* ignore */
-    }
+    emitBulkCvDuplicateDecision(fileIndex, decision);
   };
 
   const handleBulkCvDuplicateFound = (payload) => {
@@ -966,12 +988,17 @@ function AddCandidateDrawerInner({
       // ignore
     }
     bulkResumeAbortRef.current = null;
-    try {
-      bulkCvSocketRef.current?.disconnect();
-    } catch (_e) {
-      /* ignore */
+    for (const socket of bulkCvSocketsRef.current || []) {
+      try {
+        socket?.disconnect();
+      } catch (_e) {
+        /* ignore */
+      }
     }
+    bulkCvSocketsRef.current = [];
     bulkCvSocketRef.current = null;
+    bulkCvZipNodeIndexRef.current = null;
+    bulkCvFileNodeIndexRef.current.clear();
     bulkCvSessionIdRef.current = '';
     bulkCvCurrentFileIndexRef.current = -1;
     bulkCvDupQueueRef.current = [];
@@ -990,26 +1017,14 @@ function AddCandidateDrawerInner({
       bulkResumeStopRequestedRef.current = true;
       setBulkResumeStopRequested(true);
     }
-    const sid = bulkCvSessionIdRef.current;
-    const socket = bulkCvSocketRef.current;
-    if (sid && socket) {
-      const indices = new Set(bulkCvDupAwaitingIndicesRef.current);
-      const modalIdx = bulkDuplicateModal?.fileIndex;
-      if (modalIdx !== undefined && modalIdx !== null) indices.add(modalIdx);
-      bulkCvDupQueueRef.current.forEach((p) => {
-        if (p?.fileIndex !== undefined && p?.fileIndex !== null) indices.add(p.fileIndex);
-      });
-      for (const fileIndex of indices) {
-        try {
-          socket.emit('duplicate_decision', {
-            sessionId: sid,
-            fileIndex,
-            decision: 'cancel',
-          });
-        } catch (_e) {
-          /* ignore */
-        }
-      }
+    const indices = new Set(bulkCvDupAwaitingIndicesRef.current);
+    const modalIdx = bulkDuplicateModal?.fileIndex;
+    if (modalIdx !== undefined && modalIdx !== null) indices.add(modalIdx);
+    bulkCvDupQueueRef.current.forEach((p) => {
+      if (p?.fileIndex !== undefined && p?.fileIndex !== null) indices.add(p.fileIndex);
+    });
+    for (const fileIndex of indices) {
+      emitBulkCvDuplicateDecision(fileIndex, 'cancel');
     }
     bulkCvDupAwaitingIndicesRef.current.clear();
     bulkCvDupQueueRef.current = [];
@@ -1610,8 +1625,13 @@ function AddCandidateDrawerInner({
 
     const storedBase = append && !clearZip ? bulkCvStoredEntries : clearZip ? [] : bulkCvStoredEntries;
     if (clearZip && bulkCvStoredEntries.length && bulkCvSessionIdRef.current) {
-      apiBulkCvReleaseZip(bulkCvSessionIdRef.current).catch(() => {});
+      const zipNode =
+        bulkCvZipNodeIndexRef.current != null
+          ? getBulkCvApiNode(bulkCvZipNodeIndexRef.current)
+          : pickBulkCvZipNode();
+      apiBulkCvReleaseZip(bulkCvSessionIdRef.current, { apiBase: zipNode.apiBase }).catch(() => {});
       bulkCvSessionIdRef.current = '';
+      bulkCvZipNodeIndexRef.current = null;
     }
     if (clearZip) setBulkCvStoredEntries([]);
 
@@ -1695,11 +1715,19 @@ function AddCandidateDrawerInner({
     setEntryError('');
     try {
       if (bulkCvSessionIdRef.current) {
-        await apiBulkCvReleaseZip(bulkCvSessionIdRef.current).catch(() => {});
+        const prevZipNode =
+          bulkCvZipNodeIndexRef.current != null
+            ? getBulkCvApiNode(bulkCvZipNodeIndexRef.current)
+            : pickBulkCvZipNode();
+        await apiBulkCvReleaseZip(bulkCvSessionIdRef.current, { apiBase: prevZipNode.apiBase }).catch(
+          () => {}
+        );
       }
       const sessionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 11)}`;
       bulkCvSessionIdRef.current = sessionId;
-      const res = await apiBulkCvExpandZip(zip, sessionId);
+      const zipNode = pickBulkCvZipNode();
+      bulkCvZipNodeIndexRef.current = zipNode.index;
+      const res = await apiBulkCvExpandZip(zip, sessionId, { apiBase: zipNode.apiBase });
       const data = res.data || {};
       const files = Array.isArray(data.files) ? data.files : [];
       setBulkResumeFiles([]);
@@ -1774,40 +1802,41 @@ function AddCandidateDrawerInner({
       }));
     };
 
-    const rawConc = Number(
-      typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_BULK_CV_CONCURRENCY : NaN
-    );
-    const rawMaxConc = Number(
-      typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_BULK_CV_MAX_CONCURRENCY : NaN
-    );
-    const BULK_CV_MAX_CONCURRENCY = Math.min(
-      12,
-      Math.max(1, Number.isFinite(rawMaxConc) && rawMaxConc > 0 ? Math.floor(rawMaxConc) : 12)
-    );
-    const BULK_CV_CONCURRENCY = Math.min(
-      BULK_CV_MAX_CONCURRENCY,
-      Math.max(1, Number.isFinite(rawConc) && rawConc > 0 ? Math.floor(rawConc) : 3)
-    );
-    const rawMaxRetries = Number(
-      typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_BULK_CV_MAX_RETRIES : NaN
-    );
-    const BULK_CV_MAX_RETRIES = Math.max(
-      1,
-      Number.isFinite(rawMaxRetries) && rawMaxRetries > 0 ? Math.floor(rawMaxRetries) : 3
-    );
+    const BULK_CV_CONCURRENCY = resolveBulkCvConcurrency();
+    const BULK_CV_MAX_RETRIES = resolveBulkCvMaxRetries();
+    const BULK_CV_INTER_FILE_DELAY_MS = resolveBulkCvInterFileDelayMs();
+    const BULK_CV_WORKER_STAGGER_MS = resolveBulkCvWorkerStaggerMs();
+    /** fileIndex → active API node for parse retries / duplicate socket routing */
+    const activeApiNodes = new Map();
 
     const runBulkCvStep = async (index, label, operation) =>
       withApiRetry(operation, {
         maxAttempts: BULK_CV_MAX_RETRIES,
-        baseDelayMs: 2000,
+        baseDelayMs: resolveBulkCvRetryBaseDelayMs(),
         signal: abortSignal,
         onRetry: (attempt, retryError) => {
+          const wi = workItems[index];
+          const current = activeApiNodes.get(index);
+          if (
+            wi?.kind !== 'stored' &&
+            isRetryableApiError(retryError) &&
+            bulkCvPoolSize() > 1 &&
+            current
+          ) {
+            const alt = pickAlternateBulkCvNode(current.index, index);
+            activeApiNodes.set(index, alt);
+            bulkCvFileNodeIndexRef.current.set(index, alt.index);
+          }
           setBulkResumeResults((prev) => {
             const next = [...prev];
+            const nodeLabel =
+              bulkCvPoolSize() > 1 && activeApiNodes.get(index)
+                ? ` · API ${activeApiNodes.get(index).index + 1}/${bulkCvPoolSize()}`
+                : '';
             next[index] = {
               ...next[index],
               status: 'processing',
-              message: `${label} — retry ${attempt + 1}/${BULK_CV_MAX_RETRIES} (${getApiErrorMessage(retryError)})`,
+              message: `${label} — retry ${attempt + 1}/${BULK_CV_MAX_RETRIES}${nodeLabel} (${getApiErrorMessage(retryError)})`,
             };
             return next;
           });
@@ -1818,7 +1847,8 @@ function AddCandidateDrawerInner({
     bulkCvSessionIdRef.current = sessionId;
     beginBulkCvTokenSession(sessionId);
 
-    let socket = null;
+    const bulkCvApiPool = resolveBulkCvApiPool();
+    let sockets = [];
     try {
       const { io } = await import('socket.io-client');
       const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
@@ -1827,31 +1857,47 @@ function AddCandidateDrawerInner({
       if (!token) {
         throw new Error('Not logged in — cannot run bulk CV with duplicate detection.');
       }
-      socket = io(buildSocketBaseUrl(), {
-        auth: { token, ...(tenantDbName ? { tenantDbName } : {}) },
-        transports: ['websocket', 'polling'],
-      });
-      bulkCvSocketRef.current = socket;
 
-      await new Promise((resolve, reject) => {
-        socket.once('connect', () => resolve());
-        socket.once('connect_error', (err) => reject(err));
-      });
+      sockets = await Promise.all(
+        bulkCvApiPool.map(async (node) => {
+          const socket = io(node.socketOrigin, {
+            auth: { token, ...(tenantDbName ? { tenantDbName } : {}) },
+            transports: ['websocket', 'polling'],
+          });
+          await new Promise((resolve, reject) => {
+            socket.once('connect', () => resolve());
+            socket.once('connect_error', (err) => reject(err));
+          });
+          socket.emit('bulk_cv_join', { sessionId });
+          socket.on('duplicate_found', handleBulkCvDuplicateFound);
+          return socket;
+        })
+      );
 
-      socket.emit('bulk_cv_join', { sessionId });
-      socket.on('duplicate_found', handleBulkCvDuplicateFound);
+      bulkCvSocketsRef.current = sockets;
+      bulkCvSocketRef.current = sockets[0] || null;
+
+      if (bulkCvApiPool.length > 1) {
+        console.log(
+          `[bulk-cv] load pool: ${bulkCvApiPool.length} API nodes`,
+          bulkCvApiPool.map((n) => n.apiBase)
+        );
+      }
     } catch (socketErr) {
       console.error('[bulk-cv] Socket init failed', socketErr);
       setBulkResumePhase('preview');
       setEntryError(
         socketErr?.message ||
-          'Could not connect for duplicate detection. Check that the API server is running and Socket.IO is enabled.'
+          'Could not connect for duplicate detection. Check that bulk CV API nodes are running and Socket.IO is enabled.'
       );
-      try {
-        socket?.disconnect();
-      } catch (_e) {
-        /* ignore */
+      for (const socket of sockets) {
+        try {
+          socket?.disconnect();
+        } catch (_e) {
+          /* ignore */
+        }
       }
+      bulkCvSocketsRef.current = [];
       bulkCvSocketRef.current = null;
       bulkCvSessionIdRef.current = '';
       return;
@@ -1891,17 +1937,25 @@ function AddCandidateDrawerInner({
         return next;
       });
 
+      const isStoredZipFile = item.kind === 'stored';
+      const apiNode = pickBulkCvNodeForWorkItem({
+        fileIndex: index,
+        zipPinnedNodeIndex: bulkCvZipNodeIndexRef.current,
+        isStoredZipFile,
+      });
+      activeApiNodes.set(index, apiNode);
+      bulkCvFileNodeIndexRef.current.set(index, apiNode.index);
+
       try {
-        const parsedResponse = await runBulkCvStep(index, 'Parsing CV', () =>
-          apiBulkCvProcessFile(
-            item.kind === 'stored'
-              ? { storedFileId: item.storedFileId }
-              : { file: item.file },
+        const parsedResponse = await runBulkCvStep(index, 'Parsing CV', () => {
+          const node = activeApiNodes.get(index) || apiNode;
+          return apiBulkCvProcessFile(
+            isStoredZipFile ? { storedFileId: item.storedFileId } : { file: item.file },
             sessionId,
             index,
-            { signal: abortSignal }
-          )
-        );
+            { signal: abortSignal, apiBase: node.apiBase }
+          );
+        });
         const envelope = parsedResponse.data || {};
 
         if (envelope?.skipped) {
@@ -2041,17 +2095,27 @@ function AddCandidateDrawerInner({
       }
     };
 
-    async function poolWorker() {
+    async function poolWorker(workerId) {
+      if (workerId > 0 && BULK_CV_WORKER_STAGGER_MS > 0) {
+        await sleep(workerId * BULK_CV_WORKER_STAGGER_MS);
+      }
       while (true) {
         const index = nextFileIndex++;
         if (index >= fileCount) return;
         await processIndex(index);
+        if (
+          BULK_CV_INTER_FILE_DELAY_MS > 0 &&
+          !bulkResumeStopRequestedRef.current &&
+          nextFileIndex < fileCount
+        ) {
+          await sleep(BULK_CV_INTER_FILE_DELAY_MS);
+        }
       }
     }
 
     try {
       const poolSize = Math.min(BULK_CV_CONCURRENCY, fileCount);
-      await Promise.all(Array.from({ length: poolSize }, () => poolWorker()));
+      await Promise.all(Array.from({ length: poolSize }, (_, workerId) => poolWorker(workerId)));
 
       for (let i = 0; i < fileCount; i += 1) {
         if (outcomes[i] != null) continue;
@@ -2065,19 +2129,28 @@ function AddCandidateDrawerInner({
       }
     } finally {
       if (bulkCvStoredEntries.length) {
-        apiBulkCvReleaseZip(sessionId).catch(() => {});
+        const zipNode =
+          bulkCvZipNodeIndexRef.current != null
+            ? getBulkCvApiNode(bulkCvZipNodeIndexRef.current)
+            : pickBulkCvZipNode();
+        apiBulkCvReleaseZip(sessionId, { apiBase: zipNode.apiBase }).catch(() => {});
       }
       bulkCvDupQueueRef.current = [];
       bulkCvDupAwaitingIndicesRef.current.clear();
       bulkCvDupShowingRef.current = false;
       setBulkDuplicateModal(null);
       bulkCvCurrentFileIndexRef.current = -1;
-      try {
-        socket?.disconnect();
-      } catch (_e) {
-        /* ignore */
+      for (const socket of bulkCvSocketsRef.current || []) {
+        try {
+          socket?.disconnect();
+        } catch (_e) {
+          /* ignore */
+        }
       }
+      bulkCvSocketsRef.current = [];
       bulkCvSocketRef.current = null;
+      bulkCvZipNodeIndexRef.current = null;
+      bulkCvFileNodeIndexRef.current.clear();
       bulkCvSessionIdRef.current = '';
     }
 
@@ -2695,15 +2768,7 @@ function AddCandidateDrawerInner({
     if (modal.fileIndex !== undefined && modal.fileIndex !== null) {
       bulkCvDupAwaitingIndicesRef.current.delete(modal.fileIndex);
     }
-    try {
-      bulkCvSocketRef.current?.emit('duplicate_decision', {
-        sessionId: sid,
-        fileIndex: modal.fileIndex,
-        decision,
-      });
-    } catch (_e) {
-      /* ignore */
-    }
+    emitBulkCvDuplicateDecision(modal.fileIndex, decision);
     const next = bulkCvDupQueueRef.current.shift();
     if (next) {
       setBulkDuplicateModal(next);

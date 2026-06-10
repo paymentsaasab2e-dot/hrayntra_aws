@@ -28,6 +28,7 @@ import {
   releaseBulkCvZipSession,
   removeBulkCvStoredFile,
 } from '../services/bulkCvZipStore.js';
+import { withBulkCvProcessSlot } from '../services/bulkCvProcessLimiter.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1244,6 +1245,7 @@ export const addCandidateController = {
         return res.status(400).json({ success: false, message: 'fileIndex is required (0-based)' });
       }
 
+      return await withBulkCvProcessSlot(async () => {
       const allowedMimeTypes = [
         'application/pdf',
         'application/msword',
@@ -1515,6 +1517,7 @@ export const addCandidateController = {
           fileIndex,
           tokenUsage,
         },
+      });
       });
     } catch (error) {
       console.error('[bulk-cv] bulkCvProcessFile failed:', error?.message || error);
