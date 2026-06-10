@@ -1,4 +1,5 @@
 import type { BackendCandidate } from './api';
+import { normalizeWorkExperienceRecord } from './candidateWorkExperienceFields';
 import {
   enrichBackendCandidateFromPhase1Snapshot,
   getPhase1ProfileSnapshot,
@@ -15,6 +16,17 @@ export type CvWorkEntryLike = {
   durationText?: string | null;
   responsibilities?: string[] | null;
   isCurrentJob?: boolean | null;
+  employmentType?: string | null;
+  industryDomain?: string | null;
+  numberOfReportees?: string | null;
+  currentlyWorkHere?: boolean | null;
+  workMode?: string | null;
+  companyProfile?: string | null;
+  companyTurnover?: string | null;
+  keyResponsibilities?: string | null;
+  achievements?: string | null;
+  workSkills?: string[] | string | null;
+  documents?: Array<{ id?: string; name?: string; url?: string; fileName?: string }> | null;
 };
 
 function parseDurationYears(text: string): number | null {
@@ -92,23 +104,27 @@ export function normalizeCvWorkEntry(entry: CvWorkEntryLike): CvWorkEntryLike {
 }
 
 function workRecordToCvEntry(row: Record<string, unknown>): CvWorkEntryLike {
+  const normalized = normalizeWorkExperienceRecord(row);
   const entry = normalizeCvWorkEntry({
-    title: (row.jobTitle as string) || (row.title as string) || null,
-    company: (row.company as string) || (row.companyName as string) || null,
-    location: (row.workLocation as string) || (row.location as string) || null,
-    startDate: (row.startDate as string) || null,
-    endDate: (row.endDate as string) || null,
-    durationText: (row.durationText as string) || null,
-    isCurrentJob:
-      row.currentlyWorking === true ||
-      row.currentlyWorkHere === true ||
-      row.isCurrentJob === true ||
-      isOpenEndedEndDate(row.endDate as string),
-    responsibilities: Array.isArray(row.responsibilities)
-      ? (row.responsibilities as string[])
-      : row.description
-        ? [String(row.description)]
-        : null,
+    title: normalized.jobTitle || null,
+    company: normalized.companyName || null,
+    location: normalized.workLocation || null,
+    startDate: normalized.startDate || null,
+    endDate: normalized.endDate || null,
+    durationText: normalized.durationText || null,
+    isCurrentJob: normalized.currentlyWorkHere === true,
+    responsibilities: normalized.responsibilities || null,
+    employmentType: normalized.employmentType || null,
+    industryDomain: normalized.industryDomain || null,
+    numberOfReportees: normalized.numberOfReportees || null,
+    currentlyWorkHere: normalized.currentlyWorkHere || null,
+    workMode: normalized.workMode || null,
+    companyProfile: normalized.companyProfile || null,
+    companyTurnover: normalized.companyTurnover || null,
+    keyResponsibilities: normalized.keyResponsibilities || null,
+    achievements: normalized.achievements || null,
+    workSkills: normalized.workSkills || null,
+    documents: normalized.documents || null,
   });
   const durationText = entry.durationText || extractDurationTextFromEntry(entry);
   return durationText ? { ...entry, durationText } : entry;
@@ -123,19 +139,85 @@ export type CandidateExperienceSource = Pick<
   cvNotes?: string | null;
 };
 
-function dedupeWorkEntries(entries: CvWorkEntryLike[]): CvWorkEntryLike[] {
-  const seen = new Set<string>();
-  const out: CvWorkEntryLike[] = [];
-  for (const entry of entries) {
-    const title = String(entry.title || '').trim().toLowerCase();
-    const company = String(entry.company || '').trim().toLowerCase();
-    const key = `${title}|${company}`;
-    if (!title && !company) continue;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(normalizeCvWorkEntry(entry));
+function workEntryKey(entry: CvWorkEntryLike): string | null {
+  const title = String(entry.title || '').trim().toLowerCase();
+  const company = String(entry.company || '').trim().toLowerCase();
+  if (!title && !company) return null;
+  return `${title}|${company}`;
+}
+
+function preferWorkField<T>(primary: T | null | undefined, fallback: T | null | undefined): T | null | undefined {
+  if (primary === null || primary === undefined || primary === '') return fallback ?? primary;
+  if (Array.isArray(primary) && primary.length === 0) {
+    return Array.isArray(fallback) && fallback.length ? fallback : primary;
   }
-  return out;
+  return primary;
+}
+
+function mergeStringLists(
+  primary: string[] | null | undefined,
+  fallback: string[] | null | undefined,
+): string[] | null {
+  const merged = [...(primary || []), ...(fallback || [])]
+    .map((item) => String(item).trim())
+    .filter(Boolean);
+  const unique = Array.from(new Set(merged));
+  return unique.length ? unique : null;
+}
+
+function mergeWorkEntry(base: CvWorkEntryLike, overlay: CvWorkEntryLike): CvWorkEntryLike {
+  const merged = normalizeCvWorkEntry({
+    title: preferWorkField(base.title, overlay.title) ?? null,
+    company: preferWorkField(base.company, overlay.company) ?? null,
+    location: preferWorkField(base.location, overlay.location) ?? null,
+    startDate: preferWorkField(base.startDate, overlay.startDate) ?? null,
+    endDate: preferWorkField(base.endDate, overlay.endDate) ?? null,
+    durationText: preferWorkField(base.durationText, overlay.durationText) ?? null,
+    isCurrentJob: base.isCurrentJob === true || overlay.isCurrentJob === true,
+    responsibilities: mergeStringLists(base.responsibilities, overlay.responsibilities),
+    employmentType: preferWorkField(base.employmentType, overlay.employmentType) ?? null,
+    industryDomain: preferWorkField(base.industryDomain, overlay.industryDomain) ?? null,
+    numberOfReportees: preferWorkField(base.numberOfReportees, overlay.numberOfReportees) ?? null,
+    currentlyWorkHere: base.currentlyWorkHere === true || overlay.currentlyWorkHere === true,
+    workMode: preferWorkField(base.workMode, overlay.workMode) ?? null,
+    companyProfile: preferWorkField(base.companyProfile, overlay.companyProfile) ?? null,
+    companyTurnover: preferWorkField(base.companyTurnover, overlay.companyTurnover) ?? null,
+    keyResponsibilities: preferWorkField(base.keyResponsibilities, overlay.keyResponsibilities) ?? null,
+    achievements: preferWorkField(base.achievements, overlay.achievements) ?? null,
+    workSkills: mergeStringLists(
+      Array.isArray(base.workSkills) ? base.workSkills : null,
+      Array.isArray(overlay.workSkills) ? overlay.workSkills : null,
+    ),
+    documents:
+      (Array.isArray(base.documents) && base.documents.length
+        ? base.documents
+        : overlay.documents) ?? null,
+  });
+  const durationText = merged.durationText || extractDurationTextFromEntry(merged);
+  return durationText ? { ...merged, durationText } : merged;
+}
+
+function dedupeWorkEntries(entries: CvWorkEntryLike[]): CvWorkEntryLike[] {
+  const map = new Map<string, CvWorkEntryLike>();
+  for (const entry of entries) {
+    const normalized = workRecordToCvEntry(entry as Record<string, unknown>);
+    const key = workEntryKey(normalized);
+    if (!key) continue;
+    const existing = map.get(key);
+    map.set(key, existing ? mergeWorkEntry(existing, normalized) : normalized);
+  }
+  return Array.from(map.values());
+}
+
+/** Merge sparse CV rows with richer Phase 1 snapshot rows by title + company. */
+export function mergeCandidateWorkEntryLists(
+  primary: Array<Record<string, unknown> | CvWorkEntryLike>,
+  secondary: Array<Record<string, unknown> | CvWorkEntryLike>,
+): CvWorkEntryLike[] {
+  return dedupeWorkEntries([
+    ...primary.map((row) => workRecordToCvEntry(row as Record<string, unknown>)),
+    ...secondary.map((row) => workRecordToCvEntry(row as Record<string, unknown>)),
+  ]);
 }
 
 /** Pull "2 year experience" (etc.) from durationText, responsibilities, or headline lines. */
@@ -340,35 +422,7 @@ function parseGlobalExperienceFromExtra(
 function mapCvWorkRows(
   rows: NonNullable<BackendCandidate['cvWorkExperienceEntries']>,
 ): CvWorkEntryLike[] {
-  return rows.map((entry) => {
-    const row = entry as CvWorkEntryLike & {
-      currentlyWorkHere?: boolean;
-      currentlyWorking?: boolean;
-      isCurrentJob?: boolean;
-      description?: string;
-    };
-    const responsibilities = Array.isArray(entry.responsibilities)
-      ? entry.responsibilities
-      : row.description
-        ? [String(row.description)]
-        : null;
-    const base = normalizeCvWorkEntry({
-      title: entry.title ?? null,
-      company: entry.company ?? null,
-      location: entry.location ?? null,
-      startDate: entry.startDate ?? null,
-      endDate: entry.endDate ?? null,
-      durationText: row.durationText ?? null,
-      isCurrentJob:
-        row.isCurrentJob === true ||
-        row.currentlyWorkHere === true ||
-        row.currentlyWorking === true ||
-        isOpenEndedEndDate(entry.endDate),
-      responsibilities,
-    });
-    const durationText = base.durationText || extractDurationTextFromEntry(base);
-    return durationText ? { ...base, durationText } : base;
-  });
+  return rows.map((entry) => workRecordToCvEntry(entry as Record<string, unknown>));
 }
 
 /** Collect work rows from CV parse, Phase 1 snapshot, portal profile, and resume narrative. */
@@ -384,12 +438,12 @@ export function collectCandidateWorkEntries(
 
   const buckets: CvWorkEntryLike[][] = [];
 
-  if (Array.isArray(enriched.cvWorkExperienceEntries) && enriched.cvWorkExperienceEntries.length) {
-    buckets.push(mapCvWorkRows(enriched.cvWorkExperienceEntries));
-  }
-
   if (Array.isArray(snap?.workExperience) && snap.workExperience.length) {
     buckets.push(snap.workExperience.map((row) => workRecordToCvEntry(row as Record<string, unknown>)));
+  }
+
+  if (Array.isArray(enriched.cvWorkExperienceEntries) && enriched.cvWorkExperienceEntries.length) {
+    buckets.push(mapCvWorkRows(enriched.cvWorkExperienceEntries));
   }
 
   buckets.push(collectPipelineWorkEntries(extra));

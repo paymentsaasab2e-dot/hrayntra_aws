@@ -1,4 +1,18 @@
 import type { ClientReviewField, ClientReviewSection } from './clientPresentationSections';
+import {
+  certificationRecordToSnapshotRow,
+  normalizeCertificationRecord,
+} from './candidateCertificationFields';
+import {
+  accomplishmentRecordToSnapshotRow,
+  normalizeAccomplishmentRecord,
+} from './candidateAccomplishmentFields';
+import { extractVisaDisplayEntries } from './candidateVisaWorkAuthorizationFields';
+import {
+  hasVaccinationContent,
+  normalizeVaccinationRecord,
+  vaccinationRecordToSnapshotRow,
+} from './candidateVaccinationFields';
 import type { Phase1ProfileSnapshot } from './phase1ProfileSnapshot';
 
 export type Phase1ClientSectionId =
@@ -243,7 +257,11 @@ export function buildPhase1ClientReviewSections(
 
   if (isSectionVisible('certifications', visible)) {
     const entries = Array.isArray(snapshot.certifications)
-      ? snapshot.certifications.map((cert) => ({ ...cert }))
+      ? snapshot.certifications.map((cert) =>
+          certificationRecordToSnapshotRow(
+            normalizeCertificationRecord(cert as Record<string, unknown>),
+          ),
+        )
       : [];
     appendVisibleSection(sections, 'certifications', [], { entries });
   }
@@ -317,7 +335,11 @@ export function buildPhase1ClientReviewSections(
 
   if (isSectionVisible('accomplishments', visible)) {
     const entries = Array.isArray(snapshot.accomplishments)
-      ? snapshot.accomplishments.map((row) => ({ ...row }))
+      ? snapshot.accomplishments.map((row) =>
+          accomplishmentRecordToSnapshotRow(
+            normalizeAccomplishmentRecord(row as Record<string, unknown>),
+          ),
+        )
       : [];
     appendVisibleSection(sections, 'accomplishments', [], { entries });
   }
@@ -344,31 +366,20 @@ export function buildPhase1ClientReviewSections(
   }
 
   if (isSectionVisible('visa', visible)) {
-    const v = snapshot.visaWorkAuthorization || {};
-    appendVisibleSection(
-      sections,
-      'visa',
-      fieldsFromPairs([
-        ['Destination', v.selectedDestination],
-        ['Visa / work permit required', v.visaWorkpermitRequired],
-        ['Open for all destinations', v.openForAll],
-        ['Additional remarks', v.additionalRemarks],
-      ]),
+    const entries = extractVisaDisplayEntries(
+      (snapshot.visaWorkAuthorization as Record<string, unknown>) || null,
     );
+    appendVisibleSection(sections, 'visa', [], { entries });
   }
 
   if (isSectionVisible('vaccination', visible)) {
-    const v = snapshot.vaccination || {};
-    appendVisibleSection(
-      sections,
-      'vaccination',
-      fieldsFromPairs([
-        ['Status', v.vaccinationStatus],
-        ['Vaccine type', v.vaccineType],
-        ['Last vaccination date', v.lastVaccinationDate],
-        ['Validity', [v.validityMonth, v.validityYear].filter(Boolean).join('/')],
-      ]),
+    const record = normalizeVaccinationRecord(
+      (snapshot.vaccination as Record<string, unknown>) || null,
     );
+    const entries = hasVaccinationContent(record)
+      ? [vaccinationRecordToSnapshotRow(record)]
+      : [];
+    appendVisibleSection(sections, 'vaccination', [], { entries });
   }
 
   return sections;

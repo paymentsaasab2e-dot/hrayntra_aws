@@ -38,6 +38,9 @@ import {
   looksLikeWorkExperienceDisplayText,
   type CvWorkEntryLike,
 } from '@/lib/candidateExperience';
+import { CandidateCertificationEntryView } from './CandidateCertificationEntryView';
+import { CandidateVisaWorkAuthorizationEntryView } from './CandidateVisaWorkAuthorizationEntryView';
+import { CandidateVaccinationEntryView } from './CandidateVaccinationEntryView';
 
 function isUrl(value: string): boolean {
   return /^https?:\/\//i.test(value.trim());
@@ -389,15 +392,7 @@ function renderEntryCards(section: ClientReviewSection): React.ReactNode {
     return (
       <div className="space-y-2">
         {entries.map((cert, index) => (
-          <RecordCard
-            key={`cert-${index}`}
-            title={display(cert.certificationName) || `Certification ${index + 1}`}
-            rows={[
-              { label: 'Issuing organization', value: cert.issuingOrganization },
-              { label: 'Issue date', value: cert.issueDate },
-              { label: 'Expiry date', value: cert.expiryDate },
-            ]}
-          />
+          <CandidateCertificationEntryView key={`cert-${index}`} entry={cert} index={index} />
         ))}
       </div>
     );
@@ -456,6 +451,26 @@ function renderEntryCards(section: ClientReviewSection): React.ReactNode {
               { label: 'Notes', value: exam.additionalNotes },
             ]}
           />
+        ))}
+      </div>
+    );
+  }
+
+  if (section.id === 'visa') {
+    return (
+      <div className="space-y-2">
+        {entries.map((entry, index) => (
+          <CandidateVisaWorkAuthorizationEntryView key={`visa-${index}`} entry={entry} index={index} />
+        ))}
+      </div>
+    );
+  }
+
+  if (section.id === 'vaccination') {
+    return (
+      <div className="space-y-2">
+        {entries.map((entry, index) => (
+          <CandidateVaccinationEntryView key={`vaccination-${index}`} entry={entry} />
         ))}
       </div>
     );

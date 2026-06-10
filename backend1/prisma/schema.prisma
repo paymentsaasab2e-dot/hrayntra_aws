@@ -340,6 +340,7 @@ model Education {
   educationLevel String?   // High School, Diploma, Bachelor's, Master's, etc.
   degree         String
   institution    String
+  institutionLocation String? // City / area shown after institution name
   specialization String?   // Field of Study / Major
   startYear      Int
   startMonth     Int?

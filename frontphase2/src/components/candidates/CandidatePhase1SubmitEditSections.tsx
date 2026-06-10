@@ -32,7 +32,50 @@ import {
 } from '@/lib/phase1ClientPresentationSections';
 import { phase1FieldLabelClass, phase1FieldValueClass, phase1SectionMetaClass, phase1SectionTitleClass } from '@/lib/phase1Typography';
 import { CandidatePhase1CareerPreferencesEdit } from './CandidatePhase1CareerPreferencesEdit';
+import { CandidateAcademicAchievementEntryEdit } from './CandidateAcademicAchievementEntryEdit';
+import { CandidateCompetitiveExamEntryEdit } from './CandidateCompetitiveExamEntryEdit';
+import { CandidateEducationEntryEdit } from './CandidateEducationEntryEdit';
+import { CandidateCertificationEntryEdit } from './CandidateCertificationEntryEdit';
+import { CandidateProjectEntryEdit } from './CandidateProjectEntryEdit';
+import { CandidateGapExplanationEntryEdit } from './CandidateGapExplanationEntryEdit';
+import { CandidateInternshipEntryEdit } from './CandidateInternshipEntryEdit';
+import { CandidateWorkExperienceEntryEdit } from './CandidateWorkExperienceEntryEdit';
 import { EditDateField } from './EditDateField';
+import { normalizeAcademicAchievementRecord } from '@/lib/candidateAcademicAchievementFields';
+import { normalizeCompetitiveExamRecord } from '@/lib/candidateCompetitiveExamFields';
+import { normalizeEducationRecord } from '@/lib/candidateEducationFields';
+import {
+  accomplishmentRecordToSnapshotRow,
+  normalizeAccomplishmentRecord,
+} from '@/lib/candidateAccomplishmentFields';
+import { normalizeCertificationRecord } from '@/lib/candidateCertificationFields';
+import { normalizeProjectRecord } from '@/lib/candidateProjectFields';
+import { normalizeGapExplanationRecord } from '@/lib/candidateGapExplanationFields';
+import { normalizeInternshipRecord } from '@/lib/candidateInternshipFields';
+import { normalizeWorkExperienceRecord } from '@/lib/candidateWorkExperienceFields';
+import {
+  resolvePhase1AcademicAchievements,
+  resolvePhase1CompetitiveExams,
+  resolvePhase1Education,
+  resolvePhase1GapExplanations,
+  resolvePhase1Internships,
+  resolvePhase1Accomplishments,
+  resolvePhase1Certifications,
+  resolvePhase1Projects,
+  resolvePhase1Vaccination,
+  resolvePhase1VisaWorkAuthorization,
+} from '@/lib/phase1OverviewResolvers';
+import {
+  extractVisaDisplayEntries,
+  normalizeVisaEntryRecord,
+  visaDisplayEntriesToSnapshot,
+} from '@/lib/candidateVisaWorkAuthorizationFields';
+import { CandidateVisaWorkAuthorizationEntryEdit } from './CandidateVisaWorkAuthorizationEntryEdit';
+import { CandidateVaccinationEntryEdit } from './CandidateVaccinationEntryEdit';
+import {
+  normalizeVaccinationRecord,
+  vaccinationRecordToSnapshotRow,
+} from '@/lib/candidateVaccinationFields';
 import { getLocalDateInputMinToday } from '@/utils/dateInputConstraints';
 
 type SectionId = Phase1ClientSectionId;
@@ -219,6 +262,29 @@ export function CandidatePhase1SubmitEditSections({
     onChange({ ...snapshot, [key]: arr });
   };
 
+  const patchWorkEntry = (index: number, patch: Record<string, unknown>) => {
+    const arr = Array.isArray(snapshot.workExperience)
+      ? [...snapshot.workExperience]
+      : [];
+    while (arr.length <= index) arr.push({});
+    arr[index] = { ...arr[index], ...patch };
+    onChange({ ...snapshot, workExperience: arr });
+  };
+
+  const patchInternshipEntry = (index: number, patch: Record<string, unknown>) => {
+    const arr = Array.isArray(snapshot.internships) ? [...snapshot.internships] : [];
+    while (arr.length <= index) arr.push({});
+    arr[index] = { ...arr[index], ...patch };
+    onChange({ ...snapshot, internships: arr });
+  };
+
+  const patchGapEntry = (index: number, patch: Record<string, unknown>) => {
+    const arr = Array.isArray(snapshot.gapExplanations) ? [...snapshot.gapExplanations] : [];
+    while (arr.length <= index) arr.push({});
+    arr[index] = { ...arr[index], ...patch };
+    onChange({ ...snapshot, gapExplanations: arr });
+  };
+
   const patchNested = (key: keyof Phase1ProfileSnapshot, field: string, value: string) => {
     const obj =
       snapshot[key] && typeof snapshot[key] === 'object' && !Array.isArray(snapshot[key])
@@ -228,33 +294,162 @@ export function CandidatePhase1SubmitEditSections({
     onChange({ ...snapshot, [key]: obj });
   };
 
+  const patchEducationEntry = (index: number, patch: Record<string, unknown>) => {
+    const arr = Array.isArray(snapshot.education) ? [...snapshot.education] : [];
+    while (arr.length <= index) arr.push({});
+    arr[index] = { ...arr[index], ...patch };
+    onChange({ ...snapshot, education: arr });
+  };
+
   const eduEntries = useMemo(() => {
-    if (Array.isArray(snapshot.education) && snapshot.education.length) return snapshot.education;
-    return (candidate.cvEducationEntries || []).map((e) => ({
-      degreeProgram: e.degree,
-      institutionName: e.institution,
-      startYear: e.startYear,
-      endYear: e.endYear,
-    }));
-  }, [snapshot.education, candidate.cvEducationEntries]);
+    const rows =
+      Array.isArray(snapshot.education) && snapshot.education.length
+        ? snapshot.education
+        : resolvePhase1Education(snapshot, candidate);
+    return rows.map((row) => normalizeEducationRecord(row as Record<string, unknown>));
+  }, [snapshot.education, candidate]);
 
   const workEntries = useMemo(() => {
     if (Array.isArray(snapshot.workExperience) && snapshot.workExperience.length) {
       return snapshot.workExperience;
     }
-    return (candidate.cvWorkExperienceEntries || []).map((w) => ({
-      jobTitle: w.title,
-      company: w.company,
-      workLocation: w.location,
-      startDate: w.startDate,
-      endDate: w.endDate,
-      responsibilities: w.responsibilities,
-    }));
+    return (candidate.cvWorkExperienceEntries || []).map((w) =>
+      normalizeWorkExperienceRecord(w as Record<string, unknown>),
+    );
   }, [snapshot.workExperience, candidate.cvWorkExperienceEntries]);
 
-  const certifications = snapshot.certifications?.length
-    ? snapshot.certifications
-    : (candidate.cvCertifications || []).map((name) => ({ certificationName: name }));
+  const internshipEntries = useMemo(() => {
+    const rows =
+      Array.isArray(snapshot.internships) && snapshot.internships.length
+        ? snapshot.internships
+        : resolvePhase1Internships(snapshot, candidate);
+    return rows.map((row) => normalizeInternshipRecord(row as Record<string, unknown>));
+  }, [snapshot.internships, candidate]);
+
+  const gapEntries = useMemo(() => {
+    const rows =
+      Array.isArray(snapshot.gapExplanations) && snapshot.gapExplanations.length
+        ? snapshot.gapExplanations
+        : resolvePhase1GapExplanations(snapshot, candidate);
+    return rows.map((row) => normalizeGapExplanationRecord(row as Record<string, unknown>));
+  }, [snapshot.gapExplanations, candidate]);
+
+  const patchAcademicAchievementEntry = (index: number, patch: Record<string, unknown>) => {
+    const arr = Array.isArray(snapshot.academicAchievements) ? [...snapshot.academicAchievements] : [];
+    while (arr.length <= index) arr.push({});
+    arr[index] = { ...arr[index], ...patch };
+    onChange({ ...snapshot, academicAchievements: arr });
+  };
+
+  const academicAchievementEntries = useMemo(() => {
+    const rows =
+      Array.isArray(snapshot.academicAchievements) && snapshot.academicAchievements.length
+        ? snapshot.academicAchievements
+        : resolvePhase1AcademicAchievements(snapshot, candidate);
+    return rows.map((row) => normalizeAcademicAchievementRecord(row as Record<string, unknown>));
+  }, [snapshot.academicAchievements, candidate]);
+
+  const patchCompetitiveExamEntry = (index: number, patch: Record<string, unknown>) => {
+    const arr = Array.isArray(snapshot.competitiveExams) ? [...snapshot.competitiveExams] : [];
+    while (arr.length <= index) arr.push({});
+    arr[index] = { ...arr[index], ...patch };
+    onChange({ ...snapshot, competitiveExams: arr });
+  };
+
+  const competitiveExamEntries = useMemo(() => {
+    const rows =
+      Array.isArray(snapshot.competitiveExams) && snapshot.competitiveExams.length
+        ? snapshot.competitiveExams
+        : resolvePhase1CompetitiveExams(snapshot, candidate);
+    return rows.map((row) => normalizeCompetitiveExamRecord(row as Record<string, unknown>));
+  }, [snapshot.competitiveExams, candidate]);
+
+  const patchProjectEntry = (index: number, patch: Record<string, unknown>) => {
+    const arr = Array.isArray(snapshot.projects) ? [...snapshot.projects] : [];
+    while (arr.length <= index) arr.push({});
+    arr[index] = { ...arr[index], ...patch };
+    onChange({ ...snapshot, projects: arr });
+  };
+
+  const projectEntries = useMemo(() => {
+    const rows =
+      Array.isArray(snapshot.projects) && snapshot.projects.length
+        ? snapshot.projects
+        : resolvePhase1Projects(snapshot, candidate);
+    return rows.map((row) => normalizeProjectRecord(row as Record<string, unknown>));
+  }, [snapshot.projects, candidate]);
+
+  const patchCertificationEntry = (index: number, patch: Record<string, unknown>) => {
+    const arr = Array.isArray(snapshot.certifications) ? [...snapshot.certifications] : [];
+    while (arr.length <= index) arr.push({});
+    arr[index] = { ...arr[index], ...patch };
+    onChange({ ...snapshot, certifications: arr });
+  };
+
+  const visaEntries = useMemo(() => {
+    const visa =
+      snapshot.visaWorkAuthorization && typeof snapshot.visaWorkAuthorization === 'object'
+        ? (snapshot.visaWorkAuthorization as Record<string, unknown>)
+        : resolvePhase1VisaWorkAuthorization(snapshot, candidate);
+    return extractVisaDisplayEntries(visa).map((row) => normalizeVisaEntryRecord(row));
+  }, [snapshot.visaWorkAuthorization, candidate]);
+
+  const patchVisaEntry = (index: number, patch: Record<string, unknown>) => {
+    const nextEntries = visaEntries.map((row, rowIndex) =>
+      rowIndex === index ? normalizeVisaEntryRecord({ ...row, ...patch }) : row,
+    );
+    onChange({
+      ...snapshot,
+      visaWorkAuthorization: visaDisplayEntriesToSnapshot(
+        nextEntries,
+        snapshot.visaWorkAuthorization as Record<string, unknown> | null,
+      ),
+    });
+  };
+
+  const accomplishmentEntries = useMemo(() => {
+    const rows =
+      Array.isArray(snapshot.accomplishments) && snapshot.accomplishments.length
+        ? snapshot.accomplishments
+        : resolvePhase1Accomplishments(snapshot, candidate);
+    return rows.map((row) => normalizeAccomplishmentRecord(row as Record<string, unknown>));
+  }, [snapshot.accomplishments, candidate]);
+
+  const vaccinationRecord = useMemo(() => {
+    const raw =
+      snapshot.vaccination && typeof snapshot.vaccination === 'object'
+        ? snapshot.vaccination
+        : resolvePhase1Vaccination(snapshot, candidate);
+    return normalizeVaccinationRecord((raw || {}) as Record<string, unknown>);
+  }, [snapshot.vaccination, snapshot, candidate]);
+
+  const patchVaccination = (patch: Record<string, unknown>) => {
+    const next = normalizeVaccinationRecord({ ...vaccinationRecord, ...patch });
+    onChange({
+      ...snapshot,
+      vaccination: vaccinationRecordToSnapshotRow(next),
+    });
+  };
+
+  const patchAccomplishmentEntry = (index: number, patch: Record<string, unknown>) => {
+    const nextEntries = accomplishmentEntries.map((row, rowIndex) =>
+      rowIndex === index
+        ? normalizeAccomplishmentRecord({ ...row, ...patch })
+        : row,
+    );
+    onChange({
+      ...snapshot,
+      accomplishments: nextEntries.map((row) => accomplishmentRecordToSnapshotRow(row)),
+    });
+  };
+
+  const certificationEntries = useMemo(() => {
+    const rows =
+      Array.isArray(snapshot.certifications) && snapshot.certifications.length
+        ? snapshot.certifications
+        : resolvePhase1Certifications(snapshot, candidate);
+    return rows.map((row) => normalizeCertificationRecord(row as Record<string, unknown>));
+  }, [snapshot.certifications, candidate]);
 
   const sectionVisible = (id: SectionId) => clientSectionVisibility?.[id] !== false;
   const sectionToggleProps = {
@@ -334,23 +529,31 @@ export function CandidatePhase1SubmitEditSections({
         icon={Briefcase}
         open={open.internships}
         onToggle={toggle}
-        count={snapshot.internships?.length || 0}
+        count={internshipEntries.length}
         {...sectionToggleProps}
         clientVisible={sectionVisible('internships')}
       >
-        {(snapshot.internships || []).map((row, index) => (
-          <div key={`intern-${index}`} className="rounded-xl border border-slate-200 bg-white p-3 grid gap-2 sm:grid-cols-2">
-            <EditField label="Title" value={str(row.internshipTitle)} onChange={(v) => patchArray('internships', index, 'internshipTitle', v)} />
-            <EditField label="Company" value={str(row.companyName)} onChange={(v) => patchArray('internships', index, 'companyName', v)} />
-            <EditField label="Type" value={str(row.internshipType)} onChange={(v) => patchArray('internships', index, 'internshipType', v)} />
-            <EditField label="Location" value={str(row.location)} onChange={(v) => patchArray('internships', index, 'location', v)} />
-            <EditDateField label="Start date" value={str(row.startDate)} outputIso onChange={(v) => patchArray('internships', index, 'startDate', v)} />
-            <EditDateField label="End date" value={str(row.endDate)} outputIso onChange={(v) => patchArray('internships', index, 'endDate', v)} />
-            <div className="sm:col-span-2">
-              <EditField label="Responsibilities" value={str(row.responsibilities)} onChange={(v) => patchArray('internships', index, 'responsibilities', v)} multiline />
-            </div>
-          </div>
+        {internshipEntries.map((row, index) => (
+          <CandidateInternshipEntryEdit
+            key={`intern-${index}`}
+            candidateId={candidate.id}
+            entry={row as Record<string, unknown>}
+            index={index}
+            onChange={patchInternshipEntry}
+          />
         ))}
+        <button
+          type="button"
+          onClick={() =>
+            onChange({
+              ...snapshot,
+              internships: [...(Array.isArray(snapshot.internships) ? snapshot.internships : []), {}],
+            })
+          }
+          className="w-full rounded-xl border border-dashed border-violet-300 bg-violet-50/60 px-4 py-3 text-sm font-semibold text-violet-700 hover:bg-violet-50"
+        >
+          Add internship
+        </button>
       </Phase1EditSection>
 
       <Phase1EditSection
@@ -364,19 +567,26 @@ export function CandidatePhase1SubmitEditSections({
         clientVisible={sectionVisible('education')}
       >
         {eduEntries.map((e, index) => (
-          <div key={`edu-${index}`} className="rounded-xl border border-slate-200 bg-white p-3 space-y-2">
-            <p className="text-sm font-semibold text-slate-900">Education {index + 1}</p>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <EditField label="Degree / program" value={str(e.degreeProgram || e.degree)} onChange={(v) => patchArray('education', index, 'degreeProgram', v)} />
-              <EditField label="Institution" value={str(e.institutionName || e.institution)} onChange={(v) => patchArray('education', index, 'institutionName', v)} />
-              <EditField label="Level" value={str(e.educationLevel)} onChange={(v) => patchArray('education', index, 'educationLevel', v)} />
-              <EditField label="Field of study" value={str(e.fieldOfStudy || e.field)} onChange={(v) => patchArray('education', index, 'fieldOfStudy', v)} />
-              <EditField label="Start year" value={str(e.startYear)} onChange={(v) => patchArray('education', index, 'startYear', v)} />
-              <EditField label="End year" value={str(e.endYear)} onChange={(v) => patchArray('education', index, 'endYear', v)} />
-              <EditField label="Grade" value={str(e.grade)} onChange={(v) => patchArray('education', index, 'grade', v)} />
-            </div>
-          </div>
+          <CandidateEducationEntryEdit
+            key={`edu-${index}`}
+            candidateId={candidate.id}
+            entry={e as Record<string, unknown>}
+            index={index}
+            onChange={patchEducationEntry}
+          />
         ))}
+        <button
+          type="button"
+          onClick={() =>
+            onChange({
+              ...snapshot,
+              education: [...(Array.isArray(snapshot.education) ? snapshot.education : []), {}],
+            })
+          }
+          className="w-full rounded-xl border border-dashed border-violet-300 bg-violet-50/60 px-4 py-3 text-sm font-semibold text-violet-700 hover:bg-violet-50"
+        >
+          Add education
+        </button>
       </Phase1EditSection>
 
       <Phase1EditSection
@@ -390,42 +600,26 @@ export function CandidatePhase1SubmitEditSections({
         clientVisible={sectionVisible('work')}
       >
         {workEntries.map((w, index) => (
-          <div key={`work-${index}`} className="rounded-xl border border-slate-200 bg-white p-3 space-y-2">
-            <p className="text-sm font-semibold text-slate-900">Role {index + 1}</p>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <EditField label="Job title" value={str(w.jobTitle || w.title)} onChange={(v) => patchArray('workExperience', index, 'jobTitle', v)} />
-              <EditField label="Company" value={str(w.company || w.companyName)} onChange={(v) => patchArray('workExperience', index, 'company', v)} />
-              <EditField label="Location" value={str(w.workLocation || w.location)} onChange={(v) => patchArray('workExperience', index, 'workLocation', v)} />
-              <EditDateField label="Start date" value={str(w.startDate)} outputIso onChange={(v) => patchArray('workExperience', index, 'startDate', v)} />
-              <EditDateField label="End date" value={str(w.endDate)} outputIso onChange={(v) => patchArray('workExperience', index, 'endDate', v)} />
-              <div className="sm:col-span-2">
-                <EditField
-                  label="Responsibilities (; separated)"
-                  value={
-                    Array.isArray(w.responsibilities)
-                      ? w.responsibilities.join('; ')
-                      : str(w.description)
-                  }
-                  onChange={(v) => {
-                    const arr = Array.isArray(snapshot.workExperience)
-                      ? [...snapshot.workExperience]
-                      : [];
-                    while (arr.length <= index) arr.push({});
-                    arr[index] = {
-                      ...arr[index],
-                      responsibilities: v
-                        .split(';')
-                        .map((s) => s.trim())
-                        .filter(Boolean),
-                    };
-                    onChange({ ...snapshot, workExperience: arr });
-                  }}
-                  multiline
-                />
-              </div>
-            </div>
-          </div>
+          <CandidateWorkExperienceEntryEdit
+            key={`work-${index}`}
+            candidateId={candidate.id}
+            entry={w as Record<string, unknown>}
+            index={index}
+            onChange={patchWorkEntry}
+          />
         ))}
+        <button
+          type="button"
+          onClick={() =>
+            onChange({
+              ...snapshot,
+              workExperience: [...(Array.isArray(snapshot.workExperience) ? snapshot.workExperience : []), {}],
+            })
+          }
+          className="w-full rounded-xl border border-dashed border-violet-300 bg-violet-50/60 px-4 py-3 text-sm font-semibold text-violet-700 hover:bg-violet-50"
+        >
+          Add work experience role
+        </button>
       </Phase1EditSection>
 
       <Phase1EditSection
@@ -434,60 +628,141 @@ export function CandidatePhase1SubmitEditSections({
         icon={Award}
         open={open.certifications}
         onToggle={toggle}
-        count={certifications?.length || 0}
+        count={certificationEntries.length}
         {...sectionToggleProps}
         clientVisible={sectionVisible('certifications')}
       >
-        {(certifications || []).map((cert, index) => (
-          <div key={`cert-${index}`} className="rounded-xl border border-slate-200 bg-white p-3 space-y-2">
-            <div className="grid gap-2 sm:grid-cols-2">
-              <EditField label="Name" value={str(cert.certificationName)} onChange={(v) => patchArray('certifications', index, 'certificationName', v)} />
-              <EditField label="Issuing organization" value={str(cert.issuingOrganization)} onChange={(v) => patchArray('certifications', index, 'issuingOrganization', v)} />
-              <EditDateField label="Issue date" value={str(cert.issueDate)} outputIso onChange={(v) => patchArray('certifications', index, 'issueDate', v)} />
-              <EditDateField label="Expiry date" value={str(cert.expiryDate)} outputIso onChange={(v) => patchArray('certifications', index, 'expiryDate', v)} />
-            </div>
-          </div>
+        {certificationEntries.map((row, index) => (
+          <CandidateCertificationEntryEdit
+            key={`cert-${index}`}
+            candidateId={candidate.id}
+            entry={row as Record<string, unknown>}
+            index={index}
+            onChange={patchCertificationEntry}
+          />
         ))}
+        <button
+          type="button"
+          onClick={() =>
+            onChange({
+              ...snapshot,
+              certifications: [
+                ...(Array.isArray(snapshot.certifications) ? snapshot.certifications : []),
+                {},
+              ],
+            })
+          }
+          className="w-full rounded-xl border border-dashed border-violet-300 bg-violet-50/60 px-4 py-3 text-sm font-semibold text-violet-700 hover:bg-violet-50"
+        >
+          Add certification
+        </button>
       </Phase1EditSection>
 
-      <Phase1EditSection id="gap" title="Gap explanation" icon={Timer} open={open.gap} onToggle={toggle} count={snapshot.gapExplanations?.length || 0} {...sectionToggleProps} clientVisible={sectionVisible('gap')}>
-        {(snapshot.gapExplanations || []).map((gap, index) => (
-          <div key={`gap-${index}`} className="rounded-xl border border-slate-200 bg-white p-3 grid gap-2 sm:grid-cols-2">
-            <EditField label="Category" value={str(gap.gapCategory)} onChange={(v) => patchArray('gapExplanations', index, 'gapCategory', v)} />
-            <EditField label="Reason" value={str(gap.reasonForGap)} onChange={(v) => patchArray('gapExplanations', index, 'reasonForGap', v)} />
-            <EditField label="Duration" value={str(gap.gapDuration)} onChange={(v) => patchArray('gapExplanations', index, 'gapDuration', v)} />
-            <EditField label="Skills during gap" value={str(gap.selectedSkills)} onChange={(v) => patchArray('gapExplanations', index, 'selectedSkills', v)} />
-          </div>
+      <Phase1EditSection
+        id="gap"
+        title="Gap explanation"
+        icon={Timer}
+        open={open.gap}
+        onToggle={toggle}
+        count={gapEntries.length}
+        {...sectionToggleProps}
+        clientVisible={sectionVisible('gap')}
+      >
+        {gapEntries.map((gap, index) => (
+          <CandidateGapExplanationEntryEdit
+            key={`gap-${index}`}
+            entry={gap as Record<string, unknown>}
+            index={index}
+            onChange={patchGapEntry}
+          />
         ))}
+        <button
+          type="button"
+          onClick={() =>
+            onChange({
+              ...snapshot,
+              gapExplanations: [
+                ...(Array.isArray(snapshot.gapExplanations) ? snapshot.gapExplanations : []),
+                {},
+              ],
+            })
+          }
+          className="w-full rounded-xl border border-dashed border-violet-300 bg-violet-50/60 px-4 py-3 text-sm font-semibold text-violet-700 hover:bg-violet-50"
+        >
+          Add gap explanation
+        </button>
       </Phase1EditSection>
 
-      <Phase1EditSection id="academic" title="Academic achievements" icon={Medal} open={open.academic} onToggle={toggle} count={snapshot.academicAchievements?.length || 0} {...sectionToggleProps} clientVisible={sectionVisible('academic')}>
-        {(snapshot.academicAchievements || []).map((row, index) => (
-          <div key={`ach-${index}`} className="rounded-xl border border-slate-200 bg-white p-3 grid gap-2 sm:grid-cols-2">
-            <EditField label="Title" value={str(row.achievementTitle)} onChange={(v) => patchArray('academicAchievements', index, 'achievementTitle', v)} />
-            <EditField label="Awarded by" value={str(row.awardedBy)} onChange={(v) => patchArray('academicAchievements', index, 'awardedBy', v)} />
-            <EditField label="Year" value={str(row.yearReceived)} onChange={(v) => patchArray('academicAchievements', index, 'yearReceived', v)} />
-            <EditField label="Category" value={str(row.categoryType)} onChange={(v) => patchArray('academicAchievements', index, 'categoryType', v)} />
-            <div className="sm:col-span-2">
-              <EditField label="Description" value={str(row.description)} onChange={(v) => patchArray('academicAchievements', index, 'description', v)} multiline />
-            </div>
-          </div>
+      <Phase1EditSection
+        id="academic"
+        title="Academic achievements"
+        icon={Medal}
+        open={open.academic}
+        onToggle={toggle}
+        count={academicAchievementEntries.length}
+        {...sectionToggleProps}
+        clientVisible={sectionVisible('academic')}
+      >
+        {academicAchievementEntries.map((row, index) => (
+          <CandidateAcademicAchievementEntryEdit
+            key={`ach-${index}`}
+            candidateId={candidate.id}
+            entry={row as Record<string, unknown>}
+            index={index}
+            onChange={patchAcademicAchievementEntry}
+          />
         ))}
+        <button
+          type="button"
+          onClick={() =>
+            onChange({
+              ...snapshot,
+              academicAchievements: [
+                ...(Array.isArray(snapshot.academicAchievements) ? snapshot.academicAchievements : []),
+                {},
+              ],
+            })
+          }
+          className="w-full rounded-xl border border-dashed border-violet-300 bg-violet-50/60 px-4 py-3 text-sm font-semibold text-violet-700 hover:bg-violet-50"
+        >
+          Add academic achievement
+        </button>
       </Phase1EditSection>
 
-      <Phase1EditSection id="exams" title="Competitive exams" icon={Layers} open={open.exams} onToggle={toggle} count={snapshot.competitiveExams?.length || 0} {...sectionToggleProps} clientVisible={sectionVisible('exams')}>
-        {(snapshot.competitiveExams || []).map((exam, index) => (
-          <div key={`exam-${index}`} className="rounded-xl border border-slate-200 bg-white p-3 grid gap-2 sm:grid-cols-2">
-            <EditField label="Exam name" value={str(exam.examName)} onChange={(v) => patchArray('competitiveExams', index, 'examName', v)} />
-            <EditField label="Year taken" value={str(exam.yearTaken)} onChange={(v) => patchArray('competitiveExams', index, 'yearTaken', v)} />
-            <EditField label="Result status" value={str(exam.resultStatus)} onChange={(v) => patchArray('competitiveExams', index, 'resultStatus', v)} />
-            <EditField label="Score" value={str(exam.scoreMarks)} onChange={(v) => patchArray('competitiveExams', index, 'scoreMarks', v)} />
-            <EditField label="Valid until" value={str(exam.validUntil)} onChange={(v) => patchArray('competitiveExams', index, 'validUntil', v)} />
-            <div className="sm:col-span-2">
-              <EditField label="Notes" value={str(exam.additionalNotes)} onChange={(v) => patchArray('competitiveExams', index, 'additionalNotes', v)} multiline />
-            </div>
-          </div>
+      <Phase1EditSection
+        id="exams"
+        title="Competitive exams"
+        icon={Layers}
+        open={open.exams}
+        onToggle={toggle}
+        count={competitiveExamEntries.length}
+        {...sectionToggleProps}
+        clientVisible={sectionVisible('exams')}
+      >
+        {competitiveExamEntries.map((row, index) => (
+          <CandidateCompetitiveExamEntryEdit
+            key={`exam-${index}`}
+            candidateId={candidate.id}
+            entry={row as Record<string, unknown>}
+            index={index}
+            onChange={patchCompetitiveExamEntry}
+          />
         ))}
+        <button
+          type="button"
+          onClick={() =>
+            onChange({
+              ...snapshot,
+              competitiveExams: [
+                ...(Array.isArray(snapshot.competitiveExams) ? snapshot.competitiveExams : []),
+                {},
+              ],
+            })
+          }
+          className="w-full rounded-xl border border-dashed border-violet-300 bg-violet-50/60 px-4 py-3 text-sm font-semibold text-violet-700 hover:bg-violet-50"
+        >
+          Add competitive exam
+        </button>
       </Phase1EditSection>
 
       <Phase1EditSection id="skills" title="Skills" icon={Wrench} open={open.skills} onToggle={toggle} count={snapshot.skills?.length || 0} {...sectionToggleProps} clientVisible={sectionVisible('skills')}>
@@ -536,18 +811,37 @@ export function CandidatePhase1SubmitEditSections({
         />
       </Phase1EditSection>
 
-      <Phase1EditSection id="projects" title="Projects" icon={Globe2} open={open.projects} onToggle={toggle} count={snapshot.projects?.length || 0} {...sectionToggleProps} clientVisible={sectionVisible('projects')}>
-        {(snapshot.projects || []).map((project, index) => (
-          <div key={`proj-${index}`} className="rounded-xl border border-slate-200 bg-white p-3 grid gap-2 sm:grid-cols-2">
-            <EditField label="Project title" value={str(project.projectTitle)} onChange={(v) => patchArray('projects', index, 'projectTitle', v)} />
-            <EditField label="Type" value={str(project.projectType)} onChange={(v) => patchArray('projects', index, 'projectType', v)} />
-            <EditField label="Organization / client" value={str(project.organizationClient)} onChange={(v) => patchArray('projects', index, 'organizationClient', v)} />
-            <EditField label="Link" value={str(project.projectLink)} onChange={(v) => patchArray('projects', index, 'projectLink', v)} />
-            <div className="sm:col-span-2">
-              <EditField label="Description" value={str(project.projectDescription)} onChange={(v) => patchArray('projects', index, 'projectDescription', v)} multiline />
-            </div>
-          </div>
+      <Phase1EditSection
+        id="projects"
+        title="Projects"
+        icon={Globe2}
+        open={open.projects}
+        onToggle={toggle}
+        count={projectEntries.length}
+        {...sectionToggleProps}
+        clientVisible={sectionVisible('projects')}
+      >
+        {projectEntries.map((row, index) => (
+          <CandidateProjectEntryEdit
+            key={`proj-${index}`}
+            candidateId={candidate.id}
+            entry={row as Record<string, unknown>}
+            index={index}
+            onChange={patchProjectEntry}
+          />
         ))}
+        <button
+          type="button"
+          onClick={() =>
+            onChange({
+              ...snapshot,
+              projects: [...(Array.isArray(snapshot.projects) ? snapshot.projects : []), {}],
+            })
+          }
+          className="w-full rounded-xl border border-dashed border-violet-300 bg-violet-50/60 px-4 py-3 text-sm font-semibold text-violet-700 hover:bg-violet-50"
+        >
+          Add project
+        </button>
       </Phase1EditSection>
 
       <Phase1EditSection id="portfolio" title="Portfolio links" icon={Link2} open={open.portfolio} onToggle={toggle} count={snapshot.portfolioLinks?.length || 0} {...sectionToggleProps} clientVisible={sectionVisible('portfolio')}>
@@ -571,15 +865,46 @@ export function CandidatePhase1SubmitEditSections({
         />
       </Phase1EditSection>
 
-      <Phase1EditSection id="accomplishments" title="Accomplishments" icon={Star} open={open.accomplishments} onToggle={toggle} count={snapshot.accomplishments?.length || 0} {...sectionToggleProps} clientVisible={sectionVisible('accomplishments')}>
-        {(snapshot.accomplishments || []).map((row, index) => (
+      <Phase1EditSection
+        id="accomplishments"
+        title="Accomplishments"
+        icon={Star}
+        open={open.accomplishments}
+        onToggle={toggle}
+        count={accomplishmentEntries.length}
+        {...sectionToggleProps}
+        clientVisible={sectionVisible('accomplishments')}
+      >
+        {accomplishmentEntries.map((row, index) => (
           <div key={`acc-${index}`} className="rounded-xl border border-slate-200 bg-white p-3 grid gap-2 sm:grid-cols-2">
-            <EditField label="Title" value={str(row.title || row.accomplishmentTitle)} onChange={(v) => patchArray('accomplishments', index, 'title', v)} />
-            <EditField label="Category" value={str(row.category)} onChange={(v) => patchArray('accomplishments', index, 'category', v)} />
-            <EditField label="Organization" value={str(row.organization)} onChange={(v) => patchArray('accomplishments', index, 'organization', v)} />
-            <EditDateField label="Date" value={str(row.achievementDate)} outputIso onChange={(v) => patchArray('accomplishments', index, 'achievementDate', v)} />
+            <EditField
+              label="Title"
+              value={row.title || ''}
+              onChange={(v) => patchAccomplishmentEntry(index, { title: v })}
+            />
+            <EditField
+              label="Category"
+              value={row.category || ''}
+              onChange={(v) => patchAccomplishmentEntry(index, { category: v })}
+            />
+            <EditField
+              label="Organization"
+              value={row.organization || ''}
+              onChange={(v) => patchAccomplishmentEntry(index, { organization: v })}
+            />
+            <EditDateField
+              label="Date"
+              value={row.achievementDate || ''}
+              outputIso
+              onChange={(v) => patchAccomplishmentEntry(index, { achievementDate: v })}
+            />
             <div className="sm:col-span-2">
-              <EditField label="Description" value={str(row.description)} onChange={(v) => patchArray('accomplishments', index, 'description', v)} multiline />
+              <EditField
+                label="Description"
+                value={row.description || ''}
+                onChange={(v) => patchAccomplishmentEntry(index, { description: v })}
+                multiline
+              />
             </div>
           </div>
         ))}
@@ -592,25 +917,53 @@ export function CandidatePhase1SubmitEditSections({
         />
       </Phase1EditSection>
 
-      <Phase1EditSection id="visa" title="Visa & work authorization" icon={Shield} open={open.visa} onToggle={toggle} {...sectionToggleProps} clientVisible={sectionVisible('visa')}>
-        <div className="grid gap-2 sm:grid-cols-2">
-          <EditField label="Destination" value={str(snapshot.visaWorkAuthorization?.selectedDestination)} onChange={(v) => patchNested('visaWorkAuthorization', 'selectedDestination', v)} />
-          <EditField label="Visa required" value={str(snapshot.visaWorkAuthorization?.visaWorkpermitRequired)} onChange={(v) => patchNested('visaWorkAuthorization', 'visaWorkpermitRequired', v)} />
-          <EditField label="Open for all destinations" value={str(snapshot.visaWorkAuthorization?.openForAll)} onChange={(v) => patchNested('visaWorkAuthorization', 'openForAll', v)} />
-          <div className="sm:col-span-2">
-            <EditField label="Additional remarks" value={str(snapshot.visaWorkAuthorization?.additionalRemarks)} onChange={(v) => patchNested('visaWorkAuthorization', 'additionalRemarks', v)} multiline />
-          </div>
-        </div>
+      <Phase1EditSection
+        id="visa"
+        title="Visa & work authorization"
+        icon={Shield}
+        open={open.visa}
+        onToggle={toggle}
+        count={visaEntries.length}
+        {...sectionToggleProps}
+        clientVisible={sectionVisible('visa')}
+      >
+        {visaEntries.map((row, index) => (
+          <CandidateVisaWorkAuthorizationEntryEdit
+            key={`visa-${index}`}
+            candidateId={candidate.id}
+            entry={row as Record<string, unknown>}
+            index={index}
+            onChange={patchVisaEntry}
+          />
+        ))}
+        <button
+          type="button"
+          onClick={() => {
+            const nextEntries = [
+              ...visaEntries,
+              normalizeVisaEntryRecord({ id: `visa-${Date.now()}`, isPrimary: visaEntries.length === 0 }),
+            ];
+            onChange({
+              ...snapshot,
+              visaWorkAuthorization: visaDisplayEntriesToSnapshot(
+                nextEntries,
+                snapshot.visaWorkAuthorization as Record<string, unknown> | null,
+              ),
+            });
+          }}
+          className="w-full rounded-xl border border-dashed border-violet-300 bg-violet-50/60 px-4 py-3 text-sm font-semibold text-violet-700 hover:bg-violet-50"
+        >
+          Add country authorization
+        </button>
       </Phase1EditSection>
 
       <Phase1EditSection id="vaccination" title="Vaccination" icon={Syringe} open={open.vaccination} onToggle={toggle} {...sectionToggleProps} clientVisible={sectionVisible('vaccination')}>
-        <div className="grid gap-2 sm:grid-cols-2">
-          <EditField label="Status" value={str(snapshot.vaccination?.vaccinationStatus)} onChange={(v) => patchNested('vaccination', 'vaccinationStatus', v)} />
-          <EditField label="Vaccine type" value={str(snapshot.vaccination?.vaccineType)} onChange={(v) => patchNested('vaccination', 'vaccineType', v)} />
-          <EditDateField label="Last vaccination date" value={str(snapshot.vaccination?.lastVaccinationDate)} outputIso max={birthDateMax} onChange={(v) => patchNested('vaccination', 'lastVaccinationDate', v)} />
-          <EditField label="Validity month" value={str(snapshot.vaccination?.validityMonth)} onChange={(v) => patchNested('vaccination', 'validityMonth', v)} />
-          <EditField label="Validity year" value={str(snapshot.vaccination?.validityYear)} onChange={(v) => patchNested('vaccination', 'validityYear', v)} />
-        </div>
+        <CandidateVaccinationEntryEdit
+          candidateId={candidate.id}
+          entry={vaccinationRecord}
+          birthDateMax={birthDateMax}
+          onChange={patchVaccination}
+        />
       </Phase1EditSection>
     </div>
   );

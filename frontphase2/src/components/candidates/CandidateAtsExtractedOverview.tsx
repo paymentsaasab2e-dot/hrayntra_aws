@@ -19,11 +19,8 @@ import {
   collectCandidateWorkEntries,
   computeTotalExperienceYears,
   formatExperienceYearsLabel,
-  formatWorkEntryHeadline,
-  formatWorkEntryMeta,
-  formatWorkEntryTenureLabel,
-  type CvWorkEntryLike,
 } from '@/lib/candidateExperience';
+import { CandidateWorkExperienceEntryView } from './CandidateWorkExperienceEntryView';
 import { getPhase1ProfileSnapshot } from '@/lib/phase1ProfileSnapshot';
 import type { ClientSectionVisibility } from '@/lib/clientPresentationSections';
 import { CandidateCareerPreferencesOverview } from './CandidateCareerPreferencesOverview';
@@ -144,34 +141,6 @@ function SectionBlock({
   );
 }
 
-function WorkExperienceEntryCard({ entry, index }: { entry: CvWorkEntryLike; index: number }) {
-  const meta = formatWorkEntryMeta(entry);
-  const tenureLabel = formatWorkEntryTenureLabel(entry);
-  const responsibilities = Array.isArray(entry.responsibilities)
-    ? entry.responsibilities.filter((line) => String(line || '').trim())
-    : [];
-
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <p className="text-sm font-semibold text-slate-900">{formatWorkEntryHeadline(entry, index)}</p>
-        {tenureLabel ? (
-          <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
-            {tenureLabel}
-          </span>
-        ) : null}
-      </div>
-      {meta ? <p className="mt-1 text-xs font-medium text-slate-500">{meta}</p> : null}
-      {responsibilities.length > 0 ? (
-        <ul className="mt-2.5 list-inside list-disc space-y-1 text-sm text-slate-700">
-          {responsibilities.slice(0, 6).map((line, i) => (
-            <li key={i}>{line}</li>
-          ))}
-        </ul>
-      ) : null}
-    </div>
-  );
-}
 
 function EducationEntryCard({ entry, index }: { entry: Record<string, unknown>; index: number }) {
   const qual = display(entry.qualification || entry.degree);
@@ -674,7 +643,7 @@ export function CandidateAtsExtractedOverview({ candidate, sectionVisibility }: 
         {workCount > 0 ? (
           <div className="space-y-2">
             {workEntries.map((job, index) => (
-              <WorkExperienceEntryCard key={`work-${index}`} entry={job} index={index} />
+              <CandidateWorkExperienceEntryView key={`work-${index}`} entry={job} index={index} />
             ))}
           </div>
         ) : (

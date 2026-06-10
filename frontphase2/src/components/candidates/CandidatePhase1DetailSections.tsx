@@ -26,23 +26,41 @@ import type { CandidateProfileDrawerData } from '../drawers/CandidateProfileDraw
 import { getPhase1ProfileSnapshot, resolvePhase1PersonalInfo } from '@/lib/phase1ProfileSnapshot';
 import type { Phase1ClientSectionId, Phase1ClientSectionVisibility } from '@/lib/phase1ClientPresentationSections';
 import {
+  resolvePhase1AcademicAchievements,
   resolvePhase1Accomplishments,
   resolvePhase1CareerPreferences,
+  resolvePhase1Certifications,
+  resolvePhase1CompetitiveExams,
+  resolvePhase1Education,
+  resolvePhase1GapExplanations,
   resolvePhase1Internships,
   resolvePhase1Languages,
   resolvePhase1PortfolioLinks,
+  resolvePhase1Projects,
   resolvePhase1Skills,
+  resolvePhase1Vaccination,
+  resolvePhase1VisaWorkAuthorization,
   SKILL_CATEGORIES,
 } from '@/lib/phase1OverviewResolvers';
+import { normalizeAccomplishmentRecord } from '@/lib/candidateAccomplishmentFields';
+import { extractVisaDisplayEntries } from '@/lib/candidateVisaWorkAuthorizationFields';
+import { hasVaccinationContent, normalizeVaccinationRecord } from '@/lib/candidateVaccinationFields';
 import {
   collectCandidateWorkEntries,
   extractDurationTextFromEntry,
-  formatWorkEntryHeadline,
-  formatWorkEntryMeta,
-  formatWorkEntryTenureLabel,
   normalizeCvWorkEntry,
   type CvWorkEntryLike,
 } from '@/lib/candidateExperience';
+import { CandidateAcademicAchievementEntryView } from './CandidateAcademicAchievementEntryView';
+import { CandidateCompetitiveExamEntryView } from './CandidateCompetitiveExamEntryView';
+import { CandidateCertificationEntryView } from './CandidateCertificationEntryView';
+import { CandidateProjectEntryView } from './CandidateProjectEntryView';
+import { CandidateEducationEntryView } from './CandidateEducationEntryView';
+import { CandidateGapExplanationEntryView } from './CandidateGapExplanationEntryView';
+import { CandidateInternshipEntryView } from './CandidateInternshipEntryView';
+import { CandidateVisaWorkAuthorizationEntryView } from './CandidateVisaWorkAuthorizationEntryView';
+import { CandidateVaccinationEntryView } from './CandidateVaccinationEntryView';
+import { CandidateWorkExperienceEntryView } from './CandidateWorkExperienceEntryView';
 import type { Phase1ProfileSnapshot } from '@/lib/phase1ProfileSnapshot';
 import { CandidateCareerPreferencesOverview } from './CandidateCareerPreferencesOverview';
 import { CandidateHiringOverview } from './CandidateHiringSection';
@@ -179,32 +197,6 @@ function mapWorkFromSnapshot(work: Phase1ProfileSnapshot['workExperience']): CvW
   });
 }
 
-function WorkCard({ entry, index }: { entry: CvWorkEntryLike; index: number }) {
-  const headline = formatWorkEntryHeadline(entry, index).replace(/^\[\d+\]\s*/, '');
-  const meta = formatWorkEntryMeta(entry);
-  const tenureLabel = formatWorkEntryTenureLabel(entry);
-  const bullets = Array.isArray(entry.responsibilities) ? entry.responsibilities : [];
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-3">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <p className="text-sm font-semibold text-slate-900">{headline}</p>
-        {tenureLabel ? (
-          <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
-            {tenureLabel}
-          </span>
-        ) : null}
-      </div>
-      {meta ? <p className="mt-0.5 text-xs text-slate-500">{meta}</p> : null}
-      {bullets.length > 0 ? (
-        <ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-slate-700">
-          {bullets.map((line, i) => (
-            <li key={i}>{line}</li>
-          ))}
-        </ul>
-      ) : null}
-    </div>
-  );
-}
 
 function RecordCard({
   title,
@@ -339,8 +331,43 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
   const languages = useMemo(() => resolvePhase1Languages(snap, candidate), [snap, candidate]);
   const portfolioLinks = useMemo(() => resolvePhase1PortfolioLinks(snap, candidate), [snap, candidate]);
   const internships = useMemo(() => resolvePhase1Internships(snap, candidate), [snap, candidate]);
-  const accomplishments = useMemo(() => resolvePhase1Accomplishments(snap, candidate), [snap, candidate]);
+  const gapExplanations = useMemo(
+    () => resolvePhase1GapExplanations(snap, candidate),
+    [snap, candidate],
+  );
+  const academicAchievements = useMemo(
+    () => resolvePhase1AcademicAchievements(snap, candidate),
+    [snap, candidate],
+  );
+  const competitiveExams = useMemo(
+    () => resolvePhase1CompetitiveExams(snap, candidate),
+    [snap, candidate],
+  );
+  const projects = useMemo(() => resolvePhase1Projects(snap, candidate), [snap, candidate]);
+  const certifications = useMemo(
+    () => resolvePhase1Certifications(snap, candidate),
+    [snap, candidate],
+  );
+  const accomplishments = useMemo(
+    () =>
+      resolvePhase1Accomplishments(snap, candidate).map((row) =>
+        normalizeAccomplishmentRecord(row as Record<string, unknown>),
+      ),
+    [snap, candidate],
+  );
   const careerPrefs = useMemo(() => resolvePhase1CareerPreferences(snap, candidate), [snap, candidate]);
+  const visaWorkAuthorization = useMemo(
+    () => resolvePhase1VisaWorkAuthorization(snap, candidate),
+    [snap, candidate],
+  );
+  const visaEntries = useMemo(
+    () => extractVisaDisplayEntries(visaWorkAuthorization),
+    [visaWorkAuthorization],
+  );
+  const vaccination = useMemo(
+    () => normalizeVaccinationRecord(resolvePhase1Vaccination(snap, candidate)),
+    [snap, candidate],
+  );
 
   const cvWorkEntries = useMemo(
     () => collectCandidateWorkEntries(candidate),
@@ -352,19 +379,10 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
     return mapWorkFromSnapshot(snap?.workExperience);
   }, [cvWorkEntries, snap?.workExperience]);
 
-  const eduEntries = useMemo(() => {
-    if (Array.isArray(snap?.education) && snap.education.length) return snap.education;
-    return (candidate.cvEducationEntries || []).map((e) => ({
-      degreeProgram: e.degree,
-      institutionName: e.institution,
-      startYear: e.startYear,
-      endYear: e.endYear,
-    }));
-  }, [snap?.education, candidate.cvEducationEntries]);
-
-  const certifications = snap?.certifications?.length
-    ? snap.certifications
-    : (candidate.cvCertifications || []).map((name) => ({ certificationName: name }));
+  const eduEntries = useMemo(
+    () => resolvePhase1Education(snap, candidate),
+    [snap, candidate],
+  );
 
   const personInfoRows = useMemo(() => {
     const pi = resolvePhase1PersonalInfo(snap, candidate);
@@ -467,7 +485,9 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
           count={workEntries.length}
         >
           {workEntries.length ? (
-            workEntries.map((entry, index) => <WorkCard key={`work-${index}`} entry={entry} index={index} />)
+            workEntries.map((entry, index) => (
+              <CandidateWorkExperienceEntryView key={`work-${index}`} entry={entry} index={index} />
+            ))
           ) : (
             <p className="text-sm italic text-slate-400">Not provided</p>
           )}
@@ -485,28 +505,7 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
         >
           {internships.length ? (
             internships.map((row, index) => (
-              <RecordCard
-                key={`intern-${index}`}
-                title={
-                  [display(row.internshipTitle), display(row.companyName)].filter(Boolean).join(' — ') ||
-                  `Internship ${index + 1}`
-                }
-                rows={[
-                  { label: 'Type', value: row.internshipType },
-                  { label: 'Department / domain', value: row.domainDepartment },
-                  {
-                    label: 'Period',
-                    value: [row.startDate, row.currentlyWorking ? 'Present' : row.endDate]
-                      .filter(Boolean)
-                      .join(' – '),
-                  },
-                  { label: 'Location', value: row.location },
-                  { label: 'Work mode', value: row.workMode },
-                  { label: 'Responsibilities', value: row.responsibilities },
-                  { label: 'Learnings', value: row.learnings },
-                  { label: 'Skills', value: row.skills },
-                ]}
-              />
+              <CandidateInternshipEntryView key={`intern-${index}`} entry={row} index={index} />
             ))
           ) : (
             <p className="text-sm italic text-slate-400">No internship added yet</p>
@@ -521,20 +520,11 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
           icon={Timer}
           open={open.gap}
           onToggle={toggle}
-          count={snap?.gapExplanations?.length || 0}
+          count={gapExplanations.length}
         >
-          {snap?.gapExplanations?.length ? (
-            snap.gapExplanations.map((gap, index) => (
-              <RecordCard
-                key={`gap-${index}`}
-                title={display(gap.gapCategory) || `Gap ${index + 1}`}
-                rows={[
-                  { label: 'Reason', value: gap.reasonForGap },
-                  { label: 'Duration', value: gap.gapDuration },
-                  { label: 'Skills during gap', value: gap.selectedSkills },
-                  { label: 'Support', value: gap.preferredSupport },
-                ]}
-              />
+          {gapExplanations.length ? (
+            gapExplanations.map((gap, index) => (
+              <CandidateGapExplanationEntryView key={`gap-${index}`} entry={gap} index={index} />
             ))
           ) : (
             <p className="text-sm italic text-slate-400">No gap explanation added yet</p>
@@ -553,21 +543,7 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
         >
           {eduEntries.length ? (
             eduEntries.map((e, index) => (
-              <RecordCard
-                key={`edu-${index}`}
-                title={
-                  [display(e.degreeProgram || e.degree), display(e.institutionName || e.institution)]
-                    .filter(Boolean)
-                    .join(' — ') || `Education ${index + 1}`
-                }
-                rows={[
-                  { label: 'Level', value: e.educationLevel },
-                  { label: 'Field of study', value: e.fieldOfStudy || e.field },
-                  { label: 'Period', value: [e.startYear, e.endYear].filter(Boolean).join(' – ') },
-                  { label: 'Grade', value: e.grade },
-                  { label: 'Currently studying', value: e.currentlyStudying },
-                ]}
-              />
+              <CandidateEducationEntryView key={`edu-${index}`} entry={e} index={index} />
             ))
           ) : (
             <p className="text-sm italic text-slate-400">Not provided</p>
@@ -582,20 +558,11 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
           icon={Medal}
           open={open.academic}
           onToggle={toggle}
-          count={snap?.academicAchievements?.length || 0}
+          count={academicAchievements.length}
         >
-          {snap?.academicAchievements?.length ? (
-            snap.academicAchievements.map((row, index) => (
-              <RecordCard
-                key={`ach-${index}`}
-                title={display(row.achievementTitle) || `Achievement ${index + 1}`}
-                rows={[
-                  { label: 'Awarded by', value: row.awardedBy },
-                  { label: 'Year', value: row.yearReceived },
-                  { label: 'Category', value: row.categoryType },
-                  { label: 'Description', value: row.description },
-                ]}
-              />
+          {academicAchievements.length ? (
+            academicAchievements.map((row, index) => (
+              <CandidateAcademicAchievementEntryView key={`ach-${index}`} entry={row} index={index} />
             ))
           ) : (
             <p className="text-sm italic text-slate-400">No academic achievements added yet</p>
@@ -610,22 +577,11 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
           icon={Layers}
           open={open.exams}
           onToggle={toggle}
-          count={snap?.competitiveExams?.length || 0}
+          count={competitiveExams.length}
         >
-          {snap?.competitiveExams?.length ? (
-            snap.competitiveExams.map((exam, index) => (
-              <RecordCard
-                key={`exam-${index}`}
-                title={display(exam.examName) || `Exam ${index + 1}`}
-                rows={[
-                  { label: 'Year taken', value: exam.yearTaken },
-                  { label: 'Result status', value: exam.resultStatus },
-                  { label: 'Score', value: exam.scoreMarks },
-                  { label: 'Score type', value: exam.scoreType },
-                  { label: 'Valid until', value: exam.validUntil },
-                  { label: 'Notes', value: exam.additionalNotes },
-                ]}
-              />
+          {competitiveExams.length ? (
+            competitiveExams.map((exam, index) => (
+              <CandidateCompetitiveExamEntryView key={`exam-${index}`} entry={exam} index={index} />
             ))
           ) : (
             <p className="text-sm italic text-slate-400">No competitive exam information added yet</p>
@@ -686,28 +642,11 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
           icon={Globe2}
           open={open.projects}
           onToggle={toggle}
-          count={snap?.projects?.length || 0}
+          count={projects.length}
         >
-          {snap?.projects?.length ? (
-            snap.projects.map((project, index) => (
-              <RecordCard
-                key={`proj-${index}`}
-                title={display(project.projectTitle) || `Project ${index + 1}`}
-                rows={[
-                  { label: 'Type', value: project.projectType },
-                  { label: 'Organization / client', value: project.organizationClient },
-                  { label: 'Currently working', value: project.currentlyWorking },
-                  {
-                    label: 'Period',
-                    value: [project.startDate, project.endDate].filter(Boolean).join(' – '),
-                  },
-                  { label: 'Description', value: project.projectDescription },
-                  { label: 'Responsibilities', value: project.responsibilities },
-                  { label: 'Technologies', value: project.technologies },
-                  { label: 'Outcome', value: project.projectOutcome },
-                  { label: 'Link', value: project.projectLink },
-                ]}
-              />
+          {projects.length ? (
+            projects.map((project, index) => (
+              <CandidateProjectEntryView key={`proj-${index}`} entry={project} index={index} />
             ))
           ) : (
             <p className="text-sm italic text-slate-400">No projects added yet</p>
@@ -760,17 +699,9 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
           onToggle={toggle}
           count={certifications?.length || 0}
         >
-          {certifications?.length ? (
+          {certifications.length ? (
             certifications.map((cert, index) => (
-              <RecordCard
-                key={`cert-${index}`}
-                title={display(cert.certificationName) || `Certification ${index + 1}`}
-                rows={[
-                  { label: 'Issuing organization', value: cert.issuingOrganization },
-                  { label: 'Issue date', value: cert.issueDate },
-                  { label: 'Expiry date', value: cert.expiryDate },
-                ]}
-              />
+              <CandidateCertificationEntryView key={`cert-${index}`} entry={cert} index={index} />
             ))
           ) : (
             <p className="text-sm italic text-slate-400">No certifications added yet</p>
@@ -825,40 +756,12 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
           icon={Shield}
           open={open.visa}
           onToggle={toggle}
+          count={visaEntries.length}
         >
-          {snap?.visaWorkAuthorization ? (
-            <>
-              <RecordCard
-                title="Work authorization"
-                rows={[
-                  { label: 'Destination', value: snap.visaWorkAuthorization.selectedDestination },
-                  {
-                    label: 'Visa / work permit required',
-                    value: snap.visaWorkAuthorization.visaWorkpermitRequired,
-                  },
-                  { label: 'Open for all destinations', value: snap.visaWorkAuthorization.openForAll },
-                  { label: 'Additional remarks', value: snap.visaWorkAuthorization.additionalRemarks },
-                ]}
-              />
-              {Array.isArray(snap.visaWorkAuthorization.visaEntries) &&
-              snap.visaWorkAuthorization.visaEntries.length ? (
-                <div className="space-y-2">
-                  <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Visa entries</p>
-                  {(snap.visaWorkAuthorization.visaEntries as Array<Record<string, unknown>>).map(
-                    (entry, index) => (
-                      <RecordCard
-                        key={`visa-${index}`}
-                        title={display(entry.country || entry.destination) || `Visa ${index + 1}`}
-                        rows={Object.entries(entry).map(([label, value]) => ({
-                          label: label.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase()),
-                          value,
-                        }))}
-                      />
-                    ),
-                  )}
-                </div>
-              ) : null}
-            </>
+          {visaEntries.length ? (
+            visaEntries.map((entry, index) => (
+              <CandidateVisaWorkAuthorizationEntryView key={`visa-${index}`} entry={entry} index={index} />
+            ))
           ) : (
             <p className="text-sm italic text-slate-400">No visa & work authorization information added yet</p>
           )}
@@ -873,25 +776,8 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility }: 
           open={open.vaccination}
           onToggle={toggle}
         >
-          {snap?.vaccination ? (
-            <div className="rounded-xl border border-slate-200 bg-white p-3">
-              <p className="text-sm font-semibold text-slate-900">Vaccination record</p>
-              <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                <FieldRow label="Status" value={snap.vaccination.vaccinationStatus} />
-                <FieldRow label="Vaccine type" value={snap.vaccination.vaccineType} />
-                <FieldRow label="Last vaccination date" value={snap.vaccination.lastVaccinationDate} />
-                <FieldRow
-                  label="Validity"
-                  value={[snap.vaccination.validityMonth, snap.vaccination.validityYear]
-                    .filter(Boolean)
-                    .join('/')}
-                />
-                <DocumentLinksFieldRow
-                  label="Documents"
-                  value={snap.vaccination.documents ?? snap.vaccination.certificate}
-                />
-              </div>
-            </div>
+          {hasVaccinationContent(vaccination) ? (
+            <CandidateVaccinationEntryView entry={vaccination} />
           ) : (
             <p className="text-sm italic text-slate-400">No vaccination information added yet</p>
           )}

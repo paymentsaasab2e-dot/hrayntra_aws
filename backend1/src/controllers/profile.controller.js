@@ -333,6 +333,7 @@ async function getProfileData(req, res) {
         educationLevel: edu.educationLevel || '',
         degreeProgram: edu.degree || '',
         institutionName: edu.institution || '',
+        institutionLocation: edu.institutionLocation || '',
         fieldOfStudy: edu.specialization || '',
         startYear: edu.startYear?.toString() || '',
         startMonth: edu.startMonth?.toString() || '',
@@ -835,6 +836,10 @@ async function saveEducation(req, res) {
       educationLevel: education.educationLevel?.trim() || null,
       degree: education.degreeProgram?.trim() || '',
       institution: education.institutionName?.trim() || '',
+      institutionLocation:
+        typeof education.institutionLocation === 'string'
+          ? education.institutionLocation.trim() || null
+          : null,
       specialization: education.fieldOfStudy?.trim() || null,
       startYear: parseInt(education.startYear) || new Date().getFullYear(),
       startMonth: education.startMonth ? parseInt(education.startMonth) : null,
@@ -855,6 +860,7 @@ async function saveEducation(req, res) {
       educationLevel: educationData.educationLevel || null,
       degree: educationData.degree,
       institution: educationData.institution,
+      institutionLocation: educationData.institutionLocation || null,
       specialization: educationData.specialization || null,
       startYear: educationData.startYear,
       startMonth: educationData.startMonth || null,
@@ -3546,53 +3552,66 @@ async function saveCertifications(req, res) {
       return res.status(400).json({ success: false, message: 'Candidate ID is required' });
     }
 
-    await prisma.candidateCertification.deleteMany({ where: { candidateId } });
+    const savedCertifications = await prisma.$transaction(async (tx) => {
+      await tx.candidateCertification.deleteMany({ where: { candidateId } });
 
-    for (const cert of certifications) {
-      // Handle documents - can be array of URLs or single file
-      let documents = [];
-      if (Array.isArray(cert.documents)) {
-        documents = cert.documents.map(doc => typeof doc === 'string' ? doc : doc.url || doc);
-      } else if (cert.documents) {
-        documents = [typeof cert.documents === 'string' ? cert.documents : cert.documents.url || cert.documents];
+      const created = [];
+      for (const cert of certifications) {
+        let documents = [];
+        if (Array.isArray(cert.documents)) {
+          documents = cert.documents.map((doc) => (typeof doc === 'string' ? doc : doc.url || doc));
+        } else if (cert.documents) {
+          documents = [
+            typeof cert.documents === 'string' ? cert.documents : cert.documents.url || cert.documents,
+          ];
+        }
+
+        const record = await tx.candidateCertification.create({
+          data: {
+            candidateId,
+            certificationName: cert.certificationName || '',
+            issuingOrganization: cert.issuingOrganization || '',
+            issueDate: cert.issueDate || '',
+            expiryDate: cert.expiryDate || null,
+            doesNotExpire: cert.doesNotExpire || false,
+            credentialId: cert.credentialId || null,
+            credentialUrl: cert.credentialUrl || null,
+            certificateFile: serializeFileField(cert.certificateFile),
+            documents,
+            description: cert.description || null,
+          },
+        });
+        created.push(record);
       }
+      return created;
+    });
 
-      await prisma.candidateCertification.create({
-        data: {
-          candidateId,
-          certificationName: cert.certificationName || '',
-          issuingOrganization: cert.issuingOrganization || '',
-          issueDate: cert.issueDate || '',
-          expiryDate: cert.expiryDate || null,
-          doesNotExpire: cert.doesNotExpire || false,
-          credentialId: cert.credentialId || null,
-          credentialUrl: cert.credentialUrl || null,
-          certificateFile: serializeFileField(cert.certificateFile),
-          documents: documents,
-          description: cert.description || null,
-        },
-      });
-    }
+    const responseCertifications = savedCertifications.map((cert) => ({
+      id: cert.id,
+      certificationName: cert.certificationName || '',
+      issuingOrganization: cert.issuingOrganization || '',
+      issueDate: cert.issueDate || '',
+      expiryDate: cert.expiryDate || undefined,
+      doesNotExpire: cert.doesNotExpire || false,
+      credentialId: cert.credentialId || undefined,
+      credentialUrl: cert.credentialUrl || undefined,
+      certificateFile: cert.certificateFile || undefined,
+      documents: Array.isArray(cert.documents) ? cert.documents : [],
+      description: cert.description || undefined,
+    }));
 
-    // Prepare detailed log data
     const logData = {
-      totalCertifications: certifications.length,
-      certifications: certifications.map((cert) => ({
-        certificationName: cert.certificationName || '',
-        issuingOrganization: cert.issuingOrganization || '',
-        issueDate: cert.issueDate || '',
-        expiryDate: cert.expiryDate || null,
-        doesNotExpire: cert.doesNotExpire || false,
-        credentialId: cert.credentialId || null,
-        credentialUrl: cert.credentialUrl || null,
-        documents: cert.documents || [],
-        description: cert.description || null,
-      })),
+      totalCertifications: responseCertifications.length,
+      certifications: responseCertifications,
     };
 
     logProfileSave('Certifications', 'saved', candidateId, logData);
 
-    res.json({ success: true, message: 'Certifications saved successfully' });
+    res.json({
+      success: true,
+      message: 'Certifications saved successfully',
+      data: { certifications: responseCertifications },
+    });
   } catch (error) {
     console.error('Error saving certifications:', error);
     res.status(500).json({
