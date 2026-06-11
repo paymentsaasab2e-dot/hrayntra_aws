@@ -2352,6 +2352,11 @@ export default function RecruitmentAgencyDashboard() {
                 router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
               }
             }}
+            onOpenExistingLead={(leadId) => {
+              setAddLeadDrawerOpen(false);
+              setSelectedLeadDrawerMode('view');
+              setSelectedLeadId(leadId);
+            }}
             onAddLead={async (_data, createdLead) => {
               try {
                 if (createdLead) {

@@ -239,9 +239,11 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                 <td className="px-3 py-2.5 text-center sm:px-4 sm:py-3">
                   <span className="text-sm font-medium text-slate-600">
                     {candidate.experienceLabel ??
-                      (candidate.experience > 0
-                        ? `${Number.isInteger(candidate.experience) ? candidate.experience : candidate.experience.toFixed(1)}y`
-                        : '—')}
+                      (() => {
+                        const exp = Number(candidate.experience);
+                        if (!Number.isFinite(exp) || exp <= 0) return '—';
+                        return `${Number.isInteger(exp) ? exp : exp.toFixed(1)}y`;
+                      })()}
                   </span>
                 </td>
                 <td className="px-3 py-2.5 sm:px-4 sm:py-3">
@@ -254,7 +256,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                   <div className="flex items-center gap-2">
                     <Briefcase size={14} className="text-slate-400 shrink-0" />
                     <p className="text-sm text-slate-600 truncate max-w-[120px] font-medium">
-                      {candidate.assignedJobs[0] || '--'}
+                      {candidate.assignedJobs?.[0] || '--'}
                     </p>
                   </div>
                 </td>
@@ -271,7 +273,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                 <td className="px-3 py-2.5 sm:px-4 sm:py-3">
                   <div className="flex items-center gap-2">
                     <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-[10px] font-bold">
-                      {candidate.owner.split(' ').map(n => n[0]).join('')}
+                      {(candidate.owner || 'U').split(' ').filter(Boolean).map((n) => n[0]).join('')}
                     </div>
                     <span className="text-sm text-slate-600 truncate max-w-[80px]">{candidate.owner}</span>
                   </div>

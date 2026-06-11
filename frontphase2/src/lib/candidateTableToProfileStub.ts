@@ -3,6 +3,7 @@ import type { CandidateProfileDrawerData } from '../components/drawers/Candidate
 import type { JobCandidateItem } from '../components/drawers/JobDetailsDrawer';
 import { resolveJobCandidateDisplayStage } from './jobAppliedMatches';
 import { getTagColor } from './mapCandidateProfile';
+import { normalizeCandidateSkillLabels } from './normalizeCandidateSkills';
 
 /** Seed profile drawer from a candidates table row before API load completes. */
 export function candidateTableRowToProfileStub(
@@ -31,7 +32,7 @@ export function candidateTableRowToProfileStub(
     availability: 'limited',
     summary: null,
     resumeUrl: null,
-    tags: candidate.skills.map((tag) => ({
+    tags: normalizeCandidateSkillLabels(candidate.skills).map((tag) => ({
       id: `tag-${tag.toLowerCase().replace(/\s+/g, '-')}`,
       label: tag,
       color: getTagColor(tag),

@@ -124,6 +124,7 @@ import {
   resolveCandidateAssignedJobTitles,
   resolveCandidateListStage,
 } from '../../lib/candidateListMapping';
+import { normalizeCandidateSkillLabels } from '../../lib/normalizeCandidateSkills';
 import {
   extractApiData,
   getTagColor,
@@ -256,7 +257,12 @@ function mapBackendCandidate(c: BackendCandidate): Candidate {
     (shortId ? `Candidate …${shortId}` : 'Candidate');
   const assignedJobsFromAssignedTitles = resolveCandidateAssignedJobTitles(c);
   const workEntries = collectCandidateWorkEntries(c);
-  const experienceYears = resolveCandidateExperienceYears(c) ?? c.experience ?? 0;
+  const rawExperience = resolveCandidateExperienceYears(c) ?? c.experience ?? 0;
+  const experienceYears =
+    typeof rawExperience === 'number' && Number.isFinite(rawExperience)
+      ? rawExperience
+      : Number(rawExperience) || 0;
+  const skillLabels = normalizeCandidateSkillLabels(c.skills ?? (c as { recruiterSkills?: unknown }).recruiterSkills);
 
   return {
     id: c.id,
@@ -276,7 +282,7 @@ function mapBackendCandidate(c: BackendCandidate): Candidate {
     hotlist: c.hotlist,
     phone: c.phone || '',
     email: c.email ?? '',
-    skills: c.skills || [],
+    skills: skillLabels,
     noticePeriod: '',
     salary: { current: '', expected: '' },
     source: c.source || '',
@@ -1465,7 +1471,7 @@ function CandidatesPageContent() {
       availability: 'limited',
       summary: null,
       resumeUrl: null,
-      tags: candidate.skills.map((tag) => ({
+      tags: normalizeCandidateSkillLabels(candidate.skills).map((tag) => ({
         id: `tag-${tag.toLowerCase().replace(/\s+/g, '-')}`,
         label: tag,
         color: getTagColor(tag),
@@ -1512,7 +1518,7 @@ function CandidatesPageContent() {
       availability: 'limited',
       summary: null,
       resumeUrl: null,
-      tags: candidate.skills.map((tag) => ({
+      tags: normalizeCandidateSkillLabels(candidate.skills).map((tag) => ({
         id: `tag-${tag.toLowerCase().replace(/\s+/g, '-')}`,
         label: tag,
         color: getTagColor(tag),

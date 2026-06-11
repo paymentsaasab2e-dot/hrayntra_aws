@@ -54,155 +54,244 @@ const jobDescriptionJsonSchema = {
   strict: true,
 };
 
+const leadDetailsFieldProperties = {
+  companyName: { type: 'string' },
+  contactPerson: { type: 'string' },
+  directorSalutation: { type: 'string' },
+  designation: { type: 'string' },
+  email: { type: 'string' },
+  phone: { type: 'string' },
+  emails: { type: 'array', items: { type: 'string' } },
+  phones: { type: 'array', items: { type: 'string' } },
+  type: { type: 'string' },
+  source: { type: 'string' },
+  status: { type: 'string' },
+  priority: { type: 'string' },
+  interestedNeeds: { type: 'string' },
+  notes: { type: 'string' },
+  expectedBusinessValue: { type: 'string' },
+  industry: { type: 'string' },
+  companySize: { type: 'string' },
+  website: { type: 'string' },
+  linkedIn: { type: 'string' },
+  location: { type: 'string' },
+  country: { type: 'string' },
+  city: { type: 'string' },
+  state: { type: 'string' },
+  campaignName: { type: 'string' },
+  campaignLink: { type: 'string' },
+  referralName: { type: 'string' },
+  sourceWebsiteUrl: { type: 'string' },
+  sourceLinkedInUrl: { type: 'string' },
+  sourceEmail: { type: 'string' },
+  otherDetails: {
+    type: 'array',
+    items: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { label: { type: 'string' }, value: { type: 'string' } },
+      required: ['label', 'value'],
+    },
+  },
+  lastFollowUp: { type: 'string' },
+  nextFollowUp: { type: 'string' },
+  assignedToId: { type: 'string' },
+};
+
+const leadDetailsRequiredFields = Object.keys(leadDetailsFieldProperties);
+
 const leadDetailsJsonSchema = {
   name: 'lead_details_payload',
   schema: {
     type: 'object',
     additionalProperties: false,
-    properties: {
-      companyName: { type: 'string' },
-      contactPerson: { type: 'string' },
-      designation: { type: 'string' },
-      email: { type: 'string' },
-      phone: { type: 'string' },
-      type: { type: 'string' },
-      source: { type: 'string' },
-      status: { type: 'string' },
-      priority: { type: 'string' },
-      interestedNeeds: { type: 'string' },
-      notes: { type: 'string' },
-      industry: { type: 'string' },
-      companySize: { type: 'string' },
-      website: { type: 'string' },
-      linkedIn: { type: 'string' },
-      location: { type: 'string' },
-      country: { type: 'string' },
-      city: { type: 'string' },
-      campaignName: { type: 'string' },
-      campaignLink: { type: 'string' },
-      referralName: { type: 'string' },
-      sourceWebsiteUrl: { type: 'string' },
-      sourceLinkedInUrl: { type: 'string' },
-      sourceEmail: { type: 'string' },
-      otherDetails: {
-        type: 'array',
-        items: {
-          type: 'object',
-          additionalProperties: false,
-          properties: {
-            label: { type: 'string' },
-            value: { type: 'string' },
-          },
-          required: ['label', 'value'],
-        },
-      },
-      lastFollowUp: { type: 'string' },
-      nextFollowUp: { type: 'string' },
-      assignedToId: { type: 'string' },
-    },
-    required: [
-      'companyName',
-      'contactPerson',
-      'designation',
-      'email',
-      'phone',
-      'type',
-      'source',
-      'status',
-      'priority',
-      'interestedNeeds',
-      'notes',
-      'industry',
-      'companySize',
-      'website',
-      'linkedIn',
-      'location',
-      'country',
-      'city',
-      'campaignName',
-      'campaignLink',
-      'referralName',
-      'sourceWebsiteUrl',
-      'sourceLinkedInUrl',
-      'sourceEmail',
-      'otherDetails',
-      'lastFollowUp',
-      'nextFollowUp',
-      'assignedToId',
-    ],
+    properties: leadDetailsFieldProperties,
+    required: leadDetailsRequiredFields,
   },
   strict: true,
 };
+
+const leadChatJsonSchema = {
+  name: 'lead_chat_response',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      reply: { type: 'string' },
+      readyToCreate: { type: 'boolean' },
+      leadPatch: {
+        type: 'object',
+        additionalProperties: false,
+        properties: leadDetailsFieldProperties,
+        required: leadDetailsRequiredFields,
+      },
+    },
+    required: ['reply', 'readyToCreate', 'leadPatch'],
+  },
+  strict: true,
+};
+
+const LEAD_DETAILS_SYSTEM_PROMPT = `You are the HRYANTRA recruitment CRM lead extraction assistant. Extract lead information and return ONLY valid JSON. companyName, contactPerson, email, phone, interestedNeeds, expectedBusinessValue (budget), priority High|Medium|Low, location fields, source/type/status enums. If unknown use empty string. Do not return markdown.`;
+
+const LEAD_CHAT_SYSTEM_PROMPT = `You are a recruitment sales coordinator for HRYANTRA Add Lead. Ask ONE question at a time. Required before readyToCreate: companyName + valid email. Return leadPatch with all schema fields.`;
+
+const clientDetailsFieldProperties = {
+  companyName: { type: 'string' },
+  directorName: { type: 'string' },
+  directorSalutation: { type: 'string' },
+  designation: { type: 'string' },
+  email: { type: 'string' },
+  phone: { type: 'string' },
+  emails: { type: 'array', items: { type: 'string' } },
+  phones: { type: 'array', items: { type: 'string' } },
+  industry: { type: 'string' },
+  companySize: { type: 'string' },
+  website: { type: 'string' },
+  linkedIn: { type: 'string' },
+  location: { type: 'string' },
+  city: { type: 'string' },
+  state: { type: 'string' },
+  country: { type: 'string' },
+  timezone: { type: 'string' },
+  leadStatus: { type: 'string' },
+  priority: { type: 'string' },
+  servicesNeeded: { type: 'string' },
+  expectedBusinessValue: { type: 'string' },
+  nextFollowUpDue: { type: 'string' },
+  assignedToId: { type: 'string' },
+  teamMemberName: { type: 'string' },
+  teamMemberEmail: { type: 'string' },
+  teamMemberPhone: { type: 'string' },
+  teamMemberDesignation: { type: 'string' },
+  agreementLevel: { type: 'string' },
+  agreementServiceChargePercent: { type: 'string' },
+  agreementContractStartDate: { type: 'string' },
+  agreementContractEndDate: { type: 'string' },
+  agreementTimePeriod: { type: 'string' },
+  agreementAdvancePaymentPercent: { type: 'string' },
+  agreementFreeReplacementValue: { type: 'string' },
+  agreementFreeReplacementUnit: { type: 'string' },
+  kycTradeName: { type: 'string' },
+  kycEntityType: { type: 'string' },
+  kycIncorporationDate: { type: 'string' },
+  kycCountryOfIncorporation: { type: 'string' },
+  kycLegalRegistrationNumber: { type: 'string' },
+  kycTaxIdVatNumber: { type: 'string' },
+  kycBusinessAddress: { type: 'string' },
+  kycSignatoryFullName: { type: 'string' },
+  kycSignatoryDesignation: { type: 'string' },
+  kycSignatoryNationality: { type: 'string' },
+  kycSignatoryEmail: { type: 'string' },
+  kycSignatoryPhone: { type: 'string' },
+  kycBankName: { type: 'string' },
+  kycAccountHolderName: { type: 'string' },
+  kycAccountNumber: { type: 'string' },
+  kycIban: { type: 'string' },
+  kycSwiftBic: { type: 'string' },
+  kycBankCurrency: { type: 'string' },
+  kycBankAddress: { type: 'string' },
+  kycShareholder1Name: { type: 'string' },
+  kycShareholder1Nationality: { type: 'string' },
+  kycShareholder1OwnershipPercent: { type: 'string' },
+  kycShareholder2Name: { type: 'string' },
+  kycShareholder2Nationality: { type: 'string' },
+  kycShareholder2OwnershipPercent: { type: 'string' },
+  otherDetails: {
+    type: 'array',
+    items: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { label: { type: 'string' }, value: { type: 'string' } },
+      required: ['label', 'value'],
+    },
+  },
+};
+
+const clientDetailsRequiredFields = Object.keys(clientDetailsFieldProperties);
 
 const clientDetailsJsonSchema = {
   name: 'client_details_payload',
   schema: {
     type: 'object',
     additionalProperties: false,
-    properties: {
-      companyName: { type: 'string' },
-      directorName: { type: 'string' },
-      directorSalutation: { type: 'string' },
-      designation: { type: 'string' },
-      email: { type: 'string' },
-      phone: { type: 'string' },
-      industry: { type: 'string' },
-      companySize: { type: 'string' },
-      website: { type: 'string' },
-      linkedIn: { type: 'string' },
-      location: { type: 'string' },
-      country: { type: 'string' },
-      city: { type: 'string' },
-      hiringLocations: { type: 'string' },
-      timezone: { type: 'string' },
-      leadStatus: { type: 'string' },
-      priority: { type: 'string' },
-      servicesNeeded: { type: 'string' },
-      expectedBusinessValue: { type: 'string' },
-      sla: { type: 'string' },
-      nextFollowUpDue: { type: 'string' },
-      assignedToId: { type: 'string' },
-      otherDetails: {
-        type: 'array',
-        items: {
-          type: 'object',
-          additionalProperties: false,
-          properties: {
-            label: { type: 'string' },
-            value: { type: 'string' },
-          },
-          required: ['label', 'value'],
-        },
-      },
-    },
-    required: [
-      'companyName',
-      'directorName',
-      'directorSalutation',
-      'designation',
-      'email',
-      'phone',
-      'industry',
-      'companySize',
-      'website',
-      'linkedIn',
-      'location',
-      'country',
-      'city',
-      'hiringLocations',
-      'timezone',
-      'leadStatus',
-      'priority',
-      'servicesNeeded',
-      'expectedBusinessValue',
-      'sla',
-      'nextFollowUpDue',
-      'assignedToId',
-      'otherDetails',
-    ],
+    properties: clientDetailsFieldProperties,
+    required: clientDetailsRequiredFields,
   },
   strict: true,
 };
+
+const clientChatJsonSchema = {
+  name: 'client_chat_response',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      reply: { type: 'string' },
+      readyToCreate: { type: 'boolean' },
+      clientPatch: {
+        type: 'object',
+        additionalProperties: false,
+        properties: clientDetailsFieldProperties,
+        required: clientDetailsRequiredFields,
+      },
+    },
+    required: ['reply', 'readyToCreate', 'clientPatch'],
+  },
+  strict: true,
+};
+
+const CLIENT_DETAILS_SYSTEM_PROMPT = `You are the HRYANTRA Phase 2 Add Client drawer assistant. Extract client onboarding data and return ONLY valid JSON matching the schema.
+
+SECTION: Client Information
+- companyName = company / organization (required to save)
+- directorName = primary contact / director (required to save)
+- directorSalutation = Mr, Ms, Dr, etc.
+- designation = contact designation
+- email, phone = primary channels; emails[], phones[] for extras (email required to save)
+- teamMemberName, teamMemberEmail, teamMemberPhone, teamMemberDesignation = additional team contact row
+- website, linkedIn = company URLs (website also populates company links)
+- location, city, state, country, timezone = location fields; infer Indian state from city when possible
+- industry, companySize, servicesNeeded, expectedBusinessValue
+- leadStatus = client status label: Active | On Hold | Inactive (default Active)
+- priority = High | Medium | Low
+- nextFollowUpDue = YYYY-MM-DD
+- assignedToId = recruiter id only if named; else empty string
+- otherDetails = dynamic custom fields as { label, value } pairs
+
+SECTION: Agreements & Terms (text only — never file uploads)
+- agreementLevel, agreementServiceChargePercent
+- agreementContractStartDate, agreementContractEndDate (YYYY-MM-DD)
+- agreementTimePeriod = payment terms text
+- agreementAdvancePaymentPercent, agreementFreeReplacementValue
+- agreementFreeReplacementUnit = MONTHS | DAYS | empty string
+
+SECTION: KYC Form — SAASA B2E text fields only (never attachments)
+- kycTradeName, kycEntityType (LLC, Pvt Ltd, etc.)
+- kycIncorporationDate, kycCountryOfIncorporation, kycLegalRegistrationNumber, kycTaxIdVatNumber
+- kycBusinessAddress
+- kycSignatoryFullName, kycSignatoryDesignation, kycSignatoryNationality, kycSignatoryEmail, kycSignatoryPhone
+- kycBankName, kycAccountHolderName, kycAccountNumber, kycIban, kycSwiftBic, kycBankCurrency, kycBankAddress
+- kycShareholder1Name, kycShareholder1Nationality, kycShareholder1OwnershipPercent
+- kycShareholder2Name, kycShareholder2Nationality, kycShareholder2OwnershipPercent
+
+Rules: Preserve currentForm unless new text clearly overrides. If unknown use empty string (not null). Do not return markdown. Do not ask follow-up questions in extract mode.`;
+
+const CLIENT_CHAT_SYSTEM_PROMPT = `You are HRYANTRA client onboarding assistant for the Add Client drawer.
+
+Ask ONE question at a time. Never re-ask fields already in currentForm unless the user wants to change them.
+
+Required before readyToCreate=true:
+- companyName
+- directorName (primary contact)
+- valid email (mandatory — phone alone is not enough)
+
+Collect when possible: phone, location/city/state/country, industry, servicesNeeded, expectedBusinessValue, priority, nextFollowUpDue, team member, agreement terms (agreement* fields), KYC text fields (kyc*).
+
+Company logo, agreement file upload, and KYC document uploads cannot be filled by AI — tell the user to upload those manually in the drawer.
+
+When readyToCreate is true, confirm the client is ready and tell the user to review the form and click Create Client.
+
+Always return clientPatch with ALL schema fields (empty strings for unknown values).`;
 
 export const aiController = {
   async assistantChat(req, res) {
@@ -418,11 +507,7 @@ export const aiController = {
             json_schema: leadDetailsJsonSchema,
           },
           messages: [
-            {
-              role: 'system',
-              content:
-                'You are an ATS lead creation assistant. Analyze all user-provided lead information and optimize it into a clean structured lead payload for a recruitment CRM Add Lead form. Do not ask follow-up questions. Infer sensible defaults when data is missing. Keep required business fields populated with realistic values. Allowed enums: type => Company|Individual|Referral. source => Website|LinkedIn|Email|Referral|Campaign. status => New|Contacted|Qualified|Lost|Converted. priority (Interest Level) => High|Medium|Low. Dates must be YYYY-MM-DD or empty string. If a field is unknown, return empty string. Preserve any assignedToId passed from the form unless the prompt clearly overrides it. Field mapping: companyName=Company; contactPerson=Director Name; companySize=Team Name; industry=Industry; website/linkedIn=Company Links; location/city/state/country=Location fields; interestedNeeds=Services Needed; notes=Expected Business Value; sourceWebsiteUrl/sourceLinkedInUrl/sourceEmail/referralName/campaignName per Source type; nextFollowUp=Next Follow-up Date & Time.',
-            },
+            { role: 'system', content: LEAD_DETAILS_SYSTEM_PROMPT },
             {
               role: 'user',
               content: [
@@ -455,6 +540,55 @@ export const aiController = {
     }
   },
 
+  async generateLeadChat(req, res) {
+    try {
+      const { message, currentForm, history = [] } = req.body || {};
+      const trimmedMessage = String(message || '').trim();
+      if (!trimmedMessage) return sendError(res, 400, 'Message is required');
+      if (!hasLlmProvider()) return sendError(res, 503, 'AI lead assistant is not configured');
+
+      const safeHistory = Array.isArray(history)
+        ? history
+            .filter((entry) => entry && typeof entry === 'object')
+            .slice(-12)
+            .map((entry) => ({
+              role: entry.role === 'assistant' ? 'assistant' : 'user',
+              content: String(entry.content || '').trim(),
+            }))
+            .filter((entry) => entry.content)
+        : [];
+
+      const completion = await chatCompletionWithFallback(
+        {
+          model: env.OPENAI_CHAT_MODEL,
+          temperature: 0.3,
+          max_tokens: 1800,
+          response_format: { type: 'json_schema', json_schema: leadChatJsonSchema },
+          messages: [
+            { role: 'system', content: LEAD_CHAT_SYSTEM_PROMPT },
+            { role: 'user', content: `Current form values:\n${JSON.stringify(currentForm || {}, null, 2)}` },
+            ...safeHistory,
+            { role: 'user', content: trimmedMessage },
+          ],
+        },
+        'ai-lead-chat'
+      );
+
+      const raw = completion.choices?.[0]?.message?.content?.trim();
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (!parsed?.reply) return sendError(res, 500, 'AI returned an empty assistant reply');
+
+      return sendResponse(res, 200, 'Lead chat response generated successfully', {
+        reply: parsed.reply,
+        readyToCreate: Boolean(parsed.readyToCreate),
+        lead: parsed.leadPatch || {},
+      });
+    } catch (error) {
+      console.error('[generateLeadChat]', error);
+      return sendError(res, 500, error.message || 'Failed to generate lead chat response', error);
+    }
+  },
+
   async generateClientDetails(req, res) {
     try {
       const { prompt, currentForm } = req.body || {};
@@ -471,27 +605,24 @@ export const aiController = {
         {
           model: env.OPENAI_CHAT_MODEL,
           temperature: 0.2,
-          max_tokens: 1600,
+          max_tokens: 2200,
           response_format: {
             type: 'json_schema',
             json_schema: clientDetailsJsonSchema,
           },
           messages: [
-            {
-              role: 'system',
-              content:
-                'You are an ATS client onboarding assistant. Analyze all user-provided client information and optimize it into a clean structured client payload for a recruitment CRM Add Client form. Do not ask follow-up questions. Infer sensible defaults when data is missing. Always copy every email address from the user text into the email field exactly. Always copy the primary contact name into directorName. leadStatus should be one of New, Contacted, Qualified, Converted, Lost when possible. priority => High|Medium|Low. Dates must be YYYY-MM-DD or empty string. If a field is unknown, return empty string. Preserve assignedToId from the form unless the prompt clearly overrides it.',
-            },
+            { role: 'system', content: CLIENT_DETAILS_SYSTEM_PROMPT },
             {
               role: 'user',
               content: [
-                'Optimize this client for our Add Client drawer and return only valid JSON matching the schema.',
+                'Optimize this client for our Add Client drawer.',
+                'Sections: Client Information → Agreements & Terms → KYC text fields (no file uploads).',
                 `User input:\n${String(prompt || '').trim()}`,
                 `Current form values:\n${JSON.stringify(currentForm || {}, null, 2)}`,
-                'Map hiring requirements or requested services into servicesNeeded.',
-                'Map commercial notes, budget, or deal context into expectedBusinessValue.',
-                'Lines like "Email: user@company.com" must populate email. Lines like "Contact: Jane Doe" must populate directorName.',
-                'Put extra useful facts that do not fit standard fields into otherDetails as label/value pairs.',
+                'Map "Email:" lines to email. Map "Contact:" / director names to directorName.',
+                'Map contract/commercial notes to expectedBusinessValue and agreement* fields.',
+                'Map bank/shareholder/signatory facts to kyc* fields.',
+                'Put extra label/value facts into otherDetails.',
                 'Do not return markdown.',
               ].join('\n\n'),
             },
@@ -511,6 +642,55 @@ export const aiController = {
     } catch (error) {
       console.error('[generateClientDetails]', error);
       return sendError(res, 500, error.message || 'Failed to generate client details', error);
+    }
+  },
+
+  async generateClientChat(req, res) {
+    try {
+      const { message, currentForm, history = [] } = req.body || {};
+      const trimmedMessage = String(message || '').trim();
+      if (!trimmedMessage) return sendError(res, 400, 'Message is required');
+      if (!hasLlmProvider()) return sendError(res, 503, 'AI client assistant is not configured');
+
+      const safeHistory = Array.isArray(history)
+        ? history
+            .filter((entry) => entry && typeof entry === 'object')
+            .slice(-12)
+            .map((entry) => ({
+              role: entry.role === 'assistant' ? 'assistant' : 'user',
+              content: String(entry.content || '').trim(),
+            }))
+            .filter((entry) => entry.content)
+        : [];
+
+      const completion = await chatCompletionWithFallback(
+        {
+          model: env.OPENAI_CHAT_MODEL,
+          temperature: 0.3,
+          max_tokens: 2200,
+          response_format: { type: 'json_schema', json_schema: clientChatJsonSchema },
+          messages: [
+            { role: 'system', content: CLIENT_CHAT_SYSTEM_PROMPT },
+            { role: 'user', content: `Current form values:\n${JSON.stringify(currentForm || {}, null, 2)}` },
+            ...safeHistory,
+            { role: 'user', content: trimmedMessage },
+          ],
+        },
+        'ai-client-chat'
+      );
+
+      const raw = completion.choices?.[0]?.message?.content?.trim();
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (!parsed?.reply) return sendError(res, 500, 'AI returned an empty assistant reply');
+
+      return sendResponse(res, 200, 'Client chat response generated successfully', {
+        reply: parsed.reply,
+        readyToCreate: Boolean(parsed.readyToCreate),
+        client: parsed.clientPatch || {},
+      });
+    } catch (error) {
+      console.error('[generateClientChat]', error);
+      return sendError(res, 500, error.message || 'Failed to generate client chat response', error);
     }
   },
 

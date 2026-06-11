@@ -188,6 +188,20 @@ export const leadController = {
     }
   },
 
+  async checkCreateDuplicate(req, res) {
+    try {
+      const result = await leadService.checkCreateDuplicate({
+        email: req.body?.email,
+        phone: req.body?.phone,
+        companyName: req.body?.companyName,
+        contactPerson: req.body?.contactPerson,
+      });
+      sendResponse(res, 200, 'Lead duplicate check completed', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async checkImportDuplicates(req, res) {
     try {
       const result = await leadService.checkImportDuplicates({

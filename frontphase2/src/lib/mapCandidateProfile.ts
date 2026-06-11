@@ -18,6 +18,7 @@ import {
 import type { CandidateProfileDrawerData } from '../components/drawers/CandidateProfileDrawer';
 import type { MatchCandidate } from '../components/matches/types';
 import { extractAuditMeta } from '../utils/auditMeta';
+import { normalizeCandidateSkillLabels } from './normalizeCandidateSkills';
 
 export function isValidObjectId(id: string): boolean {
   return typeof id === 'string' && /^[a-f0-9]{24}$/i.test(id.trim());
@@ -252,7 +253,10 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
     latestMatch?.job?.id ||
     null;
   const stage = resolveCandidateListStage(c);
-  const skillsCount = c.skills?.length || 0;
+  const skillLabels = normalizeCandidateSkillLabels(
+    c.skills ?? (c as BackendCandidate & { recruiterSkills?: unknown }).recruiterSkills,
+  );
+  const skillsCount = skillLabels.length;
   const skillsMatch = Math.min(95, skillsCount > 0 ? 55 + skillsCount * 8 : 38);
   const experienceFit = Math.min(96, c.experience != null ? 45 + c.experience * 6 : 35);
   const educationFit = c.currentTitle ? 72 : 48;
@@ -413,17 +417,17 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
 
   const fallbackTags = Array.from(
     new Set([
-      ...(c.tags || []),
-      ...(c.skills?.slice(0, 2) || []),
+      ...(Array.isArray(c.tags) ? c.tags.map((tag) => String(tag).trim()).filter(Boolean) : []),
+      ...skillLabels.slice(0, 2),
       (c.experience ?? 0) >= 5 ? 'Senior' : '',
       c.source?.toLowerCase().includes('referral') ? 'Referral' : '',
       c.location?.toLowerCase().includes('remote') ? 'Remote Candidate' : '',
       isPhase1Candidate ? PHASE1_CANDIDATE_TAG_LABEL : '',
     ].filter(Boolean))
   ).map((tag) => ({
-    id: `tag-${tag.toLowerCase().replace(/\s+/g, '-')}`,
-    label: tag,
-    color: getTagColor(tag),
+    id: `tag-${String(tag).toLowerCase().replace(/\s+/g, '-')}`,
+    label: String(tag),
+    color: getTagColor(String(tag)),
   }));
 
   const careerPrefs = c.careerPreferences || null;
@@ -491,7 +495,7 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
     summary:
       c.notes?.trim() ||
       c.cvSummary?.trim() ||
-      (c.skills?.length ? `Skills: ${c.skills.join(', ')}` : null),
+      (skillLabels.length ? `Skills: ${skillLabels.join(', ')}` : null),
     cvAddress: c.address || null,
     cvCity: c.city || null,
     cvCountry: c.country || null,
@@ -553,12 +557,7 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
         : null) ||
       mergedCareerPrefs?.currentLocation ||
       null,
-    cvSkills:
-      (Array.isArray(c.skills) && c.skills.length
-        ? c.skills
-        : Array.isArray((c as any).recruiterSkills)
-          ? (c as any).recruiterSkills
-          : []) || [],
+    cvSkills: skillLabels,
     cvSummary: c.cvSummary || null,
     extraData:
       c.extraData && typeof c.extraData === 'object' && !Array.isArray(c.extraData)

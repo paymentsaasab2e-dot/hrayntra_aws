@@ -120,7 +120,6 @@ import {
   BarChart3,
   AlertCircle,
   Sparkles,
-  ArrowUp,
   User,
   ArrowRight,
   UserCheck,
@@ -132,7 +131,6 @@ import {
   Pin,
   Pencil,
   Receipt,
-  GripVertical,
   Plus,
   Bell,
 } from 'lucide-react';
@@ -148,6 +146,7 @@ import {
   apiAppendClientLeadStatus,
   apiAppendClientPriority,
   apiGenerateClientDetails,
+  type LeadAiChatMessage,
   apiCreateClient,
   apiCreateContact,
   apiCreateScheduledMeeting,
@@ -184,6 +183,14 @@ import {
 import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { requestConfirm, requestError, requestSuccess, requestWarning } from '../../lib/appDialog';
 import { CreateJobDrawer } from './CreateJobDrawer';
+import { ClientAiChatDrawer } from '../clients/ClientAiChatDrawer';
+import {
+  clientAiHasAgreementData,
+  clientAiHasKycData,
+  mergeClientAiKycForm,
+  type ClientAiGeneratedPayload,
+} from '@/lib/clientAiHelpers';
+import { inferLocationFromCityName } from '../../lib/cscData';
 import { DrawerCloseButton } from './DrawerCloseButton';
 import { JobDetailsDrawer, type JobForDrawer } from './JobDetailsDrawer';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -192,12 +199,6 @@ import { toast } from 'sonner';
 const CLIENT_AI_EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 type ClientAiRequiredField = 'companyName' | 'directorName' | 'email';
-
-const CLIENT_AI_REQUIRED_FIELD_LABELS: Record<ClientAiRequiredField, string> = {
-  companyName: 'Company',
-  directorName: 'Director / contact name',
-  email: 'Email',
-};
 
 function validateClientAiEmail(email: string) {
   const value = String(email || '').trim();
@@ -1089,28 +1090,12 @@ export function ClientDetailsDrawer({
   );
   const clientLogoInputRef = useRef<HTMLInputElement>(null);
   const agreementsInputRef = useRef<HTMLInputElement>(null);
-  const [clientAiPrompt, setClientAiPrompt] = useState('');
-  const [clientAiError, setClientAiError] = useState('');
-  const [clientAiStatus, setClientAiStatus] = useState('');
-  const [clientAiPendingFields, setClientAiPendingFields] = useState<ClientAiRequiredField[]>([]);
-  const [clientAiGenerating, setClientAiGenerating] = useState(false);
-  const [clientAiPromptVisible, setClientAiPromptVisible] = useState(true);
-  const [clientAiPromptPos, setClientAiPromptPos] = useState<{ x: number; y: number } | null>(null);
-  const clientAiPromptBoundsRef = useRef<HTMLDivElement>(null);
-  const clientAiPromptBoxRef = useRef<HTMLDivElement>(null);
-  const clientAiDragRef = useRef<{
-    pointerId: number;
-    startX: number;
-    startY: number;
-    originX: number;
-    originY: number;
-  } | null>(null);
+  const [clientAiChatOpen, setClientAiChatOpen] = useState(false);
+  const [clientAiChatHistory, setClientAiChatHistory] = useState<LeadAiChatMessage[]>([]);
 
-  const resetSmartClientPrompt = useCallback(() => {
-    setClientAiPrompt('');
-    setClientAiError('');
-    setClientAiStatus('');
-    setClientAiPendingFields([]);
+  const resetClientAiAssistant = useCallback(() => {
+    setClientAiChatOpen(false);
+    setClientAiChatHistory([]);
   }, []);
 
   const getMissingClientAiFields = useCallback((form: ClientOverviewForm): ClientAiRequiredField[] => {
@@ -1141,6 +1126,54 @@ export function ClientDetailsDrawer({
 
       const assignedToId = generated.assignedToId?.trim() || form.assignedToId;
       const leadStatusValue = generated.leadStatus?.trim() || form.leadStatusValue;
+      const nextCity = (generated.city || form.city || '').trim();
+      const nextState = (() => {
+        if (generated.state?.trim()) return generated.state.trim();
+        if (form.state?.trim()) return form.state;
+        if (!nextCity) return form.state;
+        return (
+          inferLocationFromCityName(nextCity, {
+            country: generated.country || form.country,
+            countryCode: form.countryCode,
+            state: form.state,
+          })?.state || form.state
+        );
+      })();
+      const nextCountryCode = (() => {
+        if (form.countryCode?.trim()) return form.countryCode;
+        if (!nextCity) return form.countryCode;
+        return (
+          inferLocationFromCityName(nextCity, {
+            country: generated.country || form.country,
+            state: nextState,
+          })?.countryCode || form.countryCode
+        );
+      })();
+      const primaryEmail = generated.email || form.contactEmail;
+      const primaryPhone = generated.phone || form.contactPhone;
+      const g = generated as ClientAiGeneratedPayload;
+      const teamMemberName = g.teamMemberName?.trim();
+      const nextTeamMembers = (() => {
+        if (!teamMemberName && !g.teamMemberEmail?.trim() && !g.teamMemberPhone?.trim()) {
+          return form.teamMembers;
+        }
+        const existing = normalizeTeamMemberList(form.teamMembers);
+        return normalizeTeamMemberList([
+          ...existing,
+          {
+            teamMemberName: teamMemberName || '',
+            teamMemberEmail: g.teamMemberEmail?.trim() || '',
+            teamMemberPhone: g.teamMemberPhone?.trim() || '',
+            teamMemberDesignation: g.teamMemberDesignation?.trim() || '',
+            teamMemberSalutation: '',
+          },
+        ]);
+      })();
+      const replacementUnit = String(g.agreementFreeReplacementUnit || '').toUpperCase();
+      const agreementFreeReplacementUnit =
+        replacementUnit === 'DAYS' || replacementUnit === 'MONTHS'
+          ? (replacementUnit as 'DAYS' | 'MONTHS')
+          : form.agreementFreeReplacementUnit;
 
       return {
         ...form,
@@ -1148,16 +1181,10 @@ export function ClientDetailsDrawer({
         directorSalutation: generated.directorSalutation || form.directorSalutation,
         directorName: generated.directorName || form.directorName,
         designation: generated.designation || form.designation,
-        contactEmail: generated.email || form.contactEmail,
-        contactPhone: generated.phone || form.contactPhone,
-        contactEmails: contactListForForm(
-          (generated as { emails?: string[] }).emails,
-          generated.email || form.contactEmail,
-        ),
-        contactPhones: contactListForForm(
-          (generated as { phones?: string[] }).phones,
-          generated.phone || form.contactPhone,
-        ),
+        contactEmail: primaryEmail,
+        contactPhone: primaryPhone,
+        contactEmails: contactListForForm(g.emails, primaryEmail),
+        contactPhones: contactListForForm(g.phones, primaryPhone),
         industry: generated.industry || form.industry,
         companySize: generated.companySize || form.companySize,
         website: websiteVal || form.website,
@@ -1165,21 +1192,45 @@ export function ClientDetailsDrawer({
         linkedin: generated.linkedIn || form.linkedin,
         location: generated.location || form.location,
         country: generated.country || form.country,
+        countryCode: nextCountryCode,
         city: generated.city || form.city,
-        hiringLocations: generated.hiringLocations || form.hiringLocations,
+        state: nextState,
+        hiringLocations:
+          [nextCity, nextState, generated.country || form.country].filter(Boolean).join(', ') ||
+          form.hiringLocations,
         timezone: generated.timezone || form.timezone,
         leadStatusValue,
+        status: leadStatusValue ? clientStatusLabelToBackend(leadStatusValue) : form.status,
         priority: generated.priority || form.priority,
         servicesNeeded: generated.servicesNeeded || form.servicesNeeded,
         expectedBusinessValue: generated.expectedBusinessValue || form.expectedBusinessValue,
-        sla: generated.sla || form.sla,
         nextFollowUpDue: normalizeClientAiDateInput(generated.nextFollowUpDue || form.nextFollowUpDue),
         assignedToId,
         assignedToIds: assignedToId ? [assignedToId] : form.assignedToIds,
         dynamicOtherDetails: Array.isArray(generated.otherDetails)
           ? filterImportedDynamicOtherDetails(generated.otherDetails)
           : form.dynamicOtherDetails,
-        teamMembers: form.teamMembers,
+        teamMembers: nextTeamMembers,
+        agreementLevel: g.agreementLevel?.trim() || form.agreementLevel,
+        agreementServiceChargePercent:
+          g.agreementServiceChargePercent?.trim() || form.agreementServiceChargePercent,
+        agreementContractStartDate:
+          normalizeClientAiDateInput(g.agreementContractStartDate || form.agreementContractStartDate),
+        agreementContractEndDate:
+          normalizeClientAiDateInput(g.agreementContractEndDate || form.agreementContractEndDate),
+        agreementTimePeriod: g.agreementTimePeriod?.trim() || form.agreementTimePeriod,
+        agreementAdvancePaymentPercent:
+          g.agreementAdvancePaymentPercent?.trim() || form.agreementAdvancePaymentPercent,
+        agreementFreeReplacementValue:
+          g.agreementFreeReplacementValue?.trim() || form.agreementFreeReplacementValue,
+        agreementFreeReplacementUnit,
+        postServiceKycForm: mergeClientAiKycForm(form.postServiceKycForm, g, {
+          companyName: generated.companyName || form.companyName,
+          directorName: generated.directorName || form.directorName,
+          email: primaryEmail,
+          phone: primaryPhone,
+          website: websiteVal || form.website,
+        }),
       };
     },
     [],
@@ -1205,146 +1256,27 @@ export function ClientDetailsDrawer({
     [],
   );
 
-  const handleClientAiGenerate = useCallback(async () => {
-    const input = clientAiPrompt.trim();
-    if (!input) {
-      toast.error('Paste or type client details first');
-      return;
-    }
-
-    setClientAiError('');
-    setClientAiStatus('');
-
-    try {
-      setClientAiGenerating(true);
-      const response = await apiGenerateClientDetails({
-        prompt: input,
-        currentForm: overviewEditForm as unknown as Record<string, unknown>,
-      });
-      const generatedRaw = response.data;
-      if (!generatedRaw) {
-        throw new Error('AI did not return client details');
-      }
-
-      const generated = enrichGeneratedClientFromPrompt(generatedRaw, input);
-      const nextFormState = applyGeneratedClientToForm(overviewEditForm, generated);
+  const handleApplyClientAiGenerated = useCallback(
+    (generated: ClientAiGeneratedPayload, sourceText: string) => {
+      const enriched = enrichGeneratedClientFromPrompt(generated, sourceText);
+      const nextFormState = applyGeneratedClientToForm(
+        overviewEditForm,
+        enriched as NonNullable<Awaited<ReturnType<typeof apiGenerateClientDetails>>['data']>,
+      );
       patchOverviewWithAutoTimezone(nextFormState, { forceTimezone: true });
       setOverviewOpen((prev) => ({
         ...prev,
         leadInformation: true,
-        agreementsTerms: prev.agreementsTerms,
-        kycForm: prev.kycForm,
+        agreementsTerms: clientAiHasAgreementData(enriched) || prev.agreementsTerms,
+        kycForm: clientAiHasKycData(enriched) || prev.kycForm,
       }));
-
-      const missingFields = getMissingClientAiFields(nextFormState);
-      setClientAiPendingFields(missingFields);
-
-      if (missingFields.length > 0) {
-        setClientAiStatus(
-          `Form filled. Still need: ${missingFields.map((field) => CLIENT_AI_REQUIRED_FIELD_LABELS[field]).join(', ')}. Add them in the form or prompt, then click Create Client.`,
-        );
-        toast.message('Form partially filled — complete required fields, then click Create Client');
-        return;
-      }
-
-      setClientAiPrompt('');
-      toast.success('Form filled — review and click Create Client');
-    } catch (error: unknown) {
-      console.error('Client AI generation failed:', error);
-      const message = error instanceof Error ? error.message : 'Failed to process client details';
-      setClientAiError(message);
-    } finally {
-      setClientAiGenerating(false);
-    }
-  }, [
-    clientAiPrompt,
-    overviewEditForm,
-    applyGeneratedClientToForm,
-    getMissingClientAiFields,
-    patchOverviewWithAutoTimezone,
-  ]);
-
-  useEffect(() => {
-    if (isAddMode) {
-      setClientAiPromptVisible(true);
-      setClientAiPromptPos(null);
-      resetSmartClientPrompt();
-    }
-  }, [isAddMode, resetSmartClientPrompt]);
-
-  const clampClientAiPromptPosition = useCallback((x: number, y: number) => {
-    const bounds = clientAiPromptBoundsRef.current;
-    const box = clientAiPromptBoxRef.current;
-    if (!bounds || !box) return { x, y };
-
-    const boundsRect = bounds.getBoundingClientRect();
-    const boxRect = box.getBoundingClientRect();
-    const pad = 8;
-    const maxX = Math.max(pad, boundsRect.width - boxRect.width - pad);
-    const maxY = Math.max(pad, boundsRect.height - boxRect.height - pad);
-
-    return {
-      x: Math.min(Math.max(pad, x), maxX),
-      y: Math.min(Math.max(pad, y), maxY),
-    };
-  }, []);
-
-  const resolveClientAiPromptPosition = useCallback(() => {
-    if (clientAiPromptPos) return clientAiPromptPos;
-
-    const bounds = clientAiPromptBoundsRef.current;
-    const box = clientAiPromptBoxRef.current;
-    if (!bounds || !box) return { x: 24, y: 24 };
-
-    const boundsRect = bounds.getBoundingClientRect();
-    const boxRect = box.getBoundingClientRect();
-    return clampClientAiPromptPosition(
-      boxRect.left - boundsRect.left,
-      boxRect.top - boundsRect.top,
-    );
-  }, [clientAiPromptPos, clampClientAiPromptPosition]);
-
-  const handleClientAiPromptDragStart = useCallback(
-    (e: React.PointerEvent<HTMLButtonElement>) => {
-      if (e.button !== 0) return;
-      e.preventDefault();
-
-      const origin = resolveClientAiPromptPosition();
-      setClientAiPromptPos(origin);
-
-      clientAiDragRef.current = {
-        pointerId: e.pointerId,
-        startX: e.clientX,
-        startY: e.clientY,
-        originX: origin.x,
-        originY: origin.y,
-      };
-
-      const onMove = (ev: PointerEvent) => {
-        const drag = clientAiDragRef.current;
-        if (!drag || ev.pointerId !== drag.pointerId) return;
-
-        const dx = ev.clientX - drag.startX;
-        const dy = ev.clientY - drag.startY;
-        const next = clampClientAiPromptPosition(drag.originX + dx, drag.originY + dy);
-        setClientAiPromptPos(next);
-      };
-
-      const onUp = (ev: PointerEvent) => {
-        const drag = clientAiDragRef.current;
-        if (!drag || ev.pointerId !== drag.pointerId) return;
-        clientAiDragRef.current = null;
-        window.removeEventListener('pointermove', onMove);
-        window.removeEventListener('pointerup', onUp);
-        window.removeEventListener('pointercancel', onUp);
-      };
-
-      window.addEventListener('pointermove', onMove);
-      window.addEventListener('pointerup', onUp);
-      window.addEventListener('pointercancel', onUp);
     },
-    [resolveClientAiPromptPosition, clampClientAiPromptPosition],
+    [overviewEditForm, applyGeneratedClientToForm, patchOverviewWithAutoTimezone],
   );
+
+  const isCreateClientDisabled = useMemo(() => {
+    return getMissingClientAiFields(overviewEditForm).length > 0;
+  }, [overviewEditForm, getMissingClientAiFields]);
 
   const [uploadingClientLogo, setUploadingClientLogo] = useState(false);
   /** Pending file selected while editing — uploaded after Save (Add) or immediately on Save (Edit). */
@@ -2593,6 +2525,7 @@ export function ClientDetailsDrawer({
         setPendingKycFiles([]);
         setPendingPostServiceKycFiles(createEmptyPendingPostServiceKycFiles());
         setRemovedPostServiceKycFileIds([]);
+        resetClientAiAssistant();
         onClientCreated?.();
         onClose();
       } catch (error: any) {
@@ -3442,6 +3375,7 @@ export function ClientDetailsDrawer({
         dynamicOtherDetails: [],
       }));
       resetClientLogoDraft();
+      resetClientAiAssistant();
       setPendingAgreementsFile(null);
       setPendingKycFiles([]);
       setPendingPostServiceKycFiles(createEmptyPendingPostServiceKycFiles());
@@ -3566,7 +3500,14 @@ export function ClientDetailsDrawer({
                 <div className="flex items-center gap-1 shrink-0">
                   {isAddMode ? (
                     <>
-                      <DrawerCloseButton onClick={onClose} />
+                      <button
+                        type="button"
+                        onClick={() => setClientAiChatOpen(true)}
+                        className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+                      >
+                        <Sparkles size={14} />
+                        Create with AI
+                      </button>
                       <button
                         type="button"
                         onClick={() => onClose()}
@@ -3577,10 +3518,12 @@ export function ClientDetailsDrawer({
                       <button
                         type="button"
                         onClick={saveOverviewEdit}
-                        className="px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+                        disabled={isCreateClientDisabled || uploadingAgreements || uploadingKyc}
+                        className="px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         Create Client
                       </button>
+                      <DrawerCloseButton onClick={onClose} />
                     </>
                   ) : (
                     <>
@@ -3692,15 +3635,27 @@ export function ClientDetailsDrawer({
             )}
 
             {/* Tab content */}
-            <div ref={clientAiPromptBoundsRef} className="relative flex min-h-0 flex-1 flex-col">
-              <div
-                className={`flex-1 overflow-y-auto bg-slate-50/30 ${
-                  isAddMode && clientAiPromptVisible && !clientAiPromptPos ? 'pb-44' : ''
-                }`}
-              >
+            <div className="relative flex min-h-0 flex-1 flex-col">
+              <div className="flex-1 overflow-y-auto bg-slate-50/30">
               <div className="p-5">
                 {isAddMode ? (
                   <div className="space-y-4">
+                    <div className="flex flex-col gap-3 rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50/90 to-indigo-50/60 p-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-900">Create faster with AI</p>
+                        <p className="mt-0.5 text-xs text-slate-600">
+                          Chat or paste notes — the form fills as you go. Close the assistant anytime; your conversation continues.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setClientAiChatOpen(true)}
+                        className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
+                      >
+                        <Sparkles size={16} />
+                        {clientAiChatOpen ? 'Continue AI chat' : 'Open AI assistant'}
+                      </button>
+                    </div>
                     {/* Add Client Form — split into collapsible Client Information and Agreements & Terms sections. */}
                     <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                       <div className="p-5 space-y-4">
@@ -7337,105 +7292,26 @@ export function ClientDetailsDrawer({
               </div>
               </div>
 
-              {isAddMode && !clientAiPromptVisible ? (
-                <button
-                  type="button"
-                  onClick={() => setClientAiPromptVisible(true)}
-                  className="absolute bottom-5 right-5 z-20 flex h-12 w-12 items-center justify-center rounded-full border border-blue-200/80 bg-white text-blue-600 shadow-[0_8px_24px_rgba(37,99,235,0.22)] transition-colors hover:bg-blue-50"
-                  aria-label="Show AI prompt"
-                  title="Show AI prompt"
-                >
-                  <Sparkles size={20} />
-                </button>
-              ) : null}
-
-              {isAddMode && clientAiPromptVisible ? (
-                <div
-                  ref={clientAiPromptBoxRef}
-                  className={`pointer-events-none absolute z-20 w-[min(100%,42rem)] max-w-3xl px-5 ${
-                    clientAiPromptPos ? '' : 'bottom-5 left-1/2 -translate-x-1/2'
-                  }`}
-                  style={
-                    clientAiPromptPos
-                      ? { left: clientAiPromptPos.x, top: clientAiPromptPos.y, transform: 'none' }
-                      : undefined
-                  }
-                >
-                  {(clientAiStatus || clientAiError) && (
-                    <div className="pointer-events-auto mb-2 space-y-1.5">
-                      {clientAiStatus ? (
-                        <p className="rounded-2xl border border-amber-200/80 bg-amber-50/95 px-3 py-2 text-xs text-amber-900 shadow-sm backdrop-blur-sm">
-                          {clientAiStatus}
-                        </p>
-                      ) : null}
-                      {clientAiError ? (
-                        <p className="rounded-2xl border border-red-200/80 bg-red-50/95 px-3 py-2 text-xs text-red-700 shadow-sm backdrop-blur-sm">
-                          {clientAiError}
-                        </p>
-                      ) : null}
-                    </div>
-                  )}
-                  <div className="pointer-events-auto relative rounded-[28px] border border-slate-200/80 bg-white/95 p-1.5 shadow-[0_8px_32px_rgba(15,23,42,0.14),0_2px_8px_rgba(15,23,42,0.06)] backdrop-blur-md">
-                    <button
-                      type="button"
-                      onClick={() => setClientAiPromptVisible(false)}
-                      className="absolute -right-2 -top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-md transition-colors hover:bg-slate-50 hover:text-slate-800"
-                      aria-label="Close AI prompt"
-                      title="Close"
-                    >
-                      <X size={14} strokeWidth={2.5} />
-                    </button>
-                    <div className="flex items-end gap-1.5 pl-1 pr-1">
-                      <button
-                        type="button"
-                        onPointerDown={handleClientAiPromptDragStart}
-                        className="mb-1 flex h-9 w-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 active:cursor-grabbing"
-                        aria-label="Drag prompt"
-                        title="Drag to move"
-                      >
-                        <GripVertical size={16} />
-                      </button>
-                      <div className="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
-                        <Sparkles size={15} />
-                      </div>
-                      <textarea
-                        id="client-smart-prompt"
-                        value={clientAiPrompt}
-                        onChange={(e) => setClientAiPrompt(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && !e.shiftKey && !clientAiGenerating) {
-                            e.preventDefault();
-                            void handleClientAiGenerate();
-                          }
-                        }}
-                        rows={1}
-                        placeholder="Paste client details — company, contact, email, phone, location…"
-                        className="max-h-32 min-h-[40px] flex-1 resize-none border-0 bg-transparent py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-0 disabled:opacity-60"
-                        disabled={clientAiGenerating}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => void handleClientAiGenerate()}
-                        disabled={clientAiGenerating || !clientAiPrompt.trim()}
-                        className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-900 text-white transition-all hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-                        aria-label={clientAiGenerating ? 'Processing' : 'Fill form from text'}
-                        title={clientAiGenerating ? 'Processing…' : 'Fill form (Enter)'}
-                      >
-                        {clientAiGenerating ? (
-                          <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                        ) : (
-                          <ArrowUp size={18} strokeWidth={2.25} />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
             </div>
           </motion.div>
         </>
       )}
     </AnimatePresence>
+    {isAddMode ? (
+      <ClientAiChatDrawer
+        isOpen={clientAiChatOpen}
+        onClose={() => setClientAiChatOpen(false)}
+        form={overviewEditForm as unknown as Record<string, unknown>}
+        onApplyGenerated={handleApplyClientAiGenerated}
+        onExpandSections={() => {
+          /* Sections open in handleApplyClientAiGenerated based on extracted data */
+        }}
+        chatHistory={clientAiChatHistory}
+        onChatHistoryChange={setClientAiChatHistory}
+        onCreateClient={() => void saveOverviewEdit()}
+        createDisabled={isCreateClientDisabled || uploadingAgreements || uploadingKyc}
+      />
+    ) : null}
     <CreateJobDrawer
       isOpen={createJobDrawerOpen}
       onClose={() => {

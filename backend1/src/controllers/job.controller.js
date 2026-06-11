@@ -2,6 +2,8 @@ const { prisma, retryQuery } = require('../lib/prisma');
 const matchingService = require('../services/matching.service');
 const { runJobMatchingPipeline: runJobMatchingPipelinePhase1 } = require('../services/job-matching-pipeline-phase1.service');
 const { formatPortalJob, shouldShowClientNamePublicly } = require('../utils/formatPortalJob.util');
+const { normalizeContentLocale } = require('../services/contentTranslation.service');
+const { localizePortalJob, localizePortalJobs } = require('../utils/localizePortalJob.util');
 
 // simple in-memory cache
 const cache = {
@@ -114,10 +116,12 @@ function isDbUnavailableError(error) {
  */
 async function getAllJobs(req, res) {
   try {
-    const { page = 1, limit = 10, location, industry, workMode, employmentType, includeInactive } = req.query;
+    const { page = 1, limit = 10, location, industry, workMode, employmentType, includeInactive, locale: localeQuery } = req.query;
+    const locale = normalizeContentLocale(localeQuery);
     
-    // Check cache for default query (page 1, limit 10, no filters)
-    const isDefaultQuery = page == 1 && limit == 10 && !location && !industry && !workMode && !employmentType;
+    // Check cache for default query (page 1, limit 10, no filters, English only)
+    const isDefaultQuery =
+      page == 1 && limit == 10 && !location && !industry && !workMode && !employmentType && locale === 'en';
     if (
       isDefaultQuery &&
       cache.jobs &&
@@ -211,15 +215,16 @@ async function getAllJobs(req, res) {
         assignedRecruiter: null,
       };
     });
+    const localizedJobs = await localizePortalJobs(formattedJobs, locale);
 
     console.log(
-      `📦 DB fetch result: jobs-list | page=${page} | limit=${limit} | returned=${jobs.length} | total=${total} | elapsedMs=${Date.now() - startedAt}`
+      `📦 DB fetch result: jobs-list | page=${page} | limit=${limit} | locale=${locale} | returned=${jobs.length} | total=${total} | elapsedMs=${Date.now() - startedAt}`
     );
 
     const responsePayload = {
       success: true,
       data: {
-        jobs: formattedJobs,
+        jobs: localizedJobs,
         pagination: {
           page: parseInt(page),
           limit: parseInt(limit),
@@ -306,14 +311,16 @@ async function getJobById(req, res) {
     );
 
     const thumb = jobListingThumbnail(job);
+    const locale = normalizeContentLocale(req.query.locale);
     const formattedJob = {
       ...formatPortalJob(job, { thumbnail: thumb }),
       assignedRecruiter: null,
     };
+    const localizedJob = await localizePortalJob(formattedJob, locale);
 
     res.json({
       success: true,
-      data: formattedJob,
+      data: localizedJob,
     });
   } catch (error) {
     console.error('Error fetching job:', error);
@@ -742,7 +749,8 @@ async function recommendLocations(req, res) {
  */
 async function getPersonalizedJobs(req, res) {
   try {
-    const { candidateId } = req.query;
+    const { candidateId, locale: localeQuery } = req.query;
+    const locale = normalizeContentLocale(localeQuery);
     if (!candidateId) return res.status(400).json({ success: false, message: 'Candidate ID is required' });
 
     // 1. Fetch Candidate Context
@@ -993,10 +1001,19 @@ async function getPersonalizedJobs(req, res) {
     console.log(`----------------------------------------\n`);
     console.log('='.repeat(90) + '\n');
 
+    let localizedResponseMatches = responseMatches;
+    if (locale === 'fr') {
+      localizedResponseMatches = await localizePortalJobs(responseMatches, locale);
+      localizedResponseMatches = localizedResponseMatches.map((job) => ({
+        ...job,
+        jobTitle: job.title || job.jobTitle,
+      }));
+    }
+
     res.json({
       success: true,
       totalMatches: totalQualifiedMatches,
-      totalScored: responseMatches.length,
+      totalScored: localizedResponseMatches.length,
       totalJobsScanned,
       candidateProfile: {
         id: candidateSnapshot.id,
@@ -1019,7 +1036,7 @@ async function getPersonalizedJobs(req, res) {
         structuredProfile: candidateSnapshot.structuredProfile,
         summaryText: candidateSnapshot.summaryText,
       },
-      data: responseMatches
+      data: localizedResponseMatches
     });
 
   } catch (error) {

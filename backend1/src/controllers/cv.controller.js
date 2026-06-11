@@ -1,5 +1,7 @@
 const { prisma } = require('../lib/prisma');
 const { isPortalPlaceholderFullName } = require('../utils/portal-profile-placeholder.util');
+const { normalizeContentLocale, translateBatch } = require('../services/contentTranslation.service');
+const { localizePortalJobs } = require('../utils/localizePortalJob.util');
 const { parseResumeFromBuffer } = require('../services/resume-parser.service');
 const { convertToLaTeX } = require('../services/cv-parser.service');
 const { persistExtractedCvProfile } = require('../services/cv-profile-persist.service');
@@ -1044,6 +1046,7 @@ async function updateCandidateProfile(req, res) {
 async function getCandidateDashboard(req, res) {
   try {
     const { candidateId } = req.params;
+    const locale = normalizeContentLocale(req.query.locale);
     const startedAt = Date.now();
 
     if (!candidateId) {
@@ -1204,6 +1207,50 @@ async function getCandidateDashboard(req, res) {
         savedAt: sj.savedAt,
       })),
     };
+
+    if (locale === 'fr') {
+      const skillTexts = dashboardData.topSkills
+        .map((skill) => skill.name)
+        .filter((name) => name && name !== 'Unknown Skill');
+      const skillTranslations = await translateBatch(skillTexts, locale, 'en');
+      dashboardData.topSkills = dashboardData.topSkills.map((skill) => ({
+        ...skill,
+        name: skillTranslations.get(skill.name) || skill.name,
+      }));
+
+      if (dashboardData.savedJobs.length) {
+        const localizedSaved = await localizePortalJobs(
+          dashboardData.savedJobs.map((job) => ({
+            title: job.title,
+            company: job.company,
+            location: job.location || '',
+          })),
+          locale,
+        );
+        dashboardData.savedJobs = dashboardData.savedJobs.map((job, index) => ({
+          ...job,
+          title: localizedSaved[index]?.title || job.title,
+          company: localizedSaved[index]?.company || job.company,
+          location: localizedSaved[index]?.location || job.location,
+        }));
+      }
+
+      if (dashboardData.recentApplications.length) {
+        const localizedApplications = await localizePortalJobs(
+          dashboardData.recentApplications.map((app) => ({
+            title: app.jobTitle,
+            company: app.company,
+            location: '',
+          })),
+          locale,
+        );
+        dashboardData.recentApplications = dashboardData.recentApplications.map((app, index) => ({
+          ...app,
+          jobTitle: localizedApplications[index]?.title || app.jobTitle,
+          company: localizedApplications[index]?.company || app.company,
+        }));
+      }
+    }
 
     res.json({
       success: true,

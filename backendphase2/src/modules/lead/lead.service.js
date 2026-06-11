@@ -254,17 +254,25 @@ async function findDuplicateClientByCompanyName(companyName, { excludeClientId }
   return candidates.find((client) => normalizeCompanyMatchKey(client.companyName) === compact) || null;
 }
 
-function buildLeadImportDuplicateChecks({ email, companyName, contactPerson }) {
+function buildLeadImportDuplicateChecks({ email, companyName, contactPerson, phone }) {
   const duplicateChecks = [];
 
   if (email) {
     duplicateChecks.push({ email: { equals: email, mode: 'insensitive' } });
   }
 
+  if (phone) {
+    duplicateChecks.push({ phone: { equals: phone, mode: 'insensitive' } });
+  }
+
   if (companyName && contactPerson) {
     duplicateChecks.push({
       companyName: { equals: companyName, mode: 'insensitive' },
       contactPerson: { equals: contactPerson, mode: 'insensitive' },
+    });
+  } else if (companyName) {
+    duplicateChecks.push({
+      companyName: { equals: companyName, mode: 'insensitive' },
     });
   }
 
@@ -471,6 +479,10 @@ async function findExistingLeadImportDuplicate(payload) {
       country: true,
       notes: true,
       otherDetails: true,
+      createdAt: true,
+      assignedTo: {
+        select: { id: true, name: true, email: true },
+      },
     },
   });
 
@@ -1675,6 +1687,35 @@ export const leadService = {
       }
     }
     return { message: 'Lead permanently deleted' };
+  },
+
+  async checkCreateDuplicate({ email, phone, companyName, contactPerson } = {}) {
+    const payload = {
+      email: email ? String(email).trim().toLowerCase() : null,
+      phone: phone ? String(phone).trim() : null,
+      companyName: companyName ? String(companyName).trim() : null,
+      contactPerson: contactPerson ? String(contactPerson).trim() : null,
+    };
+
+    const duplicate = await findExistingLeadImportDuplicate(payload);
+    if (!duplicate?.existing) {
+      return { duplicate: false };
+    }
+
+    return {
+      duplicate: true,
+      leadId: duplicate.existing.id,
+      matchedBy: duplicate.matchedBy,
+      existing: {
+        id: duplicate.existing.id,
+        companyName: duplicate.existing.companyName,
+        contactPerson: duplicate.existing.contactPerson,
+        email: duplicate.existing.email,
+        phone: duplicate.existing.phone,
+        ownerName: duplicate.existing.assignedTo?.name || null,
+        createdAt: duplicate.existing.createdAt,
+      },
+    };
   },
 
   async checkImportDuplicates({ rows = [], mapping = {} }) {
