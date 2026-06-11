@@ -88,3 +88,51 @@ export function resolveShowClientNamePublicly(
   if (legacyShowClient === false) return false;
   return isJobFieldPubliclyVisible(visibility, 'client', legacyShowClient ?? true);
 }
+
+/** Strip hidden job fields for public / Phase 1 views — no confidential placeholders. */
+export function redactPublicJobPayload<T extends Record<string, unknown>>(
+  job: T,
+  options?: {
+    showClientNamePublicly?: boolean;
+    publicFieldVisibility?: Record<string, boolean> | null;
+  },
+): T {
+  const visibility = parseJobPublicFieldVisibility(options?.publicFieldVisibility ?? job.publicFieldVisibility);
+  const legacyShowClient =
+    options?.showClientNamePublicly !== undefined
+      ? options.showClientNamePublicly !== false
+      : (job as { showClientNamePublicly?: boolean }).showClientNamePublicly !== false;
+  const show = (field: JobPublicVisibilityField) =>
+    isJobFieldPubliclyVisible(visibility, field, legacyShowClient);
+
+  const out: Record<string, unknown> = { ...job };
+  if (!show('jobTitle')) {
+    out.title = null;
+    out.jobTitle = null;
+  }
+  if (!show('client')) {
+    out.company = null;
+    out.companyLogo = null;
+  }
+  if (!show('location')) out.location = null;
+  if (!show('salary')) out.salary = null;
+  if (!show('experience')) out.experienceRequired = null;
+  if (!show('employmentType')) out.employmentType = null;
+  if (!show('openings')) out.openings = null;
+  if (!show('skills')) {
+    out.skills = [];
+    out.preferredSkills = [];
+  }
+  if (!show('keyResponsibilities')) out.keyResponsibilities = [];
+  if (!show('qualifications')) {
+    out.requirements = [];
+    out.education = null;
+  }
+  if (!show('candidateRequirements')) out.candidateRequirements = [];
+  if (!show('jobDescription')) {
+    out.description = null;
+    out.overview = null;
+    out.benefits = [];
+  }
+  return out as T;
+}

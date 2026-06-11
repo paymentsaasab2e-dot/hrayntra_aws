@@ -25,9 +25,11 @@ import {
   getResumeExtension,
   isImageResume,
   isPdfResume,
+  isTextResume,
   normalizeResumeHref,
 } from '../../lib/resumePreview';
 import { ResumeWordFileViewer } from './ResumeWordFileViewer';
+import { SaasaCvRasterResumePreview } from './SaasaCvRasterResumePreview';
 import {
   colorWithOpacity,
   DEFAULT_SAASA_CV_COMPANY_LOGO,
@@ -194,6 +196,7 @@ export function SaasaCvAnnotationModal({
   const canPdf = Boolean(href && isPdfResume(href));
   const canImage = Boolean(href && isImageResume(href));
   const canWord = Boolean(href && canPreviewResumeAsHtml(href));
+  const canText = Boolean(href && isTextResume(href));
   const extension = getResumeExtension(href);
 
   const [wordPreviewError, setWordPreviewError] = useState<string | null>(null);
@@ -201,6 +204,9 @@ export function SaasaCvAnnotationModal({
   const [imagePreviewError, setImagePreviewError] = useState<string | null>(null);
   const [imagePreviewReady, setImagePreviewReady] = useState(false);
   const [imageLoading, setImageLoading] = useState(false);
+  const [textPreviewError, setTextPreviewError] = useState<string | null>(null);
+  const [textPreviewReady, setTextPreviewReady] = useState(false);
+  const [textLoading, setTextLoading] = useState(false);
   const [companyLogo, setCompanyLogo] = useState<SaasaCvCompanyLogo | null>(initialCompanyLogo);
   const [logoDragging, setLogoDragging] = useState(false);
   const companyLogoInputRef = useRef<HTMLInputElement>(null);
@@ -304,6 +310,9 @@ export function SaasaCvAnnotationModal({
     setImagePreviewReady(false);
     setImagePreviewError(null);
     setImageLoading(false);
+    setTextPreviewReady(false);
+    setTextPreviewError(null);
+    setTextLoading(false);
     setCompanyLogo(initialCompanyLogoRef.current);
     setLogoDragging(false);
     setUndoStack([]);
@@ -376,8 +385,22 @@ export function SaasaCvAnnotationModal({
   }, [isOpen, canImage, href]);
 
   useEffect(() => {
+    if (!isOpen || !canText) {
+      setTextPreviewReady(false);
+      setTextPreviewError(null);
+      setTextLoading(false);
+      return;
+    }
+    setTextPreviewReady(false);
+    setTextPreviewError(null);
+    setTextLoading(true);
+  }, [isOpen, canText, href]);
+
+  useEffect(() => {
     if (!isOpen || !surfaceRef.current) return;
-    if (!pdfDocMeta?.totalHeight && !wordPreviewReady && !imagePreviewReady) return;
+    if (!pdfDocMeta?.totalHeight && !wordPreviewReady && !imagePreviewReady && !textPreviewReady) {
+      return;
+    }
     let frame = 0;
     const ro = new ResizeObserver(() => {
       window.cancelAnimationFrame(frame);
@@ -388,7 +411,7 @@ export function SaasaCvAnnotationModal({
       window.cancelAnimationFrame(frame);
       ro.disconnect();
     };
-  }, [isOpen, pdfDocMeta?.totalHeight, wordPreviewReady, imagePreviewReady]);
+  }, [isOpen, pdfDocMeta?.totalHeight, wordPreviewReady, imagePreviewReady, textPreviewReady]);
 
   useEffect(() => {
     if (!activeTool) return;
@@ -416,10 +439,23 @@ export function SaasaCvAnnotationModal({
     requestAnimationFrame(() => paintRedrawRef.current());
   }, []);
 
-  const handleImagePreviewError = useCallback(() => {
-    setImagePreviewError('Failed to load CV image');
+  const handleImagePreviewError = useCallback((message?: string) => {
+    setImagePreviewError(message || 'Failed to load CV image');
     setImagePreviewReady(false);
     setImageLoading(false);
+  }, []);
+
+  const handleTextPreviewReady = useCallback(() => {
+    setTextPreviewReady(true);
+    setTextPreviewError(null);
+    setTextLoading(false);
+    requestAnimationFrame(() => paintRedrawRef.current());
+  }, []);
+
+  const handleTextPreviewError = useCallback((message?: string) => {
+    setTextPreviewError(message || 'Failed to load CV text');
+    setTextPreviewReady(false);
+    setTextLoading(false);
   }, []);
 
   const pointerToDocPercent = (clientX: number, clientY: number) => {
@@ -771,7 +807,12 @@ export function SaasaCvAnnotationModal({
         }
       }
 
-      if (!exportPayload && surfaceRef.current && surfaceReady && (canWord || canPdf || canImage)) {
+      if (
+        !exportPayload &&
+        surfaceRef.current &&
+        surfaceReady &&
+        (canWord || canPdf || canImage || canText)
+      ) {
         try {
           const blob = await captureSaasaCvSurfacePdf(surfaceRef.current);
           if (blob) {
@@ -786,7 +827,8 @@ export function SaasaCvAnnotationModal({
       const needsFullDocument =
         (canPdf && Boolean(pdfDocMeta?.totalHeight)) ||
         (canWord && surfaceReady) ||
-        (canImage && imagePreviewReady);
+        (canImage && imagePreviewReady) ||
+        (canText && textPreviewReady);
       if (needsFullDocument && !exportPayload) {
         onExportError?.(
           'Could not build a full SAASA CV PDF (resume text did not export). Wait for the CV to finish loading, then save again.'
@@ -807,7 +849,8 @@ export function SaasaCvAnnotationModal({
   const pinAnnotations = annotations.filter((a) => a.type === 'comment' || a.type === 'important');
 
   const paintSurfaceReady = Boolean(pdfDocMeta?.totalHeight);
-  const documentPreviewReady = paintSurfaceReady || wordPreviewReady || imagePreviewReady;
+  const documentPreviewReady =
+    paintSurfaceReady || wordPreviewReady || imagePreviewReady || textPreviewReady;
   const docHeightPx = pdfDocMeta?.totalHeight ?? 0;
 
   const renderWordPreview = () => {
@@ -835,17 +878,26 @@ export function SaasaCvAnnotationModal({
   const renderImagePreview = () => {
     if (!canImage || !href) return null;
     return (
-      <div className="relative z-0 w-full">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={href}
-          alt={`${candidateName} CV`}
-          crossOrigin="anonymous"
-          className="block h-auto w-full max-w-full"
-          onLoad={handleImagePreviewReady}
-          onError={handleImagePreviewError}
-        />
-      </div>
+      <SaasaCvRasterResumePreview
+        resumeUrl={href}
+        candidateName={candidateName}
+        mode="image"
+        onReady={handleImagePreviewReady}
+        onError={handleImagePreviewError}
+      />
+    );
+  };
+
+  const renderTextPreview = () => {
+    if (!canText || !href) return null;
+    return (
+      <SaasaCvRasterResumePreview
+        resumeUrl={href}
+        candidateName={candidateName}
+        mode="text"
+        onReady={handleTextPreviewReady}
+        onError={handleTextPreviewError}
+      />
     );
   };
 
@@ -856,6 +908,9 @@ export function SaasaCvAnnotationModal({
     }
     if (canImage) {
       return renderImagePreview();
+    }
+    if (canText) {
+      return renderTextPreview();
     }
     return (
       <div
@@ -1045,9 +1100,14 @@ export function SaasaCvAnnotationModal({
                   className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain bg-slate-100 p-3 sm:p-5"
                   style={{ maxHeight: CV_VIEWER_MIN_HEIGHT }}
                 >
-                  {(canPdf && pdfError) || (canImage && imagePreviewError) ? (
+                  {(canPdf && pdfError) ||
+                  (canImage && imagePreviewError) ||
+                  (canText && textPreviewError) ||
+                  (canWord && wordPreviewError) ? (
                     <div className="flex min-h-[320px] flex-col items-center justify-center rounded-xl border border-slate-200 bg-white p-6 text-center">
-                      <p className="text-sm text-red-600">{pdfError || imagePreviewError}</p>
+                      <p className="text-sm text-red-600">
+                        {pdfError || imagePreviewError || textPreviewError || wordPreviewError}
+                      </p>
                       <a
                         href={href}
                         target="_blank"
@@ -1073,7 +1133,8 @@ export function SaasaCvAnnotationModal({
                       }
                     >
                       {((canPdf && pdfLoading && !paintSurfaceReady) ||
-                        (canImage && imageLoading && !imagePreviewReady)) ? (
+                        (canImage && imageLoading && !imagePreviewReady) ||
+                        (canText && textLoading && !textPreviewReady)) ? (
                         <div
                           className="flex items-center justify-center text-sm text-slate-600"
                           style={{ minHeight: CV_VIEWER_MIN_HEIGHT }}
@@ -1115,7 +1176,7 @@ export function SaasaCvAnnotationModal({
                         </div>
                       ) : null}
 
-                      {(documentPreviewReady || (!canPdf && !canWord && !canImage)) && (
+                      {(documentPreviewReady || (!canPdf && !canWord && !canImage && !canText)) && (
                         <>
                           <canvas
                             ref={canvasRef}

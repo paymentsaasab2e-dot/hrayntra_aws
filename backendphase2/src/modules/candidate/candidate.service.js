@@ -17,6 +17,10 @@ import {
   batchHydrateCandidatesResumeFromPortal,
 } from '../../utils/candidateResumeHydrate.util.js';
 import { persistCandidateCvProfileToTenant } from '../../utils/candidateCvPersist.util.js';
+import {
+  mergeCandidateRecruiterExtraData,
+  pickRecruiterCvExtraFields,
+} from '../../utils/candidateRecruiterCvExtra.util.js';
 import { hydratePhase1SnapshotPersonalInfoFromPortal } from '../../utils/phase1SnapshotHydrate.util.js';
 import {
   USER_BRIEF_SELECT,
@@ -625,6 +629,23 @@ function mergePortalAndTenantCandidateRow(portalRow, tenantRow) {
     'certificationsList',
   ];
   const richKeys = ['cvEducationEntries', 'cvWorkExperienceEntries', 'cvPortfolioLinks'];
+  const tenantExtraForCv =
+    tenantRow?.extraData && typeof tenantRow.extraData === 'object' && !Array.isArray(tenantRow.extraData)
+      ? tenantRow.extraData
+      : {};
+  const tenantEditorCvSaved = tenantExtraForCv.cvEditorContentSaved === true;
+  const editorCvScalarKeys = new Set([
+    'firstName',
+    'lastName',
+    'email',
+    'phone',
+    'linkedIn',
+    'currentTitle',
+    'currentCompany',
+    'location',
+    'designation',
+    'cvSummary',
+  ]);
 
   const merged = {
     ...tenantRow,
@@ -653,14 +674,40 @@ function mergePortalAndTenantCandidateRow(portalRow, tenantRow) {
   };
   for (const key of scalarKeys) {
     if (key === 'stage') continue;
+    if (tenantEditorCvSaved && editorCvScalarKeys.has(key)) {
+      if (Object.prototype.hasOwnProperty.call(tenantRow, key)) {
+        merged[key] = tenantRow[key] ?? null;
+      }
+      continue;
+    }
     merged[key] = pickFirstNonEmpty(portalRow[key], tenantRow[key]);
   }
   merged.stage = mergeCandidateWorkflowStages(portalRow?.stage, tenantRow?.stage);
   for (const key of arrayKeys) {
+    if (tenantEditorCvSaved && key === 'skills') {
+      merged.skills = Array.isArray(tenantRow.skills) ? tenantRow.skills : [];
+      continue;
+    }
+    if (tenantEditorCvSaved && key === 'recruiterSkills') {
+      merged.recruiterSkills = Array.isArray(tenantRow.recruiterSkills)
+        ? tenantRow.recruiterSkills
+        : [];
+      continue;
+    }
     merged[key] = pickFirstNonEmpty(portalRow[key], tenantRow[key]);
   }
-  for (const key of richKeys) {
-    merged[key] = pickFirstNonEmpty(portalRow[key], tenantRow[key]);
+
+  if (tenantEditorCvSaved) {
+    merged.cvWorkExperienceEntries = Array.isArray(tenantRow.cvWorkExperienceEntries)
+      ? tenantRow.cvWorkExperienceEntries
+      : [];
+    merged.cvEducationEntries = Array.isArray(tenantRow.cvEducationEntries)
+      ? tenantRow.cvEducationEntries
+      : [];
+  } else {
+    for (const key of richKeys) {
+      merged[key] = pickFirstNonEmpty(portalRow[key], tenantRow[key]);
+    }
   }
   const portalSource = String(portalRow?.source || '').trim().toLowerCase();
   const tenantSource = String(tenantRow?.source || '').trim().toLowerCase();
@@ -683,14 +730,20 @@ function mergePortalAndTenantCandidateRow(portalRow, tenantRow) {
       : tenantExtra.phase1ProfileSnapshot && typeof tenantExtra.phase1ProfileSnapshot === 'object'
         ? tenantExtra.phase1ProfileSnapshot
         : null;
-  merged.extraData = {
-    ...portalExtra,
-    ...tenantExtra,
-    ...(phase1Snap ? { phase1ProfileSnapshot: phase1Snap } : {}),
-    workHistory: pickFirstNonEmpty(portalExtra.workHistory, tenantExtra.workHistory),
-    workHistoryText: pickFirstNonEmpty(portalExtra.workHistoryText, tenantExtra.workHistoryText),
-  };
-  merged.avatar = pickFirstNonEmpty(portalRow.avatar, tenantRow.avatar);
+  merged.extraData = mergeCandidateRecruiterExtraData(
+    { ...portalExtra, ...(phase1Snap ? { phase1ProfileSnapshot: phase1Snap } : {}) },
+    {
+      ...tenantExtra,
+      ...(phase1Snap ? { phase1ProfileSnapshot: phase1Snap } : {}),
+      workHistory: pickFirstNonEmpty(portalExtra.workHistory, tenantExtra.workHistory),
+      workHistoryText: pickFirstNonEmpty(portalExtra.workHistoryText, tenantExtra.workHistoryText),
+    },
+  );
+  if (tenantEditorCvSaved) {
+    merged.avatar = tenantRow.avatar ?? null;
+  } else {
+    merged.avatar = pickFirstNonEmpty(portalRow.avatar, tenantRow.avatar);
+  }
 
   return merged;
 }
@@ -1926,15 +1979,131 @@ async function hydrateCandidateResumeFromPortal(candidate, portalClient) {
   return candidate;
 }
 
+async function loadTenantRecruiterCvExtra(candidateId) {
+  if (!candidateId) return {};
+  try {
+    const row = await prisma.candidate.findUnique({
+      where: { id: String(candidateId) },
+      select: { extraData: true },
+    });
+    return pickRecruiterCvExtraFields(row?.extraData);
+  } catch {
+    return {};
+  }
+}
+
+async function loadTenantEditorCvContentFields(candidateId) {
+  if (!candidateId) return null;
+  try {
+    return await prisma.candidate.findUnique({
+      where: { id: String(candidateId) },
+      select: {
+        firstName: true,
+        lastName: true,
+        email: true,
+        phone: true,
+        linkedIn: true,
+        avatar: true,
+        cvSummary: true,
+        cvWorkExperienceEntries: true,
+        cvEducationEntries: true,
+        skills: true,
+        recruiterSkills: true,
+        currentTitle: true,
+        currentCompany: true,
+        location: true,
+        designation: true,
+        extraData: true,
+      },
+    });
+  } catch {
+    return null;
+  }
+}
+
+function applyTenantEditorCvContentFields(candidate, tenantRow) {
+  if (!candidate || !tenantRow) return candidate;
+  const extra =
+    tenantRow.extraData && typeof tenantRow.extraData === 'object' && !Array.isArray(tenantRow.extraData)
+      ? tenantRow.extraData
+      : {};
+  if (extra.cvEditorContentSaved !== true) return candidate;
+
+  const editorFields = [
+    'firstName',
+    'lastName',
+    'email',
+    'phone',
+    'linkedIn',
+    'avatar',
+    'cvSummary',
+    'currentTitle',
+    'currentCompany',
+    'location',
+    'designation',
+  ];
+  for (const key of editorFields) {
+    if (Object.prototype.hasOwnProperty.call(tenantRow, key)) {
+      candidate[key] = tenantRow[key] ?? null;
+    }
+  }
+  candidate.cvWorkExperienceEntries = Array.isArray(tenantRow.cvWorkExperienceEntries)
+    ? tenantRow.cvWorkExperienceEntries
+    : [];
+  candidate.cvEducationEntries = Array.isArray(tenantRow.cvEducationEntries)
+    ? tenantRow.cvEducationEntries
+    : [];
+  candidate.skills = Array.isArray(tenantRow.skills) ? tenantRow.skills : [];
+  candidate.recruiterSkills = Array.isArray(tenantRow.recruiterSkills)
+    ? tenantRow.recruiterSkills
+    : [];
+  return candidate;
+}
+
 async function hydrateAndPersistCandidateCvProfile(candidate, portalClient) {
   if (!candidate) return candidate;
+  const [tenantCvExtra, tenantEditorCvRow] = await Promise.all([
+    loadTenantRecruiterCvExtra(candidate.id),
+    loadTenantEditorCvContentFields(candidate.id),
+  ]);
+  const skipCvPersist = tenantCvExtra.cvEditorContentSaved === true;
+
   await hydratePhase1SnapshotPersonalInfoFromPortal(candidate, portalClient);
   await hydrateCandidateResumeFromPortal(candidate, portalClient);
-  try {
-    await persistCandidateCvProfileToTenant(candidate);
-  } catch (err) {
-    console.warn('[candidate.service] CV persist to tenant failed:', candidate.id, err?.message || err);
+
+  if (Object.keys(tenantCvExtra).length) {
+    const prevExtra =
+      candidate.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
+        ? candidate.extraData
+        : {};
+    candidate.extraData = mergeCandidateRecruiterExtraData(prevExtra, {
+      ...prevExtra,
+      ...tenantCvExtra,
+    });
   }
+
+  applyTenantEditorCvContentFields(candidate, tenantEditorCvRow);
+
+  if (!skipCvPersist) {
+    try {
+      await persistCandidateCvProfileToTenant(candidate);
+    } catch (err) {
+      console.warn('[candidate.service] CV persist to tenant failed:', candidate.id, err?.message || err);
+    }
+  }
+
+  if (Object.keys(tenantCvExtra).length) {
+    const prevExtra =
+      candidate.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
+        ? candidate.extraData
+        : {};
+    candidate.extraData = mergeCandidateRecruiterExtraData(prevExtra, {
+      ...prevExtra,
+      ...tenantCvExtra,
+    });
+  }
+
+  applyTenantEditorCvContentFields(candidate, tenantEditorCvRow);
   return candidate;
 }
 
@@ -2980,6 +3149,20 @@ export const candidateService = {
           }
         }
       }
+    }
+
+    if (updateData.extraData) {
+      const existingExtraRow = await prisma.candidate.findUnique({
+        where: { id },
+        select: { extraData: true },
+      });
+      const existingExtra =
+        existingExtraRow?.extraData &&
+        typeof existingExtraRow.extraData === 'object' &&
+        !Array.isArray(existingExtraRow.extraData)
+          ? existingExtraRow.extraData
+          : {};
+      updateData.extraData = mergeCandidateRecruiterExtraData(existingExtra, updateData.extraData);
     }
 
     dbLogger.logUpdate('CANDIDATE', id, updateData);

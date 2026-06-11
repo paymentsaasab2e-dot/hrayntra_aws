@@ -143,10 +143,22 @@ function resolveJobFormSchema(job) {
   return null;
 }
 
+function isPortalFieldVisible(job, field) {
+  if (field === 'client') {
+    if (job?.showClientNamePublicly === false) return false;
+    const visibility = job?.publicFieldVisibility;
+    if (visibility && typeof visibility === 'object' && visibility.client === false) return false;
+    return true;
+  }
+  const visibility = job?.publicFieldVisibility;
+  if (!visibility || typeof visibility !== 'object') return true;
+  return visibility[field] !== false;
+}
+
 function formatPublicJob(job) {
   const client = job.client;
-  const showClient = job?.showClientNamePublicly !== false;
-  return {
+  const showClient = isPortalFieldVisible(job, 'client');
+  const payload = {
     id: job.id,
     title: job.title,
     company: showClient ? client?.companyName || null : null,
@@ -174,6 +186,29 @@ function formatPublicJob(job) {
     applicationFormNote: job.applicationFormNote || null,
     applicationFormLogo: job.applicationFormLogo || null,
   };
+
+  if (!isPortalFieldVisible(job, 'location')) payload.location = null;
+  if (!isPortalFieldVisible(job, 'salary')) payload.salary = null;
+  if (!isPortalFieldVisible(job, 'jobDescription')) {
+    payload.description = null;
+    payload.overview = null;
+    payload.benefits = [];
+  }
+  if (!isPortalFieldVisible(job, 'keyResponsibilities')) payload.keyResponsibilities = [];
+  if (!isPortalFieldVisible(job, 'qualifications')) {
+    payload.requirements = [];
+    payload.education = null;
+  }
+  if (!isPortalFieldVisible(job, 'candidateRequirements')) payload.candidateRequirements = [];
+  if (!isPortalFieldVisible(job, 'skills')) {
+    payload.skills = [];
+    payload.preferredSkills = [];
+  }
+  if (!isPortalFieldVisible(job, 'experience')) payload.experienceRequired = null;
+  if (!isPortalFieldVisible(job, 'employmentType')) payload.employmentType = null;
+  if (!isPortalFieldVisible(job, 'openings')) payload.openings = null;
+
+  return payload;
 }
 
 async function ensureApplyToken(jobId) {

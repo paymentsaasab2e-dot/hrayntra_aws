@@ -37,17 +37,103 @@ function parseExperienceRange(experienceRequired) {
   return { min: null, max: null, display: raw };
 }
 
-const CONFIDENTIAL_COMPANY_LABEL = 'Confidential';
+const CONFIDENTIAL_COMPANY_LABEL = '';
 
 function shouldShowClientNamePublicly(job) {
-  return job?.showClientNamePublicly !== false;
+  if (job?.showClientNamePublicly === false) return false;
+  const visibility = job?.publicFieldVisibility;
+  if (visibility && typeof visibility === 'object' && visibility.client === false) return false;
+  return true;
 }
 
-function resolvePublicCompanyName(job, fallback = CONFIDENTIAL_COMPANY_LABEL) {
+function isPortalFieldVisible(job, field) {
+  if (field === 'client') return shouldShowClientNamePublicly(job);
+  const visibility = job?.publicFieldVisibility;
+  if (!visibility || typeof visibility !== 'object') return true;
+  return visibility[field] !== false;
+}
+
+function resolvePublicCompanyName(job, fallback = '') {
   if (!shouldShowClientNamePublicly(job)) {
-    return fallback;
+    return '';
   }
   return job?.company?.name || job?.client?.companyName || fallback;
+}
+
+function redactPortalJobPayload(job, payload) {
+  const out = { ...payload };
+  if (!isPortalFieldVisible(job, 'jobTitle')) {
+    out.title = null;
+    out.jobTitle = null;
+  }
+  if (!isPortalFieldVisible(job, 'client')) {
+    out.company = null;
+    out.companyId = null;
+    out.companyLogo = null;
+    out.hiringManager = null;
+    out.hiringManagerId = null;
+    out.clientId = null;
+  }
+  if (!isPortalFieldVisible(job, 'location')) {
+    out.location = null;
+    out.city = null;
+    out.state = null;
+    out.country = null;
+  }
+  if (!isPortalFieldVisible(job, 'salary')) {
+    out.salaryMin = null;
+    out.salaryMax = null;
+    out.salaryCurrency = null;
+    out.salaryType = null;
+    out.salary = undefined;
+  }
+  if (!isPortalFieldVisible(job, 'nationality')) out.nationality = null;
+  if (!isPortalFieldVisible(job, 'priority')) out.priority = null;
+  if (!isPortalFieldVisible(job, 'openings')) out.openings = null;
+  if (!isPortalFieldVisible(job, 'employmentType')) {
+    out.employmentType = null;
+    out.type = undefined;
+  }
+  if (!isPortalFieldVisible(job, 'experience')) {
+    out.experienceLevel = null;
+    out.experienceMin = null;
+    out.experienceMax = null;
+    out.experienceDisplay = null;
+  }
+  if (!isPortalFieldVisible(job, 'languages')) out.languages = [];
+  if (!isPortalFieldVisible(job, 'skills')) {
+    out.skills = [];
+    out.preferredSkills = [];
+  }
+  if (!isPortalFieldVisible(job, 'keyResponsibilities')) {
+    out.keyResponsibilities = [];
+    out.responsibilities = null;
+  }
+  if (!isPortalFieldVisible(job, 'qualifications')) {
+    out.requirements = [];
+    out.education = null;
+  }
+  if (!isPortalFieldVisible(job, 'candidateRequirements')) out.candidateRequirements = [];
+  if (!isPortalFieldVisible(job, 'jobDescription')) {
+    out.description = null;
+    out.overview = null;
+    out.jobSummary = null;
+    out.jobDescriptionHtml = null;
+    out.aboutRole = null;
+    out.benefits = [];
+  }
+  if (!isPortalFieldVisible(job, 'videoMediaLink')) out.videoMediaLink = null;
+  if (!isPortalFieldVisible(job, 'forecastRevenue')) out.forecastRevenue = null;
+  if (!isPortalFieldVisible(job, 'contactPerson')) {
+    out.hiringManager = null;
+    out.hiringManagerId = null;
+  }
+  if (!isPortalFieldVisible(job, 'industryType')) {
+    out.industry = null;
+    out.jobCategory = null;
+  }
+  if (!isPortalFieldVisible(job, 'targetHireDate')) out.expectedClosureDate = null;
+  return out;
 }
 
 function formatPortalJob(job, options = {}) {
@@ -76,7 +162,7 @@ function formatPortalJob(job, options = {}) {
         ? options.thumbnailResolver(job)
         : null;
 
-  return {
+  return redactPortalJobPayload(job, {
     id: job.id,
     title: job.title,
     company: showClient ? job.company?.name || job.client?.companyName || null : null,
@@ -140,7 +226,7 @@ function formatPortalJob(job, options = {}) {
     forecastRevenue: job.forecastRevenue ?? null,
     videoMediaLink: job.videoMediaLink ?? null,
     languages: parseLanguages(job.languages),
-  };
+  });
 }
 
 module.exports = {

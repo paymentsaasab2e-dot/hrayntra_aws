@@ -5,6 +5,7 @@ import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { createPortal } from 'react-dom';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { CandidateResumeTabPanel } from '../candidates/CandidateResumeTabPanel';
+import { CandidateCvFilesSection } from '../candidates/CandidateCvFilesSection';
 import {
   buildCandidateEditForm,
   buildUpdatePayloadFromEditForm,
@@ -14,6 +15,8 @@ import {
 } from '../candidates/CandidateEditAtsSections';
 import { useCandidateCvEditor } from '../../hooks/useCandidateCvEditor';
 import { useSaasaCvAnnotations } from '../../hooks/useSaasaCvAnnotations';
+import type { ResumeCvViewMode } from '../../lib/cvEditorMapping';
+import { pickLatestResumeFileUrl } from '../../lib/phase1ProfileSnapshot';
 import { hasSaasaCvSaved, readSaasaCvAnnotations, SAASA_CV_FILE_TYPE } from '../../lib/saasaCvAnnotations';
 import { formatDateDMY, formatDateTimeDMY } from '../../utils/dateDisplay';
 import type { AuditMeta } from '../../types/audit';
@@ -3466,9 +3469,16 @@ export function CandidateProfileDrawer({
     setToastMessage(message);
   }, []);
 
-  const handleCvCandidateUpdated = useCallback(() => {
+  const [resumeTabViewPreference, setResumeTabViewPreference] =
+    useState<ResumeCvViewMode | null>(null);
+
+  useEffect(() => {
+    setResumeTabViewPreference(null);
+  }, [candidate?.id]);
+
+  const handleCvCandidateUpdated = useCallback(async () => {
     if (!candidate?.id || !onRefreshCandidate) return;
-    void onRefreshCandidate(candidate.id);
+    await Promise.resolve(onRefreshCandidate(candidate.id));
   }, [candidate?.id, onRefreshCandidate]);
 
   const cvEditor = useCandidateCvEditor({
@@ -3478,7 +3488,16 @@ export function CandidateProfileDrawer({
     canEdit: Boolean(onUpdateCandidate),
     onCandidateUpdated: onRefreshCandidate ? handleCvCandidateUpdated : undefined,
     onToast: handleCvToast,
+    onViewModeChange: (mode) => {
+      if (mode) setResumeTabViewPreference(mode);
+      if (mode === 'updated') setActiveTab('Resume');
+    },
   });
+
+  const handleSaasaCandidateUpdated = useCallback(async () => {
+    await handleCvCandidateUpdated();
+    await cvEditor.refreshBackend();
+  }, [handleCvCandidateUpdated, cvEditor.refreshBackend]);
 
   const saasaCv = useSaasaCvAnnotations({
     candidateId: candidate?.id,
@@ -3487,9 +3506,13 @@ export function CandidateProfileDrawer({
     extraData: candidate?.extraData ?? null,
     enabled: isOpen && Boolean(candidate?.id),
     canEdit: Boolean(onUpdateCandidate),
-    onCandidateUpdated: onRefreshCandidate ? handleCvCandidateUpdated : undefined,
+    onCandidateUpdated: onRefreshCandidate ? handleSaasaCandidateUpdated : undefined,
     onFilesRefresh: refreshCandidateFiles,
     onToast: handleCvToast,
+    onViewModeChange: (mode) => {
+      if (mode) setResumeTabViewPreference(mode);
+      if (mode === 'saasa') setActiveTab('Resume');
+    },
   });
 
   const saasaCvStored = useMemo(
@@ -3512,14 +3535,34 @@ export function CandidateProfileDrawer({
     };
   }, [saasaCvStored, candidateFiles, candidate?.name]);
 
-  const candidateFilesWithoutSaasa = useMemo(
-    () =>
-      candidateFiles.filter(
-        (f) =>
-          f.fileType !== SAASA_CV_FILE_TYPE &&
-          f.id !== saasaCvStored?.fileId
-      ),
-    [candidateFiles, saasaCvStored?.fileId]
+  const originalResumeFileUrl = useMemo(() => {
+    const profile = String(candidate?.resumeUrl || '').trim();
+    if (profile) return profile;
+    return pickLatestResumeFileUrl(candidateFiles) || null;
+  }, [candidate?.resumeUrl, candidateFiles]);
+
+  const candidateFilesOther = useMemo(() => {
+    const cvUrls = new Set(
+      [originalResumeFileUrl, saasaCvFileEntry?.fileUrl]
+        .map((url) => String(url || '').trim())
+        .filter(Boolean)
+    );
+    return candidateFiles.filter((f) => {
+      if (f.fileType === SAASA_CV_FILE_TYPE) return false;
+      if (f.id && f.id === saasaCvStored?.fileId) return false;
+      if (/^resume$/i.test(String(f.fileType || '').trim())) return false;
+      const url = String(f.fileUrl || '').trim();
+      if (url && cvUrls.has(url)) return false;
+      return true;
+    });
+  }, [candidateFiles, saasaCvStored?.fileId, originalResumeFileUrl, saasaCvFileEntry?.fileUrl]);
+
+  const handleViewResumeTabFromFiles = useCallback(
+    (mode: ResumeCvViewMode) => {
+      setResumeTabViewPreference(mode);
+      setActiveTab('Resume');
+    },
+    []
   );
 
   const uploadsBase = useMemo(() => {
@@ -4245,6 +4288,7 @@ export function CandidateProfileDrawer({
                       candidate={candidate}
                       enabled={activeTab === 'Resume'}
                       cvEditor={cvEditor}
+                      preferredResumeViewMode={resumeTabViewPreference}
                       saasaSavedFileUrl={saasaCv.stored?.fileUrl ?? null}
                       onOpenSaasaCv={() => saasaCv.openModal()}
                       onToast={(message) => setToastMessage(message)}
@@ -4561,80 +4605,31 @@ export function CandidateProfileDrawer({
                       <p className="mt-3 text-sm text-red-600">{candidateFilesError}</p>
                     ) : null}
 
-                    <div className="mt-4 space-y-3">
-                      {candidate.resumeUrl?.trim() ? (
-                        <div className="flex items-center justify-between gap-3 rounded-xl border border-blue-100 bg-blue-50/60 p-3">
-                          <a
-                            href={toFileHref(candidate.resumeUrl)}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="min-w-0 flex-1"
-                          >
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="truncate text-sm font-medium text-slate-900">Resume</p>
-                                <p className="mt-0.5 text-xs text-slate-500">
-                                  Primary resume · same as Resume tab
-                                </p>
-                              </div>
-                              <FileText size={16} className="shrink-0 text-blue-500" />
-                            </div>
-                          </a>
-                          <span className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-500">
-                            Profile
-                          </span>
-                        </div>
-                      ) : null}
+                    <div className="mt-4 space-y-4">
+                      <CandidateCvFilesSection
+                        candidate={candidate}
+                        cvEditor={cvEditor}
+                        saasaCv={saasaCv}
+                        saasaCvFileEntry={saasaCvFileEntry}
+                        originalResumeUrl={originalResumeFileUrl}
+                        uploadsBase={uploadsBase}
+                        canEdit={Boolean(onUpdateCandidate)}
+                        onToast={handleCvToast}
+                        onViewResumeTab={handleViewResumeTabFromFiles}
+                      />
 
-                      {saasaCvFileEntry ? (
-                        <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50/70 p-3">
-                          <button
-                            type="button"
-                            onClick={() => saasaCv.openModal()}
-                            className="min-w-0 flex-1 text-left"
-                          >
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="truncate text-sm font-medium text-slate-900">
-                                  {saasaCvFileEntry.fileName}
-                                </p>
-                                <p className="mt-0.5 text-xs text-slate-500">
-                                  SAASA CV · annotated
-                                  {saasaCvFileEntry.markCount > 0
-                                    ? ` · ${saasaCvFileEntry.markCount} mark${saasaCvFileEntry.markCount === 1 ? '' : 's'}`
-                                    : ''}
-                                </p>
-                              </div>
-                              <FileText size={16} className="shrink-0 text-amber-600" />
-                            </div>
-                          </button>
-                          {saasaCvFileEntry.fileUrl ? (
-                            <a
-                              href={toFileHref(saasaCvFileEntry.fileUrl)}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                            >
-                              Open
-                            </a>
-                          ) : null}
-                          {onUpdateCandidate ? (
-                            <button
-                              type="button"
-                              disabled={saasaCv.busy}
-                              onClick={() => void saasaCv.deleteSavedCv()}
-                              className="shrink-0 rounded-xl border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
-                            >
-                              Delete
-                            </button>
-                          ) : null}
+                      {candidateFilesOther.length > 0 ? (
+                        <div>
+                          <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Other documents
+                          </h4>
                         </div>
                       ) : null}
 
                       {candidateFilesLoading ? (
                         <p className="text-sm text-slate-500">Loading attached files…</p>
-                      ) : candidateFilesWithoutSaasa.length > 0 ? (
-                        candidateFilesWithoutSaasa.map((file) => (
+                      ) : candidateFilesOther.length > 0 ? (
+                        candidateFilesOther.map((file) => (
                           <div
                             key={file.id}
                             className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3"
@@ -4664,7 +4659,7 @@ export function CandidateProfileDrawer({
                             </button>
                           </div>
                         ))
-                      ) : !candidate.resumeUrl?.trim() && !saasaCvFileEntry ? (
+                      ) : !originalResumeFileUrl && !saasaCvFileEntry && candidateFilesOther.length === 0 ? (
                         <p className="text-sm text-slate-500">No files uploaded.</p>
                       ) : null}
                     </div>

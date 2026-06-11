@@ -1,5 +1,10 @@
 import { filesApiUpload, type BackendCandidate } from './api';
-import { readSaasaCvAnnotations } from './saasaCvAnnotations';
+import { CLIENT_PRESENTATION_KEY, readClientPresentation } from './clientPresentationDraft';
+import {
+  buildSaasaCvAnnotationsExtra,
+  readSaasaCvAnnotations,
+  type SaasaCvAnnotationsStored,
+} from './saasaCvAnnotations';
 import { formatEducationDateLine } from './candidateEducation';
 import { extractApiData } from './mapCandidateProfile';
 import { normalizeCvTemplateId, type CvEditorTemplateId } from './cvEditorTemplates';
@@ -51,6 +56,8 @@ export interface CvSubmissionStored {
 
 /** Persisted under candidate.extraData.cvEditorLayout */
 export interface CvEditorLayoutStored {
+  candidatePhotoUrl?: string | null;
+  initialCandidatePhotoUrl?: string | null;
   companyLogoUrl?: string | null;
   initialCompanyLogoUrl?: string | null;
   candidatePhotoPos?: CvEditorImagePlacement;
@@ -127,7 +134,13 @@ const DEFAULT_WATERMARK: CvEditorWatermark = {
 
 function resolveCandidatePhotoUrl(candidate: BackendCandidate | null): string | null {
   const extended = candidate as (BackendCandidate & { profilePhotoUrl?: string | null }) | null;
-  for (const value of [extended?.avatar, extended?.profilePhotoUrl]) {
+  const layout = readCvEditorLayout(candidate);
+  for (const value of [
+    extended?.avatar,
+    extended?.profilePhotoUrl,
+    layout?.candidatePhotoUrl,
+    layout?.initialCandidatePhotoUrl,
+  ]) {
     const s = typeof value === 'string' ? value.trim() : '';
     if (s && /^https?:\/\//i.test(s)) return s;
   }
@@ -172,12 +185,16 @@ export function hasCustomCvEditorLayout(candidate: BackendCandidate | null): boo
 /** CV content saved via the CV editor (not merely parsed upload fields). */
 export function hasUpdatedCvFromEditor(candidate: BackendCandidate | null): boolean {
   if (!candidate) return false;
-  if (readCvEditorLayout(candidate)?.updatedAt) return true;
   const extra = candidate.extraData;
   if (extra && typeof extra === 'object' && !Array.isArray(extra)) {
     return (extra as Record<string, unknown>).cvEditorContentSaved === true;
   }
   return false;
+}
+
+/** Single Resume-tab “Updated CV” (editor content and/or branded layout). */
+export function hasResumeTabUpdatedCv(candidate: BackendCandidate | null): boolean {
+  return hasUpdatedCvFromEditor(candidate) || hasCustomCvEditorLayout(candidate);
 }
 
 /** Saved SAASA CV export (PNG/PDF in Files) is available for the Resume tab. */
@@ -186,6 +203,151 @@ export function hasSaasaCvResumeTabMode(candidate: BackendCandidate | null): boo
   if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return false;
   const stored = readSaasaCvAnnotations(extra as Record<string, unknown>);
   return Boolean(stored?.fileUrl?.trim() || stored?.fileId);
+}
+
+/** Recruiter CV editor keys that must survive SAASA saves and partial drawer refreshes. */
+export function pickRecruiterCvExtraFieldsFrontend(
+  extraData: Record<string, unknown> | null | undefined
+): Record<string, unknown> {
+  if (!extraData || typeof extraData !== 'object' || Array.isArray(extraData)) return {};
+  const picked: Record<string, unknown> = {};
+  if (extraData.cvEditorContentSaved === true) picked.cvEditorContentSaved = true;
+  if (extraData.cvEditorContentSavedAt) {
+    picked.cvEditorContentSavedAt = extraData.cvEditorContentSavedAt;
+  }
+  if (extraData.cvEditorLayout != null) picked.cvEditorLayout = extraData.cvEditorLayout;
+  if (extraData.cvSubmission != null) picked.cvSubmission = extraData.cvSubmission;
+  return picked;
+}
+
+/** Merge drawer + backend extraData without dropping Updated CV metadata. */
+export function mergeResumeTabExtraData(
+  drawerExtra: Record<string, unknown>,
+  backendExtra: Record<string, unknown>
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...drawerExtra, ...backendExtra };
+  const recruiter = pickRecruiterCvExtraFieldsFrontend({
+    ...drawerExtra,
+    ...backendExtra,
+    cvEditorContentSaved:
+      drawerExtra.cvEditorContentSaved === true || backendExtra.cvEditorContentSaved === true
+        ? true
+        : merged.cvEditorContentSaved,
+    cvEditorContentSavedAt:
+      backendExtra.cvEditorContentSavedAt ?? drawerExtra.cvEditorContentSavedAt,
+    cvEditorLayout: backendExtra.cvEditorLayout ?? drawerExtra.cvEditorLayout,
+    cvSubmission: backendExtra.cvSubmission ?? drawerExtra.cvSubmission,
+  });
+  return { ...merged, ...recruiter };
+}
+
+/** Save SAASA annotations without clearing recruiter CV editor state. */
+export function buildSaasaCvSaveExtra(
+  existingExtraData: Record<string, unknown> | null | undefined,
+  payload: SaasaCvAnnotationsStored,
+  options?: { resumeCvViewMode?: ResumeCvViewMode | null }
+): Record<string, unknown> {
+  const existing =
+    existingExtraData && typeof existingExtraData === 'object' && !Array.isArray(existingExtraData)
+      ? existingExtraData
+      : {};
+  const recruiter = pickRecruiterCvExtraFieldsFrontend(existing);
+  const next: Record<string, unknown> = {
+    ...buildSaasaCvAnnotationsExtra(existing, payload),
+    ...recruiter,
+  };
+  if (options?.resumeCvViewMode) {
+    next.resumeCvViewMode = options.resumeCvViewMode;
+  }
+  return next;
+}
+
+/** Merge hook-loaded backend row with drawer row so Resume tab tabs work after CV save. */
+export function mergeResumeTabCandidateSource(
+  backend: BackendCandidate | null | undefined,
+  drawer?: {
+    id: string;
+    resumeUrl?: string | null;
+    summary?: string | null;
+    cvSummary?: string | null;
+    extraData?: Record<string, unknown> | null;
+    cvWorkExperienceEntries?: BackendCandidate['cvWorkExperienceEntries'];
+    cvEducationEntries?: BackendCandidate['cvEducationEntries'];
+    firstName?: string | null;
+    lastName?: string | null;
+    currentTitle?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    linkedIn?: string | null;
+    location?: string | null;
+    skills?: string[];
+  } | null
+): BackendCandidate | null {
+  if (backend?.id) {
+    const drawerExtra =
+      drawer?.extraData && typeof drawer.extraData === 'object' && !Array.isArray(drawer.extraData)
+        ? drawer.extraData
+        : {};
+    const backendExtra =
+      backend.extraData && typeof backend.extraData === 'object' && !Array.isArray(backend.extraData)
+        ? backend.extraData
+        : {};
+    const editorCvSaved = backendExtra.cvEditorContentSaved === true;
+    const editorScalar = <T,>(backendValue: T | null | undefined, drawerValue?: T | null) =>
+      editorCvSaved ? (backendValue ?? null) : (backendValue ?? drawerValue ?? null);
+    return {
+      ...backend,
+      firstName: editorScalar(backend.firstName, drawer?.firstName),
+      lastName: editorScalar(backend.lastName, drawer?.lastName),
+      email: editorScalar(backend.email, drawer?.email),
+      phone: editorScalar(backend.phone, drawer?.phone),
+      linkedIn: editorScalar(backend.linkedIn, drawer?.linkedIn),
+      currentTitle: editorScalar(backend.currentTitle, drawer?.currentTitle),
+      location: editorScalar(backend.location, drawer?.location),
+      avatar: backend.avatar ?? null,
+      cvSummary: editorCvSaved
+        ? (backend.cvSummary ?? null)
+        : backend.cvSummary || drawer?.cvSummary || drawer?.summary || backend.cvSummary,
+      cvWorkExperienceEntries: editorCvSaved
+        ? Array.isArray(backend.cvWorkExperienceEntries)
+          ? backend.cvWorkExperienceEntries
+          : []
+        : (backend.cvWorkExperienceEntries?.length
+            ? backend.cvWorkExperienceEntries
+            : drawer?.cvWorkExperienceEntries) || backend.cvWorkExperienceEntries,
+      cvEducationEntries: editorCvSaved
+        ? Array.isArray(backend.cvEducationEntries)
+          ? backend.cvEducationEntries
+          : []
+        : (backend.cvEducationEntries?.length
+            ? backend.cvEducationEntries
+            : drawer?.cvEducationEntries) || backend.cvEducationEntries,
+      skills: editorCvSaved
+        ? Array.isArray(backend.skills)
+          ? backend.skills
+          : []
+        : backend.skills,
+      extraData: mergeResumeTabExtraData(drawerExtra, backendExtra),
+    };
+  }
+  if (!drawer?.id) return null;
+  return {
+    id: drawer.id,
+    firstName: drawer.firstName ?? undefined,
+    lastName: drawer.lastName ?? undefined,
+    email: drawer.email ?? undefined,
+    phone: drawer.phone ?? undefined,
+    linkedIn: drawer.linkedIn ?? undefined,
+    currentTitle: drawer.currentTitle ?? undefined,
+    location: drawer.location ?? undefined,
+    skills: drawer.skills,
+    cvSummary: drawer.cvSummary ?? drawer.summary ?? undefined,
+    cvWorkExperienceEntries: drawer.cvWorkExperienceEntries,
+    cvEducationEntries: drawer.cvEducationEntries,
+    resume: drawer.resumeUrl ?? undefined,
+    resumeUrl: drawer.resumeUrl ?? undefined,
+    extraData: drawer.extraData ?? undefined,
+  } as BackendCandidate;
 }
 
 export function listAvailableResumeCvModes(
@@ -199,11 +361,8 @@ export function listAvailableResumeCvModes(
   if (hasSaasaCvResumeTabMode(candidate)) {
     modes.push('saasa');
   }
-  if (hasUpdatedCvFromEditor(candidate)) {
+  if (hasResumeTabUpdatedCv(candidate)) {
     modes.push('updated');
-  }
-  if (hasCustomCvEditorLayout(candidate)) {
-    modes.push('edited');
   }
   return modes;
 }
@@ -219,10 +378,12 @@ export function resolveDefaultResumeCvViewMode(
     extra && typeof extra === 'object' && !Array.isArray(extra)
       ? (extra as Record<string, unknown>).resumeCvViewMode
       : null;
+  if (stored === 'edited' && modes.includes('updated')) {
+    return 'updated';
+  }
   if (stored === 'original' || stored === 'saasa' || stored === 'updated' || stored === 'edited') {
     if (modes.includes(stored)) return stored;
   }
-  if (modes.includes('edited')) return 'edited';
   if (modes.includes('updated')) return 'updated';
   return modes[0];
 }
@@ -239,6 +400,117 @@ export function buildResumeCvViewExtra(
     ...existing,
     resumeCvViewMode: mode,
   };
+}
+
+/** Remove branded/layout Edited CV metadata while keeping Updated CV content fields. */
+export function buildEditedCvRemovalExtra(
+  existingExtraData: Record<string, unknown> | null | undefined,
+  options?: {
+    hasOriginalResume?: boolean;
+    hasUpdatedCv?: boolean;
+  }
+): Record<string, unknown> {
+  const existing =
+    existingExtraData && typeof existingExtraData === 'object' && !Array.isArray(existingExtraData)
+      ? existingExtraData
+      : {};
+  const next: Record<string, unknown> = { ...existing };
+
+  next.cvEditorLayout = null;
+
+  const presentationRaw = existing[CLIENT_PRESENTATION_KEY];
+  if (presentationRaw && typeof presentationRaw === 'object' && !Array.isArray(presentationRaw)) {
+    next[CLIENT_PRESENTATION_KEY] = {
+      ...(presentationRaw as Record<string, unknown>),
+      cvEditorLayout: null,
+    };
+  }
+
+  const submission = existing.cvSubmission;
+  const hasUpdated = options?.hasUpdatedCv ?? existing.cvEditorContentSaved === true;
+  const hasOriginal = options?.hasOriginalResume ?? false;
+
+  if (
+    submission &&
+    typeof submission === 'object' &&
+    !Array.isArray(submission) &&
+    (submission as CvSubmissionStored).shareMode === 'edited'
+  ) {
+    const shareMode: CvShareMode | null = hasUpdated ? 'updated' : hasOriginal ? 'original' : null;
+    if (shareMode) {
+      next.cvSubmission = {
+        shareMode,
+        updatedAt: new Date().toISOString(),
+      };
+    } else {
+      delete next.cvSubmission;
+    }
+  }
+
+  if (hasUpdated) {
+    next.resumeCvViewMode = 'updated';
+  } else if (hasOriginal) {
+    next.resumeCvViewMode = 'original';
+  } else {
+    delete next.resumeCvViewMode;
+  }
+
+  return next;
+}
+
+/** Remove editor-saved CV (content + layout) from the Updated CV tab. */
+export function buildUpdatedCvRemovalExtra(
+  existingExtraData: Record<string, unknown> | null | undefined,
+  options?: {
+    hasOriginalResume?: boolean;
+  }
+): Record<string, unknown> {
+  const existing =
+    existingExtraData && typeof existingExtraData === 'object' && !Array.isArray(existingExtraData)
+      ? existingExtraData
+      : {};
+  const next: Record<string, unknown> = { ...existing };
+
+  next.cvEditorContentSaved = false;
+  next.cvEditorContentSavedAt = null;
+  next.cvEditorLayout = null;
+
+  const presentationRaw = existing[CLIENT_PRESENTATION_KEY];
+  if (presentationRaw && typeof presentationRaw === 'object' && !Array.isArray(presentationRaw)) {
+    next[CLIENT_PRESENTATION_KEY] = {
+      ...(presentationRaw as Record<string, unknown>),
+      cvEditorLayout: null,
+    };
+  }
+
+  const submission = existing.cvSubmission;
+  const hasOriginal = options?.hasOriginalResume ?? false;
+
+  if (
+    submission &&
+    typeof submission === 'object' &&
+    !Array.isArray(submission) &&
+    ((submission as CvSubmissionStored).shareMode === 'updated' ||
+      (submission as CvSubmissionStored).shareMode === 'edited')
+  ) {
+    const shareMode: CvShareMode | null = hasOriginal ? 'original' : null;
+    if (shareMode) {
+      next.cvSubmission = {
+        shareMode,
+        updatedAt: new Date().toISOString(),
+      };
+    } else {
+      delete next.cvSubmission;
+    }
+  }
+
+  if (hasOriginal) {
+    next.resumeCvViewMode = 'original';
+  } else {
+    delete next.resumeCvViewMode;
+  }
+
+  return next;
 }
 
 export function resolveDefaultCvShareMode(
@@ -274,12 +546,24 @@ export function buildCvSubmissionExtra(
   };
 }
 
+function readCvEditorLayoutFromExtra(extra: Record<string, unknown> | null | undefined): CvEditorLayoutStored | null {
+  if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return null;
+  if (extra.cvEditorLayout === null) return null;
+  const topLevel = extra.cvEditorLayout;
+  if (topLevel && typeof topLevel === 'object' && !Array.isArray(topLevel)) {
+    return topLevel as CvEditorLayoutStored;
+  }
+  const fromPresentation = readClientPresentation(extra)?.cvEditorLayout;
+  if (fromPresentation && typeof fromPresentation === 'object' && !Array.isArray(fromPresentation)) {
+    return fromPresentation as CvEditorLayoutStored;
+  }
+  return null;
+}
+
 export function readCvEditorLayout(candidate: BackendCandidate | null): CvEditorLayoutStored | null {
   const extra = candidate?.extraData;
   if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return null;
-  const layout = (extra as Record<string, unknown>).cvEditorLayout;
-  if (!layout || typeof layout !== 'object' || Array.isArray(layout)) return null;
-  return layout as CvEditorLayoutStored;
+  return readCvEditorLayoutFromExtra(extra as Record<string, unknown>);
 }
 
 export function dataUrlToFile(dataUrl: string, filename = 'profile-photo.png'): File | null {
@@ -342,11 +626,18 @@ export async function buildCvEditorAvatarPatch(
 }
 
 export function buildCvEditorLayoutStored(data: CVEditorData): CvEditorLayoutStored {
+  const candidatePhotoUrl =
+    data.showCandidatePhotoSlot === false
+      ? null
+      : (data.candidatePhotoUrl || '').trim() || null;
   const companyLogoUrl =
     data.showCompanyLogoSlot === false
       ? null
       : (data.companyLogoUrl || '').trim() || null;
   return {
+    candidatePhotoUrl,
+    initialCandidatePhotoUrl:
+      (data.initialCandidatePhotoUrl || '').trim() || candidatePhotoUrl,
     companyLogoUrl,
     initialCompanyLogoUrl: companyLogoUrl,
     candidatePhotoPos: data.candidatePhotoPos ?? DEFAULT_CANDIDATE_PHOTO_POS,
@@ -412,6 +703,24 @@ export async function buildCvEditorPersistPatch(
       cvEditorContentSaved: true,
       cvEditorContentSavedAt: new Date().toISOString(),
     },
+  };
+}
+
+/** Apply a fresh CV editor save onto a candidate row (authoritative Updated CV). */
+export function overlayEditorSaveOnCandidate(
+  candidate: BackendCandidate,
+  contentPatch: ReturnType<typeof cvEditorDataToCandidatePatch>,
+  persist: { extraData: Record<string, unknown>; avatar?: string | null }
+): BackendCandidate {
+  const baseExtra =
+    candidate.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
+      ? (candidate.extraData as Record<string, unknown>)
+      : {};
+  return {
+    ...candidate,
+    ...contentPatch,
+    ...(persist.avatar !== undefined ? { avatar: persist.avatar } : {}),
+    extraData: buildResumeCvViewExtra({ ...baseExtra, ...persist.extraData }, 'updated'),
   };
 }
 
@@ -534,14 +843,14 @@ export function cvEditorDataToCandidatePatch(data: CVEditorData) {
   const lastName = nameParts.slice(1).join(' ');
 
   return {
-    firstName,
-    lastName,
-    email: data.email.trim(),
-    phone: data.phone.trim() || undefined,
-    linkedIn: data.linkedin.trim() || undefined,
-    currentTitle: data.jobTitle.trim() || undefined,
-    location: data.location.trim() || undefined,
-    cvSummary: data.summary.trim() || undefined,
+    firstName: firstName || null,
+    lastName: lastName || null,
+    email: data.email.trim() || null,
+    phone: data.phone.trim() || null,
+    linkedIn: data.linkedin.trim() || null,
+    currentTitle: data.jobTitle.trim() || null,
+    location: data.location.trim() || null,
+    cvSummary: data.summary.trim() || null,
     skills: data.skills.map((s) => s.trim()).filter(Boolean),
     cvWorkExperienceEntries: data.experiences.map((exp) => {
       const { start, end } = splitPeriod(exp.period);

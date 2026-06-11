@@ -8,8 +8,10 @@ import {
   canPreviewResumeAsHtml,
   isImageResume,
   isPdfResume,
+  isTextResume,
   normalizeResumeHref,
 } from '../../lib/resumePreview';
+import { SaasaCvRasterResumePreview } from './SaasaCvRasterResumePreview';
 import type { SaasaCvAnnotation, SaasaCvCompanyLogo } from '../../lib/saasaCvAnnotations';
 import { clearSaasaCvPdfBytesCache, renderSaasaPdfPages, type SaasaCvPdfDocumentMeta } from '../../lib/saasaCvPdfRender';
 import { redrawPaintCanvas, syncCanvasToDocumentSize } from '../../lib/saasaCvPaintCanvas';
@@ -40,12 +42,14 @@ export function SaasaCvCompositePreview({
   const canPdf = Boolean(href && isPdfResume(href));
   const canImage = Boolean(href && isImageResume(href));
   const canWord = Boolean(href && canPreviewResumeAsHtml(href));
+  const canText = Boolean(href && isTextResume(href));
 
   const [pdfDocMeta, setPdfDocMeta] = useState<SaasaCvPdfDocumentMeta | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfRenderFailed, setPdfRenderFailed] = useState(false);
   const [wordPreviewReady, setWordPreviewReady] = useState(false);
   const [imagePreviewReady, setImagePreviewReady] = useState(false);
+  const [textPreviewReady, setTextPreviewReady] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -56,7 +60,7 @@ export function SaasaCvCompositePreview({
   const showImagePreview = canImage || pdfRenderFailed;
   const showPdfPreview = canPdf && !pdfRenderFailed;
   const paintSurfaceReady =
-    Boolean(pdfDocMeta?.totalHeight) || wordPreviewReady || imagePreviewReady;
+    Boolean(pdfDocMeta?.totalHeight) || wordPreviewReady || imagePreviewReady || textPreviewReady;
   const docHeightPx = pdfDocMeta?.totalHeight ?? 0;
 
   const pinAnnotations = annotations.filter((a) => a.type === 'comment' || a.type === 'important');
@@ -232,17 +236,21 @@ export function SaasaCvCompositePreview({
               onReady={() => setWordPreviewReady(true)}
             />
           ) : showImagePreview ? (
-            <div className="relative z-0 w-full p-2 sm:p-4">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={href}
-                alt={`${candidateName} SAASA CV`}
-                crossOrigin="anonymous"
-                className="mx-auto block h-auto w-full max-w-full rounded-lg"
-                onLoad={() => setImagePreviewReady(true)}
-                onError={() => setImagePreviewReady(false)}
-              />
-            </div>
+            <SaasaCvRasterResumePreview
+              resumeUrl={href}
+              candidateName={candidateName}
+              mode="image"
+              onReady={() => setImagePreviewReady(true)}
+              onError={() => setImagePreviewReady(false)}
+            />
+          ) : canText ? (
+            <SaasaCvRasterResumePreview
+              resumeUrl={href}
+              candidateName={candidateName}
+              mode="text"
+              onReady={() => setTextPreviewReady(true)}
+              onError={() => setTextPreviewReady(false)}
+            />
           ) : (
             <div
               className="flex items-center justify-center p-8 text-sm text-slate-500"

@@ -4,7 +4,6 @@ const { scheduleCandidateCommonSync } = require('../services/candidateCommonSync
 const {
   resolvePublicCompanyName,
   shouldShowClientNamePublicly,
-  CONFIDENTIAL_COMPANY_LABEL,
 } = require('../utils/formatPortalJob.util');
 
 /** True for Prisma Mongo write conflicts / transient transaction failures (case + message fallbacks). */
@@ -851,7 +850,7 @@ async function createApplication(req, res) {
         job: {
           id: application.job.id,
           title: application.job.title,
-          company: resolvePublicCompanyName(application.job, CONFIDENTIAL_COMPANY_LABEL),
+          company: resolvePublicCompanyName(application.job, ''),
         },
       },
     };
@@ -1035,7 +1034,7 @@ async function getApplications(req, res) {
         id: app.id,
         jobId: job.id,
         jobTitle: job.title,
-        company: resolvePublicCompanyName(job, CONFIDENTIAL_COMPANY_LABEL),
+        company: resolvePublicCompanyName(job, ''),
         status: displayStatus,
         applicationStatus: statusMap[app.status] || app.status,
         pipelineStatusCode: recruiterMatch?.status || null,
@@ -1306,7 +1305,7 @@ async function getApplicationById(req, res) {
         job: {
           id: application.job.id,
           title: application.job.title,
-          company: resolvePublicCompanyName(application.job, CONFIDENTIAL_COMPANY_LABEL),
+          company: resolvePublicCompanyName(application.job, ''),
           location: application.job.location || 'Not specified',
           workMode: application.job.workMode || application.job.jobLocationType || 'Not specified',
           experience:

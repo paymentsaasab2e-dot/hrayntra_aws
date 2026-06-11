@@ -501,11 +501,18 @@ function Editable({ value, onChange, style, placeholder, multiline, readOnly = f
   const ref = useRef<HTMLElement>(null);
   const isComposing = useRef(false);
 
+  const resizeMultiline = useCallback((el: HTMLElement | null) => {
+    if (!el || !multiline) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.max(24, el.scrollHeight)}px`;
+  }, [multiline]);
+
   useEffect(() => {
     if (ref.current && ref.current.innerText !== value) {
       ref.current.innerText = value;
     }
-  }, [value]);
+    resizeMultiline(ref.current);
+  }, [value, resizeMultiline]);
 
   if (readOnly) {
     const lines = (value || placeholder || "").split("\n");
@@ -539,8 +546,10 @@ function Editable({ value, onChange, style, placeholder, multiline, readOnly = f
         onChange((e.currentTarget as HTMLSpanElement).innerText);
       }}
       onInput={(e) => {
+        const el = e.currentTarget as HTMLElement;
+        resizeMultiline(el);
         if (!isComposing.current) {
-          onChange((e.currentTarget as HTMLSpanElement).innerText);
+          onChange(el.innerText);
         }
       }}
       onKeyDown={(e) => {
@@ -573,6 +582,9 @@ function Editable({ value, onChange, style, placeholder, multiline, readOnly = f
         borderRadius: 2,
         display: "block",
         minWidth: 30,
+        width: multiline ? "100%" : undefined,
+        minHeight: multiline ? 24 : undefined,
+        overflow: multiline ? "hidden" : undefined,
         whiteSpace: multiline ? "pre-wrap" : undefined,
         transition: "background 0.1s",
         ...style,
@@ -1180,11 +1192,17 @@ export default function CVEditorModal({
       fontSize: 11, color: "#888", background: "#f7f7f7",
     },
     skillsRow: cvStyles.skillsRow,
-    skillInput: {
-      fontSize: 10, padding: "2px 6px",
-      border: "0.5px solid #ccc", borderRadius: 3,
-      color: "#444", fontFamily: "Georgia, serif", outline: "none", width: 90,
-    },
+    skillInput: (value: string): React.CSSProperties => ({
+      fontSize: 10,
+      padding: "2px 6px",
+      border: "0.5px solid #ccc",
+      borderRadius: 3,
+      color: "#444",
+      fontFamily: "Georgia, serif",
+      outline: "none",
+      minWidth: 90,
+      width: Math.min(280, Math.max(90, value.trim().length * 7 + 28)),
+    }),
     delExpBtn: {
       fontSize: 14, color: "#ccc", cursor: "pointer",
       border: "none", background: "none", lineHeight: 1, marginLeft: 4,
@@ -1339,7 +1357,7 @@ export default function CVEditorModal({
               type="text"
               placeholder="+ Add skill"
               value={newSkill}
-              style={S.skillInput}
+              style={S.skillInput(newSkill)}
               onChange={(e) => setNewSkill(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") addSkill();
@@ -1594,7 +1612,7 @@ export default function CVEditorModal({
             <span style={{ fontSize: 12, color: "#888" }}>💧 Watermark</span>
             <label style={{ fontSize: 11, color: "#888" }}>Text</label>
             <input
-              type="text" value={wm.text} style={{ ...S.skillInput, width: 130, fontSize: 12 }}
+              type="text" value={wm.text} style={{ ...S.skillInput(wm.text), width: 130, fontSize: 12 }}
               onChange={(e) => setWm((w) => ({ ...w, text: e.target.value }))}
             />
             <label style={{ fontSize: 11, color: "#888" }}>Opacity</label>

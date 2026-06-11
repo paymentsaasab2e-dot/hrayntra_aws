@@ -150,7 +150,7 @@ export function PublicJobOverviewPanel({ job }: { job: PublicJobOverviewJob }) {
     ((show('keyResponsibilities') && (job.keyResponsibilities?.length ?? 0) > 0) ||
       (show('qualifications') && (job.requirements?.length ?? 0) > 0) ||
       (show('candidateRequirements') && (job.candidateRequirements?.length ?? 0) > 0) ||
-      (job.benefits?.length ?? 0) > 0);
+      (show('jobDescription') && (job.benefits?.length ?? 0) > 0));
 
   return (
     <div className="space-y-4">
@@ -161,9 +161,9 @@ export function PublicJobOverviewPanel({ job }: { job: PublicJobOverviewJob }) {
         </p>
       ) : null}
 
-      {(employmentLabel || job.workMode) && (
+      {((show('employmentType') && employmentLabel) || job.workMode) && (
         <div className="flex flex-wrap gap-2">
-          {employmentLabel ? (
+          {show('employmentType') && employmentLabel ? (
             <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-800 border border-indigo-100">
               {employmentLabel}
             </span>
@@ -187,7 +187,7 @@ export function PublicJobOverviewPanel({ job }: { job: PublicJobOverviewJob }) {
           ))
         : null}
 
-      {!hasHtml && (job.overview || job.description) ? (
+      {!hasHtml && show('jobDescription') && (job.overview || job.description) ? (
         <SectionCard title="Overview">
           <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
             {stripHtml(job.overview || job.description || '')}
@@ -228,7 +228,7 @@ export function PublicJobOverviewPanel({ job }: { job: PublicJobOverviewJob }) {
         </SectionCard>
       ) : null}
 
-      {job.experienceRequired ? (
+      {show('experience') && job.experienceRequired ? (
         <SectionCard title="Experience">
           <p className="text-sm text-slate-700">
             {String(job.experienceRequired).includes('-')
@@ -238,13 +238,13 @@ export function PublicJobOverviewPanel({ job }: { job: PublicJobOverviewJob }) {
         </SectionCard>
       ) : null}
 
-      {job.education ? (
+      {show('qualifications') && job.education ? (
         <SectionCard title="Education">
           <p className="text-sm text-slate-700">{job.education}</p>
         </SectionCard>
       ) : null}
 
-      {hasStructuredLists && (job.benefits?.length ?? 0) > 0 ? (
+      {hasStructuredLists && show('jobDescription') && (job.benefits?.length ?? 0) > 0 ? (
         <SectionCard title="Benefits">
           <BulletList items={job.benefits!} />
         </SectionCard>

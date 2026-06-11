@@ -3523,7 +3523,6 @@ export function ClientDetailsDrawer({
                       >
                         Create Client
                       </button>
-                      <DrawerCloseButton onClick={onClose} />
                     </>
                   ) : (
                     <>
