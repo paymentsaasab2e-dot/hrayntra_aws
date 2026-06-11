@@ -6402,75 +6402,185 @@ export async function apiGenerateJobDescription(body: {
   });
 }
 
+export type LeadAiGeneratedDetails = {
+  companyName: string;
+  contactPerson: string;
+  directorSalutation?: string;
+  designation: string;
+  email: string;
+  phone: string;
+  emails?: string[];
+  phones?: string[];
+  type: 'Company' | 'Individual' | 'Referral';
+  source: 'Website' | 'LinkedIn' | 'Email' | 'Referral' | 'Campaign';
+  status: 'New' | 'Contacted' | 'Qualified' | 'Converted' | 'Lost';
+  priority: 'High' | 'Medium' | 'Low';
+  interestedNeeds: string;
+  notes: string;
+  expectedBusinessValue?: string;
+  industry: string;
+  companySize: string;
+  website: string;
+  linkedIn: string;
+  location: string;
+  country: string;
+  city: string;
+  state?: string;
+  campaignName: string;
+  campaignLink: string;
+  referralName: string;
+  sourceWebsiteUrl: string;
+  sourceLinkedInUrl: string;
+  sourceEmail: string;
+  otherDetails: Array<{ label: string; value: string }>;
+  lastFollowUp: string;
+  nextFollowUp: string;
+  assignedToId: string;
+};
+
+export type LeadAiChatMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
 export async function apiGenerateLeadDetails(body: {
   prompt: string;
   currentForm?: Record<string, unknown>;
 }) {
-  return apiFetch<{
-    companyName: string;
-    contactPerson: string;
-    designation: string;
-    email: string;
-    phone: string;
-    type: 'Company' | 'Individual' | 'Referral';
-    source: 'Website' | 'LinkedIn' | 'Email' | 'Referral' | 'Campaign';
-    status: 'New' | 'Contacted' | 'Qualified' | 'Converted' | 'Lost';
-    priority: 'High' | 'Medium' | 'Low';
-    interestedNeeds: string;
-    notes: string;
-    industry: string;
-    companySize: string;
-    website: string;
-    linkedIn: string;
-    location: string;
-    country: string;
-    city: string;
-    campaignName: string;
-    campaignLink: string;
-    referralName: string;
-    sourceWebsiteUrl: string;
-    sourceLinkedInUrl: string;
-    sourceEmail: string;
-    otherDetails: Array<{ label: string; value: string }>;
-    lastFollowUp: string;
-    nextFollowUp: string;
-    assignedToId: string;
-  }>('/ai/lead-details', {
+  return apiFetch<LeadAiGeneratedDetails>('/ai/lead-details', {
     method: 'POST',
     body,
     auth: true,
   });
 }
 
+export async function apiLeadAiChat(body: {
+  message: string;
+  currentForm?: Record<string, unknown>;
+  history?: LeadAiChatMessage[];
+}) {
+  return apiFetch<{
+    reply: string;
+    readyToCreate: boolean;
+    lead: LeadAiGeneratedDetails;
+  }>('/ai/lead-chat', {
+    method: 'POST',
+    body,
+    auth: true,
+  });
+}
+
+export async function apiCheckLeadDuplicate(body: {
+  email?: string;
+  phone?: string;
+  companyName?: string;
+  contactPerson?: string;
+}) {
+  return apiFetch<{
+    duplicate: boolean;
+    leadId?: string;
+    matchedBy?: string[];
+    existing?: {
+      id: string;
+      companyName?: string | null;
+      contactPerson?: string | null;
+      email?: string | null;
+      phone?: string | null;
+      ownerName?: string | null;
+      createdAt?: string;
+    };
+  }>('/leads/duplicate-check', {
+    method: 'POST',
+    body,
+    auth: true,
+  });
+}
+
+export type ClientAiGeneratedDetails = {
+  companyName: string;
+  directorName: string;
+  directorSalutation: string;
+  designation: string;
+  email: string;
+  phone: string;
+  emails?: string[];
+  phones?: string[];
+  industry: string;
+  companySize: string;
+  website: string;
+  linkedIn: string;
+  location: string;
+  country: string;
+  city: string;
+  state?: string;
+  timezone: string;
+  leadStatus: string;
+  priority: string;
+  servicesNeeded: string;
+  expectedBusinessValue: string;
+  nextFollowUpDue: string;
+  assignedToId: string;
+  teamMemberName?: string;
+  teamMemberEmail?: string;
+  teamMemberPhone?: string;
+  teamMemberDesignation?: string;
+  agreementLevel?: string;
+  agreementServiceChargePercent?: string;
+  agreementContractStartDate?: string;
+  agreementContractEndDate?: string;
+  agreementTimePeriod?: string;
+  agreementAdvancePaymentPercent?: string;
+  agreementFreeReplacementValue?: string;
+  agreementFreeReplacementUnit?: string;
+  kycTradeName?: string;
+  kycEntityType?: string;
+  kycIncorporationDate?: string;
+  kycCountryOfIncorporation?: string;
+  kycLegalRegistrationNumber?: string;
+  kycTaxIdVatNumber?: string;
+  kycBusinessAddress?: string;
+  kycSignatoryFullName?: string;
+  kycSignatoryDesignation?: string;
+  kycSignatoryNationality?: string;
+  kycSignatoryEmail?: string;
+  kycSignatoryPhone?: string;
+  kycBankName?: string;
+  kycAccountHolderName?: string;
+  kycAccountNumber?: string;
+  kycIban?: string;
+  kycSwiftBic?: string;
+  kycBankCurrency?: string;
+  kycBankAddress?: string;
+  kycShareholder1Name?: string;
+  kycShareholder1Nationality?: string;
+  kycShareholder1OwnershipPercent?: string;
+  kycShareholder2Name?: string;
+  kycShareholder2Nationality?: string;
+  kycShareholder2OwnershipPercent?: string;
+  otherDetails: Array<{ label: string; value: string }>;
+};
+
 export async function apiGenerateClientDetails(body: {
   prompt: string;
   currentForm?: Record<string, unknown>;
 }) {
+  return apiFetch<ClientAiGeneratedDetails>('/ai/client-details', {
+    method: 'POST',
+    body,
+    auth: true,
+  });
+}
+
+export async function apiClientAiChat(body: {
+  message: string;
+  currentForm?: Record<string, unknown>;
+  history?: LeadAiChatMessage[];
+}) {
   return apiFetch<{
-    companyName: string;
-    directorName: string;
-    directorSalutation: string;
-    designation: string;
-    email: string;
-    phone: string;
-    industry: string;
-    companySize: string;
-    website: string;
-    linkedIn: string;
-    location: string;
-    country: string;
-    city: string;
-    hiringLocations: string;
-    timezone: string;
-    leadStatus: string;
-    priority: string;
-    servicesNeeded: string;
-    expectedBusinessValue: string;
-    sla: string;
-    nextFollowUpDue: string;
-    assignedToId: string;
-    otherDetails: Array<{ label: string; value: string }>;
-  }>('/ai/client-details', {
+    reply: string;
+    readyToCreate: boolean;
+    client: ClientAiGeneratedDetails;
+  }>('/ai/client-chat', {
     method: 'POST',
     body,
     auth: true,

@@ -8,7 +8,9 @@ router.use(authMiddleware);
 
 router.post('/job-description', aiController.generateJobDescription);
 router.post('/lead-details', aiController.generateLeadDetails);
+router.post('/lead-chat', aiController.generateLeadChat);
 router.post('/client-details', aiController.generateClientDetails);
+router.post('/client-chat', aiController.generateClientChat);
 router.get('/location/search', aiController.searchLocations);
 router.post('/location/resolve', aiController.resolveLocation);
 router.post('/smart-search/parse', aiController.parseSmartSearch);

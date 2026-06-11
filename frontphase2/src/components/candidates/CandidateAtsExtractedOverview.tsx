@@ -19,6 +19,8 @@ import {
   collectCandidateWorkEntries,
   computeTotalExperienceYears,
   formatExperienceYearsLabel,
+  formatWorkEntryHeadline,
+  formatWorkEntryMeta,
 } from '@/lib/candidateExperience';
 import { CandidateWorkExperienceEntryView } from './CandidateWorkExperienceEntryView';
 import { getPhase1ProfileSnapshot } from '@/lib/phase1ProfileSnapshot';

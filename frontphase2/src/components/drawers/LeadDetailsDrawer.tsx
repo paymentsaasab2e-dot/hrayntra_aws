@@ -48,10 +48,7 @@ import {
   LayoutGrid,
   Plus,
   Sparkles,
-  ArrowUp,
-  GripVertical,
   AlertTriangle,
-  Copy,
   Check,
   Trash2,
   Pin,
@@ -70,8 +67,10 @@ import { ScheduleMeetingForm } from '../ScheduleMeetingForm';
 import { NotesService } from '../NotesService';
 import {
   apiAppendLeadStatus,
+  apiCheckLeadDuplicate,
   apiCreateLead,
   apiGenerateLeadDetails,
+  type LeadAiChatMessage,
   apiGetLead,
   apiGetLeadActivities,
   apiGetLeadStatusCatalog,
@@ -98,6 +97,8 @@ import { useFiles } from '../../hooks/useFiles';
 import { getAllTeamMembersForAssign } from '../../lib/api/teamApi';
 import type { TeamMember } from '../../types/team';
 import { LeadAssigneesMultiSelect } from './LeadAssigneesMultiSelect';
+import { LeadAiChatDrawer } from '../leads/LeadAiChatDrawer';
+import type { LeadAiGeneratedPayload } from '@/lib/leadAiHelpers';
 import { ServicesNeededSelect } from '../forms/ServicesNeededSelect';
 import { DirectorContactFields } from '../forms/DirectorContactFields';
 import { TeamMemberOptionalFields } from '../forms/TeamMemberOptionalFields';
@@ -363,14 +364,6 @@ function syncLeadTeamMembers(
   };
 }
 
-type LeadAiRequiredField = 'companyName' | 'contactPerson' | 'email';
-
-const LEAD_AI_REQUIRED_FIELD_LABELS: Record<LeadAiRequiredField, string> = {
-  companyName: 'Company',
-  contactPerson: 'Director / contact name',
-  email: 'Email',
-};
-
 const getSourceFieldLabel = (source?: LeadSource) => {
   switch (source) {
     case 'Website':
@@ -413,6 +406,8 @@ interface LeadDetailsDrawerProps {
   onDeleteLead?: (id: string) => void;
   /** Optional: parent-level handler invoked after a successful duplicate. */
   onDuplicateLead?: (newLead: BackendLead) => void;
+  /** Open an existing lead from duplicate-check (e.g. switch drawer to that lead). */
+  onOpenExistingLead?: (leadId: string) => void;
 }
 
 function isLeadAlreadyConverted(lead: Lead | null | undefined): boolean {
@@ -564,6 +559,7 @@ export function LeadDetailsDrawer({
   onAssignLead,
   onDeleteLead,
   onDuplicateLead,
+  onOpenExistingLead,
 }: LeadDetailsDrawerProps) {
   usePageDrawerLifecycle(Boolean(lead) || addLeadMode);
   const [activeTab, setActiveTab] = useState<'overview' | 'activities' | 'notes' | 'files' | 'add'>(
@@ -732,11 +728,12 @@ export function LeadDetailsDrawer({
     };
   }, [addLeadMode, lead?.id]);
 
-  const resetSmartLeadPrompt = () => {
-    setLeadAiPrompt('');
-    setLeadAiError('');
-    setLeadAiStatus('');
-    setLeadAiPendingFields([]);
+  const resetLeadAiAssistant = () => {
+    setLeadAiChatOpen(false);
+    setLeadAiChatHistory([]);
+    setAllowDuplicateCreate(false);
+    setPendingDuplicate(null);
+    setShowDuplicateNotification(false);
   };
 
   const resetAddLeadForm = () => {
@@ -790,7 +787,7 @@ export function LeadDetailsDrawer({
     setPendingAddLeadKycFiles([]);
     setPendingAddLeadTeamMemberKycFiles([]);
     if (addLeadAgreementsInputRef.current) addLeadAgreementsInputRef.current.value = '';
-    resetSmartLeadPrompt();
+    resetLeadAiAssistant();
   };
 
   const applyGeneratedLeadToForm = (
@@ -818,7 +815,7 @@ export function LeadDetailsDrawer({
     status: generated.status || form.status,
     priority: generated.priority || form.priority,
     interestedNeeds: generated.interestedNeeds || form.interestedNeeds,
-    notes: generated.notes || form.notes,
+    notes: generated.expectedBusinessValue || generated.notes || form.notes,
     industry: generated.industry || form.industry,
     companySize: generated.companySize || form.companySize,
     website: generated.website || form.website,
@@ -863,14 +860,6 @@ export function LeadDetailsDrawer({
     teamMembers: form.teamMembers,
   });
 
-  const getMissingLeadAiFields = (form: AddLeadFormData): LeadAiRequiredField[] => {
-    const missing: LeadAiRequiredField[] = [];
-    const validation = validateLeadRequiredFields(form);
-    if (validation.companyName) missing.push('companyName');
-    if (validation.email) missing.push('email');
-    return missing;
-  };
-
   const normalizeLeadDateInput = (value: string) => {
     const trimmed = String(value || '').trim();
     if (!trimmed) return '';
@@ -897,52 +886,17 @@ export function LeadDetailsDrawer({
   };
 
 
-  const handleLeadAiGenerate = async () => {
-    const input = leadAiPrompt.trim();
-    if (!input) {
-      toast.error('Paste or type lead details first');
-      return;
-    }
-
-    setLeadAiError('');
-    setLeadAiStatus('');
-
-    try {
-      setLeadAiGenerating(true);
-      const response = await apiGenerateLeadDetails({
-        prompt: input,
-        currentForm: addLeadForm as unknown as Record<string, unknown>,
-      });
-      const generated = response.data;
-      if (!generated) {
-        throw new Error('AI did not return lead details');
-      }
-
-      const nextFormState = applyGeneratedLeadToForm(addLeadForm, generated);
+  const handleApplyLeadAiGenerated = useCallback(
+    (generated: LeadAiGeneratedPayload) => {
+      const nextFormState = applyGeneratedLeadToForm(
+        addLeadForm,
+        generated as Awaited<ReturnType<typeof apiGenerateLeadDetails>>['data'],
+      );
       setAddLeadForm(nextFormState);
-      setAddLeadSectionsOpen({ company: true, contact: true, leadDetails: true });
       setAddLeadErrors({});
-
-      const missingFields = getMissingLeadAiFields(nextFormState);
-      setLeadAiPendingFields(missingFields);
-
-      if (missingFields.length > 0) {
-        setLeadAiStatus(
-          `Form filled. Still need: ${missingFields.map((field) => LEAD_AI_REQUIRED_FIELD_LABELS[field]).join(', ')}. Add them in the form or prompt, then click Create Lead.`,
-        );
-        toast.message('Form partially filled — complete required fields, then click Create Lead');
-        return;
-      }
-
-      setLeadAiPrompt('');
-      toast.success('Form filled — review and click Create Lead');
-    } catch (error: any) {
-      console.error('Lead AI generation failed:', error);
-      setLeadAiError(error?.message || 'Failed to process lead details');
-    } finally {
-      setLeadAiGenerating(false);
-    }
-  };
+    },
+    [addLeadForm],
+  );
 
   const DEFAULT_ADD_LEAD_SECTIONS = {
     company: false,
@@ -950,103 +904,22 @@ export function LeadDetailsDrawer({
     leadDetails: false,
   };
   const [addLeadSectionsOpen, setAddLeadSectionsOpen] = useState(DEFAULT_ADD_LEAD_SECTIONS);
-  const [leadAiPrompt, setLeadAiPrompt] = useState('');
-  const [leadAiError, setLeadAiError] = useState('');
-  const [leadAiStatus, setLeadAiStatus] = useState('');
-  const [leadAiPendingFields, setLeadAiPendingFields] = useState<LeadAiRequiredField[]>([]);
-  const [leadAiGenerating, setLeadAiGenerating] = useState(false);
-  const [leadAiPromptVisible, setLeadAiPromptVisible] = useState(true);
-  const [leadAiPromptPos, setLeadAiPromptPos] = useState<{ x: number; y: number } | null>(null);
-  const leadAiPromptBoundsRef = useRef<HTMLDivElement>(null);
-  const leadAiPromptBoxRef = useRef<HTMLDivElement>(null);
-  const leadAiDragRef = useRef<{
-    pointerId: number;
-    startX: number;
-    startY: number;
-    originX: number;
-    originY: number;
-  } | null>(null);
-
-  useEffect(() => {
-    if (addLeadMode) {
-      setLeadAiPromptVisible(true);
-      setLeadAiPromptPos(null);
-    }
-  }, [addLeadMode]);
-
-  const clampLeadAiPromptPosition = useCallback((x: number, y: number) => {
-    const bounds = leadAiPromptBoundsRef.current;
-    const box = leadAiPromptBoxRef.current;
-    if (!bounds || !box) return { x, y };
-
-    const boundsRect = bounds.getBoundingClientRect();
-    const boxRect = box.getBoundingClientRect();
-    const pad = 8;
-    const maxX = Math.max(pad, boundsRect.width - boxRect.width - pad);
-    const maxY = Math.max(pad, boundsRect.height - boxRect.height - pad);
-
-    return {
-      x: Math.min(Math.max(pad, x), maxX),
-      y: Math.min(Math.max(pad, y), maxY),
+  const [leadAiChatOpen, setLeadAiChatOpen] = useState(false);
+  const [leadAiChatHistory, setLeadAiChatHistory] = useState<LeadAiChatMessage[]>([]);
+  const [allowDuplicateCreate, setAllowDuplicateCreate] = useState(false);
+  const [pendingDuplicate, setPendingDuplicate] = useState<{
+    leadId?: string;
+    matchedBy?: string[];
+    existing?: {
+      id: string;
+      companyName?: string | null;
+      contactPerson?: string | null;
+      email?: string | null;
+      phone?: string | null;
+      ownerName?: string | null;
+      createdAt?: string;
     };
-  }, []);
-
-  const resolveLeadAiPromptPosition = useCallback(() => {
-    if (leadAiPromptPos) return leadAiPromptPos;
-
-    const bounds = leadAiPromptBoundsRef.current;
-    const box = leadAiPromptBoxRef.current;
-    if (!bounds || !box) return { x: 24, y: 24 };
-
-    const boundsRect = bounds.getBoundingClientRect();
-    const boxRect = box.getBoundingClientRect();
-    return clampLeadAiPromptPosition(
-      boxRect.left - boundsRect.left,
-      boxRect.top - boundsRect.top,
-    );
-  }, [leadAiPromptPos, clampLeadAiPromptPosition]);
-
-  const handleLeadAiPromptDragStart = useCallback(
-    (e: React.PointerEvent<HTMLButtonElement>) => {
-      if (e.button !== 0) return;
-      e.preventDefault();
-
-      const origin = resolveLeadAiPromptPosition();
-      setLeadAiPromptPos(origin);
-
-      leadAiDragRef.current = {
-        pointerId: e.pointerId,
-        startX: e.clientX,
-        startY: e.clientY,
-        originX: origin.x,
-        originY: origin.y,
-      };
-
-      const onMove = (ev: PointerEvent) => {
-        const drag = leadAiDragRef.current;
-        if (!drag || ev.pointerId !== drag.pointerId) return;
-
-        const dx = ev.clientX - drag.startX;
-        const dy = ev.clientY - drag.startY;
-        const next = clampLeadAiPromptPosition(drag.originX + dx, drag.originY + dy);
-        setLeadAiPromptPos(next);
-      };
-
-      const onUp = (ev: PointerEvent) => {
-        const drag = leadAiDragRef.current;
-        if (!drag || ev.pointerId !== drag.pointerId) return;
-        leadAiDragRef.current = null;
-        window.removeEventListener('pointermove', onMove);
-        window.removeEventListener('pointerup', onUp);
-        window.removeEventListener('pointercancel', onUp);
-      };
-
-      window.addEventListener('pointermove', onMove);
-      window.addEventListener('pointerup', onUp);
-      window.addEventListener('pointercancel', onUp);
-    },
-    [resolveLeadAiPromptPosition, clampLeadAiPromptPosition],
-  );
+  } | null>(null);
 
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const DEFAULT_LEAD_OVERVIEW_SECTIONS: Record<string, boolean> = {
@@ -1238,12 +1111,6 @@ export function LeadDetailsDrawer({
 
   const [notesTagFilter, setNotesTagFilter] = useState<LeadNoteTag | 'All'>('All');
   const [pinnedNoteIds, setPinnedNoteIds] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    if (!showDuplicateNotification) return;
-    const t = setTimeout(() => setShowDuplicateNotification(false), 5000);
-    return () => clearTimeout(t);
-  }, [showDuplicateNotification]);
 
   // ── 3-dot menu actions ─────────────────────────────────────────────
   const handleExportLead = () => {
@@ -1734,7 +1601,7 @@ export function LeadDetailsDrawer({
     );
   }, [addLeadForm]);
 
-  const handleSubmitAddLead = useCallback(async () => {
+  const handleSubmitAddLead = useCallback(async (options?: { skipDuplicateCheck?: boolean }) => {
     const nextErrors = validateLeadRequiredFields(addLeadForm);
     setAddLeadErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) {
@@ -1746,6 +1613,23 @@ export function LeadDetailsDrawer({
     }
 
     try {
+      if (!options?.skipDuplicateCheck && !allowDuplicateCreate) {
+        const primaryEmail = primaryContactValue(
+          normalizeContactList(addLeadForm.emails, addLeadForm.email),
+        );
+        const duplicateResponse = await apiCheckLeadDuplicate({
+          email: primaryEmail || undefined,
+          phone: addLeadForm.phone?.trim() || undefined,
+          companyName: addLeadForm.companyName.trim(),
+          contactPerson: addLeadForm.contactPerson.trim() || undefined,
+        });
+        if (duplicateResponse.data?.duplicate) {
+          setPendingDuplicate(duplicateResponse.data);
+          setShowDuplicateNotification(true);
+          return;
+        }
+      }
+
       const companyLinks = (addLeadForm.website ?? '')
         .split('\n')
         .map((item) => item.trim())
@@ -1863,6 +1747,7 @@ export function LeadDetailsDrawer({
   }, [
     addLeadForm,
     addLeadStatusIsCustom,
+    allowDuplicateCreate,
     onAddLead,
     pendingAddLeadAgreementsFile,
     pendingAddLeadKycFiles,
@@ -1972,6 +1857,14 @@ export function LeadDetailsDrawer({
                 <>
                   <button
                     type="button"
+                    onClick={() => setLeadAiChatOpen(true)}
+                    className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+                  >
+                    <Sparkles size={14} />
+                    Create with AI
+                  </button>
+                  <button
+                    type="button"
                     onClick={onClose}
                     className="rounded-full border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
                   >
@@ -2073,26 +1966,14 @@ export function LeadDetailsDrawer({
                   );
                 })}
               </div>
-              {!addLeadMode && (
-              <button
-                type="button"
-                onClick={() => setShowDuplicateNotification(true)}
-                className="p-2 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 border border-transparent hover:border-amber-200 transition-colors"
-                title="Trigger duplicate notification (demo). Real triggers: Duplicate email, Duplicate phone, Duplicate company."
-              >
-                <Copy size={16} />
-              </button>
-              )}
             </div>
           </div>
 
           {/* Tab content */}
-          <div ref={leadAiPromptBoundsRef} className="relative flex min-h-0 flex-1 flex-col">
+          <div className="relative flex min-h-0 flex-1 flex-col">
             <div
               className={`flex-1 overflow-y-auto ${
                 addLeadMode ? 'bg-[#f8fafc]' : 'bg-slate-50/30'
-              } ${
-                addLeadMode && activeTab === 'add' && leadAiPromptVisible && !leadAiPromptPos ? 'pb-44' : ''
               }`}
             >
             <div className={addLeadMode ? 'px-6 py-5' : 'p-5'}>
@@ -2896,6 +2777,22 @@ export function LeadDetailsDrawer({
                 </div>
               ) : activeTab === 'add' ? (
                 <div className="space-y-6">
+                  <div className="flex flex-col gap-3 rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50/90 to-indigo-50/60 p-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-900">Create faster with AI</p>
+                      <p className="mt-0.5 text-xs text-slate-600">
+                        Chat or paste notes — the form fills as you go. Close the assistant anytime; your conversation continues.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setLeadAiChatOpen(true)}
+                      className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
+                    >
+                      <Sparkles size={16} />
+                      {leadAiChatOpen ? 'Continue AI chat' : 'Open AI assistant'}
+                    </button>
+                  </div>
                   <section className="space-y-5">
                     <div className="flex items-center gap-3">
                       <div className="h-8 w-8 shrink-0 rounded-xl bg-blue-50 text-blue-600 ring-1 ring-blue-100 flex items-center justify-center">
@@ -4592,106 +4489,28 @@ export function LeadDetailsDrawer({
             </div>
             </div>
 
-            {addLeadMode && activeTab === 'add' && !leadAiPromptVisible ? (
-              <button
-                type="button"
-                onClick={() => setLeadAiPromptVisible(true)}
-                className="absolute bottom-5 right-5 z-20 flex h-12 w-12 items-center justify-center rounded-full border border-blue-200/80 bg-white text-blue-600 shadow-[0_8px_24px_rgba(37,99,235,0.22)] transition-colors hover:bg-blue-50"
-                aria-label="Show AI prompt"
-                title="Show AI prompt"
-              >
-                <Sparkles size={20} />
-              </button>
-            ) : null}
-
-            {addLeadMode && activeTab === 'add' && leadAiPromptVisible ? (
-              <div
-                ref={leadAiPromptBoxRef}
-                className={`pointer-events-none absolute z-20 w-[min(100%,42rem)] max-w-3xl px-5 ${
-                  leadAiPromptPos ? '' : 'bottom-5 left-1/2 -translate-x-1/2'
-                }`}
-                style={
-                  leadAiPromptPos
-                    ? { left: leadAiPromptPos.x, top: leadAiPromptPos.y, transform: 'none' }
-                    : undefined
-                }
-              >
-                {(leadAiStatus || leadAiError) && (
-                  <div className="pointer-events-auto mb-2 space-y-1.5">
-                    {leadAiStatus ? (
-                      <p className="rounded-2xl border border-amber-200/80 bg-amber-50/95 px-3 py-2 text-xs text-amber-900 shadow-sm backdrop-blur-sm">
-                        {leadAiStatus}
-                      </p>
-                    ) : null}
-                    {leadAiError ? (
-                      <p className="rounded-2xl border border-red-200/80 bg-red-50/95 px-3 py-2 text-xs text-red-700 shadow-sm backdrop-blur-sm">
-                        {leadAiError}
-                      </p>
-                    ) : null}
-                  </div>
-                )}
-                <div className="pointer-events-auto relative rounded-[28px] border border-slate-200/80 bg-white/95 p-1.5 shadow-[0_8px_32px_rgba(15,23,42,0.14),0_2px_8px_rgba(15,23,42,0.06)] backdrop-blur-md">
-                  <button
-                    type="button"
-                    onClick={() => setLeadAiPromptVisible(false)}
-                    className="absolute -right-2 -top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-md transition-colors hover:bg-slate-50 hover:text-slate-800"
-                    aria-label="Close AI prompt"
-                    title="Close"
-                  >
-                    <X size={14} strokeWidth={2.5} />
-                  </button>
-                  <div className="flex items-end gap-1.5 pl-1 pr-1">
-                    <button
-                      type="button"
-                      onPointerDown={handleLeadAiPromptDragStart}
-                      className="mb-1 flex h-9 w-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 active:cursor-grabbing"
-                      aria-label="Drag prompt"
-                      title="Drag to move"
-                    >
-                      <GripVertical size={16} />
-                    </button>
-                    <div className="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
-                      <Sparkles size={15} />
-                    </div>
-                    <textarea
-                      id="lead-smart-prompt"
-                      value={leadAiPrompt}
-                      onChange={(e) => setLeadAiPrompt(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey && !leadAiGenerating) {
-                          e.preventDefault();
-                          void handleLeadAiGenerate();
-                        }
-                      }}
-                      rows={1}
-                      placeholder="Paste lead info — Company, Director Name, Team Member, Email, Phone, Location, City, State, Country, Industry, Source, Services Needed, Expected Business Value…"
-                      className="max-h-32 min-h-[40px] flex-1 resize-none border-0 bg-transparent py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-0 disabled:opacity-60"
-                      disabled={leadAiGenerating}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => void handleLeadAiGenerate()}
-                      disabled={leadAiGenerating || !leadAiPrompt.trim()}
-                      className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-900 text-white transition-all hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-                      aria-label={leadAiGenerating ? 'Processing' : 'Fill form from text'}
-                      title={leadAiGenerating ? 'Processing…' : 'Fill form (Enter)'}
-                    >
-                      {leadAiGenerating ? (
-                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                      ) : (
-                        <ArrowUp size={18} strokeWidth={2.25} />
-                      )}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ) : null}
           </div>
         </motion.div>
 
-        {/* Duplicate lead notification — fixed bottom-right of screen, auto-dismiss 5s. Triggers (for later): Duplicate email, Duplicate phone, Duplicate company. */}
+        {addLeadMode ? (
+          <LeadAiChatDrawer
+            isOpen={leadAiChatOpen}
+            onClose={() => setLeadAiChatOpen(false)}
+            form={addLeadForm}
+            onApplyGenerated={handleApplyLeadAiGenerated}
+            onExpandSections={() =>
+              setAddLeadSectionsOpen({ company: true, contact: true, leadDetails: true })
+            }
+            chatHistory={leadAiChatHistory}
+            onChatHistoryChange={setLeadAiChatHistory}
+            onCreateLead={() => void handleSubmitAddLead()}
+            createDisabled={isCreateLeadDisabled || uploadingAgreements || uploadingKyc}
+          />
+        ) : null}
+
+        {/* Duplicate lead notification — shown before create when duplicate-check matches */}
         <AnimatePresence>
-          {showDuplicateNotification && (
+          {showDuplicateNotification && pendingDuplicate ? (
             <motion.div
               initial={{ x: '100%', opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
@@ -4700,71 +4519,91 @@ export function LeadDetailsDrawer({
               className="fixed bottom-8 right-8 z-[60] w-full max-w-sm"
             >
               <div className="rounded-xl border border-slate-200 bg-white shadow-lg overflow-hidden">
-                {/* Header — warning accent */}
                 <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-slate-100 bg-slate-50/80">
                   <div className="flex items-center gap-2 min-w-0">
                     <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center shrink-0">
                       <AlertTriangle size={16} className="text-amber-600" />
                     </div>
-                    <h3 className="text-sm font-bold text-slate-900 truncate">Possible Duplicate Found</h3>
+                    <h3 className="text-sm font-bold text-slate-900 truncate">Possible duplicate lead found</h3>
                   </div>
                   <button
                     type="button"
-                    onClick={() => setShowDuplicateNotification(false)}
+                    onClick={() => {
+                      setShowDuplicateNotification(false);
+                      setPendingDuplicate(null);
+                    }}
                     className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors shrink-0"
                     aria-label="Dismiss"
                   >
                     <XCircle size={16} />
                   </button>
                 </div>
-                {/* Content */}
                 <div className="px-4 py-3 space-y-0 border-b border-slate-100">
                   <div className="flex flex-col gap-0.5 py-2 border-b border-slate-100">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Company</p>
-                    <p className="text-xs font-medium text-slate-900 truncate">{lead?.companyName ?? 'TechNova Solutions'}</p>
+                    <p className="text-xs font-medium text-slate-900 truncate">
+                      {pendingDuplicate?.existing?.companyName || addLeadForm.companyName || '—'}
+                    </p>
                   </div>
+                  {pendingDuplicate?.existing?.contactPerson ? (
+                    <div className="flex flex-col gap-0.5 py-2 border-b border-slate-100">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Contact</p>
+                      <p className="text-xs font-medium text-slate-900 truncate">
+                        {pendingDuplicate.existing.contactPerson}
+                      </p>
+                    </div>
+                  ) : null}
                   <div className="flex flex-col gap-0.5 py-2 border-b border-slate-100">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Contact</p>
-                    <p className="text-xs font-medium text-slate-900 truncate">{lead?.contactPerson ?? 'David Miller'}</p>
-                  </div>
-                  <div className="flex flex-col gap-0.5 py-2 border-b border-slate-100">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Created by</p>
-                    <p className="text-xs font-medium text-slate-900 truncate">{lead?.assignedTo?.name ?? 'Alex Thompson'}</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Owner</p>
+                    <p className="text-xs font-medium text-slate-900 truncate">
+                      {pendingDuplicate?.existing?.ownerName || '—'}
+                    </p>
                   </div>
                   <div className="flex flex-col gap-0.5 py-2">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Date</p>
-                    <p className="text-xs font-medium text-slate-900">{lead?.createdDate ?? 'Jan 10 2026'}</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Created</p>
+                    <p className="text-xs font-medium text-slate-900">
+                      {pendingDuplicate?.existing?.createdAt
+                        ? formatDateDMY(pendingDuplicate.existing.createdAt)
+                        : '—'}
+                    </p>
                   </div>
+                  {pendingDuplicate?.matchedBy?.length ? (
+                    <p className="pt-2 text-[10px] text-slate-500">
+                      Matched on: {pendingDuplicate.matchedBy.join(', ')}
+                    </p>
+                  ) : null}
                 </div>
-                {/* Actions */}
                 <div className="p-4 flex flex-col gap-2">
                   <button
                     type="button"
-                    onClick={() => setShowDuplicateNotification(false)}
+                    onClick={() => {
+                      const existingId =
+                        pendingDuplicate?.existing?.id || pendingDuplicate?.leadId;
+                      setShowDuplicateNotification(false);
+                      setPendingDuplicate(null);
+                      if (existingId) {
+                        onOpenExistingLead?.(existingId);
+                      }
+                    }}
                     className="w-full py-2 px-3 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-sm transition-colors"
                   >
-                    View Existing
+                    Open existing lead
                   </button>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={openMergeLeadsForm}
-                      className="flex-1 py-2 px-3 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-                    >
-                      Merge Leads
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowDuplicateNotification(false)}
-                      className="flex-1 py-2 px-3 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-                    >
-                      Create Anyway
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAllowDuplicateCreate(true);
+                      setShowDuplicateNotification(false);
+                      void handleSubmitAddLead({ skipDuplicateCheck: true });
+                    }}
+                    className="w-full py-2 px-3 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+                  >
+                    Create anyway
+                  </button>
                 </div>
               </div>
             </motion.div>
-          )}
+          ) : null}
         </AnimatePresence>
         </>
       )}
