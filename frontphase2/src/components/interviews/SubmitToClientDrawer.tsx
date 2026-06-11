@@ -1022,12 +1022,11 @@ export function SubmitToClientDrawer({
     if (isPhase1Candidate && !phase1Snapshot) return;
     setSaving(true);
     try {
-      const presentationExtra = readClientPresentation(candidate.extraData)?.fields?.extraData ?? {};
-      const persist = await buildCvEditorPersistPatch(
-        data,
-        candidate.id,
-        presentationExtra as Record<string, unknown>
-      );
+      const baseExtra =
+        candidate.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
+          ? (candidate.extraData as Record<string, unknown>)
+          : {};
+      const persist = await buildCvEditorPersistPatch(data, candidate.id, baseExtra);
       const layout =
         persist.extraData?.cvEditorLayout &&
         typeof persist.extraData.cvEditorLayout === 'object'
@@ -1094,10 +1093,27 @@ export function SubmitToClientDrawer({
         return;
       }
 
-      const updatedRaw = await apiUpdateCandidate(candidate.id, { extraData });
+      const cvPatch = cvEditorDataToCandidatePatch(data);
+      const mergedExtraData = {
+        ...extraData,
+        ...persist.extraData,
+        resumeCvViewMode: 'updated',
+      };
+      const updatedRaw = await apiUpdateCandidate(candidate.id, {
+        ...cvPatch,
+        ...persist,
+        extraData: mergedExtraData,
+      });
       const updated = extractApiData<BackendCandidate>(updatedRaw);
-      setCandidate(updated);
-      const saved = readClientPresentation(updated.extraData);
+      const savedRow = enrichBackendCandidateFromPhase1Snapshot({
+        ...candidate,
+        ...cvPatch,
+        ...persist,
+        ...updated,
+        extraData: mergedExtraData,
+      } as BackendCandidate);
+      setCandidate(savedRow);
+      const saved = readClientPresentation(savedRow.extraData);
       if (isPhase1Candidate) {
         if (saved?.phase1Snapshot) setPhase1Snapshot(saved.phase1Snapshot);
         if (saved?.phase1VisibleSections) {
@@ -1107,9 +1123,8 @@ export function SubmitToClientDrawer({
         const savedForm = saved?.editForm ?? editForm;
         if (savedForm) setEditForm(savedForm);
       }
-      const forClient = mergeBackendCandidateWithClientPresentation(updated);
-      setCvEditorData(candidateToCvEditorData(forClient, cvFormOverrides()));
-      setCvViewData(candidateToCvEditorData(forClient, cvFormOverrides()));
+      setCvEditorData(candidateToCvEditorData(savedRow, cvFormOverrides()));
+      setCvViewData(candidateToCvEditorData(savedRow, cvFormOverrides()));
       setCvShareMode('edited');
       setCandidateStepSaved(true);
       onToast('Client CV saved (overview unchanged)');

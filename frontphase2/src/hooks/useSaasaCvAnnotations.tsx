@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  apiGetCandidate,
   apiUpdateCandidate,
   filesApiDelete,
   filesApiGet,
@@ -10,12 +11,16 @@ import {
 } from '../lib/api';
 import { extractApiData } from '../lib/mapCandidateProfile';
 import {
+  enrichBackendCandidateFromPhase1Snapshot,
   pickLatestResumeFileUrl,
   resolveCandidateResumeUrlFromSources,
 } from '../lib/phase1ProfileSnapshot';
-import { buildResumeCvViewExtra, dataUrlToFile } from '../lib/cvEditorMapping';
 import {
-  buildSaasaCvAnnotationsExtra,
+  buildSaasaCvSaveExtra,
+  dataUrlToFile,
+  type ResumeCvViewMode,
+} from '../lib/cvEditorMapping';
+import {
   normalizeSaasaCvCompanyLogo,
   readSaasaCvAnnotations,
   readSaasaCvCompanyLogo,
@@ -37,6 +42,8 @@ interface UseSaasaCvAnnotationsOptions {
   onCandidateUpdated?: () => void | Promise<void>;
   onFilesRefresh?: () => void | Promise<void>;
   onToast?: (message: string) => void;
+  /** Switch Resume tab to SAASA CV after save (Updated CV tab stays available). */
+  onViewModeChange?: (mode: ResumeCvViewMode | null) => void;
 }
 
 function hasPaintMarks(items: SaasaCvAnnotation[]): boolean {
@@ -53,11 +60,14 @@ export function useSaasaCvAnnotations({
   onCandidateUpdated,
   onFilesRefresh,
   onToast,
+  onViewModeChange,
 }: UseSaasaCvAnnotationsOptions) {
   const [open, setOpen] = useState(false);
   const [backendCandidate, setBackendCandidate] = useState<BackendCandidate | null>(null);
   const [busy, setBusy] = useState(false);
   const [resolvedResumeUrl, setResolvedResumeUrl] = useState<string | null>(null);
+  const [preferredResumeViewMode, setPreferredResumeViewMode] =
+    useState<ResumeCvViewMode | null>(null);
 
   const effectiveResumeUrl =
     resolvedResumeUrl?.trim() || resumeUrl?.trim() || null;
@@ -84,6 +94,26 @@ export function useSaasaCvAnnotations({
   }, [effectiveResumeUrl, onToast]);
 
   const closeModal = useCallback(() => setOpen(false), []);
+
+  const resolveFreshExtraForSave = useCallback(async (): Promise<Record<string, unknown>> => {
+    if (!candidateId) return {};
+    try {
+      const raw = await apiGetCandidate(candidateId);
+      const fetched = enrichBackendCandidateFromPhase1Snapshot(
+        extractApiData<BackendCandidate>(raw) ?? ({} as BackendCandidate)
+      );
+      if (fetched?.id) setBackendCandidate(fetched);
+      const extra = fetched?.extraData;
+      return extra && typeof extra === 'object' && !Array.isArray(extra)
+        ? (extra as Record<string, unknown>)
+        : {};
+    } catch {
+      const fallback =
+        (backendCandidate?.extraData as Record<string, unknown> | undefined) ??
+        (extraData && typeof extraData === 'object' && !Array.isArray(extraData) ? extraData : {});
+      return fallback;
+    }
+  }, [candidateId, backendCandidate?.extraData, extraData]);
 
   const resolveCompanyLogoForSave = useCallback(
     async (
@@ -122,9 +152,7 @@ export function useSaasaCvAnnotations({
       }
       setBusy(true);
       try {
-        const existingExtra =
-          (backendCandidate?.extraData as Record<string, unknown> | undefined) ??
-          (extraData && typeof extraData === 'object' && !Array.isArray(extraData) ? extraData : {});
+        const existingExtra = await resolveFreshExtraForSave();
 
         const prevStored = readSaasaCvAnnotations(existingExtra);
         let fileId = prevStored?.fileId;
@@ -205,23 +233,31 @@ export function useSaasaCvAnnotations({
           fileName = undefined;
         }
 
-        const annotationsExtra = buildSaasaCvAnnotationsExtra(existingExtra, {
-          resumeUrl: effectiveResumeUrl,
-          items,
-          companyLogo: resolvedLogo,
-          fileId,
-          fileUrl,
-          fileName,
-          fullSnapshot: fileUrl ? savedFullSnapshot : false,
-          snapshotFormat: fileUrl ? savedSnapshotFormat : undefined,
-        });
-        const nextExtra =
+        const nextExtra = buildSaasaCvSaveExtra(
+          existingExtra,
+          {
+            resumeUrl: effectiveResumeUrl,
+            items,
+            companyLogo: resolvedLogo,
+            fileId,
+            fileUrl,
+            fileName,
+            fullSnapshot: fileUrl ? savedFullSnapshot : false,
+            snapshotFormat: fileUrl ? savedSnapshotFormat : undefined,
+          },
           fileUrl || items.length > 0 || resolvedLogo?.url
-            ? buildResumeCvViewExtra(annotationsExtra, 'saasa')
-            : annotationsExtra;
+            ? { resumeCvViewMode: 'saasa' }
+            : undefined
+        );
         const response = await apiUpdateCandidate(candidateId, { extraData: nextExtra });
-        const updated = extractApiData<BackendCandidate>(response);
-        if (updated) setBackendCandidate(updated);
+        const updated = enrichBackendCandidateFromPhase1Snapshot(
+          extractApiData<BackendCandidate>(response) ?? ({} as BackendCandidate)
+        );
+        if (updated?.id) setBackendCandidate(updated);
+        if (fileUrl || items.length > 0 || resolvedLogo?.url) {
+          setPreferredResumeViewMode('saasa');
+          onViewModeChange?.('saasa');
+        }
         await onCandidateUpdated?.();
         await onFilesRefresh?.();
         onToast?.(
@@ -243,14 +279,14 @@ export function useSaasaCvAnnotations({
     [
       candidateId,
       canEdit,
-      backendCandidate?.extraData,
-      extraData,
       effectiveResumeUrl,
       candidateName,
+      resolveFreshExtraForSave,
       resolveCompanyLogoForSave,
       onCandidateUpdated,
       onFilesRefresh,
       onToast,
+      onViewModeChange,
       closeModal,
     ]
   );
@@ -262,9 +298,7 @@ export function useSaasaCvAnnotations({
     }
     setBusy(true);
     try {
-      const existingExtra =
-        (backendCandidate?.extraData as Record<string, unknown> | undefined) ??
-        (extraData && typeof extraData === 'object' && !Array.isArray(extraData) ? extraData : {});
+      const existingExtra = await resolveFreshExtraForSave();
       const prevStored = readSaasaCvAnnotations(existingExtra);
 
       if (prevStored?.fileId) {
@@ -275,7 +309,7 @@ export function useSaasaCvAnnotations({
         }
       }
 
-      const nextExtra = buildSaasaCvAnnotationsExtra(existingExtra, {
+      const nextExtra = buildSaasaCvSaveExtra(existingExtra, {
         resumeUrl: effectiveResumeUrl,
         items: [],
         companyLogo: null,
@@ -284,8 +318,10 @@ export function useSaasaCvAnnotations({
         fileName: undefined,
       });
       const response = await apiUpdateCandidate(candidateId, { extraData: nextExtra });
-      const updated = extractApiData<BackendCandidate>(response);
-      if (updated) setBackendCandidate(updated);
+      const updated = enrichBackendCandidateFromPhase1Snapshot(
+        extractApiData<BackendCandidate>(response) ?? ({} as BackendCandidate)
+      );
+      if (updated?.id) setBackendCandidate(updated);
       await onCandidateUpdated?.();
       await onFilesRefresh?.();
       onToast?.('SAASA CV removed from Files.');
@@ -301,9 +337,8 @@ export function useSaasaCvAnnotations({
   }, [
     candidateId,
     canEdit,
-    backendCandidate?.extraData,
-    extraData,
     effectiveResumeUrl,
+    resolveFreshExtraForSave,
     onCandidateUpdated,
     onFilesRefresh,
     onToast,
@@ -367,6 +402,7 @@ export function useSaasaCvAnnotations({
     openModal,
     closeModal,
     busy,
+    preferredResumeViewMode,
     annotationCount: stored?.items?.length ?? 0,
     stored,
     deleteSavedCv,

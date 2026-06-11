@@ -30,6 +30,7 @@ import {
   jobPublicApplyService,
   buildApplyUrlFromToken,
 } from './jobPublicApply.service.js';
+import { upsertPortalJobDocument } from '../../utils/portalJobRawSync.util.js';
 
 async function enrichJobWithApplyLink(job) {
   if (!job?.id) return job;
@@ -182,6 +183,43 @@ function resolvePortalSyncTenantDbName(job, payload = {}) {
   );
 }
 
+const JOB_PUBLIC_VISIBILITY_FIELDS = [
+  'nationality',
+  'jobTitle',
+  'client',
+  'contactPerson',
+  'openings',
+  'location',
+  'industryType',
+  'employmentType',
+  'targetHireDate',
+  'experience',
+  'salary',
+  'languages',
+  'keyResponsibilities',
+  'qualifications',
+  'candidateRequirements',
+  'skills',
+  'jobDescription',
+  'videoMediaLink',
+  'forecastRevenue',
+  'priority',
+];
+
+function normalizePublicFieldVisibility(incoming, existing) {
+  const merged = Object.fromEntries(JOB_PUBLIC_VISIBILITY_FIELDS.map((key) => [key, true]));
+  const apply = (source) => {
+    if (!source || typeof source !== 'object' || Array.isArray(source)) return;
+    for (const key of JOB_PUBLIC_VISIBILITY_FIELDS) {
+      if (source[key] === false) merged[key] = false;
+      else if (source[key] === true) merged[key] = true;
+    }
+  };
+  apply(existing);
+  apply(incoming);
+  return merged;
+}
+
 async function loadJobForPortalSync(jobId) {
   if (!jobId) return null;
   return prisma.job.findUnique({
@@ -192,6 +230,136 @@ async function loadJobForPortalSync(jobId) {
       },
     },
   });
+}
+
+function isPortalSyncFieldVisible(visibility, showClient, field) {
+  if (field === 'client') {
+    if (showClient === false) return false;
+    if (visibility && typeof visibility === 'object' && visibility.client === false) return false;
+    return true;
+  }
+  if (!visibility || typeof visibility !== 'object') return true;
+  return visibility[field] !== false;
+}
+
+const PORTAL_DESCRIPTION_SECTION_STRIP = {
+  keyResponsibilities: [
+    /^key responsibilities$/i,
+    /^responsibilities$/i,
+    /^role & responsibilities$/i,
+  ],
+  qualifications: [
+    /^requirements$/i,
+    /^required skills$/i,
+    /^qualifications/i,
+    /^preferred qualifications?$/i,
+    /^preferred education/i,
+  ],
+  candidateRequirements: [/^candidate requirements?$/i],
+  skills: [/^skills$/i, /^key skills$/i],
+};
+
+function stripHiddenPortalDescriptionSections(html, patterns) {
+  const source = String(html || '').trim();
+  if (!source || !Array.isArray(patterns) || !patterns.length) return source;
+  const parts = source.split(/(?=<h[1-3][^>]*>)/i);
+  if (parts.length <= 1) return source;
+  const kept = [];
+  for (const part of parts) {
+    const headingMatch = part.match(/^<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/i);
+    if (!headingMatch) {
+      kept.push(part);
+      continue;
+    }
+    const headingText = String(headingMatch[1] || '')
+      .replace(/<[^>]+>/g, '')
+      .trim();
+    const shouldStrip = patterns.some((pattern) => pattern.test(headingText));
+    if (!shouldStrip) kept.push(part);
+  }
+  return kept.join('').trim();
+}
+
+function scrubPortalDescriptionForVisibility(visibility, showClient, value) {
+  if (!value || !isPortalSyncFieldVisible(visibility, showClient, 'jobDescription')) return value;
+  const patterns = [];
+  if (!isPortalSyncFieldVisible(visibility, showClient, 'keyResponsibilities')) {
+    patterns.push(...PORTAL_DESCRIPTION_SECTION_STRIP.keyResponsibilities);
+  }
+  if (!isPortalSyncFieldVisible(visibility, showClient, 'qualifications')) {
+    patterns.push(...PORTAL_DESCRIPTION_SECTION_STRIP.qualifications);
+  }
+  if (!isPortalSyncFieldVisible(visibility, showClient, 'candidateRequirements')) {
+    patterns.push(...PORTAL_DESCRIPTION_SECTION_STRIP.candidateRequirements);
+  }
+  if (!isPortalSyncFieldVisible(visibility, showClient, 'skills')) {
+    patterns.push(...PORTAL_DESCRIPTION_SECTION_STRIP.skills);
+  }
+  if (!patterns.length) return value;
+  return stripHiddenPortalDescriptionSections(value, patterns) || null;
+}
+
+function applyVisibilityToPortalSyncPayload(jobPortalData, resolvedVisibility, resolvedShowClient) {
+  const show = (field) => isPortalSyncFieldVisible(resolvedVisibility, resolvedShowClient, field);
+  const out = { ...jobPortalData };
+
+  if (!show('location')) {
+    out.location = null;
+    out.city = null;
+    out.state = null;
+    out.country = null;
+  }
+  if (!show('salary')) out.salary = null;
+  if (!show('nationality')) out.nationality = null;
+  if (!show('priority')) out.priority = null;
+  if (!show('openings')) out.openings = null;
+  if (!show('experience')) out.experienceRequired = null;
+  if (!show('languages')) out.languages = null;
+  if (!show('skills')) {
+    out.skills = [];
+    out.preferredSkills = [];
+    out.requirements = [];
+  }
+  if (!show('keyResponsibilities')) out.keyResponsibilities = [];
+  if (!show('qualifications')) {
+    out.requirements = [];
+    out.education = null;
+  }
+  if (!show('candidateRequirements')) out.candidateRequirements = [];
+  if (!show('jobDescription')) {
+    out.description = null;
+    out.overview = null;
+    out.benefits = [];
+  } else {
+    if (out.description) {
+      out.description = scrubPortalDescriptionForVisibility(
+        resolvedVisibility,
+        resolvedShowClient,
+        out.description,
+      );
+    }
+    if (out.overview) {
+      out.overview = scrubPortalDescriptionForVisibility(
+        resolvedVisibility,
+        resolvedShowClient,
+        out.overview,
+      );
+    }
+  }
+  if (!show('videoMediaLink')) out.videoMediaLink = null;
+  if (!show('forecastRevenue')) out.forecastRevenue = null;
+  if (!show('contactPerson')) {
+    out.hiringManager = null;
+    out.hiringManagerId = null;
+  }
+  if (!show('industryType')) {
+    out.department = null;
+    out.jobCategory = null;
+  }
+  if (!show('targetHireDate')) out.expectedClosureDate = null;
+  if (!show('employmentType')) out.type = null;
+
+  return out;
 }
 
 async function invalidatePortalJobsListCache() {
@@ -212,7 +380,16 @@ async function invalidatePortalJobsListCache() {
 
 async function syncJobToPortal(job, payload = {}) {
   const jobForSync = (await loadJobForPortalSync(job?.id)) || job;
-  await syncJobToJobPortalDb(jobForSync, payload);
+  const mergedForSync = {
+    ...jobForSync,
+    ...(payload.publicFieldVisibility && typeof payload.publicFieldVisibility === 'object'
+      ? { publicFieldVisibility: payload.publicFieldVisibility }
+      : {}),
+    ...(payload.showClientNamePublicly !== undefined
+      ? { showClientNamePublicly: payload.showClientNamePublicly !== false }
+      : {}),
+  };
+  await syncJobToJobPortalDb(mergedForSync, payload);
 }
 
 async function syncJobToJobPortalDb(job, payload = {}) {
@@ -252,7 +429,23 @@ async function syncJobToJobPortalDb(job, payload = {}) {
     }
   }
 
-  const jobPortalData = {
+  const resolvedShowClient =
+    payload.showClientNamePublicly !== undefined
+      ? payload.showClientNamePublicly !== false
+      : job.showClientNamePublicly === false
+        ? false
+        : true;
+  const resolvedVisibility = normalizePublicFieldVisibility(
+    payload.publicFieldVisibility && typeof payload.publicFieldVisibility === 'object'
+      ? payload.publicFieldVisibility
+      : null,
+    job.publicFieldVisibility && typeof job.publicFieldVisibility === 'object'
+      ? job.publicFieldVisibility
+      : null,
+  );
+
+  const jobPortalData = applyVisibilityToPortalSyncPayload(
+    {
     title: job.title,
     location: job.location || null,
     description: job.description || null,
@@ -291,11 +484,8 @@ async function syncJobToJobPortalDb(job, payload = {}) {
     noCandidates: Boolean(job.noCandidates),
     slaRisk: Boolean(job.slaRisk),
     visibility: job.visibility || null,
-    showClientNamePublicly: job.showClientNamePublicly === false ? false : true,
-    publicFieldVisibility:
-      job.publicFieldVisibility && typeof job.publicFieldVisibility === 'object'
-        ? job.publicFieldVisibility
-        : null,
+    showClientNamePublicly: resolvedShowClient,
+    publicFieldVisibility: resolvedVisibility,
     distributionPlatforms: job.distributionPlatforms || null,
     supportingRecruiters: Array.isArray(job.supportingRecruiters) ? job.supportingRecruiters : [],
     applicationFormEnabled: Boolean(job.applicationFormEnabled),
@@ -310,19 +500,17 @@ async function syncJobToJobPortalDb(job, payload = {}) {
     forecastRevenue: job.forecastRevenue || null,
     videoMediaLink: job.videoMediaLink || null,
     postedDate: job.postedDate || job.createdAt || null,
-  };
+  },
+    resolvedVisibility,
+    resolvedShowClient,
+  );
 
-  await portalPrisma.job.upsert({
-    where: { id: job.id },
-    create: {
-      id: job.id,
-      ...jobPortalData,
-    },
-    update: jobPortalData,
-  });
+  // MongoDB Atlas rejects Prisma update/upsert when the aggregation pipeline exceeds 50 stages.
+  // Use raw Mongo $set upsert (with chunked Prisma fallback) instead.
+  await upsertPortalJobDocument(portalPrisma, job.id, jobPortalData);
 
   console.log(
-    `[syncJobToJobPortalDb] mirrored job ${job.id} → portal DB (tenant=${tenantDbName}, showClient=${jobPortalData.showClientNamePublicly})`,
+    `[syncJobToJobPortalDb] mirrored job ${job.id} → portal DB (tenant=${tenantDbName}, showClient=${jobPortalData.showClientNamePublicly}, visibilityKeys=${resolvedVisibility ? Object.keys(resolvedVisibility).filter((k) => resolvedVisibility[k] === false).join(',') || 'all-visible' : 'default'})`,
   );
 
   const activeTenant = getActiveTenantDbName();
@@ -1037,7 +1225,10 @@ export const jobService = {
       languages: data.languages,
       supportingRecruiters: data.supportingRecruiters,
       showClientNamePublicly: data.showClientNamePublicly !== false,
-      publicFieldVisibility: data.publicFieldVisibility || null,
+      publicFieldVisibility:
+        data.publicFieldVisibility && typeof data.publicFieldVisibility === 'object'
+          ? normalizePublicFieldVisibility(data.publicFieldVisibility, null)
+          : null,
     });
 
     if (data.clientId) {
@@ -1177,6 +1368,7 @@ export const jobService = {
         priority: true,
         visibility: true,
         showClientNamePublicly: true,
+        publicFieldVisibility: true,
         distributionPlatforms: true,
         supportingRecruiters: true,
         applicationFormEnabled: true,
@@ -1206,7 +1398,6 @@ export const jobService = {
       preferredSkills: data.preferredSkills,
       keyResponsibilities: data.keyResponsibilities,
       candidateRequirements: data.candidateRequirements,
-      publicFieldVisibility: data.publicFieldVisibility,
       location: data.location,
       type: data.type,
       status: data.status,
@@ -1236,7 +1427,13 @@ export const jobService = {
         data.showClientNamePublicly === undefined
           ? undefined
           : data.showClientNamePublicly !== false,
-      publicFieldVisibility: data.publicFieldVisibility,
+      publicFieldVisibility:
+        data.publicFieldVisibility && typeof data.publicFieldVisibility === 'object'
+          ? normalizePublicFieldVisibility(
+              data.publicFieldVisibility,
+              currentJob.publicFieldVisibility,
+            )
+          : undefined,
       distributionPlatforms: data.distributionPlatforms,
       supportingRecruiters: data.supportingRecruiters,
       applicationFormEnabled: data.applicationFormEnabled,

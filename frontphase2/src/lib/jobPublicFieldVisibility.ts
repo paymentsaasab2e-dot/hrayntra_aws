@@ -81,10 +81,93 @@ export function mergeClientVisibility(
   };
 }
 
+/** Full visibility map for API save — every field explicit so nothing is lost in transit. */
+export function buildPublicFieldVisibilityPayload(
+  visibility: JobPublicFieldVisibility | null | undefined,
+  showClientNamePublicly: boolean,
+): Record<JobPublicVisibilityField, boolean> {
+  const merged = mergeClientVisibility(parseJobPublicFieldVisibility(visibility), showClientNamePublicly);
+  return Object.fromEntries(
+    JOB_PUBLIC_VISIBILITY_FIELDS.map((key) => [key, merged[key] !== false]),
+  ) as Record<JobPublicVisibilityField, boolean>;
+}
+
+/** Whether a parsed HTML JD section heading should appear on Phase 1 / public preview. */
+export function htmlSectionTitleVisibleOnPortal(
+  title: string,
+  show: (field: JobPublicVisibilityField) => boolean,
+): boolean {
+  const normalized = String(title || '').trim().toLowerCase();
+  if (/^job title$/.test(normalized)) return show('jobTitle');
+  if (/key responsibilities|^responsibilities$|role & responsibilities/.test(normalized)) {
+    return show('keyResponsibilities');
+  }
+  if (
+    /^requirements$|^required skills$|qualifications|preferred education|preferred qualifications/.test(
+      normalized,
+    )
+  ) {
+    return show('qualifications');
+  }
+  if (/candidate requirements?/.test(normalized)) return show('candidateRequirements');
+  if (/^skills$|^key skills$/.test(normalized)) return show('skills');
+  if (/benefits|compensation/.test(normalized)) return show('jobDescription');
+  if (/^overview$|^job summary$/.test(normalized)) return show('jobDescription');
+  return show('jobDescription');
+}
+
 export function resolveShowClientNamePublicly(
   visibility: JobPublicFieldVisibility | null | undefined,
   legacyShowClient?: boolean | null,
 ): boolean {
   if (legacyShowClient === false) return false;
   return isJobFieldPubliclyVisible(visibility, 'client', legacyShowClient ?? true);
+}
+
+/** Strip hidden job fields for public / Phase 1 views — no confidential placeholders. */
+export function redactPublicJobPayload<T extends Record<string, unknown>>(
+  job: T,
+  options?: {
+    showClientNamePublicly?: boolean;
+    publicFieldVisibility?: Record<string, boolean> | null;
+  },
+): T {
+  const visibility = parseJobPublicFieldVisibility(options?.publicFieldVisibility ?? job.publicFieldVisibility);
+  const legacyShowClient =
+    options?.showClientNamePublicly !== undefined
+      ? options.showClientNamePublicly !== false
+      : (job as { showClientNamePublicly?: boolean }).showClientNamePublicly !== false;
+  const show = (field: JobPublicVisibilityField) =>
+    isJobFieldPubliclyVisible(visibility, field, legacyShowClient);
+
+  const out: Record<string, unknown> = { ...job };
+  if (!show('jobTitle')) {
+    out.title = null;
+    out.jobTitle = null;
+  }
+  if (!show('client')) {
+    out.company = null;
+    out.companyLogo = null;
+  }
+  if (!show('location')) out.location = null;
+  if (!show('salary')) out.salary = null;
+  if (!show('experience')) out.experienceRequired = null;
+  if (!show('employmentType')) out.employmentType = null;
+  if (!show('openings')) out.openings = null;
+  if (!show('skills')) {
+    out.skills = [];
+    out.preferredSkills = [];
+  }
+  if (!show('keyResponsibilities')) out.keyResponsibilities = [];
+  if (!show('qualifications')) {
+    out.requirements = [];
+    out.education = null;
+  }
+  if (!show('candidateRequirements')) out.candidateRequirements = [];
+  if (!show('jobDescription')) {
+    out.description = null;
+    out.overview = null;
+    out.benefits = [];
+  }
+  return out as T;
 }

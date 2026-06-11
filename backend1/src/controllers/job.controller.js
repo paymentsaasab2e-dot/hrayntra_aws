@@ -11,7 +11,7 @@ const cache = {
   lastFetched: 0,
   TTL: 300000, // 5 minutes
   /** Bump when job list payload shape changes so old cache entries cannot hide new fields (e.g. screening questions). */
-  version: 5,
+  version: 7,
 };
 
 function invalidateJobsListCache() {

@@ -1,4 +1,5 @@
 import { normalizePortfolioLinksForCommon } from './portfolioLinkFilter.util.js';
+import { pickRecruiterCvExtraFields } from './candidateRecruiterCvExtra.util.js';
 
 function mapGenderLabel(value) {
   const raw = String(value || '').trim().toUpperCase();
@@ -114,6 +115,12 @@ export function patchPhase1SnapshotPersonalInfo(snapshot, profile, { preferPorta
   apply('country', profile.country);
   if (profile.profilePhotoUrl) apply('profilePhotoUrl', profile.profilePhotoUrl);
 
+  if (!String(personalInfo.nationality || '').trim()) {
+    const countryFallback =
+      String(personalInfo.country || '').trim() || String(profile.country || '').trim();
+    if (countryFallback) personalInfo.nationality = countryFallback;
+  }
+
   const fromName = splitFullName(profile.fullName);
   if (fromName.firstName) apply('firstName', fromName.firstName);
   if (fromName.lastName) apply('lastName', fromName.lastName);
@@ -162,6 +169,8 @@ function applyPortalScalarsToCandidate(candidate, profile) {
   }
   if (profile.nationality) {
     candidate.nationality = String(profile.nationality).trim();
+  } else if (country && !String(candidate.nationality || '').trim()) {
+    candidate.nationality = country;
   }
 
   if (profile.gender) candidate.gender = mapGenderLabel(profile.gender);
@@ -172,8 +181,14 @@ function applyPortalScalarsToCandidate(candidate, profile) {
   const linkedin = String(profile.linkedinUrl || '').trim();
   if (linkedin) candidate.linkedIn = linkedin;
 
-  const photo = String(profile.profilePhotoUrl || '').trim();
-  if (photo) candidate.avatar = photo;
+  const extra =
+    candidate?.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
+      ? candidate.extraData
+      : {};
+  if (extra.cvEditorContentSaved !== true) {
+    const photo = String(profile.profilePhotoUrl || '').trim();
+    if (photo) candidate.avatar = photo;
+  }
 
   const location = [city, country].filter(Boolean).join(', ');
   if (location) candidate.location = location;
@@ -372,6 +387,7 @@ export async function overlayLivePortalProfileOnCandidate(candidate, portalClien
       (candidate.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
         ? candidate.extraData
         : {});
+    const recruiterCvExtra = pickRecruiterCvExtraFields(extra);
 
     candidate.extraData = {
       ...extra,
@@ -379,6 +395,7 @@ export async function overlayLivePortalProfileOnCandidate(candidate, portalClien
       ...(profile.employmentStatus ? { employmentStatus: profile.employmentStatus } : {}),
       ...(profile.passportNumber ? { passportNumber: String(profile.passportNumber).trim() } : {}),
       ...(profile.nationality ? { nationality: String(profile.nationality).trim() } : {}),
+      ...recruiterCvExtra,
     };
     candidate.profileSnapshot = patchedSnapshot;
   } catch (err) {

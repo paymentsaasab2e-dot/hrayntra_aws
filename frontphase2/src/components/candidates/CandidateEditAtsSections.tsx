@@ -11,6 +11,10 @@ import {
 } from '@/lib/candidateEducation';
 import { parseWorkExperienceEditorValue } from '@/lib/candidateExperience';
 import type { CandidateProfileDrawerData } from '../drawers/candidateProfileDrawerData';
+import {
+  getPhase1ProfileSnapshot,
+  resolvePhase1PersonalInfo,
+} from '../../lib/phase1ProfileSnapshot';
 import { CandidatePhotoUpload } from './AddCandidateFormSections';
 import { CandidateHiringEditSection } from './CandidateHiringSection';
 import { EditDateField } from './EditDateField';
@@ -216,6 +220,16 @@ export function buildCandidateEditForm(candidate: CandidateProfileDrawerData): C
   const social = (pipeline.social || {}) as Record<string, unknown>;
   const summary = (pipeline.summary || {}) as Record<string, unknown>;
   const extra = (candidate.extraData || {}) as Record<string, unknown>;
+  const phase1Snap = getPhase1ProfileSnapshot(extra);
+  const resolvedPersonal = resolvePhase1PersonalInfo(phase1Snap, {
+    cvAddress: candidate.cvAddress,
+    cvCity: candidate.cvCity,
+    cvCountry: candidate.cvCountry,
+    email: candidate.email,
+    phone: candidate.phone,
+    linkedIn: candidate.linkedIn,
+    extraData: extra,
+  });
 
   const eduEntries = Array.isArray(educationPipe.entries)
     ? educationPipe.entries
@@ -254,9 +268,9 @@ export function buildCandidateEditForm(candidate: CandidateProfileDrawerData): C
     currentSalary:
       candidate.currentSalaryValue != null ? String(candidate.currentSalaryValue) : '',
     address: candidate.cvAddress || str(personal.currentAddress) || '',
-    city: candidate.cvCity || '',
+    city: candidate.cvCity || resolvedPersonal.city || '',
     state: str(personal.state),
-    country: candidate.cvCountry || '',
+    country: candidate.cvCountry || resolvedPersonal.country || '',
     preferredLocation: candidate.cvPreferredLocation || candidate.location || '',
     resumeUrl: candidate.resumeUrl || '',
     education: educationSummary,
@@ -281,7 +295,13 @@ export function buildCandidateEditForm(candidate: CandidateProfileDrawerData): C
       str(personal.candidateScore) ||
       (candidate.aiScore?.overall != null ? String(candidate.aiScore.overall) : ''),
     zip: str(personal.zip),
-    nationality: str(personal.nationality),
+    nationality:
+      str(personal.nationality) ||
+      resolvedPersonal.nationality ||
+      str(extra.nationality) ||
+      candidate.cvCountry ||
+      resolvedPersonal.country ||
+      '',
     currentCompanyWebsite: str(personal.currentCompanyWebsite),
     maritalStatus: str(personal.maritalStatus),
     birthDate: str(personal.birthDate),

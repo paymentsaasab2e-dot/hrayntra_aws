@@ -1,5 +1,8 @@
 export const APP_DIALOG_EVENT = 'app:dialog';
 
+/** Branded title for in-app confirm / alert dialogs (replaces native browser prompts). */
+export const SYSTEM_ALERT_TITLE = 'HRYANTRA';
+
 export type AppDialogKind = 'alert' | 'confirm';
 export type AppDialogTone = 'info' | 'success' | 'warning' | 'error';
 

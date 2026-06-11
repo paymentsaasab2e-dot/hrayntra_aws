@@ -37,17 +37,181 @@ function parseExperienceRange(experienceRequired) {
   return { min: null, max: null, display: raw };
 }
 
-const CONFIDENTIAL_COMPANY_LABEL = 'Confidential';
+const CONFIDENTIAL_COMPANY_LABEL = '';
 
 function shouldShowClientNamePublicly(job) {
-  return job?.showClientNamePublicly !== false;
+  if (job?.showClientNamePublicly === false) return false;
+  const visibility = job?.publicFieldVisibility;
+  if (visibility && typeof visibility === 'object' && visibility.client === false) return false;
+  return true;
 }
 
-function resolvePublicCompanyName(job, fallback = CONFIDENTIAL_COMPANY_LABEL) {
+function isPortalFieldVisible(job, field) {
+  if (field === 'client') return shouldShowClientNamePublicly(job);
+  const visibility = job?.publicFieldVisibility;
+  if (!visibility || typeof visibility !== 'object') return true;
+  return visibility[field] !== false;
+}
+
+function resolvePublicCompanyName(job, fallback = '') {
   if (!shouldShowClientNamePublicly(job)) {
-    return fallback;
+    return '';
   }
   return job?.company?.name || job?.client?.companyName || fallback;
+}
+
+const DESCRIPTION_SECTION_STRIP_PATTERNS = {
+  keyResponsibilities: [
+    /^key responsibilities$/i,
+    /^responsibilities$/i,
+    /^role & responsibilities$/i,
+  ],
+  qualifications: [
+    /^requirements$/i,
+    /^required skills$/i,
+    /^qualifications/i,
+    /^preferred qualifications?$/i,
+    /^preferred education/i,
+  ],
+  candidateRequirements: [/^candidate requirements?$/i],
+  skills: [/^skills$/i, /^key skills$/i],
+  benefits: [/^benefits$/i, /^compensation & benefits$/i, /^compensation$/i],
+};
+
+function stripHiddenDescriptionSections(html, patterns) {
+  const source = String(html || '').trim();
+  if (!source || !Array.isArray(patterns) || !patterns.length) return source;
+
+  const parts = source.split(/(?=<h[1-3][^>]*>)/i);
+  if (parts.length <= 1) return source;
+
+  const kept = [];
+  for (const part of parts) {
+    const headingMatch = part.match(/^<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/i);
+    if (!headingMatch) {
+      kept.push(part);
+      continue;
+    }
+    const headingText = String(headingMatch[1] || '')
+      .replace(/<[^>]+>/g, '')
+      .trim();
+    const shouldStrip = patterns.some((pattern) => pattern.test(headingText));
+    if (!shouldStrip) kept.push(part);
+  }
+
+  return kept.join('').trim();
+}
+
+function scrubDescriptionForVisibility(job, value) {
+  if (!value || !isPortalFieldVisible(job, 'jobDescription')) return value;
+  const patterns = [];
+  if (!isPortalFieldVisible(job, 'keyResponsibilities')) {
+    patterns.push(...DESCRIPTION_SECTION_STRIP_PATTERNS.keyResponsibilities);
+  }
+  if (!isPortalFieldVisible(job, 'qualifications')) {
+    patterns.push(...DESCRIPTION_SECTION_STRIP_PATTERNS.qualifications);
+  }
+  if (!isPortalFieldVisible(job, 'candidateRequirements')) {
+    patterns.push(...DESCRIPTION_SECTION_STRIP_PATTERNS.candidateRequirements);
+  }
+  if (!isPortalFieldVisible(job, 'skills')) {
+    patterns.push(...DESCRIPTION_SECTION_STRIP_PATTERNS.skills);
+  }
+  if (!isPortalFieldVisible(job, 'jobDescription')) {
+    return null;
+  }
+  if (!patterns.length) return value;
+  return stripHiddenDescriptionSections(value, patterns) || null;
+}
+
+function redactPortalJobPayload(job, payload) {
+  const out = { ...payload };
+  if (!isPortalFieldVisible(job, 'jobTitle')) {
+    out.title = null;
+    out.jobTitle = null;
+  }
+  if (!isPortalFieldVisible(job, 'client')) {
+    out.company = null;
+    out.companyId = null;
+    out.companyLogo = null;
+    out.hiringManager = null;
+    out.hiringManagerId = null;
+    out.clientId = null;
+  }
+  if (!isPortalFieldVisible(job, 'location')) {
+    out.location = null;
+    out.city = null;
+    out.state = null;
+    out.country = null;
+  }
+  if (!isPortalFieldVisible(job, 'salary')) {
+    out.salaryMin = null;
+    out.salaryMax = null;
+    out.salaryCurrency = null;
+    out.salaryType = null;
+    out.salary = undefined;
+  }
+  if (!isPortalFieldVisible(job, 'nationality')) out.nationality = null;
+  if (!isPortalFieldVisible(job, 'priority')) out.priority = null;
+  if (!isPortalFieldVisible(job, 'openings')) out.openings = null;
+  if (!isPortalFieldVisible(job, 'employmentType')) {
+    out.employmentType = null;
+    out.type = undefined;
+  }
+  if (!isPortalFieldVisible(job, 'experience')) {
+    out.experienceLevel = null;
+    out.experienceMin = null;
+    out.experienceMax = null;
+    out.experienceDisplay = null;
+  }
+  if (!isPortalFieldVisible(job, 'languages')) out.languages = [];
+  if (!isPortalFieldVisible(job, 'skills')) {
+    out.skills = [];
+    out.preferredSkills = [];
+  }
+  if (!isPortalFieldVisible(job, 'keyResponsibilities')) {
+    out.keyResponsibilities = [];
+    out.responsibilities = null;
+  }
+  if (!isPortalFieldVisible(job, 'qualifications')) {
+    out.requirements = [];
+    out.education = null;
+  }
+  if (!isPortalFieldVisible(job, 'candidateRequirements')) out.candidateRequirements = [];
+  if (!isPortalFieldVisible(job, 'jobDescription')) {
+    out.description = null;
+    out.overview = null;
+    out.jobSummary = null;
+    out.jobDescriptionHtml = null;
+    out.aboutRole = null;
+    out.benefits = [];
+  }
+  if (!isPortalFieldVisible(job, 'videoMediaLink')) out.videoMediaLink = null;
+  if (!isPortalFieldVisible(job, 'forecastRevenue')) out.forecastRevenue = null;
+  if (!isPortalFieldVisible(job, 'contactPerson')) {
+    out.hiringManager = null;
+    out.hiringManagerId = null;
+  }
+  if (!isPortalFieldVisible(job, 'industryType')) {
+    out.industry = null;
+    out.jobCategory = null;
+  }
+  if (!isPortalFieldVisible(job, 'targetHireDate')) out.expectedClosureDate = null;
+
+  if (out.description) {
+    out.description = scrubDescriptionForVisibility(job, out.description);
+  }
+  if (out.overview) {
+    out.overview = scrubDescriptionForVisibility(job, out.overview);
+  }
+  if (out.aboutRole) {
+    out.aboutRole = scrubDescriptionForVisibility(job, out.aboutRole);
+  }
+  if (out.jobDescriptionHtml) {
+    out.jobDescriptionHtml = scrubDescriptionForVisibility(job, out.jobDescriptionHtml);
+  }
+
+  return out;
 }
 
 function formatPortalJob(job, options = {}) {
@@ -76,7 +240,7 @@ function formatPortalJob(job, options = {}) {
         ? options.thumbnailResolver(job)
         : null;
 
-  return {
+  return redactPortalJobPayload(job, {
     id: job.id,
     title: job.title,
     company: showClient ? job.company?.name || job.client?.companyName || null : null,
@@ -140,7 +304,7 @@ function formatPortalJob(job, options = {}) {
     forecastRevenue: job.forecastRevenue ?? null,
     videoMediaLink: job.videoMediaLink ?? null,
     languages: parseLanguages(job.languages),
-  };
+  });
 }
 
 module.exports = {

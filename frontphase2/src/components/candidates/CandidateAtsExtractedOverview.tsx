@@ -23,7 +23,7 @@ import {
   formatWorkEntryMeta,
 } from '@/lib/candidateExperience';
 import { CandidateWorkExperienceEntryView } from './CandidateWorkExperienceEntryView';
-import { getPhase1ProfileSnapshot } from '@/lib/phase1ProfileSnapshot';
+import { getPhase1ProfileSnapshot, resolvePhase1PersonalInfo } from '@/lib/phase1ProfileSnapshot';
 import type { ClientSectionVisibility } from '@/lib/clientPresentationSections';
 import { CandidateCareerPreferencesOverview } from './CandidateCareerPreferencesOverview';
 import { CandidateHiringOverview } from './CandidateHiringSection';
@@ -239,7 +239,15 @@ function normalizeWorkModeLabel(value: unknown): string {
 function buildOverviewModel(candidate: CandidateProfileDrawerData) {
   const extra = (candidate.extraData || {}) as Record<string, unknown>;
   const phase1 = getPhase1ProfileSnapshot(extra);
-  const phase1Pi = phase1?.personalInfo || {};
+  const phase1Pi = resolvePhase1PersonalInfo(phase1, {
+    cvAddress: candidate.cvAddress,
+    cvCity: candidate.cvCity,
+    cvCountry: candidate.cvCountry,
+    email: candidate.email,
+    phone: candidate.phone,
+    linkedIn: candidate.linkedIn,
+    extraData: extra,
+  });
   const pipeline = (extra.pipeline || {}) as Record<string, unknown>;
   const personal = (pipeline.personal || extra.personal || {}) as Record<string, unknown>;
   const professional = (pipeline.professional || extra.professional || {}) as Record<string, unknown>;
@@ -342,7 +350,7 @@ function buildOverviewModel(candidate: CandidateProfileDrawerData) {
       address: candidate.cvAddress || display(personal.currentAddress),
       zip: display(personal.zip),
       image: candidate.avatar || phase1Pi.profilePhotoUrl || null,
-      nationality: display(personal.nationality),
+      nationality: display(personal.nationality) || display(phase1Pi.nationality),
       companyWebsite: display(personal.currentCompanyWebsite),
       maritalStatus: display(personal.maritalStatus),
       birthDate: display(personal.birthDate) || display(phase1Pi.dob),

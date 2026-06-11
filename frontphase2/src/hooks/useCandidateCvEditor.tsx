@@ -14,9 +14,15 @@ import {
 } from '../lib/phase1ProfileSnapshot';
 import {
   buildCvEditorPersistPatch,
+  buildEditedCvRemovalExtra,
   buildResumeCvViewExtra,
+  buildUpdatedCvRemovalExtra,
   candidateToCvEditorData,
   cvEditorDataToCandidatePatch,
+  overlayEditorSaveOnCandidate,
+  hasCustomCvEditorLayout,
+  hasResumeTabUpdatedCv,
+  hasUpdatedCvFromEditor,
   listAvailableResumeCvModes,
   type CVEditorData,
   type ResumeCvViewMode,
@@ -57,6 +63,9 @@ export function useCandidateCvEditor({
   const [cvViewData, setCvViewData] = useState<CVEditorData | null>(null);
   const [cvEditorLoading, setCvEditorLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deletingCv, setDeletingCv] = useState(false);
+  const [preferredResumeViewMode, setPreferredResumeViewMode] =
+    useState<ResumeCvViewMode | null>(null);
 
   const uploadsBase =
     typeof process !== 'undefined'
@@ -132,6 +141,24 @@ export function useCandidateCvEditor({
     void refreshBackend();
   }, [enabled, candidateId, refreshBackend]);
 
+  const resolveBackendCandidate = useCallback(async () => {
+    if (!candidateId) return null;
+    const refreshed = await refreshBackend();
+    if (refreshed?.id) return refreshed;
+    try {
+      const fetched = extractApiData<BackendCandidate>(await apiGetCandidate(candidateId));
+      if (fetched?.id) {
+        const enriched = enrichBackendCandidateFromPhase1Snapshot(fetched);
+        setBackendCandidate(enriched);
+        onBackendCandidateChangeRef.current?.(enriched);
+        return enriched;
+      }
+    } catch {
+      /* handled below */
+    }
+    return backendCandidate;
+  }, [candidateId, refreshBackend, backendCandidate]);
+
   const openEditor = useCallback(async () => {
     if (!candidateId) {
       onToastRef.current?.('Candidate not loaded');
@@ -139,63 +166,101 @@ export function useCandidateCvEditor({
     }
     setCvEditorLoading(true);
     try {
-      const data = (await refreshBackend()) ?? extractApiData<BackendCandidate>(await apiGetCandidate(candidateId));
-      setCvEditorData(candidateToCvEditorData(data));
+      const fetched = await resolveBackendCandidate();
+      if (!fetched?.id) {
+        throw new Error('Unable to load candidate for CV editor');
+      }
+      const memExtra =
+        backendCandidate?.extraData &&
+        typeof backendCandidate.extraData === 'object' &&
+        !Array.isArray(backendCandidate.extraData)
+          ? (backendCandidate.extraData as Record<string, unknown>)
+          : {};
+      const fetchedExtra =
+        fetched.extraData && typeof fetched.extraData === 'object' && !Array.isArray(fetched.extraData)
+          ? (fetched.extraData as Record<string, unknown>)
+          : {};
+      const memSavedAt = String(memExtra.cvEditorContentSavedAt || '');
+      const fetchedSavedAt = String(fetchedExtra.cvEditorContentSavedAt || '');
+      const source =
+        backendCandidate?.id === fetched.id &&
+        memExtra.cvEditorContentSaved === true &&
+        memSavedAt &&
+        memSavedAt >= fetchedSavedAt
+          ? backendCandidate
+          : fetched;
+      setCvEditorData(candidateToCvEditorData(source));
       setCvEditorOpen(true);
     } catch (error: unknown) {
       onToastRef.current?.(error instanceof Error ? error.message : 'Unable to open CV editor');
     } finally {
       setCvEditorLoading(false);
     }
-  }, [candidateId, refreshBackend]);
+  }, [candidateId, resolveBackendCandidate, backendCandidate]);
 
-  const openStructuredPreview = useCallback(() => {
-    if (!backendCandidate) {
+  const openStructuredPreview = useCallback(async () => {
+    const latest = (await refreshBackend()) ?? backendCandidate;
+    if (!latest) {
       onToastRef.current?.('Loading CV data…');
       return;
     }
-    setCvViewData(candidateToCvEditorData(backendCandidate));
+    setCvViewData(candidateToCvEditorData(latest));
     setCvViewOpen(true);
-  }, [backendCandidate]);
+  }, [backendCandidate, refreshBackend]);
 
   const handleSave = useCallback(
     async (data: CVEditorData) => {
-      if (!backendCandidate?.id) return;
+      const baseCandidate = await resolveBackendCandidate();
+      if (!baseCandidate?.id) {
+        throw new Error('Candidate not loaded — refresh and try again');
+      }
       setSaving(true);
       try {
         const persist = await buildCvEditorPersistPatch(
           data,
-          backendCandidate.id,
-          backendCandidate.extraData ?? null
+          baseCandidate.id,
+          baseCandidate.extraData ?? null
         );
-        const patch = {
-          ...cvEditorDataToCandidatePatch(data),
-          ...persist,
-        };
-        const updatedRaw = await apiUpdateCandidate(backendCandidate.id, patch);
-        const updated = extractApiData<BackendCandidate>(updatedRaw);
-        setBackendCandidate(updated);
-        onBackendCandidateChange?.(updated);
-        setCvEditorData(candidateToCvEditorData(updated));
-        setCvViewData(candidateToCvEditorData(updated));
+        const contentPatch = cvEditorDataToCandidatePatch(data);
+        const patch = overlayEditorSaveOnCandidate(baseCandidate, contentPatch, persist);
 
-        const modes = listAvailableResumeCvModes(
-          updated,
-          resumeHref || updated.resume || updated.resumeUrl
+        const updatedRaw = await apiUpdateCandidate(baseCandidate.id, {
+          ...contentPatch,
+          ...persist,
+          extraData: patch.extraData,
+        });
+        const updated = extractApiData<BackendCandidate>(updatedRaw);
+        let hydrated = overlayEditorSaveOnCandidate(
+          enrichBackendCandidateFromPhase1Snapshot({
+            ...baseCandidate,
+            ...patch,
+            ...updated,
+            id: updated?.id ?? baseCandidate.id,
+          } as BackendCandidate),
+          contentPatch,
+          persist
         );
-        const nextMode: ResumeCvViewMode = modes.includes('edited')
-          ? 'edited'
-          : modes.includes('updated')
-            ? 'updated'
-            : modes[0];
-        if (nextMode) {
-          onViewModeChange?.(nextMode);
-          const extraData = buildResumeCvViewExtra(updated.extraData ?? null, nextMode);
-          await apiUpdateCandidate(updated.id, { extraData });
-          const withPref = extractApiData<BackendCandidate>(await apiGetCandidate(updated.id));
-          setBackendCandidate(withPref);
-          onBackendCandidateChange?.(withPref);
+        try {
+          const hydratedRaw =
+            extractApiData<BackendCandidate>(await apiGetCandidate(baseCandidate.id)) ??
+            updated ??
+            baseCandidate;
+          hydrated = overlayEditorSaveOnCandidate(
+            enrichBackendCandidateFromPhase1Snapshot(hydratedRaw),
+            contentPatch,
+            persist
+          );
+        } catch {
+          /* PATCH + overlay response is enough */
         }
+
+        const editorCvData = candidateToCvEditorData(hydrated);
+        setBackendCandidate(hydrated);
+        onBackendCandidateChange?.(hydrated);
+        setCvEditorData(editorCvData);
+        setCvViewData(editorCvData);
+        setPreferredResumeViewMode('updated');
+        onViewModeChange?.('updated');
 
         await onCandidateUpdatedRef.current?.();
         onToastRef.current?.('CV saved');
@@ -207,10 +272,155 @@ export function useCandidateCvEditor({
         setSaving(false);
       }
     },
-    [backendCandidate, onViewModeChange, resumeHref]
+    [resolveBackendCandidate, onViewModeChange, resumeHref]
   );
 
-  const busy = cvEditorLoading || saving;
+  const applyCvDeletionResult = useCallback(
+    async (hydrated: BackendCandidate, nextMode: ResumeCvViewMode | null) => {
+      setBackendCandidate(hydrated);
+      onBackendCandidateChangeRef.current?.(hydrated);
+      setPreferredResumeViewMode(nextMode);
+      onViewModeChange?.(nextMode);
+      await onCandidateUpdatedRef.current?.();
+    },
+    [onViewModeChange]
+  );
+
+  const resolveNextViewModeAfterDelete = useCallback(
+    (hydrated: BackendCandidate): ResumeCvViewMode | null => {
+      const modes = listAvailableResumeCvModes(
+        hydrated,
+        resumeHref || hydrated.resume || hydrated.resumeUrl
+      );
+      if (modes.includes('original')) return 'original';
+      if (modes.includes('updated')) return 'updated';
+      if (modes.includes('saasa')) return 'saasa';
+      return modes[0] ?? null;
+    },
+    [resumeHref]
+  );
+
+  const deleteEditedCv = useCallback(async () => {
+    if (!candidateId || !canEdit) {
+      onToastRef.current?.('You cannot delete the edited CV for this candidate.');
+      return false;
+    }
+    const baseCandidate = await resolveBackendCandidate();
+    if (!baseCandidate?.id || !hasCustomCvEditorLayout(baseCandidate)) {
+      onToastRef.current?.('No edited CV layout to remove.');
+      return false;
+    }
+    setDeletingCv(true);
+    try {
+      const existingExtra =
+        baseCandidate.extraData &&
+        typeof baseCandidate.extraData === 'object' &&
+        !Array.isArray(baseCandidate.extraData)
+          ? (baseCandidate.extraData as Record<string, unknown>)
+          : {};
+      const hasOriginalResume = Boolean(
+        String(resumeHref || baseCandidate.resume || baseCandidate.resumeUrl || '').trim()
+      );
+      const hasUpdatedCv = hasUpdatedCvFromEditor(baseCandidate);
+      const extraData = buildEditedCvRemovalExtra(existingExtra, {
+        hasOriginalResume,
+        hasUpdatedCv,
+      });
+      const updatedRaw = await apiUpdateCandidate(baseCandidate.id, { extraData });
+      let hydrated = enrichBackendCandidateFromPhase1Snapshot(
+        extractApiData<BackendCandidate>(updatedRaw) as BackendCandidate
+      );
+      try {
+        const refreshed = enrichBackendCandidateFromPhase1Snapshot(
+          extractApiData<BackendCandidate>(await apiGetCandidate(baseCandidate.id)) as BackendCandidate
+        );
+        if (refreshed?.id) hydrated = refreshed;
+      } catch {
+        /* PATCH response is enough */
+      }
+      await applyCvDeletionResult(hydrated, resolveNextViewModeAfterDelete(hydrated));
+      onToastRef.current?.('Edited CV removed');
+      return true;
+    } catch (error: unknown) {
+      onToastRef.current?.(
+        error instanceof Error ? error.message : 'Failed to delete edited CV'
+      );
+      return false;
+    } finally {
+      setDeletingCv(false);
+    }
+  }, [
+    candidateId,
+    canEdit,
+    resolveBackendCandidate,
+    resumeHref,
+    resolveNextViewModeAfterDelete,
+    applyCvDeletionResult,
+  ]);
+
+  const deleteUpdatedCv = useCallback(async () => {
+    if (!candidateId || !canEdit) {
+      onToastRef.current?.('You cannot delete the updated CV for this candidate.');
+      return false;
+    }
+    const baseCandidate = await resolveBackendCandidate();
+    if (!baseCandidate?.id || !hasResumeTabUpdatedCv(baseCandidate)) {
+      onToastRef.current?.('No updated CV to remove.');
+      return false;
+    }
+    setDeletingCv(true);
+    try {
+      const existingExtra =
+        baseCandidate.extraData &&
+        typeof baseCandidate.extraData === 'object' &&
+        !Array.isArray(baseCandidate.extraData)
+          ? (baseCandidate.extraData as Record<string, unknown>)
+          : {};
+      const hasOriginalResume = Boolean(
+        String(resumeHref || baseCandidate.resume || baseCandidate.resumeUrl || '').trim()
+      );
+      const extraData = buildUpdatedCvRemovalExtra(existingExtra, {
+        hasOriginalResume,
+      });
+      const updatedRaw = await apiUpdateCandidate(baseCandidate.id, {
+        cvSummary: null,
+        cvEducationEntries: null,
+        cvWorkExperienceEntries: null,
+        avatar: null,
+        extraData,
+      });
+      let hydrated = enrichBackendCandidateFromPhase1Snapshot(
+        extractApiData<BackendCandidate>(updatedRaw) as BackendCandidate
+      );
+      try {
+        const refreshed = enrichBackendCandidateFromPhase1Snapshot(
+          extractApiData<BackendCandidate>(await apiGetCandidate(baseCandidate.id)) as BackendCandidate
+        );
+        if (refreshed?.id) hydrated = refreshed;
+      } catch {
+        /* PATCH response is enough */
+      }
+      await applyCvDeletionResult(hydrated, resolveNextViewModeAfterDelete(hydrated));
+      onToastRef.current?.('Updated CV removed');
+      return true;
+    } catch (error: unknown) {
+      onToastRef.current?.(
+        error instanceof Error ? error.message : 'Failed to delete updated CV'
+      );
+      return false;
+    } finally {
+      setDeletingCv(false);
+    }
+  }, [
+    candidateId,
+    canEdit,
+    resolveBackendCandidate,
+    resumeHref,
+    resolveNextViewModeAfterDelete,
+    applyCvDeletionResult,
+  ]);
+
+  const busy = cvEditorLoading || saving || deletingCv;
 
   const modals = (
     <>
@@ -235,9 +445,12 @@ export function useCandidateCvEditor({
     canEdit,
     busy,
     cvEditorLoading,
+    preferredResumeViewMode,
     openEditor,
     openStructuredPreview,
     refreshBackend,
+    deleteEditedCv,
+    deleteUpdatedCv,
     modals,
   };
 }

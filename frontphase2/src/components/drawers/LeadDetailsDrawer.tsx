@@ -1929,16 +1929,11 @@ export function LeadDetailsDrawer({
             </div>
           </div>
 
-          {/* Tabs */}
-          <div
-            className={`shrink-0 border-b ${
-              addLeadMode
-                ? 'border-slate-100 bg-white px-6 py-3'
-                : 'border-slate-200 bg-slate-50/80 px-5 pt-1'
-            }`}
-          >
+          {/* Tabs — hidden in add mode (header already shows Add Lead) */}
+          {!addLeadMode ? (
+          <div className="shrink-0 border-b border-slate-200 bg-slate-50/80 px-5 pt-1">
             <div className="flex items-center justify-between gap-2">
-              <div className={`flex ${addLeadMode ? 'gap-2' : 'gap-1'}`}>
+              <div className="flex gap-1">
                 {tabs.map((tab) => {
                   const isActive = activeTab === tab.id;
                   const Icon = tab.icon;
@@ -1946,21 +1941,13 @@ export function LeadDetailsDrawer({
                     <button
                       key={tab.id}
                       onClick={() => setActiveTab(tab.id)}
-                      className={
-                        addLeadMode
-                          ? `flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-all duration-200 ${
-                              isActive
-                                ? 'bg-blue-600 text-white shadow-sm'
-                                : 'text-slate-600 hover:bg-slate-100'
-                            }`
-                          : `flex items-center gap-2 px-4 py-3.5 text-sm font-medium rounded-t-lg transition-all duration-200 ${
-                              isActive
-                                ? 'bg-white text-blue-600 border-b-2 border-blue-600 -mb-px shadow-sm'
-                                : 'border-b-2 border-transparent text-slate-500 hover:text-slate-700 hover:bg-white/60 active:bg-white/80'
-                            }`
-                      }
+                      className={`flex items-center gap-2 px-4 py-3.5 text-sm font-medium rounded-t-lg transition-all duration-200 ${
+                        isActive
+                          ? 'bg-white text-blue-600 border-b-2 border-blue-600 -mb-px shadow-sm'
+                          : 'border-b-2 border-transparent text-slate-500 hover:text-slate-700 hover:bg-white/60 active:bg-white/80'
+                      }`}
                     >
-                      <Icon size={16} className={isActive ? (addLeadMode ? 'text-white' : 'text-blue-600') : 'text-slate-400'} strokeWidth={isActive ? 2.25 : 1.5} />
+                      <Icon size={16} className={isActive ? 'text-blue-600' : 'text-slate-400'} strokeWidth={isActive ? 2.25 : 1.5} />
                       {tab.label}
                     </button>
                   );
@@ -1968,6 +1955,7 @@ export function LeadDetailsDrawer({
               </div>
             </div>
           </div>
+          ) : null}
 
           {/* Tab content */}
           <div className="relative flex min-h-0 flex-1 flex-col">

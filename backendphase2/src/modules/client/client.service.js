@@ -23,6 +23,7 @@ import {
   buildAuditMeta,
   enrichListWithLastUpdater,
 } from '../../utils/listAuditMeta.js';
+import { escapePrismaRegex } from '../../utils/escapePrismaRegex.js';
 import { ENTITY_TYPES } from '../../services/activityService.js';
 
 /**
@@ -258,7 +259,7 @@ async function findExistingClientImportDuplicate(companyName) {
   return prisma.client.findFirst({
     where: {
       companyName: {
-        equals: normalizedCompanyName,
+        equals: escapePrismaRegex(normalizedCompanyName),
         mode: 'insensitive',
       },
     },
@@ -303,10 +304,11 @@ export const clientService = {
     if (status && String(status).toLowerCase() !== 'all') where.status = status;
     if (assignedToId) where.assignedToId = assignedToId;
     if (search) {
+      const escaped = escapePrismaRegex(search);
       where.OR = [
-        { companyName: { contains: search, mode: 'insensitive' } },
-        { industry: { contains: search, mode: 'insensitive' } },
-        { website: { contains: search, mode: 'insensitive' } },
+        { companyName: { contains: escaped, mode: 'insensitive' } },
+        { industry: { contains: escaped, mode: 'insensitive' } },
+        { website: { contains: escaped, mode: 'insensitive' } },
       ];
     }
     if (req.query.hot !== undefined) where.hot = req.query.hot === 'true';

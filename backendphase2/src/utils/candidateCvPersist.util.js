@@ -1,5 +1,6 @@
 import { prisma } from '../config/prisma.js';
 import { resolveCandidateListExperienceYears } from './candidateExperienceYears.util.js';
+import { mergeCandidateRecruiterExtraData } from './candidateRecruiterCvExtra.util.js';
 
 function pickFirstNonEmpty(...values) {
   for (const value of values) {
@@ -93,9 +94,43 @@ export async function persistCandidateCvProfileToTenant(candidate) {
   if (existing?.isDeleted === true) return null;
 
   if (existing) {
+    const existingRow = await prisma.candidate.findUnique({
+      where: { id },
+      select: {
+        extraData: true,
+        cvSummary: true,
+        cvWorkExperienceEntries: true,
+        cvEducationEntries: true,
+        skills: true,
+        recruiterSkills: true,
+      },
+    });
+    const existingExtra =
+      existingRow?.extraData && typeof existingRow.extraData === 'object' && !Array.isArray(existingRow.extraData)
+        ? existingRow.extraData
+        : {};
+    const incomingExtra =
+      data.extraData && typeof data.extraData === 'object' && !Array.isArray(data.extraData)
+        ? data.extraData
+        : {};
+    const mergedExtra = mergeCandidateRecruiterExtraData(existingExtra, incomingExtra);
+
+    if (existingExtra.cvEditorContentSaved === true) {
+      return prisma.candidate.update({
+        where: { id },
+        data: {
+          extraData: mergedExtra,
+          lastActivity: data.lastActivity,
+        },
+      });
+    }
+
     return prisma.candidate.update({
       where: { id },
-      data,
+      data: {
+        ...data,
+        extraData: mergedExtra,
+      },
     });
   }
 

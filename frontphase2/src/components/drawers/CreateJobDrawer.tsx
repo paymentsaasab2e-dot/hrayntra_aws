@@ -22,6 +22,7 @@ import {
   ArrowUp,
   FileText,
   Loader2,
+  GripHorizontal,
 } from 'lucide-react';
 import { RichTextEditor } from '../RichTextEditor';
 import {
@@ -64,6 +65,7 @@ import { useLinkedIn } from '../../hooks/useLinkedIn';
 import { requestError, requestInfo, requestWarning } from '../../lib/appDialog';
 import { clampDateTimeLocalToMin, getLocalDateTimeInputMinNow } from '../../utils/dateInputConstraints';
 import { CreateJobDetailsForm, type CreateJobDetailsFormData } from './CreateJobDetailsForm';
+import { CreateJobPhase1Preview } from '../jobs/CreateJobPhase1Preview';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { normalizeJobSalaryCurrency } from '../../constants/jobSalary';
 import { getCachedOrgDefaultCurrency } from '../../lib/api';
@@ -83,6 +85,7 @@ import {
   isJobFieldPubliclyVisible,
   mergeClientVisibility,
   parseJobPublicFieldVisibility,
+  buildPublicFieldVisibilityPayload,
   toggleJobPublicFieldVisibility,
 } from '../../lib/jobPublicFieldVisibility';
 import { PublicVisibilityToggle } from '../forms/PublicVisibilityToggle';
@@ -208,7 +211,7 @@ function inferJobTitleFromPrompt(prompt: string): string {
   if (!cleanPrompt) return '';
 
   const patterns = [
-    /(?:create|generate|write|make)\s+(?:a\s+)?job(?:\s+description|\s+jd)?\s+(?:for|of)\s+(?:an?\s+|the\s+)?(.+)/i,
+    /(?:creat|create|generate|write|make)\s+(?:a\s+)?job(?:\s+description|\s+jd)?\s+(?:for|of)\s+(?:an?\s+|the\s+)?(.+)/i,
     /(?:for|of)\s+(?:an?\s+|the\s+)?([a-z][a-z\s/&-]{2,})$/i,
     /^(?:an?\s+|the\s+)?([a-z][a-z\s/&-]{2,})$/i,
   ];
@@ -489,47 +492,6 @@ function parseJobPromptHints(prompt: string, clients: BackendClient[]): JobPromp
   return hints;
 }
 
-function getMissingJobCreateFields(data: {
-  jobTitle?: string;
-  companyId?: string;
-  companyName?: string;
-  numberOfOpenings?: string;
-  country?: string;
-  targetHireDate?: string;
-}): string[] {
-  const missing: string[] = [];
-  if (!String(data.jobTitle || '').trim()) missing.push('Job Title');
-  if (!String(data.companyId || '').trim() && !String(data.companyName || '').trim()) {
-    missing.push('Company');
-  }
-  if (!String(data.numberOfOpenings || '').trim()) missing.push('Number of Openings');
-  if (!String(data.country || '').trim()) missing.push('Country');
-  if (!String(data.targetHireDate || '').trim()) missing.push('Target Hire Date');
-  return missing;
-}
-
-function buildSmartJobFillStatus(
-  missing: string[],
-  options?: { companyName?: string; companyId?: string },
-): string {
-  const companyName = String(options?.companyName || '').trim();
-  const companyId = String(options?.companyId || '').trim();
-
-  if (!missing.length) {
-    if (companyName && !companyId) {
-      return `Form filled from document. Company "${companyName}" is in your JD — pick it in the Client dropdown (add it under Clients first if it is not listed), then click Create Job.`;
-    }
-    return 'Form filled from document. Review and click Create Job.';
-  }
-
-  let message = `Extracted from document. Still need: ${missing.join(', ')}.`;
-  if (companyName && !companyId) {
-    message += ` Company "${companyName}" is in your JD — select it in the Client dropdown.`;
-  }
-  message += ' Review and click Create Job.';
-  return message;
-}
-
 function buildPlainJobDescriptionHtml(hints: JobPromptHints, prompt: string): string {
   const responsibilities = extractLabeledPromptValue(prompt, ['responsibilities', 'responsibility']);
   const requirements = extractLabeledPromptValue(prompt, ['requirements', 'requirement', 'qualifications']);
@@ -646,9 +608,44 @@ export function CreateJobDrawer({
 
   const [smartJobPrompt, setSmartJobPrompt] = useState('');
   const [smartJobPromptVisible, setSmartJobPromptVisible] = useState(true);
+  const [smartFillPanelHeight, setSmartFillPanelHeight] = useState(148);
   const smartJobPromptBoundsRef = useRef<HTMLDivElement>(null);
   const smartJobPromptBoxRef = useRef<HTMLDivElement>(null);
-  const [smartJobStatus, setSmartJobStatus] = useState('');
+  const smartFillResizeRef = useRef<{ startY: number; startHeight: number } | null>(null);
+
+  const SMART_FILL_MIN_HEIGHT = 120;
+  const SMART_FILL_MAX_HEIGHT = 520;
+
+  const beginSmartFillResize = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    smartFillResizeRef.current = {
+      startY: event.clientY,
+      startHeight: smartFillPanelHeight,
+    };
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (!smartFillResizeRef.current) return;
+      const deltaY = smartFillResizeRef.current.startY - moveEvent.clientY;
+      const nextHeight = Math.min(
+        SMART_FILL_MAX_HEIGHT,
+        Math.max(SMART_FILL_MIN_HEIGHT, smartFillResizeRef.current.startHeight + deltaY),
+      );
+      setSmartFillPanelHeight(nextHeight);
+    };
+
+    const handleMouseUp = () => {
+      smartFillResizeRef.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  }, [smartFillPanelHeight]);
   const [smartJobError, setSmartJobError] = useState('');
   const [smartJobFileText, setSmartJobFileText] = useState('');
   const [pastedJobDescriptionText, setPastedJobDescriptionText] = useState('');
@@ -1961,7 +1958,6 @@ export function CreateJobDrawer({
       setAiGeneratedQualification(qualification);
       setAiGeneratedSpecialization(specialization);
       setAiGeneratedQuestions(generatedQuestions);
-      let nextFormState: typeof formData | null = null;
       const minExpYears =
         hints.minExperienceYears != null
           ? hints.minExperienceYears
@@ -1975,7 +1971,7 @@ export function CreateJobDrawer({
             ? Number(generated.maxExperience)
             : undefined;
 
-      setFormData((prev) => {
+      const mergeAiAssistIntoForm = (prev: typeof formData) => {
         const next = applyJobPromptHintsToFormData(prev, hints, draftOverrides, {
           jobTitle: resolvedTitle || effectiveRole,
           workMode: effectiveWorkMode,
@@ -1986,7 +1982,7 @@ export function CreateJobDrawer({
           maxExperienceYears: maxExpYears,
           qualification,
         });
-        const merged = {
+        return {
           ...next,
           jobSummary: summaryText || next.jobSummary,
           keyResponsibilitiesText: responsibilitiesText || next.keyResponsibilitiesText,
@@ -1999,10 +1995,18 @@ export function CreateJobDrawer({
             ? generatedQuestions.map((label: string) => makeShortTextScreeningQuestion(label))
             : prev.applicationQuestions,
         };
-        nextFormState = merged;
-        return merged;
+      };
+
+      let mergedForm: typeof formData | null = null;
+      setFormData((prev) => {
+        mergedForm = mergeAiAssistIntoForm(prev);
+        return mergedForm;
       });
-      return nextFormState ? { form: nextFormState, usedAi: true } : null;
+      if (!mergedForm) {
+        mergedForm = mergeAiAssistIntoForm(formData);
+        setFormData(mergedForm);
+      }
+      return { form: mergedForm, usedAi: true };
     } catch (error: any) {
       console.error('AI Assist failed:', error);
       const message = error?.message || 'Failed to generate job description';
@@ -2010,17 +2014,13 @@ export function CreateJobDrawer({
 
       if (!effectiveRole) return null;
 
-      let fallbackForm: typeof formData | null = null;
-      setFormData((prev) => {
-        const next = applyJobPromptHintsToFormData(prev, hints, draftOverrides, {
-          jobTitle: effectiveRole,
-          workMode: effectiveWorkMode,
-          prompt: promptText,
-        });
-        fallbackForm = next;
-        return next;
+      const fallbackForm = applyJobPromptHintsToFormData(formData, hints, draftOverrides, {
+        jobTitle: effectiveRole,
+        workMode: effectiveWorkMode,
+        prompt: promptText,
       });
-      return fallbackForm ? { form: fallbackForm, usedAi: false, aiError: message } : null;
+      setFormData(fallbackForm);
+      return { form: fallbackForm, usedAi: false, aiError: message };
     } finally {
       setAiGenerating(false);
     }
@@ -2036,7 +2036,6 @@ export function CreateJobDrawer({
     }
 
     setSmartJobError('');
-    setSmartJobStatus('');
 
     const combinedPrompt = [
       input,
@@ -2050,15 +2049,18 @@ export function CreateJobDrawer({
       const hints = parseJobPromptHints(combinedPrompt, clients);
       if (!hints.targetHireDate) hints.targetHireDate = defaultTargetHireDateIso();
 
-      if (!hints.jobTitle) {
+      const resolvedJobTitle =
+        hints.jobTitle || inferJobTitleFromPrompt(combinedPrompt);
+      if (!resolvedJobTitle) {
         setSmartJobError('Add a Role or Job Title line (e.g. Role: Senior React Developer) and try again.');
         return;
       }
+      if (!hints.jobTitle) hints.jobTitle = resolvedJobTitle;
 
       const assistResult = await handleAiAssist(
         combinedPrompt,
         {
-          jobTitle: hints.jobTitle,
+          jobTitle: resolvedJobTitle,
           openings: hints.openings,
           companyId: hints.companyId,
           location: hints.location,
@@ -2075,30 +2077,13 @@ export function CreateJobDrawer({
       }
 
       const nextForm = assistResult.form;
+      setSmartJobError('');
 
       setAccordions((prev) =>
         prev.map((section) => ({
           ...section,
           isOpen: section.id === 'details',
         })),
-      );
-
-      const missing = getMissingJobCreateFields({
-        jobTitle: nextForm.jobTitle,
-        companyId: nextForm.companyId,
-        companyName: hints.companyName,
-        numberOfOpenings: nextForm.numberOfOpenings,
-        country: nextForm.country,
-        targetHireDate: nextForm.targetHireDate,
-      });
-      const aiFailedNote = !assistResult.usedAi
-        ? ` Basic fields were filled from your prompt${assistResult.aiError ? ` (${assistResult.aiError})` : ''}. You can edit and create the job.`
-        : '';
-      setSmartJobStatus(
-        buildSmartJobFillStatus(missing, {
-          companyName: hints.companyName,
-          companyId: nextForm.companyId,
-        }).replace('Extracted from document', 'Form filled') + aiFailedNote,
       );
 
       setSmartJobPrompt('');
@@ -2114,7 +2099,6 @@ export function CreateJobDrawer({
       if (pastedText.length < 50) return;
       setPastedJobDescriptionText(pastedText);
       setSmartJobError('');
-      setSmartJobStatus('JD pasted. Click "Auto-fill from pasted JD" to extract details.');
     },
     [],
   );
@@ -2129,7 +2113,6 @@ export function CreateJobDrawer({
     }
 
     setSmartJobError('');
-    setSmartJobStatus('Extracting details from pasted job description…');
 
     try {
       const hints = parseJobPromptHints(sourceText, clients);
@@ -2150,7 +2133,7 @@ export function CreateJobDrawer({
       );
 
       if (!assistResult?.form) {
-        setSmartJobStatus('Could not extract enough fields. Please fill manually.');
+        setSmartJobError('Could not extract enough fields. Please fill manually.');
         return;
       }
 
@@ -2159,24 +2142,8 @@ export function CreateJobDrawer({
         setPipelineDetectedCompanyName(hints.companyName);
       }
 
-      const missing = getMissingJobCreateFields({
-        jobTitle: nextForm.jobTitle,
-        companyId: nextForm.companyId,
-        companyName: hints.companyName,
-        numberOfOpenings: nextForm.numberOfOpenings,
-        country: nextForm.country,
-        targetHireDate: nextForm.targetHireDate,
-      });
-
-      setSmartJobStatus(
-        buildSmartJobFillStatus(missing, {
-          companyName: hints.companyName,
-          companyId: nextForm.companyId,
-        }).replace('Extracted from document', 'Auto-filled from pasted JD'),
-      );
     } catch (error: any) {
       setSmartJobError(error?.message || 'Failed to extract details from pasted description.');
-      setSmartJobStatus('');
     }
   }, [aiGenerating, clients, formData, handleAiAssist, pastedJobDescriptionText]);
 
@@ -2192,7 +2159,6 @@ export function CreateJobDrawer({
     smartJobPipelineAbortRef.current?.abort();
     smartJobPipelineAbortRef.current = null;
     setSmartJobPrompt('');
-    setSmartJobStatus('');
     setSmartJobError('');
     setSmartJobFileText('');
     setSmartJobAttachment(null);
@@ -2212,11 +2178,6 @@ export function CreateJobDrawer({
     const matchedId = resolveClientIdByCompanyName(pipelineDetectedCompanyName, clients);
     if (!matchedId) return;
     setFormData((prev) => (prev.companyId === matchedId ? prev : { ...prev, companyId: matchedId }));
-    setSmartJobStatus((prev) =>
-      prev.startsWith('Form filled from document') && !prev.includes('Client matched')
-        ? 'Form filled from document. Client matched automatically. Review and click Create Job.'
-        : prev,
-    );
   }, [clients, pipelineDetectedCompanyName, formData.companyId]);
 
   const applyJobPipelineResult = useCallback(
@@ -2284,7 +2245,6 @@ export function CreateJobDrawer({
 
       setAiGenerating(true);
       setSmartJobError('');
-      setSmartJobStatus('Running jobcreation pipeline on your document…');
 
       try {
         const response = await apiProcessJobCreationPipeline(
@@ -2322,27 +2282,12 @@ export function CreateJobDrawer({
           })),
         );
 
-        const missing = getMissingJobCreateFields({
-          jobTitle: merged.jobTitle,
-          companyId: merged.companyId,
-          companyName: merged.companyName,
-          numberOfOpenings: merged.numberOfOpenings,
-          country: merged.country,
-          targetHireDate: merged.targetHireDate,
-        });
-        setSmartJobStatus(
-          buildSmartJobFillStatus(missing, {
-            companyName: merged.companyName,
-            companyId: merged.companyId,
-          }),
-        );
         setSmartJobAttachment({ file, status: 'ready' });
       } catch (error: any) {
         if (controller.signal.aborted) return;
         const message = error?.message || 'Failed to process job description file';
         setSmartJobAttachment({ file, status: 'error', error: message });
         setSmartJobError(message);
-        setSmartJobStatus('');
       } finally {
         if (smartJobPipelineAbortRef.current === controller) {
           smartJobPipelineAbortRef.current = null;
@@ -2693,8 +2638,8 @@ export function CreateJobDrawer({
             ? formData.assignedToId
             : null
           : formData.assignedToId || undefined,
-        showClientNamePublicly: formData.showClientNamePublicly,
-        publicFieldVisibility: mergeClientVisibility(
+        showClientNamePublicly: formData.showClientNamePublicly !== false,
+        publicFieldVisibility: buildPublicFieldVisibilityPayload(
           formData.publicFieldVisibility,
           formData.showClientNamePublicly,
         ),
@@ -3166,12 +3111,6 @@ export function CreateJobDrawer({
                         </div>
                       ) : null}
 
-                      {smartJobAttachment && smartJobStatus ? (
-                        <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900">
-                          {smartJobStatus}
-                        </p>
-                      ) : null}
-
                       {smartJobAttachment && smartJobError ? (
                         <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-700">
                           {smartJobError}
@@ -3207,6 +3146,14 @@ export function CreateJobDrawer({
                       setSkillInput={setSkillInput}
                       onAddSkill={addSkill}
                       onRemoveSkill={removeSkill}
+                    />
+
+                    <CreateJobPhase1Preview
+                      form={jobDetailsFormData}
+                      companyName={
+                        clients.find((c) => c.id === jobDetailsFormData.companyId)?.companyName ?? null
+                      }
+                      jobDescriptionHtml={formData.jobDescriptionHtml}
                     />
                   </div>
                 )}
@@ -4127,92 +4074,96 @@ export function CreateJobDrawer({
               </div>
 
               {!isEditMode ? (
-                <div className="shrink-0 border-t border-slate-200 bg-white px-6 py-2.5">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <Sparkles size={16} className="text-blue-600" />
-                      <span className="text-sm font-semibold text-slate-900">Smart fill</span>
-                      <span className="text-xs text-slate-500">Paste details to auto-fill the form</span>
-                    </div>
-                    {smartJobPromptVisible ? (
-                      <button
-                        type="button"
-                        onClick={() => setSmartJobPromptVisible(false)}
-                        className="text-xs font-medium text-slate-500 hover:text-slate-800"
-                      >
-                        Hide
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setSmartJobPromptVisible(true)}
-                        className="text-xs font-medium text-blue-600 hover:text-blue-700"
-                      >
-                        Show
-                      </button>
-                    )}
-                  </div>
-
+                <div
+                  className="flex shrink-0 flex-col overflow-hidden border-t border-slate-200 bg-white"
+                  style={smartJobPromptVisible ? { height: smartFillPanelHeight } : undefined}
+                >
                   {smartJobPromptVisible ? (
-                <div ref={smartJobPromptBoxRef} className="space-y-2">
-                  {smartJobStatus ? (
-                    <p className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900">
-                      {smartJobStatus}
-                    </p>
-                  ) : null}
-                  {smartJobError ? (
-                    <p className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-700">
-                      {smartJobError}
-                    </p>
+                    <div
+                      role="separator"
+                      aria-orientation="horizontal"
+                      aria-label="Resize smart fill panel"
+                      title="Drag to resize"
+                      onMouseDown={beginSmartFillResize}
+                      className="group flex h-3 shrink-0 cursor-row-resize items-center justify-center border-b border-slate-100 bg-gradient-to-b from-slate-50 to-white hover:from-slate-100 hover:to-slate-50"
+                    >
+                      <GripHorizontal
+                        size={16}
+                        className="text-slate-400 transition-colors group-hover:text-slate-600"
+                        aria-hidden
+                      />
+                    </div>
                   ) : null}
 
-                  <div className="grid grid-cols-1 gap-2.5">
-                    <div className="flex flex-col rounded-xl border border-slate-200 bg-slate-50/80 p-2.5">
-                      <div className="mb-1.5 flex items-center gap-2">
-                        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-violet-100 text-violet-600">
-                          <Sparkles size={13} />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-xs font-semibold text-slate-900">Paste job details</p>
-                          <p className="text-[11px] leading-tight text-slate-500">Role, company, location, skills…</p>
-                        </div>
+                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-6 py-2.5">
+                    <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Sparkles size={16} className="text-blue-600" />
+                        <span className="text-sm font-semibold text-slate-900">Smart fill</span>
+                        <span className="text-xs text-slate-500">Paste details to auto-fill the form</span>
                       </div>
-
-                      <div className="flex items-end gap-1.5">
-                        <textarea
-                          id="job-smart-prompt"
-                          value={smartJobPrompt}
-                          onChange={(e) => setSmartJobPrompt(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey && !aiGenerating) {
-                              e.preventDefault();
-                              void handleSmartJobProcess();
-                            }
-                          }}
-                          rows={2}
-                          placeholder={'Role: Senior React Developer\nCompany: BluePeak Solutions…'}
-                          className="min-h-[40px] max-h-20 flex-1 resize-none rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:opacity-60"
-                          disabled={aiGenerating}
-                        />
+                      {smartJobPromptVisible ? (
                         <button
                           type="button"
-                          onClick={() => void handleSmartJobProcess()}
-                          disabled={aiGenerating || !smartJobPrompt.trim()}
-                          className="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-900 text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-                          aria-label={aiGenerating ? 'Processing' : 'Fill form from text'}
-                          title={aiGenerating ? 'Processing…' : 'Fill form (Enter)'}
+                          onClick={() => setSmartJobPromptVisible(false)}
+                          className="text-xs font-medium text-slate-500 hover:text-slate-800"
                         >
-                          {aiGenerating ? (
-                            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                          ) : (
-                            <ArrowUp size={15} strokeWidth={2.25} />
-                          )}
+                          Hide
                         </button>
-                      </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setSmartJobPromptVisible(true)}
+                          className="text-xs font-medium text-blue-600 hover:text-blue-700"
+                        >
+                          Show
+                        </button>
+                      )}
                     </div>
+
+                    {smartJobPromptVisible ? (
+                      <div ref={smartJobPromptBoxRef} className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+                        {smartJobError ? (
+                          <p className="shrink-0 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-700">
+                            {smartJobError}
+                          </p>
+                        ) : null}
+
+                        <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-slate-200 bg-slate-50/80 p-2">
+                          <div className="flex min-h-0 flex-1 items-end gap-2">
+                            <textarea
+                              id="job-smart-prompt"
+                              value={smartJobPrompt}
+                              onChange={(e) => setSmartJobPrompt(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey && !aiGenerating) {
+                                  e.preventDefault();
+                                  void handleSmartJobProcess();
+                                }
+                              }}
+                              placeholder={'Role: Senior React Developer\nCompany: BluePeak Solutions\nLocation: Bengaluru, India\nSkills: React, TypeScript, Node.js…'}
+                              className="h-full min-h-[56px] flex-1 resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm leading-relaxed text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:opacity-60"
+                              disabled={aiGenerating}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => void handleSmartJobProcess()}
+                              disabled={aiGenerating || !smartJobPrompt.trim()}
+                              className="mb-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-900 text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                              aria-label={aiGenerating ? 'Processing' : 'Fill form from text'}
+                              title={aiGenerating ? 'Processing…' : 'Fill form (Enter)'}
+                            >
+                              {aiGenerating ? (
+                                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                              ) : (
+                                <ArrowUp size={15} strokeWidth={2.25} />
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
-                </div>
-                  ) : null}
                 </div>
               ) : null}
             </div>

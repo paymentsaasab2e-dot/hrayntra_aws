@@ -2,17 +2,20 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Download, Eye, FileText, Loader2, Pencil } from 'lucide-react';
+import { Download, Eye, Loader2, Pencil, Trash2 } from 'lucide-react';
 import { ResumeInlinePreview } from './ResumeInlinePreview';
 import { ResumePreviewModal } from './ResumePreviewModal';
 import { SaasaCvSavedPreview } from './SaasaCvSavedPreview';
 import type { CandidateProfileDrawerData } from '../drawers/CandidateProfileDrawer';
 import { filesApiGet, type BackendCandidate } from '../../lib/api';
 import { extractApiData } from '../../lib/mapCandidateProfile';
+import CVEditorModal from '../CVEditorModal';
 import {
-  hasCustomCvEditorLayout,
-  hasUpdatedCvFromEditor,
+  candidateToCvEditorData,
+  hasResumeTabUpdatedCv,
   listAvailableResumeCvModes,
+  mergeResumeTabCandidateSource,
+  readCvEditorLayout,
   resolveDefaultResumeCvViewMode,
   type ResumeCvViewMode,
 } from '../../lib/cvEditorMapping';
@@ -28,6 +31,8 @@ import {
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { getResumeExtension, isResumeHttpUrl, normalizeResumeHref } from '../../lib/resumePreview';
 import { triggerFileDownload } from '../../utils/triggerFileDownload';
+import { requestConfirm, SYSTEM_ALERT_TITLE } from '../../lib/appDialog';
+import { downloadCvEditorPlainText, printCvEditorAsPdf } from '../../lib/cvEditorExport';
 
 export interface CandidateResumeCvEditorApi {
   backendCandidate: BackendCandidate | null;
@@ -35,8 +40,11 @@ export interface CandidateResumeCvEditorApi {
   canEdit: boolean;
   busy: boolean;
   openEditor: () => void | Promise<void>;
-  openStructuredPreview: () => void;
+  openStructuredPreview: () => void | Promise<void>;
   refreshBackend: () => Promise<BackendCandidate | null>;
+  deleteEditedCv?: () => Promise<boolean>;
+  deleteUpdatedCv?: () => Promise<boolean>;
+  preferredResumeViewMode?: ResumeCvViewMode | null;
 }
 
 interface CandidateResumeTabPanelProps {
@@ -45,6 +53,8 @@ interface CandidateResumeTabPanelProps {
   cvEditor: CandidateResumeCvEditorApi;
   /** Latest saved SAASA file URL (from hook after save) */
   saasaSavedFileUrl?: string | null;
+  /** After SAASA save, show SAASA CV tab without hiding Updated CV */
+  preferredResumeViewMode?: ResumeCvViewMode | null;
   onCandidateUpdated?: () => void | Promise<void>;
   onToast?: (message: string) => void;
   onOpenSaasaCv?: () => void;
@@ -65,9 +75,32 @@ export function CandidateResumeTabPanel({
   onToast,
   onOpenSaasaCv,
   saasaSavedFileUrl = null,
+  preferredResumeViewMode: preferredResumeViewModeProp = null,
 }: CandidateResumeTabPanelProps) {
-  const { backendCandidate, resumeHref, canEdit, busy, openEditor, openStructuredPreview, refreshBackend } =
-    cvEditor;
+  const {
+    backendCandidate,
+    resumeHref,
+    canEdit,
+    busy,
+    openEditor,
+    openStructuredPreview,
+    refreshBackend,
+    deleteUpdatedCv,
+    preferredResumeViewMode: preferredResumeViewModeFromEditor = null,
+  } = cvEditor;
+
+  const preferredResumeViewMode =
+    preferredResumeViewModeProp ?? preferredResumeViewModeFromEditor;
+
+  const resumeSourceCandidate = useMemo(
+    () => mergeResumeTabCandidateSource(backendCandidate, candidate),
+    [backendCandidate, candidate],
+  );
+
+  const structuredCvData = useMemo(() => {
+    if (!resumeSourceCandidate) return null;
+    return candidateToCvEditorData(resumeSourceCandidate);
+  }, [resumeSourceCandidate]);
 
   const [loading, setLoading] = useState(false);
   const [resumePreviewOpen, setResumePreviewOpen] = useState(false);
@@ -78,6 +111,26 @@ export function CandidateResumeTabPanel({
   const [portalReady, setPortalReady] = useState(false);
   const [downloadingResume, setDownloadingResume] = useState(false);
   const [downloadingSaasa, setDownloadingSaasa] = useState(false);
+  const [downloadingUpdated, setDownloadingUpdated] = useState(false);
+  const [exportingUpdatedPdf, setExportingUpdatedPdf] = useState(false);
+
+  const canDeleteUpdatedCv =
+    canEdit && Boolean(deleteUpdatedCv) && hasResumeTabUpdatedCv(resumeSourceCandidate);
+
+  const handleDeleteUpdatedCv = async () => {
+    if (busy || !deleteUpdatedCv || !canDeleteUpdatedCv) return;
+    const confirmed = await requestConfirm(
+      'Remove the updated CV? The Original CV will remain. You can edit and save again anytime.',
+      {
+        title: SYSTEM_ALERT_TITLE,
+        tone: 'warning',
+        confirmLabel: 'Remove',
+        cancelLabel: 'Cancel',
+      }
+    );
+    if (!confirmed) return;
+    await deleteUpdatedCv();
+  };
 
   useEffect(() => {
     setPortalReady(true);
@@ -217,13 +270,33 @@ export function CandidateResumeTabPanel({
   }, [enabled, viewMode, candidate.id, refreshBackend]);
 
   const availableModes = useMemo(
-    () => listAvailableResumeCvModes(backendCandidate, originalResumeRaw || resumeHref),
-    [backendCandidate, originalResumeRaw, resumeHref]
+    () => listAvailableResumeCvModes(resumeSourceCandidate, originalResumeRaw || resumeHref),
+    [resumeSourceCandidate, originalResumeRaw, resumeHref],
   );
 
   useEffect(() => {
-    setViewMode(resolveDefaultResumeCvViewMode(backendCandidate, originalResumeRaw || resumeHref));
-  }, [backendCandidate, originalResumeRaw, resumeHref, availableModes.join(',')]);
+    if (
+      preferredResumeViewMode &&
+      availableModes.includes(preferredResumeViewMode)
+    ) {
+      setViewMode(preferredResumeViewMode);
+      return;
+    }
+    const fallback = resolveDefaultResumeCvViewMode(
+      resumeSourceCandidate,
+      originalResumeRaw || resumeHref,
+    );
+    setViewMode((current) => {
+      if (current && availableModes.includes(current)) return current;
+      return fallback;
+    });
+  }, [
+    resumeSourceCandidate,
+    originalResumeRaw,
+    resumeHref,
+    availableModes.join(','),
+    preferredResumeViewMode,
+  ]);
 
   const selectViewMode = (mode: ResumeCvViewMode) => {
     setViewMode(mode);
@@ -251,6 +324,30 @@ export function CandidateResumeTabPanel({
     }
   };
 
+  const handleDownloadUpdatedText = () => {
+    if (!structuredCvData || downloadingUpdated) return;
+    setDownloadingUpdated(true);
+    try {
+      downloadCvEditorPlainText(structuredCvData, candidate.name);
+    } catch (error) {
+      onToast?.(error instanceof Error ? error.message : 'Failed to download updated CV');
+    } finally {
+      setDownloadingUpdated(false);
+    }
+  };
+
+  const handleExportUpdatedPdf = () => {
+    if (!structuredCvData || exportingUpdatedPdf) return;
+    setExportingUpdatedPdf(true);
+    try {
+      printCvEditorAsPdf(structuredCvData, candidate.name);
+    } catch (error) {
+      onToast?.(error instanceof Error ? error.message : 'Failed to export updated CV as PDF');
+    } finally {
+      window.setTimeout(() => setExportingUpdatedPdf(false), 600);
+    }
+  };
+
   const handleDownloadSaasaCv = async () => {
     const source = saasaPreviewRaw || saasaStored?.fileUrl || saasaSavedFileUrl || effectiveSaasaPreviewHref;
     if (!source || downloadingSaasa) return;
@@ -274,15 +371,34 @@ export function CandidateResumeTabPanel({
   const showSaasaEmpty =
     viewMode === 'saasa' && !effectiveSaasaPreviewHref && Boolean(onOpenSaasaCv);
   const showStructuredPreview =
-    (viewMode === 'updated' && hasUpdatedCvFromEditor(backendCandidate)) ||
-    (viewMode === 'edited' && hasCustomCvEditorLayout(backendCandidate));
+    viewMode === 'updated' && hasResumeTabUpdatedCv(resumeSourceCandidate);
 
   const showOriginalToolbar = viewMode === 'original' && Boolean(effectiveResumeHref);
   const showSaasaToolbar = viewMode === 'saasa' && Boolean(saasaBaseResumeHref || effectiveSaasaPreviewHref);
-  const showStructuredToolbar =
-    (viewMode === 'updated' || viewMode === 'edited') && showStructuredPreview;
+  const showStructuredToolbar = viewMode === 'updated' && showStructuredPreview;
   const showResumeToolbar =
     availableModes.length > 0 || showOriginalToolbar || showSaasaToolbar || showStructuredToolbar;
+
+  const structuredCvPreviewKey = useMemo(() => {
+    const layout = readCvEditorLayout(resumeSourceCandidate);
+    const extra = resumeSourceCandidate?.extraData;
+    const savedAt =
+      extra && typeof extra === 'object' && !Array.isArray(extra)
+        ? String((extra as Record<string, unknown>).cvEditorContentSavedAt || '')
+        : '';
+    return [
+      resumeSourceCandidate?.id,
+      layout?.updatedAt,
+      savedAt,
+      structuredCvData?.name,
+      structuredCvData?.candidatePhotoUrl,
+      structuredCvData?.companyLogoUrl,
+      structuredCvData?.summary,
+      structuredCvData?.experiences?.map((e) => `${e.role}|${e.company}|${e.desc}`).join(';'),
+      structuredCvData?.education?.map((e) => `${e.degree}|${e.school}`).join(';'),
+      structuredCvData?.skills?.join(','),
+    ].join('|');
+  }, [resumeSourceCandidate, structuredCvData]);
 
   return (
     <>
@@ -298,22 +414,49 @@ export function CandidateResumeTabPanel({
                 >
                   {availableModes.map((mode) => {
                     const active = viewMode === mode;
+                    const deletable = mode === 'updated' && canDeleteUpdatedCv;
                     return (
-                      <button
+                      <div
                         key={mode}
-                        type="button"
-                        role="tab"
-                        aria-selected={active}
-                        onClick={() => selectViewMode(mode)}
-                        disabled={busy}
-                        className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-60 ${
+                        className={`inline-flex items-stretch overflow-hidden rounded-full text-sm font-semibold transition-colors ${
                           active
                             ? 'bg-blue-600 text-white shadow-sm'
-                            : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                            : 'border border-slate-200 bg-white text-slate-700'
                         }`}
                       >
-                        {MODE_LABELS[mode]}
-                      </button>
+                        <button
+                          type="button"
+                          role="tab"
+                          aria-selected={active}
+                          onClick={() => selectViewMode(mode)}
+                          disabled={busy}
+                          className={`px-4 py-2 transition-colors disabled:opacity-60 ${
+                            active ? '' : 'hover:bg-slate-50'
+                          }`}
+                        >
+                          {MODE_LABELS[mode]}
+                        </button>
+                        {deletable ? (
+                          <button
+                            type="button"
+                            title={`Delete ${MODE_LABELS[mode]}`}
+                            aria-label={`Delete ${MODE_LABELS[mode]}`}
+                            disabled={busy}
+                            onClick={() => void handleDeleteUpdatedCv()}
+                            className={`inline-flex items-center border-l px-2.5 py-2 transition-colors disabled:opacity-60 ${
+                              active
+                                ? 'border-blue-500 hover:bg-blue-700'
+                                : 'border-slate-200 hover:bg-red-50 hover:text-red-700'
+                            }`}
+                          >
+                            {busy && active ? (
+                              <Loader2 size={14} className="animate-spin" />
+                            ) : (
+                              <Trash2 size={14} />
+                            )}
+                          </button>
+                        ) : null}
+                      </div>
                     );
                   })}
                 </div>
@@ -373,14 +516,53 @@ export function CandidateResumeTabPanel({
                     </button>
                   </>
                 ) : showStructuredToolbar ? (
-                  <button
-                    type="button"
-                    onClick={openStructuredPreview}
-                    className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700"
-                  >
-                    <Eye size={16} />
-                    Full preview
-                  </button>
+                  <>
+                    {canDeleteUpdatedCv ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteUpdatedCv()}
+                        disabled={busy}
+                        className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
+                      >
+                        {busy ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                        Delete
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={openStructuredPreview}
+                      className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      <Eye size={16} />
+                      Preview
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDownloadUpdatedText}
+                      disabled={downloadingUpdated}
+                      className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                    >
+                      {downloadingUpdated ? (
+                        <Loader2 size={16} className="animate-spin" />
+                      ) : (
+                        <Download size={16} />
+                      )}
+                      TXT
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleExportUpdatedPdf}
+                      disabled={exportingUpdatedPdf}
+                      className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                    >
+                      {exportingUpdatedPdf ? (
+                        <Loader2 size={16} className="animate-spin" />
+                      ) : (
+                        <Download size={16} />
+                      )}
+                      PDF
+                    </button>
+                  </>
                 ) : null}
               </div>
             </div>
@@ -421,25 +603,14 @@ export function CandidateResumeTabPanel({
                   Create SAASA CV
                 </button>
               </div>
-            ) : showStructuredPreview ? (
-              <div className="flex h-full min-h-[520px] flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center">
-                <FileText className="size-10 text-blue-500" />
-                <p className="mt-4 text-sm font-semibold text-slate-900">
-                  {viewMode === 'edited' ? 'Edited CV ready' : 'Updated CV ready'}
-                </p>
-                <p className="mt-2 max-w-md text-sm text-slate-500">
-                  {viewMode === 'edited'
-                    ? 'This version includes your branded layout from the CV editor.'
-                    : 'Structured profile from the CV editor — summary, experience, education, and skills.'}
-                </p>
-                <button
-                  type="button"
-                  onClick={openStructuredPreview}
-                  className="mt-6 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
-                >
-                  <Eye size={16} />
-                  Open preview
-                </button>
+            ) : showStructuredPreview && structuredCvData ? (
+              <div className="h-full min-h-0 overflow-auto bg-slate-200/80 p-3 sm:p-4">
+                <CVEditorModal
+                  key={structuredCvPreviewKey}
+                  initialData={structuredCvData}
+                  readOnly
+                  embedded
+                />
               </div>
             ) : (
               <div className="flex h-full min-h-[320px] flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center">

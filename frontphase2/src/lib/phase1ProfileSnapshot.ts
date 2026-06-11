@@ -1,4 +1,5 @@
 import type { BackendCandidate } from './api';
+import { readClientPresentation } from './clientPresentationDraft';
 import { educationRecordToSnapshotRow } from './candidateEducationFields';
 import { mergeCandidateWorkEntryLists } from './candidateExperience';
 import { workExperienceRecordToSnapshotRow } from './candidateWorkExperienceFields';
@@ -205,6 +206,17 @@ export function resolveLinkedInFromPortfolioSources(
   return '';
 }
 
+/** When nationality is missing on first load, default it from country. */
+export function resolveNationalityFromCountry(
+  nationality: string | null | undefined,
+  country: string | null | undefined,
+): string | undefined {
+  const nat = String(nationality || '').trim();
+  if (nat) return nat;
+  const cty = String(country || '').trim();
+  return cty || undefined;
+}
+
 /** Merge snapshot personalInfo with candidate fallbacks for drawer view/edit. */
 export function resolvePhase1PersonalInfo(
   snapshot: Phase1ProfileSnapshot | null | undefined,
@@ -256,6 +268,12 @@ export function resolvePhase1PersonalInfo(
     pi.gender = String(candidate.gender).trim();
   }
 
+  const nationalityFromCountry = resolveNationalityFromCountry(
+    pi.nationality,
+    pi.country || candidate.cvCountry || candidate.country,
+  );
+  if (nationalityFromCountry) pi.nationality = nationalityFromCountry;
+
   return pi;
 }
 
@@ -306,10 +324,31 @@ export function enrichBackendCandidateFromPhase1Snapshot(c: BackendCandidate): B
 
   const snapNarrative = (snap as Phase1ProfileSnapshot & { cvWorkHistoryNarrative?: string })
     .cvWorkHistoryNarrative;
-  const mergedExtra: Record<string, unknown> = {
-    ...(c.extraData && typeof c.extraData === 'object' && !Array.isArray(c.extraData)
+  const sourceExtra =
+    c.extraData && typeof c.extraData === 'object' && !Array.isArray(c.extraData)
       ? (c.extraData as Record<string, unknown>)
-      : {}),
+      : {};
+  const presentation = readClientPresentation(sourceExtra);
+  const presentationLayout = presentation?.cvEditorLayout;
+  const cvEditorPreserve: Record<string, unknown> = {};
+  if (sourceExtra.cvEditorLayout && typeof sourceExtra.cvEditorLayout === 'object') {
+    cvEditorPreserve.cvEditorLayout = sourceExtra.cvEditorLayout;
+  } else if (sourceExtra.cvEditorLayout !== null && presentationLayout) {
+    cvEditorPreserve.cvEditorLayout = presentationLayout;
+  }
+  if (sourceExtra.cvEditorContentSaved === true) {
+    cvEditorPreserve.cvEditorContentSaved = true;
+  }
+  if (sourceExtra.cvEditorContentSavedAt) {
+    cvEditorPreserve.cvEditorContentSavedAt = sourceExtra.cvEditorContentSavedAt;
+  }
+  if (sourceExtra.resumeCvViewMode) {
+    cvEditorPreserve.resumeCvViewMode = sourceExtra.resumeCvViewMode;
+  }
+  if (sourceExtra.cvSubmission) cvEditorPreserve.cvSubmission = sourceExtra.cvSubmission;
+
+  const mergedExtra: Record<string, unknown> = {
+    ...sourceExtra,
     phase1ProfileSnapshot: {
       ...patchedSnap,
       personalInfo: {
@@ -325,6 +364,10 @@ export function enrichBackendCandidateFromPhase1Snapshot(c: BackendCandidate): B
         nationality:
           mergedPi.nationality ||
           String((c.extraData as Record<string, unknown>)?.nationality || '').trim() ||
+          resolveNationalityFromCountry(
+            undefined,
+            mergedPi.country || c.country || c.cvCountry,
+          ) ||
           undefined,
       },
     },
@@ -334,38 +377,56 @@ export function enrichBackendCandidateFromPhase1Snapshot(c: BackendCandidate): B
     ...(typeof snapNarrative === 'string' && snapNarrative.trim()
       ? { workHistory: snapNarrative.trim() }
       : {}),
+    ...cvEditorPreserve,
   };
+
+  const editorCvSaved = sourceExtra.cvEditorContentSaved === true;
 
   return {
     ...c,
-    firstName: c.firstName || mergedPi.firstName || c.firstName,
-    lastName: c.lastName || mergedPi.lastName || c.lastName,
-    email: c.email || mergedPi.email || c.email,
-    phone: c.phone || mergedPi.phone || c.phone,
-    linkedIn:
-      c.linkedIn ||
-      mergedPi.linkedinUrl ||
-      resolveLinkedInFromPortfolioSources(snap, c.cvPortfolioLinks) ||
-      c.linkedIn,
-    city: c.city || mergedPi.city || c.city,
-    country: c.country || mergedPi.country || c.country,
-    location:
-      c.location || [mergedPi.city, mergedPi.country].filter(Boolean).join(', ') || c.location || null,
-    avatar: c.avatar || mergedPi.profilePhotoUrl || null,
-    currentTitle:
-      c.currentTitle ||
-      (latestWork?.jobTitle as string) ||
-      (latestWork?.title as string) ||
-      c.currentTitle,
-    currentCompany:
-      c.currentCompany ||
-      (latestWork?.company as string) ||
-      (latestWork?.companyName as string) ||
-      c.currentCompany,
-    cvSummary: c.cvSummary || snap.summaryText || c.cvSummary,
+    firstName: editorCvSaved ? (c.firstName ?? null) : c.firstName || mergedPi.firstName || c.firstName,
+    lastName: editorCvSaved ? (c.lastName ?? null) : c.lastName || mergedPi.lastName || c.lastName,
+    email: editorCvSaved ? (c.email ?? null) : c.email || mergedPi.email || c.email,
+    phone: editorCvSaved ? (c.phone ?? null) : c.phone || mergedPi.phone || c.phone,
+    linkedIn: editorCvSaved
+      ? (c.linkedIn ?? null)
+      : c.linkedIn ||
+        mergedPi.linkedinUrl ||
+        resolveLinkedInFromPortfolioSources(snap, c.cvPortfolioLinks) ||
+        c.linkedIn,
+    city: editorCvSaved ? (c.city ?? null) : c.city || mergedPi.city || c.city,
+    country: editorCvSaved ? (c.country ?? null) : c.country || mergedPi.country || c.country,
+    location: editorCvSaved
+      ? (c.location ?? null)
+      : c.location || [mergedPi.city, mergedPi.country].filter(Boolean).join(', ') || c.location || null,
+    avatar: editorCvSaved
+      ? (c.avatar ?? null)
+      : c.avatar || mergedPi.profilePhotoUrl || null,
+    currentTitle: editorCvSaved
+      ? (c.currentTitle ?? null)
+      : c.currentTitle ||
+        (latestWork?.jobTitle as string) ||
+        (latestWork?.title as string) ||
+        c.currentTitle,
+    currentCompany: editorCvSaved
+      ? (c.currentCompany ?? null)
+      : c.currentCompany ||
+        (latestWork?.company as string) ||
+        (latestWork?.companyName as string) ||
+        c.currentCompany,
+    cvSummary:
+      sourceExtra.cvEditorContentSaved === true
+        ? (c.cvSummary ?? null)
+        : c.cvSummary || snap.summaryText || c.cvSummary,
     resume: resumeUrl,
     resumeUrl,
-    skills: skillNames.length ? skillNames : c.skills,
+    skills: editorCvSaved
+      ? Array.isArray(c.skills)
+        ? c.skills
+        : []
+      : skillNames.length
+        ? skillNames
+        : c.skills,
     languages: languageNames.length ? languageNames : c.languages,
     recruiterLanguages: languageNames.length ? languageNames : (c as BackendCandidate & { recruiterLanguages?: string[] }).recruiterLanguages,
     noticePeriod:
@@ -383,6 +444,9 @@ export function enrichBackendCandidateFromPhase1Snapshot(c: BackendCandidate): B
     certifications: certNames.length ? certNames : c.certifications,
     cvWorkExperienceEntries: (() => {
       const fromCv = Array.isArray(c.cvWorkExperienceEntries) ? c.cvWorkExperienceEntries : [];
+      if (sourceExtra.cvEditorContentSaved === true) {
+        return fromCv;
+      }
       const fromSnap = Array.isArray(work) ? work : [];
       if (fromSnap.length && fromCv.length) {
         return mergeCandidateWorkEntryLists(fromSnap, fromCv);
@@ -391,10 +455,15 @@ export function enrichBackendCandidateFromPhase1Snapshot(c: BackendCandidate): B
       if (fromCv.length) return fromCv;
       return c.cvWorkExperienceEntries;
     })(),
-    cvEducationEntries:
-      (Array.isArray(c.cvEducationEntries) && c.cvEducationEntries.length
-        ? c.cvEducationEntries
-        : edu) || c.cvEducationEntries,
+    cvEducationEntries: (() => {
+      const fromCv = Array.isArray(c.cvEducationEntries) ? c.cvEducationEntries : [];
+      if (sourceExtra.cvEditorContentSaved === true) {
+        return fromCv;
+      }
+      if (fromCv.length) return fromCv;
+      if (Array.isArray(edu) && edu.length) return edu;
+      return c.cvEducationEntries;
+    })(),
     cvPortfolioLinks: (() => {
       const fromSnapshot = Array.isArray(snap.portfolioLinks) ? snap.portfolioLinks : [];
       if (isPhase1PortalCandidate(c) && fromSnapshot.length) {

@@ -21,6 +21,7 @@ import {
   resolveDirectorNameFromLeadContext,
   resolveDirectorSalutationFromLeadContext,
 } from '../../utils/directorOtherDetails.js';
+import { escapePrismaRegex } from '../../utils/escapePrismaRegex.js';
 
 function isValidObjectId(value) {
   return typeof value === 'string' && /^[a-fA-F0-9]{24}$/.test(value.trim());
@@ -83,7 +84,7 @@ function buildLeadDatabaseSearchFilter(search) {
 
   const termClauses = effectiveTerms.map((term) => ({
     OR: LEAD_DB_TEXT_SEARCH_FIELDS.map((field) => ({
-      [field]: { contains: term, mode: 'insensitive' },
+      [field]: { contains: escapePrismaRegex(term), mode: 'insensitive' },
     })),
   }));
 
@@ -230,7 +231,7 @@ async function findDuplicateClientByCompanyName(companyName, { excludeClientId }
   const exact = await prisma.client.findFirst({
     where: {
       ...baseWhere,
-      companyName: { equals: raw, mode: 'insensitive' },
+      companyName: { equals: escapePrismaRegex(raw), mode: 'insensitive' },
     },
     select: { id: true, companyName: true },
   });
@@ -245,7 +246,7 @@ async function findDuplicateClientByCompanyName(companyName, { excludeClientId }
   const candidates = await prisma.client.findMany({
     where: {
       ...baseWhere,
-      companyName: { contains: firstWord, mode: 'insensitive' },
+      companyName: { contains: escapePrismaRegex(firstWord), mode: 'insensitive' },
     },
     select: { id: true, companyName: true },
     take: 50,
@@ -258,21 +259,21 @@ function buildLeadImportDuplicateChecks({ email, companyName, contactPerson, pho
   const duplicateChecks = [];
 
   if (email) {
-    duplicateChecks.push({ email: { equals: email, mode: 'insensitive' } });
+    duplicateChecks.push({ email: { equals: escapePrismaRegex(email), mode: 'insensitive' } });
   }
 
   if (phone) {
-    duplicateChecks.push({ phone: { equals: phone, mode: 'insensitive' } });
+    duplicateChecks.push({ phone: { equals: escapePrismaRegex(phone), mode: 'insensitive' } });
   }
 
   if (companyName && contactPerson) {
     duplicateChecks.push({
-      companyName: { equals: companyName, mode: 'insensitive' },
-      contactPerson: { equals: contactPerson, mode: 'insensitive' },
+      companyName: { equals: escapePrismaRegex(companyName), mode: 'insensitive' },
+      contactPerson: { equals: escapePrismaRegex(contactPerson), mode: 'insensitive' },
     });
   } else if (companyName) {
     duplicateChecks.push({
-      companyName: { equals: companyName, mode: 'insensitive' },
+      companyName: { equals: escapePrismaRegex(companyName), mode: 'insensitive' },
     });
   }
 

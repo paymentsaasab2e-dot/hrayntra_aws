@@ -8,6 +8,8 @@ import {
   detectResumeBufferKind,
   detectResumeContentType,
   isImageResume,
+  isRemoteResumeStorageUrl,
+  isTextResume,
   normalizeResumeHref,
   resolveResumePreviewKind,
 } from '../../lib/resumePreview';
@@ -88,7 +90,29 @@ export function ResumeFilePreview({
       setImageUrl('');
       setPdfUrl('');
 
-      if (staticKind === 'image' || isImageResume(href)) {
+      if (staticKind === 'text' || isTextResume(href)) {
+        const candidates = uniqueUrls(proxyUrl, directUrl);
+        for (const url of candidates) {
+          try {
+            const response = await fetch(url, {
+              method: 'GET',
+              credentials: 'include',
+              cache: 'no-store',
+              headers: { Accept: 'text/*,*/*' },
+            });
+            if (!response.ok) continue;
+            const buffer = await response.arrayBuffer();
+            if (cancelled) return;
+            setTextContent(new TextDecoder().decode(buffer));
+            setMode('text');
+            return;
+          } catch {
+            /* try next */
+          }
+        }
+      }
+
+      if ((staticKind === 'image' || isImageResume(href)) && !isRemoteResumeStorageUrl(href)) {
         setImageUrl(directUrl);
         setMode('image');
         return;

@@ -102,10 +102,53 @@ export function buildResumePdfProxyUrl(sourceUrl: string): string {
 }
 
 export function buildResumeViewerUrl(resumeUrl: string): string {
-  if (isImageResume(resumeUrl)) {
-    return normalizeResumeHref(resumeUrl);
+  const base = normalizeResumeHref(resumeUrl);
+  if (!base) return '';
+  if ((isImageResume(base) || isTextResume(base)) && !isRemoteResumeStorageUrl(base)) {
+    return base;
   }
-  return buildResumePdfProxyUrl(resumeUrl);
+  return buildResumePdfProxyUrl(base);
+}
+
+/** Same-origin URL for remote image/text resume files (avoids S3 CORS in img/fetch). */
+export function buildResumeInlineAssetUrl(resumeUrl: string): string {
+  const base = normalizeResumeHref(resumeUrl);
+  if (!base) return '';
+  if (isRemoteResumeStorageUrl(base)) {
+    return `/api/pdf-proxy?url=${encodeURIComponent(base)}`;
+  }
+  return base;
+}
+
+export async function fetchResumeProxiedBlob(resumeUrl: string): Promise<Blob> {
+  const base = normalizeResumeHref(resumeUrl);
+  if (!base) throw new Error('No resume file URL');
+
+  const candidates = [buildResumeInlineAssetUrl(base), buildResumeDirectUrl(base)].filter(
+    (url, index, arr) => Boolean(url) && arr.indexOf(url) === index
+  );
+
+  let lastError = 'Failed to load resume file';
+  for (const url of candidates) {
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        credentials: 'include',
+        cache: 'no-store',
+        headers: { Accept: 'application/pdf,image/*,text/*,*/*' },
+      });
+      if (!response.ok) {
+        const detail = (await response.text().catch(() => '')).slice(0, 180).trim();
+        lastError = detail || `Failed to load resume file (${response.status})`;
+        continue;
+      }
+      return await response.blob();
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : lastError;
+    }
+  }
+
+  throw new Error(lastError);
 }
 
 export function buildResumeHtmlPreviewUrl(resumeUrl: string): string {

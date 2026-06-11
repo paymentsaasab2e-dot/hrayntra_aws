@@ -8,6 +8,7 @@ import {
   type AppDialogTone,
   type AppDialogRequestDetail,
   requestAlert,
+  SYSTEM_ALERT_TITLE,
 } from '../lib/appDialog';
 
 type DialogRequest = {
@@ -107,7 +108,7 @@ export function GlobalAlertHost() {
 
   const style = toneStyles[activeRequest.tone || 'info'];
   const Icon = iconMap[activeRequest.tone || 'info'];
-  const title = activeRequest.title || (isConfirm ? 'Please Confirm' : style.title);
+  const title = activeRequest.title || (isConfirm ? SYSTEM_ALERT_TITLE : style.title);
   const confirmLabel = activeRequest.confirmLabel || (isConfirm ? 'Confirm' : 'OK');
   const cancelLabel = activeRequest.cancelLabel || 'Cancel';
 
