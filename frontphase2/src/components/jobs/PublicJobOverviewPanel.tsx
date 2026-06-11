@@ -3,6 +3,7 @@
 import React, { useMemo } from 'react';
 import { MapPin } from 'lucide-react';
 import {
+  htmlSectionTitleVisibleOnPortal,
   isJobFieldPubliclyVisible,
   parseJobPublicFieldVisibility,
   type JobPublicVisibilityField,
@@ -177,14 +178,16 @@ export function PublicJobOverviewPanel({ job }: { job: PublicJobOverviewJob }) {
       )}
 
       {hasHtml && htmlSections.length > 0
-        ? htmlSections.map((section, index) => (
-            <SectionCard key={`${section.title}-${index}`} title={section.title}>
-              <div
-                className={htmlBodyClass}
-                dangerouslySetInnerHTML={{ __html: section.bodyHtml }}
-              />
-            </SectionCard>
-          ))
+        ? htmlSections
+            .filter((section) => htmlSectionTitleVisibleOnPortal(section.title, show))
+            .map((section, index) => (
+              <SectionCard key={`${section.title}-${index}`} title={section.title}>
+                <div
+                  className={htmlBodyClass}
+                  dangerouslySetInnerHTML={{ __html: section.bodyHtml }}
+                />
+              </SectionCard>
+            ))
         : null}
 
       {!hasHtml && show('jobDescription') && (job.overview || job.description) ? (

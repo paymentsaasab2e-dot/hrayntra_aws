@@ -85,6 +85,7 @@ import {
   isJobFieldPubliclyVisible,
   mergeClientVisibility,
   parseJobPublicFieldVisibility,
+  buildPublicFieldVisibilityPayload,
   toggleJobPublicFieldVisibility,
 } from '../../lib/jobPublicFieldVisibility';
 import { PublicVisibilityToggle } from '../forms/PublicVisibilityToggle';
@@ -2637,8 +2638,8 @@ export function CreateJobDrawer({
             ? formData.assignedToId
             : null
           : formData.assignedToId || undefined,
-        showClientNamePublicly: formData.showClientNamePublicly,
-        publicFieldVisibility: mergeClientVisibility(
+        showClientNamePublicly: formData.showClientNamePublicly !== false,
+        publicFieldVisibility: buildPublicFieldVisibilityPayload(
           formData.publicFieldVisibility,
           formData.showClientNamePublicly,
         ),

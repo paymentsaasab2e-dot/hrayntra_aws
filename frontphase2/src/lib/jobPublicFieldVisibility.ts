@@ -81,6 +81,41 @@ export function mergeClientVisibility(
   };
 }
 
+/** Full visibility map for API save — every field explicit so nothing is lost in transit. */
+export function buildPublicFieldVisibilityPayload(
+  visibility: JobPublicFieldVisibility | null | undefined,
+  showClientNamePublicly: boolean,
+): Record<JobPublicVisibilityField, boolean> {
+  const merged = mergeClientVisibility(parseJobPublicFieldVisibility(visibility), showClientNamePublicly);
+  return Object.fromEntries(
+    JOB_PUBLIC_VISIBILITY_FIELDS.map((key) => [key, merged[key] !== false]),
+  ) as Record<JobPublicVisibilityField, boolean>;
+}
+
+/** Whether a parsed HTML JD section heading should appear on Phase 1 / public preview. */
+export function htmlSectionTitleVisibleOnPortal(
+  title: string,
+  show: (field: JobPublicVisibilityField) => boolean,
+): boolean {
+  const normalized = String(title || '').trim().toLowerCase();
+  if (/^job title$/.test(normalized)) return show('jobTitle');
+  if (/key responsibilities|^responsibilities$|role & responsibilities/.test(normalized)) {
+    return show('keyResponsibilities');
+  }
+  if (
+    /^requirements$|^required skills$|qualifications|preferred education|preferred qualifications/.test(
+      normalized,
+    )
+  ) {
+    return show('qualifications');
+  }
+  if (/candidate requirements?/.test(normalized)) return show('candidateRequirements');
+  if (/^skills$|^key skills$/.test(normalized)) return show('skills');
+  if (/benefits|compensation/.test(normalized)) return show('jobDescription');
+  if (/^overview$|^job summary$/.test(normalized)) return show('jobDescription');
+  return show('jobDescription');
+}
+
 export function resolveShowClientNamePublicly(
   visibility: JobPublicFieldVisibility | null | undefined,
   legacyShowClient?: boolean | null,

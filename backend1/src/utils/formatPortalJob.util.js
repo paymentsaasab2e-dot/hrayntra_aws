@@ -60,6 +60,70 @@ function resolvePublicCompanyName(job, fallback = '') {
   return job?.company?.name || job?.client?.companyName || fallback;
 }
 
+const DESCRIPTION_SECTION_STRIP_PATTERNS = {
+  keyResponsibilities: [
+    /^key responsibilities$/i,
+    /^responsibilities$/i,
+    /^role & responsibilities$/i,
+  ],
+  qualifications: [
+    /^requirements$/i,
+    /^required skills$/i,
+    /^qualifications/i,
+    /^preferred qualifications?$/i,
+    /^preferred education/i,
+  ],
+  candidateRequirements: [/^candidate requirements?$/i],
+  skills: [/^skills$/i, /^key skills$/i],
+  benefits: [/^benefits$/i, /^compensation & benefits$/i, /^compensation$/i],
+};
+
+function stripHiddenDescriptionSections(html, patterns) {
+  const source = String(html || '').trim();
+  if (!source || !Array.isArray(patterns) || !patterns.length) return source;
+
+  const parts = source.split(/(?=<h[1-3][^>]*>)/i);
+  if (parts.length <= 1) return source;
+
+  const kept = [];
+  for (const part of parts) {
+    const headingMatch = part.match(/^<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/i);
+    if (!headingMatch) {
+      kept.push(part);
+      continue;
+    }
+    const headingText = String(headingMatch[1] || '')
+      .replace(/<[^>]+>/g, '')
+      .trim();
+    const shouldStrip = patterns.some((pattern) => pattern.test(headingText));
+    if (!shouldStrip) kept.push(part);
+  }
+
+  return kept.join('').trim();
+}
+
+function scrubDescriptionForVisibility(job, value) {
+  if (!value || !isPortalFieldVisible(job, 'jobDescription')) return value;
+  const patterns = [];
+  if (!isPortalFieldVisible(job, 'keyResponsibilities')) {
+    patterns.push(...DESCRIPTION_SECTION_STRIP_PATTERNS.keyResponsibilities);
+  }
+  if (!isPortalFieldVisible(job, 'qualifications')) {
+    patterns.push(...DESCRIPTION_SECTION_STRIP_PATTERNS.qualifications);
+  }
+  if (!isPortalFieldVisible(job, 'candidateRequirements')) {
+    patterns.push(...DESCRIPTION_SECTION_STRIP_PATTERNS.candidateRequirements);
+  }
+  if (!isPortalFieldVisible(job, 'skills')) {
+    patterns.push(...DESCRIPTION_SECTION_STRIP_PATTERNS.skills);
+  }
+  if (!isPortalFieldVisible(job, 'jobDescription')) {
+    return null;
+  }
+  if (!patterns.length) return value;
+  return stripHiddenDescriptionSections(value, patterns) || null;
+}
+
 function redactPortalJobPayload(job, payload) {
   const out = { ...payload };
   if (!isPortalFieldVisible(job, 'jobTitle')) {
@@ -133,6 +197,20 @@ function redactPortalJobPayload(job, payload) {
     out.jobCategory = null;
   }
   if (!isPortalFieldVisible(job, 'targetHireDate')) out.expectedClosureDate = null;
+
+  if (out.description) {
+    out.description = scrubDescriptionForVisibility(job, out.description);
+  }
+  if (out.overview) {
+    out.overview = scrubDescriptionForVisibility(job, out.overview);
+  }
+  if (out.aboutRole) {
+    out.aboutRole = scrubDescriptionForVisibility(job, out.aboutRole);
+  }
+  if (out.jobDescriptionHtml) {
+    out.jobDescriptionHtml = scrubDescriptionForVisibility(job, out.jobDescriptionHtml);
+  }
+
   return out;
 }
 
