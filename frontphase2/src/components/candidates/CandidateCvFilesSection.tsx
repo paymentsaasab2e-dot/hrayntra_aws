@@ -6,6 +6,7 @@ import type { CandidateProfileDrawerData } from '../drawers/CandidateProfileDraw
 import type { CandidateResumeCvEditorApi } from './CandidateResumeTabPanel';
 import {
   candidateToCvEditorData,
+  hasPortalAiCv,
   hasResumeTabUpdatedCv,
   mergeResumeTabCandidateSource,
   type ResumeCvViewMode,
@@ -72,11 +73,22 @@ export function CandidateCvFilesSection({
     [backendCandidate, candidate],
   );
 
+  const hasAiCv = hasPortalAiCv(resumeSource);
   const hasUpdatedCv = hasResumeTabUpdatedCv(resumeSource);
   const updatedCvData = useMemo(
     () => (hasUpdatedCv ? candidateToCvEditorData(resumeSource) : null),
     [hasUpdatedCv, resumeSource],
   );
+  const aiCvJobTitle = useMemo(() => {
+    const extra = resumeSource?.extraData;
+    if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return null;
+    const meta = (extra as Record<string, unknown>).portalTailoredCv;
+    if (meta && typeof meta === 'object' && !Array.isArray(meta)) {
+      const title = String((meta as Record<string, unknown>).jobTitle || '').trim();
+      if (title) return title;
+    }
+    return null;
+  }, [resumeSource]);
 
   const canDeleteUpdatedCv = canEdit && Boolean(deleteUpdatedCv) && hasUpdatedCv;
 
@@ -155,7 +167,7 @@ export function CandidateCvFilesSection({
 
   const showOriginal = Boolean(String(originalResumeUrl || '').trim());
   const showSaasa = Boolean(saasaCvFileEntry);
-  const showAnyCv = showOriginal || hasUpdatedCv || showSaasa;
+  const showAnyCv = showOriginal || hasAiCv || hasUpdatedCv || showSaasa;
 
   if (!showAnyCv) return null;
 
@@ -164,7 +176,7 @@ export function CandidateCvFilesSection({
       <div>
         <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">CV versions</h4>
         <p className="mt-0.5 text-xs text-slate-500">
-          Original upload, recruiter-edited CV, and SAASA export — same as the Resume tab.
+          Original upload, AI-tailored apply CV, recruiter-edited CV, and SAASA export — same as the Resume tab.
         </p>
       </div>
 
@@ -201,6 +213,34 @@ export function CandidateCvFilesSection({
               )}
               Download
             </button>
+          </div>
+        </div>
+      ) : null}
+
+      {hasAiCv ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-violet-200 bg-violet-50/70 p-3">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <FileText size={16} className="shrink-0 text-violet-600" />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-slate-900">AI CV</p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                {aiCvJobTitle
+                  ? `Tailored for ${aiCvJobTitle} via job portal editor`
+                  : 'Tailored CV submitted from the job portal editor'}
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {onViewResumeTab ? (
+              <button
+                type="button"
+                onClick={() => onViewResumeTab('ai')}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              >
+                <Eye size={14} />
+                View
+              </button>
+            ) : null}
           </div>
         </div>
       ) : null}

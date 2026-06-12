@@ -182,23 +182,31 @@ async function removeRoadmapItem(userId, itemId) {
   });
 }
 
-async function upsertCareerPath(userId, payload) {
+async function upsertCareerPath(userId, payload, attempt = 0) {
   const { currentPhase, roadmapItems, missionStarted } = payload;
-  
-  return prisma.lmsCareerPath.upsert({
-    where: { userId },
-    update: {
-      currentPhase,
-      roadmapItems,
-      missionStarted
-    },
-    create: {
-      userId,
-      currentPhase: currentPhase || 'foundation',
-      roadmapItems: roadmapItems || [],
-      missionStarted: missionStarted || false
+
+  try {
+    return await prisma.lmsCareerPath.upsert({
+      where: { userId },
+      update: {
+        currentPhase,
+        roadmapItems,
+        missionStarted
+      },
+      create: {
+        userId,
+        currentPhase: currentPhase || 'foundation',
+        roadmapItems: roadmapItems || [],
+        missionStarted: missionStarted || false
+      }
+    });
+  } catch (error) {
+    if (error?.code === 'P2034' && attempt < 4) {
+      await new Promise((resolve) => setTimeout(resolve, 40 * (attempt + 1)));
+      return upsertCareerPath(userId, payload, attempt + 1);
     }
-  });
+    throw error;
+  }
 }
 
 async function fetchTargetDetails(targetType, targetId) {

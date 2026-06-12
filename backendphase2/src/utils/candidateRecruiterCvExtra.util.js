@@ -5,6 +5,12 @@ export const RECRUITER_CV_EXTRA_KEYS = [
   'cvEditorContentSavedAt',
   'resumeCvViewMode',
   'cvSubmission',
+  'portalTailoredCvHtml',
+  'portalStudioTemplateId',
+  'portalTailoredCv',
+  'portalAiCvSaved',
+  'portalAiCvSavedAt',
+  'recruiterCvEditorSaved',
 ];
 
 function parseExtra(extraData) {

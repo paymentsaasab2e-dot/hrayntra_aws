@@ -1,5 +1,9 @@
 import { prisma } from '../../config/prisma.js';
 import { getJobPortalPrismaClient } from '../../config/prisma.js';
+import {
+  notifyCandidateHired,
+  notifyCandidateStageChanged,
+} from '../setting/alert-notify.helpers.js';
 
 export const PIPELINE_STAGES = {
   APPLIED: 'APPLIED',
@@ -450,6 +454,19 @@ export async function updateCandidateStage({
   const label = mapPipelineStageToCrmCandidateLabel(stage);
   const upper = String(stage || '').toUpperCase();
 
+  const previousCandidate = await prisma.candidate.findUnique({
+    where: { id: candidateId },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      stage: true,
+      assignedToId: true,
+    },
+  });
+  const previousStage = previousCandidate?.stage || null;
+
   let status = 'ACTIVE';
   if (upper === PIPELINE_STAGES.REJECTED) {
     status = 'INACTIVE';
@@ -525,6 +542,34 @@ export async function updateCandidateStage({
       where: { candidateId, jobId },
       data: { status: 'COMPLETED' },
     });
+  }
+
+  try {
+    if (label && label !== previousStage) {
+      const job = jobId
+        ? await prisma.job.findUnique({
+            where: { id: jobId },
+            select: { id: true, title: true, client: { select: { companyName: true } } },
+          })
+        : null;
+      await notifyCandidateStageChanged({
+        candidate: previousCandidate || { id: candidateId, stage: label },
+        job,
+        previousStage,
+        newStage: label,
+        performedById,
+      });
+      if (upper === PIPELINE_STAGES.HIRED) {
+        await notifyCandidateHired({
+          candidate: previousCandidate,
+          job,
+          client: job?.client,
+          recruiterId: performedById || previousCandidate?.assignedToId,
+        });
+      }
+    }
+  } catch (alertErr) {
+    console.warn('[updateCandidateStage] alert failed:', alertErr?.message || alertErr);
   }
 
   if (!skipStageActivity && performedById) {

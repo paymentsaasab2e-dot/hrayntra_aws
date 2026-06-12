@@ -8,6 +8,7 @@ import {
   enrichBackendCandidateFromPhase1Snapshot,
   getPhase1ProfileSnapshot,
   PHASE1_CANDIDATE_TAG_LABEL,
+  resolvePhase1PersonalInfo,
 } from './phase1ProfileSnapshot';
 import { resolveCandidateExperienceYears } from './candidateExperience';
 import { normalizeCareerPreferencesRecord } from './normalizeCareerPreferencesRecord';
@@ -117,6 +118,62 @@ export function formatCandidateSalaryDisplay(
   const formattedNumber = num.toLocaleString();
   const head = currencyCode ? `${currencyCode} ${formattedNumber}` : formattedNumber;
   return freqLabel ? `${head} / ${freqLabel}` : head;
+}
+
+function joinNameParts(...parts: Array<string | null | undefined>): string {
+  return parts
+    .map((part) => String(part || '').trim())
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+}
+
+function pickRicherDisplayName(...candidates: string[]): string {
+  const valid = candidates.map((value) => value.trim()).filter(Boolean);
+  if (!valid.length) return '';
+  return valid.sort((a, b) => {
+    const aTokens = a.split(/\s+/).filter(Boolean).length;
+    const bTokens = b.split(/\s+/).filter(Boolean).length;
+    if (bTokens !== aTokens) return bTokens - aTokens;
+    return b.length - a.length;
+  })[0];
+}
+
+/** Single source of truth for candidate name in table, drawer, and exports. */
+export function resolveCandidateDisplayName(
+  raw: BackendCandidate,
+  opts?: { alreadyEnriched?: boolean },
+): string {
+  const c = opts?.alreadyEnriched ? raw : enrichBackendCandidateFromPhase1Snapshot(raw);
+  const extra =
+    c.extraData && typeof c.extraData === 'object' && !Array.isArray(c.extraData)
+      ? (c.extraData as Record<string, unknown>)
+      : null;
+  const snap = getPhase1ProfileSnapshot(extra);
+  const pi = resolvePhase1PersonalInfo(snap, c);
+  const middleName = String(
+    (c as BackendCandidate & { middleName?: string | null }).middleName || pi.middleName || '',
+  ).trim();
+
+  const phase1Full = joinNameParts(pi.firstName, pi.middleName, pi.lastName);
+  const enrichedFull = joinNameParts(c.firstName, middleName, c.lastName);
+  const basicFull = joinNameParts(c.firstName, c.lastName);
+
+  const namePart =
+    c.isPhase1Candidate && phase1Full
+      ? phase1Full
+      : pickRicherDisplayName(phase1Full, enrichedFull, basicFull);
+
+  const emailPart = displayCandidateEmail(c.email?.trim() || '');
+  const phonePart = c.phone?.trim() || '';
+  const shortId = c.id && c.id.length >= 6 ? c.id.slice(-6) : c.id;
+
+  return (
+    namePart ||
+    emailPart ||
+    phonePart ||
+    (shortId ? `Candidate …${shortId}` : 'Candidate')
+  );
 }
 
 type BackendCandidateInterview = NonNullable<BackendCandidate['interviews']>[number];
@@ -233,15 +290,7 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
         ? phase1Snap.resume.atsScore
         : null;
 
-  const namePart = `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim();
-  const emailPart = displayCandidateEmail(c.email?.trim() || '');
-  const phonePart = c.phone?.trim() || '';
-  const shortId = c.id && c.id.length >= 6 ? c.id.slice(-6) : c.id;
-  const fullName =
-    namePart ||
-    emailPart ||
-    phonePart ||
-    (shortId ? `Candidate …${shortId}` : 'Candidate');
+  const fullName = resolveCandidateDisplayName(c, { alreadyEnriched: true });
   const latestMatch = c.matches?.[0];
   const latestInterview = c.interviews?.[0];
   const salary = formatSalary(c.salary);

@@ -1,6 +1,8 @@
 const { prisma } = require('../lib/prisma');
 const { createCandidateNotification } = require('../services/notification.service');
 const { scheduleCandidateCommonSync } = require('../services/candidateCommonSync.service');
+const { loadTailoredCvForJob, syncTailoredCvToPhase2AfterApply } = require('../services/lmsTailoredCvPhase2Sync.service');
+const { mapLmsDraftToRecruiterCvFields } = require('../services/lmsTailoredCvMapper.service');
 const {
   resolvePublicCompanyName,
   shouldShowClientNamePublicly,
@@ -454,6 +456,17 @@ function normalizeResumeWorkEntries(entries) {
 }
 
 async function syncApplicationToRecruiterView(candidateId, job) {
+  const tailoredCv = await loadTailoredCvForJob(candidateId, job.id);
+  const tailoredFields = tailoredCv?.draft
+    ? mapLmsDraftToRecruiterCvFields(tailoredCv.draft, {
+        templateId: tailoredCv.templateId,
+        jobTitle: tailoredCv.jobTitle || job.title,
+        company: tailoredCv.company,
+        resumeHtml: tailoredCv.resumeHtml,
+        avatarUrl: tailoredCv.avatarUrl,
+      })
+    : null;
+
   const candidate = await prisma.candidate.findUnique({
     where: { id: candidateId },
     include: {
@@ -553,9 +566,14 @@ async function syncApplicationToRecruiterView(candidateId, job) {
       phone: candidate.profile?.phoneNumber || candidate.whatsappNumber || candidate.phone || resumePersonalInfo.phoneNumber || null,
       linkedIn: candidate.profile?.linkedinUrl || candidate.linkedIn || resumePersonalInfo.linkedinUrl || null,
       resumeUrl: candidate.resume?.fileUrl || candidate.resumeUrl || null,
-      recruiterSkills: recruiterSkills.length ? recruiterSkills : resumeSkills,
+      recruiterSkills: tailoredFields?.recruiterSkills?.length
+        ? tailoredFields.recruiterSkills
+        : recruiterSkills.length
+          ? recruiterSkills
+          : resumeSkills,
       experienceYears: calculateExperienceYears(candidate.workExperiences),
-      currentTitle: latestWork?.jobTitle || candidate.currentTitle || null,
+      currentTitle:
+        tailoredFields?.currentTitle || latestWork?.jobTitle || candidate.currentTitle || null,
       currentCompany: latestWork?.company || candidate.currentCompany || null,
       location: latestWork?.workLocation || candidate.location || candidate.profile?.city || resumePersonalInfo.city || null,
       addressLine: candidate.profile?.address || candidate.addressLine || resumePersonalInfo.address || null,
@@ -572,9 +590,21 @@ async function syncApplicationToRecruiterView(candidateId, job) {
       recruiterEducation: educationSummary || candidate.recruiterEducation || fallbackEducationEntries[0]?.degree || null,
       recruiterLanguages: recruiterLanguages.length ? recruiterLanguages : resumeLanguages,
       certificationsList: resumeCertifications,
-      cvSummary: candidate.summary?.summaryText || candidate.cvSummary || resumeSummary,
-      cvEducationEntries: cvEducationEntries.length ? cvEducationEntries : fallbackEducationEntries,
-      cvWorkExperienceEntries: cvWorkExperienceEntries.length ? cvWorkExperienceEntries : fallbackWorkEntries,
+      cvSummary:
+        tailoredFields?.cvSummary ||
+        candidate.summary?.summaryText ||
+        candidate.cvSummary ||
+        resumeSummary,
+      cvEducationEntries: tailoredFields?.cvEducationEntries?.length
+        ? tailoredFields.cvEducationEntries
+        : cvEducationEntries.length
+          ? cvEducationEntries
+          : fallbackEducationEntries,
+      cvWorkExperienceEntries: tailoredFields?.cvWorkExperienceEntries?.length
+        ? tailoredFields.cvWorkExperienceEntries
+        : cvWorkExperienceEntries.length
+          ? cvWorkExperienceEntries
+          : fallbackWorkEntries,
       cvPortfolioLinks,
       preferredLocation:
         candidate.careerPreferences?.preferredLocations?.[0] ||
@@ -724,6 +754,80 @@ async function syncPhase2TenantAfterPortalApply(candidateId, jobId) {
   } catch (e) {
     console.warn('[Application] Phase2 tenant sync failed:', e?.message || e);
   }
+}
+
+/**
+ * Mirror portal withdraw into the Phase 2 tenant DB (detach match, application, pipeline).
+ */
+async function syncPhase2AfterPortalWithdraw(candidateId, jobId) {
+  const base =
+    process.env.PHASE2_INTERNAL_API_URL ||
+    process.env.PHASE2_API_URL ||
+    process.env.PHASE2_BASE_URL ||
+    'http://localhost:5001';
+  const secret =
+    process.env.PHASE2_PORTAL_SYNC_SECRET || 'phase2-portal-sync-2026-shared-secret';
+
+  let tenantDbName = null;
+  try {
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      select: { tenantDbName: true },
+    });
+    tenantDbName = String(job?.tenantDbName || '').trim() || null;
+  } catch (e) {
+    console.warn('[Application] Could not read job.tenantDbName for withdraw:', e?.message || e);
+  }
+  if (!tenantDbName) {
+    tenantDbName = String(process.env.PHASE2_DEFAULT_TENANT_DB_NAME || '').trim() || null;
+  }
+
+  if (!tenantDbName) {
+    console.warn(
+      `[Application] Phase2 withdraw sync skipped — no tenantDbName on Job ${jobId} and no PHASE2_DEFAULT_TENANT_DB_NAME env fallback.`
+    );
+    return;
+  }
+
+  const url = `${String(base).replace(/\/$/, '')}/api/v1/internal/sync-portal-withdraw-application`;
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-phase2-portal-sync-secret': secret,
+      },
+      body: JSON.stringify({
+        tenantDbName,
+        candidateId,
+        jobId,
+      }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      console.warn('[Application] Phase2 withdraw sync HTTP error:', res.status, text);
+    } else {
+      console.log(
+        `✅ Phase2 withdraw sync ok | candidateId=${candidateId} jobId=${jobId} tenantDbName=${tenantDbName}`
+      );
+    }
+  } catch (e) {
+    console.warn('[Application] Phase2 withdraw sync failed:', e?.message || e);
+  }
+}
+
+function isTerminalPortalCandidateStage(stage) {
+  const normalized = String(stage || '').trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.includes('hire') ||
+    normalized === 'placed' ||
+    normalized === 'joined' ||
+    normalized === 'onboarded' ||
+    normalized.includes('reject')
+  );
 }
 
 /**
@@ -880,16 +984,19 @@ async function createApplication(req, res) {
     });
 
     // Heavy / outbound sync must not block or fail the HTTP response (avoids client "Failed to fetch" on hangs / crashes).
-    Promise.allSettled([
-      syncApplicationToRecruiterView(candidateId, job),
-      syncPhase2TenantAfterPortalApply(candidateId, job.id),
-    ]).then((results) => {
-      results.forEach((r, idx) => {
-        if (r.status === 'rejected') {
-          console.error(`[Application] Post-commit sync slot ${idx} failed:`, r.reason);
-        }
-      });
-    });
+    void (async () => {
+      try {
+        await syncApplicationToRecruiterView(candidateId, job);
+      } catch (e) {
+        console.error('[Application] Portal recruiter sync failed:', e);
+      }
+      try {
+        await syncPhase2TenantAfterPortalApply(candidateId, job.id);
+        await syncTailoredCvToPhase2AfterApply(candidateId, job.id);
+      } catch (e) {
+        console.error('[Application] Phase2 apply/tailored-CV sync failed:', e);
+      }
+    })();
   } catch (error) {
     console.error('Error creating application:', error);
     res.status(500).json({
@@ -1547,18 +1654,27 @@ async function withdrawApplication(req, res) {
       // Remove this job from candidate.assignedJobs so Explore Jobs can show it again as not-applied.
       const candidate = await prisma.candidate.findUnique({
         where: { id: candidateId },
-        select: { assignedJobs: true },
+        select: { assignedJobs: true, stage: true },
       });
       if (candidate && Array.isArray(candidate.assignedJobs)) {
         const nextAssignedJobs = candidate.assignedJobs.filter((j) => String(j) !== String(app.jobId));
         if (nextAssignedJobs.length !== candidate.assignedJobs.length) {
+          const portalUpdate = { assignedJobs: nextAssignedJobs, lastActivity: new Date() };
+          if (
+            nextAssignedJobs.length === 0 &&
+            !isTerminalPortalCandidateStage(candidate.stage)
+          ) {
+            portalUpdate.stage = 'New';
+          }
           await prisma.candidate.update({
             where: { id: candidateId },
-            data: { assignedJobs: nextAssignedJobs },
+            data: portalUpdate,
           });
         }
       }
     }, 10);
+
+    await syncPhase2AfterPortalWithdraw(candidateId, app.jobId);
 
     return res.json({
       success: true,

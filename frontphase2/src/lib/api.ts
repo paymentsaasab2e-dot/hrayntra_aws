@@ -5891,6 +5891,70 @@ export const apiPatchNotificationTriggerTemplatesOverrides = async (
   });
 };
 
+// ── Alerts Management (email + portal bell per event) ──
+
+export type AlertChannelSettings = {
+  email: boolean;
+  portal: boolean;
+};
+
+export type AlertDefinition = {
+  id: string;
+  module: string;
+  label: string;
+  description: string;
+  emailTriggerId?: string | null;
+  category: string;
+  severity: 'info' | 'warning' | 'critical' | string;
+  defaultEmail: boolean;
+  defaultPortal: boolean;
+};
+
+export type AlertCatalogGroup = {
+  module: string;
+  alerts: AlertDefinition[];
+};
+
+export type AlertManagementPayload = {
+  catalog: AlertCatalogGroup[];
+  channels: Record<string, AlertChannelSettings>;
+  scope?: string;
+  updatedAt?: string | null;
+};
+
+export const apiGetAlertManagement = async () => {
+  return apiFetch<AlertManagementPayload>('/settings/alert-management', { auth: true });
+};
+
+export const apiUpdateAlertManagement = async (
+  channels: Record<string, AlertChannelSettings>,
+) => {
+  return apiFetch<AlertManagementPayload>('/settings/alert-management', {
+    method: 'PATCH',
+    auth: true,
+    body: { channels, scope: 'ORG' },
+  });
+};
+
+export const apiTestAlertEmail = async (alertId: string) => {
+  return apiFetch<{ alertId: string; to: string }>('/settings/alert-management/test-email', {
+    method: 'POST',
+    auth: true,
+    body: { alertId },
+  });
+};
+
+export const apiTestAlertPortal = async (alertId: string) => {
+  return apiFetch<{ alertId: string; notificationId: string }>(
+    '/settings/alert-management/test-portal',
+    {
+      method: 'POST',
+      auth: true,
+      body: { alertId },
+    },
+  );
+};
+
 export type AriaUndoPayload = {
   available: boolean;
   actionId: string;

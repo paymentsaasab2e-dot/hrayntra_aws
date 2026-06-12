@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { SettingsSidebar } from '../../components/SettingsSidebar';
 import { CommunicationSettings } from '../../components/settings/CommunicationSettings';
 import { NotificationTriggerSettings } from '../../components/settings/NotificationTriggerSettings';
+import { AlertsManagementSettings } from '../../components/settings/AlertsManagementSettings';
 import { RecruitmentWorkflowSettings } from '../../components/settings/RecruitmentWorkflowSettings';
 import { BillingSettings } from '../../components/BillingSettings';
 import { SecuritySettings } from '../../components/SecuritySettings';
@@ -31,6 +32,7 @@ export default function SettingsPage() {
         case 'communication':
           return hasAnyPermission(['manage_settings', 'access_integrations']);
         case 'notifications-triggers':
+        case 'alerts-management':
           return hasAnyPermission(['manage_settings']);
         case 'recruitment':
         case 'security':
@@ -61,6 +63,7 @@ export default function SettingsPage() {
       'profile',
       'communication',
       'notifications-triggers',
+      'alerts-management',
       'recruitment',
       'billing',
       'security',
@@ -89,6 +92,8 @@ export default function SettingsPage() {
         return <CommunicationSettings />;
       case 'notifications-triggers':
         return <NotificationTriggerSettings />;
+      case 'alerts-management':
+        return <AlertsManagementSettings />;
       case 'recruitment':
         return <RecruitmentWorkflowSettings />;
       case 'billing':
@@ -108,6 +113,7 @@ export default function SettingsPage() {
     profile: 'Personal Profile',
     communication: 'Communication & Integrations',
     'notifications-triggers': 'Notifications Trigger Points',
+    'alerts-management': 'Alerts Management',
     recruitment: 'Recruitment workflow',
     billing: 'Billing & Commission',
     security: 'Data & Security',

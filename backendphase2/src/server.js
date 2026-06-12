@@ -6,6 +6,7 @@ import { prisma } from './config/prisma.js';
 import { attachBulkCvSocket } from './socket/bulkCvSocket.js';
 import { attachSessionSocket } from './socket/sessionSocket.js';
 import { sessionService } from './modules/session/session.service.js';
+import { startAlertScheduler } from './modules/setting/alert-scheduler.service.js';
 
 const PORT = env.PORT || 5001;
 
@@ -57,6 +58,8 @@ function startServer() {
     void sessionService.runInactivityCleanup();
     void sessionService.expireStaleTransfers();
   }, 60 * 1000);
+
+  startAlertScheduler();
 
   let isShuttingDown = false;
 

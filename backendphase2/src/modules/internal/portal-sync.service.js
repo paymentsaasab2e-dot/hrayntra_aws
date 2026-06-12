@@ -1,10 +1,11 @@
 import { prisma, runWithTenantContext, getJobPortalPrismaClient } from '../../config/prisma.js';
+import { detachCandidateFromJobLink } from './portal-job-detach.service.js';
 import {
   PIPELINE_STAGES,
   resolveJobPipelineStageForRole,
   updateCandidateStage,
 } from '../stage/candidateStage.service.js';
-import { createUserNotification } from '../notification/notification.service.js';
+import { notifyJobPortalApplication } from '../setting/alert-notify.helpers.js';
 import { placementService } from '../placement/placement.service.js';
 
 /**
@@ -189,6 +190,28 @@ export async function applyPortalApplicationSync({
       });
     }
 
+    try {
+      await prisma.application.upsert({
+        where: {
+          candidateId_jobId: { candidateId: candId, jobId: jId },
+        },
+        create: {
+          candidateId: candId,
+          jobId: jId,
+          status: 'SUBMITTED',
+        },
+        update: {
+          status: 'SUBMITTED',
+          updatedAt: new Date(),
+        },
+      });
+    } catch (appErr) {
+      console.warn(
+        '[applyPortalApplicationSync] tenant application upsert failed (non-fatal):',
+        appErr?.message || appErr,
+      );
+    }
+
     const appliedPipelineStage = await resolveJobPipelineStageForRole(jId, PIPELINE_STAGES.APPLIED);
     const fallbackStage = await prisma.pipelineStage.findFirst({
       where: { jobId: jId },
@@ -344,22 +367,6 @@ export async function applyPortalApplicationSync({
           `${existing.firstName || ''} ${existing.lastName || ''}`.trim() ||
           existing.email ||
           'A candidate';
-        const bellPayload = {
-          category: 'CANDIDATE',
-          title: previouslyRejected ? 'Candidate re-applied' : 'Candidate applied for job',
-          description: `${fullNameForBell} applied to ${job.title || 'a job'}${
-            previouslyRejected ? ' (previously rejected — moved back to Applied)' : ''
-          }.`,
-          actionLabel: 'View candidate',
-          actionPath: `/candidate?candidateId=${candId}`,
-          entityType: 'CANDIDATE',
-          entityId: candId,
-          metadata: {
-            kind: previouslyRejected ? 'portal-reapply-after-reject' : 'portal-apply',
-            jobId: jId,
-            jobTitle: job.title || null,
-          },
-        };
         const recruiterIds = new Set([activityActor]);
         if (job.assignedToId && job.assignedToId !== activityActor) {
           recruiterIds.add(job.assignedToId);
@@ -367,9 +374,14 @@ export async function applyPortalApplicationSync({
         if (job.createdById && job.createdById !== activityActor) {
           recruiterIds.add(job.createdById);
         }
-        await Promise.allSettled(
-          Array.from(recruiterIds).map((uid) => createUserNotification(uid, bellPayload))
-        );
+        await notifyJobPortalApplication({
+          userIds: Array.from(recruiterIds),
+          candidateName: fullNameForBell,
+          jobTitle: job.title || 'a job',
+          candidateId: candId,
+          jobId: jId,
+          isReapply: previouslyRejected,
+        });
       } catch (bellErr) {
         console.warn(
           '[applyPortalApplicationSync] notification failed (non-fatal):',
@@ -432,6 +444,26 @@ export async function backfillPortalJobTenantDbNames({ tenantDbName }) {
     }
 
     return { tenantDbName: tdb, scanned: tenantJobs.length, updated, missing };
+  });
+}
+
+/**
+ * Candidate withdrew on the job portal — detach them from this job in the tenant CRM.
+ * Portal DB cleanup is already done by backend1; only tenant rows are updated here.
+ */
+export async function applyPortalWithdrawSync({ tenantDbName, candidateId, jobId }) {
+  const tdb = String(tenantDbName || '').trim();
+  if (!tdb) {
+    throw new Error('tenantDbName is required');
+  }
+  const candId = String(candidateId || '').trim();
+  const jId = String(jobId || '').trim();
+  if (!candId || !jId) {
+    throw new Error('candidateId and jobId are required');
+  }
+
+  return runWithTenantContext(tdb, async () => {
+    await detachCandidateFromJobLink(candId, jId, { skipPortalCleanup: true });
   });
 }
 

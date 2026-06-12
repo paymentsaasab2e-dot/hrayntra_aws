@@ -20,6 +20,10 @@ import { ENTITY_TYPES } from './activityService.js';
 import { canViewAllAssignments } from '../utils/permissionScope.js';
 import { notifyInterviewScheduleChange } from '../modules/notification/interviewNotifications.js';
 import {
+  notifyInterviewCancelled,
+  notifyMatchClientReviewCompleted,
+} from '../modules/setting/alert-notify.helpers.js';
+import {
   buildCvEditorPreviewFromCandidate,
   buildCvEditorPreviewFromSnapshot,
   buildCvSubmissionSnapshot,
@@ -1142,6 +1146,24 @@ export const interviewService = {
       metadata: { softDeleted: true },
     });
 
+    try {
+      const recipientIds = [
+        interview.interviewerId,
+        interview.createdById,
+        ...(interview.panelIds || []),
+      ];
+      await notifyInterviewCancelled({
+        interview,
+        candidate: interview.candidate,
+        job: interview.job,
+        recipientUserIds: recipientIds,
+        reason: 'Interview cancelled',
+        performedById: user.id,
+      });
+    } catch (alertErr) {
+      console.warn('[interview.softDelete] alert failed:', alertErr?.message || alertErr);
+    }
+
     return interview;
   },
 
@@ -1218,6 +1240,7 @@ export const interviewService = {
       jobId: updated.jobId,
       interviewId: updated.id,
       scheduledAt: nextDate,
+      previousScheduledAt: current.scheduledAt,
       mode: updated.mode,
       meetingLink: updated.meetingLink || null,
       schedulerUserId: user?.id || null,
@@ -1825,6 +1848,22 @@ export const interviewService = {
             '[interview.submitPublicClientTag] match activity log failed:',
             activityError?.message || activityError
           );
+        }
+        try {
+          const recruiterId = match.createdById || interview?.createdById || uploaderId;
+          const candidateName =
+            `${candidate?.firstName || ''} ${candidate?.lastName || ''}`.trim() || 'Candidate';
+          await notifyMatchClientReviewCompleted({
+            recruiterUserId: recruiterId,
+            candidateName,
+            jobTitle: job?.title,
+            clientName: job?.client?.companyName,
+            tag,
+            candidateId,
+            jobId,
+          });
+        } catch (alertErr) {
+          console.warn('[interview.submitPublicClientTag] review alert failed:', alertErr?.message || alertErr);
         }
         updatedRecordId = match.id;
       }

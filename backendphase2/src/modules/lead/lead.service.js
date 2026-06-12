@@ -4,6 +4,13 @@ import { dbLogger } from '../../utils/db-logger.js';
 import { sendLeadFollowUpEmail } from '../../emails/email.service.js';
 import activityService from '../../services/activityService.js';
 import { sendLeadAssignmentEmail } from '../../services/emailService.js';
+import { createAlertNotification } from '../setting/alert-dispatch.service.js';
+import {
+  notifyLeadConvertedToClient,
+  notifyLeadMarkedLost,
+  notifyLeadStatusChanged,
+  personName,
+} from '../setting/alert-notify.helpers.js';
 import { canViewAllLeads } from '../../utils/permissionScope.js';
 import { normalizeContactChannels } from '../../utils/contact-channels.js';
 import {
@@ -1130,8 +1137,50 @@ export const leadService = {
           assignedByName: assignedBy?.name || null,
           senderUserId: data.performedById,
         });
+
+        await createAlertNotification(data.assignedToId, 'lead.assigned', {
+          category: 'LEAD',
+          title: 'Lead assigned to you',
+          description: `${updated.companyName || 'A lead'} was assigned to you${
+            assignedBy?.name ? ` by ${assignedBy.name}` : ''
+          }.`,
+          actionLabel: 'Open lead',
+          actionPath: `/leads?leadId=${id}`,
+          entityType: 'LEAD',
+          entityId: id,
+        });
       } catch (emailError) {
         console.error('Failed to send lead assignment email:', emailError);
+      }
+    }
+
+    if (data.status && data.status !== currentLead.status && updated.assignedToId) {
+      try {
+        const performer = data.performedById
+          ? await prisma.user.findUnique({
+              where: { id: data.performedById },
+              select: { name: true, firstName: true, lastName: true, email: true },
+            })
+          : null;
+        const performerName = personName(performer);
+        if (data.status === 'Lost') {
+          await notifyLeadMarkedLost({
+            lead: updated,
+            lostReason: data.lostReason || updated.lostReason,
+            performedById: data.performedById,
+            performedByName: performerName,
+          });
+        } else if (data.status !== 'Converted') {
+          await notifyLeadStatusChanged({
+            lead: updated,
+            previousStatus: currentLead.status,
+            newStatus: data.status,
+            performedById: data.performedById,
+            performedByName: performerName,
+          });
+        }
+      } catch (alertErr) {
+        console.warn('[lead.update] lifecycle alert failed:', alertErr?.message || alertErr);
       }
     }
 
@@ -1528,6 +1577,23 @@ export const leadService = {
       } catch (err) {
         console.error('Failed to create activity log:', err);
       }
+    }
+
+    try {
+      const performer = clientData.performedById
+        ? await prisma.user.findUnique({
+            where: { id: clientData.performedById },
+            select: { name: true, firstName: true, lastName: true, email: true },
+          })
+        : null;
+      await notifyLeadConvertedToClient({
+        lead,
+        client,
+        performedById: clientData.performedById,
+        performedByName: personName(performer),
+      });
+    } catch (alertErr) {
+      console.warn('[lead.convertToClient] alert failed:', alertErr?.message || alertErr);
     }
 
     return client;

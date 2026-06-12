@@ -701,6 +701,103 @@ Return ONLY the improved content in plain text.`;
   return content;
 }
 
+function stripPriorTailorSummaryBlocks(summary) {
+  let text = String(summary || '').replace(/\s+/g, ' ').trim();
+  const patterns = [
+    /Role alignment:[^.]*\./gi,
+    /Seeking to contribute as[^.]*\./gi,
+    /Seeking the [^.]* opportunity at[^.]*\./gi,
+    /Targeting\s+[^.]+\s+at\s+[^.]+\./gi,
+    /Core strengths:[^.]*\./gi,
+    /Building alignment with[^.]*\./gi,
+    /Building depth in[^.]*\./gi,
+    /Proven expertise in[^.]*\./gi,
+    /Experience aligned with[^.]*\./gi,
+    /Highlights include[^.]*\./gi,
+    /Aligned with [^.]* requirements\./gi,
+  ];
+  for (const pattern of patterns) {
+    text = text.replace(pattern, '');
+  }
+  const match = text.match(/^(.{8,90}?\s+with\s+[\d–\-+]+\s*(?:yrs?|years?))\s+/i);
+  if (match?.[1]) {
+    const prefix = match[1].trim();
+    const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    text = text.replace(new RegExp(`^(?:${escaped}\\s*)+`, 'i'), `${prefix} `);
+  }
+  return text.replace(/\s+/g, ' ').replace(/\.{2,}/g, '.').trim();
+}
+
+async function tailorResumeSummaryForJob({
+  existingSummary = '',
+  jobTitle = '',
+  company = '',
+  experienceLevel = '',
+  matchedSkills = [],
+  missingSkills = [],
+  experienceContext = '',
+}) {
+  const role = String(jobTitle || 'this role').trim();
+  const org = String(company || 'the company').trim();
+  const cleaned = stripPriorTailorSummaryBlocks(existingSummary);
+  const matched = (Array.isArray(matchedSkills) ? matchedSkills : []).slice(0, 6).join(', ');
+  const missing = (Array.isArray(missingSkills) ? missingSkills : []).slice(0, 4).join(', ');
+
+  const prompt = `You are an expert resume writer. Rewrite ONE professional summary tailored for a job application.
+
+Target role: ${role}
+Company: ${org}
+Experience level: ${experienceLevel || 'not specified'}
+JD-matched skills: ${matched || 'not specified'}
+Growth areas from JD: ${missing || 'none'}
+${experienceContext ? `Recent experience context: ${experienceContext}` : ''}
+Current summary (may contain outdated duplicate tailoring — ignore repeated phrases):
+${cleaned || 'No existing summary — write from the role and skills above.'}
+
+Requirements:
+1. Return ONE cohesive paragraph of 3–4 sentences (maximum 110 words).
+2. Professional, confident, ATS-friendly tone.
+3. Naturally weave matched skills; mention growth areas only briefly if relevant.
+4. End with clear interest in the ${role} role at ${org}.
+5. Do NOT use section labels such as "Role alignment:", "Core strengths:", or "Seeking to contribute as".
+6. Do NOT repeat the job title or years-of-experience phrase more than once.
+7. Return ONLY the summary text — no quotes, markdown, or commentary.`;
+
+  try {
+    const openai = getOpenAIClient();
+    if (openai) {
+      const completion = await openai.chat.completions.create({
+        model: OPENAI_CHAT_MODEL,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.55,
+        max_tokens: 220,
+      });
+      const text = completion.choices[0].message.content.trim();
+      if (text) return stripPriorTailorSummaryBlocks(text);
+    }
+  } catch (error) {
+    console.warn('tailorResumeSummaryForJob OpenAI failed:', error.message);
+  }
+
+  try {
+    const anthropic = getAnthropicClient();
+    if (anthropic) {
+      const message = await anthropic.messages.create({
+        model: 'claude-3-haiku-20240307',
+        max_tokens: 280,
+        temperature: 0.55,
+        messages: [{ role: 'user', content: prompt }],
+      });
+      const text = message.content[0].text.trim();
+      if (text) return stripPriorTailorSummaryBlocks(text);
+    }
+  } catch (error) {
+    console.error('tailorResumeSummaryForJob final error:', error);
+  }
+
+  throw new Error('Failed to tailor summary with AI');
+}
+
 async function generateResumeSummary(headline, experienceContext = '') {
   const prompt = `You are a professional resume writer for high-end roles. Generate a compelling, 3-5 line professional summary for a candidate.
 Candidate Headline: ${headline}
@@ -836,6 +933,7 @@ module.exports = {
   generateNoteAction,
   improveResumeSection,
   generateResumeSummary,
+  tailorResumeSummaryForJob,
   checkResumeATS,
   getCompanyResearchData,
   generatePersonalizedRecommendations,

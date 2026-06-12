@@ -3490,7 +3490,7 @@ export function CandidateProfileDrawer({
     onToast: handleCvToast,
     onViewModeChange: (mode) => {
       if (mode) setResumeTabViewPreference(mode);
-      if (mode === 'updated') setActiveTab('Resume');
+      if (mode === 'updated' || mode === 'ai') setActiveTab('Resume');
     },
   });
 

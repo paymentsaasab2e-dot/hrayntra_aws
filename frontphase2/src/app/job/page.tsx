@@ -331,6 +331,9 @@ function mapBackendJobToJobForDrawer(backendJob: Record<string, any>, fallbackJo
     visibility: backendJob.visibility || undefined,
     showClientNamePublicly: backendJob.showClientNamePublicly !== false,
     publicFieldVisibility: backendJob.publicFieldVisibility || undefined,
+    supportingRecruiters: Array.isArray(backendJob.supportingRecruiters)
+      ? backendJob.supportingRecruiters.map(String)
+      : [],
     auditMeta: extractAuditMeta(backendJob as Record<string, unknown>),
   };
 }

@@ -40,13 +40,13 @@ import {
 } from '../../services/emailService.js';
 import { buildSuperAdminOwnerScope, isSuperAdminUser } from '../../utils/superAdminScope.js';
 import { canViewAllAssignments, hasAnyPermission as hasAnyPermissionScope } from '../../utils/permissionScope.js';
-import {
-  createUserNotification,
-  pushPortalNotification,
-} from '../notification/notification.service.js';
+import { pushPortalNotification } from '../notification/notification.service.js';
+import { createAlertNotification } from '../setting/alert-dispatch.service.js';
+import { notifyCandidateRejectedInternal } from '../setting/alert-notify.helpers.js';
 import { notifyInterviewScheduleChange } from '../notification/interviewNotifications.js';
 import { AI_MATCH_AUTHOR_WHERE } from '../match/matchQueryHelpers.js';
 import { permanentDeleteCandidateById } from '../../services/candidatePermanentDelete.service.js';
+import { detachCandidateFromJobLink } from '../internal/portal-job-detach.service.js';
 
 const CANDIDATE_ACTIVITY_ENTITY = 'CANDIDATE';
 const NOTE_ACTIVITY_KIND = 'candidate-note';
@@ -3891,17 +3891,7 @@ export const candidateService = {
       throw new Error('Pipeline entry not found for this job');
     }
 
-    const updatedAssignedJobs = (candidate.assignedJobs || []).filter(
-      (id) => String(id) !== normalizedJobId
-    );
-
-    await prisma.candidate.update({
-      where: { id: candidateId },
-      data: {
-        assignedJobs: updatedAssignedJobs,
-        lastActivity: new Date(),
-      },
-    });
+    await detachCandidateFromJobLink(candidateId, normalizedJobId);
 
     await prisma.activity.create({
       data: {
@@ -4052,15 +4042,17 @@ export const candidateService = {
         candidate.email ||
         'Candidate';
       if (userId) {
-        await createUserNotification(userId, {
-          category: 'CANDIDATE',
-          title: 'Candidate rejected',
-          description: `${candidateName} was rejected (${reason}).`,
-          actionLabel: 'View candidate',
-          actionPath: `/candidate?candidateId=${candidateId}`,
-          entityType: 'CANDIDATE',
-          entityId: candidateId,
-          metadata: { reason, jobId: jobId || null },
+        const job = jobId
+          ? await prisma.job.findUnique({ where: { id: jobId }, select: { title: true } })
+          : null;
+        await notifyCandidateRejectedInternal({
+          userId,
+          candidateId,
+          candidateName,
+          reason,
+          jobTitle: job?.title || null,
+          performedById: userId,
+          candidateEmailSent: Boolean(data?.sendEmail) && Boolean(candidate.email),
         });
       }
       void pushPortalNotification(candidateId, {
@@ -4789,6 +4781,22 @@ export const candidateService = {
                 })),
               })
             )
+        );
+
+        await Promise.allSettled(
+          uniqueRecruiterIds.map((recruiterId) =>
+            createAlertNotification(recruiterId, 'candidate.assigned', {
+              category: 'CANDIDATE',
+              title: 'Candidate assigned to you',
+              description: `${assignedCandidates.length} candidate(s) assigned to you${
+                assignedBy?.name ? ` by ${assignedBy.name}` : ''
+              }.`,
+              actionLabel: 'View candidates',
+              actionPath: '/candidate',
+              entityType: 'CANDIDATE',
+              metadata: { count: assignedCandidates.length },
+            })
+          )
         );
 
         return { updated: updated.count };

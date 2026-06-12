@@ -1,0 +1,556 @@
+/**
+ * Central registry of Phase 2 system alerts.
+ * Each alert can drive email (via emailTriggerId) and/or portal bell notifications.
+ */
+
+export const ALERT_CATALOG = [
+  // ── Leads ──
+  {
+    id: 'lead.assigned',
+    module: 'Leads',
+    label: 'Lead Assigned',
+    description: 'New ownership — start outreach.',
+    emailTriggerId: 'lead.assignment_email',
+    category: 'LEAD',
+    severity: 'info',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+  {
+    id: 'lead.followup_due_today',
+    module: 'Leads',
+    label: 'Follow-up Due Today',
+    description: 'Act before the date passes.',
+    emailTriggerId: 'lead.followup_email',
+    category: 'LEAD',
+    severity: 'warning',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+  {
+    id: 'lead.followup_overdue',
+    module: 'Leads',
+    label: 'Follow-up Overdue',
+    description: 'Stale lead hurts conversion.',
+    emailTriggerId: 'alert.lead_followup_overdue',
+    category: 'LEAD',
+    severity: 'warning',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+  {
+    id: 'lead.status_changed',
+    module: 'Leads',
+    label: 'Status Changed',
+    description: 'Team visibility when lead status updates.',
+    emailTriggerId: 'alert.lead_status_changed',
+    category: 'LEAD',
+    severity: 'info',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+  {
+    id: 'lead.marked_lost',
+    module: 'Leads',
+    label: 'Lead Marked as Lost',
+    description: 'Pipeline and forecast update.',
+    emailTriggerId: 'alert.lead_marked_lost',
+    category: 'LEAD',
+    severity: 'info',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+  {
+    id: 'lead.converted_to_client',
+    module: 'Leads',
+    label: 'Lead Converted to Client',
+    description: 'Major lifecycle event.',
+    emailTriggerId: 'alert.lead_converted_to_client',
+    category: 'LEAD',
+    severity: 'info',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+
+  // ── Clients ──
+  {
+    id: 'client.assigned',
+    module: 'Clients',
+    label: 'Client Assigned',
+    description: 'Account ownership handoff.',
+    emailTriggerId: 'client.assignment_email',
+    category: 'CLIENT',
+    severity: 'info',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+  {
+    id: 'client.followup_due',
+    module: 'Clients',
+    label: 'Client Follow-up Due',
+    description: 'Retention and renewals.',
+    emailTriggerId: 'client.followup_email',
+    category: 'CLIENT',
+    severity: 'warning',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+  {
+    id: 'client.followup_overdue',
+    module: 'Clients',
+    label: 'Client Follow-up Overdue',
+    description: 'Overdue client engagement.',
+    emailTriggerId: 'client.followup_email',
+    category: 'CLIENT',
+    severity: 'warning',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+  {
+    id: 'client.kyc_incomplete',
+    module: 'Clients',
+    label: 'KYC Incomplete',
+    description: 'Compliance documents missing.',
+    emailTriggerId: 'alert.client_kyc_incomplete',
+    category: 'CLIENT',
+    severity: 'warning',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+  {
+    id: 'client.invoice_overdue',
+    module: 'Clients',
+    label: 'Overdue Invoices on Client',
+    description: 'Collections risk.',
+    category: 'CLIENT',
+    severity: 'critical',
+    defaultEmail: false,
+    defaultPortal: true,
+  },
+  {
+    id: 'client.status_changed',
+    module: 'Clients',
+    label: 'Client Status Changed',
+    description: 'Account health update.',
+    emailTriggerId: 'alert.client_status_changed',
+    category: 'CLIENT',
+    severity: 'info',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+
+  // ── Jobs ──
+  {
+    id: 'job.assigned',
+    module: 'Jobs',
+    label: 'Job Assigned',
+    description: 'Own the requisition.',
+    emailTriggerId: 'job.assignment_email',
+    category: 'JOB',
+    severity: 'info',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+  {
+    id: 'job.near_sla',
+    module: 'Jobs',
+    label: 'Job Near SLA / Deadline',
+    description: 'Hire-at-risk warning.',
+    emailTriggerId: 'alert.job_near_sla',
+    category: 'JOB',
+    severity: 'warning',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+  {
+    id: 'job.closed',
+    module: 'Jobs',
+    label: 'Job Closed / Filled',
+    description: 'Pipeline closed.',
+    emailTriggerId: 'job.closed_email',
+    category: 'JOB',
+    severity: 'info',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+  {
+    id: 'job.zero_applicants',
+    module: 'Jobs',
+    label: 'Zero Applicants on Open Job',
+    description: 'Sourcing gap.',
+    emailTriggerId: 'alert.job_zero_applicants',
+    category: 'JOB',
+    severity: 'warning',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+  {
+    id: 'job.portal_application',
+    module: 'Jobs',
+    label: 'New Portal Application',
+    description: 'Fresh candidate intake.',
+    emailTriggerId: 'alert.job_portal_application',
+    category: 'JOB',
+    severity: 'info',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+  {
+    id: 'job.candidate_reapplied',
+    module: 'Jobs',
+    label: 'Candidate Re-applied',
+    description: 'Returning applicant.',
+    emailTriggerId: 'alert.job_candidate_reapplied',
+    category: 'JOB',
+    severity: 'info',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+
+  // ── Candidates ──
+  {
+    id: 'candidate.assigned',
+    module: 'Candidates',
+    label: 'Candidate Assigned',
+    description: 'Workload handoff.',
+    emailTriggerId: 'candidate.assignment_email',
+    category: 'CANDIDATE',
+    severity: 'info',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+  {
+    id: 'candidate.stage_changed',
+    module: 'Candidates',
+    label: 'Pipeline Stage Changed',
+    description: 'Hiring progress update.',
+    emailTriggerId: 'alert.candidate_stage_changed',
+    category: 'CANDIDATE',
+    severity: 'info',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+  {
+    id: 'candidate.rejected',
+    module: 'Candidates',
+    label: 'Candidate Rejected',
+    description: 'Team and candidate awareness.',
+    emailTriggerId: 'alert.candidate_rejected_internal',
+    category: 'CANDIDATE',
+    severity: 'info',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+  {
+    id: 'candidate.hired',
+    module: 'Candidates',
+    label: 'Candidate Hired / Placed',
+    description: 'Revenue milestone.',
+    emailTriggerId: 'placement.confirmed_email',
+    category: 'CANDIDATE',
+    severity: 'info',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+
+  // ── Interviews ──
+  {
+    id: 'interview.scheduled',
+    module: 'Interviews',
+    label: 'Interview Scheduled',
+    description: 'Panel and candidate prep.',
+    emailTriggerId: 'interview.panel_scheduled',
+    category: 'INTERVIEW',
+    severity: 'info',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+  {
+    id: 'interview.rescheduled',
+    module: 'Interviews',
+    label: 'Interview Rescheduled',
+    description: 'Schedule change.',
+    emailTriggerId: 'alert.interview_rescheduled',
+    category: 'INTERVIEW',
+    severity: 'info',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+  {
+    id: 'interview.cancelled',
+    module: 'Interviews',
+    label: 'Interview Cancelled',
+    description: 'Attendee coordination.',
+    emailTriggerId: 'alert.interview_cancelled',
+    category: 'INTERVIEW',
+    severity: 'warning',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+  {
+    id: 'interview.feedback_overdue',
+    module: 'Interviews',
+    label: 'Feedback Pending / Overdue',
+    description: 'Decision bottleneck.',
+    category: 'INTERVIEW',
+    severity: 'critical',
+    defaultEmail: false,
+    defaultPortal: true,
+  },
+  {
+    id: 'interview.today_reminder',
+    module: 'Interviews',
+    label: 'Interview Today / This Week',
+    description: 'Prep reminder.',
+    emailTriggerId: 'alert.interview_today_reminder',
+    category: 'INTERVIEW',
+    severity: 'warning',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+
+  // ── Placements ──
+  {
+    id: 'placement.created',
+    module: 'Placements',
+    label: 'Placement / Offer Created',
+    description: 'Revenue event.',
+    emailTriggerId: 'alert.placement_created',
+    category: 'PLACEMENT',
+    severity: 'info',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+  {
+    id: 'placement.joining_scheduled',
+    module: 'Placements',
+    label: 'Joining Date Scheduled',
+    description: 'Onboarding coordination.',
+    emailTriggerId: 'placement.joining_scheduled_candidate',
+    category: 'PLACEMENT',
+    severity: 'info',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+  {
+    id: 'placement.offer_response',
+    module: 'Placements',
+    label: 'Offer Accepted / Declined (Portal)',
+    description: 'Recruiter must act.',
+    emailTriggerId: 'alert.placement_offer_response',
+    category: 'PLACEMENT',
+    severity: 'info',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+  {
+    id: 'placement.failed',
+    module: 'Placements',
+    label: 'Placement Failed / No-show',
+    description: 'Replacement needed.',
+    category: 'PLACEMENT',
+    severity: 'critical',
+    defaultEmail: false,
+    defaultPortal: true,
+  },
+  {
+    id: 'placement.replacement_required',
+    module: 'Placements',
+    label: 'Replacement Required',
+    description: 'SLA / guarantee clock.',
+    category: 'PLACEMENT',
+    severity: 'critical',
+    defaultEmail: false,
+    defaultPortal: true,
+  },
+
+  // ── Billing ──
+  {
+    id: 'billing.invoice_sent',
+    module: 'Billing',
+    label: 'Invoice Sent to Client',
+    description: 'AR tracking.',
+    emailTriggerId: 'billing.invoice_email',
+    category: 'BILLING',
+    severity: 'info',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+  {
+    id: 'billing.invoice_overdue',
+    module: 'Billing',
+    label: 'Invoice Overdue',
+    description: 'Cash collection.',
+    emailTriggerId: 'alert.billing_invoice_overdue',
+    category: 'BILLING',
+    severity: 'critical',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+  {
+    id: 'billing.draft_ready',
+    module: 'Billing',
+    label: 'Draft Invoice Ready',
+    description: 'Finance action needed.',
+    emailTriggerId: 'alert.billing_draft_ready',
+    category: 'BILLING',
+    severity: 'info',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+
+  // ── Matches ──
+  {
+    id: 'match.submitted_to_client',
+    module: 'Matches',
+    label: 'Candidates Submitted to Client',
+    description: 'Client must review.',
+    emailTriggerId: 'alert.match_submitted_internal',
+    category: 'CLIENT',
+    severity: 'info',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+  {
+    id: 'match.client_review_completed',
+    module: 'Matches',
+    label: 'Client Review Completed',
+    description: 'Recruiter should follow up.',
+    emailTriggerId: 'alert.match_client_review_completed',
+    category: 'CLIENT',
+    severity: 'info',
+    defaultEmail: true,
+    defaultPortal: true,
+  },
+
+  // ── Pipeline ──
+  {
+    id: 'pipeline.followup_overdue',
+    module: 'Pipeline',
+    label: 'Follow-up Overdue / Due Today',
+    description: 'Engagement SLA.',
+    category: 'LEAD',
+    severity: 'warning',
+    defaultEmail: false,
+    defaultPortal: true,
+  },
+
+  // ── Tasks ──
+  {
+    id: 'task.assigned',
+    module: 'Tasks',
+    label: 'Task Assigned',
+    description: 'Action required.',
+    category: 'TASK',
+    severity: 'info',
+    defaultEmail: false,
+    defaultPortal: true,
+  },
+  {
+    id: 'task.completed',
+    module: 'Tasks',
+    label: 'Task Completed',
+    description: 'Creator awareness.',
+    category: 'TASK',
+    severity: 'info',
+    defaultEmail: false,
+    defaultPortal: true,
+  },
+  {
+    id: 'task.overdue',
+    module: 'Tasks',
+    label: 'Task Overdue',
+    description: 'SLA breach.',
+    category: 'TASK',
+    severity: 'critical',
+    defaultEmail: false,
+    defaultPortal: true,
+  },
+  {
+    id: 'task.due_today',
+    module: 'Tasks',
+    label: 'Task Due Today',
+    description: 'Same-day priority.',
+    category: 'TASK',
+    severity: 'warning',
+    defaultEmail: false,
+    defaultPortal: true,
+  },
+
+  // ── Team & System ──
+  {
+    id: 'system.welcome',
+    module: 'Team & System',
+    label: 'Welcome Email',
+    description: 'Onboarding after registration.',
+    emailTriggerId: 'auth.welcome_email',
+    category: 'SYSTEM',
+    severity: 'info',
+    defaultEmail: true,
+    defaultPortal: false,
+  },
+  {
+    id: 'system.otp',
+    module: 'Team & System',
+    label: 'OTP Verification',
+    description: 'Password reset / verification.',
+    emailTriggerId: 'auth.otp_verification',
+    category: 'SYSTEM',
+    severity: 'info',
+    defaultEmail: true,
+    defaultPortal: false,
+  },
+  {
+    id: 'system.team_invite',
+    module: 'Team & System',
+    label: 'Team Invite',
+    description: 'New team member credentials.',
+    emailTriggerId: 'team.invite_email',
+    category: 'SYSTEM',
+    severity: 'info',
+    defaultEmail: true,
+    defaultPortal: false,
+  },
+];
+
+const byId = new Map(ALERT_CATALOG.map((a) => [a.id, a]));
+const byEmailTrigger = new Map(
+  ALERT_CATALOG.filter((a) => a.emailTriggerId).map((a) => [a.emailTriggerId, a])
+);
+
+/** Candidate-facing emails that share an Alerts Management row with an internal trigger. */
+const EXTRA_EMAIL_TRIGGER_TO_ALERT_ID = new Map([
+  ['candidate.rejected_email', 'candidate.rejected'],
+]);
+
+export function getAlertDefinition(alertId) {
+  return byId.get(String(alertId || '').trim()) || null;
+}
+
+export function getAlertByEmailTriggerId(triggerId) {
+  const key = String(triggerId || '').trim();
+  const direct = byEmailTrigger.get(key);
+  if (direct) return direct;
+  const alertId = EXTRA_EMAIL_TRIGGER_TO_ALERT_ID.get(key);
+  return alertId ? byId.get(alertId) || null : null;
+}
+
+export function getAlertCatalogGrouped() {
+  const groups = new Map();
+  for (const alert of ALERT_CATALOG) {
+    if (!groups.has(alert.module)) groups.set(alert.module, []);
+    groups.get(alert.module).push(alert);
+  }
+  return Array.from(groups.entries()).map(([module, alerts]) => ({ module, alerts }));
+}
+
+export function buildDefaultAlertChannels() {
+  const channels = {};
+  for (const alert of ALERT_CATALOG) {
+    channels[alert.id] = {
+      email: Boolean(alert.defaultEmail),
+      portal: Boolean(alert.defaultPortal),
+    };
+  }
+  return channels;
+}

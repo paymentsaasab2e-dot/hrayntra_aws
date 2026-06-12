@@ -1274,3 +1274,43 @@ export async function sendSessionTransferRequestEmail(payload) {
     return { success: false, error: error.message || 'Failed to send email' };
   }
 }
+
+/**
+ * Send a test email from Alerts Management (bypasses trigger toggles).
+ */
+export async function sendAlertTestEmail({ senderUserId, toEmail, subject, html, triggerId }) {
+  try {
+    if (!toEmail) return { success: false, error: 'Recipient email is required' };
+    await sendEmail({
+      senderUserId: senderUserId || null,
+      toEmail,
+      subject,
+      html,
+      triggerId: triggerId || 'alert.test',
+    });
+    return { success: true };
+  } catch (error) {
+    console.error('Error sending alert test email:', error);
+    return { success: false, error: error.message || 'Failed to send email' };
+  }
+}
+
+/**
+ * Production lifecycle alert email (no [TEST] prefix).
+ */
+export async function sendLifecycleAlertEmail({ senderUserId, toEmail, subject, html, triggerId }) {
+  try {
+    if (!toEmail) return { success: false, error: 'Recipient email is required' };
+    await sendEmail({
+      senderUserId: senderUserId || null,
+      toEmail,
+      subject,
+      html,
+      triggerId: triggerId || 'alert.lifecycle',
+    });
+    return { success: true };
+  } catch (error) {
+    console.error('Error sending lifecycle alert email:', error);
+    return { success: false, error: error.message || 'Failed to send email' };
+  }
+}

@@ -9,6 +9,8 @@ import { getPaginationParams, formatPaginationResponse } from '../../utils/pagin
 import { dbLogger } from '../../utils/db-logger.js';
 import activityService from '../../services/activityService.js';
 import { sendJobAssignmentEmail, sendJobClosedEmail } from '../../services/emailService.js';
+import { createAlertNotification } from '../setting/alert-dispatch.service.js';
+import { notifyJobClosed, personName } from '../setting/alert-notify.helpers.js';
 import { buildSuperAdminOwnerScope, mergeWhereWithScope } from '../../utils/superAdminScope.js';
 import { canViewAllAssignments } from '../../utils/permissionScope.js';
 import {
@@ -905,6 +907,20 @@ export const jobService = {
         assignedByName: assignedBy?.name || null,
         senderUserId: performedById,
       });
+
+      if (job.assignedToId) {
+        await createAlertNotification(job.assignedToId, 'job.assigned', {
+          category: 'JOB',
+          title: 'Job assigned to you',
+          description: `${job.title || 'A job'} was assigned to you${
+            assignedBy?.name ? ` by ${assignedBy.name}` : ''
+          }.`,
+          actionLabel: 'Open job',
+          actionPath: `/job?jobId=${job.id}`,
+          entityType: 'JOB',
+          entityId: job.id,
+        });
+      }
     } catch (emailError) {
       console.error('Failed to send job assignment email:', emailError);
     }
@@ -1515,6 +1531,22 @@ export const jobService = {
         } catch (emailErr) {
           console.warn('[job.update] job closed email failed:', emailErr?.message || emailErr);
         }
+        try {
+          const performer = data.performedById
+            ? await prisma.user.findUnique({
+                where: { id: data.performedById },
+                select: { name: true, firstName: true, lastName: true, email: true },
+              })
+            : null;
+          await notifyJobClosed({
+            job: updatedJob,
+            previousStatus: prevStatus,
+            performedById: data.performedById,
+            performedByName: personName(performer),
+          });
+        } catch (alertErr) {
+          console.warn('[job.update] job closed alert failed:', alertErr?.message || alertErr);
+        }
       }
 
       try {
@@ -1699,6 +1731,22 @@ export const jobService = {
         });
       } catch (emailErr) {
         console.warn('[job.update] job closed email failed:', emailErr?.message || emailErr);
+      }
+      try {
+        const performer = data.performedById
+          ? await prisma.user.findUnique({
+              where: { id: data.performedById },
+              select: { name: true, firstName: true, lastName: true, email: true },
+            })
+          : null;
+        await notifyJobClosed({
+          job: updated,
+          previousStatus: prevStatus,
+          performedById: data.performedById,
+          performedByName: personName(performer),
+        });
+      } catch (alertErr) {
+        console.warn('[job.update] job closed alert failed:', alertErr?.message || alertErr);
       }
     }
 

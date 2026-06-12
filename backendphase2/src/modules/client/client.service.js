@@ -6,6 +6,12 @@ import {
   sendClientAssignmentEmail,
   sendClientFollowUpReminderEmail,
 } from '../../services/emailService.js';
+import { createAlertNotification } from '../setting/alert-dispatch.service.js';
+import {
+  notifyClientKycIncomplete,
+  notifyClientStatusChanged,
+  personName,
+} from '../setting/alert-notify.helpers.js';
 import { normalizeContactChannels } from '../../utils/contact-channels.js';
 import { buildSuperAdminOwnerScope, mergeWhereWithScope } from '../../utils/superAdminScope.js';
 import { canViewAllClients } from '../../utils/permissionScope.js';
@@ -582,6 +588,20 @@ export const clientService = {
         assignedByName: assignedBy?.name || null,
         senderUserId: performedById,
       });
+
+      if (client.assignedToId) {
+        await createAlertNotification(client.assignedToId, 'client.assigned', {
+          category: 'CLIENT',
+          title: 'Client assigned to you',
+          description: `${client.companyName || 'A client'} was assigned to you${
+            assignedBy?.name ? ` by ${assignedBy.name}` : ''
+          }.`,
+          actionLabel: 'Open client',
+          actionPath: `/client?clientId=${client.id}`,
+          entityType: 'CLIENT',
+          entityId: client.id,
+        });
+      }
     } catch (emailError) {
       console.error('Failed to send client assignment email:', emailError);
     }
@@ -914,6 +934,35 @@ export const clientService = {
     }
 
     await mirrorClientRowToJobPortalDb(updated);
+
+    if (!data.skipSideEffects) {
+      try {
+        const performer = data.performedById
+          ? await prisma.user.findUnique({
+              where: { id: data.performedById },
+              select: { name: true, firstName: true, lastName: true, email: true },
+            })
+          : null;
+        const performerName = personName(performer);
+        if (data.status !== undefined && data.status !== currentClient.status) {
+          await notifyClientStatusChanged({
+            client: updated,
+            previousStatus: currentClient.status,
+            newStatus: updated.status,
+            performedById: data.performedById,
+            performedByName: performerName,
+          });
+        }
+        if (data.postServiceKycForm !== undefined) {
+          await notifyClientKycIncomplete({
+            client: updated,
+            performedById: data.performedById,
+          });
+        }
+      } catch (alertErr) {
+        console.warn('[client.update] lifecycle alert failed:', alertErr?.message || alertErr);
+      }
+    }
 
     return updated;
   },

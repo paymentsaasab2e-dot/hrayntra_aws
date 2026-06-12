@@ -345,6 +345,24 @@ export function enrichBackendCandidateFromPhase1Snapshot(c: BackendCandidate): B
   if (sourceExtra.resumeCvViewMode) {
     cvEditorPreserve.resumeCvViewMode = sourceExtra.resumeCvViewMode;
   }
+  if (sourceExtra.portalAiCvSaved === true) {
+    cvEditorPreserve.portalAiCvSaved = true;
+  }
+  if (sourceExtra.portalAiCvSavedAt) {
+    cvEditorPreserve.portalAiCvSavedAt = sourceExtra.portalAiCvSavedAt;
+  }
+  if (sourceExtra.portalTailoredCvHtml) {
+    cvEditorPreserve.portalTailoredCvHtml = sourceExtra.portalTailoredCvHtml;
+  }
+  if (sourceExtra.portalStudioTemplateId) {
+    cvEditorPreserve.portalStudioTemplateId = sourceExtra.portalStudioTemplateId;
+  }
+  if (sourceExtra.portalTailoredCv != null) {
+    cvEditorPreserve.portalTailoredCv = sourceExtra.portalTailoredCv;
+  }
+  if (sourceExtra.recruiterCvEditorSaved === true) {
+    cvEditorPreserve.recruiterCvEditorSaved = true;
+  }
   if (sourceExtra.cvSubmission) cvEditorPreserve.cvSubmission = sourceExtra.cvSubmission;
 
   const mergedExtra: Record<string, unknown> = {

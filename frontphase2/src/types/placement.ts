@@ -153,6 +153,7 @@ export interface PlacementFilters {
   ids?: string;
   search?: string;
   status?: PlacementStatus | '';
+  jobId?: string;
   companyId?: string;
   recruiterId?: string;
   employmentType?: EmploymentType | '';

@@ -181,6 +181,7 @@ model Candidate {
   lmsNotes               LmsNote[]               @relation("LmsNotes")
   lmsEventRegistrations  LmsEventRegistration[]  @relation("LmsEventRegistrations")
   lmsResumeDraft         LmsResumeDraft?         @relation("LmsResumeDraft")
+  lmsResumeRoleVersions  LmsResumeRoleVersion[]  @relation("LmsResumeRoleVersions")
   lmsCareerPath          LmsCareerPath?          @relation("LmsCareerPath")
   lmsInterviewSessions   LmsInterviewPrepSession[] @relation("LmsInterviewSessions")
   lmsInterviewSets       LmsInterviewSet[]       @relation("LmsInterviewSets")
@@ -1290,6 +1291,29 @@ model LmsEventRegistration {
 
   @@unique([userId, eventId])
   @@map("lms_event_registrations")
+}
+
+model LmsResumeRoleVersion {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId         String   @db.ObjectId
+  label          String
+  versionType    String   @default("role-tailored")
+  jobId          String?
+  jobTitle       String?
+  company        String?
+  templateId     String?
+  draftSnapshot  Json
+  resumeHtml     String?
+  fileUrl        String?
+  fileName       String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user           Candidate @relation("LmsResumeRoleVersions", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("lms_resume_role_versions")
+  @@index([userId])
+  @@index([userId, jobId])
 }
 
 model LmsResumeDraft {

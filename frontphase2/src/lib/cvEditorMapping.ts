@@ -47,7 +47,7 @@ export interface CvEditorWatermark {
 export type CvShareMode = 'edited' | 'original' | 'saasa';
 
 /** Resume tab viewer in candidate drawer */
-export type ResumeCvViewMode = 'original' | 'saasa' | 'updated' | 'edited';
+export type ResumeCvViewMode = 'original' | 'saasa' | 'ai' | 'updated' | 'edited';
 
 export interface CvSubmissionStored {
   shareMode: CvShareMode;
@@ -69,6 +69,7 @@ export interface CvEditorLayoutStored {
   sectionOrder?: CvEditorSectionId[];
   watermark?: CvEditorWatermark;
   templateId?: CvEditorTemplateId;
+  portalStudioTemplateId?: string;
   updatedAt?: string;
 }
 
@@ -192,9 +193,52 @@ export function hasUpdatedCvFromEditor(candidate: BackendCandidate | null): bool
   return false;
 }
 
-/** Single Resume-tab “Updated CV” (editor content and/or branded layout). */
+/** Role-tailored CV submitted from the job portal LMS editor on apply. */
+export function hasPortalAiCv(candidate: BackendCandidate | null): boolean {
+  if (readPortalTailoredCvHtml(candidate)) return true;
+  const extra = candidate?.extraData;
+  if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return false;
+  const row = extra as Record<string, unknown>;
+  if (row.portalAiCvSaved === true) return true;
+  const portalMeta = row.portalTailoredCv;
+  if (portalMeta && typeof portalMeta === 'object' && !Array.isArray(portalMeta)) {
+    if ((portalMeta as Record<string, unknown>).hasStudioHtml === true) return true;
+  }
+  return false;
+}
+
+/** Recruiter saved CV via Phase 2 editor (distinct from portal AI apply). */
+export function hasRecruiterCvEditorSave(candidate: BackendCandidate | null): boolean {
+  const extra = candidate?.extraData;
+  if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return false;
+  if ((extra as Record<string, unknown>).recruiterCvEditorSaved === true) return true;
+  if (hasUpdatedCvFromEditor(candidate) && !hasPortalAiCv(candidate)) return true;
+  if (hasCustomCvEditorLayout(candidate) && !hasPortalAiCv(candidate)) return true;
+  return false;
+}
+
+/** Single Resume-tab “Updated CV” (recruiter editor content and/or branded layout). */
 export function hasResumeTabUpdatedCv(candidate: BackendCandidate | null): boolean {
+  if (hasPortalAiCv(candidate) && !hasRecruiterCvEditorSave(candidate)) return false;
   return hasUpdatedCvFromEditor(candidate) || hasCustomCvEditorLayout(candidate);
+}
+
+/** Full studio preview HTML synced from Phase 1 tailor apply. */
+export function readPortalTailoredCvHtml(candidate: BackendCandidate | null): string | null {
+  const extra = candidate?.extraData;
+  if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return null;
+  const html = (extra as Record<string, unknown>).portalTailoredCvHtml;
+  return typeof html === 'string' && html.trim().length > 80 ? html.trim() : null;
+}
+
+export function readPortalStudioTemplateId(candidate: BackendCandidate | null): string | null {
+  const extra = candidate?.extraData;
+  if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return null;
+  const fromExtra = (extra as Record<string, unknown>).portalStudioTemplateId;
+  if (typeof fromExtra === 'string' && fromExtra.trim()) return fromExtra.trim();
+  const layout = readCvEditorLayout(candidate);
+  const fromLayout = layout?.portalStudioTemplateId;
+  return typeof fromLayout === 'string' && fromLayout.trim() ? fromLayout.trim() : null;
 }
 
 /** Saved SAASA CV export (PNG/PDF in Files) is available for the Resume tab. */
@@ -217,6 +261,11 @@ export function pickRecruiterCvExtraFieldsFrontend(
   }
   if (extraData.cvEditorLayout != null) picked.cvEditorLayout = extraData.cvEditorLayout;
   if (extraData.cvSubmission != null) picked.cvSubmission = extraData.cvSubmission;
+  if (extraData.portalTailoredCvHtml) picked.portalTailoredCvHtml = extraData.portalTailoredCvHtml;
+  if (extraData.portalStudioTemplateId) picked.portalStudioTemplateId = extraData.portalStudioTemplateId;
+  if (extraData.portalTailoredCv != null) picked.portalTailoredCv = extraData.portalTailoredCv;
+  if (extraData.portalAiCvSaved === true) picked.portalAiCvSaved = true;
+  if (extraData.recruiterCvEditorSaved === true) picked.recruiterCvEditorSaved = true;
   return picked;
 }
 
@@ -361,6 +410,9 @@ export function listAvailableResumeCvModes(
   if (hasSaasaCvResumeTabMode(candidate)) {
     modes.push('saasa');
   }
+  if (hasPortalAiCv(candidate)) {
+    modes.push('ai');
+  }
   if (hasResumeTabUpdatedCv(candidate)) {
     modes.push('updated');
   }
@@ -381,9 +433,16 @@ export function resolveDefaultResumeCvViewMode(
   if (stored === 'edited' && modes.includes('updated')) {
     return 'updated';
   }
-  if (stored === 'original' || stored === 'saasa' || stored === 'updated' || stored === 'edited') {
+  if (
+    stored === 'original' ||
+    stored === 'saasa' ||
+    stored === 'ai' ||
+    stored === 'updated' ||
+    stored === 'edited'
+  ) {
     if (modes.includes(stored)) return stored;
   }
+  if (modes.includes('ai')) return 'ai';
   if (modes.includes('updated')) return 'updated';
   return modes[0];
 }
@@ -504,11 +563,23 @@ export function buildUpdatedCvRemovalExtra(
     }
   }
 
-  if (hasOriginal) {
+  const portalAiRemains = Boolean(
+    next.portalTailoredCvHtml ||
+      next.portalAiCvSaved === true ||
+      (next.portalTailoredCv &&
+        typeof next.portalTailoredCv === 'object' &&
+        !Array.isArray(next.portalTailoredCv) &&
+        (next.portalTailoredCv as Record<string, unknown>).hasStudioHtml === true)
+  );
+  if (portalAiRemains) {
+    next.resumeCvViewMode = 'ai';
+  } else if (hasOriginal) {
     next.resumeCvViewMode = 'original';
   } else {
     delete next.resumeCvViewMode;
   }
+
+  next.recruiterCvEditorSaved = false;
 
   return next;
 }
@@ -702,6 +773,7 @@ export async function buildCvEditorPersistPatch(
       cvEditorLayout: layout,
       cvEditorContentSaved: true,
       cvEditorContentSavedAt: new Date().toISOString(),
+      recruiterCvEditorSaved: true,
     },
   };
 }

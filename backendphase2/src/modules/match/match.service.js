@@ -18,6 +18,7 @@ import {
   buildCvSubmissionSnapshot,
 } from '../../utils/cvSubmissionSnapshot.js';
 import { AI_MATCH_AUTHOR_WHERE, MANUAL_MATCH_AUTHOR_WHERE } from './matchQueryHelpers.js';
+import { notifyMatchSubmittedToClient } from '../setting/alert-notify.helpers.js';
 
 // Mirror of the interview drawer's purpose codes. Keeping the resolution
 // logic here means a match-submitted-to-client carries the same UX (tag
@@ -1141,6 +1142,21 @@ export const matchService = {
           },
         });
       }
+    }
+
+    try {
+      const candidateName =
+        `${match.candidate?.firstName || ''} ${match.candidate?.lastName || ''}`.trim() ||
+        'Candidate';
+      await notifyMatchSubmittedToClient({
+        match,
+        userId,
+        candidateName,
+        jobTitle: match.job?.title,
+        clientName: match.job?.client?.companyName,
+      });
+    } catch (alertErr) {
+      console.warn('[match.submitToClient] alert failed:', alertErr?.message || alertErr);
     }
 
     return this.getById(id);

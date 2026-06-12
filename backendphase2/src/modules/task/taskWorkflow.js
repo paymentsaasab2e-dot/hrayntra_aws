@@ -1,4 +1,4 @@
-import { createUserNotification } from '../notification/notification.service.js';
+import { createAlertNotification } from '../setting/alert-dispatch.service.js';
 
 function displayUser(user) {
   if (!user) return 'Someone';
@@ -27,7 +27,7 @@ export async function notifyTaskAssignment({
   const title = isReassign ? 'Task reassigned to you' : 'New task assigned to you';
   const description = `${actorName} assigned "${task.title}" to you.`;
 
-  await createUserNotification(assigneeUserId, {
+  await createAlertNotification(assigneeUserId, 'task.assigned', {
     category: 'TASK',
     title,
     description,
@@ -55,7 +55,7 @@ export async function notifyTaskStatusChange({
   if (task.createdById === actorUserId) return;
   if (newStatus !== 'DONE') return;
 
-  await createUserNotification(task.createdById, {
+  await createAlertNotification(task.createdById, 'task.completed', {
     category: 'TASK',
     title: 'Task completed',
     description: `"${task.title}" was marked completed.`,

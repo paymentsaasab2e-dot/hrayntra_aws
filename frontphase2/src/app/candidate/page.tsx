@@ -126,10 +126,14 @@ import {
 } from '../../lib/candidateListMapping';
 import { normalizeCandidateSkillLabels } from '../../lib/normalizeCandidateSkills';
 import {
+  enrichBackendCandidateFromPhase1Snapshot,
+} from '../../lib/phase1ProfileSnapshot';
+import {
   extractApiData,
   getTagColor,
   isValidObjectId,
   mapCandidateProfile,
+  resolveCandidateDisplayName,
 } from '../../lib/mapCandidateProfile';
 import {
   candidateRowCanSubmitToClient,
@@ -245,16 +249,10 @@ function mergeCompanyFilterOptions(existing: string[], next: string[]): string[]
   );
 }
 
-function mapBackendCandidate(c: BackendCandidate): Candidate {
-  const fullName = `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim();
-  const email = displayCandidateEmail(c.email?.trim() || '');
-  const phone = c.phone?.trim() || '';
-  const shortId = c.id && c.id.length >= 6 ? c.id.slice(-6) : c.id;
-  const name =
-    fullName ||
-    email ||
-    phone ||
-    (shortId ? `Candidate …${shortId}` : 'Candidate');
+function mapBackendCandidate(raw: BackendCandidate): Candidate {
+  const c = enrichBackendCandidateFromPhase1Snapshot(raw);
+  const name = resolveCandidateDisplayName(c, { alreadyEnriched: true });
+  const basicFullName = `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim();
   const assignedJobsFromAssignedTitles = resolveCandidateAssignedJobTitles(c);
   const workEntries = collectCandidateWorkEntries(c);
   const rawExperience = resolveCandidateExperienceYears(c) ?? c.experience ?? 0;
@@ -291,7 +289,7 @@ function mapBackendCandidate(c: BackendCandidate): Candidate {
     isPhase1Candidate: c.isPhase1Candidate === true,
     isNewCandidate: Boolean(c.isNewCandidate),
     isJobAppliedCandidate: c.isJobAppliedCandidate === true || candidateShowsAppliedTag(c),
-    bulkCopyLabel: parseBulkCopyLabel(c.lastName || fullName),
+    bulkCopyLabel: parseBulkCopyLabel(c.lastName || basicFullName),
     auditMeta: extractAuditMeta(c as Record<string, unknown>),
   };
 }
@@ -503,6 +501,10 @@ function CandidatesPageContent() {
   }, []);
 
   const syncCandidateCard = useCallback((profile: CandidateProfileDrawerData) => {
+    const profileStage = String(profile.stage || '').trim();
+    const appliedForJob =
+      profileStage.toLowerCase() === 'applied' ||
+      (Array.isArray(profile.assignedJobs) && profile.assignedJobs.length > 0);
     setCandidates((prev) =>
       prev.map((candidate) =>
         candidate.id === profile.id
@@ -511,10 +513,14 @@ function CandidatesPageContent() {
               name: profile.name || candidate.name,
               stage: profile.stage || candidate.stage,
               owner: profile.recruiter || candidate.owner,
+              isJobAppliedCandidate: appliedForJob,
+              isNewCandidate: !appliedForJob && profileStage.toLowerCase() === 'new',
               assignedJobs:
-                profile.assignedJob && profile.assignedJob !== '—'
-                  ? [profile.assignedJob]
-                  : candidate.assignedJobs,
+                Array.isArray(profile.assignedJobs) && profile.assignedJobs.length
+                  ? profile.assignedJobs.map((row) => row.title).filter(Boolean)
+                  : profile.assignedJob && profile.assignedJob !== '—'
+                    ? [profile.assignedJob]
+                    : [],
               designation: profile.designation || candidate.designation,
               company: profile.currentCompany || candidate.company,
               experience: profile.experience ?? candidate.experience,
@@ -2385,6 +2391,7 @@ function CandidatesPageContent() {
             ? async ({ candidateId, jobId }) => {
                 await apiRemoveCandidateFromPipeline(candidateId, jobId);
                 await loadCandidateProfile(candidateId);
+                await loadCandidates({ silent: true });
               }
             : undefined
         }

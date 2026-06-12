@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const pdfParse = require('pdf-parse');
 const mammoth = require('mammoth');
+const { wrapResumeStudioHtmlDocument } = require('../utils/resumeStudioBrand.util');
 
 // Initialize AI services
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -459,6 +460,36 @@ Return only the formatted HTML without any markdown syntax or extra labels.`;
   }
 }
 
+async function launchPdfBrowser() {
+  const args = [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-gpu',
+    '--no-first-run',
+    '--font-render-hinting=none',
+  ];
+  const base = { headless: 'new', args };
+
+  const customPath =
+    process.env.PUPPETEER_EXECUTABLE_PATH ||
+    process.env.CHROME_PATH ||
+    process.env.EDGE_PATH;
+  if (customPath && fs.existsSync(customPath)) {
+    return puppeteer.launch({ ...base, executablePath: customPath });
+  }
+
+  for (const channel of ['chrome', 'msedge']) {
+    try {
+      return await puppeteer.launch({ ...base, channel });
+    } catch (channelErr) {
+      console.warn(`[PDF EXPORT] Could not launch channel "${channel}":`, channelErr?.message || channelErr);
+    }
+  }
+
+  return puppeteer.launch(base);
+}
+
 /**
  * Export resume as PDF
  * POST /api/cveditor/export
@@ -481,156 +512,7 @@ async function exportResumePDF(req, res) {
       });
     }
 
-    // Create full HTML document with comprehensive styling
-    const fullHtml = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="UTF-8">
-          <style>
-            * {
-              margin: 0;
-              padding: 0;
-              box-sizing: border-box;
-            }
-            body {
-              font-family: Arial, Helvetica, sans-serif;
-              padding: 0;
-              margin: 0;
-              line-height: 1.6;
-              color: #000000;
-              background: #ffffff;
-              font-size: 11pt;
-            }
-            .resume-container {
-              width: 100%;
-              margin: 0;
-              padding: 0;
-              background: #ffffff;
-            }
-            /* Reset template-specific padding if it interferes with page edges */
-            #resume-preview, #resume-preview-expanded {
-              width: 100% !important;
-              max-width: none !important;
-              min-height: auto !important;
-              box-shadow: none !important;
-            }
-            h1 {
-              font-size: 24px;
-              font-weight: bold;
-              margin-top: 0;
-              margin-bottom: 10px;
-              color: #000000;
-              line-height: 1.2;
-            }
-            h2 {
-              font-size: 18px;
-              font-weight: bold;
-              margin-top: 24px;
-              margin-bottom: 12px;
-              border-bottom: 2px solid #000000;
-              padding-bottom: 6px;
-              color: #000000;
-              line-height: 1.3;
-            }
-            h3 {
-              font-size: 16px;
-              font-weight: 600;
-              margin-top: 16px;
-              margin-bottom: 8px;
-              color: #000000;
-              line-height: 1.4;
-            }
-            p {
-              margin: 8px 0;
-              color: #000000;
-              line-height: 1.6;
-              text-align: left;
-            }
-            ul {
-              margin: 10px 0;
-              padding-left: 24px;
-              color: #000000;
-            }
-            li {
-              margin: 4px 0;
-              color: #000000;
-              line-height: 1.6;
-            }
-            ol {
-              margin: 10px 0;
-              padding-left: 24px;
-              color: #000000;
-            }
-            strong {
-              font-weight: bold;
-              color: #000000;
-            }
-            em {
-              font-style: italic;
-              color: #000000;
-            }
-            a {
-              color: #2563eb;
-              text-decoration: underline;
-            }
-            hr {
-              border: none;
-              border-top: 1px solid #cccccc;
-              margin: 20px 0;
-            }
-            /* Ensure all text is black unless specified by template */
-            .resume-container :not([style*="color"]) {
-              color: inherit;
-            }
-            /* Proper spacing for sections */
-            section {
-              margin-bottom: 20px;
-            }
-            /* Table styling if any */
-            table {
-              width: 100%;
-              border-collapse: collapse;
-              margin: 10px 0;
-            }
-            th, td {
-              padding: 8px;
-              text-align: left;
-              border-bottom: 1px solid #dddddd;
-              color: #000000;
-            }
-            /* Code blocks if any */
-            code {
-              background: #f5f5f5;
-              padding: 2px 4px;
-              border-radius: 3px;
-              font-family: 'Courier New', monospace;
-              color: #000000;
-            }
-            /* Print-specific styles */
-            @media print {
-              body {
-                padding: 0;
-                margin: 0;
-              }
-              .resume-container {
-                max-width: 100%;
-                width: 100%;
-              }
-              /* Hide UI elements if any leaked in */
-              .hide-on-print {
-                display: none !important;
-              }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="resume-container">
-            ${resume_html}
-          </div>
-        </body>
-      </html>
-    `;
+    const fullHtml = wrapResumeStudioHtmlDocument(resume_html, 'CV');
 
     console.log('--------------------------------------------------');
     console.log('🚀 [PDF EXPORT] Request received for Candidate:', candidateId);
@@ -639,19 +521,7 @@ async function exportResumePDF(req, res) {
     let browser;
     try {
       console.log('🌐 [PDF EXPORT] Launching Puppeteer...');
-      browser = await puppeteer.launch({
-        headless: 'new',
-        args: [
-          '--no-sandbox', 
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-gpu',
-          '--no-first-run',
-          '--no-zygote',
-          '--single-process',
-          '--font-render-hinting=none',
-        ],
-      });
+      browser = await launchPdfBrowser();
       console.log('✅ [PDF EXPORT] Browser launched successfully');
 
       console.log('📝 [PDF EXPORT] Creating new page...');
@@ -665,9 +535,9 @@ async function exportResumePDF(req, res) {
       });
       
       console.log('🖊️ [PDF EXPORT] Setting HTML content...');
-      await page.setContent(fullHtml, { 
-        waitUntil: 'networkidle0',
-        timeout: 60000 
+      await page.setContent(fullHtml, {
+        waitUntil: 'load',
+        timeout: 45000,
       });
       
       console.log('⏳ [PDF EXPORT] Waiting for render...');
@@ -687,14 +557,18 @@ async function exportResumePDF(req, res) {
       await browser.close();
       console.log('🚪 [PDF EXPORT] Browser closed');
 
-      const candidate = await prisma.candidate.findUnique({
-        where: { id: candidateId },
-        select: { profile: { select: { fullName: true } } },
-      });
-
-      const fileName = candidate?.profile?.fullName 
-        ? `Resume_${candidate.profile.fullName.replace(/\s+/g, '_')}.pdf`
-        : 'Resume.pdf';
+      let fileName = 'Resume.pdf';
+      try {
+        const candidate = await prisma.candidate.findUnique({
+          where: { id: candidateId },
+          select: { profile: { select: { fullName: true } } },
+        });
+        if (candidate?.profile?.fullName) {
+          fileName = `Resume_${candidate.profile.fullName.replace(/\s+/g, '_')}.pdf`;
+        }
+      } catch (nameErr) {
+        console.warn('[PDF EXPORT] Could not resolve candidate name:', nameErr?.message || nameErr);
+      }
 
       console.log('📤 [PDF EXPORT] Sending PDF to client:', fileName);
       console.log('--------------------------------------------------');

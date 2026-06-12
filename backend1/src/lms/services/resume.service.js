@@ -1,5 +1,10 @@
 const { prisma } = require('../../lib/prisma');
-const { improveResumeSection, checkResumeATS, generateResumeSummary } = require('./ai.lms.service');
+const {
+  improveResumeSection,
+  checkResumeATS,
+  generateResumeSummary,
+  tailorResumeSummaryForJob,
+} = require('./ai.lms.service');
 const { OPENAI_CHAT_MODEL } = require('../../config/openaiModel');
 
 function calculateStrengthScore(draft) {
@@ -126,7 +131,8 @@ async function fetchDraft(userId) {
 async function upsertDraft(userId, payload) {
   // Frontend might wrap sections in 'content'
   const content = payload.content || payload;
-  const { basics, skills, experience, education, certifications, layoutMatrix, templateId, summary } = content;
+  const { basics, skills, experience, education, certifications, layoutMatrix, templateId, summary, jobTailorJobId } =
+    content;
   
   // Merge summary into basics if it's passed separately (as in the frontend state)
   const finalBasics = {
@@ -163,8 +169,178 @@ async function upsertDraft(userId, payload) {
       syncedToCareerPath: false
     }
   });
-  
+
+  const jobTitle = payload.jobTitle || content.jobTitle || null;
+  const company = payload.company || content.company || null;
+  const resumeHtml = payload.resumeHtml || content.resumeHtml || null;
+
+  try {
+    await upsertRoleVersion(userId, draft, {
+      jobTailorJobId,
+      jobTitle,
+      company,
+      resumeHtml,
+      draftData,
+    });
+  } catch (versionError) {
+    console.warn(
+      `[resume.service] role version save failed | userId=${userId}`,
+      versionError?.message || versionError,
+    );
+  }
+
+  if (jobTailorJobId) {
+    console.log(
+      `[resume.service] JD tailor save | userId=${userId} | jobId=${jobTailorJobId} | headline=${finalBasics.headline || 'n/a'} | skills=${draftData.skills.length}`,
+    );
+  }
+
   return draft;
+}
+
+function buildRoleVersionLabel(jobTitle, jobTailorJobId) {
+  const role = String(jobTitle || '').trim();
+  if (role) return `${role} CV`;
+  if (jobTailorJobId) return 'Role-tailored CV';
+  return 'Studio CV';
+}
+
+async function upsertRoleVersion(userId, draft, meta = {}) {
+  const { jobTailorJobId, jobTitle, company, resumeHtml, draftData } = meta;
+  const label = buildRoleVersionLabel(jobTitle, jobTailorJobId);
+  const versionType = jobTailorJobId ? 'role-tailored' : 'general';
+  const snapshot = {
+    basics: draft.basics,
+    skills: draft.skills,
+    experience: draft.experience,
+    education: draft.education,
+    certifications: draft.certifications,
+    templateId: draft.templateId || draftData?.templateId || 'modern-minimal',
+    strengthScore: draft.strengthScore,
+    summary: draft.basics?.summary || draftData?.basics?.summary || '',
+  };
+
+  const versionPayload = {
+    label,
+    versionType,
+    jobTitle: jobTitle || null,
+    company: company || null,
+    templateId: snapshot.templateId,
+    draftSnapshot: snapshot,
+    resumeHtml: resumeHtml || null,
+    updatedAt: new Date(),
+  };
+
+  if (jobTailorJobId) {
+    const existing = await prisma.lmsResumeRoleVersion.findFirst({
+      where: { userId, jobId: String(jobTailorJobId) },
+    });
+    if (existing) {
+      return prisma.lmsResumeRoleVersion.update({
+        where: { id: existing.id },
+        data: versionPayload,
+      });
+    }
+    return prisma.lmsResumeRoleVersion.create({
+      data: {
+        userId,
+        jobId: String(jobTailorJobId),
+        ...versionPayload,
+      },
+    });
+  }
+
+  const existingGeneral = await prisma.lmsResumeRoleVersion.findFirst({
+    where: { userId, versionType: 'general', jobId: null },
+    orderBy: { updatedAt: 'desc' },
+  });
+  if (existingGeneral) {
+    return prisma.lmsResumeRoleVersion.update({
+      where: { id: existingGeneral.id },
+      data: versionPayload,
+    });
+  }
+  return prisma.lmsResumeRoleVersion.create({
+    data: {
+      userId,
+      jobId: null,
+      ...versionPayload,
+    },
+  });
+}
+
+async function listRoleVersions(userId) {
+  const [uploadedResume, roleVersions] = await Promise.all([
+    prisma.resume.findUnique({ where: { candidateId: userId } }),
+    prisma.lmsResumeRoleVersion.findMany({
+      where: { userId },
+      orderBy: { updatedAt: 'desc' },
+      select: {
+        id: true,
+        label: true,
+        versionType: true,
+        jobId: true,
+        jobTitle: true,
+        company: true,
+        templateId: true,
+        fileUrl: true,
+        fileName: true,
+        resumeHtml: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    }),
+  ]);
+
+  const original = uploadedResume
+    ? {
+        id: uploadedResume.id,
+        label: 'Original CV',
+        versionType: 'original',
+        fileName: uploadedResume.fileName,
+        fileUrl: uploadedResume.fileUrl,
+        fileSize: uploadedResume.fileSize,
+        mimeType: uploadedResume.mimeType,
+        atsScore: uploadedResume.atsScore,
+        uploadedAt: uploadedResume.uploadedAt,
+        updatedAt: uploadedResume.updatedAt,
+      }
+    : null;
+
+  return {
+    original,
+    versions: roleVersions.map(({ resumeHtml, ...rest }) => ({
+      ...rest,
+      hasResumeHtml: Boolean(String(resumeHtml || '').trim().length > 80),
+    })),
+  };
+}
+
+async function getRoleVersionById(userId, versionId) {
+  const version = await prisma.lmsResumeRoleVersion.findFirst({
+    where: { id: String(versionId || '').trim(), userId },
+    select: {
+      id: true,
+      label: true,
+      versionType: true,
+      jobId: true,
+      jobTitle: true,
+      company: true,
+      templateId: true,
+      fileUrl: true,
+      fileName: true,
+      resumeHtml: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+  if (!version) {
+    throw new Error('CV version not found');
+  }
+  return {
+    ...version,
+    hasResumeHtml: Boolean(String(version.resumeHtml || '').trim().length > 80),
+  };
 }
 
 async function syncToCareerPath(userId) {
@@ -233,6 +409,27 @@ async function generateSummary(userId, headline) {
   }
 
   return generateResumeSummary(headline, experienceContext);
+}
+
+async function tailorSummaryForJob(userId, payload = {}) {
+  const draft = await fetchDraft(userId);
+  let experienceContext = '';
+  if (draft?.experience?.length) {
+    experienceContext = draft.experience
+      .slice(0, 2)
+      .map((exp) => `${exp.role} at ${exp.company}`)
+      .join(', ');
+  }
+
+  return tailorResumeSummaryForJob({
+    existingSummary: payload.existingSummary || draft?.summary || '',
+    jobTitle: payload.jobTitle || draft?.basics?.headline || '',
+    company: payload.company || '',
+    experienceLevel: payload.experienceLevel || '',
+    matchedSkills: payload.matchedSkills || [],
+    missingSkills: payload.missingSkills || [],
+    experienceContext,
+  });
 }
 
 async function analyzeDraft(userId) {
@@ -304,5 +501,14 @@ async function checkAtsMatch(userId, jobDescription) {
 }
 
 module.exports = {
-  fetchDraft, upsertDraft, syncToCareerPath, improveAi, generateSummary, analyzeDraft, checkAtsMatch
+  fetchDraft,
+  upsertDraft,
+  syncToCareerPath,
+  improveAi,
+  generateSummary,
+  tailorSummaryForJob,
+  analyzeDraft,
+  checkAtsMatch,
+  listRoleVersions,
+  getRoleVersionById,
 };

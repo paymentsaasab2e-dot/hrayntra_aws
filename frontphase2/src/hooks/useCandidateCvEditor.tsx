@@ -293,6 +293,7 @@ export function useCandidateCvEditor({
         resumeHref || hydrated.resume || hydrated.resumeUrl
       );
       if (modes.includes('original')) return 'original';
+      if (modes.includes('ai')) return 'ai';
       if (modes.includes('updated')) return 'updated';
       if (modes.includes('saasa')) return 'saasa';
       return modes[0] ?? null;
