@@ -17,4 +17,7 @@ router.put('/tenants/plan', authMiddleware, hqController.assignPlan);
 router.delete('/tenants', authMiddleware, hqController.deleteTenant);
 router.delete('/tenants/:email', authMiddleware, hqController.deleteTenant);
 
+router.get('/leads', authMiddleware, hqController.listLeads);
+router.post('/leads', authMiddleware, hqController.createLead);
+
 export default router;

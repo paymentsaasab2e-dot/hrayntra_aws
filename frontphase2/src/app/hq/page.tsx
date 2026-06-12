@@ -1,24 +1,14 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useSearchParams } from 'next/navigation';
 import {
-  Shield,
   Mail,
   User,
   Lock,
   ArrowRight,
-  Loader2,
-  CheckCircle,
-  AlertCircle,
   Hash,
-  Database,
-  Terminal,
-  Server,
-  Building2,
-  LayoutDashboard,
-  Users,
-  Tag,
   RefreshCcw,
 } from 'lucide-react';
 import {
@@ -30,8 +20,21 @@ import {
   type HqTenantRow,
   type SubscriptionPlanOption,
 } from '../../lib/api';
-
-type HqTab = 'dashboard' | 'tenants' | 'provision' | 'plans' | 'bootstrap';
+import type { HqNavTab } from '../../components/hq/HqSidebar';
+import { HQ_NAV_ITEMS } from '../../components/hq/HqSidebar';
+import {
+  HQ_SELECT_CLASS,
+  HqAlert,
+  HqFieldText,
+  HqPageContainer,
+  HqPageHeader,
+  HqPageMain,
+  HqPanel,
+  HqPanelTitle,
+  HqPrimaryButton,
+  HqSecondaryButton,
+  HqStatCard,
+} from '../../components/hq/hqUi';
 
 interface HqStats {
   total: number;
@@ -40,13 +43,13 @@ interface HqStats {
   planCounts: Record<string, number>;
 }
 
-const TAB_CONFIG: { id: HqTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'tenants', label: 'Tenants', icon: Users },
-  { id: 'provision', label: 'Create tenant', icon: Building2 },
-  { id: 'plans', label: 'Plans', icon: Tag },
-  { id: 'bootstrap', label: 'Local bootstrap', icon: Terminal },
-];
+const TAB_DESCRIPTIONS: Record<HqNavTab, string> = {
+  dashboard: 'Platform health, tenant counts, and plan distribution.',
+  tenants: 'Browse and manage all provisioned tenants.',
+  provision: 'Create a new tenant workspace and database.',
+  plans: 'Assign subscription plans to tenants.',
+  bootstrap: 'Local-only super admin credential injection.',
+};
 
 const FALLBACK_PLAN_OPTIONS: SubscriptionPlanOption[] = [
   { id: 'basic', name: 'Basic' },
@@ -54,8 +57,32 @@ const FALLBACK_PLAN_OPTIONS: SubscriptionPlanOption[] = [
   { id: 'enterprise', name: 'Enterprise' },
 ];
 
-const HQSetupPage = () => {
-  const [activeTab, setActiveTab] = useState<HqTab>('dashboard');
+export default function HQSetupPageWrapper() {
+  return (
+    <Suspense
+      fallback={
+        <main className="flex min-h-screen flex-1 items-center justify-center bg-[#f4f5f7] text-sm text-slate-500">
+          Loading HQ console…
+        </main>
+      }
+    >
+      <HQSetupPage />
+    </Suspense>
+  );
+}
+
+function HQSetupPage() {
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const activeTab: HqNavTab =
+    tabParam === 'tenants' ||
+    tabParam === 'provision' ||
+    tabParam === 'plans' ||
+    tabParam === 'bootstrap'
+      ? tabParam
+      : 'dashboard';
+
+  const activeNav = HQ_NAV_ITEMS.find((item) => item.id === activeTab);
 
   const [bootstrapForm, setBootstrapForm] = useState({ name: '', email: '', userId: '', password: '' });
   const [isBootstrapLoading, setIsBootstrapLoading] = useState(false);
@@ -241,67 +268,23 @@ const HQSetupPage = () => {
   }, [stats, planOptions]);
 
   return (
-    <div className="min-h-screen bg-[#0a0a0b] text-white p-6 font-sans relative overflow-hidden">
-      <div className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-hidden">
-        <div className="absolute -top-1/4 -right-1/4 w-[600px] h-[600px] bg-sky-500/10 blur-[120px] rounded-full" />
-        <div className="absolute -bottom-1/4 -left-1/4 w-[600px] h-[600px] bg-indigo-500/10 blur-[120px] rounded-full" />
-        <div
-          className="absolute inset-0 opacity-[0.03]"
-          style={{ backgroundImage: 'radial-gradient(#fff 1px, transparent 1px)', backgroundSize: '40px 40px' }}
-        />
-      </div>
-
+    <HqPageMain>
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
+        initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, ease: 'easeOut' }}
-        className="relative z-10 max-w-6xl mx-auto"
+        transition={{ duration: 0.4, ease: 'easeOut' }}
       >
-        <div className="flex flex-wrap items-center gap-4 mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-sky-500 to-indigo-600 shadow-[0_0_30px_-5px_rgba(14,165,233,0.4)]">
-            <Shield className="w-7 h-7 text-white" />
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-2xl md:text-3xl font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-400">
-              Headquarters Console
-            </h1>
-            <p className="text-slate-500 text-sm font-medium">
-              Provision tenants, assign plans, and watch platform health.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => void refreshTenants()}
-            className="ml-auto inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold text-slate-300 transition-colors"
-            disabled={tenantsLoading}
-          >
-            <RefreshCcw className={`w-3.5 h-3.5 ${tenantsLoading ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
-        </div>
-
-        <div className="flex flex-wrap gap-1 p-1 rounded-2xl bg-[#1c1c1f] border border-white/5 mb-6">
-          {TAB_CONFIG.map((tab) => {
-            const Icon = tab.icon;
-            const active = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => {
-                  setActiveTab(tab.id);
-                  setStatus({ type: 'idle', message: '' });
-                }}
-                className={`flex-1 min-w-[140px] inline-flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider transition-colors ${
-                  active ? 'bg-gradient-to-r from-sky-600 to-indigo-600 text-white shadow' : 'text-slate-500 hover:text-slate-300'
-                }`}
-              >
-                <Icon className="w-3.5 h-3.5" />
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
+        <HqPageContainer>
+          <HqPageHeader
+            title={activeNav?.label || 'Dashboard'}
+            subtitle={TAB_DESCRIPTIONS[activeTab]}
+            actions={
+              <HqSecondaryButton onClick={() => void refreshTenants()} disabled={tenantsLoading}>
+                <RefreshCcw className={`h-4 w-4 ${tenantsLoading ? 'animate-spin' : ''}`} />
+                Refresh data
+              </HqSecondaryButton>
+            }
+          />
 
         {activeTab === 'dashboard' && (
           <DashboardPanel
@@ -357,53 +340,14 @@ const HQSetupPage = () => {
 
         <AnimatePresence mode="wait">
           {status.type !== 'idle' && (
-            <motion.div
-              initial={{ opacity: 0, y: -8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              className={`mt-6 flex items-start gap-3 p-4 rounded-2xl text-[13px] font-semibold leading-relaxed ${
-                status.type === 'success'
-                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                  : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-              }`}
-            >
-              {status.type === 'success' ? (
-                <CheckCircle className="w-5 h-5 shrink-0" />
-              ) : (
-                <AlertCircle className="w-5 h-5 shrink-0" />
-              )}
-              <span>{status.message}</span>
+            <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
+              <HqAlert type={status.type === 'success' ? 'success' : 'error'} message={status.message} />
             </motion.div>
           )}
         </AnimatePresence>
-
-        <div className="mt-10 flex flex-wrap items-center justify-center gap-6 text-[11px] font-black uppercase tracking-[0.2em] text-slate-700">
-          <div className="flex items-center gap-2">
-            <Server className="w-3 h-3" />
-            <span>Auth Service v2.4</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Database className="w-3 h-3" />
-            <span>MongoDB Atlas</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Terminal className="w-3 h-3" />
-            <span>CLI Access Enabled</span>
-          </div>
-        </div>
+        </HqPageContainer>
       </motion.div>
-    </div>
-  );
-};
-
-export default HQSetupPage;
-
-function StatCard({ label, value, accent }: { label: string; value: string | number; accent?: string }) {
-  return (
-    <div className={`rounded-2xl p-5 bg-[#121214] border border-white/5 ${accent || ''}`}>
-      <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">{label}</div>
-      <div className="text-3xl font-black mt-2 text-white">{value}</div>
-    </div>
+    </HqPageMain>
   );
 }
 
@@ -423,37 +367,32 @@ function DashboardPanel({
   const recent = tenants.slice(0, 5);
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard label="Tenants" value={stats?.total ?? (tenantsLoading ? '…' : 0)} />
-        <StatCard label="Agency" value={stats?.agency ?? 0} />
-        <StatCard label="Standalone" value={stats?.standalone ?? 0} />
-        <StatCard label="On a plan" value={tenants.filter((t) => t.subscriptionPlan?.name).length} />
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <HqStatCard label="Tenants" value={stats?.total ?? (tenantsLoading ? '…' : 0)} active />
+        <HqStatCard label="Agency" value={stats?.agency ?? 0} />
+        <HqStatCard label="Standalone" value={stats?.standalone ?? 0} />
+        <HqStatCard label="On a plan" value={tenants.filter((t) => t.subscriptionPlan?.name).length} />
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6">
-        <div className="rounded-2xl p-5 bg-[#121214] border border-white/5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-black uppercase tracking-widest text-slate-400">Plan distribution</h3>
-            <span className="text-[10px] text-slate-600">Live</span>
-          </div>
+      <div className="grid gap-6 md:grid-cols-2">
+        <HqPanel>
+          <HqPanelTitle title="Plan distribution" meta={<span className="text-[10px] text-slate-400">Live</span>} />
           <div className="space-y-2">
             {planSummaryRows.map((row) => (
               <div
                 key={row.name}
-                className="flex items-center justify-between text-sm border-b border-white/5 last:border-b-0 py-2"
+                className="flex items-center justify-between border-b border-slate-100 py-2 text-sm last:border-b-0"
               >
-                <span className="text-slate-300">{row.name}</span>
-                <span className="font-black text-white">{row.count}</span>
+                <span className="text-slate-600">{row.name}</span>
+                <span className="font-bold text-slate-900">{row.count}</span>
               </div>
             ))}
           </div>
-        </div>
-        <div className="rounded-2xl p-5 bg-[#121214] border border-white/5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-black uppercase tracking-widest text-slate-400">Recent tenants</h3>
-          </div>
+        </HqPanel>
+        <HqPanel>
+          <HqPanelTitle title="Recent tenants" />
           {tenantsError ? (
-            <p className="text-xs text-rose-400">{tenantsError}</p>
+            <p className="text-xs text-rose-600">{tenantsError}</p>
           ) : recent.length === 0 ? (
             <p className="text-xs text-slate-500">{tenantsLoading ? 'Loading…' : 'No tenants provisioned yet.'}</p>
           ) : (
@@ -461,23 +400,21 @@ function DashboardPanel({
               {recent.map((t) => (
                 <div
                   key={t.id}
-                  className="flex items-center justify-between text-sm border-b border-white/5 last:border-b-0 py-2"
+                  className="flex items-center justify-between border-b border-slate-100 py-2 text-sm last:border-b-0"
                 >
                   <div className="min-w-0">
-                    <div className="text-white font-bold truncate">{t.name}</div>
-                    <div className="text-slate-500 text-xs truncate">{t.email}</div>
+                    <div className="truncate font-semibold text-slate-900">{t.name}</div>
+                    <div className="truncate text-xs text-slate-500">{t.email}</div>
                   </div>
-                  <div className="text-right shrink-0">
-                    <div className="text-[10px] font-black uppercase tracking-widest text-sky-400">
-                      {t.organizationType}
-                    </div>
-                    <div className="text-xs text-slate-400">{t.subscriptionPlan?.name || '—'}</div>
+                  <div className="shrink-0 text-right">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-sky-700">{t.organizationType}</div>
+                    <div className="text-xs text-slate-500">{t.subscriptionPlan?.name || '—'}</div>
                   </div>
                 </div>
               ))}
             </div>
           )}
-        </div>
+        </HqPanel>
       </div>
     </div>
   );
@@ -503,43 +440,40 @@ function TenantsPanel({
   pendingDeleteEmail: string;
 }) {
   return (
-    <div className="rounded-2xl p-5 bg-[#121214] border border-white/5 overflow-hidden">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-black uppercase tracking-widest text-slate-400">All tenants</h3>
-        <span className="text-[10px] text-slate-600">{tenants.length} total</span>
+    <HqPanel className="p-0">
+      <div className="border-b border-slate-100 px-5 py-4">
+        <HqPanelTitle title="All tenants" meta={<span className="text-[10px] text-slate-400">{tenants.length} total</span>} />
       </div>
       {tenantsError ? (
-        <div className="text-xs text-rose-400 p-4 bg-rose-500/5 border border-rose-500/20 rounded-xl">
-          {tenantsError}
-        </div>
+        <div className="m-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs text-rose-700">{tenantsError}</div>
       ) : tenants.length === 0 ? (
-        <div className="text-xs text-slate-500">{tenantsLoading ? 'Loading…' : 'No tenants yet.'}</div>
+        <div className="px-5 pb-5 text-xs text-slate-500">{tenantsLoading ? 'Loading…' : 'No tenants yet.'}</div>
       ) : (
-        <div className="overflow-x-auto -mx-5 px-5">
+        <div className="overflow-x-auto px-5 pb-5">
           <table className="min-w-full text-sm">
             <thead>
-              <tr className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                <th className="text-left py-2 pr-3">Name</th>
-                <th className="text-left py-2 pr-3">Email</th>
-                <th className="text-left py-2 pr-3">Type</th>
-                <th className="text-left py-2 pr-3">DB</th>
-                <th className="text-left py-2 pr-3">Plan</th>
-                <th className="text-right py-2 pl-3">Actions</th>
+              <tr className="border-b border-slate-100 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                <th className="py-2 pr-3">Name</th>
+                <th className="py-2 pr-3">Email</th>
+                <th className="py-2 pr-3">Type</th>
+                <th className="py-2 pr-3">DB</th>
+                <th className="py-2 pr-3">Plan</th>
+                <th className="py-2 pl-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
               {tenants.map((t) => (
-                <tr key={t.id} className="border-t border-white/5">
-                  <td className="py-2 pr-3 text-white font-semibold">{t.name}</td>
-                  <td className="py-2 pr-3 text-slate-400">{t.email}</td>
-                  <td className="py-2 pr-3 text-sky-400 font-bold">{t.organizationType}</td>
-                  <td className="py-2 pr-3 text-slate-500 font-mono text-xs">{t.tenantDbName || '—'}</td>
-                  <td className="py-2 pr-3">
+                <tr key={t.id} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/60">
+                  <td className="py-3 pr-3 font-semibold text-slate-900">{t.name}</td>
+                  <td className="py-3 pr-3 text-slate-600">{t.email}</td>
+                  <td className="py-3 pr-3 font-semibold text-sky-700">{t.organizationType}</td>
+                  <td className="py-3 pr-3 font-mono text-xs text-slate-500">{t.tenantDbName || '—'}</td>
+                  <td className="py-3 pr-3">
                     <select
                       value={t.subscriptionPlan?.name || ''}
                       onChange={(e) => onAssignPlan(t.email, e.target.value)}
                       disabled={pendingPlanEmail === t.email}
-                      className="bg-[#1c1c1f] border border-white/10 rounded-lg px-2 py-1 text-xs text-slate-200 disabled:opacity-50"
+                      className={HQ_SELECT_CLASS}
                     >
                       <option value="">—</option>
                       {planOptions.map((opt) => (
@@ -549,12 +483,12 @@ function TenantsPanel({
                       ))}
                     </select>
                   </td>
-                  <td className="py-2 pl-3 text-right">
+                  <td className="py-3 pl-3 text-right">
                     <button
                       type="button"
                       onClick={() => onDeleteTenant(t.email, t.tenantDbName)}
                       disabled={pendingDeleteEmail === t.email}
-                      className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-rose-300 hover:bg-rose-500/20 disabled:opacity-50"
+                      className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-rose-700 transition hover:bg-rose-100 disabled:opacity-50"
                       title="Permanently delete this tenant and drop its database"
                     >
                       {pendingDeleteEmail === t.email ? 'Deleting…' : 'Delete'}
@@ -566,7 +500,7 @@ function TenantsPanel({
           </table>
         </div>
       )}
-    </div>
+    </HqPanel>
   );
 }
 
@@ -600,25 +534,24 @@ function ProvisionPanel({
   planOptions: SubscriptionPlanOption[];
 }) {
   return (
-    <form
-      onSubmit={onSubmit}
-      className="bg-[#121214] border border-white/5 rounded-2xl p-6 space-y-5 max-w-2xl"
-    >
-      <p className="text-[11px] text-slate-500 leading-relaxed">
+    <form onSubmit={onSubmit} className="max-w-2xl space-y-5">
+      <HqPanel>
+      <p className="text-sm leading-relaxed text-slate-500">
         Sign in to the main tenant app first so your access token is stored; this calls{' '}
-        <code className="text-sky-400/90">POST /api/v1/hq/provision-tenant</code>. Provisioning creates a workspace
-        record + dedicated tenant DB, seeds the chosen plan, and{' '}
-        <span className="text-emerald-400 font-semibold">emails the new admin their login credentials automatically</span>.
+        <code className="rounded bg-slate-100 px-1 py-0.5 text-xs text-sky-800">POST /api/v1/hq/provision-tenant</code>.
+        Provisioning creates a workspace record + dedicated tenant DB, seeds the chosen plan, and{' '}
+        <span className="font-semibold text-emerald-700">emails the new admin their login credentials automatically</span>.
       </p>
 
-      <FieldText
+      <div className="mt-5 space-y-5">
+      <HqFieldText
         label="Tenant admin name"
         icon={User}
         value={data.name}
         onChange={(v) => onChange({ ...data, name: v })}
         placeholder="Acme HR Admin"
       />
-      <FieldText
+      <HqFieldText
         label="Email"
         icon={Mail}
         type="email"
@@ -626,14 +559,14 @@ function ProvisionPanel({
         onChange={(v) => onChange({ ...data, email: v })}
         placeholder="admin@tenant.com"
       />
-      <FieldText
+      <HqFieldText
         label="Login ID"
         icon={Hash}
         value={data.loginId}
         onChange={(v) => onChange({ ...data, loginId: v })}
         placeholder="acme_admin"
       />
-      <FieldText
+      <HqFieldText
         label="Password (min 8)"
         icon={Lock}
         type="password"
@@ -643,11 +576,9 @@ function ProvisionPanel({
       />
 
       <div className="space-y-2">
-        <label className="text-[12px] uppercase tracking-widest font-black text-slate-500 ml-1">
-          Organization type
-        </label>
-        <div className="flex flex-wrap gap-4 text-sm text-slate-300">
-          <label className="inline-flex items-center gap-2 cursor-pointer">
+        <label className="ml-1 text-xs font-bold uppercase tracking-wider text-slate-500">Organization type</label>
+        <div className="flex flex-wrap gap-4 text-sm text-slate-700">
+          <label className="inline-flex cursor-pointer items-center gap-2">
             <input
               type="radio"
               name="orgType"
@@ -656,7 +587,7 @@ function ProvisionPanel({
             />
             Agency
           </label>
-          <label className="inline-flex items-center gap-2 cursor-pointer">
+          <label className="inline-flex cursor-pointer items-center gap-2">
             <input
               type="radio"
               name="orgType"
@@ -669,7 +600,7 @@ function ProvisionPanel({
       </div>
 
       <div className="space-y-2">
-        <label className="text-[12px] uppercase tracking-widest font-black text-slate-500 ml-1">Plan</label>
+        <label className="ml-1 text-xs font-bold uppercase tracking-wider text-slate-500">Plan</label>
         <div className="flex flex-wrap gap-2">
           {planOptions.map((opt) => {
             const active = data.plan === opt.name;
@@ -678,10 +609,10 @@ function ProvisionPanel({
                 key={opt.id}
                 type="button"
                 onClick={() => onChange({ ...data, plan: opt.name })}
-                className={`px-4 py-2 rounded-lg text-xs font-bold border transition-colors ${
+                className={`rounded-lg border px-4 py-2 text-xs font-bold transition-colors ${
                   active
-                    ? 'border-sky-500 bg-sky-500/10 text-sky-300'
-                    : 'border-white/10 text-slate-400 hover:border-sky-500/40'
+                    ? 'border-sky-300 bg-sky-50 text-sky-800'
+                    : 'border-slate-200 text-slate-600 hover:border-sky-200 hover:bg-slate-50'
                 }`}
               >
                 {opt.name}
@@ -689,26 +620,15 @@ function ProvisionPanel({
             );
           })}
         </div>
-        <p className="text-[11px] text-slate-600">Plan name is stored on the tenant — feature gating arrives later.</p>
+        <p className="text-xs text-slate-400">Plan name is stored on the tenant — feature gating arrives later.</p>
       </div>
 
-      <button
-        type="submit"
-        disabled={isLoading}
-        className="w-full relative group overflow-hidden rounded-2xl p-[1px] font-bold disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        <div className="absolute inset-0 bg-gradient-to-r from-indigo-500 to-violet-600 transition-all group-hover:scale-105 duration-500" />
-        <div className="relative bg-[#121214] rounded-[15px] py-4 px-6 flex items-center justify-center gap-2 group-hover:bg-transparent transition-colors duration-300">
-          {isLoading ? (
-            <Loader2 className="w-5 h-5 animate-spin" />
-          ) : (
-            <>
-              <span>Provision tenant</span>
-              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-            </>
-          )}
-        </div>
-      </button>
+      <HqPrimaryButton type="submit" disabled={isLoading} loading={isLoading} className="w-full">
+        Provision tenant
+        <ArrowRight className="h-4 w-4" />
+      </HqPrimaryButton>
+      </div>
+      </HqPanel>
     </form>
   );
 }
@@ -728,46 +648,45 @@ function PlansPanel({
 }) {
   return (
     <div className="space-y-6">
-      <div className="grid md:grid-cols-3 gap-4">
+      <div className="grid gap-4 md:grid-cols-3">
         {planOptions.map((opt) => {
           const count = planSummaryRows.find((r) => r.name === opt.name)?.count ?? 0;
           return (
-            <div
-              key={opt.id}
-              className="rounded-2xl p-5 bg-[#121214] border border-white/5 flex flex-col gap-2"
-            >
-              <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Plan</div>
-              <div className="text-xl font-black text-white">{opt.name}</div>
-              <div className="text-xs text-slate-500">{count} tenant{count === 1 ? '' : 's'} on this plan</div>
-            </div>
+            <HqPanel key={opt.id}>
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Plan</p>
+              <p className="mt-2 text-2xl font-bold text-slate-900">{opt.name}</p>
+              <p className="mt-1 text-xs text-slate-500">
+                {count} tenant{count === 1 ? '' : 's'} on this plan
+              </p>
+            </HqPanel>
           );
         })}
       </div>
 
-      <div className="rounded-2xl p-5 bg-[#121214] border border-white/5">
-        <h3 className="text-sm font-black uppercase tracking-widest text-slate-400 mb-4">Send plan to a tenant</h3>
-        <p className="text-[11px] text-slate-500 mb-4">
+      <HqPanel>
+        <HqPanelTitle title="Send plan to a tenant" />
+        <p className="mb-4 text-sm text-slate-500">
           Pick an existing tenant by email and assign a plan. The chosen plan will surface in their sidebar in place of
           the “Free Trial” banner.
         </p>
         {tenants.length === 0 ? (
           <p className="text-xs text-slate-500">No tenants yet.</p>
         ) : (
-          <div className="grid md:grid-cols-2 gap-3">
+          <div className="grid gap-3 md:grid-cols-2">
             {tenants.map((t) => (
               <div
                 key={t.id}
-                className="flex items-center justify-between p-3 rounded-xl bg-[#1c1c1f] border border-white/5"
+                className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/80 p-3"
               >
                 <div className="min-w-0">
-                  <div className="text-white text-sm font-semibold truncate">{t.name}</div>
-                  <div className="text-slate-500 text-xs truncate">{t.email}</div>
+                  <div className="truncate text-sm font-semibold text-slate-900">{t.name}</div>
+                  <div className="truncate text-xs text-slate-500">{t.email}</div>
                 </div>
                 <select
                   value={t.subscriptionPlan?.name || ''}
                   onChange={(e) => onAssignPlan(t.email, e.target.value)}
                   disabled={pendingPlanEmail === t.email}
-                  className="bg-[#0a0a0b] border border-white/10 rounded-lg px-2 py-1 text-xs text-slate-200 disabled:opacity-50"
+                  className={HQ_SELECT_CLASS}
                 >
                   <option value="">—</option>
                   {planOptions.map((opt) => (
@@ -780,7 +699,7 @@ function PlansPanel({
             ))}
           </div>
         )}
-      </div>
+      </HqPanel>
     </div>
   );
 }
@@ -797,19 +716,21 @@ function BootstrapPanel({
   isLoading: boolean;
 }) {
   return (
-    <form onSubmit={onSubmit} className="bg-[#121214] border border-white/5 rounded-2xl p-6 space-y-5 max-w-2xl">
-      <p className="text-[11px] text-slate-500 leading-relaxed">
+    <form onSubmit={onSubmit} className="max-w-2xl space-y-5">
+      <HqPanel>
+      <p className="text-sm leading-relaxed text-slate-500">
         Unsecured local bootstrap — injects Super Admin credentials directly into the tenant database. Use only on a
         fresh local environment.
       </p>
-      <FieldText
+      <div className="mt-5 space-y-5">
+      <HqFieldText
         label="Full Name"
         icon={User}
         value={data.name}
         onChange={(v) => onChange({ ...data, name: v })}
         placeholder="e.g. Master Administrator"
       />
-      <FieldText
+      <HqFieldText
         label="Email Address"
         icon={Mail}
         type="email"
@@ -817,73 +738,26 @@ function BootstrapPanel({
         onChange={(v) => onChange({ ...data, email: v })}
         placeholder="admin@hryantra.com"
       />
-      <FieldText
+      <HqFieldText
         label="User ID / Login ID"
         icon={Hash}
         value={data.userId}
         onChange={(v) => onChange({ ...data, userId: v })}
         placeholder="superuser_hq"
       />
-      <FieldText
+      <HqFieldText
         label="System Password"
         icon={Lock}
         type="password"
         value={data.password}
         onChange={(v) => onChange({ ...data, password: v })}
       />
-      <button
-        type="submit"
-        disabled={isLoading}
-        className="w-full relative group overflow-hidden rounded-2xl p-[1px] font-bold disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        <div className="absolute inset-0 bg-gradient-to-r from-sky-500 to-indigo-600 transition-all group-hover:scale-105 duration-500" />
-        <div className="relative bg-[#121214] rounded-[15px] py-4 px-6 flex items-center justify-center gap-2 group-hover:bg-transparent transition-colors duration-300">
-          {isLoading ? (
-            <Loader2 className="w-5 h-5 animate-spin" />
-          ) : (
-            <>
-              <span>Inject Credentials</span>
-              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-            </>
-          )}
-        </div>
-      </button>
-    </form>
-  );
-}
-
-function FieldText({
-  label,
-  icon: Icon,
-  type = 'text',
-  value,
-  onChange,
-  placeholder,
-  minLength,
-}: {
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  type?: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  minLength?: number;
-}) {
-  return (
-    <div className="space-y-2">
-      <label className="text-[12px] uppercase tracking-widest font-black text-slate-500 ml-1">{label}</label>
-      <div className="relative group/input">
-        <Icon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-focus-within/input:text-sky-400 transition-colors" />
-        <input
-          type={type}
-          required
-          minLength={minLength}
-          placeholder={placeholder}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="w-full bg-[#1c1c1f] border border-white/5 rounded-2xl py-4 pl-12 pr-4 text-white text-sm font-medium outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500/30 transition-all placeholder:text-slate-600"
-        />
+      <HqPrimaryButton type="submit" disabled={isLoading} loading={isLoading} className="w-full">
+        Inject Credentials
+        <ArrowRight className="h-4 w-4" />
+      </HqPrimaryButton>
       </div>
-    </div>
+      </HqPanel>
+    </form>
   );
 }

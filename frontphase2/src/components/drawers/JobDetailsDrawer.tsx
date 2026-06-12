@@ -58,6 +58,7 @@ import {
   FileCheck,
   Sparkles,
   Loader2,
+  ClipboardList,
 } from 'lucide-react';
 import {
   apiCreateMatch,
@@ -105,6 +106,7 @@ import type { AuditMeta } from '../../types/audit';
 import { EntityAuditSummary } from '../table/TableAuditCell';
 import { extractAuditMeta } from '../../utils/auditMeta';
 import { JobOverviewTabContent } from './JobOverviewTabContent';
+import { JobAssessmentsTabContent } from '../jobs/JobAssessmentsTabContent';
 
 /** Render salary as `currency min - max` (or single number when only one bound). */
 function formatJobSalaryRange(job: {
@@ -155,6 +157,14 @@ export interface JobForDrawer {
   applicationFormLogo?: string;
   applicationFormQuestions?: string[];
   applicationFormNote?: string;
+  preScreenAssessments?: Array<{
+    id?: string;
+    assessmentId?: string;
+    sortOrder?: number;
+    required?: boolean;
+    timing?: string;
+    assessment?: { id?: string; title?: string; type?: string; durationMinutes?: number };
+  }>;
   applyUrl?: string | null;
   applications?: JobApplicationSubmission[];
   overview?: string;
@@ -403,6 +413,7 @@ export interface JobDetailsDrawerProps {
 
 const TAB_CONFIG = [
   { id: 'overview' as const, label: 'Overview', icon: LayoutGrid },
+  { id: 'assessments' as const, label: 'Assessments', icon: ClipboardList },
   { id: 'candidates' as const, label: 'Candidates', icon: Users },
   { id: 'ai-matches' as const, label: 'AI Matches', icon: Sparkles },
   { id: 'pipeline' as const, label: 'Pipeline', icon: GitBranch },
@@ -1549,6 +1560,10 @@ export function JobDetailsDrawer({
             <div className="flex-1 overflow-y-auto bg-slate-50/30 p-5">
               {activeTab === 'overview' && job && (
                 <JobOverviewTabContent job={job} />
+              )}
+
+              {activeTab === 'assessments' && job && (
+                <JobAssessmentsTabContent job={job} />
               )}
 
               {activeTab === 'candidates' && (

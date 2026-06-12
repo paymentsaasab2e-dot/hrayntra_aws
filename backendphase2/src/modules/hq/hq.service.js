@@ -9,6 +9,7 @@ import {
   SUBSCRIPTION_PLAN_OPTIONS,
 } from '../setting/recruitmentMode.service.js';
 import { sendCredentialInvite } from '../../utils/emailService.js';
+import { hqLeadsService } from './hq-leads.service.js';
 
 function normalizePlanInput(raw) {
   if (!raw) return null;
@@ -234,5 +235,15 @@ export const hqService = {
     const result = await headquartersAuthService.deleteTenantByEmail(email, { dropDatabase });
     if (!result?.deleted) throw new Error('Tenant not found');
     return result;
+  },
+
+  async listLeads(reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqLeadsService.listLeads();
+  },
+
+  async createLead(data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqLeadsService.createLead(data, reqUser);
   },
 };

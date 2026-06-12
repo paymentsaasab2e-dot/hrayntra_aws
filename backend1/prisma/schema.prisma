@@ -817,6 +817,8 @@ model Job {
   applicationFormLogo     String?
   applicationFormQuestions String[] @default([])
   applicationFormNote      String?
+  /// Mirrored from Phase 2 — attached pre-screen assessments (MCQ, essay, etc.)
+  preScreenAssessments     Json?
 
   // Origin tenant DB this job belongs to (e.g. "rus01", "agency-acme"). Written by
   // backendphase2 when the CRM mirrors a job to the portal DB. Multi-agency safe:

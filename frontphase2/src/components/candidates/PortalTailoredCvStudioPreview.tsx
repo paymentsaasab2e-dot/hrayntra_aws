@@ -31,9 +31,12 @@ export function PortalTailoredCvStudioPreview({
 <div aria-hidden="true" style="position:absolute;bottom:1.25rem;right:1.25rem;pointer-events:none;z-index:21;">
   <img src="${logoUrl}" alt="" style="height:2rem;width:auto;max-width:96px;object-fit:contain;opacity:0.8;" />
 </div>`;
-    const bodyHtml = /SAASA%20Logo|SAASA Logo|data-saasa-watermark/i.test(html)
-      ? html.replace(/src=(["'])(?:\/SAASA%20Logo\.png|\/SAASA Logo\.png)\1/gi, `src="${logoUrl}"`)
-      : `<div style="position:relative;overflow:hidden;">${html}${watermark}</div>`;
+    const normalizedHtml = html
+      .replace(/\boverflow-hidden\b/g, 'overflow-visible')
+      .replace(/overflow\s*:\s*hidden/gi, 'overflow:visible');
+    const bodyHtml = /SAASA%20Logo|SAASA Logo|data-saasa-watermark/i.test(normalizedHtml)
+      ? normalizedHtml.replace(/src=(["'])(?:\/SAASA%20Logo\.png|\/SAASA Logo\.png)\1/gi, `src="${logoUrl}"`)
+      : `<div style="position:relative;overflow:visible;padding-bottom:2.5rem;">${normalizedHtml}${watermark}</div>`;
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -44,14 +47,21 @@ export function PortalTailoredCvStudioPreview({
   <title>AI CV — ${safeTemplate}</title>
   <style>
     html, body { margin: 0; padding: 0; background: #e2e8f0; }
-    body { min-height: 100%; }
+    body { min-height: 100%; overflow: auto; }
     .portal-tailored-cv-root {
       box-sizing: border-box;
       max-width: 52rem;
       margin: 0 auto;
       padding: 1rem;
+      overflow: visible;
     }
     .portal-tailored-cv-root * { box-sizing: border-box; }
+    #resume-preview, #resume-preview-expanded, [id*="resume-preview"] {
+      overflow: visible !important;
+      min-height: auto !important;
+      height: auto !important;
+      max-height: none !important;
+    }
   </style>
 </head>
 <body>

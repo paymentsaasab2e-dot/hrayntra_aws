@@ -117,6 +117,18 @@ async function getResumeVersion(req, res) {
   }
 }
 
+async function deleteResumeVersion(req, res) {
+  try {
+    const userId = req.user.id;
+    const result = await resumeService.deleteRoleVersion(userId, req.params.versionId);
+    return sendSuccess(res, result);
+  } catch (error) {
+    const message = String(error?.message || 'Failed to delete CV version');
+    const status = message.includes('not found') ? 404 : 400;
+    return res.status(status).json({ success: false, message });
+  }
+}
+
 module.exports = {
   getResume,
   saveResume,
@@ -128,4 +140,5 @@ module.exports = {
   analyzeResume,
   getResumeVersions,
   getResumeVersion,
+  deleteResumeVersion,
 };

@@ -102,6 +102,28 @@
 }
 
 @layer components {
+  /** HQ console — Playfair Display serif across all text (see app/hq/layout.tsx). */
+  .hq-theme {
+    font-family: var(--font-hq-serif), Georgia, "Times New Roman", Times, serif;
+  }
+
+  .hq-theme input,
+  .hq-theme select,
+  .hq-theme textarea,
+  .hq-theme button {
+    font-family: inherit;
+  }
+
+  .hq-theme table,
+  .hq-theme th,
+  .hq-theme td,
+  .hq-theme label,
+  .hq-theme p,
+  .hq-theme span,
+  .hq-theme a {
+    font-family: inherit;
+  }
+
   /** Standard elevated panel — use on dashboards, lists, drawers */
   .ph2-card {
     @apply border border-slate-200/95 bg-white shadow-ph2-card transition-all duration-200;

@@ -29,6 +29,7 @@ import {
   apiCreateJob,
   apiUpdateJob,
   apiGetJob,
+  getJobPreScreenAssessments,
   apiGetClients,
   apiGetClient,
   apiGetContacts,
@@ -71,6 +72,8 @@ import { normalizeJobSalaryCurrency } from '../../constants/jobSalary';
 import { getCachedOrgDefaultCurrency } from '../../lib/api';
 import { DocumentUploadButton, useDocumentUploadFeedback } from '../import/documentUploadUi';
 import { ApplicationFormBuilderModal } from '../jobs/ApplicationFormBuilderModal';
+import { PreScreenAssessmentSection } from '../jobs/PreScreenAssessmentSection';
+import type { JobPreScreenAssessmentLink } from '../../lib/preScreenAssessmentTypes';
 import {
   defaultApplicationFormSchema,
   normalizeApplicationFormSchema,
@@ -748,6 +751,7 @@ export function CreateJobDrawer({
     applicationQuestions: [] as ScreeningQuestion[],
     noteForCandidates: '',
     applicationFormSchema: defaultApplicationFormSchema() as ApplicationFormSchema,
+    preScreenAssessments: [] as JobPreScreenAssessmentLink[],
     
     // Publish & Share
     linkedInEnabled: false,
@@ -875,6 +879,7 @@ export function CreateJobDrawer({
         applicationQuestions: [],
         noteForCandidates: '',
         applicationFormSchema: defaultApplicationFormSchema(),
+        preScreenAssessments: [],
         linkedInEnabled: false,
         linkedInConnected: false,
         linkedInAccount: null,
@@ -1300,8 +1305,7 @@ export function CreateJobDrawer({
     try {
       setLoadingJob(true);
       const response = await apiGetJob(targetJobId);
-      // Handle different response structures
-      const job = response.data || (response as any);
+      const job = (response as { data?: Record<string, unknown> }).data || (response as Record<string, unknown>);
       
       if (!job) {
         throw new Error('Job data not found');
@@ -1476,6 +1480,44 @@ export function CreateJobDrawer({
         ? String(jobExtras.expectedClosureDate).split('T')[0]
         : '';
 
+      let preScreenAssessmentLinks: JobPreScreenAssessmentLink[] = [];
+      const fromJob = (job as { preScreenAssessments?: JobPreScreenAssessmentLink[] }).preScreenAssessments;
+      if (Array.isArray(fromJob) && fromJob.length > 0) {
+        preScreenAssessmentLinks = fromJob
+          .map((row, index) => ({
+            id: row.id,
+            assessmentId: row.assessmentId || row.assessment?.id || '',
+            sortOrder: row.sortOrder ?? index,
+            required: row.required !== false,
+            timing: row.timing || 'AFTER_APPLY',
+            durationOverrideMinutes: row.durationOverrideMinutes ?? null,
+            passScoreOverridePercent: row.passScoreOverridePercent ?? null,
+            assessment: row.assessment,
+          }))
+          .filter((row) => Boolean(row.assessmentId));
+      } else {
+        try {
+          const assessRes = await getJobPreScreenAssessments(targetJobId);
+          const rows = Array.isArray(assessRes?.data) ? assessRes.data : [];
+          preScreenAssessmentLinks = rows
+            .map((row: Record<string, unknown>, index: number) => ({
+              id: typeof row.id === 'string' ? row.id : undefined,
+              assessmentId: String(row.assessmentId || (row.assessment as { id?: string })?.id || ''),
+              sortOrder: typeof row.sortOrder === 'number' ? row.sortOrder : index,
+              required: row.required !== false,
+              timing: (row.timing as JobPreScreenAssessmentLink['timing']) || 'AFTER_APPLY',
+              durationOverrideMinutes:
+                typeof row.durationOverrideMinutes === 'number' ? row.durationOverrideMinutes : null,
+              passScoreOverridePercent:
+                typeof row.passScoreOverridePercent === 'number' ? row.passScoreOverridePercent : null,
+              assessment: row.assessment as JobPreScreenAssessmentLink['assessment'],
+            }))
+            .filter((row) => Boolean(row.assessmentId));
+        } catch {
+          preScreenAssessmentLinks = [];
+        }
+      }
+
       setFormData(prev => ({
         ...prev,
         nationality: jobExtras.nationality || '',
@@ -1542,6 +1584,7 @@ export function CreateJobDrawer({
         applicationFormSchema:
           normalizeApplicationFormSchema((job as { applicationFormSchema?: unknown }).applicationFormSchema) ||
           defaultApplicationFormSchema(),
+        preScreenAssessments: preScreenAssessmentLinks,
         assignedToId:
           (job as { assignedToId?: string }).assignedToId || (job as { assignedTo?: { id: string } }).assignedTo?.id || '',
       }));
@@ -2631,6 +2674,14 @@ export function CreateJobDrawer({
         applicationFormSchema: formData.enableApplicationForm
           ? formData.applicationFormSchema ?? defaultApplicationFormSchema()
           : undefined,
+        preScreenAssessments: (formData.preScreenAssessments ?? []).map((link, index) => ({
+          assessmentId: link.assessmentId,
+          sortOrder: index,
+          required: link.required !== false,
+          timing: link.timing || 'AFTER_APPLY',
+          durationOverrideMinutes: link.durationOverrideMinutes ?? null,
+          passScoreOverridePercent: link.passScoreOverridePercent ?? null,
+        })),
         // Store JD file name if file was uploaded
         jdFileName: uploadedFile?.name || undefined,
         assignedToId: isEditMode
@@ -3574,6 +3625,26 @@ export function CreateJobDrawer({
                         </div>
                       </>
                     )}
+
+                    <PreScreenAssessmentSection
+                      jobId={isEditMode ? jobId : undefined}
+                      jobTitle={formData.jobTitle}
+                      skills={formData.skills}
+                      jobDescription={
+                        formData.jobSummary?.trim() ||
+                        formData.jobDescriptionHtml?.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() ||
+                        ''
+                      }
+                      links={formData.preScreenAssessments ?? []}
+                      onChange={(preScreenAssessments) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          preScreenAssessments: Array.isArray(preScreenAssessments)
+                            ? preScreenAssessments
+                            : [],
+                        }))
+                      }
+                    />
                   </div>
                 )}
               </div>

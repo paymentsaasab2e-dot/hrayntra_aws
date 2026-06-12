@@ -33,6 +33,7 @@ import {
   buildApplyUrlFromToken,
 } from './jobPublicApply.service.js';
 import { upsertPortalJobDocument } from '../../utils/portalJobRawSync.util.js';
+import { preScreenAssessmentService } from '../pre-screen-assessment/assessment.service.js';
 
 async function enrichJobWithApplyLink(job) {
   if (!job?.id) return job;
@@ -53,6 +54,13 @@ async function enrichJobWithApplyLink(job) {
         ? jobPublicApplyService.resolveJobFormSchema(job)
         : null),
   };
+}
+
+async function enrichJobWithAssessments(job) {
+  if (!job?.id) return enrichJobWithApplyLink(job);
+  const enriched = await enrichJobWithApplyLink(job);
+  const links = await preScreenAssessmentService.getJobLinks(job.id).catch(() => []);
+  return { ...enriched, preScreenAssessments: links };
 }
 
 function resolveApplicationFormSchemaFromPayload(data) {
@@ -380,6 +388,13 @@ async function invalidatePortalJobsListCache() {
   }
 }
 
+/** Re-mirror a job to the candidate portal (e.g. after assessment links change). */
+export async function refreshJobPortalMirror(jobId) {
+  const job = await prisma.job.findUnique({ where: { id: jobId } });
+  if (!job) return;
+  await syncJobToPortal(job, {});
+}
+
 async function syncJobToPortal(job, payload = {}) {
   const jobForSync = (await loadJobForPortalSync(job?.id)) || job;
   const mergedForSync = {
@@ -494,6 +509,7 @@ async function syncJobToJobPortalDb(job, payload = {}) {
     applicationFormLogo: job.applicationFormLogo || null,
     applicationFormQuestions: Array.isArray(job.applicationFormQuestions) ? job.applicationFormQuestions : [],
     applicationFormNote: job.applicationFormNote || null,
+    preScreenAssessments: await preScreenAssessmentService.getPortalJobAssessments(job.id).catch(() => []),
     nationality: job.nationality || null,
     country: job.country || null,
     state: job.state || null,
@@ -803,14 +819,22 @@ function mergeJobMatches(tenantMatches = [], portalMatches = []) {
 
 function mergeJobApplications(tenantApplications = [], portalApplications = []) {
   const mergedByKey = new Map();
-  for (const app of portalApplications) {
-    const key = app?.id || `${app?.candidateId || 'candidate'}:${app?.jobId || 'job'}`;
-    mergedByKey.set(key, app);
-  }
-  for (const app of tenantApplications) {
-    const key = app?.id || `${app?.candidateId || 'candidate'}:${app?.jobId || 'job'}`;
-    mergedByKey.set(key, app);
-  }
+  const pickNewer = (a, b) => {
+    const aTs = a?.appliedAt ? new Date(a.appliedAt).getTime() : 0;
+    const bTs = b?.appliedAt ? new Date(b.appliedAt).getTime() : 0;
+    return bTs >= aTs ? b : a;
+  };
+  const mergeOne = (app) => {
+    if (!app) return;
+    const candId = String(app.candidateId || '').trim();
+    const jobId = String(app.jobId || '').trim();
+    const key = candId && jobId ? `${candId}:${jobId}` : String(app.id || '').trim();
+    if (!key) return;
+    const existing = mergedByKey.get(key);
+    mergedByKey.set(key, existing ? pickNewer(existing, app) : app);
+  };
+  for (const app of portalApplications) mergeOne(app);
+  for (const app of tenantApplications) mergeOne(app);
   return Array.from(mergedByKey.values()).sort((a, b) => {
     const aTs = a?.appliedAt ? new Date(a.appliedAt).getTime() : 0;
     const bTs = b?.appliedAt ? new Date(b.appliedAt).getTime() : 0;
@@ -1130,7 +1154,7 @@ export const jobService = {
 
     if (!isTenantScopedRequest()) {
       const withAudit = await attachAuditMetaToEntity(baseWithApplied, ENTITY_TYPES.JOB);
-      return enrichJobWithApplyLink(withAudit);
+      return enrichJobWithAssessments(withAudit);
     }
 
     const portalPrisma = getJobPortalPrismaClient();
@@ -1160,7 +1184,7 @@ export const jobService = {
 
     if (!portalJob?.matches?.length && !portalJob?.applications?.length) {
       const withAudit = await attachAuditMetaToEntity(baseWithApplied, ENTITY_TYPES.JOB);
-      return enrichJobWithApplyLink(withAudit);
+      return enrichJobWithAssessments(withAudit);
     }
 
     const mergedMatches = mergeJobMatches(job.matches || [], portalJob.matches || []);
@@ -1184,7 +1208,7 @@ export const jobService = {
       },
     };
     const withAudit = await attachAuditMetaToEntity(mergedJob, ENTITY_TYPES.JOB);
-    return enrichJobWithApplyLink(withAudit);
+    return enrichJobWithAssessments(withAudit);
   },
 
   async create(data, createdByUserId) {
@@ -1337,13 +1361,17 @@ export const jobService = {
       await this.notifyAssignment(job, createdByUserId);
     }
 
+    if (Array.isArray(data.preScreenAssessments)) {
+      await preScreenAssessmentService.replaceJobLinks(job.id, data.preScreenAssessments);
+    }
+
     try {
       await syncJobToPortal(job, data);
     } catch (syncError) {
       console.error(`Failed to sync job ${job.id} to job portal DB:`, syncError?.message || syncError);
     }
 
-    return enrichJobWithApplyLink(job);
+    return enrichJobWithAssessments(job);
   },
 
   async update(id, data) {
@@ -1477,7 +1505,11 @@ export const jobService = {
     const hasPipelineStageUpdates = Array.isArray(data.pipelineStages);
 
     if (!hasFieldUpdates && !hasPipelineStageUpdates) {
-      return currentJob;
+      if (Array.isArray(data.preScreenAssessments)) {
+        await preScreenAssessmentService.replaceJobLinks(id, data.preScreenAssessments);
+        return enrichJobWithAssessments(currentJob);
+      }
+      return enrichJobWithAssessments(currentJob);
     }
 
     if (!hasPipelineStageUpdates) {
@@ -1549,13 +1581,17 @@ export const jobService = {
         }
       }
 
+      if (Array.isArray(data.preScreenAssessments)) {
+        await preScreenAssessmentService.replaceJobLinks(id, data.preScreenAssessments);
+      }
+
       try {
         await syncJobToPortal(updatedJob, data);
       } catch (syncError) {
         console.error(`Failed to sync job ${id} to job portal DB:`, syncError?.message || syncError);
       }
 
-      return enrichJobWithApplyLink(updatedJob);
+      return enrichJobWithAssessments(updatedJob);
     }
 
     const updated = await prisma.$transaction(async (tx) => {
@@ -1750,13 +1786,17 @@ export const jobService = {
       }
     }
 
+    if (Array.isArray(data.preScreenAssessments)) {
+      await preScreenAssessmentService.replaceJobLinks(id, data.preScreenAssessments);
+    }
+
     try {
       await syncJobToPortal(updated, data);
     } catch (syncError) {
       console.error(`Failed to sync job ${id} to job portal DB:`, syncError?.message || syncError);
     }
 
-    return enrichJobWithApplyLink(updated);
+    return enrichJobWithAssessments(updated);
   },
 
   async delete(id, performedById) {

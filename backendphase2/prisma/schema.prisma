@@ -712,7 +712,8 @@ model Job {
   placements     Placement[]
   notes          JobNote[]
   files          JobFile[]
-  applications   Application[]
+  applications            Application[]
+  jobPreScreenAssessments JobPreScreenAssessment[]
 
   @@index([status])
   @@index([clientId])
@@ -734,6 +735,104 @@ model JobApplicationFormTemplate {
 
   @@index([createdById])
   @@map("job_application_form_templates")
+}
+
+enum PreScreenAssessmentType {
+  MCQ
+  CODING
+  ESSAY
+  VIDEO
+}
+
+enum AssessmentSessionTiming {
+  AFTER_APPLY
+  BEFORE_SUBMIT
+}
+
+enum AssessmentSessionStatus {
+  IN_PROGRESS
+  SUBMITTED
+  EXPIRED
+}
+
+/// Reusable pre-screen assessment templates (MCQ, coding, essay, video)
+model PreScreenAssessment {
+  id                 String                  @id @default(auto()) @map("_id") @db.ObjectId
+  title              String
+  type               PreScreenAssessmentType
+  description        String?
+  durationMinutes    Int                     @default(15)
+  passScorePercent   Int?                    @default(60)
+  antiCheatEnabled   Boolean                 @default(true)
+  config             Json
+  createdById        String?                 @db.ObjectId
+  isDeleted          Boolean                 @default(false)
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  jobLinks           JobPreScreenAssessment[]
+  sessions           AssessmentSession[]
+
+  @@index([type])
+  @@index([isDeleted])
+  @@map("pre_screen_assessments")
+}
+
+/// Attach assessments to a job (order, required, timing overrides)
+model JobPreScreenAssessment {
+  id                       String                  @id @default(auto()) @map("_id") @db.ObjectId
+  jobId                    String                  @db.ObjectId
+  assessmentId             String                  @db.ObjectId
+  sortOrder                Int                     @default(0)
+  required                 Boolean                 @default(true)
+  timing                   AssessmentSessionTiming @default(AFTER_APPLY)
+  durationOverrideMinutes  Int?
+  passScoreOverridePercent Int?
+  job                      Job                     @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  assessment               PreScreenAssessment     @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  sessions                 AssessmentSession[]
+
+  @@unique([jobId, assessmentId])
+  @@index([jobId, sortOrder])
+  @@map("job_pre_screen_assessments")
+}
+
+/// Candidate assessment attempt (server-authoritative timer)
+model AssessmentSession {
+  id                String                  @id @default(auto()) @map("_id") @db.ObjectId
+  accessToken       String                  @unique
+  candidateId       String                  @db.ObjectId
+  jobId             String                  @db.ObjectId
+  applicationId     String?                 @db.ObjectId
+  assessmentId      String                  @db.ObjectId
+  jobAssessmentId   String                  @db.ObjectId
+  status            AssessmentSessionStatus @default(IN_PROGRESS)
+  startedAt         DateTime                @default(now())
+  expiresAt         DateTime
+  submittedAt       DateTime?
+  scorePercent      Float?
+  answers           Json?
+  tabSwitchCount    Int                     @default(0)
+  flagged           Boolean                 @default(false)
+  assessment        PreScreenAssessment     @relation(fields: [assessmentId], references: [id])
+  jobAssessment     JobPreScreenAssessment  @relation(fields: [jobAssessmentId], references: [id], onDelete: Cascade)
+  proctoringEvents  ProctoringEvent[]
+
+  @@index([candidateId, jobId])
+  @@index([applicationId])
+  @@index([jobAssessmentId])
+  @@map("assessment_sessions")
+}
+
+model ProctoringEvent {
+  id         String            @id @default(auto()) @map("_id") @db.ObjectId
+  sessionId  String            @db.ObjectId
+  eventType  String
+  occurredAt DateTime          @default(now())
+  metadata   Json?
+  session    AssessmentSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@map("proctoring_events")
 }
 
 // ── JOB NOTES & FILES ──

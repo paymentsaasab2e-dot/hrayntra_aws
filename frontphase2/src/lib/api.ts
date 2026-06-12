@@ -919,6 +919,76 @@ export async function apiHqListTenants() {
   }>('/hq/tenants', { auth: true });
 }
 
+export type HqLeadStorageInfo = {
+  engine: string;
+  database: string;
+  collection: string;
+};
+
+export type HqLeadStats = {
+  total: number;
+  newLeads: number;
+  followUpsToday: number;
+  won: number;
+  lost: number;
+  winRate: number;
+};
+
+export type HqLeadApiRow = {
+  id: string;
+  name: string;
+  company: string;
+  industry: string;
+  score: 'Hot' | 'Warm' | 'Cold';
+  users: number;
+  owner: string;
+  stage:
+    | 'new'
+    | 'contacted'
+    | 'demo_scheduled'
+    | 'proposal_sent'
+    | 'negotiation'
+    | 'closed_won'
+    | 'closed_lost';
+  nextFollowUp: string;
+  email?: string;
+  phone?: string;
+  country?: string;
+  estimatedDealValue?: number;
+  leadSource?: string;
+  interestedModules?: string[];
+  initialNotes?: string;
+  createdAt?: string | null;
+};
+
+export async function apiHqListLeads() {
+  return apiFetch<{
+    leads: HqLeadApiRow[];
+    stats: HqLeadStats;
+    storage: HqLeadStorageInfo;
+  }>('/hq/leads', { auth: true });
+}
+
+export async function apiHqCreateLead(body: {
+  contactName: string;
+  companyName: string;
+  email: string;
+  phone?: string;
+  industry: string;
+  country: string;
+  expectedUsers: string | number;
+  estimatedDealValue: string | number;
+  leadOwner: string;
+  leadSource: string;
+  interestedModules: string[];
+  initialNotes?: string;
+}) {
+  return apiFetch<{
+    lead: HqLeadApiRow;
+    storage: HqLeadStorageInfo;
+  }>('/hq/leads', { method: 'POST', auth: true, body });
+}
+
 export async function apiHqAssignTenantPlan(body: { email: string; plan: { name: string } }) {
   return apiFetch<{ email: string; subscriptionPlan: { name: string } | null }>(
     '/hq/tenants/plan',
@@ -1703,6 +1773,7 @@ export interface BackendJob {
   applicationFormQuestions?: string[];
   applicationFormNote?: string | null;
   applicationFormSchema?: { version: number; fields: unknown[] } | null;
+  preScreenAssessments?: unknown[];
   applyLinkToken?: string | null;
   applyUrl?: string | null;
   pipelineStages?: Array<{
@@ -1817,6 +1888,14 @@ export interface CreateJobData {
   showClientNamePublicly?: boolean;
   /** Per-field visibility for public apply page, Phase 1, and social posts. */
   publicFieldVisibility?: Record<string, boolean>;
+  preScreenAssessments?: Array<{
+    assessmentId: string;
+    sortOrder?: number;
+    required?: boolean;
+    timing?: string;
+    durationOverrideMinutes?: number | null;
+    passScoreOverridePercent?: number | null;
+  }>;
 }
 
 export const apiCreateJob = async (data: CreateJobData) => {
@@ -1872,6 +1951,101 @@ export const apiCreateApplicationFormTemplate = async (payload: {
     '/jobs/application-form-templates',
     { method: 'POST', body: payload, auth: true }
   );
+};
+
+export const listPreScreenAssessments = async (type?: string) => {
+  const qs = type ? `?type=${encodeURIComponent(type)}` : '';
+  return apiFetch<unknown[]>(`/pre-screen-assessments/library${qs}`, { auth: true });
+};
+
+export const createPreScreenAssessment = async (payload: Record<string, unknown>) => {
+  return apiFetch<Record<string, unknown>>('/pre-screen-assessments/library', {
+    method: 'POST',
+    body: payload,
+    auth: true,
+  });
+};
+
+export const generatePreScreenAssessmentsWithAi = async (payload: {
+  jobTitle: string;
+  skills?: string[];
+  jobDescription?: string;
+}) => {
+  return apiFetch<{
+    mcq: Record<string, unknown>;
+    coding: Record<string, unknown>;
+    questionCount?: number;
+    codingTestCaseCount?: number;
+  }>('/pre-screen-assessments/library/generate', {
+    method: 'POST',
+    body: payload,
+    auth: true,
+  });
+};
+
+export const generateMcqPreScreenAssessmentWithAi = async (payload: {
+  jobTitle: string;
+  skills?: string[];
+  jobDescription?: string;
+}) => {
+  return apiFetch<{
+    title: string;
+    type: 'MCQ';
+    durationMinutes: number;
+    passScorePercent: number;
+    config: { questions: unknown[]; antiCheat?: unknown };
+  }>('/pre-screen-assessments/library/generate', {
+    method: 'POST',
+    body: { ...payload, type: 'MCQ' },
+    auth: true,
+  });
+};
+
+export const updatePreScreenAssessment = async (id: string, payload: Record<string, unknown>) => {
+  return apiFetch<Record<string, unknown>>(`/pre-screen-assessments/library/${id}`, {
+    method: 'PATCH',
+    body: payload,
+    auth: true,
+  });
+};
+
+export const deletePreScreenAssessment = async (id: string) => {
+  return apiFetch<unknown>(`/pre-screen-assessments/library/${id}`, {
+    method: 'DELETE',
+    auth: true,
+  });
+};
+
+export const getJobPreScreenAssessments = async (jobId: string) => {
+  return apiFetch<unknown[]>(`/pre-screen-assessments/jobs/${jobId}`, { auth: true });
+};
+
+export const replaceJobPreScreenAssessments = async (
+  jobId: string,
+  links: NonNullable<CreateJobData['preScreenAssessments']>
+) => {
+  return apiFetch<unknown[]>(`/pre-screen-assessments/jobs/${jobId}`, {
+    method: 'PUT',
+    body: { preScreenAssessments: links },
+    auth: true,
+  });
+};
+
+export const getApplicationAssessmentResults = async (applicationId: string) => {
+  return apiFetch<unknown[]>(`/pre-screen-assessments/applications/${applicationId}/results`, {
+    auth: true,
+  });
+};
+
+export const gradeAssessmentSession = async (
+  sessionId: string,
+  payload: { scorePercent: number; reviewNote?: string },
+) => {
+  return apiFetch<unknown>(`/pre-screen-assessments/sessions/${sessionId}/grade`, {
+    method: 'PATCH',
+    body: payload,
+    auth: true,
+  });
 };
 
 export const apiGetPublicApplyPage = async (token: string, tenantDbName?: string) => {

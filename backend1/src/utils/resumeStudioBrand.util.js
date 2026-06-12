@@ -27,6 +27,87 @@ function htmlHasSaasaWatermark(html) {
   return /SAASA%20Logo|SAASA Logo|data-saasa-watermark/i.test(String(html || ''));
 }
 
+function stripResumePreviewLayoutConstraints(html) {
+  return String(html || '')
+    .replace(/\boverflow-hidden\b/g, 'overflow-visible')
+    .replace(/\bmin-h-\[1123px\]/g, '')
+    .replace(/\bmin-h-\[1123\]/g, '')
+    .replace(/\bh-\[1123px\]/g, '')
+    .replace(/\bh-screen\b/g, '')
+    .replace(/overflow\s*:\s*hidden/gi, 'overflow:visible')
+    .replace(/min-height\s*:\s*1123px/gi, 'min-height:auto')
+    .replace(/height\s*:\s*1123px/gi, 'height:auto')
+    .replace(/zoom\s*:\s*[^;"']+/gi, 'zoom:1')
+    .replace(/transform\s*:\s*[^;"']+/gi, 'transform:none')
+    .replace(/padding\s*:\s*0(?:px)?\s*;?/gi, '');
+}
+
+const RESUME_VIEW_DOCUMENT_CSS = `
+    html, body { margin: 0; padding: 0; background: #e2e8f0; }
+    body { min-height: 100%; overflow: auto !important; height: auto !important; }
+    .resume-studio-preview-root,
+    .resume-container {
+      box-sizing: border-box;
+      max-width: 52rem;
+      margin: 0 auto;
+      padding: 1rem;
+      overflow: visible !important;
+      height: auto !important;
+    }
+    .resume-studio-preview-root * { box-sizing: border-box; }
+    #resume-preview,
+    #resume-preview-expanded,
+    [id*="resume-preview"] {
+      width: 100% !important;
+      max-width: 840px !important;
+      margin-left: auto !important;
+      margin-right: auto !important;
+      min-height: auto !important;
+      height: auto !important;
+      max-height: none !important;
+      overflow: visible !important;
+      transform: none !important;
+      zoom: 1 !important;
+      padding-bottom: 3rem !important;
+      box-shadow: none !important;
+    }
+    [data-saasa-watermark] { pointer-events: none; }
+`;
+
+const RESUME_VIEW_DOCUMENT_SCRIPT = `
+(function () {
+  function prepareResumeRoot() {
+    var roots = document.querySelectorAll('#resume-preview, #resume-preview-expanded, [id*="resume-preview"]');
+    roots.forEach(function (node) {
+      if (!node || !node.style) return;
+      node.style.height = 'auto';
+      node.style.minHeight = 'auto';
+      node.style.maxHeight = 'none';
+      node.style.overflow = 'visible';
+      node.style.transform = 'none';
+      node.style.zoom = '1';
+      node.style.width = '100%';
+      node.style.maxWidth = '840px';
+      node.style.marginLeft = 'auto';
+      node.style.marginRight = 'auto';
+      if (node.style.padding === '0px') node.style.padding = '';
+      node.classList.remove('overflow-hidden', 'min-h-[1123px]', 'h-[1123px]', 'h-screen');
+      node.classList.add('overflow-visible');
+    });
+    document.documentElement.style.height = 'auto';
+    document.body.style.height = 'auto';
+    document.body.style.overflow = 'auto';
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', prepareResumeRoot);
+  } else {
+    prepareResumeRoot();
+  }
+  window.addEventListener('load', prepareResumeRoot);
+  setTimeout(prepareResumeRoot, 1500);
+})();
+`;
+
 function normalizeResumeStudioHtml(html, options = {}) {
   const raw = String(html || '').trim();
   if (!raw) return raw;
@@ -34,7 +115,8 @@ function normalizeResumeStudioHtml(html, options = {}) {
   const origin = String(options.origin || getJobPortalPublicOrigin()).replace(/\/$/, '');
   const logoUrl = absoluteSaasaLogoUrl(origin);
 
-  let normalized = raw.replace(
+  let normalized = stripResumePreviewLayoutConstraints(raw);
+  normalized = normalized.replace(
     /src=(["'])(?:\/SAASA%20Logo\.png|\/SAASA Logo\.png)\1/gi,
     `src="${logoUrl}"`,
   );
@@ -47,7 +129,7 @@ function normalizeResumeStudioHtml(html, options = {}) {
     const needsRelativeRoot =
       !/position\s*:\s*relative/i.test(normalized) && !/\brelative\b/.test(normalized);
     if (needsRelativeRoot) {
-      normalized = `<div style="position:relative;overflow:hidden;">${normalized}${buildSaasaWatermarkOverlayHtml(logoUrl)}</div>`;
+      normalized = `<div style="position:relative;overflow:visible;padding-bottom:2.5rem;">${normalized}${buildSaasaWatermarkOverlayHtml(logoUrl)}</div>`;
     } else {
       normalized = `${normalized}${buildSaasaWatermarkOverlayHtml(logoUrl)}`;
     }
@@ -69,19 +151,11 @@ function wrapResumeStudioHtmlDocument(html, title = 'CV', options = {}) {
   <base href="${origin}/" />
   <script src="https://cdn.tailwindcss.com"></script>
   <title>${safeTitle}</title>
-  <style>
-    html, body { margin: 0; padding: 0; background: #ffffff; }
-    body { min-height: 100%; }
-    #resume-preview, #resume-preview-expanded {
-      width: 100% !important;
-      max-width: none !important;
-      min-height: auto !important;
-      box-shadow: none !important;
-    }
-  </style>
+  <style>${RESUME_VIEW_DOCUMENT_CSS}</style>
 </head>
 <body>
   <div class="resume-container">${body}</div>
+  <script>${RESUME_VIEW_DOCUMENT_SCRIPT}</script>
 </body>
 </html>`;
 }
@@ -89,6 +163,7 @@ function wrapResumeStudioHtmlDocument(html, title = 'CV', options = {}) {
 module.exports = {
   getJobPortalPublicOrigin,
   absoluteSaasaLogoUrl,
+  stripResumePreviewLayoutConstraints,
   normalizeResumeStudioHtml,
   wrapResumeStudioHtmlDocument,
 };

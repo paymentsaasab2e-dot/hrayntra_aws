@@ -7,6 +7,7 @@ import {
 } from '../stage/candidateStage.service.js';
 import { notifyJobPortalApplication } from '../setting/alert-notify.helpers.js';
 import { placementService } from '../placement/placement.service.js';
+import { preScreenAssessmentService } from '../pre-screen-assessment/assessment.service.js';
 
 /**
  * When a candidate applies on the job portal, mirror the application into the tenant DB
@@ -190,8 +191,9 @@ export async function applyPortalApplicationSync({
       });
     }
 
+    let tenantApplicationId = null;
     try {
-      await prisma.application.upsert({
+      const tenantApp = await prisma.application.upsert({
         where: {
           candidateId_jobId: { candidateId: candId, jobId: jId },
         },
@@ -204,11 +206,34 @@ export async function applyPortalApplicationSync({
           status: 'SUBMITTED',
           updatedAt: new Date(),
         },
+        select: { id: true },
       });
+      tenantApplicationId = tenantApp?.id || null;
     } catch (appErr) {
       console.warn(
         '[applyPortalApplicationSync] tenant application upsert failed (non-fatal):',
         appErr?.message || appErr,
+      );
+    }
+
+    try {
+      const portalPrisma = getJobPortalPrismaClient();
+      const portalApp = await portalPrisma.application.findUnique({
+        where: { candidateId_jobId: { candidateId: candId, jobId: jId } },
+        select: { id: true },
+      });
+      const linkTargets = [tenantApplicationId, portalApp?.id].filter(Boolean);
+      for (const applicationId of linkTargets) {
+        await preScreenAssessmentService.linkSessionsToApplication({
+          applicationId,
+          candidateId: candId,
+          jobId: jId,
+        });
+      }
+    } catch (linkErr) {
+      console.warn(
+        '[applyPortalApplicationSync] assessment session link failed (non-fatal):',
+        linkErr?.message || linkErr,
       );
     }
 

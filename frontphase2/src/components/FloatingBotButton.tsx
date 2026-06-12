@@ -134,7 +134,8 @@ function getAssistantPageConfig(pathname: string | null): AssistantPageConfig | 
     pathname === '/hq/login' ||
     pathname === '/forgot-password' ||
     pathname === '/reset-password' ||
-    pathname === '/hq'
+    pathname === '/hq' ||
+    pathname.startsWith('/hq/')
   ) {
     return null;
   }

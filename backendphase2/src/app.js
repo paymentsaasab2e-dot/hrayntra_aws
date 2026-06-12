@@ -65,6 +65,7 @@ import dashboardRoutes from './modules/dashboard/dashboard.routes.js';
 import ariaRoutes from './routes/ariaRoutes.js';
 import portalSyncRoutes from './modules/internal/portal-sync.routes.js';
 import notificationRoutes from './modules/notification/notification.routes.js';
+import preScreenAssessmentRoutes from './modules/pre-screen-assessment/assessment.routes.js';
 
 const app = express();
 
@@ -210,6 +211,8 @@ app.post(
   publicApplyTenantMiddleware,
   jobPublicApplyController.submitPublicApply
 );
+// Public candidate pre-screen sessions — MUST be before addCandidateRouter (router-level auth on /api/v1)
+app.use('/api/v1/pre-screen-assessments', preScreenAssessmentRoutes);
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/linkedin', linkedinRoutes);
 app.use('/api/v1/oauth', oauthRoutes);

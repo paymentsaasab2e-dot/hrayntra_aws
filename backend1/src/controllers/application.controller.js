@@ -955,6 +955,8 @@ async function createApplication(req, res) {
           id: application.job.id,
           title: application.job.title,
           company: resolvePublicCompanyName(application.job, ''),
+          tenantDbName: job.tenantDbName || null,
+          preScreenAssessments: Array.isArray(job.preScreenAssessments) ? job.preScreenAssessments : [],
         },
       },
     };

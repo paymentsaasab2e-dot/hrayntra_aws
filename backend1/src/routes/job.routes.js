@@ -23,6 +23,9 @@ router.post('/seed', jobController.seedSampleJobs);
 // Bulk delete jobs
 router.delete('/bulk-delete', jobController.bulkDeleteJobs);
 
+// Pre-screen assessments mirrored from Phase 2 CRM
+router.get('/:jobId/pre-screen-assessments', jobController.getJobPreScreenAssessments);
+
 // Get job by ID
 router.get('/:jobId', jobController.getJobById);
 

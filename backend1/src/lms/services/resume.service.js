@@ -269,6 +269,8 @@ async function upsertRoleVersion(userId, draft, meta = {}) {
   });
 }
 
+const { resolveRoleVersionHtml } = require('../../utils/roleVersionHtml.util');
+
 async function listRoleVersions(userId) {
   const [uploadedResume, roleVersions] = await Promise.all([
     prisma.resume.findUnique({ where: { candidateId: userId } }),
@@ -286,6 +288,7 @@ async function listRoleVersions(userId) {
         fileUrl: true,
         fileName: true,
         resumeHtml: true,
+        draftSnapshot: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -309,11 +312,34 @@ async function listRoleVersions(userId) {
 
   return {
     original,
-    versions: roleVersions.map(({ resumeHtml, ...rest }) => ({
-      ...rest,
-      hasResumeHtml: Boolean(String(resumeHtml || '').trim().length > 80),
-    })),
+    versions: roleVersions.map((row) => {
+      const { resumeHtml, draftSnapshot, ...rest } = row;
+      const resolvedHtml = resolveRoleVersionHtml(row);
+      return {
+        ...rest,
+        hasResumeHtml: Boolean(String(resolvedHtml || '').trim().length > 80),
+        hasStoredVersion: true,
+      };
+    }),
   };
+}
+
+async function deleteRoleVersion(userId, versionId) {
+  const id = String(versionId || '').trim();
+  if (!id) {
+    throw new Error('CV version not found');
+  }
+
+  const existing = await prisma.lmsResumeRoleVersion.findFirst({
+    where: { id, userId },
+    select: { id: true },
+  });
+  if (!existing) {
+    throw new Error('CV version not found');
+  }
+
+  await prisma.lmsResumeRoleVersion.delete({ where: { id } });
+  return { deleted: true, id };
 }
 
 async function getRoleVersionById(userId, versionId) {
@@ -330,6 +356,7 @@ async function getRoleVersionById(userId, versionId) {
       fileUrl: true,
       fileName: true,
       resumeHtml: true,
+      draftSnapshot: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -337,9 +364,13 @@ async function getRoleVersionById(userId, versionId) {
   if (!version) {
     throw new Error('CV version not found');
   }
+  const resumeHtml = resolveRoleVersionHtml(version);
+  const { draftSnapshot, ...rest } = version;
   return {
-    ...version,
-    hasResumeHtml: Boolean(String(version.resumeHtml || '').trim().length > 80),
+    ...rest,
+    resumeHtml,
+    hasResumeHtml: Boolean(String(resumeHtml || '').trim().length > 80),
+    hasStoredVersion: true,
   };
 }
 
@@ -511,4 +542,5 @@ module.exports = {
   checkAtsMatch,
   listRoleVersions,
   getRoleVersionById,
+  deleteRoleVersion,
 };

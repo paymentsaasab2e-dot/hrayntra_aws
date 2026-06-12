@@ -38,6 +38,24 @@ export const hqController = {
     }
   },
 
+  async listLeads(req, res) {
+    try {
+      const result = await hqService.listLeads(req.user);
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async createLead(req, res) {
+    try {
+      const result = await hqService.createLead(req.body, req.user);
+      sendResponse(res, 201, 'Lead created', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async deleteTenant(req, res) {
     try {
       // Accept email via body, URL params, or query — the HQ UI uses the

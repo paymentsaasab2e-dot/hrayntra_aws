@@ -279,6 +279,9 @@ function mapBackendJobToJobForDrawer(backendJob: Record<string, any>, fallbackJo
     applicationFormLogo: backendJob.applicationFormLogo || undefined,
     applicationFormQuestions: backendJob.applicationFormQuestions || [],
     applicationFormNote: backendJob.applicationFormNote || undefined,
+    preScreenAssessments: Array.isArray(backendJob.preScreenAssessments)
+      ? backendJob.preScreenAssessments
+      : undefined,
     applyUrl: backendJob.applyUrl || undefined,
     applications: Array.isArray(backendJob.applications)
       ? backendJob.applications.map((app: any) => ({

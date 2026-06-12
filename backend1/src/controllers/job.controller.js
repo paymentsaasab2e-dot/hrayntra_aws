@@ -1288,9 +1288,68 @@ async function invalidateJobsCache(req, res) {
   });
 }
 
+const PHASE2_API_BASE = String(process.env.PHASE2_API_URL || 'http://localhost:5001/api/v1').replace(
+  /\/$/,
+  '',
+);
+
+async function fetchPhase2JobAssessments(jobId, tenantDbName) {
+  const tenant = String(tenantDbName || process.env.PHASE2_DEFAULT_TENANT_DB_NAME || '').trim();
+  if (!tenant) return [];
+  const url = `${PHASE2_API_BASE}/pre-screen-assessments/public/jobs/${encodeURIComponent(jobId)}?tenantDbName=${encodeURIComponent(tenant)}`;
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: { 'x-tenant-db-name': tenant, 'Content-Type': 'application/json' },
+  });
+  if (!res.ok) return [];
+  const json = await res.json().catch(() => ({}));
+  return Array.isArray(json?.data) ? json.data : [];
+}
+
+/**
+ * GET /api/jobs/:jobId/pre-screen-assessments
+ * Returns assessments mirrored on the portal job, with Phase 2 fallback.
+ */
+async function getJobPreScreenAssessments(req, res) {
+  try {
+    const { jobId } = req.params;
+    if (!jobId) {
+      return res.status(400).json({ success: false, message: 'Job ID is required' });
+    }
+
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      select: { id: true, tenantDbName: true, preScreenAssessments: true },
+    });
+
+    if (!job) {
+      return res.status(404).json({ success: false, message: 'Job not found' });
+    }
+
+    let assessments = Array.isArray(job.preScreenAssessments) ? job.preScreenAssessments : [];
+    if (!assessments.length) {
+      try {
+        assessments = await fetchPhase2JobAssessments(jobId, job.tenantDbName);
+      } catch (phase2Err) {
+        console.warn('[jobs] Phase2 assessment fallback failed:', phase2Err?.message || phase2Err);
+      }
+    }
+
+    return res.json({
+      success: true,
+      data: assessments,
+      tenantDbName: job.tenantDbName || null,
+    });
+  } catch (error) {
+    console.error('Error fetching job pre-screen assessments:', error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch assessments' });
+  }
+}
+
 module.exports = {
   getAllJobs,
   getJobById,
+  getJobPreScreenAssessments,
   seedSampleJobs,
   recommendJobs,
   recommendLocations,
