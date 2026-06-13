@@ -1,4 +1,5 @@
 import { prisma } from '../../config/prisma.js';
+import { getAlertByEmailTriggerId, isAlertEmailEnabled } from './alert-settings.js';
 
 export const NOTIFICATION_TRIGGER_SETTINGS_KEY = 'notification_email_trigger_points_v1';
 
@@ -90,6 +91,11 @@ export async function isNotificationTriggerEnabled(triggerId, options = {}) {
   const normalizedAliases = Array.isArray(aliases)
     ? aliases.map((item) => normalizeLabel(item)).filter(Boolean)
     : [];
+
+  const mappedAlert = getAlertByEmailTriggerId(key);
+  if (mappedAlert) {
+    return isAlertEmailEnabled(mappedAlert.id, userId);
+  }
 
   const settings = await getNotificationTriggerSettings(userId);
   if (key && typeof settings.active[key] === 'boolean') {

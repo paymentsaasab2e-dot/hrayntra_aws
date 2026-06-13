@@ -58,8 +58,19 @@ import {
   FileCheck,
   Sparkles,
   Loader2,
+  ClipboardList,
 } from 'lucide-react';
-import { apiCreateMatch, apiGetMatches, apiGetJobApplyLink, apiToggleSavedMatch } from '../../lib/api';
+import {
+  apiCreateMatch,
+  apiGetInterviews,
+  apiGetMatches,
+  apiGetJobApplyLink,
+  apiGetPlacements,
+  apiToggleSavedMatch,
+  type BackendInterviewListItem,
+} from '../../lib/api';
+import { getAllTeamMembersForAssign } from '../../lib/api/teamApi';
+import type { Placement } from '../../types/placement';
 import {
   extractApplicationsJobCandidateItems,
   loadJobAppliedCandidates,
@@ -95,6 +106,7 @@ import type { AuditMeta } from '../../types/audit';
 import { EntityAuditSummary } from '../table/TableAuditCell';
 import { extractAuditMeta } from '../../utils/auditMeta';
 import { JobOverviewTabContent } from './JobOverviewTabContent';
+import { JobAssessmentsTabContent } from '../jobs/JobAssessmentsTabContent';
 
 /** Render salary as `currency min - max` (or single number when only one bound). */
 function formatJobSalaryRange(job: {
@@ -145,6 +157,14 @@ export interface JobForDrawer {
   applicationFormLogo?: string;
   applicationFormQuestions?: string[];
   applicationFormNote?: string;
+  preScreenAssessments?: Array<{
+    id?: string;
+    assessmentId?: string;
+    sortOrder?: number;
+    required?: boolean;
+    timing?: string;
+    assessment?: { id?: string; title?: string; type?: string; durationMinutes?: number };
+  }>;
   applyUrl?: string | null;
   applications?: JobApplicationSubmission[];
   overview?: string;
@@ -175,7 +195,47 @@ export interface JobForDrawer {
   managerName?: string;
   visibility?: string;
   showClientNamePublicly?: boolean;
+  supportingRecruiters?: string[];
   auditMeta?: AuditMeta;
+}
+
+function unwrapApiList<T>(payload: unknown): T[] {
+  if (Array.isArray(payload)) return payload as T[];
+  if (payload && typeof payload === 'object') {
+    const root = payload as { data?: unknown };
+    if (Array.isArray(root.data)) return root.data as T[];
+    if (root.data && typeof root.data === 'object' && Array.isArray((root.data as { data?: T[] }).data)) {
+      return (root.data as { data: T[] }).data;
+    }
+  }
+  return [];
+}
+
+function formatInterviewListStatus(status: string): string {
+  const normalized = String(status || '').trim().toUpperCase();
+  if (normalized === 'COMPLETED') return 'Completed';
+  if (normalized === 'CANCELLED' || normalized === 'CANCELED') return 'Cancelled';
+  if (normalized === 'NO_SHOW') return 'No show';
+  if (normalized === 'RESCHEDULED') return 'Rescheduled';
+  return 'Scheduled';
+}
+
+function formatPlacementStatusLabel(status: string): string {
+  return String(status || '')
+    .trim()
+    .toLowerCase()
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function candidateNameFromInterview(item: BackendInterviewListItem): string {
+  return `${item.candidate?.firstName || ''} ${item.candidate?.lastName || ''}`.trim() || 'Candidate';
+}
+
+function candidateNameFromPlacement(item: Placement): string {
+  return `${item.candidate?.firstName || ''} ${item.candidate?.lastName || ''}`.trim() || 'Candidate';
 }
 
 export interface JobApplicationSubmission {
@@ -353,6 +413,7 @@ export interface JobDetailsDrawerProps {
 
 const TAB_CONFIG = [
   { id: 'overview' as const, label: 'Overview', icon: LayoutGrid },
+  { id: 'assessments' as const, label: 'Assessments', icon: ClipboardList },
   { id: 'candidates' as const, label: 'Candidates', icon: Users },
   { id: 'ai-matches' as const, label: 'AI Matches', icon: Sparkles },
   { id: 'pipeline' as const, label: 'Pipeline', icon: GitBranch },
@@ -851,12 +912,11 @@ export function JobDetailsDrawer({
         });
         const matchRows = unwrapMatchRows(response);
         const merged = matchRows.map(mapBackendMatch);
-        const aiOnly = merged.filter((row) => !row.isAppliedCandidate);
-        setAiMatchCandidates(aiOnly);
+        setAiMatchCandidates(merged);
         setAiSavedMatches(
-          aiOnly.filter((candidate) => Boolean(candidate.savedAt)).map((candidate) => candidate.id),
+          merged.filter((candidate) => Boolean(candidate.savedAt)).map((candidate) => candidate.id),
         );
-        return aiOnly;
+        return merged;
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'Unable to load AI matches';
         setAiMatchesError(message);
@@ -997,6 +1057,12 @@ export function JobDetailsDrawer({
   const [jobActivities, setJobActivities] = useState<BackendActivity[]>([]);
   const [loadingActivities, setLoadingActivities] = useState(false);
   const [activityFilter, setActivityFilter] = useState<'All' | 'Jobs' | 'Candidates' | 'Interviews' | 'Notes' | 'Files'>('All');
+  const [jobInterviews, setJobInterviews] = useState<BackendInterviewListItem[]>([]);
+  const [jobPlacements, setJobPlacements] = useState<Placement[]>([]);
+  const [loadingJobInterviews, setLoadingJobInterviews] = useState(false);
+  const [loadingJobPlacements, setLoadingJobPlacements] = useState(false);
+  const [supportingRecruiterNames, setSupportingRecruiterNames] = useState<string>('—');
+  const [loadingAssignmentMeta, setLoadingAssignmentMeta] = useState(false);
   const [showStatusChange, setShowStatusChange] = useState(false);
   const [applyUrl, setApplyUrl] = useState<string | null>(null);
   const [applyLinkLoading, setApplyLinkLoading] = useState(false);
@@ -1063,6 +1129,93 @@ export function JobDetailsDrawer({
 
     fetchActivities();
   }, [job?.id, activeTab]);
+
+  useEffect(() => {
+    setJobInterviews([]);
+    setJobPlacements([]);
+    setSupportingRecruiterNames('—');
+  }, [job?.id]);
+
+  useEffect(() => {
+    if (!isOpen || !job?.id || activeTab !== 'assignment') return;
+
+    const ids = Array.isArray(job.supportingRecruiters)
+      ? job.supportingRecruiters.map((id) => String(id || '').trim()).filter(Boolean)
+      : [];
+    if (!ids.length) {
+      setSupportingRecruiterNames('—');
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingAssignmentMeta(true);
+    void getAllTeamMembersForAssign()
+      .then((members) => {
+        if (cancelled) return;
+        const names = ids
+          .map((id) => members.find((member) => member.id === id))
+          .filter(Boolean)
+          .map((member) => `${member!.firstName} ${member!.lastName}`.trim())
+          .filter(Boolean);
+        setSupportingRecruiterNames(names.length ? names.join(', ') : '—');
+      })
+      .catch(() => {
+        if (!cancelled) setSupportingRecruiterNames('—');
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingAssignmentMeta(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, isOpen, job?.id, job?.supportingRecruiters]);
+
+  useEffect(() => {
+    if (!isOpen || !job?.id || activeTab !== 'interviews') return;
+
+    let cancelled = false;
+    setLoadingJobInterviews(true);
+    void apiGetInterviews({ jobId: job.id, page: 1, limit: 100 })
+      .then((response) => {
+        if (cancelled) return;
+        setJobInterviews(unwrapApiList<BackendInterviewListItem>(response.data));
+      })
+      .catch((error) => {
+        console.warn('Failed to load job interviews:', error);
+        if (!cancelled) setJobInterviews([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingJobInterviews(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, isOpen, job?.id]);
+
+  useEffect(() => {
+    if (!isOpen || !job?.id || activeTab !== 'placements') return;
+
+    let cancelled = false;
+    setLoadingJobPlacements(true);
+    void apiGetPlacements({ jobId: job.id, page: 1, limit: 100, sortBy: 'offerDate', sortOrder: 'desc' })
+      .then((response) => {
+        if (cancelled) return;
+        setJobPlacements(unwrapApiList<Placement>(response.data));
+      })
+      .catch((error) => {
+        console.warn('Failed to load job placements:', error);
+        if (!cancelled) setJobPlacements([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingJobPlacements(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, isOpen, job?.id]);
 
   const handlePipelineReorder = (fromIndex: number, toIndex: number) => {
     if (pipelineConfigLocked) return;
@@ -1406,6 +1559,10 @@ export function JobDetailsDrawer({
             <div className="flex-1 overflow-y-auto bg-slate-50/30 p-5">
               {activeTab === 'overview' && job && (
                 <JobOverviewTabContent job={job} />
+              )}
+
+              {activeTab === 'assessments' && job && (
+                <JobAssessmentsTabContent job={job} />
               )}
 
               {activeTab === 'candidates' && (
@@ -1857,7 +2014,14 @@ export function JobDetailsDrawer({
                       <div>
                         <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Supporting recruiters</label>
                         <div className="rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-700">
-                          Sarah Chen, Michael Ross
+                          {loadingAssignmentMeta ? (
+                            <span className="inline-flex items-center gap-2 text-slate-500">
+                              <Loader2 size={14} className="animate-spin" />
+                              Loading…
+                            </span>
+                          ) : (
+                            supportingRecruiterNames
+                          )}
                         </div>
                         <p className="text-[11px] text-slate-400 mt-1">Additional recruiters helping with this job</p>
                       </div>
@@ -1879,23 +2043,45 @@ export function JobDetailsDrawer({
                       <p className="text-xs text-slate-500 mt-0.5">Scheduled and completed interviews for this job</p>
                     </div>
                     <div className="divide-y divide-slate-100">
-                      {[
-                        { id: '1', candidateName: 'Priya Sharma', date: '2026-03-12', time: '10:00 AM', type: 'Technical', stage: 'Screening', status: 'Scheduled' },
-                        { id: '2', candidateName: 'Rahul Verma', date: '2026-03-11', time: '2:00 PM', type: 'HR', stage: 'HR Interview', status: 'Completed' },
-                        { id: '3', candidateName: 'Anita Desai', date: '2026-03-15', time: '11:00 AM', type: 'Technical', stage: 'Technical Interview', status: 'Scheduled' },
-                      ].map((i) => (
-                        <div key={i.id} className="px-4 py-3 flex flex-wrap items-center gap-3">
-                          <div className="w-9 h-9 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
-                            <Calendar size={16} />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium text-slate-900">{i.candidateName}</p>
-                            <p className="text-[11px] text-slate-500">{i.date} · {i.time} · {i.type}</p>
-                          </div>
-                          <span className="text-[11px] font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded">{i.stage}</span>
-                          <span className={`text-[11px] font-medium px-2 py-0.5 rounded ${i.status === 'Scheduled' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>{i.status}</span>
+                      {loadingJobInterviews ? (
+                        <div className="flex items-center justify-center gap-2 p-8 text-sm text-slate-500">
+                          <Loader2 size={18} className="animate-spin text-indigo-500" />
+                          Loading interviews…
                         </div>
-                      ))}
+                      ) : jobInterviews.length === 0 ? (
+                        <div className="p-8 text-center">
+                          <Calendar size={32} className="mx-auto text-slate-300 mb-3" />
+                          <p className="text-sm text-slate-500">No interviews scheduled for this job yet.</p>
+                        </div>
+                      ) : (
+                        jobInterviews.map((item) => {
+                          const statusLabel = formatInterviewListStatus(item.status);
+                          const isCompleted = statusLabel === 'Completed';
+                          return (
+                            <div key={item.id} className="px-4 py-3 flex flex-wrap items-center gap-3">
+                              <div className="w-9 h-9 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+                                <Calendar size={16} />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-medium text-slate-900">{candidateNameFromInterview(item)}</p>
+                                <p className="text-[11px] text-slate-500">
+                                  {formatDateDMY(item.scheduledAt)} · {formatTime12hEnGb(item.scheduledAt)} · {item.type || item.mode || 'Interview'}
+                                </p>
+                              </div>
+                              <span className="text-[11px] font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
+                                {item.round || 'Screening'}
+                              </span>
+                              <span
+                                className={`text-[11px] font-medium px-2 py-0.5 rounded ${
+                                  isCompleted ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                                }`}
+                              >
+                                {statusLabel}
+                              </span>
+                            </div>
+                          );
+                        })
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1907,28 +2093,47 @@ export function JobDetailsDrawer({
                       <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Placements</h4>
                       <p className="text-xs text-slate-500 mt-0.5">Successful hires for this job</p>
                     </div>
-                    {job.joined === 0 ? (
+                    {loadingJobPlacements ? (
+                      <div className="flex items-center justify-center gap-2 p-8 text-sm text-slate-500">
+                        <Loader2 size={18} className="animate-spin text-indigo-500" />
+                        Loading placements…
+                      </div>
+                    ) : jobPlacements.length === 0 ? (
                       <div className="p-8 text-center">
                         <UserCheck size={32} className="mx-auto text-slate-300 mb-3" />
                         <p className="text-sm text-slate-500">No placements yet for this job.</p>
                       </div>
                     ) : (
                       <div className="divide-y divide-slate-100">
-                        {[
-                          { id: '1', candidateName: 'Rahul Verma', joinedDate: '2026-02-20', role: job.title },
-                          { id: '2', candidateName: 'Neha Patel', joinedDate: '2026-02-28', role: job.title },
-                        ].slice(0, Math.max(1, job.joined)).map((p) => (
-                          <div key={p.id} className="px-4 py-3 flex flex-wrap items-center gap-3">
-                            <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
-                              <UserCheck size={16} />
+                        {jobPlacements.map((placement) => {
+                          const joinedDate =
+                            placement.actualJoiningDate ||
+                            placement.joiningDate ||
+                            placement.offerDate ||
+                            placement.createdAt;
+                          const statusLabel = formatPlacementStatusLabel(placement.status);
+                          const isJoined = placement.status === 'JOINED';
+                          return (
+                            <div key={placement.id} className="px-4 py-3 flex flex-wrap items-center gap-3">
+                              <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+                                <UserCheck size={16} />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-medium text-slate-900">{candidateNameFromPlacement(placement)}</p>
+                                <p className="text-[11px] text-slate-500">
+                                  {joinedDate ? formatDateDMY(joinedDate) : '—'} · {placement.job?.title || job.title}
+                                </p>
+                              </div>
+                              <span
+                                className={`text-[11px] font-medium px-2 py-0.5 rounded ${
+                                  isJoined ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'
+                                }`}
+                              >
+                                {statusLabel}
+                              </span>
                             </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm font-medium text-slate-900">{p.candidateName}</p>
-                              <p className="text-[11px] text-slate-500">{p.joinedDate} · {p.role}</p>
-                            </div>
-                            <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-emerald-100 text-emerald-700">Joined</span>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>

@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { env } from '../../config/env.js';
 import {
   postSyncPortalApplication,
+  postSyncPortalWithdrawApplication,
+  postSyncPortalTailoredCv,
   postPlacementOfferResponse,
   postBackfillPortalJobTenants,
 } from './portal-sync.controller.js';
@@ -67,6 +69,12 @@ function portalSyncSecretMiddleware(req, res, next) {
 }
 
 router.post('/sync-portal-application', portalSyncSecretMiddleware, postSyncPortalApplication);
+router.post(
+  '/sync-portal-withdraw-application',
+  portalSyncSecretMiddleware,
+  postSyncPortalWithdrawApplication
+);
+router.post('/sync-portal-tailored-cv', portalSyncSecretMiddleware, postSyncPortalTailoredCv);
 router.post('/placement-offer-response', portalSyncSecretMiddleware, postPlacementOfferResponse);
 router.post(
   '/backfill-portal-job-tenants',

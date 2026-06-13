@@ -919,6 +919,256 @@ export async function apiHqListTenants() {
   }>('/hq/tenants', { auth: true });
 }
 
+export type HqLeadStorageInfo = {
+  engine: string;
+  database: string;
+  collection: string;
+};
+
+export type HqLeadStats = {
+  total: number;
+  newLeads: number;
+  followUpsToday: number;
+  converted: number;
+  lost: number;
+  conversionRate: number;
+};
+
+export type HqLeadApiRow = {
+  id: string;
+  name: string;
+  company: string;
+  industry: string;
+  score: 'Hot' | 'Warm' | 'Cold';
+  users: number;
+  owner: string;
+  stage: 'new' | 'contacted' | 'qualified' | 'converted' | 'lost';
+  nextFollowUp: string;
+  nextFollowUpAt?: string | null;
+  email?: string;
+  phone?: string;
+  country?: string;
+  estimatedDealValue?: number;
+  leadSource?: string;
+  interestedModules?: string[];
+  initialNotes?: string;
+  createdAt?: string | null;
+  followUps?: HqLeadFollowUp[];
+  remarks?: HqLeadRemark[];
+  convertedToCompanyId?: string | null;
+};
+
+export type HqLeadFollowUp = {
+  id: string;
+  type: string;
+  scheduledAt: string | null;
+  notes: string;
+  status: string;
+  createdAt: string | null;
+  createdByEmail?: string | null;
+};
+
+export type HqLeadRemark = {
+  id: string;
+  text: string;
+  createdAt: string | null;
+  createdByEmail?: string | null;
+};
+
+export async function apiHqListLeads() {
+  return apiFetch<{
+    leads: HqLeadApiRow[];
+    stats: HqLeadStats;
+    storage: HqLeadStorageInfo;
+  }>('/hq/leads', { auth: true });
+}
+
+export async function apiHqCreateLead(body: {
+  contactName: string;
+  companyName: string;
+  email: string;
+  phone?: string;
+  industry: string;
+  country: string;
+  expectedUsers: string | number;
+  estimatedDealValue: string | number;
+  leadOwner: string;
+  leadSource: string;
+  nextFollowUpAt: string;
+  interestedModules: string[];
+  initialNotes?: string;
+}) {
+  return apiFetch<{
+    lead: HqLeadApiRow;
+    storage: HqLeadStorageInfo;
+  }>('/hq/leads', { method: 'POST', auth: true, body });
+}
+
+export async function apiHqUpdateLead(
+  leadId: string,
+  body: {
+    contactName: string;
+    companyName: string;
+    email: string;
+    phone?: string;
+    industry: string;
+    country: string;
+    expectedUsers: string | number;
+    estimatedDealValue: string | number;
+    leadOwner: string;
+    leadSource: string;
+    nextFollowUpAt: string;
+    interestedModules: string[];
+    initialNotes?: string;
+    stage: HqLeadApiRow['stage'];
+  }
+) {
+  return apiFetch<{
+    lead: HqLeadApiRow;
+    storage: HqLeadStorageInfo;
+  }>(`/hq/leads/${encodeURIComponent(leadId)}`, { method: 'PUT', auth: true, body });
+}
+
+export async function apiHqAddLeadFollowUp(
+  leadId: string,
+  body: {
+    type: string;
+    scheduledAt: string;
+    notes?: string;
+  }
+) {
+  return apiFetch<{
+    lead: HqLeadApiRow;
+    storage: HqLeadStorageInfo;
+  }>(`/hq/leads/${encodeURIComponent(leadId)}/follow-ups`, { method: 'POST', auth: true, body });
+}
+
+export async function apiHqAddLeadRemark(leadId: string, body: { text: string }) {
+  return apiFetch<{
+    lead: HqLeadApiRow;
+    storage: HqLeadStorageInfo;
+  }>(`/hq/leads/${encodeURIComponent(leadId)}/remarks`, { method: 'POST', auth: true, body });
+}
+
+export async function apiHqConvertLeadToCompany(leadId: string) {
+  return apiFetch<{
+    company: HqCompanyApiRow;
+    lead: HqLeadApiRow;
+    alreadyConverted?: boolean;
+    storage: HqLeadStorageInfo;
+  }>(`/hq/leads/${encodeURIComponent(leadId)}/convert-to-company`, {
+    method: 'POST',
+    auth: true,
+    body: {},
+  });
+}
+
+export type HqCompanyApiRow = {
+  id: string;
+  name: string;
+  contact: string;
+  industry: string;
+  score: 'Hot' | 'Warm' | 'Cold';
+  users: number;
+  owner: string;
+  status: 'active' | 'inactive' | 'on_hold' | 'closed';
+  nextFollowUp: string;
+  nextFollowUpAt?: string | null;
+  email?: string;
+  phone?: string;
+  website?: string;
+  country?: string;
+  estimatedDealValue?: number;
+  companySource?: string;
+  interestedModules?: string[];
+  initialNotes?: string;
+  createdAt?: string | null;
+  followUps?: HqLeadFollowUp[];
+  remarks?: HqLeadRemark[];
+};
+
+export type HqCompanyStats = {
+  total: number;
+  active: number;
+  inactive: number;
+  onHold: number;
+  closed: number;
+  followUpsToday: number;
+};
+
+export async function apiHqListCompanies() {
+  return apiFetch<{
+    companies: HqCompanyApiRow[];
+    stats: HqCompanyStats;
+    storage: HqLeadStorageInfo;
+  }>('/hq/companies', { auth: true });
+}
+
+export async function apiHqCreateCompany(body: {
+  companyName: string;
+  primaryContactName: string;
+  email: string;
+  phone?: string;
+  website?: string;
+  industry: string;
+  country: string;
+  expectedUsers: string | number;
+  estimatedDealValue: string | number;
+  accountOwner: string;
+  companySource: string;
+  nextFollowUpAt: string;
+  interestedModules: string[];
+  initialNotes?: string;
+}) {
+  return apiFetch<{ company: HqCompanyApiRow; storage: HqLeadStorageInfo }>(
+    '/hq/companies',
+    { method: 'POST', auth: true, body }
+  );
+}
+
+export async function apiHqUpdateCompany(
+  companyId: string,
+  body: {
+    companyName: string;
+    primaryContactName: string;
+    email: string;
+    phone?: string;
+    website?: string;
+    industry: string;
+    country: string;
+    expectedUsers: string | number;
+    estimatedDealValue: string | number;
+    accountOwner: string;
+    companySource: string;
+    nextFollowUpAt: string;
+    interestedModules: string[];
+    initialNotes?: string;
+    status: HqCompanyApiRow['status'];
+  }
+) {
+  return apiFetch<{ company: HqCompanyApiRow; storage: HqLeadStorageInfo }>(
+    `/hq/companies/${encodeURIComponent(companyId)}`,
+    { method: 'PUT', auth: true, body }
+  );
+}
+
+export async function apiHqAddCompanyFollowUp(
+  companyId: string,
+  body: { type: string; scheduledAt: string; notes?: string }
+) {
+  return apiFetch<{ company: HqCompanyApiRow; storage: HqLeadStorageInfo }>(
+    `/hq/companies/${encodeURIComponent(companyId)}/follow-ups`,
+    { method: 'POST', auth: true, body }
+  );
+}
+
+export async function apiHqAddCompanyRemark(companyId: string, body: { text: string }) {
+  return apiFetch<{ company: HqCompanyApiRow; storage: HqLeadStorageInfo }>(
+    `/hq/companies/${encodeURIComponent(companyId)}/remarks`,
+    { method: 'POST', auth: true, body }
+  );
+}
+
 export async function apiHqAssignTenantPlan(body: { email: string; plan: { name: string } }) {
   return apiFetch<{ email: string; subscriptionPlan: { name: string } | null }>(
     '/hq/tenants/plan',
@@ -1703,6 +1953,7 @@ export interface BackendJob {
   applicationFormQuestions?: string[];
   applicationFormNote?: string | null;
   applicationFormSchema?: { version: number; fields: unknown[] } | null;
+  preScreenAssessments?: unknown[];
   applyLinkToken?: string | null;
   applyUrl?: string | null;
   pipelineStages?: Array<{
@@ -1817,6 +2068,14 @@ export interface CreateJobData {
   showClientNamePublicly?: boolean;
   /** Per-field visibility for public apply page, Phase 1, and social posts. */
   publicFieldVisibility?: Record<string, boolean>;
+  preScreenAssessments?: Array<{
+    assessmentId: string;
+    sortOrder?: number;
+    required?: boolean;
+    timing?: string;
+    durationOverrideMinutes?: number | null;
+    passScoreOverridePercent?: number | null;
+  }>;
 }
 
 export const apiCreateJob = async (data: CreateJobData) => {
@@ -1872,6 +2131,138 @@ export const apiCreateApplicationFormTemplate = async (payload: {
     '/jobs/application-form-templates',
     { method: 'POST', body: payload, auth: true }
   );
+};
+
+export const listPreScreenAssessments = async (type?: string) => {
+  const qs = type ? `?type=${encodeURIComponent(type)}` : '';
+  return apiFetch<unknown[]>(`/pre-screen-assessments/library${qs}`, { auth: true });
+};
+
+export const createPreScreenAssessment = async (payload: Record<string, unknown>) => {
+  return apiFetch<Record<string, unknown>>('/pre-screen-assessments/library', {
+    method: 'POST',
+    body: payload,
+    auth: true,
+  });
+};
+
+export const generatePreScreenAssessmentsWithAi = async (payload: {
+  jobTitle: string;
+  skills?: string[];
+  jobDescription?: string;
+}) => {
+  return apiFetch<{
+    mcq: Record<string, unknown>;
+    coding: Record<string, unknown>;
+    questionCount?: number;
+    codingTestCaseCount?: number;
+  }>('/pre-screen-assessments/library/generate', {
+    method: 'POST',
+    body: payload,
+    auth: true,
+  });
+};
+
+export const generateMcqPreScreenAssessmentWithAi = async (payload: {
+  jobTitle: string;
+  skills?: string[];
+  jobDescription?: string;
+}) => {
+  return apiFetch<{
+    title: string;
+    type: 'MCQ';
+    durationMinutes: number;
+    passScorePercent: number;
+    config: { questions: unknown[]; antiCheat?: unknown };
+  }>('/pre-screen-assessments/library/generate', {
+    method: 'POST',
+    body: { ...payload, type: 'MCQ' },
+    auth: true,
+  });
+};
+
+export const generateCodingPreScreenAssessmentWithAi = async (payload: {
+  jobTitle: string;
+  skills?: string[];
+  jobDescription?: string;
+}) => {
+  return apiFetch<{
+    title: string;
+    type: 'CODING';
+    durationMinutes: number;
+    passScorePercent: number;
+    config: { questions?: unknown[]; language?: string; antiCheat?: unknown };
+  }>('/pre-screen-assessments/library/generate', {
+    method: 'POST',
+    body: { ...payload, type: 'CODING' },
+    auth: true,
+  });
+};
+
+export const updatePreScreenAssessment = async (id: string, payload: Record<string, unknown>) => {
+  return apiFetch<Record<string, unknown>>(`/pre-screen-assessments/library/${id}`, {
+    method: 'PATCH',
+    body: payload,
+    auth: true,
+  });
+};
+
+export const deletePreScreenAssessment = async (id: string) => {
+  return apiFetch<unknown>(`/pre-screen-assessments/library/${id}`, {
+    method: 'DELETE',
+    auth: true,
+  });
+};
+
+export const getJobPreScreenAssessments = async (jobId: string) => {
+  return apiFetch<unknown[]>(`/pre-screen-assessments/jobs/${jobId}`, { auth: true });
+};
+
+export const replaceJobPreScreenAssessments = async (
+  jobId: string,
+  links: NonNullable<CreateJobData['preScreenAssessments']>
+) => {
+  return apiFetch<unknown[]>(`/pre-screen-assessments/jobs/${jobId}`, {
+    method: 'PUT',
+    body: { preScreenAssessments: links },
+    auth: true,
+  });
+};
+
+export const getApplicationAssessmentResults = async (applicationId: string) => {
+  return apiFetch<unknown[]>(`/pre-screen-assessments/applications/${applicationId}/results`, {
+    auth: true,
+  });
+};
+
+export type CandidateAssessmentResultGroup = {
+  jobId: string;
+  jobTitle: string;
+  applicationId?: string | null;
+  results: Array<Record<string, unknown>>;
+};
+
+export const getCandidateAssessmentResults = async (
+  candidateId: string,
+  jobId?: string | null,
+) => {
+  const scopedJobId = String(jobId || '').trim();
+  const qs = scopedJobId ? `?jobId=${encodeURIComponent(scopedJobId)}` : '';
+  return apiFetch<CandidateAssessmentResultGroup[]>(
+    `/pre-screen-assessments/candidates/${encodeURIComponent(candidateId)}/results${qs}`,
+    { auth: true },
+  );
+};
+
+export const gradeAssessmentSession = async (
+  sessionId: string,
+  payload: { scorePercent: number; reviewNote?: string },
+) => {
+  return apiFetch<unknown>(`/pre-screen-assessments/sessions/${sessionId}/grade`, {
+    method: 'PATCH',
+    body: payload,
+    auth: true,
+  });
 };
 
 export const apiGetPublicApplyPage = async (token: string, tenantDbName?: string) => {
@@ -2066,8 +2457,11 @@ export interface BackendCandidate {
   extraData?: Record<string, unknown> | null;
   matches?: Array<{
     id: string;
+    jobId?: string;
     status?: string;
     score?: number;
+    createdById?: string | null;
+    evaluation?: { origin?: string; pending?: boolean } | null;
     job?: {
       id: string;
       title: string;
@@ -5889,6 +6283,70 @@ export const apiPatchNotificationTriggerTemplatesOverrides = async (
     auth: true,
     body: { templates },
   });
+};
+
+// ── Alerts Management (email + portal bell per event) ──
+
+export type AlertChannelSettings = {
+  email: boolean;
+  portal: boolean;
+};
+
+export type AlertDefinition = {
+  id: string;
+  module: string;
+  label: string;
+  description: string;
+  emailTriggerId?: string | null;
+  category: string;
+  severity: 'info' | 'warning' | 'critical' | string;
+  defaultEmail: boolean;
+  defaultPortal: boolean;
+};
+
+export type AlertCatalogGroup = {
+  module: string;
+  alerts: AlertDefinition[];
+};
+
+export type AlertManagementPayload = {
+  catalog: AlertCatalogGroup[];
+  channels: Record<string, AlertChannelSettings>;
+  scope?: string;
+  updatedAt?: string | null;
+};
+
+export const apiGetAlertManagement = async () => {
+  return apiFetch<AlertManagementPayload>('/settings/alert-management', { auth: true });
+};
+
+export const apiUpdateAlertManagement = async (
+  channels: Record<string, AlertChannelSettings>,
+) => {
+  return apiFetch<AlertManagementPayload>('/settings/alert-management', {
+    method: 'PATCH',
+    auth: true,
+    body: { channels, scope: 'ORG' },
+  });
+};
+
+export const apiTestAlertEmail = async (alertId: string) => {
+  return apiFetch<{ alertId: string; to: string }>('/settings/alert-management/test-email', {
+    method: 'POST',
+    auth: true,
+    body: { alertId },
+  });
+};
+
+export const apiTestAlertPortal = async (alertId: string) => {
+  return apiFetch<{ alertId: string; notificationId: string }>(
+    '/settings/alert-management/test-portal',
+    {
+      method: 'POST',
+      auth: true,
+      body: { alertId },
+    },
+  );
 };
 
 export type AriaUndoPayload = {

@@ -5,6 +5,10 @@ import { prisma } from '../../config/prisma.js';
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
 import { clientBillingEmailSelect, resolveClientBillingEmail } from '../../utils/resolveClientBillingEmail.js';
 import { sendPlacementInvoiceEmail } from '../../services/emailService.js';
+import {
+  notifyDraftInvoiceReady,
+  notifyInvoiceSent,
+} from '../setting/alert-notify.helpers.js';
 import { enrichBillingRecordsWithAudit } from '../../utils/listAuditMeta.js';
 
 const EXPORT_DIR = path.join(process.cwd(), 'uploads', 'reports');
@@ -832,7 +836,18 @@ export const billingService = {
       });
     });
 
-    return this.getById(id);
+    const saved = await this.getById(id);
+    if (nextStatus === 'DRAFT' || saved?.status === 'DRAFT') {
+      try {
+        await notifyDraftInvoiceReady({
+          record: saved,
+          userId: data.performedById || data.userId || null,
+        });
+      } catch (alertErr) {
+        console.warn('[billing.saveInvoice] draft alert failed:', alertErr?.message || alertErr);
+      }
+    }
+    return saved;
   },
 
   async sendInvoiceToClient(id, data = {}, senderUserId) {
@@ -911,6 +926,20 @@ export const billingService = {
         where: { id },
         data: { status: 'SENT' },
       });
+    }
+
+    try {
+      await notifyInvoiceSent({
+        record: {
+          ...existing,
+          status: 'SENT',
+          placement: existing.placement,
+        },
+        senderUserId,
+        toEmail,
+      });
+    } catch (alertErr) {
+      console.warn('[billing.sendInvoiceToClient] alert failed:', alertErr?.message || alertErr);
     }
 
     if (existing.placementId) {

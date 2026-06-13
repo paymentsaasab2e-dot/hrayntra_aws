@@ -12,10 +12,15 @@ import {
   syncApplicationOfferResponse,
   updateCandidateStage,
 } from '../stage/candidateStage.service.js';
+import { pushPortalNotification } from '../notification/notification.service.js';
 import {
-  createUserNotification,
-  pushPortalNotification,
-} from '../notification/notification.service.js';
+  createAlertNotification,
+  dispatchScheduledAlert,
+} from '../setting/alert-dispatch.service.js';
+import {
+  notifyPlacementCreated,
+  notifyPlacementOfferResponse,
+} from '../setting/alert-notify.helpers.js';
 import { prepareListWithAuditMeta } from '../../utils/listAuditMeta.js';
 import { ENTITY_TYPES } from '../../services/activityService.js';
 import { attachAuditMetaToEntity } from '../../utils/listAuditMeta.js';
@@ -740,25 +745,15 @@ export const placementService = {
       const candidateName = `${candidate.firstName || ''} ${candidate.lastName || ''}`
         .trim() || 'Candidate';
       const recipients = new Set([userId, recruiter.id].filter(Boolean));
-      await Promise.allSettled(
-        Array.from(recipients).map((uid) =>
-          createUserNotification(uid, {
-            category: 'PLACEMENT',
-            title: 'Placement created',
-            description: `${candidateName} placed at ${client.companyName} for ${job.title}.`,
-            actionLabel: 'View placement',
-            actionPath: `/placement?placementId=${placementResult.id}`,
-            entityType: 'PLACEMENT',
-            entityId: placementResult.id,
-            metadata: {
-              candidateId: candidate.id,
-              jobId: job.id,
-              clientId: client.id,
-              hasOfferLetter: !!offerLetterToMirror?.fileUrl,
-            },
-          })
-        )
-      );
+      await notifyPlacementCreated({
+        placementId: placementResult.id,
+        candidateName,
+        clientName: client.companyName,
+        jobTitle: job.title,
+        userIds: Array.from(recipients),
+        hasOfferLetter: !!offerLetterToMirror?.fileUrl,
+        senderUserId: userId,
+      });
       void pushPortalNotification(candidate.id, {
         type: 'application',
         title: offerLetterToMirror?.fileUrl
@@ -1097,7 +1092,36 @@ export const placementService = {
       });
     });
 
-    return fetchPlacementOrThrow(id);
+    const failed = await fetchPlacementOrThrow(id);
+    try {
+      const candidateName =
+        `${failed.candidate?.firstName || ''} ${failed.candidate?.lastName || ''}`.trim() ||
+        'Candidate';
+      const jobTitle = failed.job?.title || 'the role';
+      const notifyIds = new Set([failed.recruiterId, userId].filter(Boolean));
+      await Promise.allSettled(
+        Array.from(notifyIds).map((uid) =>
+          dispatchScheduledAlert({
+            alertId: 'placement.failed',
+            userId: uid,
+            dedupHours: 1,
+            payload: {
+              category: 'PLACEMENT',
+              title: 'Placement failed / no-show',
+              description: `${candidateName} — ${status.replace(/_/g, ' ').toLowerCase()} for ${jobTitle}. Reason: ${reason}.`,
+              actionLabel: 'View placement',
+              actionPath: `/placement?placementId=${id}`,
+              entityType: 'PLACEMENT',
+              entityId: id,
+            },
+          })
+        )
+      );
+    } catch (notifyErr) {
+      console.warn('[placement.markFailed] alert failed:', notifyErr?.message || notifyErr);
+    }
+
+    return failed;
   },
 
   async requestReplacement(id, data, userId) {
@@ -1120,7 +1144,37 @@ export const placementService = {
       });
     });
 
-    return fetchPlacementOrThrow(id);
+    const replacement = await fetchPlacementOrThrow(id);
+    try {
+      const candidateName =
+        `${replacement.candidate?.firstName || ''} ${replacement.candidate?.lastName || ''}`.trim() ||
+        'Candidate';
+      const jobTitle = replacement.job?.title || 'the role';
+      const clientName = replacement.client?.companyName || 'the client';
+      const notifyIds = new Set([replacement.recruiterId, userId].filter(Boolean));
+      await Promise.allSettled(
+        Array.from(notifyIds).map((uid) =>
+          dispatchScheduledAlert({
+            alertId: 'placement.replacement_required',
+            userId: uid,
+            dedupHours: 1,
+            payload: {
+              category: 'PLACEMENT',
+              title: 'Replacement required',
+              description: `Replacement needed for ${candidateName} at ${clientName} (${jobTitle}).${reason ? ` Reason: ${reason}` : ''}`,
+              actionLabel: 'View placement',
+              actionPath: `/placement?placementId=${id}`,
+              entityType: 'PLACEMENT',
+              entityId: id,
+            },
+          })
+        )
+      );
+    } catch (notifyErr) {
+      console.warn('[placement.requestReplacement] alert failed:', notifyErr?.message || notifyErr);
+    }
+
+    return replacement;
   },
 
   async scheduleJoining(id, data, userId) {
@@ -1266,7 +1320,7 @@ export const placementService = {
       const recipients = new Set([userId, existing.recruiterId].filter(Boolean));
       await Promise.allSettled(
         Array.from(recipients).map((uid) =>
-          createUserNotification(uid, {
+          createAlertNotification(uid, 'placement.joining_scheduled', {
             category: 'PLACEMENT',
             title: 'Joining scheduled',
             description: `${candidateName} — ${joiningDateLabel}. Report to ${reportingToName}.`,
@@ -1361,17 +1415,13 @@ export const placementService = {
     });
     const candidateName = `${candidate?.firstName || ''} ${candidate?.lastName || ''}`.trim() || 'Candidate';
     const notifyIds = new Set([placement.recruiterId].filter(Boolean));
-    await Promise.allSettled(
-      Array.from(notifyIds).map((uid) =>
-        createUserNotification(uid, {
-          category: 'PLACEMENT',
-          title: isAccept ? 'Offer accepted' : 'Offer declined',
-          description: `${candidateName} ${isAccept ? 'accepted' : 'declined'} the offer for ${job?.title || 'the role'}.`,
-          actionLabel: 'View placement',
-          actionPath: `/placement?placementId=${placement.id}`,
-        })
-      )
-    );
+    await notifyPlacementOfferResponse({
+      placementId: placement.id,
+      candidateName,
+      jobTitle: job?.title || 'the role',
+      isAccept,
+      userIds: Array.from(notifyIds),
+    });
 
     return fetchPlacementOrThrow(placement.id);
   },

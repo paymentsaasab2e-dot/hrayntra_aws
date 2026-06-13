@@ -1,5 +1,9 @@
 import { prisma } from '../../config/prisma.js';
 import { getJobPortalPrismaClient } from '../../config/prisma.js';
+import {
+  notifyCandidateHired,
+  notifyCandidateStageChanged,
+} from '../setting/alert-notify.helpers.js';
 
 export const PIPELINE_STAGES = {
   APPLIED: 'APPLIED',
@@ -136,6 +140,67 @@ async function upsertTenantPipelineEntry(candidateId, jobId, stageId, movedById)
   }
 }
 
+async function resolvePortalJobPipelineStageForRole(portal, jobId, canonicalStage) {
+  const role = String(canonicalStage || '').toUpperCase();
+  if (!jobId || !role) return null;
+  const stages = await portal.pipelineStage.findMany({
+    where: { jobId },
+    orderBy: { order: 'asc' },
+  });
+  if (!stages.length) return null;
+  return stages.find((s) => mapStageNameToPipelineBucket(s.name) === role) || null;
+}
+
+async function ensurePortalJobPipelineStageForRole(portal, jobId, canonicalStage) {
+  const existing = await resolvePortalJobPipelineStageForRole(portal, jobId, canonicalStage);
+  if (existing) return existing;
+
+  const role = String(canonicalStage || '').toUpperCase();
+  if (!jobId || !role) return null;
+
+  const label = mapPipelineStageToCrmCandidateLabel(canonicalStage);
+  const maxOrderRow = await portal.pipelineStage.findFirst({
+    where: { jobId },
+    orderBy: { order: 'desc' },
+    select: { order: true },
+  });
+
+  return portal.pipelineStage.create({
+    data: {
+      jobId,
+      name: label,
+      order: (maxOrderRow?.order ?? 0) + 1,
+    },
+  });
+}
+
+async function upsertPortalPipelineEntry(portal, candidateId, jobId, stageId, options = {}) {
+  if (!candidateId || !jobId || !stageId) return;
+  const existing = await portal.pipelineEntry.findFirst({
+    where: { candidateId, jobId },
+    select: { id: true },
+  });
+  const data = {
+    stageId,
+    movedAt: new Date(),
+    ...(options.pipelineNotes ? { notes: options.pipelineNotes } : {}),
+  };
+  if (existing) {
+    await portal.pipelineEntry.update({
+      where: { id: existing.id },
+      data,
+    });
+  } else {
+    await portal.pipelineEntry.create({
+      data: {
+        candidateId,
+        jobId,
+        stageId,
+      },
+    });
+  }
+}
+
 /** CRM / list `candidate.stage` string (tenant + portal profile). */
 export function mapPipelineStageToCrmCandidateLabel(stage) {
   const s = String(stage || '').toUpperCase();
@@ -194,6 +259,13 @@ function buildTimelineCopy(portalStatus, options = {}) {
     return {
       title: options.timelineTitle,
       description: options.timelineDescription || null,
+    };
+  }
+  if (options.stage) {
+    const label = mapPipelineStageToCrmCandidateLabel(options.stage);
+    return {
+      title: label,
+      description: options.timelineDescription || `${label} stage`,
     };
   }
   const status = String(portalStatus || '');
@@ -404,28 +476,18 @@ export async function syncApplicationState(candidateId, jobId, options = {}) {
     },
   });
 
-  if (String(options.stage || '').toUpperCase() === PIPELINE_STAGES.INTERVIEW) {
-    const stages = await portal.pipelineStage.findMany({
-      where: { jobId },
-      select: { id: true, name: true, order: true },
-      orderBy: { order: 'asc' },
-    });
-    const interviewStage = stages.find((st) => /interview/i.test(String(st.name || '')));
-    if (interviewStage) {
-      const existing = await portal.pipelineEntry.findFirst({
-        where: { candidateId, jobId },
-        select: { id: true },
-      });
-      if (existing) {
-        await portal.pipelineEntry.update({
-          where: { id: existing.id },
-          data: {
-            stageId: interviewStage.id,
-            movedAt: new Date(),
-            ...(options.pipelineNotes ? { notes: options.pipelineNotes } : {}),
-          },
-        });
+  const canonicalStage = String(options.stage || '').toUpperCase();
+  if (canonicalStage && Object.values(PIPELINE_STAGES).includes(canonicalStage)) {
+    try {
+      const resolvedStage = await ensurePortalJobPipelineStageForRole(portal, jobId, canonicalStage);
+      if (resolvedStage?.id) {
+        await upsertPortalPipelineEntry(portal, candidateId, jobId, resolvedStage.id, options);
       }
+    } catch (pipeErr) {
+      console.warn(
+        '[syncApplicationState] portal pipeline entry move failed:',
+        pipeErr?.message || pipeErr
+      );
     }
   }
 }
@@ -449,6 +511,19 @@ export async function updateCandidateStage({
 }) {
   const label = mapPipelineStageToCrmCandidateLabel(stage);
   const upper = String(stage || '').toUpperCase();
+
+  const previousCandidate = await prisma.candidate.findUnique({
+    where: { id: candidateId },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      stage: true,
+      assignedToId: true,
+    },
+  });
+  const previousStage = previousCandidate?.stage || null;
 
   let status = 'ACTIVE';
   if (upper === PIPELINE_STAGES.REJECTED) {
@@ -525,6 +600,34 @@ export async function updateCandidateStage({
       where: { candidateId, jobId },
       data: { status: 'COMPLETED' },
     });
+  }
+
+  try {
+    if (label && label !== previousStage) {
+      const job = jobId
+        ? await prisma.job.findUnique({
+            where: { id: jobId },
+            select: { id: true, title: true, client: { select: { companyName: true } } },
+          })
+        : null;
+      await notifyCandidateStageChanged({
+        candidate: previousCandidate || { id: candidateId, stage: label },
+        job,
+        previousStage,
+        newStage: label,
+        performedById,
+      });
+      if (upper === PIPELINE_STAGES.HIRED) {
+        await notifyCandidateHired({
+          candidate: previousCandidate,
+          job,
+          client: job?.client,
+          recruiterId: performedById || previousCandidate?.assignedToId,
+        });
+      }
+    }
+  } catch (alertErr) {
+    console.warn('[updateCandidateStage] alert failed:', alertErr?.message || alertErr);
   }
 
   if (!skipStageActivity && performedById) {

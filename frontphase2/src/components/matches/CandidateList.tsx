@@ -87,7 +87,6 @@ export default function CandidateList(props: CandidateListProps) {
       tierBelow50: [],
     };
     for (const c of candidates) {
-      if (c.isAppliedCandidate) continue;
       buckets[tierForScore(c.score)].push(c);
     }
     for (const id of Object.keys(buckets) as AiScoreTierId[]) {
@@ -216,7 +215,7 @@ export default function CandidateList(props: CandidateListProps) {
                 ) : null}
               </div>
             ) : null}
-            {aiTierGroups
+            {aiTierGroups && aiTierGroups.length > 0
               ? aiTierGroups.map((group) => {
                   const styles = tierSectionStyles(group.id);
                   return (

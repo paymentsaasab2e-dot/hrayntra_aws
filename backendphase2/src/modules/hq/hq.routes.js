@@ -17,4 +17,17 @@ router.put('/tenants/plan', authMiddleware, hqController.assignPlan);
 router.delete('/tenants', authMiddleware, hqController.deleteTenant);
 router.delete('/tenants/:email', authMiddleware, hqController.deleteTenant);
 
+router.get('/leads', authMiddleware, hqController.listLeads);
+router.post('/leads', authMiddleware, hqController.createLead);
+router.put('/leads/:id', authMiddleware, hqController.updateLead);
+router.post('/leads/:id/follow-ups', authMiddleware, hqController.addLeadFollowUp);
+router.post('/leads/:id/remarks', authMiddleware, hqController.addLeadRemark);
+router.post('/leads/:id/convert-to-company', authMiddleware, hqController.convertLeadToCompany);
+
+router.get('/companies', authMiddleware, hqController.listCompanies);
+router.post('/companies', authMiddleware, hqController.createCompany);
+router.put('/companies/:id', authMiddleware, hqController.updateCompany);
+router.post('/companies/:id/follow-ups', authMiddleware, hqController.addCompanyFollowUp);
+router.post('/companies/:id/remarks', authMiddleware, hqController.addCompanyRemark);
+
 export default router;

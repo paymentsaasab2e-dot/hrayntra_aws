@@ -1,8 +1,10 @@
 import {
   applyPortalApplicationSync,
+  applyPortalWithdrawSync,
   applyPlacementOfferResponse,
   backfillPortalJobTenantDbNames,
 } from './portal-sync.service.js';
+import { applyPortalTailoredCvSync } from './portal-tailored-cv.service.js';
 
 export async function postSyncPortalApplication(req, res) {
   try {
@@ -47,6 +49,36 @@ export async function postPlacementOfferResponse(req, res) {
     return res.json({ success: true, data: { placementId: placement?.id, status: placement?.status } });
   } catch (error) {
     const message = String(error?.message || 'Offer response failed');
+    const status = message.includes('not found') ? 404 : 400;
+    return res.status(status).json({ success: false, message });
+  }
+}
+
+export async function postSyncPortalWithdrawApplication(req, res) {
+  try {
+    const { tenantDbName, candidateId, jobId } = req.body || {};
+    await applyPortalWithdrawSync({ tenantDbName, candidateId, jobId });
+    return res.json({ success: true, message: 'Portal withdraw synced' });
+  } catch (error) {
+    const message = String(error?.message || 'Withdraw sync failed');
+    const status = message.includes('not found') ? 404 : 400;
+    return res.status(status).json({ success: false, message });
+  }
+}
+
+export async function postSyncPortalTailoredCv(req, res) {
+  try {
+    const { tenantDbName, candidateId, jobId, cvPayload, source } = req.body || {};
+    const result = await applyPortalTailoredCvSync({
+      tenantDbName,
+      candidateId,
+      jobId,
+      cvPayload,
+      source,
+    });
+    return res.json({ success: true, message: 'Portal tailored CV synced', data: result });
+  } catch (error) {
+    const message = String(error?.message || 'Tailored CV sync failed');
     const status = message.includes('not found') ? 404 : 400;
     return res.status(status).json({ success: false, message });
   }

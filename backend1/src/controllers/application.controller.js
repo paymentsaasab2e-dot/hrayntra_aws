@@ -1,6 +1,8 @@
 const { prisma } = require('../lib/prisma');
 const { createCandidateNotification } = require('../services/notification.service');
 const { scheduleCandidateCommonSync } = require('../services/candidateCommonSync.service');
+const { loadTailoredCvForJob, syncTailoredCvToPhase2AfterApply } = require('../services/lmsTailoredCvPhase2Sync.service');
+const { mapLmsDraftToRecruiterCvFields } = require('../services/lmsTailoredCvMapper.service');
 const {
   resolvePublicCompanyName,
   shouldShowClientNamePublicly,
@@ -72,8 +74,8 @@ function splitResponsibilities(value) {
 
 function formatApplicationStatus(status) {
   const statusMap = {
-    SUBMITTED: 'Submitted',
-    UNDER_REVIEW: 'Under Review',
+    SUBMITTED: 'Applied',
+    UNDER_REVIEW: 'Screening',
     SHORTLISTED: 'Shortlisted',
     ASSESSMENT: 'Assessment',
     INTERVIEW: 'Interview',
@@ -83,6 +85,54 @@ function formatApplicationStatus(status) {
   };
 
   return statusMap[status] || status || 'Submitted';
+}
+
+function normalizePipelineStageToken(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Applied / Submitted pipeline columns are behind a synced UNDER_REVIEW application row. */
+function isEarlyPipelineStageName(name) {
+  const n = normalizePipelineStageToken(name);
+  if (!n) return true;
+  return n.includes('applied') || n.includes('submit') || n === 'new';
+}
+
+/**
+ * Prefer CRM-synced `Application.status` when the stored pipeline entry is still
+ * on an early column (e.g. Applied) but the application enum already advanced.
+ */
+function pipelineStageAheadOfAppStatus(pipelineStageName, appStatus) {
+  const pipelineText = String(pipelineStageName || '').trim();
+  if (!pipelineText) return false;
+
+  const appU = String(appStatus || '').toUpperCase();
+  if (appU === 'UNDER_REVIEW') {
+    return !isEarlyPipelineStageName(pipelineText);
+  }
+  if (appU === 'SUBMITTED') {
+    return !isEarlyPipelineStageName(pipelineText);
+  }
+  return true;
+}
+
+function pipelineStageNamesEquivalent(stageA, stageB) {
+  const a = normalizePipelineStageToken(stageA);
+  const b = normalizePipelineStageToken(stageB);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (isEarlyPipelineStageName(a) && isEarlyPipelineStageName(b)) return true;
+  return false;
+}
+
+function pipelineStageAlreadyRepresented(stageName, existingNames = []) {
+  const target = String(stageName || '').trim();
+  if (!target) return true;
+  return existingNames.some((existing) => pipelineStageNamesEquivalent(existing, target));
 }
 
 /**
@@ -99,11 +149,20 @@ function deriveApplicationPipelineStage({
   matchStatus,
   timelineStatuses,
 }) {
-  const pipelineText = String(pipelineStageName || '').trim();
-  if (pipelineText) return pipelineText;
-
   const appU = String(appStatus || '').toUpperCase();
+  const pipelineText = String(pipelineStageName || '').trim();
+  if (pipelineText && pipelineStageAheadOfAppStatus(pipelineText, appStatus)) {
+    return pipelineText;
+  }
+
   if (appU === 'REJECTED') return 'Rejected';
+
+  if (appU === 'SUBMITTED' && pipelineText) {
+    const pipeNorm = normalizePipelineStageToken(pipelineText);
+    if (pipeNorm.includes('applied') || pipeNorm.includes('submit')) {
+      return pipeNorm.includes('applied') ? pipelineText : 'Applied';
+    }
+  }
 
   if (Array.isArray(timelineStatuses)) {
     const latest = [...timelineStatuses]
@@ -116,6 +175,8 @@ function deriveApplicationPipelineStage({
         ['INTERVIEW', 'SHORTLISTED', 'ASSESSMENT', 'FINAL_DECISION', 'SELECTED'].includes(s)
       );
     if (lastStrong) return formatApplicationStatus(lastStrong);
+    const lastUnderReview = [...latest].reverse().find((s) => s === 'UNDER_REVIEW');
+    if (lastUnderReview) return formatApplicationStatus(lastUnderReview);
   }
 
   if (appStatus) return formatApplicationStatus(appStatus);
@@ -129,15 +190,15 @@ function deriveApplicationPipelineStage({
       return 'Interview';
     }
     if (matchU === 'SHORTLISTED') return 'Shortlisted';
-    if (matchU === 'REVIEWED') return 'Under Review';
+    if (matchU === 'REVIEWED') return 'Screening';
   }
 
-  return 'Submitted';
+  return 'Applied';
 }
 
 function formatMatchStatus(status) {
   const statusMap = {
-    REVIEWED: 'Under Review',
+    REVIEWED: 'Screening',
     SHORTLISTED: 'Shortlisted',
     INTERVIEW: 'Interview',
     INTERVIEWING: 'Interview',
@@ -217,12 +278,29 @@ function resolveApplicationDisplayStatus({
       return 'Applied';
     }
     const pipelineStageText = String(pipelineStageName || '').trim();
-    if (pipelineStageText) return pipelineStageText;
+    if (pipelineStageText && pipelineStageAheadOfAppStatus(pipelineStageText, appStatus)) {
+      return pipelineStageText;
+    }
+    if (appU === 'SUBMITTED' && pipelineStageText && isEarlyPipelineStageName(pipelineStageText)) {
+      return normalizePipelineStageToken(pipelineStageText).includes('applied')
+        ? pipelineStageText
+        : formatApplicationStatus(appStatus);
+    }
+    if (Array.isArray(timelineStatuses)) {
+      const lastUnderReview = [...timelineStatuses]
+        .map((s) => String(s || '').toUpperCase())
+        .filter(Boolean)
+        .reverse()
+        .find((s) => s === 'UNDER_REVIEW');
+      if (lastUnderReview) return formatApplicationStatus(lastUnderReview);
+    }
     return formatApplicationStatus(appStatus) || 'Applied';
   }
 
   const pipelineStageText = String(pipelineStageName || '').trim();
-  if (pipelineStageText) return pipelineStageText;
+  if (pipelineStageText && pipelineStageAheadOfAppStatus(pipelineStageText, appStatus)) {
+    return pipelineStageText;
+  }
 
   const matchText = formatMatchStatus(matchStatus);
   if (matchText) return matchText;
@@ -454,6 +532,17 @@ function normalizeResumeWorkEntries(entries) {
 }
 
 async function syncApplicationToRecruiterView(candidateId, job) {
+  const tailoredCv = await loadTailoredCvForJob(candidateId, job.id);
+  const tailoredFields = tailoredCv?.draft
+    ? mapLmsDraftToRecruiterCvFields(tailoredCv.draft, {
+        templateId: tailoredCv.templateId,
+        jobTitle: tailoredCv.jobTitle || job.title,
+        company: tailoredCv.company,
+        resumeHtml: tailoredCv.resumeHtml,
+        avatarUrl: tailoredCv.avatarUrl,
+      })
+    : null;
+
   const candidate = await prisma.candidate.findUnique({
     where: { id: candidateId },
     include: {
@@ -553,9 +642,14 @@ async function syncApplicationToRecruiterView(candidateId, job) {
       phone: candidate.profile?.phoneNumber || candidate.whatsappNumber || candidate.phone || resumePersonalInfo.phoneNumber || null,
       linkedIn: candidate.profile?.linkedinUrl || candidate.linkedIn || resumePersonalInfo.linkedinUrl || null,
       resumeUrl: candidate.resume?.fileUrl || candidate.resumeUrl || null,
-      recruiterSkills: recruiterSkills.length ? recruiterSkills : resumeSkills,
+      recruiterSkills: tailoredFields?.recruiterSkills?.length
+        ? tailoredFields.recruiterSkills
+        : recruiterSkills.length
+          ? recruiterSkills
+          : resumeSkills,
       experienceYears: calculateExperienceYears(candidate.workExperiences),
-      currentTitle: latestWork?.jobTitle || candidate.currentTitle || null,
+      currentTitle:
+        tailoredFields?.currentTitle || latestWork?.jobTitle || candidate.currentTitle || null,
       currentCompany: latestWork?.company || candidate.currentCompany || null,
       location: latestWork?.workLocation || candidate.location || candidate.profile?.city || resumePersonalInfo.city || null,
       addressLine: candidate.profile?.address || candidate.addressLine || resumePersonalInfo.address || null,
@@ -572,9 +666,21 @@ async function syncApplicationToRecruiterView(candidateId, job) {
       recruiterEducation: educationSummary || candidate.recruiterEducation || fallbackEducationEntries[0]?.degree || null,
       recruiterLanguages: recruiterLanguages.length ? recruiterLanguages : resumeLanguages,
       certificationsList: resumeCertifications,
-      cvSummary: candidate.summary?.summaryText || candidate.cvSummary || resumeSummary,
-      cvEducationEntries: cvEducationEntries.length ? cvEducationEntries : fallbackEducationEntries,
-      cvWorkExperienceEntries: cvWorkExperienceEntries.length ? cvWorkExperienceEntries : fallbackWorkEntries,
+      cvSummary:
+        tailoredFields?.cvSummary ||
+        candidate.summary?.summaryText ||
+        candidate.cvSummary ||
+        resumeSummary,
+      cvEducationEntries: tailoredFields?.cvEducationEntries?.length
+        ? tailoredFields.cvEducationEntries
+        : cvEducationEntries.length
+          ? cvEducationEntries
+          : fallbackEducationEntries,
+      cvWorkExperienceEntries: tailoredFields?.cvWorkExperienceEntries?.length
+        ? tailoredFields.cvWorkExperienceEntries
+        : cvWorkExperienceEntries.length
+          ? cvWorkExperienceEntries
+          : fallbackWorkEntries,
       cvPortfolioLinks,
       preferredLocation:
         candidate.careerPreferences?.preferredLocations?.[0] ||
@@ -727,6 +833,80 @@ async function syncPhase2TenantAfterPortalApply(candidateId, jobId) {
 }
 
 /**
+ * Mirror portal withdraw into the Phase 2 tenant DB (detach match, application, pipeline).
+ */
+async function syncPhase2AfterPortalWithdraw(candidateId, jobId) {
+  const base =
+    process.env.PHASE2_INTERNAL_API_URL ||
+    process.env.PHASE2_API_URL ||
+    process.env.PHASE2_BASE_URL ||
+    'http://localhost:5001';
+  const secret =
+    process.env.PHASE2_PORTAL_SYNC_SECRET || 'phase2-portal-sync-2026-shared-secret';
+
+  let tenantDbName = null;
+  try {
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      select: { tenantDbName: true },
+    });
+    tenantDbName = String(job?.tenantDbName || '').trim() || null;
+  } catch (e) {
+    console.warn('[Application] Could not read job.tenantDbName for withdraw:', e?.message || e);
+  }
+  if (!tenantDbName) {
+    tenantDbName = String(process.env.PHASE2_DEFAULT_TENANT_DB_NAME || '').trim() || null;
+  }
+
+  if (!tenantDbName) {
+    console.warn(
+      `[Application] Phase2 withdraw sync skipped — no tenantDbName on Job ${jobId} and no PHASE2_DEFAULT_TENANT_DB_NAME env fallback.`
+    );
+    return;
+  }
+
+  const url = `${String(base).replace(/\/$/, '')}/api/v1/internal/sync-portal-withdraw-application`;
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-phase2-portal-sync-secret': secret,
+      },
+      body: JSON.stringify({
+        tenantDbName,
+        candidateId,
+        jobId,
+      }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      console.warn('[Application] Phase2 withdraw sync HTTP error:', res.status, text);
+    } else {
+      console.log(
+        `✅ Phase2 withdraw sync ok | candidateId=${candidateId} jobId=${jobId} tenantDbName=${tenantDbName}`
+      );
+    }
+  } catch (e) {
+    console.warn('[Application] Phase2 withdraw sync failed:', e?.message || e);
+  }
+}
+
+function isTerminalPortalCandidateStage(stage) {
+  const normalized = String(stage || '').trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.includes('hire') ||
+    normalized === 'placed' ||
+    normalized === 'joined' ||
+    normalized === 'onboarded' ||
+    normalized.includes('reject')
+  );
+}
+
+/**
  * Create a new job application
  * POST /api/applications
  */
@@ -851,6 +1031,8 @@ async function createApplication(req, res) {
           id: application.job.id,
           title: application.job.title,
           company: resolvePublicCompanyName(application.job, ''),
+          tenantDbName: job.tenantDbName || null,
+          preScreenAssessments: Array.isArray(job.preScreenAssessments) ? job.preScreenAssessments : [],
         },
       },
     };
@@ -880,16 +1062,19 @@ async function createApplication(req, res) {
     });
 
     // Heavy / outbound sync must not block or fail the HTTP response (avoids client "Failed to fetch" on hangs / crashes).
-    Promise.allSettled([
-      syncApplicationToRecruiterView(candidateId, job),
-      syncPhase2TenantAfterPortalApply(candidateId, job.id),
-    ]).then((results) => {
-      results.forEach((r, idx) => {
-        if (r.status === 'rejected') {
-          console.error(`[Application] Post-commit sync slot ${idx} failed:`, r.reason);
-        }
-      });
-    });
+    void (async () => {
+      try {
+        await syncApplicationToRecruiterView(candidateId, job);
+      } catch (e) {
+        console.error('[Application] Portal recruiter sync failed:', e);
+      }
+      try {
+        await syncPhase2TenantAfterPortalApply(candidateId, job.id);
+        await syncTailoredCvToPhase2AfterApply(candidateId, job.id);
+      } catch (e) {
+        console.error('[Application] Phase2 apply/tailored-CV sync failed:', e);
+      }
+    })();
   } catch (error) {
     console.error('Error creating application:', error);
     res.status(500).json({
@@ -1001,8 +1186,8 @@ async function getApplications(req, res) {
 
       // Format status
       const statusMap = {
-        SUBMITTED: 'Submitted',
-        UNDER_REVIEW: 'Under Review',
+        SUBMITTED: 'Applied',
+        UNDER_REVIEW: 'Screening',
         SHORTLISTED: 'Shortlisted',
         ASSESSMENT: 'Assessment',
         INTERVIEW: 'Interview',
@@ -1186,7 +1371,10 @@ async function getApplicationById(req, res) {
     });
     const currentStageNormalized = String(currentPipelineStageName || '').trim().toLowerCase();
     const pipelineStages = orderedPipelineStages.map((stage) => String(stage.name || '').trim()).filter(Boolean);
-    if (currentPipelineStageName && currentStageNormalized && !normalizedStageNames.has(currentStageNormalized)) {
+    if (
+      currentPipelineStageName &&
+      !pipelineStageAlreadyRepresented(currentPipelineStageName, pipelineStages)
+    ) {
       pipelineStages.push(String(currentPipelineStageName).trim());
     }
 
@@ -1547,18 +1735,27 @@ async function withdrawApplication(req, res) {
       // Remove this job from candidate.assignedJobs so Explore Jobs can show it again as not-applied.
       const candidate = await prisma.candidate.findUnique({
         where: { id: candidateId },
-        select: { assignedJobs: true },
+        select: { assignedJobs: true, stage: true },
       });
       if (candidate && Array.isArray(candidate.assignedJobs)) {
         const nextAssignedJobs = candidate.assignedJobs.filter((j) => String(j) !== String(app.jobId));
         if (nextAssignedJobs.length !== candidate.assignedJobs.length) {
+          const portalUpdate = { assignedJobs: nextAssignedJobs, lastActivity: new Date() };
+          if (
+            nextAssignedJobs.length === 0 &&
+            !isTerminalPortalCandidateStage(candidate.stage)
+          ) {
+            portalUpdate.stage = 'New';
+          }
           await prisma.candidate.update({
             where: { id: candidateId },
-            data: { assignedJobs: nextAssignedJobs },
+            data: portalUpdate,
           });
         }
       }
     }, 10);
+
+    await syncPhase2AfterPortalWithdraw(candidateId, app.jobId);
 
     return res.json({
       success: true,

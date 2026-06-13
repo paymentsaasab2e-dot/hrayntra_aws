@@ -689,6 +689,7 @@ async function purgeCandidateById(id) {
     prisma.lmsNote.deleteMany({ where: { userId: id } }),
     prisma.lmsEventRegistration.deleteMany({ where: { userId: id } }),
     prisma.lmsResumeDraft.deleteMany({ where: { userId: id } }),
+    prisma.lmsResumeRoleVersion.deleteMany({ where: { userId: id } }),
     prisma.lmsCareerPath.deleteMany({ where: { userId: id } }),
     prisma.lmsInterviewPrepSession.deleteMany({ where: { userId: id } }),
     prisma.lmsInterviewSet.deleteMany({ where: { userId: id } }),
@@ -731,15 +732,20 @@ async function purgeCandidateById(id) {
     }
   }
 
+  let commonPurge = { configured: false, removed: false };
   try {
     const { getCandidateCommonPrisma } = require('../lib/candidateCommonPrisma');
     const commonPrisma = getCandidateCommonPrisma();
     if (commonPrisma) {
-      await commonPrisma.candidateCommon.deleteMany({ where: { candidateId: id } });
+      commonPurge.configured = true;
+      const result = await commonPrisma.candidateCommon.deleteMany({ where: { candidateId: id } });
+      commonPurge.removed = (result?.count ?? 0) > 0;
     }
   } catch (commonErr) {
     console.warn('[candidateCommon] purge skipped:', id, commonErr?.message || commonErr);
   }
+
+  return { commonPurge };
 }
 
 /**
@@ -825,12 +831,16 @@ async function bulkDeleteCandidates(req, res) {
     }
 
     const failed = [];
+    const commonRemoved = [];
     let deletedCount = 0;
 
     for (const row of existing) {
       try {
-        await purgeCandidateById(row.id);
+        const purgeResult = await purgeCandidateById(row.id);
         deletedCount += 1;
+        if (purgeResult?.commonPurge?.removed) {
+          commonRemoved.push(row.id);
+        }
       } catch (err) {
         console.error('Error deleting candidate in bulk:', row.id, err);
         failed.push({

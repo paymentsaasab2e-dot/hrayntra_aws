@@ -84,7 +84,6 @@ export function computeAiTierStats(candidates: MatchCandidate[]): AiTierStats {
     tierBelow50: 0,
   };
   for (const c of candidates) {
-    if (c.isAppliedCandidate) continue;
     stats[tierForScore(c.score)] += 1;
   }
   return stats;

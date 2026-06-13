@@ -11,6 +11,7 @@ import {
   LifeBuoy,
   GitBranch,
   BellRing,
+  Bell,
   History,
 } from 'lucide-react';
 import { usePermissions } from '../hooks/usePermissions';
@@ -45,6 +46,12 @@ const baseSettingsNav: SettingsNavItem[] = [
     id: 'notifications-triggers',
     label: 'Notifications Trigger Points',
     icon: BellRing,
+    anyPermissions: ['manage_settings'],
+  },
+  {
+    id: 'alerts-management',
+    label: 'Alerts Management',
+    icon: Bell,
     anyPermissions: ['manage_settings'],
   },
   {

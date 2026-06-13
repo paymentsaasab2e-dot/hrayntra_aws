@@ -5,6 +5,7 @@ import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { createPortal } from 'react-dom';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { CandidateResumeTabPanel } from '../candidates/CandidateResumeTabPanel';
+import { CandidateAssessmentsTabPanel } from '../candidates/CandidateAssessmentsTabPanel';
 import { CandidateCvFilesSection } from '../candidates/CandidateCvFilesSection';
 import {
   buildCandidateEditForm,
@@ -189,9 +190,28 @@ interface CandidateProfileDrawerProps {
   stackAboveSiblingDrawers?: boolean;
 }
 
-type DrawerTab = 'Overview' | 'Client' | 'Resume' | 'Interviews' | 'Activity' | 'Remarks' | 'Tags' | 'Files';
+type DrawerTab =
+  | 'Overview'
+  | 'Client'
+  | 'Resume'
+  | 'Interviews'
+  | 'Assessments'
+  | 'Activity'
+  | 'Remarks'
+  | 'Tags'
+  | 'Files';
 
-const TABS: DrawerTab[] = ['Overview', 'Client', 'Resume', 'Interviews', 'Activity', 'Remarks', 'Tags', 'Files'];
+const TABS: DrawerTab[] = [
+  'Overview',
+  'Client',
+  'Resume',
+  'Interviews',
+  'Assessments',
+  'Activity',
+  'Remarks',
+  'Tags',
+  'Files',
+];
 
 function getInitials(name: string) {
   return name
@@ -3490,7 +3510,7 @@ export function CandidateProfileDrawer({
     onToast: handleCvToast,
     onViewModeChange: (mode) => {
       if (mode) setResumeTabViewPreference(mode);
-      if (mode === 'updated') setActiveTab('Resume');
+      if (mode === 'updated' || mode === 'ai') setActiveTab('Resume');
     },
   });
 
@@ -3589,6 +3609,10 @@ export function CandidateProfileDrawer({
 
   const linkedJobTitle = linkedJob.title;
   const linkedJobCompany = linkedJob.company;
+  const preferredAssessmentJobId = useMemo(
+    () => candidate?.assignedJobId || jobs[0]?.id || null,
+    [candidate?.assignedJobId, jobs],
+  );
   // Backwards-compatible label kept for downstream consumers (single-line).
   const linkedJobLabel = useMemo(() => {
     if (!linkedJobTitle) return '';
@@ -4450,6 +4474,14 @@ export function CandidateProfileDrawer({
                     </section>
                   );
                 })()}
+
+                {activeTab === 'Assessments' && candidate?.id ? (
+                  <CandidateAssessmentsTabPanel
+                    candidateId={candidate.id}
+                    preferredJobId={preferredAssessmentJobId}
+                    enabled={activeTab === 'Assessments'}
+                  />
+                ) : null}
 
                 {activeTab === 'Activity' && (
                   <section className="rounded-2xl border border-slate-200 bg-white p-5">

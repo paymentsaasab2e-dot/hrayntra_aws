@@ -257,6 +257,8 @@ function formatPortalJob(job, options = {}) {
       ? job.applicationFormQuestions
       : [],
     applicationFormNote: job.applicationFormNote ?? null,
+    preScreenAssessments: Array.isArray(job.preScreenAssessments) ? job.preScreenAssessments : [],
+    tenantDbName: job.tenantDbName ?? null,
     location: job.location ?? null,
     city: job.city ?? null,
     state: job.state ?? null,

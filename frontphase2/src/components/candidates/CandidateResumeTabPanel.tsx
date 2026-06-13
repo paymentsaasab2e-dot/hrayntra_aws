@@ -10,12 +10,16 @@ import type { CandidateProfileDrawerData } from '../drawers/CandidateProfileDraw
 import { filesApiGet, type BackendCandidate } from '../../lib/api';
 import { extractApiData } from '../../lib/mapCandidateProfile';
 import CVEditorModal from '../CVEditorModal';
+import { PortalTailoredCvStudioPreview } from './PortalTailoredCvStudioPreview';
 import {
   candidateToCvEditorData,
+  hasPortalAiCv,
   hasResumeTabUpdatedCv,
   listAvailableResumeCvModes,
   mergeResumeTabCandidateSource,
   readCvEditorLayout,
+  readPortalStudioTemplateId,
+  readPortalTailoredCvHtml,
   resolveDefaultResumeCvViewMode,
   type ResumeCvViewMode,
 } from '../../lib/cvEditorMapping';
@@ -63,6 +67,7 @@ interface CandidateResumeTabPanelProps {
 const MODE_LABELS: Record<ResumeCvViewMode, string> = {
   original: 'Original CV',
   saasa: 'SAASA CV',
+  ai: 'AI CV',
   updated: 'Updated CV',
   edited: 'Edited CV',
 };
@@ -370,6 +375,16 @@ export function CandidateResumeTabPanel({
   const showSaasaSavedFile = viewMode === 'saasa' && Boolean(effectiveSaasaPreviewHref);
   const showSaasaEmpty =
     viewMode === 'saasa' && !effectiveSaasaPreviewHref && Boolean(onOpenSaasaCv);
+  const portalTailoredCvHtml = useMemo(
+    () => readPortalTailoredCvHtml(resumeSourceCandidate),
+    [resumeSourceCandidate],
+  );
+  const portalStudioTemplateId = useMemo(
+    () => readPortalStudioTemplateId(resumeSourceCandidate),
+    [resumeSourceCandidate],
+  );
+  const showAiCvPreview = viewMode === 'ai' && hasPortalAiCv(resumeSourceCandidate);
+  const showPortalStudioPreview = showAiCvPreview && Boolean(portalTailoredCvHtml);
   const showStructuredPreview =
     viewMode === 'updated' && hasResumeTabUpdatedCv(resumeSourceCandidate);
 
@@ -377,7 +392,10 @@ export function CandidateResumeTabPanel({
   const showSaasaToolbar = viewMode === 'saasa' && Boolean(saasaBaseResumeHref || effectiveSaasaPreviewHref);
   const showStructuredToolbar = viewMode === 'updated' && showStructuredPreview;
   const showResumeToolbar =
-    availableModes.length > 0 || showOriginalToolbar || showSaasaToolbar || showStructuredToolbar;
+    availableModes.length > 0 ||
+    showOriginalToolbar ||
+    showSaasaToolbar ||
+    showStructuredToolbar;
 
   const structuredCvPreviewKey = useMemo(() => {
     const layout = readCvEditorLayout(resumeSourceCandidate);
@@ -602,6 +620,21 @@ export function CandidateResumeTabPanel({
                   <Pencil size={16} />
                   Create SAASA CV
                 </button>
+              </div>
+            ) : showPortalStudioPreview && portalTailoredCvHtml ? (
+              <PortalTailoredCvStudioPreview
+                html={portalTailoredCvHtml}
+                templateId={portalStudioTemplateId}
+                className="h-full"
+              />
+            ) : showAiCvPreview && structuredCvData ? (
+              <div className="h-full min-h-0 overflow-auto bg-slate-200/80 p-3 sm:p-4">
+                <CVEditorModal
+                  key={`ai-${structuredCvPreviewKey}`}
+                  initialData={structuredCvData}
+                  readOnly
+                  embedded
+                />
               </div>
             ) : showStructuredPreview && structuredCvData ? (
               <div className="h-full min-h-0 overflow-auto bg-slate-200/80 p-3 sm:p-4">

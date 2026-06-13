@@ -250,6 +250,226 @@ export const NOTIFICATION_TRIGGER_DEFAULT_TEMPLATES = {
 <p>{{notes}}</p>`,
     ),
   },
+  'alert.lead_status_changed': {
+    subject: 'Lead Status Updated: {{leadCompanyName}}',
+    variables: ['recipientName', 'leadCompanyName', 'previousStatus', 'newStatus', 'changedBy'],
+    bodyHtml: emailShell(
+      'Lead status',
+      `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">Lead Status Changed</h1>
+<p>Hi {{recipientName}},</p>
+<p><strong>{{leadCompanyName}}</strong> status changed from <strong>{{previousStatus}}</strong> to <strong>{{newStatus}}</strong>{{changedBy}}.</p>`,
+    ),
+  },
+  'alert.lead_marked_lost': {
+    subject: 'Lead Lost: {{leadCompanyName}}',
+    variables: ['recipientName', 'leadCompanyName', 'lostReason'],
+    bodyHtml: emailShell(
+      'Lead lost',
+      `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">Lead Marked as Lost</h1>
+<p>Hi {{recipientName}},</p>
+<p><strong>{{leadCompanyName}}</strong> was marked as <strong>Lost</strong>.</p>
+<p><strong>Reason:</strong> {{lostReason}}</p>`,
+    ),
+  },
+  'alert.lead_converted_to_client': {
+    subject: 'Lead Converted: {{leadCompanyName}} → {{clientCompanyName}}',
+    variables: ['recipientName', 'leadCompanyName', 'clientCompanyName', 'previousStatus'],
+    bodyHtml: emailShell(
+      'Lead converted',
+      `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">Lead Converted to Client</h1>
+<p>Hi {{recipientName}},</p>
+<p>Lead <strong>{{leadCompanyName}}</strong> (was <strong>{{previousStatus}}</strong>) is now client <strong>{{clientCompanyName}}</strong>.</p>`,
+    ),
+  },
+  'alert.client_status_changed': {
+    subject: 'Client Status Updated: {{clientCompanyName}}',
+    variables: ['recipientName', 'clientCompanyName', 'previousStatus', 'newStatus'],
+    bodyHtml: emailShell(
+      'Client status',
+      `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">Client Status Changed</h1>
+<p>Hi {{recipientName}},</p>
+<p><strong>{{clientCompanyName}}</strong>: {{previousStatus}} → <strong>{{newStatus}}</strong>.</p>`,
+    ),
+  },
+  'alert.client_kyc_incomplete': {
+    subject: 'KYC Incomplete: {{clientCompanyName}}',
+    variables: ['recipientName', 'clientCompanyName', 'missingItems'],
+    bodyHtml: emailShell(
+      'KYC incomplete',
+      `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">KYC Incomplete</h1>
+<p>Hi {{recipientName}},</p>
+<p><strong>{{clientCompanyName}}</strong> needs compliance attention.</p>
+<p>{{missingItems}}</p>`,
+    ),
+  },
+  'alert.job_near_sla': {
+    subject: 'SLA Risk: {{jobTitle}}',
+    variables: ['recipientName', 'jobTitle', 'companyName', 'expectedClosureDate'],
+    bodyHtml: emailShell(
+      'Job SLA',
+      `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">Job Near SLA</h1>
+<p>Hi {{recipientName}},</p>
+<p><strong>{{jobTitle}}</strong> at {{companyName}} is approaching its target date (<strong>{{expectedClosureDate}}</strong>).</p>`,
+    ),
+  },
+  'alert.job_zero_applicants': {
+    subject: 'Sourcing Gap: {{jobTitle}}',
+    variables: ['recipientName', 'jobTitle', 'companyName'],
+    bodyHtml: emailShell(
+      'Zero applicants',
+      `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">Zero Applicants</h1>
+<p>Hi {{recipientName}},</p>
+<p>Open job <strong>{{jobTitle}}</strong> ({{companyName}}) has no applicants yet.</p>`,
+    ),
+  },
+  'alert.candidate_stage_changed': {
+    subject: 'Stage Update: {{candidateName}} — {{newStage}}',
+    variables: ['recipientName', 'candidateName', 'jobTitle', 'previousStage', 'newStage'],
+    bodyHtml: emailShell(
+      'Stage changed',
+      `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">Pipeline Stage Changed</h1>
+<p>Hi {{recipientName}},</p>
+<p><strong>{{candidateName}}</strong> for <strong>{{jobTitle}}</strong> moved from {{previousStage}} to <strong>{{newStage}}</strong>.</p>`,
+    ),
+  },
+  'alert.interview_cancelled': {
+    subject: 'Interview Cancelled: {{candidateName}}',
+    variables: ['recipientName', 'candidateName', 'jobTitle', 'scheduledAt', 'reason'],
+    bodyHtml: emailShell(
+      'Interview cancelled',
+      `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">Interview Cancelled</h1>
+<p>Hi {{recipientName}},</p>
+<p>Interview for <strong>{{candidateName}}</strong> ({{jobTitle}}) on {{scheduledAt}} was cancelled.</p>
+<p>{{reason}}</p>`,
+    ),
+  },
+  'alert.interview_today_reminder': {
+    subject: 'Interview Today: {{candidateName}} — {{jobTitle}}',
+    variables: ['recipientName', 'candidateName', 'jobTitle', 'scheduledAt'],
+    bodyHtml: emailShell(
+      'Interview reminder',
+      `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">Interview Reminder</h1>
+<p>Hi {{recipientName}},</p>
+<p>You have an interview today: <strong>{{candidateName}}</strong> for <strong>{{jobTitle}}</strong> at {{scheduledAt}}.</p>`,
+    ),
+  },
+  'alert.match_submitted_internal': {
+    subject: 'Submitted to Client: {{candidateName}} — {{jobTitle}}',
+    variables: ['recipientName', 'candidateName', 'jobTitle', 'clientName', 'message'],
+    bodyHtml: emailShell(
+      'Match submitted',
+      `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">Candidate Submitted to Client</h1>
+<p>Hi {{recipientName}},</p>
+<p><strong>{{candidateName}}</strong> was submitted to <strong>{{clientName}}</strong> for <strong>{{jobTitle}}</strong>.</p>
+<p>{{message}}</p>`,
+    ),
+  },
+  'alert.match_client_review_completed': {
+    subject: 'Client Review: {{candidateName}} — {{reviewTag}}',
+    variables: ['recipientName', 'candidateName', 'jobTitle', 'clientName', 'reviewTag'],
+    bodyHtml: emailShell(
+      'Client review',
+      `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">Client Review Completed</h1>
+<p>Hi {{recipientName}},</p>
+<p><strong>{{clientName}}</strong> reviewed <strong>{{candidateName}}</strong> for {{jobTitle}}: <strong>{{reviewTag}}</strong>.</p>`,
+    ),
+  },
+  'alert.billing_draft_ready': {
+    subject: 'Draft Invoice Ready: {{invoiceNumber}}',
+    variables: ['recipientName', 'invoiceNumber', 'clientName', 'amount', 'dueDate'],
+    bodyHtml: emailShell(
+      'Draft invoice',
+      `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">Draft Invoice Ready</h1>
+<p>Hi {{recipientName}},</p>
+<p>Draft <strong>{{invoiceNumber}}</strong> for <strong>{{clientName}}</strong> ({{amount}}) is ready. Due {{dueDate}}.</p>`,
+    ),
+  },
+  'alert.billing_invoice_overdue': {
+    subject: 'Invoice Overdue: {{invoiceNumber}} — {{clientName}}',
+    variables: ['recipientName', 'invoiceNumber', 'clientName', 'amount', 'dueDate'],
+    bodyHtml: emailShell(
+      'Invoice overdue',
+      `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">Invoice Overdue</h1>
+<p>Hi {{recipientName}},</p>
+<p><strong>{{invoiceNumber}}</strong> for <strong>{{clientName}}</strong> ({{amount}}) was due {{dueDate}}.</p>`,
+    ),
+  },
+  'alert.lead_followup_overdue': {
+    subject: 'Overdue Follow-up: {{leadCompanyName}}',
+    variables: ['recipientName', 'leadCompanyName', 'followUpDate', 'notes'],
+    bodyHtml: emailShell(
+      'Lead follow-up overdue',
+      `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">Lead Follow-up Overdue</h1>
+<p>Hi {{recipientName}},</p>
+<p>Follow-up for <strong>{{leadCompanyName}}</strong> was due {{followUpDate}}.</p>
+<p>{{notes}}</p>`,
+    ),
+  },
+  'alert.interview_rescheduled': {
+    subject: 'Interview Rescheduled: {{candidateName}} — {{jobTitle}}',
+    variables: ['recipientName', 'candidateName', 'jobTitle', 'previousScheduledAt', 'scheduledAt'],
+    bodyHtml: emailShell(
+      'Interview rescheduled',
+      `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">Interview Rescheduled</h1>
+<p>Hi {{recipientName}},</p>
+<p>Interview for <strong>{{candidateName}}</strong> ({{jobTitle}}) moved from {{previousScheduledAt}} to <strong>{{scheduledAt}}</strong>.</p>`,
+    ),
+  },
+  'alert.placement_created': {
+    subject: 'Placement Created: {{candidateName}} — {{jobTitle}}',
+    variables: ['recipientName', 'candidateName', 'jobTitle', 'companyName', 'placementDetails'],
+    bodyHtml: emailShell(
+      'Placement created',
+      `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">Placement / Offer Created</h1>
+<p>Hi {{recipientName}},</p>
+<p><strong>{{candidateName}}</strong> was placed at <strong>{{companyName}}</strong> for <strong>{{jobTitle}}</strong>.</p>
+<p>{{placementDetails}}</p>`,
+    ),
+  },
+  'alert.placement_offer_response': {
+    subject: 'Offer {{responseLabel}}: {{candidateName}} — {{jobTitle}}',
+    variables: ['recipientName', 'candidateName', 'jobTitle', 'responseLabel', 'responseMessage'],
+    bodyHtml: emailShell(
+      'Offer response',
+      `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">Offer {{responseLabel}}</h1>
+<p>Hi {{recipientName}},</p>
+<p><strong>{{candidateName}}</strong> {{responseMessage}} for <strong>{{jobTitle}}</strong>.</p>`,
+    ),
+  },
+  'alert.candidate_rejected_internal': {
+    subject: 'Candidate Rejected: {{candidateName}}',
+    variables: ['recipientName', 'candidateName', 'jobTitle', 'reason', 'rejectionNote'],
+    bodyHtml: emailShell(
+      'Candidate rejected',
+      `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">Candidate Rejected</h1>
+<p>Hi {{recipientName}},</p>
+<p><strong>{{candidateName}}</strong> was rejected for <strong>{{jobTitle}}</strong>.</p>
+<p><strong>Reason:</strong> {{reason}}</p>
+<p>{{rejectionNote}}</p>`,
+    ),
+  },
+  'alert.job_portal_application': {
+    subject: 'New Application: {{candidateName}} — {{jobTitle}}',
+    variables: ['recipientName', 'candidateName', 'jobTitle', 'applicationMessage'],
+    bodyHtml: emailShell(
+      'Portal application',
+      `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">New Portal Application</h1>
+<p>Hi {{recipientName}},</p>
+<p><strong>{{candidateName}}</strong> applied to <strong>{{jobTitle}}</strong>.</p>
+<p>{{applicationMessage}}</p>`,
+    ),
+  },
+  'alert.job_candidate_reapplied': {
+    subject: 'Re-application: {{candidateName}} — {{jobTitle}}',
+    variables: ['recipientName', 'candidateName', 'jobTitle', 'applicationMessage'],
+    bodyHtml: emailShell(
+      'Candidate re-applied',
+      `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">Candidate Re-applied</h1>
+<p>Hi {{recipientName}},</p>
+<p><strong>{{candidateName}}</strong> re-applied to <strong>{{jobTitle}}</strong> (previously rejected — moved back to Applied).</p>
+<p>{{applicationMessage}}</p>`,
+    ),
+  },
 };
 
 export function getDefaultTriggerTemplate(triggerId) {

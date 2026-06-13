@@ -293,6 +293,25 @@ export function JobOverviewTabContent({ job }: JobOverviewTabContentProps) {
         {job.applicationFormNote ? (
           <OverviewField label="Note for Candidates" value={displayValue(job.applicationFormNote)} />
         ) : null}
+        {Array.isArray(job.preScreenAssessments) && job.preScreenAssessments.length > 0 ? (
+          <div className="mt-3 rounded-xl border border-violet-100 bg-violet-50/50 px-4 py-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-violet-800">
+              Pre-screen assessments
+            </p>
+            <ul className="mt-2 space-y-1.5">
+              {job.preScreenAssessments.map((row, index) => (
+                <li key={row.id || row.assessmentId || index} className="text-sm text-slate-700">
+                  {index + 1}. {row.assessment?.title || 'Assessment'} ({row.assessment?.type || 'MCQ'})
+                  {row.required === false ? ' · optional' : ' · required'}
+                  {row.timing === 'BEFORE_SUBMIT' ? ' · before submit' : ' · after apply'}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        <p className="mt-2 text-xs text-violet-700">
+          Candidate scores and review are in the <strong>Assessments</strong> tab.
+        </p>
       </OverviewSection>
     </div>
   );

@@ -14,6 +14,10 @@ const { computePass4 } = require('./pass4CulturalFit.cjs');
 const { mergeScores } = require('./scoreMerger.cjs');
 const { generateSuggestions } = require('./suggestionEngine.cjs');
 const { applyThreshold } = require('./thresholdFilter.cjs');
+const {
+  buildMatchPipelineCandidateText,
+  buildWorkHistoryFromRaw,
+} = require('./matchCandidateProfile.cjs');
 
 /** Prisma Mongo: unset ObjectId fields must use isSet:false, not null. */
 const AI_MATCH_AUTHOR_WHERE = { isSet: false };
@@ -30,26 +34,12 @@ function extractJobSections(job) {
 }
 
 function extractCandidateSections(raw) {
-  const cv = Array.isArray(raw?.cvWorkExperienceEntries)
-    ? raw.cvWorkExperienceEntries
-    : typeof raw?.cvWorkExperienceEntries === 'string'
-      ? safeJson(raw.cvWorkExperienceEntries)
-      : [];
-  const workExperience = (cv || [])
-    .map((e) => `${e.title || e.jobTitle || ''} at ${e.company || e.companyName || ''}: ${e.description || e.responsibilities || ''}`)
+  const workExperience = buildWorkHistoryFromRaw(raw)
+    .map((e) => `${e.title || ''} at ${e.company || ''}: ${e.description || ''}`)
     .join(' ');
   const skills = [...(raw.skills || []), ...(raw.recruiterSkills || [])].join(', ');
-  const summary = raw.cvSummary || raw.notes || raw.recruiterNotes || '';
+  const summary = buildMatchPipelineCandidateText(raw) || raw.cvSummary || raw.notes || raw.recruiterNotes || '';
   return { workExperience, skills, summary };
-}
-
-function safeJson(s) {
-  try {
-    const v = JSON.parse(s);
-    return Array.isArray(v) ? v : [];
-  } catch {
-    return [];
-  }
 }
 
 function getTopPass(p1, p2, p3, p4) {
@@ -190,18 +180,11 @@ async function runMatchPipeline({
     if (!portal) continue;
     const summarized = summarizeCandidate(portal);
     const candidateSections = extractCandidateSections(raw);
-    const candidateText = String(summarized.summaryText || raw.cvSummary || raw.notes || '').slice(0, 6000);
-    const workHistory = (Array.isArray(raw.cvWorkExperienceEntries)
-      ? raw.cvWorkExperienceEntries
-      : typeof raw.cvWorkExperienceEntries === 'string'
-        ? safeJson(raw.cvWorkExperienceEntries)
-        : []
-    ).map((e) => ({
-      title: e.title || e.jobTitle,
-      company: e.company || e.companyName,
-      location: e.location,
-      description: Array.isArray(e.responsibilities) ? e.responsibilities.join(' ') : e.description,
-    }));
+    const richCandidateText = buildMatchPipelineCandidateText(raw);
+    const candidateText = String(
+      richCandidateText || summarized.summaryText || raw.cvSummary || raw.notes || ''
+    ).slice(0, 12000);
+    const workHistory = buildWorkHistoryFromRaw(raw);
 
     const skillList = summarized.normalizedSkills || [];
 
@@ -301,7 +284,7 @@ async function runMatchPipeline({
     const p4 = await computePass4(
       cultureText,
       jobRow.title,
-      String(pair.rawCandidate.cvSummary || pair.rawCandidate.notes || '').slice(0, 1200),
+      String(pair.candidateText || pair.rawCandidate.cvSummary || pair.rawCandidate.notes || '').slice(0, 1200),
       softSkills,
       pastTitles,
       skipCulture

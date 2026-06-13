@@ -50,6 +50,7 @@ import calendarRoutes from './routes/calendar.routes.js';
 import settingRoutes from './modules/setting/setting.routes.js';
 import orgRecruitmentRoutes from './modules/setting/org-recruitment.routes.js';
 import notificationTriggerTemplatesRoutes from './modules/setting/notification-trigger-templates.routes.js';
+import alertManagementRoutes from './modules/setting/alert-management.routes.js';
 import aiRoutes from './modules/ai/ai.routes.js';
 import socialRoutes from './modules/social/social.routes.js';
 import linkedinRoutes from './modules/linkedin/linkedin.routes.js';
@@ -64,6 +65,7 @@ import dashboardRoutes from './modules/dashboard/dashboard.routes.js';
 import ariaRoutes from './routes/ariaRoutes.js';
 import portalSyncRoutes from './modules/internal/portal-sync.routes.js';
 import notificationRoutes from './modules/notification/notification.routes.js';
+import preScreenAssessmentRoutes from './modules/pre-screen-assessment/assessment.routes.js';
 
 const app = express();
 
@@ -209,6 +211,8 @@ app.post(
   publicApplyTenantMiddleware,
   jobPublicApplyController.submitPublicApply
 );
+// Public candidate pre-screen sessions — MUST be before addCandidateRouter (router-level auth on /api/v1)
+app.use('/api/v1/pre-screen-assessments', preScreenAssessmentRoutes);
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/linkedin', linkedinRoutes);
 app.use('/api/v1/oauth', oauthRoutes);
@@ -247,6 +251,7 @@ app.use('/api/departments', departmentsRoutesNew); // New TypeScript departments
 app.use('/api/v1', scheduledMeetingsRoutes); // Scheduled meetings routes
 app.use('/api/v1/settings/org', orgRecruitmentRoutes);
 app.use('/api/v1/settings/notification-trigger-templates', notificationTriggerTemplatesRoutes);
+app.use('/api/v1/settings/alert-management', alertManagementRoutes);
 app.use('/api/v1/settings/communication', userCommunicationRoutes);
 app.use('/api/v1/settings/twilio', twilioTestRoutes);
 app.use('/api/v1/settings', settingRoutes);

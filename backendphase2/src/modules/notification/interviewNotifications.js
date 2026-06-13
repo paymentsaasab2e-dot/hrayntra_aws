@@ -1,5 +1,7 @@
 import { getJobPortalPrismaClient } from '../../config/prisma.js';
-import { createUserNotification, pushPortalNotification } from './notification.service.js';
+import { pushPortalNotification } from './notification.service.js';
+import { createAlertNotification } from '../setting/alert-dispatch.service.js';
+import { notifyInterviewRescheduled } from '../setting/alert-notify.helpers.js';
 
 export function formatInterviewWhenLabel(scheduledAt) {
   const date = scheduledAt instanceof Date ? scheduledAt : new Date(scheduledAt);
@@ -41,6 +43,7 @@ export async function notifyInterviewScheduleChange({
   meetingLink = null,
   schedulerUserId = null,
   panelUserIds = [],
+  previousScheduledAt = null,
 }) {
   try {
     const candId = String(portalCandidateId || '').trim();
@@ -65,29 +68,41 @@ export async function notifyInterviewScheduleChange({
       if (uid) recipientUserIds.add(uid);
     }
 
-    await Promise.allSettled(
-      Array.from(recipientUserIds).map((uid) =>
-        createUserNotification(uid, {
-          category: 'INTERVIEW',
-          title: crmTitle,
-          description: crmDescription,
-          actionLabel: 'Open interview',
-          actionPath: `/interviews?interviewId=${interviewId}`,
-          entityType: 'INTERVIEW',
-          entityId: interviewId,
-          metadata: {
-            candidateId: candId,
-            jobId: jId || null,
-            scheduledAt:
-              scheduledAt instanceof Date
-                ? scheduledAt.toISOString()
-                : scheduledAt,
-            mode,
-            event,
-          },
-        })
-      )
-    );
+    if (isReschedule) {
+      await notifyInterviewRescheduled({
+        interviewId,
+        candidateName: name,
+        jobTitle: role,
+        scheduledAt,
+        previousScheduledAt,
+        recipientUserIds: Array.from(recipientUserIds),
+        performedById: schedulerUserId,
+      });
+    } else {
+      await Promise.allSettled(
+        Array.from(recipientUserIds).map((uid) =>
+          createAlertNotification(uid, 'interview.scheduled', {
+            category: 'INTERVIEW',
+            title: crmTitle,
+            description: crmDescription,
+            actionLabel: 'Open interview',
+            actionPath: `/interviews?interviewId=${interviewId}`,
+            entityType: 'INTERVIEW',
+            entityId: interviewId,
+            metadata: {
+              candidateId: candId,
+              jobId: jId || null,
+              scheduledAt:
+                scheduledAt instanceof Date
+                  ? scheduledAt.toISOString()
+                  : scheduledAt,
+              mode,
+              event,
+            },
+          })
+        )
+      );
+    }
 
     const portalTitle = isReschedule
       ? 'Interview rescheduled'

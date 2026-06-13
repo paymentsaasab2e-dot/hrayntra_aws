@@ -1136,7 +1136,7 @@ async function getCandidateDashboard(req, res) {
     // Format application status for frontend
     const applicationStatus = [
       { label: 'Applied', value: applicationStatusCounts.SUBMITTED, color: '#22C55E' },
-      { label: 'Under Review', value: applicationStatusCounts.UNDER_REVIEW, color: '#FACC15' },
+      { label: 'Screening', value: applicationStatusCounts.UNDER_REVIEW, color: '#FACC15' },
       { label: 'Shortlisted', value: applicationStatusCounts.SHORTLISTED, color: '#14B8A6' },
       { label: 'Assessment', value: applicationStatusCounts.ASSESSMENT, color: '#0EA5E9' },
       { label: 'Interview', value: applicationStatusCounts.INTERVIEW, color: '#F97373' },
